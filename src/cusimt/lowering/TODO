@@ -1,0 +1,3 @@
+- Move all this stuff either to typing or lowering. intrinsics doesn't make much sense,
+    and comes from before we had a nice split between typing and implementation.
+- Remove stuff in ./mlir. not needed anymore. all moved to cusimt.lowering_utilities

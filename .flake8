@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[flake8]
+extend-ignore = F401
+max-line-length = 100
+
+exclude = 
+    .*.swp
+    __pycache__
+    tests/
+    benchmarks/
+    *.egg-info/
+    *.log
+    *.mlir
+    *env
+    deps

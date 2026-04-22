@@ -1,0 +1,214 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+from cusimt.mlir_lowering_registry import MLIRLoweringRegistry
+import operator
+import ctypes
+from numba.core.types import ffi as _numba_ffi_type
+from cusimt import types
+from cusimt.lowering_utilities.type_conversions import to_mlir_type, to_numba_type
+from cusimt.lowering_utilities import (
+    convert,
+    i64_of,
+    DeferredLowering,
+    index_of,
+)
+from cusimt._mlir.dialects import llvm, arith, memref
+from cusimt.logging import trace
+from cusimt._mlir.extras import types as T
+
+registry = MLIRLoweringRegistry()
+lower_getattr = registry.lower_getattr
+
+llvm_kDynamic = (
+    -2147483648
+)  # std::numeric_limits<int32_t>::min(), ugh we need this in the bindings...
+
+
+@registry.lower(ctypes.pointer, types.Array)
+def lower_pointer(builder, target, args, kwargs):
+    trace()
+    args = builder.load_vars(args)
+    value = args[0]
+    value = convert(value, llvm.PointerType.get())
+    builder.store_var(target, value)
+
+
+@registry.lower_cast(types.Integer, types.Integer)
+def lower_integer_cast(builder, target, args, kwargs):
+    trace()
+    args = builder.load_vars(args)
+    value, to_type = args
+    to_type = to_mlir_type(to_type)
+    value = convert(value, to_type)
+    builder.store_var(target, value)
+
+
+@registry.lower_cast(types.CPointer, types.Integer)
+def lower_pointer_to_int_cast(builder, target, args, kwargs):
+    """Cast pointer to integer (ptrtoint)."""
+    trace()
+    ptr, to_type = builder.load_vars(args)
+    result = llvm.ptrtoint(res=T.i64(), arg=ptr)
+    to_type = to_mlir_type(to_type)
+    result = convert(result, to_type)
+    builder.store_var(target, result)
+
+
+@registry.lower_cast(types.Integer, types.CPointer)
+def lower_int_to_pointer_cast(builder, target, args, kwargs):
+    """Cast integer to pointer (inttoptr)."""
+    trace()
+    int_val, _ = builder.load_vars(args)
+    int_val = convert(int_val, T.i64())
+    result = llvm.inttoptr(res=llvm.PointerType.get(), arg=int_val)
+    builder.store_var(target, result)
+
+
+@registry.lower(ctypes.cast, types.Any, types.Any)
+def lower_cast(builder, target, args, kwargs):
+    trace()
+    args = builder.load_vars(args)
+    value, to_type = args
+    to_type = to_mlir_type(to_type)
+    value = convert(value, to_type)
+    builder.store_var(target, value)
+
+
+@registry.lower(ctypes.POINTER, types.Any)
+def lower_pointer(builder, target, args, kwargs):
+    trace()
+    args = builder.load_vars(args)
+    value = args[0]
+    nb_type = to_numba_type(value)
+    nb_type = types.CPointer(nb_type)
+    builder.store_var(target, nb_type)
+
+
+@registry.lower(operator.setitem, types.CPointer, types.Number, types.Any)
+def lower_pointer_setitem(builder, target, args, kwargs):
+    trace()
+    ptr, idx, value = builder.load_vars(args)
+    # Get the numba type of the pointer - LLVM pointers are opaque
+    nb_type = builder.get_numba_type(args[0])
+    ele_ty = nb_type.dtype
+    if ele_ty == types.none:
+        raise TypeError(
+            f"Cannot set item on pointer of type {nb_type}, must cast to a typed pointer first"
+        )
+    idx = convert(idx, T.i64())
+    ele_ty = to_mlir_type(ele_ty)
+    value = convert(value, ele_ty)
+    elementptr = llvm.getelementptr(
+        llvm.PointerType.get(), ptr, [idx], [llvm_kDynamic], ele_ty, None
+    )
+    llvm.store(value, elementptr)
+
+
+@registry.lower(operator.getitem, types.CPointer, types.Number)
+def lower_pointer_getitem(builder, target, args, kwargs):
+    trace()
+    ptr, idx = builder.load_vars(args)
+    nb_type = builder.get_numba_type(args[0])
+    ele_ty = nb_type.dtype
+    if ele_ty == types.none:
+        raise TypeError(
+            f"Cannot get item on pointer of type {nb_type}, must cast to a typed pointer first"
+        )
+    idx = convert(idx, T.i64())
+    ele_ty = to_mlir_type(ele_ty)
+    elementptr = llvm.getelementptr(
+        llvm.PointerType.get(), ptr, [idx], [llvm_kDynamic], ele_ty, None
+    )
+    # Load the value from the computed address
+    value = llvm.load(ele_ty, elementptr)
+    builder.store_var(target, value)
+
+
+@registry.lower(operator.add, types.CPointer, types.Number)
+@registry.lower(operator.iadd, types.CPointer, types.Number)
+def lower_pointer_add(builder, target, args, kwargs):
+    trace()
+    ptr, num = builder.load_vars(args)
+    nb_type = builder.get_numba_type(args[0])
+    ele_ty = nb_type.dtype
+    if ele_ty == types.none:
+        raise TypeError(
+            f"Cannot add to pointer of type {nb_type}, must cast to a typed pointer first"
+        )
+    ele_ty = to_mlir_type(ele_ty)
+    w = ele_ty.width
+    num = convert(num, T.i64())
+    ptri = llvm.ptrtoint(res=T.i64(), arg=ptr)
+    ptri += num * w / 8
+    ptr = llvm.inttoptr(ptr.type, ptri)
+    builder.store_var(target, ptr)
+
+
+@registry.lower(operator.sub, types.CPointer, types.Number)
+@registry.lower(operator.isub, types.CPointer, types.Number)
+def lower_pointer_sub(builder, target, args, kwargs):
+    trace()
+    ptr, num = builder.load_vars(args)
+    nb_type = builder.get_numba_type(args[0])
+    ele_ty = nb_type.dtype
+    if ele_ty == types.none:
+        raise TypeError(
+            f"Cannot subtract from pointer of type {nb_type}, must cast to a typed pointer first"
+        )
+    ele_ty = to_mlir_type(ele_ty)
+    w = ele_ty.width
+    num = convert(num, T.i64())
+    ptri = llvm.ptrtoint(res=T.i64(), arg=ptr)
+    ptri -= num * w / 8
+    ptr = llvm.inttoptr(ptr.type, ptri)
+    builder.store_var(target, ptr)
+
+
+@registry.lower(types.ptr, types.CPointer)
+def lower_aggregate_type_ptr(builder, target, args, kwargs):
+    ptr = builder.load_var(args[0])
+    assert "llvm.ptr" in str(ptr.type), f"Expected LLVM pointer, got {ptr.type}"
+    builder.store_var(target, ptr)
+
+
+@registry.lower(types.ptr, types.AggregateType)
+def lower_aggregate_type_ptr(builder, target, args, kwargs):
+    var = builder.load_var(args[0])
+    with builder.alloca_insertion_point():
+        fe_type = to_numba_type(var.type)
+        attrs = types.get_cusimt_attributes(fe_type)
+        alignment = attrs.get("align", None)
+        ptr = llvm.alloca(
+            llvm.PointerType.get(), i64_of(1), var.type, alignment=alignment
+        )
+    builder.store_var(target, ptr)
+
+
+class DeferredFFIFromBuffer(DeferredLowering):
+    def __call__(self, builder, target, args, kwargs):
+        from cusimt._mlir import ir
+        from cusimt.lowering_utilities import get_type_width
+
+        array_value = builder.load_var(args[0])
+        ptr_as_index = memref.extract_aligned_pointer_as_index(array_value)
+
+        md = memref.extract_strided_metadata(array_value)
+        offset = index_of(md[1])
+
+        elem_type = ir.MemRefType(array_value.type).element_type
+        elem_bytes = get_type_width(elem_type) // 8
+
+        byte_offset = arith.muli(
+            offset,
+            arith.constant(T.index(), elem_bytes),
+        )
+        data_ptr_index = arith.addi(ptr_as_index, byte_offset)
+
+        ptr_as_i64 = arith.index_cast(T.i64(), data_ptr_index)
+        ptr = llvm.inttoptr(res=llvm.PointerType.get(), arg=ptr_as_i64)
+        builder.store_var(target, ptr)
+
+
+@lower_getattr(_numba_ffi_type, "from_buffer")
+def lower_ffi_from_buffer_getattr(_, mlir_lower, target, ffi_var):
+    mlir_lower.store_var(target, DeferredFFIFromBuffer())

@@ -1,0 +1,86 @@
+# Attribution / license artifacts (root + per-component LICENSE files that
+# travel with vendored third-party subtrees). These must stay verbatim.
+LICENSE
+LICENSE.*
+NOTICE
+THIRD-PARTY-LICENSES
+**/LICENSE
+**/LICENSE.*
+**/NOTICE
+**/THIRD-PARTY-LICENSES
+
+# Non-source / data / docs
+*.md
+*.rst
+*.txt
+*.html
+*.json
+*.png
+*.svg
+*.jpg
+*.jpeg
+*.gif
+*.ico
+*.pdf
+*.ptx
+*.pyc
+*.yml
+*.cfg
+*.ini
+*.lock
+requirements*.txt
+
+# Other
+cext/mlir-nvvm7/include/nvvm7/Dialect/NVVM7Ops.td
+src/cusimt/mlir
+
+# CMake helpers kept un-stamped (provenance unclear / verbatim or near-verbatim
+# of upstream CMake idioms).
+cmake/FindCUDAToolkit.cmake
+
+# Vendored third-party subtrees: verbatim upstream code, SPDX headers (or
+# absence thereof) must reflect the upstream, not cuSIMT's Apache-2.0.
+3rdparty/*
+3rdparty/**
+src/cusimt/numba_cuda/*
+src/cusimt/numba_cuda/**
+tests/numba_cuda_tests/*
+tests/numba_cuda_tests/**
+cext/typeconv/*
+cext/typeconv/**
+cext/helperlib/*
+cext/helperlib/**
+cext/mviewbuf/*
+cext/mviewbuf/**
+tests/benchmarks/llm.py/llm.py
+tests/benchmarks/llm.py/prepro_tinyshakespeare.py
+tests/benchmarks/llm.py/train_gpt2.py
+scripts/generate-test-checks.py
+
+# Build artifacts / caches / binaries
+build/*
+dist/*
+*.egg-info/*
+__pycache__/*
+**/__pycache__/**
+*.so
+*.dll
+*.dylib
+*.o
+*.obj
+*.a
+
+# VCS / CI config
+.github/CODEOWNERS
+**/CODEOWNERS
+.gitattributes
+.gitmodules
+.flake8
+
+# Version files (plain version string, not source code)
+src/cusimt/VERSION
+**/VERSION
+
+# Plain TODO / WORKLOG notes (not source code)
+**/TODO
+**/WORKLOG*

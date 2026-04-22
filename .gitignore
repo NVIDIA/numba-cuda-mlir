@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: Copyright (c) <2026> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+.*.swp
+__pycache__
+/*.egg-info
+**/*.egg-info
+*.log
+deps
+*.nsys-rep
+*.so
+.cache
+.idea
+.rgignore
+.vscode
+.nc
+.xonshrc
+*.csv
+*.cubin
+build/
+wheelhouse/
+tests/**/*.cubin
+tests/**/*.csv
+tests/**/*.out
+CLAUDE.local.md
+TODO.md
+src/cusimt/_mlir
+**/*~
+**/.#*
+_build/
+llvm-modern-install/
+llvm7-install/

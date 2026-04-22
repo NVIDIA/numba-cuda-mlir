@@ -1,0 +1,52 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: BSD-2-Clause
+
+import numpy as np
+import cusimt
+import cuda.simt as cuda
+from cusimt.testing import NumbaCUDATestCase
+import pytest
+
+
+def reinterpret_array_type(byte_arr, start, stop, output):
+    # Tested with just one thread
+    val = byte_arr[start:stop].view(np.int32)[0]
+    output[0] = val
+
+
+class TestCudaArrayMethods(NumbaCUDATestCase):
+    @pytest.mark.xfail(True, reason="ICE")
+    def test_reinterpret_array_type(self):
+        """
+        Reinterpret byte array as int32 in the GPU.
+        """
+        pyfunc = reinterpret_array_type
+        kernel = cusimt.jit(pyfunc)
+
+        byte_arr = np.arange(256, dtype=np.uint8)
+        itemsize = np.dtype(np.int32).itemsize
+        for start in range(0, 256, itemsize):
+            stop = start + itemsize
+            expect = byte_arr[start:stop].view(np.int32)[0]
+
+            output = np.zeros(1, dtype=np.int32)
+            kernel[1, 1](byte_arr, start, stop, output)
+
+            got = output[0]
+            self.assertEqual(expect, got)
+
+    @pytest.mark.xfail(True, reason="ICE")
+    def test_array_copy(self):
+        val = np.array([1, 2, 3])[::-1]
+
+        @cusimt.jit
+        def kernel(out):
+            q = val.copy()
+            for i in range(len(out)):
+                out[i] = q[i]
+
+        out = cuda.to_device(np.zeros(len(val), dtype="float64"))
+
+        kernel[1, 1](out)
+        for i, j in zip(out.copy_to_host(), val):
+            self.assertEqual(i, j)

@@ -1,0 +1,103 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""
+Caching support for cusimt.
+
+This module provides cache implementations for MLIRDispatcher, allowing
+compiled CUDA kernels to be cached to disk and reloaded in subsequent runs.
+"""
+
+from numba.core import typing
+from cusimt.numba_cuda.core.caching import Cache, CacheImpl, NullCache
+
+
+class CachedCompileResult:
+    """
+    A minimal compile result reconstructed from cached data.
+
+    This provides just enough interface to be used by MLIRDispatcher
+    without requiring the full compilation infrastructure.
+    """
+
+    def __init__(self, signature, metadata):
+        self.signature = signature
+        self.metadata = metadata
+        # Provide a codegen attribute for cache key computation
+        self.codegen = _CachedCodegen()
+        # entry_point is needed for recompile() to work
+        self.entry_point = metadata.get("func_name")
+
+
+class _CachedCodegen:
+    """Minimal codegen for cache key computation."""
+
+    def magic_tuple(self):
+        # Return a consistent tuple for MLIR-compiled code
+        from cusimt.tools import get_gpu_compute_capability, get_cuda_runtime_version
+
+        cc = get_gpu_compute_capability(tuple)
+        return (get_cuda_runtime_version(), cc)
+
+
+class MLIRCacheImpl(CacheImpl):
+    """
+    Cache implementation for MLIR-compiled CUDA kernels.
+
+    Handles serialization and deserialization of compile results.
+    """
+
+    def reduce(self, cres):
+        """Serialize a compile result for caching."""
+        return {
+            "signature_args": cres.signature.args,
+            "signature_return_type": cres.signature.return_type,
+            "cubin": cres.metadata.get("cubin"),
+            "ptx": cres.metadata.get("ptx"),
+            "func_name": cres.metadata.get("func_name"),
+            "targetoptions": cres.metadata.get("targetoptions", {}),
+        }
+
+    def rebuild(self, target_context, payload):
+        """Deserialize a compile result from cache."""
+        signature_args = payload["signature_args"]
+        signature_return_type = payload["signature_return_type"]
+        cubin = payload["cubin"]
+        ptx = payload["ptx"]
+        func_name = payload["func_name"]
+        targetoptions = payload.get("targetoptions", {})
+
+        signature = typing.signature(signature_return_type, *signature_args)
+
+        return CachedCompileResult(
+            signature=signature,
+            metadata={
+                "cubin": cubin,
+                "ptx": ptx,
+                "func_name": func_name,
+                "targetoptions": targetoptions,
+            },
+        )
+
+    def check_cachable(self, cres):
+        """Check if a compile result can be cached."""
+        targetoptions = cres.metadata.get("targetoptions", {})
+        link = targetoptions.get("link", [])
+        if link:
+            raise RuntimeError("Cannot pickle CUDACodeLibrary with linking files")
+        return True
+
+
+class MLIRCache(Cache):
+    """
+    Cache for MLIR-compiled CUDA kernels.
+
+    Uses the standard numba caching infrastructure with MLIR-specific
+    serialization.
+    """
+
+    _impl_class = MLIRCacheImpl
+
+
+# Re-export NullCache for convenience
+__all__ = ["MLIRCache", "MLIRCacheImpl", "NullCache", "CachedCompileResult"]

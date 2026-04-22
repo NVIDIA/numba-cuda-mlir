@@ -1,0 +1,249 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: BSD-2-Clause
+
+from cusimt.testing import NumbaCUDATestCase
+import numpy as np
+import subprocess
+import sys
+import pytest
+
+
+cuhello_usecase = """\
+import cusimt
+import cuda.simt as cuda
+
+@cusimt.jit
+def cuhello():
+    i = cuda.grid(1)
+    print(i, 999)
+    print(-42)
+
+cuhello[2, 3]()
+cuda.synchronize()
+"""
+
+
+printfloat_usecase = """\
+import cusimt
+import cuda.simt as cuda
+
+@cusimt.jit
+def printfloat():
+    i = cuda.grid(1)
+    print(i, 23, 34.75, 321)
+
+printfloat[1, 1]()
+cuda.synchronize()
+"""
+
+
+printbool_usecase = """\
+import cusimt
+import cuda.simt as cuda
+
+@cusimt.jit
+def printbool(x):
+    print(True)
+    print(False)
+    print(x == 0)
+
+printbool[1, 1](0)
+printbool[1, 1](1)
+cuda.synchronize()
+"""
+
+
+printstring_usecase = """\
+import cusimt
+import cuda.simt as cuda
+
+@cusimt.jit
+def printstring():
+    i = cuda.grid(1)
+    print(i, "hop!", 999)
+
+printstring[1, 3]()
+cuda.synchronize()
+"""
+
+
+printdim3_usecase = """\
+import cusimt
+import cuda.simt as cuda
+
+@cusimt.jit
+def printdim3():
+    print(cuda.threadIdx)
+
+printdim3[1, (2, 2, 2)]()
+cuda.synchronize()
+"""
+
+
+printempty_usecase = """\
+import cusimt
+import cuda.simt as cuda
+
+@cusimt.jit
+def printempty():
+    print()
+
+printempty[1, 1]()
+cuda.synchronize()
+"""
+
+
+print_too_many_usecase = """\
+import cusimt
+import cuda.simt as cuda
+import numpy as np
+
+@cusimt.jit
+def print_too_many(r):
+    print(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10],
+          r[11], r[12], r[13], r[14], r[15], r[16], r[17], r[18], r[19], r[20],
+          r[21], r[22], r[23], r[24], r[25], r[26], r[27], r[28], r[29], r[30],
+          r[31], r[32])
+
+print_too_many[1, 1](np.arange(33))
+cuda.synchronize()
+"""
+
+print_bfloat16_usecase = """\
+import cusimt
+import cuda.simt as cuda
+
+@cusimt.jit
+def print_bfloat16():
+    # 0.9375 is a dyadic rational, it's integer significand can expand within 7 digits.
+    # printing this should not give any rounding error.
+    a = cuda.bfloat16(0.9375)
+    print(a, a, a)
+
+print_bfloat16[1, 1]()
+cuda.synchronize()
+"""
+
+print_int64_tuple_usecase = """\
+import cusimt
+import cuda.simt as cuda
+
+@cusimt.jit
+def print_tuple(tup):
+    print(tup)
+
+print_tuple[1, 1]((1, 2, 3, 4, 5))
+cuda.synchronize()
+"""
+
+print_nested_mixed_type_tuple_usecase = """\
+import cusimt
+import cuda.simt as cuda
+
+@cusimt.jit
+def print_tuple(tup):
+    print(tup)
+
+print_tuple[1, 1]((1, ((2, 4), 3.0), (4,), 5))
+cuda.synchronize()
+"""
+
+print_single_element_tuple_usecase = """\
+import cusimt
+import cuda.simt as cuda
+
+@cusimt.jit
+def print_tuple(tup):
+    print(tup)
+
+print_tuple[1, 1]((1,))
+cuda.synchronize()
+"""
+
+
+class TestPrint(NumbaCUDATestCase):
+    # Note that in these tests we generally strip the output to avoid dealing
+    # with platform-specific line ending issues, e.g. '\r\n' vs '\n' etc.
+
+    def run_code(self, code):
+        """Runs code in a subprocess and returns the captured output"""
+        cmd = [sys.executable, "-c", code]
+        cp = subprocess.run(cmd, timeout=60, capture_output=True, check=True)
+        return cp.stdout.decode(), cp.stderr.decode()
+
+    def test_cuhello(self):
+        output, _ = self.run_code(cuhello_usecase)
+        actual = [line.strip() for line in output.splitlines()]
+        expected = ["-42"] * 6 + ["%d 999" % i for i in range(6)]
+        # The output of GPU threads is intermingled, but each print()
+        # call is still atomic
+        self.assertEqual(sorted(actual), expected)
+
+    def test_printfloat(self):
+        output, _ = self.run_code(printfloat_usecase)
+        # CUDA and the simulator use different formats for float formatting
+        expected_cases = ["0 23 34.750000 321", "0 23 34.75 321"]
+        self.assertIn(output.strip(), expected_cases)
+
+    def test_bool(self):
+        output, _ = self.run_code(printbool_usecase)
+        expected = "True\r?\nFalse\r?\nTrue\r?\nTrue\r?\nFalse\r?\nFalse"
+        self.assertRegex(output.strip(), expected)
+
+    def test_printempty(self):
+        output, _ = self.run_code(printempty_usecase)
+        self.assertEqual(output.strip(), "")
+
+    def test_string(self):
+        output, _ = self.run_code(printstring_usecase)
+        lines = [line.strip() for line in output.splitlines(True)]
+        expected = ["%d hop! 999" % i for i in range(3)]
+        self.assertEqual(sorted(lines), expected)
+
+    def test_dim3(self):
+        output, _ = self.run_code(printdim3_usecase)
+        lines = [line.strip() for line in output.splitlines(True)]
+        expected = [str(i) for i in np.ndindex(2, 2, 2)]
+        self.assertEqual(sorted(lines), expected)
+
+    def test_tuple(self):
+        output, _ = self.run_code(print_int64_tuple_usecase)
+        lines = [line.strip() for line in output.splitlines(True)]
+        expected = ["(1, 2, 3, 4, 5)"]
+        self.assertEqual(lines, expected)
+
+    def test_nested_mixed_type_tuple(self):
+        output, _ = self.run_code(print_nested_mixed_type_tuple_usecase)
+        (line,) = (line.strip() for line in output.splitlines(True))
+        expected = r"^\(1, \(\(2, 4\), 3\.0+\), \(4,\), 5\)$"
+        self.assertRegex(line, expected)
+
+    def test_single_element_tuple(self):
+        output, _ = self.run_code(print_single_element_tuple_usecase)
+        lines = [line.strip() for line in output.splitlines(True)]
+        expected = ["(1,)"]
+        self.assertEqual(lines, expected)
+
+    def test_bfloat16(self):
+        output, _ = self.run_code(print_bfloat16_usecase)
+        self.assertEqual(output.strip(), "0.937500 0.937500 0.937500")
+
+    @pytest.mark.xfail(True, reason="Exception not raised")
+    def test_too_many_args(self):
+        # Tests that we emit the format string and warn when there are more
+        # than 32 arguments, in common with CUDA C/C++ printf - this is due to
+        # a limitation in CUDA vprintf, see:
+        # https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#limitations
+
+        output, errors = self.run_code(print_too_many_usecase)
+
+        # Check that the format string was printed instead of formatted garbage
+        expected_fmt_string = " ".join(["%lld" for _ in range(33)])
+        self.assertIn(expected_fmt_string, output)
+
+        # Check for the expected warning about formatting more than 32 items
+        warn_msg = (
+            "CUDA print() cannot print more than 32 items. The raw "
+            "format string will be emitted by the kernel instead."
+        )
+        self.assertIn(warn_msg, errors)

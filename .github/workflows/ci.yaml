@@ -199,92 +199,100 @@ jobs:
             echo 'EOF'
           } >> "${GITHUB_OUTPUT}"
 
-  test-conda:
-    needs:
-      - compute-matrix
-      - should-skip
-    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
-    uses: ./.github/workflows/conda-python-tests.yaml
-    with:
-      build_type: pull-request
-      script: "ci/test_conda.sh"
-      run_codecov: false
-      matrix: ${{ needs.compute-matrix.outputs.TEST_MATRIX }}
+  # TODO: Uncomment when pixi.toml + ci/test_conda.sh are available
+  # test-conda:
+  #   needs:
+  #     - compute-matrix
+  #     - should-skip
+  #   if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+  #   uses: ./.github/workflows/conda-python-tests.yaml
+  #   with:
+  #     build_type: pull-request
+  #     script: "ci/test_conda.sh"
+  #     run_codecov: false
+  #     matrix: ${{ needs.compute-matrix.outputs.TEST_MATRIX }}
 
-  test-simulator:
-    needs:
-      - compute-matrix
-      - should-skip
-    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
-    uses: ./.github/workflows/simulator-test.yaml
-    with:
-      build_type: pull-request
-      script: "ci/test_simulator.sh"
-      matrix: ${{ needs.compute-matrix.outputs.SIMULATOR_MATRIX }}
+  # TODO: Uncomment when pixi.toml + ci/test_simulator.sh are available
+  # test-simulator:
+  #   needs:
+  #     - compute-matrix
+  #     - should-skip
+  #   if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+  #   uses: ./.github/workflows/simulator-test.yaml
+  #   with:
+  #     build_type: pull-request
+  #     script: "ci/test_simulator.sh"
+  #     matrix: ${{ needs.compute-matrix.outputs.SIMULATOR_MATRIX }}
 
-  test-wheels-deps-wheels:
-    needs:
-      - build-linux-64
-      - compute-matrix
-    uses: ./.github/workflows/wheels-test.yaml
-    with:
-      build_type: pull-request
-      script: "ci/test_wheel_deps_wheels.sh"
-      matrix: ${{ needs.compute-matrix.outputs.TEST_MATRIX }}
-      matrix_filter: map(select(.ARCH == "amd64" and (.CUDA_VER | split(".") | .[0] | tonumber >= 12))) | group_by(.CUDA_VER|split(".")|map(tonumber)|.[0]) | map(max_by([(.PY_VER|split(".")|map(tonumber)), (.CUDA_VER|split(".")|map(tonumber))]))
+  # TODO: Uncomment when ci/test_wheel_deps_wheels.sh is available
+  # test-wheels-deps-wheels:
+  #   needs:
+  #     - build-linux-64
+  #     - compute-matrix
+  #   uses: ./.github/workflows/wheels-test.yaml
+  #   with:
+  #     build_type: pull-request
+  #     script: "ci/test_wheel_deps_wheels.sh"
+  #     matrix: ${{ needs.compute-matrix.outputs.TEST_MATRIX }}
+  #     matrix_filter: map(select(.ARCH == "amd64" and (.CUDA_VER | split(".") | .[0] | tonumber >= 12))) | group_by(.CUDA_VER|split(".")|map(tonumber)|.[0]) | map(max_by([(.PY_VER|split(".")|map(tonumber)), (.CUDA_VER|split(".")|map(tonumber))]))
 
-  test-thirdparty-cudf:
-    needs:
-      - build-linux-64
-      - compute-matrix
-    uses: ./.github/workflows/wheels-test.yaml
-    with:
-      build_type: pull-request
-      script: "ci/test_thirdparty_cudf.sh"
-      matrix: ${{ needs.compute-matrix.outputs.TEST_MATRIX }}
-      # TODO: Enable for CUDA 13 when a supporting version of cuDF is available
-      matrix_filter: map(select(.ARCH == "amd64" and (.CUDA_VER | split(".") | .[0] | tonumber == 12))) | group_by(.CUDA_VER|split(".")|map(tonumber)|.[0]) | map(max_by([(.PY_VER|split(".")|map(tonumber)), (.CUDA_VER|split(".")|map(tonumber))]))
+  # TODO: Uncomment when ci/test_thirdparty_cudf.sh is available
+  # test-thirdparty-cudf:
+  #   needs:
+  #     - build-linux-64
+  #     - compute-matrix
+  #   uses: ./.github/workflows/wheels-test.yaml
+  #   with:
+  #     build_type: pull-request
+  #     script: "ci/test_thirdparty_cudf.sh"
+  #     matrix: ${{ needs.compute-matrix.outputs.TEST_MATRIX }}
+  #     # TODO: Enable for CUDA 13 when a supporting version of cuDF is available
+  #     matrix_filter: map(select(.ARCH == "amd64" and (.CUDA_VER | split(".") | .[0] | tonumber == 12))) | group_by(.CUDA_VER|split(".")|map(tonumber)|.[0]) | map(max_by([(.PY_VER|split(".")|map(tonumber)), (.CUDA_VER|split(".")|map(tonumber))]))
 
-  test-thirdparty-nvmath:
-    needs:
-      - build-linux-64
-      - compute-matrix
-    uses: ./.github/workflows/wheels-test.yaml
-    with:
-      build_type: pull-request
-      script: "ci/test_thirdparty_nvmath.sh"
-      matrix: ${{ needs.compute-matrix.outputs.TEST_MATRIX }}
-      # TODO: Enable for CUDA 13 when a supporting version of nvmath-python is available
-      matrix_filter: map(select(.ARCH == "amd64" and (.CUDA_VER | split(".") | .[0] | tonumber == 12))) | group_by(.CUDA_VER|split(".")|map(tonumber)|.[0]) | map(max_by([(.PY_VER|split(".")|map(tonumber)), (.CUDA_VER|split(".")|map(tonumber))]))
+  # TODO: Uncomment when ci/test_thirdparty_nvmath.sh is available
+  # test-thirdparty-nvmath:
+  #   needs:
+  #     - build-linux-64
+  #     - compute-matrix
+  #   uses: ./.github/workflows/wheels-test.yaml
+  #   with:
+  #     build_type: pull-request
+  #     script: "ci/test_thirdparty_nvmath.sh"
+  #     matrix: ${{ needs.compute-matrix.outputs.TEST_MATRIX }}
+  #     # TODO: Enable for CUDA 13 when a supporting version of nvmath-python is available
+  #     matrix_filter: map(select(.ARCH == "amd64" and (.CUDA_VER | split(".") | .[0] | tonumber == 12))) | group_by(.CUDA_VER|split(".")|map(tonumber)|.[0]) | map(max_by([(.PY_VER|split(".")|map(tonumber)), (.CUDA_VER|split(".")|map(tonumber))]))
 
-  test-thirdparty-awkward:
-    needs:
-      - build-linux-64
-      - compute-matrix
-    uses: ./.github/workflows/wheels-test.yaml
-    with:
-      build_type: pull-request
-      script: "ci/test_thirdparty_awkward.sh"
-      matrix: ${{ needs.compute-matrix.outputs.TEST_MATRIX }}
-      # TODO: Enable for CUDA 13 in future
-      matrix_filter: map(select(.ARCH == "amd64" and (.CUDA_VER | split(".") | .[0] | tonumber == 12))) | group_by(.CUDA_VER|split(".")|map(tonumber)|.[0]) | map(max_by([(.PY_VER|split(".")|map(tonumber)), (.CUDA_VER|split(".")|map(tonumber))]))
+  # TODO: Uncomment when ci/test_thirdparty_awkward.sh is available
+  # test-thirdparty-awkward:
+  #   needs:
+  #     - build-linux-64
+  #     - compute-matrix
+  #   uses: ./.github/workflows/wheels-test.yaml
+  #   with:
+  #     build_type: pull-request
+  #     script: "ci/test_thirdparty_awkward.sh"
+  #     matrix: ${{ needs.compute-matrix.outputs.TEST_MATRIX }}
+  #     # TODO: Enable for CUDA 13 in future
+  #     matrix_filter: map(select(.ARCH == "amd64" and (.CUDA_VER | split(".") | .[0] | tonumber == 12))) | group_by(.CUDA_VER|split(".")|map(tonumber)|.[0]) | map(max_by([(.PY_VER|split(".")|map(tonumber)), (.CUDA_VER|split(".")|map(tonumber))]))
 
-  build-docs:
-    needs:
-      - should-skip
-    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
-    uses: ./.github/workflows/docs-build.yaml
+  # TODO: Uncomment when pixi.toml docs environment + Sphinx setup are available
+  # build-docs:
+  #   needs:
+  #     - should-skip
+  #   if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+  #   uses: ./.github/workflows/docs-build.yaml
 
-  coverage-report:
-    needs:
-      - build-linux-64
-      - compute-matrix
-    uses: ./.github/workflows/wheels-test.yaml
-    with:
-      build_type: pull-request
-      script: "ci/coverage_report.sh"
-      matrix: ${{ needs.compute-matrix.outputs.TEST_MATRIX }}
-      matrix_filter: 'map(select(.ARCH == "amd64" and .CUDA_VER == "12.9.1" and .PY_VER == "3.12")) | .[0:1]'
+  # TODO: Uncomment when ci/coverage_report.sh + testing/ directory are available
+  # coverage-report:
+  #   needs:
+  #     - build-linux-64
+  #     - compute-matrix
+  #   uses: ./.github/workflows/wheels-test.yaml
+  #   with:
+  #     build_type: pull-request
+  #     script: "ci/coverage_report.sh"
+  #     matrix: ${{ needs.compute-matrix.outputs.TEST_MATRIX }}
+  #     matrix_filter: 'map(select(.ARCH == "amd64" and .CUDA_VER == "12.9.1" and .PY_VER == "3.12")) | .[0:1]'
 
   # =============================================================
 
@@ -297,13 +305,13 @@ jobs:
       - test-linux-aarch64
       - test-windows
       - pre-commit
-      - test-conda
-      - test-simulator
-      - test-thirdparty-cudf
-      - test-thirdparty-nvmath
-      - test-thirdparty-awkward
-      - build-docs
-      - coverage-report
+      # - test-conda
+      # - test-simulator
+      # - test-thirdparty-cudf
+      # - test-thirdparty-nvmath
+      # - test-thirdparty-awkward
+      # - build-docs
+      # - coverage-report
     steps:
       - name: Exit
         run: |
@@ -330,21 +338,21 @@ jobs:
                  needs.test-windows.result == 'cancelled' ||
                  needs.test-windows.result == 'failure' ||
                  needs.pre-commit.result == 'cancelled' ||
-                 needs.pre-commit.result == 'failure' ||
-                 needs.test-conda.result == 'cancelled' ||
-                 needs.test-conda.result == 'failure' ||
-                 needs.test-simulator.result == 'cancelled' ||
-                 needs.test-simulator.result == 'failure' ||
-                 needs.test-thirdparty-cudf.result == 'cancelled' ||
-                 needs.test-thirdparty-cudf.result == 'failure' ||
-                 needs.test-thirdparty-nvmath.result == 'cancelled' ||
-                 needs.test-thirdparty-nvmath.result == 'failure' ||
-                 needs.test-thirdparty-awkward.result == 'cancelled' ||
-                 needs.test-thirdparty-awkward.result == 'failure' ||
-                 needs.build-docs.result == 'cancelled' ||
-                 needs.build-docs.result == 'failure' ||
-                 needs.coverage-report.result == 'cancelled' ||
-                 needs.coverage-report.result == 'failure' }}; then
+                 needs.pre-commit.result == 'failure' }}; then
+          #        needs.test-conda.result == 'cancelled' ||
+          #        needs.test-conda.result == 'failure' ||
+          #        needs.test-simulator.result == 'cancelled' ||
+          #        needs.test-simulator.result == 'failure' ||
+          #        needs.test-thirdparty-cudf.result == 'cancelled' ||
+          #        needs.test-thirdparty-cudf.result == 'failure' ||
+          #        needs.test-thirdparty-nvmath.result == 'cancelled' ||
+          #        needs.test-thirdparty-nvmath.result == 'failure' ||
+          #        needs.test-thirdparty-awkward.result == 'cancelled' ||
+          #        needs.test-thirdparty-awkward.result == 'failure' ||
+          #        needs.build-docs.result == 'cancelled' ||
+          #        needs.build-docs.result == 'failure' ||
+          #        needs.coverage-report.result == 'cancelled' ||
+          #        needs.coverage-report.result == 'failure' }}; then
             exit 1
           else
             exit 0

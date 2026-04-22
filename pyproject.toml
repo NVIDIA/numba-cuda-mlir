@@ -53,8 +53,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://gitlab-master.nvidia.com/cuda-python/numba-simt-mlir-compiler"
-Repository = "https://gitlab-master.nvidia.com/cuda-python/numba-simt-mlir-compiler"
+Homepage = "https://github.com/NVIDIA/cuda-lang-numba-compat"
+Repository = "https://github.com/NVIDIA/cuda-lang-numba-compat"
 
 [tool.setuptools.packages.find]
 where = ["src"]

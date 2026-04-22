@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Create a bug report to help us improve numba-cuda
+about: Create a bug report to help us improve cuda-lang-numba-compat
 title: "[BUG]"
 labels: "? - Needs Triage, bug"
 assignees: ''
@@ -18,7 +18,7 @@ A clear and concise description of what you expected to happen.
 
 **Environment details (please complete the following information):**
  - Environment location: [Bare-metal, Docker, Cloud(specify cloud provider)]
- - Method of numba-cuda install: [conda, Docker, or from source]
+ - Method of cuda-lang-numba-compat install: [conda, Docker, or from source]
    - If method of install is [Docker], provide `docker pull` & `docker run` commands used
 
 

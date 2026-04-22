@@ -1,6 +1,6 @@
 <!--
 
-Thank you for contributing to numba-cuda :)
+Thank you for contributing to cuda-lang-numba-compat :)
 
 Here are some guidelines to help the review process go smoothly.
 

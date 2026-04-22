@@ -23,7 +23,7 @@ authors = [
 ]
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "tabulate",
@@ -34,7 +34,6 @@ dependencies = [
     "pytest-rerunfailures",
     "pytest-benchmark",
     "filecheck",
-    "nvidia-cuda-cuobjdump",
     "cffi",
     "ml-dtypes",
     "numba==0.63.1"
@@ -49,12 +48,12 @@ cu13 = [
 ]
 dev = [
     "pre-commit",
-    "black",
+    "ruff",
 ]
 
 [project.urls]
-Homepage = "https://gitlab-master.nvidia.com/cuda-python/numba-simt-mlir-compiler"
-Repository = "https://gitlab-master.nvidia.com/cuda-python/numba-simt-mlir-compiler"
+Homepage = "https://github.com/NVIDIA/cuda-lang-numba-compat"
+Repository = "https://github.com/NVIDIA/cuda-lang-numba-compat"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -80,6 +79,57 @@ include-package-data = true
     "_mlir/**/*.py",
     "_mlir/**/*.pyi",
 ]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = 100
+
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 100
+max-line-length = 100
+
+[tool.ruff.lint]
+ignore = [
+    "E20",
+    "E231",
+    "E241",
+    "E26",
+    "E731",
+    "E741",
+    "B028",
+    "B904",
+    "B905",
+    "B019",
+]
+select = ["B"]
+extend-select = ["PERF"]
+fixable = ["ALL"]
+
+exclude = [
+    "__pycache__",
+    ".git",
+    "*.pyc",
+    "*~",
+    "*.o",
+    "*.so",
+    "*.cpp",
+    "*.c",
+    "*.h",
+    "3rdparty/*",
+    "src/cusimt/numba_cuda/*",
+    "cext/typeconv/*",
+    "cext/helperlib/*",
+    "cext/mviewbuf/*",
+    "src/cusimt/mlir",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/test*.py" = ["PERF", "B007", "B018", "B023"]
+"src/cusimt/__init__.py" = ["F401", "F403", "F405", "E402"]
+"src/cuda/**/__init__.py" = ["F401", "F403"]
 
 [tool.pytest.ini_options]
 testpaths = [ "tests" ]

@@ -47,22 +47,28 @@ export CMAKE_CXX_COMPILER_LAUNCHER="$(which sccache)"
 # MLIR_BINDINGS_PYTHON_NB_DOMAIN isolates nanobind typeids from other
 #   MLIR-based projects that may coexist in the same process.
 # See: https://github.com/llvm/llvm-project/pull/171775
-cmake -G Ninja -S "${LLVM_SRC}/llvm" -B "${LLVM_BUILD}" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX="${LLVM_INSTALL}" \
-    -DLLVM_ENABLE_PROJECTS="mlir" \
-    -DLLVM_TARGETS_TO_BUILD="NVPTX" \
-    -DLLVM_BUILD_TOOLS=OFF \
-    -DLLVM_BUILD_EXAMPLES=OFF \
-    -DLLVM_INCLUDE_TESTS=OFF \
-    -DLLVM_INCLUDE_BENCHMARKS=OFF \
-    -DLLVM_INCLUDE_DOCS=OFF \
-    -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
-    -DCMAKE_CXX_FLAGS="-DMLIR_PYTHON_PACKAGE_PREFIX=cusimt._mlir." \
-    -DMLIR_BINDINGS_PYTHON_INSTALL_PREFIX="python_packages/cusimt_mlir/cusimt/_mlir" \
-    -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=cusimt \
-    -DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON \
+cmake_args=(
+    -G Ninja
+    -S "${LLVM_SRC}/llvm"
+    -B "${LLVM_BUILD}"
+    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_INSTALL_PREFIX="${LLVM_INSTALL}"
+    -DLLVM_ENABLE_PROJECTS="mlir"
+    -DLLVM_TARGETS_TO_BUILD="NVPTX"
+    -DLLVM_BUILD_TOOLS=OFF
+    -DLLVM_BUILD_EXAMPLES=OFF
+    -DLLVM_INCLUDE_TESTS=OFF
+    -DLLVM_INCLUDE_BENCHMARKS=OFF
+    -DLLVM_INCLUDE_DOCS=OFF
+    -DMLIR_ENABLE_BINDINGS_PYTHON=ON
+    -DCMAKE_CXX_FLAGS="-DMLIR_PYTHON_PACKAGE_PREFIX=cusimt._mlir."
+    -DMLIR_BINDINGS_PYTHON_INSTALL_PREFIX="python_packages/cusimt_mlir/cusimt/_mlir"
+    -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=cusimt
+    -DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON
     -DPython3_EXECUTABLE="$($PYTHON -c 'import sys; print(sys.executable)')"
+)
+
+cmake "${cmake_args[@]}"
 
 # Build & install
 cmake --build "${LLVM_BUILD}" -j "${PARALLEL}"

@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+set -euo pipefail
+
+: "${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR:?NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR must be set by ci/tools/env-vars}"
+: "${LOCAL_CTK:?LOCAL_CTK must be set by the workflow}"
+: "${TEST_CUDA_MAJOR:?TEST_CUDA_MAJOR must be set by ci/tools/env-vars}"
+: "${TEST_CUDA_MINOR:?TEST_CUDA_MINOR must be set by ci/tools/env-vars}"
+
+export CUDA_VERSION="${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}"
+export NUMBA_CUDA_MLIR_ICE_FULL_TB=1
+
+case "${CUDA_VERSION}" in
+  12.8)
+    CUPY_PACKAGE="cupy-cuda12x"
+    TORCH_INDEX_URL="https://download.pytorch.org/whl/cu128"
+    NVMATH_PACKAGE="nvmath-python[cu12]"
+    NVIDIA_PACKAGES=(
+      "nvidia-cublas-cu12==12.8.*"
+      "nvidia-cuda-cccl-cu12==12.8.*"
+      "nvidia-cuda-cupti-cu12==12.8.*"
+      "nvidia-cuda-nvcc-cu12==12.8.*"
+      "nvidia-cuda-nvrtc-cu12==12.8.*"
+      "nvidia-cuda-runtime-cu12==12.8.*"
+      "nvidia-nvjitlink-cu12==12.8.*"
+      "nvidia-nvtx-cu12==12.8.*"
+    )
+    NVIDIA_PACKAGES_TO_REMOVE=()
+    NVIDIA_PACKAGES_TO_UPGRADE=()
+    ;;
+  12.9)
+    CUPY_PACKAGE="cupy-cuda12x"
+    TORCH_INDEX_URL="https://download.pytorch.org/whl/cu129"
+    NVMATH_PACKAGE="nvmath-python[cu12]"
+    NVIDIA_PACKAGES=(
+      "nvidia-cublas-cu12==12.9.*"
+      "nvidia-cuda-cccl-cu12==12.9.*"
+      "nvidia-cuda-cupti-cu12==12.9.*"
+      "nvidia-cuda-nvcc-cu12==12.9.*"
+      "nvidia-cuda-nvrtc-cu12==12.9.*"
+      "nvidia-cuda-runtime-cu12==12.9.*"
+      "nvidia-nvjitlink-cu12==12.9.*"
+      "nvidia-nvtx-cu12==12.9.*"
+    )
+    NVIDIA_PACKAGES_TO_REMOVE=()
+    NVIDIA_PACKAGES_TO_UPGRADE=()
+    ;;
+  13.0|13.1|13.2)
+    CUPY_PACKAGE="cupy-cuda13x"
+    TORCH_INDEX_URL="https://download.pytorch.org/whl/cu130"
+    NVMATH_PACKAGE="nvmath-python[cu13]"
+    NVIDIA_PACKAGES=(
+      "nvidia-cublas==${CUDA_VERSION}.*"
+      "nvidia-cuda-cccl==${CUDA_VERSION}.*"
+      "nvidia-cuda-cupti==${CUDA_VERSION}.*"
+      "nvidia-cuda-nvrtc==${CUDA_VERSION}.*"
+      "nvidia-cuda-runtime==${CUDA_VERSION}.*"
+      "nvidia-nvjitlink==${CUDA_VERSION}.*"
+      "nvidia-nvtx==${CUDA_VERSION}.*"
+      "nvidia-nvvm==${CUDA_VERSION}.*"
+    )
+    NVIDIA_PACKAGES_TO_REMOVE=(
+      "nvidia-cufft"
+      "nvidia-cusolver"
+      "nvidia-cusparse"
+    )
+    NVIDIA_PACKAGES_TO_UPGRADE=(
+      "nvidia-cudnn-cu13"
+      "nvidia-cufile"
+      "nvidia-curand"
+      "nvidia-cusparselt-cu13"
+      "nvidia-nccl-cu13"
+      "nvidia-nvshmem-cu13"
+    )
+    ;;
+  *)
+    echo "Unsupported CUDA version: ${CUDA_VERSION}"
+    exit 1
+    ;;
+esac
+
+VENV_DIR=$(mktemp -d -t numba-cuda-mlir-expensive-test-XXXXXX)
+trap 'rm -rf "${VENV_DIR}"' EXIT
+
+python -m venv "${VENV_DIR}"
+PYTHON="${VENV_DIR}/bin/python"
+PIP="${VENV_DIR}/bin/pip"
+
+"${PIP}" install --upgrade pip
+
+echo "Installing numba-cuda-mlir wheel and runtime dependencies"
+wheels=("${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR}"/*.whl)
+if [[ ${#wheels[@]} -ne 1 ]]; then
+  echo "Expected exactly one numba-cuda-mlir wheel in ${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR}, found ${#wheels[@]}"
+  printf '%s\n' "${wheels[@]}"
+  exit 1
+fi
+wheel="${wheels[0]}"
+
+if [[ "${LOCAL_CTK}" == 1 ]]; then
+  "${PIP}" install "${wheel}" \
+    "numba-cuda[cu${TEST_CUDA_MAJOR}]==0.28.1" \
+    "cuda-bindings==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*" \
+    "cuda-core[cu${TEST_CUDA_MAJOR}]"
+else
+  "${PIP}" install "${wheel}[cu${TEST_CUDA_MAJOR}]" \
+    "numba-cuda[cu${TEST_CUDA_MAJOR}]==0.28.1" \
+    "cuda-bindings==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*" \
+    "cuda-core[cu${TEST_CUDA_MAJOR}]" \
+    "cuda-toolkit[cudart]==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*"
+fi
+
+echo "Installing expensive test dependencies"
+"${PIP}" install "${CUPY_PACKAGE}"
+"${PIP}" install torch torchvision --index-url "${TORCH_INDEX_URL}"
+"${PIP}" install --upgrade "${NVIDIA_PACKAGES[@]}"
+if [[ ${#NVIDIA_PACKAGES_TO_REMOVE[@]} -gt 0 ]]; then
+  "${PIP}" uninstall -y "${NVIDIA_PACKAGES_TO_REMOVE[@]}" || true
+fi
+if [[ ${#NVIDIA_PACKAGES_TO_UPGRADE[@]} -gt 0 ]]; then
+  "${PIP}" install --upgrade "${NVIDIA_PACKAGES_TO_UPGRADE[@]}"
+fi
+"${PIP}" install tqdm tiktoken transformers "${NVMATH_PACKAGE}" cuda-cooperative
+"${PIP}" list
+
+echo "Running expensive numba-cuda-mlir tests for CUDA ${CUDA_VERSION}"
+"${PYTHON}" -m pytest tests/benchmarks \
+  -v \
+  --tb=short \
+  -W ignore::UserWarning \
+  --junit-xml=junit-benchmark-results.xml \
+  -o addopts= \
+  "$@"

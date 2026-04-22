@@ -1,0 +1,263 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Note: This name is referred to in the test job, so make sure any changes are sync'd up!
+# Further this is referencing a run in the backport branch to fetch old bindings.
+name: "CI"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+      - "main"
+  schedule:
+    - cron: "0 10 * * *"
+  workflow_dispatch:
+
+jobs:
+  ci-vars:
+    runs-on: ubuntu-latest
+    outputs:
+      CUDA_BUILD_VER: ${{ steps.get-vars.outputs.cuda_build_ver }}
+      CUDA_PREV_BUILD_VER: ${{ steps.get-vars.outputs.cuda_prev_build_ver }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Get CUDA build versions
+        id: get-vars
+        run: |
+          cuda_build_ver=$(yq '.cuda.build.version' ci/versions.yml)
+          echo "cuda_build_ver=$cuda_build_ver" >> $GITHUB_OUTPUT
+          cuda_prev_build_ver=$(yq '.cuda.prev_build.version' ci/versions.yml)
+          echo "cuda_prev_build_ver=$cuda_prev_build_ver" >> $GITHUB_OUTPUT
+
+  should-skip:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.get-should-skip.outputs.skip }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - name: Compute whether to skip builds and tests
+        id: get-should-skip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          if ${{ startsWith(github.ref_name, 'pull-request/') }}; then
+            skip="$(gh pr view "$(grep -Po '(\d+)$' <<< '${{ github.ref_name }}')" --json title --jq '.title | contains("[no-ci]")')"
+          else
+            skip=false
+          fi
+          echo "skip=${skip}" >> "$GITHUB_OUTPUT"
+
+  # LLVM build stages (matching GitLab build-llvm stage)
+  build-llvm-linux-64:
+    needs:
+      - should-skip
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+    uses: ./.github/workflows/build-llvm.yml
+    with:
+      host-platform: linux-64
+    secrets: inherit
+
+  build-llvm-linux-aarch64:
+    needs:
+      - should-skip
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+    uses: ./.github/workflows/build-llvm.yml
+    with:
+      host-platform: linux-aarch64
+    secrets: inherit
+
+  # WARNING: make sure all of the build jobs are in sync
+  build-linux-64:
+    needs:
+      - ci-vars
+      - should-skip
+      - build-llvm-linux-64
+    strategy:
+      fail-fast: false
+      matrix:
+        host-platform:
+          - linux-64
+    name: Build ${{ matrix.host-platform }}
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+    uses: ./.github/workflows/build-wheel.yml
+    with:
+      host-platform: ${{ matrix.host-platform }}
+      cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
+      prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
+
+  # WARNING: make sure all of the build jobs are in sync
+  build-linux-aarch64:
+    needs:
+      - ci-vars
+      - should-skip
+      - build-llvm-linux-aarch64
+    strategy:
+      fail-fast: false
+      matrix:
+        host-platform:
+          - linux-aarch64
+    name: Build ${{ matrix.host-platform }}
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+    uses: ./.github/workflows/build-wheel.yml
+    with:
+      host-platform: ${{ matrix.host-platform }}
+      cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
+      prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
+
+  # WARNING: make sure both Linux test jobs are in sync
+  test-linux-64:
+    strategy:
+      fail-fast: false
+      matrix:
+        host-platform:
+          - linux-64
+    name: Test ${{ matrix.host-platform }}
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read  # This is required for actions/checkout
+    needs:
+      - build-linux-64
+    uses: ./.github/workflows/test-wheel-linux.yml
+    with:
+      build-type: pull-request
+      host-platform: ${{ matrix.host-platform }}
+
+  # WARNING: make sure both Linux test jobs are in sync
+  test-linux-aarch64:
+    strategy:
+      fail-fast: false
+      matrix:
+        host-platform:
+          - linux-aarch64
+    name: Test ${{ matrix.host-platform }}
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read  # This is required for actions/checkout
+    needs:
+      - build-linux-aarch64
+    uses: ./.github/workflows/test-wheel-linux.yml
+    with:
+      build-type: pull-request
+      host-platform: ${{ matrix.host-platform }}
+
+  test-expensive-linux-64:
+    name: Expensive Test linux-64
+    if: ${{ github.repository_owner == 'nvidia' && github.ref_name == 'main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: read  # This is required for actions/checkout
+    needs:
+      - build-linux-64
+    uses: ./.github/workflows/test-expensive-linux.yml
+    with:
+      host-platform: linux-64
+
+  test-expensive-linux-aarch64:
+    name: Expensive Test linux-aarch64
+    if: ${{ github.repository_owner == 'nvidia' && github.ref_name == 'main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: read  # This is required for actions/checkout
+    needs:
+      - build-linux-aarch64
+    uses: ./.github/workflows/test-expensive-linux.yml
+    with:
+      host-platform: linux-aarch64
+
+  # ============== old CI jobs (ci.yaml & pr.yaml) ==============
+
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+      - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd
+        with:
+          extra_args: --all-files --show-diff-on-failure
+
+  # TODO: Uncomment when pixi.toml docs environment + Sphinx setup are available
+  # build-docs:
+  #   needs:
+  #     - should-skip
+  #   if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+  #   uses: ./.github/workflows/docs-build.yaml
+
+  # TODO: Coverage runs take over 2 hours; need to figure out why it's running so slow.
+  # coverage-report:
+  #   needs:
+  #     - build-linux-64
+  #   permissions:
+  #     contents: read  # This is required for actions/checkout
+  #   uses: ./.github/workflows/test-wheel-linux.yml
+  #   with:
+  #     build-type: pull-request
+  #     host-platform: linux-64
+  #     test-script: run-coverage-tests
+  #     test-dependencies: "jq wget libgl1 libegl1 sqlite3"
+  #     test-dependent-exes: "jq wget sqlite3"
+  #     matrix_filter: 'map(select(.ARCH == "amd64" and .CUDA_VER == "12.9.1" and .PY_VER == "3.12")) | .[0:1]'
+
+  # =============================================================
+
+  checks:
+    name: Check job status
+    if: always()
+    runs-on: ubuntu-latest
+    needs:
+      - test-linux-64
+      - test-linux-aarch64
+      - test-expensive-linux-64
+      - test-expensive-linux-aarch64
+      - pre-commit
+      # - coverage-report
+      # - test-conda
+      # - test-simulator
+      # - build-docs
+    steps:
+      - name: Exit
+        run: |
+          # if any dependencies were cancelled or failed, that's a failure
+          #
+          # see https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#always
+          # and https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks#handling-skipped-but-required-checks
+          # for why this cannot be encoded in the job-level `if:` field
+          #
+          # TL; DR: `$REASONS`
+          #
+          # The intersection of skipped-as-success and required status checks
+          # creates a scenario where if you DON'T `always()` run this job, the
+          # status check UI will block merging and if you DO `always()` run and
+          # a dependency is _cancelled_ (due to a critical failure, which is
+          # somehow not considered a failure ¯\_(ツ)_/¯) then the critically
+          # failing job(s) will timeout causing a cancellation here and the
+          # build to succeed which we don't want (originally this was just
+          # 'exit 0')
+          if ${{ needs.test-linux-64.result == 'cancelled' ||
+                 needs.test-linux-64.result == 'failure' ||
+                 needs.test-linux-aarch64.result == 'cancelled' ||
+                 needs.test-linux-aarch64.result == 'failure' ||
+                 needs.test-expensive-linux-64.result == 'cancelled' ||
+                 needs.test-expensive-linux-64.result == 'failure' ||
+                 needs.test-expensive-linux-aarch64.result == 'cancelled' ||
+                 needs.test-expensive-linux-aarch64.result == 'failure' ||
+                 needs.pre-commit.result == 'cancelled' ||
+                 needs.pre-commit.result == 'failure' }}; then
+          #        needs.coverage-report.result == 'cancelled' ||
+          #        needs.coverage-report.result == 'failure' ||
+          #        needs.test-simulator.result == 'cancelled' ||
+          #        needs.test-simulator.result == 'failure' ||
+          #        needs.build-docs.result == 'cancelled' ||
+          #        needs.build-docs.result == 'failure' }}; then
+            exit 1
+          else
+            exit 0
+          fi

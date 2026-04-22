@@ -23,7 +23,7 @@ authors = [
 ]
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "tabulate",
@@ -34,9 +34,9 @@ dependencies = [
     "pytest-rerunfailures",
     "pytest-benchmark",
     "filecheck",
-    "nvidia-cuda-cuobjdump",
     "cffi",
     "ml-dtypes",
+    "llvmlite",
 ]
 
 [project.optional-dependencies]
@@ -48,7 +48,7 @@ cu13 = [
 ]
 dev = [
     "pre-commit",
-    "black",
+    "ruff",
 ]
 
 [project.urls]
@@ -78,6 +78,57 @@ include-package-data = true
     "_mlir/**/*.py",
     "_mlir/**/*.pyi",
 ]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = 100
+
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 100
+max-line-length = 100
+
+[tool.ruff.lint]
+ignore = [
+    "E20",
+    "E231",
+    "E241",
+    "E26",
+    "E731",
+    "E741",
+    "B028",
+    "B904",
+    "B905",
+    "B019",
+]
+select = ["B"]
+extend-select = ["PERF"]
+fixable = ["ALL"]
+
+exclude = [
+    "__pycache__",
+    ".git",
+    "*.pyc",
+    "*~",
+    "*.o",
+    "*.so",
+    "*.cpp",
+    "*.c",
+    "*.h",
+    "3rdparty/*",
+    "src/numba_cuda_mlir/numba_cuda/*",
+    "cext/typeconv/*",
+    "cext/helperlib/*",
+    "cext/mviewbuf/*",
+    "src/numba_cuda_mlir/mlir",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/test*.py" = ["PERF", "B007", "B018", "B023"]
+"src/numba_cuda_mlir/__init__.py" = ["F401", "F403", "F405", "E402"]
+"src/cuda/**/__init__.py" = ["F401", "F403"]
 
 [tool.pytest.ini_options]
 testpaths = [ "tests" ]

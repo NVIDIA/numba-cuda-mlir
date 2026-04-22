@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# A utility script to install the correct packages and run the tests.
+
+set -euo pipefail
+
+echo "Installing numba-cuda-mlir wheel"
+wheels=("${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR}"/*.whl)
+if [[ ${#wheels[@]} -ne 1 || ! -e "${wheels[0]}" ]]; then
+  echo "Expected exactly one numba-cuda-mlir wheel in ${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR}, found ${#wheels[@]}"
+  printf '%s\n' "${wheels[@]}"
+  exit 1
+fi
+wheel="${wheels[0]}"
+
+coverage_packages=()
+pytest_args=(-v --tb=short -W ignore::UserWarning --ignore=tests/benchmarks -n auto --dist loadscope)
+if [[ "${NUMBA_CUDA_MLIR_COVERAGE:-0}" == "1" ]]; then
+  coverage_packages=(pytest-cov coverage)
+  pytest_args+=(--cov=numba-cuda-mlir --cov=cuda --cov-report=term-missing)
+fi
+
+CUDA_BINDINGS_SPEC="cuda-bindings==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*"
+if [[ "${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}" == "12.2" ]]; then
+  CUDA_BINDINGS_SPEC="cuda-bindings>=12.9.1,<13.0.0"
+fi
+
+if [[ "${LOCAL_CTK}" == 1 ]]; then
+  pip install "${wheel}" \
+    "${CUDA_BINDINGS_SPEC}" "cuda-core[cu${TEST_CUDA_MAJOR}]" \
+    "${coverage_packages[@]}"
+else
+  pip install "${wheel}[cu${TEST_CUDA_MAJOR}]" \
+    "${CUDA_BINDINGS_SPEC}" "cuda-core[cu${TEST_CUDA_MAJOR}]" \
+    "cuda-toolkit[cccl,cudart]==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*" \
+    "${coverage_packages[@]}"
+fi
+
+echo "Running numba-cuda-mlir tests"
+${SANITIZER_CMD} pytest "${pytest_args[@]}"
+
+if [[ "${NUMBA_CUDA_MLIR_COVERAGE:-0}" == "1" ]]; then
+  echo "Generating markdown coverage report"
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    python -m coverage report --format markdown >> "${GITHUB_STEP_SUMMARY}"
+  else
+    python -m coverage report --format markdown
+  fi
+fi

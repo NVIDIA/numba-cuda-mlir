@@ -32,9 +32,6 @@ echo "${TOOLS_PATH}" >> $GITHUB_PATH
 } >> $GITHUB_ENV
 
 if [[ "${1}" == "build" ]]; then
-  # platform is handled by the default value of platform (`auto`) in cibuildwheel
-  # here we only need to specify the python version we want
-  echo "CIBW_BUILD=cp${PYTHON_VERSION_FORMATTED}-*" >> $GITHUB_ENV
   CL_NUMBA_COMPAT_CUDA_ARTIFACT_BASENAME="cl-numba-compat-python${PYTHON_VERSION_FORMATTED}-${HOST_PLATFORM}"
 elif [[ "${1}" == "test" ]]; then
   TEST_CUDA_MAJOR="$(cut -d '.' -f 1 <<< ${CUDA_VER})"

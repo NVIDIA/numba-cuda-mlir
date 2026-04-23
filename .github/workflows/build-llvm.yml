@@ -1,0 +1,131 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+on:
+  workflow_call:
+    inputs:
+      host-platform:
+        required: true
+        type: string
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -xeuo pipefail {0}
+
+permissions:
+  contents: read
+
+jobs:
+  build-llvm-modern:
+    name: LLVM Modern
+    if: ${{ startsWith(inputs.host-platform, 'linux') }}
+    runs-on: ${{ (inputs.host-platform == 'linux-64' && 'linux-amd64-cpu8') ||
+                 (inputs.host-platform == 'linux-aarch64' && 'linux-arm64-cpu8') }}
+    timeout-minutes: 180
+    container:
+      image: ${{ (inputs.host-platform == 'linux-aarch64' && 'quay.io/pypa/manylinux_2_28_aarch64') ||
+                  'quay.io/pypa/manylinux_2_28_x86_64' }}
+    env:
+      PY: /opt/python/cp312-cp312/bin/python
+      PARALLEL: "4"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Install build dependencies
+        run: |
+          export PATH="$(dirname $PY):$PATH"
+          pip install pybind11 nanobind numpy ninja cmake awscli
+          chmod +x ci/*.sh
+
+      - name: Install sccache
+        run: |
+          curl -fsSL "https://github.com/rapidsai/sccache/releases/latest/download/sccache-$(uname -m)-unknown-linux-musl.tar.gz" \
+            | tar -C /usr/local/bin -xz --strip-components=1 --wildcards '*/sccache'
+          sccache --version
+
+      - name: Set up sccache S3 credentials
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          export PATH="$(dirname $PY):$PATH"
+          ci/setup-sccache.sh
+
+      - name: Build or restore LLVM Modern from cache
+        env:
+          ARTIF_GENERIC_TOKEN: ${{ secrets.ARTIF_GENERIC_TOKEN }}
+        run: |
+          export PATH="$(dirname $PY):$PATH"
+          source ci/llvm-version.env
+          CACHE_KEY=$(source ci/llvm-cache.sh && cache_key "llvm-modern" "$LLVM_MODERN_COMMIT" ci/build-llvm-modern.sh)
+          echo "Cache key: ${CACHE_KEY}"
+          if source ci/llvm-cache.sh && cache_download "$CACHE_KEY" llvm-modern-install; then
+            echo "Using cached LLVM"
+          else
+            ci/build-llvm-modern.sh
+            source ci/llvm-cache.sh && cache_upload "$CACHE_KEY" llvm-modern-install
+          fi
+
+      - name: Upload LLVM Modern artifacts
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: llvm-modern-install-${{ inputs.host-platform }}
+          path: llvm-modern-install/
+          retention-days: 1
+
+  build-llvm7:
+    name: LLVM 7
+    if: ${{ startsWith(inputs.host-platform, 'linux') }}
+    runs-on: ${{ (inputs.host-platform == 'linux-64' && 'linux-amd64-cpu8') ||
+                 (inputs.host-platform == 'linux-aarch64' && 'linux-arm64-cpu8') }}
+    timeout-minutes: 180
+    container:
+      image: ${{ (inputs.host-platform == 'linux-aarch64' && 'quay.io/pypa/manylinux_2_28_aarch64') ||
+                  'quay.io/pypa/manylinux_2_28_x86_64' }}
+    env:
+      PY: /opt/python/cp312-cp312/bin/python
+      PARALLEL: "4"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Install build dependencies
+        run: |
+          export PATH="$(dirname $PY):$PATH"
+          pip install pybind11 nanobind numpy ninja cmake awscli
+          chmod +x ci/*.sh
+
+      - name: Install sccache
+        run: |
+          curl -fsSL "https://github.com/rapidsai/sccache/releases/latest/download/sccache-$(uname -m)-unknown-linux-musl.tar.gz" \
+            | tar -C /usr/local/bin -xz --strip-components=1 --wildcards '*/sccache'
+          sccache --version
+
+      - name: Set up sccache S3 credentials
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          export PATH="$(dirname $PY):$PATH"
+          ci/setup-sccache.sh
+
+      - name: Build or restore LLVM 7 from cache
+        env:
+          ARTIF_GENERIC_TOKEN: ${{ secrets.ARTIF_GENERIC_TOKEN }}
+        run: |
+          export PATH="$(dirname $PY):$PATH"
+          source ci/llvm-version.env
+          CACHE_KEY=$(source ci/llvm-cache.sh && cache_key "llvm7" "$LLVM7_TAG" ci/build-llvm7.sh)
+          echo "Cache key: ${CACHE_KEY}"
+          if source ci/llvm-cache.sh && cache_download "$CACHE_KEY" llvm7-install; then
+            echo "Using cached LLVM 7"
+          else
+            ci/build-llvm7.sh
+            source ci/llvm-cache.sh && cache_upload "$CACHE_KEY" llvm7-install
+          fi
+
+      - name: Upload LLVM 7 artifacts
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: llvm7-install-${{ inputs.host-platform }}
+          path: llvm7-install/
+          retention-days: 1

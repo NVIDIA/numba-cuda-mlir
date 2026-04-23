@@ -55,11 +55,31 @@ jobs:
           fi
           echo "skip=${skip}" >> "$GITHUB_OUTPUT"
 
+  # LLVM build stages (matching GitLab build-llvm stage)
+  build-llvm-linux-64:
+    needs:
+      - should-skip
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+    uses: ./.github/workflows/build-llvm.yml
+    with:
+      host-platform: linux-64
+    secrets: inherit
+
+  build-llvm-linux-aarch64:
+    needs:
+      - should-skip
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+    uses: ./.github/workflows/build-llvm.yml
+    with:
+      host-platform: linux-aarch64
+    secrets: inherit
+
   # WARNING: make sure all of the build jobs are in sync
   build-linux-64:
     needs:
       - ci-vars
       - should-skip
+      - build-llvm-linux-64
     strategy:
       fail-fast: false
       matrix:
@@ -78,6 +98,7 @@ jobs:
     needs:
       - ci-vars
       - should-skip
+      - build-llvm-linux-aarch64
     strategy:
       fail-fast: false
       matrix:

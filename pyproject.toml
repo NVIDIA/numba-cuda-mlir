@@ -34,7 +34,6 @@ dependencies = [
     "pytest-rerunfailures",
     "pytest-benchmark",
     "filecheck",
-    "nvidia-cuda-cuobjdump",
     "cffi",
     "ml-dtypes",
     "numba==0.63.1"

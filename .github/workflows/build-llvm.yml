@@ -14,6 +14,7 @@ defaults:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   build-llvm-modern:
@@ -32,32 +33,55 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-duration-seconds: 43200
+
+      - name: Compute cache key
+        id: cache-key
+        run: |
+          source ci/llvm-version.env
+          SCRIPT_HASH=$(sha256sum ci/build-llvm-modern.sh | cut -c1-12)
+          VERSION_SHORT=$(echo "$LLVM_MODERN_COMMIT" | cut -c1-12)
+          ARCH=$(uname -m)
+          KEY="llvm-modern-linux-${ARCH}-${VERSION_SHORT}-${SCRIPT_HASH}"
+          echo "key=${KEY}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore LLVM Modern from GHA cache
+        id: gha-cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        with:
+          path: llvm-modern-install/
+          key: ${{ steps.cache-key.outputs.key }}
+
       - name: Install build dependencies
+        if: steps.gha-cache.outputs.cache-hit != 'true'
         run: |
           export PATH="$(dirname $PY):$PATH"
           pip install pybind11 nanobind numpy ninja cmake awscli
           chmod +x ci/*.sh
 
       - name: Install sccache
+        if: steps.gha-cache.outputs.cache-hit != 'true'
         run: |
           curl -fsSL "https://github.com/rapidsai/sccache/releases/latest/download/sccache-$(uname -m)-unknown-linux-musl.tar.gz" \
             | tar -C /usr/local/bin -xz --strip-components=1 --wildcards '*/sccache'
           sccache --version
 
       - name: Set up sccache S3 credentials
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
+        if: steps.gha-cache.outputs.cache-hit != 'true'
         run: |
           export PATH="$(dirname $PY):$PATH"
           ci/setup-sccache.sh
 
       - name: Build or restore LLVM Modern from cache
-        env:
-          ARTIF_GENERIC_TOKEN: ${{ secrets.ARTIF_GENERIC_TOKEN }}
+        if: steps.gha-cache.outputs.cache-hit != 'true'
         run: |
           export PATH="$(dirname $PY):$PATH"
           source ci/llvm-version.env
-          CACHE_KEY=$(source ci/llvm-cache.sh && cache_key "llvm-modern" "$LLVM_MODERN_COMMIT" ci/build-llvm-modern.sh)
+          CACHE_KEY="${{ steps.cache-key.outputs.key }}"
           echo "Cache key: ${CACHE_KEY}"
           if source ci/llvm-cache.sh && cache_download "$CACHE_KEY" llvm-modern-install; then
             echo "Using cached LLVM"
@@ -89,32 +113,55 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-duration-seconds: 43200
+
+      - name: Compute cache key
+        id: cache-key
+        run: |
+          source ci/llvm-version.env
+          SCRIPT_HASH=$(sha256sum ci/build-llvm7.sh | cut -c1-12)
+          VERSION_SHORT=$(echo "$LLVM7_TAG" | cut -c1-12)
+          ARCH=$(uname -m)
+          KEY="llvm7-linux-${ARCH}-${VERSION_SHORT}-${SCRIPT_HASH}"
+          echo "key=${KEY}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore LLVM 7 from GHA cache
+        id: gha-cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        with:
+          path: llvm7-install/
+          key: ${{ steps.cache-key.outputs.key }}
+
       - name: Install build dependencies
+        if: steps.gha-cache.outputs.cache-hit != 'true'
         run: |
           export PATH="$(dirname $PY):$PATH"
           pip install pybind11 nanobind numpy ninja cmake awscli
           chmod +x ci/*.sh
 
       - name: Install sccache
+        if: steps.gha-cache.outputs.cache-hit != 'true'
         run: |
           curl -fsSL "https://github.com/rapidsai/sccache/releases/latest/download/sccache-$(uname -m)-unknown-linux-musl.tar.gz" \
             | tar -C /usr/local/bin -xz --strip-components=1 --wildcards '*/sccache'
           sccache --version
 
       - name: Set up sccache S3 credentials
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
+        if: steps.gha-cache.outputs.cache-hit != 'true'
         run: |
           export PATH="$(dirname $PY):$PATH"
           ci/setup-sccache.sh
 
       - name: Build or restore LLVM 7 from cache
-        env:
-          ARTIF_GENERIC_TOKEN: ${{ secrets.ARTIF_GENERIC_TOKEN }}
+        if: steps.gha-cache.outputs.cache-hit != 'true'
         run: |
           export PATH="$(dirname $PY):$PATH"
           source ci/llvm-version.env
-          CACHE_KEY=$(source ci/llvm-cache.sh && cache_key "llvm7" "$LLVM7_TAG" ci/build-llvm7.sh)
+          CACHE_KEY="${{ steps.cache-key.outputs.key }}"
           echo "Cache key: ${CACHE_KEY}"
           if source ci/llvm-cache.sh && cache_download "$CACHE_KEY" llvm7-install; then
             echo "Using cached LLVM 7"

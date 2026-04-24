@@ -116,6 +116,12 @@ jobs:
           name: llvm7-install-${{ inputs.host-platform }}
           path: llvm7-install
 
+      - name: Fix LLVM artifact permissions
+        if: ${{ startsWith(inputs.host-platform, 'linux') }}
+        run: |
+          chmod -R +x llvm-modern-install/bin/ llvm7-install/bin/ || true
+          chmod -R +x llvm-modern-install/lib/ llvm7-install/lib/ || true
+
       - name: Set LLVM environment variables
         if: ${{ startsWith(inputs.host-platform, 'linux') }}
         run: |

@@ -18,8 +18,18 @@ permissions:
 
 jobs:
   build-llvm-modern:
-    name: LLVM Modern
+    name: LLVM Modern (${{ matrix.py-tag }})
     if: ${{ startsWith(inputs.host-platform, 'linux') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # TODO: Re-enable cp310/cp311 after fixing PEP 695 type parameter syntax
+          # - { cpython: cp310, py-tag: cp310 }
+          # - { cpython: cp311, py-tag: cp311 }
+          - { cpython: cp312, py-tag: cp312 }
+          - { cpython: cp313, py-tag: cp313 }
+          - { cpython: cp314, py-tag: cp314 }
     runs-on: ${{ (inputs.host-platform == 'linux-64' && 'linux-amd64-cpu8') ||
                  (inputs.host-platform == 'linux-aarch64' && 'linux-arm64-cpu8') }}
     timeout-minutes: 180
@@ -27,7 +37,7 @@ jobs:
       image: ${{ (inputs.host-platform == 'linux-aarch64' && 'quay.io/pypa/manylinux_2_28_aarch64') ||
                   'quay.io/pypa/manylinux_2_28_x86_64' }}
     env:
-      PY: /opt/python/cp312-cp312/bin/python
+      PY: /opt/python/${{ matrix.cpython }}-${{ matrix.cpython }}/bin/python
       PARALLEL: "4"
     steps:
       - name: Checkout
@@ -46,7 +56,8 @@ jobs:
           SCRIPT_HASH=$(sha256sum ci/build-llvm-modern.sh | cut -c1-12)
           VERSION_SHORT=$(echo "$LLVM_MODERN_COMMIT" | cut -c1-12)
           ARCH=$(uname -m)
-          KEY="llvm-modern-linux-${ARCH}-${VERSION_SHORT}-${SCRIPT_HASH}"
+          PY_TAG="${{ matrix.py-tag }}"
+          KEY="llvm-modern-linux-${ARCH}-${PY_TAG}-${VERSION_SHORT}-${SCRIPT_HASH}"
           echo "key=${KEY}" >> "$GITHUB_OUTPUT"
 
       - name: Restore LLVM Modern from GHA cache
@@ -60,7 +71,7 @@ jobs:
         if: steps.gha-cache.outputs.cache-hit != 'true'
         run: |
           export PATH="$(dirname $PY):$PATH"
-          pip install pybind11 nanobind numpy ninja cmake awscli
+          pip install pybind11 nanobind numpy ninja cmake awscli typing_extensions
           chmod +x ci/*.sh
 
       - name: Install sccache
@@ -93,7 +104,7 @@ jobs:
       - name: Upload LLVM Modern artifacts
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
-          name: llvm-modern-install-${{ inputs.host-platform }}
+          name: llvm-modern-install-${{ matrix.py-tag }}-${{ inputs.host-platform }}
           path: llvm-modern-install/
           retention-days: 1
 

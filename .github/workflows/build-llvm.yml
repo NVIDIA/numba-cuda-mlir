@@ -25,11 +25,12 @@ jobs:
       matrix:
         include:
           # TODO: Re-enable cp310/cp311 after fixing PEP 695 type parameter syntax
-          # - { cpython: cp310, py-tag: cp310 }
-          # - { cpython: cp311, py-tag: cp311 }
-          - { cpython: cp312, py-tag: cp312 }
-          - { cpython: cp313, py-tag: cp313 }
-          - { cpython: cp314, py-tag: cp314 }
+          # - { python-dir: cp310-cp310, py-tag: cp310 }
+          # - { python-dir: cp311-cp311, py-tag: cp311 }
+          - { python-dir: cp312-cp312, py-tag: cp312 }
+          - { python-dir: cp313-cp313, py-tag: cp313 }
+          - { python-dir: cp314-cp314, py-tag: cp314 }
+          - { python-dir: cp314-cp314t, py-tag: cp314t }
     runs-on: ${{ (inputs.host-platform == 'linux-64' && 'linux-amd64-cpu8') ||
                  (inputs.host-platform == 'linux-aarch64' && 'linux-arm64-cpu8') }}
     timeout-minutes: 180
@@ -37,7 +38,7 @@ jobs:
       image: ${{ (inputs.host-platform == 'linux-aarch64' && 'quay.io/pypa/manylinux_2_28_aarch64') ||
                   'quay.io/pypa/manylinux_2_28_x86_64' }}
     env:
-      PY: /opt/python/${{ matrix.cpython }}-${{ matrix.cpython }}/bin/python
+      PY: /opt/python/${{ matrix.python-dir }}/bin/python
       PARALLEL: "4"
     steps:
       - name: Checkout
@@ -71,7 +72,7 @@ jobs:
         if: steps.gha-cache.outputs.cache-hit != 'true'
         run: |
           export PATH="$(dirname $PY):$PATH"
-          pip install pybind11 nanobind numpy ninja cmake awscli typing_extensions
+          "${PY}" -m pip install pybind11 nanobind numpy ninja cmake awscli typing_extensions
           chmod +x ci/*.sh
 
       - name: Install sccache
@@ -151,7 +152,7 @@ jobs:
         if: steps.gha-cache.outputs.cache-hit != 'true'
         run: |
           export PATH="$(dirname $PY):$PATH"
-          pip install pybind11 nanobind numpy ninja cmake awscli
+          "${PY}" -m pip install pybind11 nanobind numpy ninja cmake awscli
           chmod +x ci/*.sh
 
       - name: Install sccache

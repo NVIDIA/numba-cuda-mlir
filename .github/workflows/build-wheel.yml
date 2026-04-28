@@ -52,7 +52,7 @@ jobs:
         if: ${{ startsWith(inputs.host-platform, 'linux') }}
         run: |
           PY_VER_FMT=$(echo "${{ matrix.python-version }}" | tr -d '.')
-          PY_BIN="/opt/python/cp${PY_VER_FMT}-cp${PY_VER_FMT}/bin"
+          PY_BIN="/opt/python/cp${PY_VER_FMT%t}-cp${PY_VER_FMT}/bin"
           echo "${PY_BIN}" >> "$GITHUB_PATH"
           echo "PY=${PY_BIN}/python" >> "$GITHUB_ENV"
 
@@ -133,11 +133,11 @@ jobs:
         run: |
           export Python3_EXECUTABLE="$(which python)"
           export Python_ROOT_DIR="$(python -c 'import sys; print(sys.prefix)')"
-          pip wheel . --no-deps -v --wheel-dir dist/
+          "${PY}" -m pip wheel . --no-deps -v --wheel-dir dist/
 
       - name: Repair wheel with auditwheel
         run: |
-          pip install auditwheel
+          "${PY}" -m pip install auditwheel
           mkdir -p dist-repaired
           auditwheel -v repair dist/*.whl --wheel-dir dist-repaired/ \
             --exclude libMLIRPythonCAPI.so \
@@ -253,7 +253,7 @@ jobs:
 
       - name: Install cuda-lang-numba-compat
         run: |
-          pip install "${CL_NUMBA_COMPAT_CUDA_ARTIFACTS_DIR}"/*.whl "cuda-bindings==${CUDA_MAJOR}.${CUDA_MINOR}.*"
+          python -m pip install "${CL_NUMBA_COMPAT_CUDA_ARTIFACTS_DIR}"/*.whl "cuda-bindings==${CUDA_MAJOR}.${CUDA_MINOR}.*"
 
       - name: Set up mini CTK ${{ matrix.cuda-version }}
         uses: ./.github/actions/fetch_ctk

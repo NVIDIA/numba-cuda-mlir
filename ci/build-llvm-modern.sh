@@ -68,11 +68,6 @@ cmake_args=(
     -DPython3_EXECUTABLE="$($PYTHON -c 'import sys; print(sys.executable)')"
 )
 
-# if [[ "${MLIR_STABLE_ABI:-0}" == "1" ]]; then
-#     echo ">>> Enabling MLIR Python stable ABI (abi3)"
-#     cmake_args+=(-DMLIR_ENABLE_PYTHON_STABLE_ABI=ON)
-# fi
-
 cmake "${cmake_args[@]}"
 
 # Build & install

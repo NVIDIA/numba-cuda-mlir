@@ -1,5 +1,9 @@
 #python code owners
-numba_cuda/            @rapidsai/numba-cuda-write
+src/             @rapidsai/numba-cuda-write
+cext/            @rapidsai/numba-cuda-write
+tests/           @rapidsai/numba-cuda-write
+toolshed/        @rapidsai/numba-cuda-write
+3rdparty/        @rapidsai/numba-cuda-write
 
 #cmake code owners
 **/CMakeLists.txt  @rapidsai/numba-cuda-write
@@ -11,8 +15,6 @@ numba_cuda/            @rapidsai/numba-cuda-write
 /.pre-commit-config.yaml @rapidsai/ci-codeowners
 
 #packaging code owners
-/.devcontainer/    @rapidsai/packaging-codeowners
-/conda/            @rapidsai/packaging-codeowners
-/dependencies.yaml @rapidsai/packaging-codeowners
-/build.sh          @rapidsai/packaging-codeowners
+/scripts/          @rapidsai/packaging-codeowners
 pyproject.toml     @rapidsai/packaging-codeowners
+setup.py           @rapidsai/packaging-codeowners

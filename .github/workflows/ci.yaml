@@ -14,6 +14,9 @@ on:
     branches:
       - "pull-request/[0-9]+"
       - "main"
+  schedule:
+    - cron: "0 10 * * *"
+  workflow_dispatch:
 
 jobs:
   ci-vars:
@@ -112,24 +115,6 @@ jobs:
       cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
       prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
 
-  # WARNING: make sure all of the build jobs are in sync
-  build-windows:
-    needs:
-      - ci-vars
-      - should-skip
-    strategy:
-      fail-fast: false
-      matrix:
-        host-platform:
-          - win-64
-    name: Build ${{ matrix.host-platform }}
-    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
-    uses: ./.github/workflows/build-wheel.yml
-    with:
-      host-platform: ${{ matrix.host-platform }}
-      cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
-      prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
-
   # WARNING: make sure both Linux test jobs are in sync
   test-linux-64:
     strategy:
@@ -166,22 +151,27 @@ jobs:
       build-type: pull-request
       host-platform: ${{ matrix.host-platform }}
 
-  test-windows:
-    strategy:
-      fail-fast: false
-      matrix:
-        host-platform:
-          - win-64
-    name: Test ${{ matrix.host-platform }}
-    if: ${{ github.repository_owner == 'nvidia' }}
+  test-expensive-linux-64:
+    name: Expensive Test linux-64
+    if: ${{ github.repository_owner == 'nvidia' && github.ref_name == 'main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     permissions:
       contents: read  # This is required for actions/checkout
     needs:
-      - build-windows
-    uses: ./.github/workflows/test-wheel-windows.yml
+      - build-linux-64
+    uses: ./.github/workflows/test-expensive-linux.yml
     with:
-      build-type: pull-request
-      host-platform: ${{ matrix.host-platform }}
+      host-platform: linux-64
+
+  test-expensive-linux-aarch64:
+    name: Expensive Test linux-aarch64
+    if: ${{ github.repository_owner == 'nvidia' && github.ref_name == 'main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: read  # This is required for actions/checkout
+    needs:
+      - build-linux-aarch64
+    uses: ./.github/workflows/test-expensive-linux.yml
+    with:
+      host-platform: linux-aarch64
 
   # ============== old CI jobs (ci.yaml & pr.yaml) ==============
 
@@ -220,19 +210,6 @@ jobs:
             echo 'EOF'
           } >> "${GITHUB_OUTPUT}"
 
-  # TODO: Uncomment when pixi.toml + ci/test_conda.sh are available
-  # test-conda:
-  #   needs:
-  #     - compute-matrix
-  #     - should-skip
-  #   if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
-  #   uses: ./.github/workflows/conda-python-tests.yaml
-  #   with:
-  #     build_type: pull-request
-  #     script: "ci/test_conda.sh"
-  #     run_codecov: false
-  #     matrix: ${{ needs.compute-matrix.outputs.TEST_MATRIX }}
-
   # TODO: Uncomment when pixi.toml + ci/test_simulator.sh are available
   # test-simulator:
   #   needs:
@@ -252,18 +229,6 @@ jobs:
   #   if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
   #   uses: ./.github/workflows/docs-build.yaml
 
-  # TODO: Uncomment when ci/coverage_report.sh + testing/ directory are available
-  # coverage-report:
-  #   needs:
-  #     - build-linux-64
-  #     - compute-matrix
-  #   uses: ./.github/workflows/wheels-test.yaml
-  #   with:
-  #     build_type: pull-request
-  #     script: "ci/coverage_report.sh"
-  #     matrix: ${{ needs.compute-matrix.outputs.TEST_MATRIX }}
-  #     matrix_filter: 'map(select(.ARCH == "amd64" and .CUDA_VER == "12.9.1" and .PY_VER == "3.12")) | .[0:1]'
-
   # =============================================================
 
   checks:
@@ -273,12 +238,12 @@ jobs:
     needs:
       - test-linux-64
       - test-linux-aarch64
-      - test-windows
+      - test-expensive-linux-64
+      - test-expensive-linux-aarch64
       - pre-commit
       # - test-conda
       # - test-simulator
       # - build-docs
-      # - coverage-report
     steps:
       - name: Exit
         run: |
@@ -302,18 +267,16 @@ jobs:
                  needs.test-linux-64.result == 'failure' ||
                  needs.test-linux-aarch64.result == 'cancelled' ||
                  needs.test-linux-aarch64.result == 'failure' ||
-                 needs.test-windows.result == 'cancelled' ||
-                 needs.test-windows.result == 'failure' ||
+                 needs.test-expensive-linux-64.result == 'cancelled' ||
+                 needs.test-expensive-linux-64.result == 'failure' ||
+                 needs.test-expensive-linux-aarch64.result == 'cancelled' ||
+                 needs.test-expensive-linux-aarch64.result == 'failure' ||
                  needs.pre-commit.result == 'cancelled' ||
                  needs.pre-commit.result == 'failure' }}; then
-          #        needs.test-conda.result == 'cancelled' ||
-          #        needs.test-conda.result == 'failure' ||
           #        needs.test-simulator.result == 'cancelled' ||
           #        needs.test-simulator.result == 'failure' ||
           #        needs.build-docs.result == 'cancelled' ||
-          #        needs.build-docs.result == 'failure' ||
-          #        needs.coverage-report.result == 'cancelled' ||
-          #        needs.coverage-report.result == 'failure' }}; then
+          #        needs.build-docs.result == 'failure' }}; then
             exit 1
           else
             exit 0

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 from contextlib import contextmanager
+import gc
 import unittest
 import pytest
 import numpy as np
@@ -16,13 +17,18 @@ from cusimt.numba_cuda.tests.support import captured_stderr
 from cusimt.numba_cuda.core import config
 
 
+def _flush_pending_deallocs(deallocs):
+    gc.collect()
+    deallocs.clear()
+
+
 @skip_on_cudasim("not supported on CUDASIM")
 class TestDeallocation(NumbaCUDATestCase):
     @skip_if_external_memmgr("Deallocation specific to Numba memory management")
     def test_max_pending_count(self):
         # get deallocation manager and flush it
         deallocs = cuda.current_context().memory_manager.deallocations
-        deallocs.clear()
+        _flush_pending_deallocs(deallocs)
         self.assertEqual(len(deallocs), 0)
         # deallocate to maximum count
         for i in range(config.CUDA_DEALLOCS_COUNT):
@@ -37,7 +43,7 @@ class TestDeallocation(NumbaCUDATestCase):
         # get deallocation manager and flush it
         ctx = cuda.current_context()
         deallocs = ctx.memory_manager.deallocations
-        deallocs.clear()
+        _flush_pending_deallocs(deallocs)
         self.assertEqual(len(deallocs), 0)
 
         mi = ctx.get_memory_info()
@@ -73,7 +79,7 @@ class TestDeallocation(NumbaCUDATestCase):
         harr = np.arange(5)
         darr1 = cuda.to_device(harr)
         deallocs = cuda.current_context().memory_manager.deallocations
-        deallocs.clear()
+        _flush_pending_deallocs(deallocs)
         self.assertEqual(len(deallocs), 0)
         with cuda.defer_cleanup():
             darr2 = cuda.to_device(harr)
@@ -84,7 +90,7 @@ class TestDeallocation(NumbaCUDATestCase):
             deallocs.clear()
             self.assertEqual(len(deallocs), 2)
 
-        deallocs.clear()
+        _flush_pending_deallocs(deallocs)
         self.assertEqual(len(deallocs), 0)
 
     @skip_if_external_memmgr("Deallocation specific to Numba memory management")
@@ -92,7 +98,7 @@ class TestDeallocation(NumbaCUDATestCase):
         harr = np.arange(5)
         darr1 = cuda.to_device(harr)
         deallocs = cuda.current_context().memory_manager.deallocations
-        deallocs.clear()
+        _flush_pending_deallocs(deallocs)
         self.assertEqual(len(deallocs), 0)
         with cuda.defer_cleanup():
             with cuda.defer_cleanup():
@@ -106,7 +112,7 @@ class TestDeallocation(NumbaCUDATestCase):
             deallocs.clear()
             self.assertEqual(len(deallocs), 2)
 
-        deallocs.clear()
+        _flush_pending_deallocs(deallocs)
         self.assertEqual(len(deallocs), 0)
 
     @skip_if_external_memmgr("Deallocation specific to Numba memory management")
@@ -114,7 +120,7 @@ class TestDeallocation(NumbaCUDATestCase):
         harr = np.arange(5)
         darr1 = cuda.to_device(harr)
         deallocs = cuda.current_context().memory_manager.deallocations
-        deallocs.clear()
+        _flush_pending_deallocs(deallocs)
         self.assertEqual(len(deallocs), 0)
 
         class CustomError(Exception):
@@ -128,11 +134,11 @@ class TestDeallocation(NumbaCUDATestCase):
                 deallocs.clear()
                 self.assertEqual(len(deallocs), 1)
                 raise CustomError
-        deallocs.clear()
+        _flush_pending_deallocs(deallocs)
         self.assertEqual(len(deallocs), 0)
         del darr1
         self.assertEqual(len(deallocs), 1)
-        deallocs.clear()
+        _flush_pending_deallocs(deallocs)
         self.assertEqual(len(deallocs), 0)
 
     @contextmanager

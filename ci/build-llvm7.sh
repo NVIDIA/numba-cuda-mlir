@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-# Build LLVM 7 (shared libLLVM-7.so) for the NVVM70 path.
+# Build LLVM 7 (shared libLLVM-7.so) for the LLVM70 path.
 #
 # Based on Vijay/Brandon's setup_cusimt_wheel.sh.
 # Note: does NOT cmake --install; the .so is used directly from the build dir.

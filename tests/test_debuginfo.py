@@ -1,12 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""
-Validates that debug=True produces MLIR with correct DI attributes:
-emissionKind=Full, DILocalVariable, DIBasicType, dbg.declare for
-scalar args, dbg.value for locals.
-"""
 
+from enum import IntEnum
+
+import pytest
+import cuda.simt as cuda
 from cuda.simt import types, compiler, testing
+from cusimt.numba_cuda.types.ext_types import bfloat16
 
 
 def k_scalar_add(out, a, b):
@@ -206,4 +206,219 @@ def test_mlir_dbg_value_bool_arg():
         CHECK: llvm.intr.dbg.value
         """,
         mlir,
+    )
+
+
+def test_mlir_grid_group_type():
+    """Emits GridGroup as an opaque 64-bit unsigned DI basic type."""
+
+    def k_grid_group_sync(out):
+        grid = cuda.cg.this_grid()
+        out[0] = grid.sync()
+
+    mlir = compiler.compile_mlir(
+        k_grid_group_sync,
+        types.void(types.int32[:]),
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK: di_basic_type<tag = DW_TAG_base_type, name = "GridGroup"
+        CHECK-SAME: sizeInBits = 64
+        CHECK-SAME: encoding = DW_ATE_unsigned
+        """,
+        mlir,
+    )
+
+
+def test_mlir_cpointer_type():
+    """Emits pointer DI with int32 pointee for CPointer(int32)."""
+
+    def k_cpointer(p):
+        i = cuda.threadIdx.x
+        p[i] = i
+
+    mlir = compiler.compile_mlir(
+        k_cpointer,
+        types.void(types.CPointer(types.int32)),
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK: di_basic_type<tag = DW_TAG_base_type, name = "int32"
+        CHECK-SAME: sizeInBits = 32
+        CHECK-SAME: encoding = DW_ATE_signed
+        CHECK: di_derived_type<tag = DW_TAG_pointer_type
+        CHECK-SAME: baseType = #di_basic_type
+        CHECK-SAME: sizeInBits = 64
+        """,
+        mlir,
+    )
+
+
+def test_mlir_enummember_type():
+    """debug=True emits stable scalar DI for EnumMember locals."""
+
+    class Color(IntEnum):
+        RED = 0
+        GREEN = 1
+        BLUE = 2
+
+    def k_enum(out):
+        i = cuda.threadIdx.x
+        c = Color.GREEN
+        out[i] = c.value
+
+    mlir = compiler.compile_mlir(
+        k_enum,
+        types.void(types.int32[::1]),
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK: di_basic_type<tag = DW_TAG_base_type, name = "IntEnum<int64>(Color)"
+        CHECK-SAME: sizeInBits = 64
+        CHECK-SAME: encoding = DW_ATE_signed
+        """,
+        mlir,
+    )
+
+
+@pytest.mark.parametrize(
+    "arg_type, expected_name",
+    [
+        (types.NPDatetime("ms")[::1], "datetime64[ms]"),
+        (types.NPTimedelta("ms")[::1], "timedelta64[ms]"),
+    ],
+)
+def test_mlir_named_scalar_type(arg_type, expected_name):
+    """Emits signed 64-bit DI basic type for datetime64/timedelta64 units."""
+
+    def k_named_scalar(arg):
+        i = cuda.threadIdx.x
+        x = arg[i]  # noqa: F841
+
+    mlir = compiler.compile_mlir(
+        k_named_scalar,
+        types.void(arg_type),
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        f"""
+        CHECK: di_basic_type<tag = DW_TAG_base_type, name = "{expected_name}"
+        CHECK-SAME: sizeInBits = 64
+        CHECK-SAME: encoding = DW_ATE_signed
+        """,
+        mlir,
+    )
+
+
+def test_mlir_bfloat16_type():
+    """Emits __nv_bfloat16 as a 16-bit float DI type."""
+
+    def k_bfloat16(a, b, out):
+        i = cuda.threadIdx.x
+        c = a[i] + b[i]
+        out[i] = c
+
+    mlir = compiler.compile_mlir(
+        k_bfloat16,
+        types.void(bfloat16[::1], bfloat16[::1], bfloat16[::1]),
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK: di_basic_type<tag = DW_TAG_base_type, name = "__nv_bfloat16"
+        CHECK-SAME: sizeInBits = 16
+        CHECK-SAME: encoding = DW_ATE_float
+        """,
+        mlir,
+    )
+
+
+def k_complex_add(a, b):
+    c = a + b
+    return c
+
+
+def test_mlir_fusedloc_tags_complex():
+    """Complex vars are tagged for deferred dbg.declare emission."""
+    mlir = compiler.compile_mlir(
+        k_complex_add,
+        (types.complex64, types.complex64),
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK: loc("dbg_var:a")
+        CHECK: loc("dbg_var:b")
+        CHECK: loc("dbg_var:c")
+        """,
+        mlir,
+    )
+
+
+def test_mlir_deferred_dbg_declare_complex():
+    """Deferred pass emits dbg.declare and complex DI type."""
+    optimized_mlir = compiler.compile_mlir(
+        k_complex_add,
+        (types.complex128, types.complex128),
+        optimized=True,
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK: loc(
+        CHECK-NOT: loc("dbg_var:
+        CHECK: di_derived_type<tag = DW_TAG_member, name = "real"{{.*}}sizeInBits = 64
+        CHECK: di_derived_type<tag = DW_TAG_member, name = "imag"{{.*}}sizeInBits = 64, offsetInBits = 64
+        CHECK: di_composite_type<tag = DW_TAG_structure_type, name = "complex128", sizeInBits = 128
+        CHECK: di_local_variable<{{.*}}name = "a"{{.*}}type = #di_composite_type
+        CHECK: di_local_variable<{{.*}}name = "b"{{.*}}type = #di_composite_type
+        CHECK: di_local_variable<{{.*}}name = "c"{{.*}}type = #di_composite_type
+        CHECK-COUNT-3: llvm.intr.dbg.declare
+        """,
+        optimized_mlir,
+    )
+
+
+def test_mlir_mixed_complex_scalar():
+    """Regular and deferred emission paths must share same di_subprogram scope."""
+
+    def k_mixed(out, scale, z1, z2, flag):
+        result = z1 + z2
+        scaled_real = scale * result.real
+        if flag:
+            out[0] = scaled_real
+
+    optimized_mlir = compiler.compile_mlir(
+        k_mixed,
+        (
+            types.float32[:],
+            types.int32,
+            types.complex64,
+            types.complex64,
+            types.boolean,
+        ),
+        optimized=True,
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK-COUNT-1: = #llvm.di_subprogram<
+        CHECK-DAG: name = "scale"
+        CHECK-DAG: name = "z1"
+        CHECK-DAG: name = "z2"
+        CHECK-DAG: name = "flag"
+        CHECK-DAG: name = "result"
+        """,
+        optimized_mlir,
     )

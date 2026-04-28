@@ -15,25 +15,20 @@ from cusimt.numba_cuda.testing import cc_X_or_above
 from cusimt.numba_cuda.core.callconv import CUDACallConv
 
 import pytest
+from conftest import TEST_BIN_DIR
 
-TEST_BIN_DIR = os.getenv("NUMBA_CUDA_TEST_BIN_DIR")
-if TEST_BIN_DIR:
-    test_device_functions_a = os.path.join(TEST_BIN_DIR, "test_device_functions.a")
-    test_device_functions_cubin = os.path.join(
-        TEST_BIN_DIR, "test_device_functions.cubin"
-    )
-    test_device_functions_cu = os.path.join(TEST_BIN_DIR, "test_device_functions.cu")
-    test_device_functions_fatbin = os.path.join(
-        TEST_BIN_DIR, "test_device_functions.fatbin"
-    )
-    test_device_functions_fatbin_multi = os.path.join(
-        TEST_BIN_DIR, "test_device_functions_multi.fatbin"
-    )
-    test_device_functions_o = os.path.join(TEST_BIN_DIR, "test_device_functions.o")
-    test_device_functions_ptx = os.path.join(TEST_BIN_DIR, "test_device_functions.ptx")
-    test_device_functions_ltoir = os.path.join(
-        TEST_BIN_DIR, "test_device_functions.ltoir"
-    )
+test_device_functions_a = os.path.join(TEST_BIN_DIR, "test_device_functions.a")
+test_device_functions_cubin = os.path.join(TEST_BIN_DIR, "test_device_functions.cubin")
+test_device_functions_cu = os.path.join(TEST_BIN_DIR, "test_device_functions.cu")
+test_device_functions_fatbin = os.path.join(
+    TEST_BIN_DIR, "test_device_functions.fatbin"
+)
+test_device_functions_fatbin_multi = os.path.join(
+    TEST_BIN_DIR, "test_device_functions_multi.fatbin"
+)
+test_device_functions_o = os.path.join(TEST_BIN_DIR, "test_device_functions.o")
+test_device_functions_ptx = os.path.join(TEST_BIN_DIR, "test_device_functions.ptx")
+test_device_functions_ltoir = os.path.join(TEST_BIN_DIR, "test_device_functions.ltoir")
 
 
 # A test function at the module scope to ensure we get the name right for the C
@@ -588,7 +583,6 @@ class TestCompile(NumbaCUDATestCase):
                 b_smem[0] = b_arg[0]
 
     @pytest.mark.xfail(True, reason="No compile_all")
-    @pytest.mark.skipif(not TEST_BIN_DIR, reason="necessary binaries not generated.")
     def test_compile_all_with_external_functions(self):
         for link in [
             test_device_functions_a,
@@ -623,7 +617,6 @@ class TestCompile(NumbaCUDATestCase):
                 assert code_list[1].kind == link_obj.kind
 
     @pytest.mark.xfail(True, reason="No compile_all")
-    @pytest.mark.skipif(not TEST_BIN_DIR, reason="necessary binaries not generated.")
     def test_compile_all_lineinfo(self):
         add = cuda.declare_device(
             "add", "float32(float32, float32)", link=[test_device_functions_cu]
@@ -644,7 +637,6 @@ class TestCompile(NumbaCUDATestCase):
         )
 
     @pytest.mark.xfail(True, reason="No compile_all")
-    @pytest.mark.skipif(not TEST_BIN_DIR, reason="necessary binaries not generated.")
     def test_compile_all_debug(self):
         add = cuda.declare_device(
             "add", "float32(float32, float32)", link=[test_device_functions_cu]

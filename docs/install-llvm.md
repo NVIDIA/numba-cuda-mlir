@@ -18,7 +18,7 @@ pip install pybind11 nanobind numpy ninja cmake
 # Build modern LLVM + MLIR with cuSIMT-namespaced Python bindings
 ci/build-llvm-modern.sh    # -> llvm-modern-install/
 
-# Build LLVM 7 shared library (for the NVVM70 path)
+# Build LLVM 7 shared library (for the LLVM70 path)
 ci/build-llvm7.sh           # -> llvm7-install/
 ```
 
@@ -34,7 +34,7 @@ automatically clone the correct version if the source tree isn't present.
 - `lib/libMLIRPythonCAPI.so` — MLIR C API shared library (unversioned SONAME)
 
 **LLVM 7** (`llvm7-install/`):
-- `lib/libLLVM-7.so` — shared library for the NVVM70 translator
+- `lib/libLLVM-7.so` — shared library for the LLVM70 translator
 
 ## Key cmake flags
 

@@ -1,9 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+from pathlib import Path
+
 import pytest
 from gpu_utils import check_cc_min, check_cc_exact
 from cusimt.numba_cuda.core import config as cuda_config
+
+TEST_BIN_DIR = os.getenv(
+    "CL_NUMBA_COMPAT_TEST_BIN_DIR",
+    str(Path(__file__).resolve().parent / "numba_cuda_tests" / "testing"),
+)
 
 
 @pytest.fixture(scope="session", autouse=True)

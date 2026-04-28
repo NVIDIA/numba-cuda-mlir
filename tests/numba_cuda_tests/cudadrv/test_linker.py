@@ -113,13 +113,9 @@ def simple_lmem(A, B, dty):
         B[i] = C[i]
 
 
-TEST_BIN_DIR = os.getenv("NUMBA_CUDA_TEST_BIN_DIR")
-if TEST_BIN_DIR:
-    test_device_functions_ltoir = os.path.join(
-        TEST_BIN_DIR, "test_device_functions.ltoir"
-    )
-else:
-    test_device_functions_ltoir = None
+from conftest import TEST_BIN_DIR
+
+test_device_functions_ltoir = os.path.join(TEST_BIN_DIR, "test_device_functions.ltoir")
 
 
 add_from_numba = cuda.declare_device(
@@ -352,7 +348,6 @@ class TestLinker(NumbaCUDATestCase):
         calc_size = np.dtype(np.float64).itemsize * LMEM_SIZE
         self.assertGreaterEqual(local_mem_size, calc_size)
 
-    @pytest.mark.skipif(not TEST_BIN_DIR, reason="NUMBA_CUDA_TEST_BIN_DIR not set")
     def test_debug_kernel_with_lto(self):
         cuda.jit("void(int32[::1])", debug=True, opt=False)(debuggable_kernel)
 

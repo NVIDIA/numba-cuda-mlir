@@ -6,9 +6,10 @@ import os
 
 from typing import NamedTuple
 
-from numba import types
 from cusimt._mlir import ir
 from cusimt.lowering_utilities import context as cusimt_context
+from cusimt.numba_cuda import types
+from cusimt.numba_cuda.types.ext_types import Bfloat16, GridGroup
 
 
 class _DILocalVarInfo(NamedTuple):
@@ -19,29 +20,112 @@ class _DILocalVarInfo(NamedTuple):
 
 
 _BYTE_SIZE_BITS = 8
+_BFLOAT16_BITS = 16
+_GRID_GROUP_BITS = 64
 _INT_LITERAL_BITS = 64
+_POINTER_BITS = 64
 
 
-def _di_basic_type(name, bits, encoding):
+def _basic_di_type(name, bits, encoding):
     return (
         f'#llvm.di_basic_type<tag = DW_TAG_base_type, name = "{name}", '
         f"sizeInBits = {bits}, encoding = DW_ATE_{encoding}>"
     )
 
 
+def _cpointer_di_type(numba_type):
+    pointee_di = _numba_type_to_di_type_str(numba_type.dtype)
+    if pointee_di is None:
+        pointee_di = _basic_di_type("byte", _BYTE_SIZE_BITS, "unsigned_char")
+    return _derived_di_type(
+        "DW_TAG_pointer_type",
+        base_type=pointee_di,
+        size_bits=_POINTER_BITS,
+    )
+
+
+def _enum_member_di_type(numba_type):
+    dtype = numba_type.dtype
+    if not isinstance(dtype, types.Integer):
+        return None
+    encoding = "signed" if dtype.signed else "unsigned"
+    # NOTE: The current MLIR toolchain does not provide #llvm.di_enumerator and
+    # lowering rejects DW_TAG_enumerator encoded via #llvm.di_derived_type in
+    # the modern LLVM translation path. Until #llvm.di_enumerator is available,
+    # emit a stable scalar DI type instead of invalid enum nodes.
+    # Keep str(numba_type) by design.
+    return _basic_di_type(str(numba_type), dtype.bitwidth, encoding)
+
+
+def _complex_di_type(name, float_bits):
+    """Build a DICompositeType string for a complex number."""
+    float_type = _basic_di_type(f"float{float_bits}", float_bits, "float")
+    real_member = (
+        f"#llvm.di_derived_type<tag = DW_TAG_member, "
+        f'name = "real", baseType = {float_type}, '
+        f"sizeInBits = {float_bits}, offsetInBits = 0>"
+    )
+    imag_member = (
+        f"#llvm.di_derived_type<tag = DW_TAG_member, "
+        f'name = "imag", baseType = {float_type}, '
+        f"sizeInBits = {float_bits}, offsetInBits = {float_bits}>"
+    )
+    return (
+        f"#llvm.di_composite_type<tag = DW_TAG_structure_type, "
+        f'name = "{name}", sizeInBits = {float_bits * 2}, '
+        f"elements = {real_member}, {imag_member}>"
+    )
+
+
+def _derived_di_type(
+    tag, *, name=None, base_type=None, size_bits=None, offset_bits=None
+):
+    params = [f"tag = {tag}"]
+    if name is not None:
+        params.append(f'name = "{name}"')
+    if base_type is not None:
+        params.append(f"baseType = {base_type}")
+    if size_bits is not None:
+        params.append(f"sizeInBits = {size_bits}")
+    if offset_bits is not None:
+        params.append(f"offsetInBits = {offset_bits}")
+    return f"#llvm.di_derived_type<{', '.join(params)}>"
+
+
 def _numba_type_to_di_type_str(numba_type):
     """Map a Numba type to an MLIR #llvm.di_basic_type string."""
     match numba_type:
         case types.Boolean() | types.BooleanLiteral():
-            return _di_basic_type("bool", _BYTE_SIZE_BITS, "boolean")
+            return _basic_di_type("bool", _BYTE_SIZE_BITS, "boolean")
         case types.Float(bitwidth=bw):
-            return _di_basic_type(f"float{bw}", bw, "float")
+            return _basic_di_type(f"float{bw}", bw, "float")
         case types.Integer(signed=True, bitwidth=bw):
-            return _di_basic_type(f"int{bw}", bw, "signed")
+            return _basic_di_type(f"int{bw}", bw, "signed")
         case types.Integer(signed=False, bitwidth=bw):
-            return _di_basic_type(f"uint{bw}", bw, "unsigned")
+            return _basic_di_type(f"uint{bw}", bw, "unsigned")
         case types.IntegerLiteral():
-            return _di_basic_type("int64", _INT_LITERAL_BITS, "signed")
+            return _basic_di_type("int64", _INT_LITERAL_BITS, "signed")
+        case types.CPointer():
+            return _cpointer_di_type(numba_type)
+        case types.EnumMember():
+            return _enum_member_di_type(numba_type)
+        case types.NPDatetime():
+            # NumPy stores datetime64 as signed int64.
+            return _basic_di_type(
+                f"datetime64[{numba_type.unit}]", _INT_LITERAL_BITS, "signed"
+            )
+        case types.NPTimedelta():
+            # NumPy stores timedelta64 as signed int64.
+            return _basic_di_type(
+                f"timedelta64[{numba_type.unit}]", _INT_LITERAL_BITS, "signed"
+            )
+        case types.Complex(underlying_float=types.Float(bitwidth=bw)):
+            return _complex_di_type(f"complex{bw * 2}", bw)
+        case Bfloat16():
+            return _basic_di_type("__nv_bfloat16", _BFLOAT16_BITS, "float")
+        case GridGroup():
+            # GridGroup is an opaque cooperative-groups handle.
+            return _basic_di_type("GridGroup", _GRID_GROUP_BITS, "unsigned")
         case _:
             return None
 

@@ -240,28 +240,28 @@ def _get_dummy_kernel_function():
 
 
 @lru_cache(maxsize=1)
-def is_using_nvvm70() -> bool:
-    """Return True if the current environment will use the NVVM70 compilation path."""
-    from cusimt.mlir_optimization import _needs_nvvm70_path
+def is_using_llvm70() -> bool:
+    """Return True if the current environment will use the LLVM70 compilation path."""
+    from cusimt.mlir_optimization import _needs_llvm70_path
 
     cc = get_gpu_compute_capability().replace("sm_", "")
-    return _needs_nvvm70_path(cc)
+    return _needs_llvm70_path(cc)
 
 
 @lru_cache(maxsize=1)
-def get_nvvm70_capi_path() -> str:
-    """Resolve path to the libMLIRToNVVM70.so shared library."""
+def get_llvm70_capi_path() -> str:
+    """Resolve path to the libMLIRToLLVM70.so shared library."""
     import cusimt._mlir._mlir_libs as _mlir_libs
 
     candidates = [
-        Path(__file__).parent / "libMLIRToNVVM70.so",
-        Path(_mlir_libs.__path__[0]) / "libMLIRToNVVM70.so",
+        Path(__file__).parent / "libMLIRToLLVM70.so",
+        Path(_mlir_libs.__path__[0]) / "libMLIRToLLVM70.so",
     ]
     for c in candidates:
         if c.exists():
             return str(c.resolve())
     raise FileNotFoundError(
-        "libMLIRToNVVM70.so not found. Rebuild cusimt with MLIR_DIR env var set."
+        "libMLIRToLLVM70.so not found. Rebuild cusimt with MLIR_DIR env var set."
     )
 
 

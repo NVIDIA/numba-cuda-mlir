@@ -4,13 +4,17 @@
 import copy
 import ctypes
 import os
+from io import StringIO
 
 from cusimt._mlir.passmanager import PassManager
+from cusimt._mlir.dialects import llvm
 from cusimt.tools import generate_mangled_name
 from cusimt._mlir import ir
 from cusimt.lowering_utilities import context
 from cusimt.optimization import run_pre_codegen_patterns
 from cusimt.numba_cuda.cudadrv.nvvm import CompilationUnit
+from cusimt.logging import trace
+from cusimt.mlir.util import find_ops
 from cusimt.lowering.numba_compat.llvm_utils import (
     MLIR_CAPI_LIB_PATH,
     NVPTX64_DATALAYOUT,
@@ -23,11 +27,9 @@ from numba.core.errors import UnsupportedError
 
 def _maybe_link_nrt(linker) -> None:
     """Link NRT object code if NRT is enabled."""
-    # Read at call time so we respect cudf/numba's config.CUDA_ENABLE_NRT (they may set it
-    # after our config module was imported).
-    from numba.cuda.core import config
+    from cusimt.memory_management.config import is_nrt_enabled
 
-    if not getattr(config, "CUDA_ENABLE_NRT", False):
+    if not is_nrt_enabled():
         return
 
     cc = linker.cc
@@ -103,30 +105,30 @@ def get_base_pipeline():
     )
 
 
-def _needs_nvvm70_path(cc: str) -> bool:
+def _needs_llvm70_path(cc: str) -> bool:
     """Return True when libnvvm requires the LLVM 7 dialect of NVVM IR.
 
     The modern dialect (based on LLVM 20+) is used on Blackwell and later
-    (sm_100+).  Everything below sm_100 requires the NVVM70 path which
-    translates MLIR to the LLVM 7 dialect for the NVVM70 reader.
+    (sm_100+).  Everything below sm_100 requires the LLVM70 path which
+    translates MLIR to the LLVM 7 dialect for the LLVM70 reader.
     """
     sm = int("".join(c for c in cc if c.isdigit()))
     return sm < 100
 
 
-_nvvm70_capi = None
+_llvm70_capi = None
 
 
-def _get_nvvm70_capi():
-    global _nvvm70_capi
-    if _nvvm70_capi is not None:
-        return _nvvm70_capi
+def _get_llvm70_capi():
+    global _llvm70_capi
+    if _llvm70_capi is not None:
+        return _llvm70_capi
 
-    from cusimt.tools import get_nvvm70_capi_path
+    from cusimt.tools import get_llvm70_capi_path
 
-    lib = ctypes.CDLL(get_nvvm70_capi_path())
-    lib.nvvm70_translate_gpu_module_from_op.restype = ctypes.c_int
-    lib.nvvm70_translate_gpu_module_from_op.argtypes = [
+    lib = ctypes.CDLL(get_llvm70_capi_path())
+    lib.llvm70_translate_gpu_module_from_op.restype = ctypes.c_int
+    lib.llvm70_translate_gpu_module_from_op.argtypes = [
         ctypes.c_void_p,  # raw_op (Operation*)
         ctypes.c_char_p,  # chip
         ctypes.c_char_p,  # data_layout
@@ -140,9 +142,9 @@ def _get_nvvm70_capi():
         ctypes.POINTER(ctypes.c_size_t),  # out_len
         ctypes.POINTER(ctypes.c_char_p),  # err_out
     ]
-    lib.nvvm70_free.restype = None
-    lib.nvvm70_free.argtypes = [ctypes.c_void_p]
-    _nvvm70_capi = lib
+    lib.llvm70_free.restype = None
+    lib.llvm70_free.argtypes = [ctypes.c_void_p]
+    _llvm70_capi = lib
     return lib
 
 
@@ -162,13 +164,13 @@ def _get_op_ptr(op) -> ctypes.c_void_p:
     return ptr(capsule, b"cusimt._mlir.ir.Operation._CAPIPtr")
 
 
-def _call_nvvm70_capi(module, target_options, gen_lto=False) -> bytes:
-    """Compile MLIR gpu.module via in-process NVVM70 C API (raw Operation*)."""
+def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
+    """Compile MLIR gpu.module via in-process LLVM70 C API (raw Operation*)."""
     from cusimt._mlir.dialects import gpu
     from cusimt.tools import get_gpu_compute_capability
     from numba.cuda.cudadrv.libs import get_libdevice
 
-    lib = _get_nvvm70_capi()
+    lib = _get_llvm70_capi()
     chip = target_options.get("chip", get_gpu_compute_capability())
 
     gpu_modules = [op for op in module.body if isinstance(op, gpu.GPUModuleOp)]
@@ -177,7 +179,7 @@ def _call_nvvm70_capi(module, target_options, gen_lto=False) -> bytes:
     gpu_mod = gpu_modules[0]
 
     if target_options.get("dump_mlir") or target_options.get("dump"):
-        print(f"=============== NVVM70 MLIR Module ===============\n\n{gpu_mod}\n")
+        print(f"=============== LLVM70 MLIR Module ===============\n\n{gpu_mod}\n")
 
     raw_op = _get_op_ptr(gpu_mod.operation)
 
@@ -189,7 +191,7 @@ def _call_nvvm70_capi(module, target_options, gen_lto=False) -> bytes:
 
     if not libllvm:
         raise RuntimeError(
-            "NVVM70 path requires libLLVM-7.so. Set LIBLLVM7=/path/to/libLLVM-7.so"
+            "LLVM70 path requires libLLVM-7.so. Set LIBLLVM7=/path/to/libLLVM-7.so"
         )
 
     libnvvm = _get_libnvvm_path().decode()
@@ -206,7 +208,7 @@ def _call_nvvm70_capi(module, target_options, gen_lto=False) -> bytes:
     out_len = ctypes.c_size_t()
     err_out = ctypes.c_char_p()
 
-    rc = lib.nvvm70_translate_gpu_module_from_op(
+    rc = lib.llvm70_translate_gpu_module_from_op(
         raw_op,
         chip.encode(),
         None,
@@ -224,11 +226,11 @@ def _call_nvvm70_capi(module, target_options, gen_lto=False) -> bytes:
     if rc != 0:
         msg = err_out.value.decode() if err_out.value else "unknown error"
         if err_out.value:
-            lib.nvvm70_free(err_out)
-        raise RuntimeError(f"nvvm70 translation failed: {msg}")
+            lib.llvm70_free(err_out)
+        raise RuntimeError(f"llvm70 translation failed: {msg}")
 
     result = ctypes.string_at(out, out_len.value)
-    lib.nvvm70_free(out)
+    lib.llvm70_free(out)
     return result
 
 
@@ -298,6 +300,111 @@ def _dump_module(mod, header):
     print("\n\n")
 
 
+def _find_dbg_var_name(loc):
+    """Extract dbg variable name from nested locations."""
+    if loc.is_a_name() and loc.name_str.startswith("dbg_var:"):
+        return loc.name_str[len("dbg_var:") :]
+    if loc.is_a_fused():
+        for nested_loc in loc.locations:
+            name = _find_dbg_var_name(nested_loc)
+            if name is not None:
+                return name
+    return None
+
+
+def _strip_dbg_var_nameloc(loc):
+    """Strip dbg_var: NameLoc entries from a location tree."""
+    if loc.is_a_name() and loc.name_str.startswith("dbg_var:"):
+        return None
+    if not loc.is_a_fused():
+        return loc
+    stripped = []
+    for nested_loc in loc.locations:
+        new_loc = _strip_dbg_var_nameloc(nested_loc)
+        if new_loc is not None:
+            stripped.append(new_loc)
+    if not stripped:
+        return loc
+    if len(stripped) == 1:
+        return stripped[0]
+    return ir.Location.fused(stripped)
+
+
+def _cleanup_deferred_dbg_attrs(module_attrs):
+    """Remove internal deferred-debug module attributes."""
+    expr_key = "metadata.dbg_declare_expr"
+    var_key_prefix = "metadata.dbg_declare_var_"
+    for key in [k for k in module_attrs.keys() if k.startswith(var_key_prefix)]:
+        del module_attrs[key]
+    if expr_key in module_attrs:
+        del module_attrs[expr_key]
+
+
+def _emit_deferred_dbg_declares(module):
+    """A deferred emission of dbg.declare for variables tagged during lowering.
+
+    Lowering tags memref.alloca ops with ``dbg_var:<name>`` NameLoc for variables
+    that need to be emitted as dbg.declare after the base pipeline. This helper
+    emits llvm.intr.dbg.declare for tagged allocas in module-local DI scope.
+    """
+    module_attrs = module.operation.attributes
+    var_key_prefix = "metadata.dbg_declare_var_"
+    expr_key = "metadata.dbg_declare_expr"
+    expr_attr = module_attrs[expr_key] if expr_key in module_attrs else None
+    if expr_attr is None:
+        _cleanup_deferred_dbg_attrs(module_attrs)
+        return False
+
+    tagged_vars = []
+    emitted_vars = set()
+    for op in find_ops(module, lambda o: o.name == "llvm.alloca"):
+        loc = op.location
+        var_name = _find_dbg_var_name(loc)
+        if var_name is None:
+            continue
+        if var_name in emitted_vars:
+            continue
+        key = f"{var_key_prefix}{var_name}"
+        var_attr = module_attrs[key] if key in module_attrs else None
+        if var_attr is None:
+            continue
+        tagged_vars.append((op, var_name, var_attr))
+        emitted_vars.add(var_name)
+
+    for op, var_name, var_attr in tagged_vars:
+        # Recover the clean/original location (without dbg_var tags) and use it
+        # consistently for both the alloca and dbg.declare ops.
+        op.location = _strip_dbg_var_nameloc(op.location)
+        with ir.InsertionPoint.after(op), op.location:
+            llvm.intr_dbg_declare(op.result, var_attr, location_expr=expr_attr)
+        trace("Deferred dbg.declare emitted for %s", var_name)
+    _cleanup_deferred_dbg_attrs(module_attrs)
+    return bool(tagged_vars)
+
+
+def _dump_lto_assembly(cres, linker, target_options):
+    """Diagnostic LTO-to-PTX link to dump post-LTO assembly and warn about
+    non-LTO linkables, mirroring CUDACodeLibrary.get_cubin() / get_lto_ptx()."""
+    from cusimt.numba_cuda.cudadrv.driver import _Linker
+
+    diag_linker = _Linker(
+        max_registers=linker.max_registers,
+        cc=linker.cc,
+        additional_flags=["-ptx"],
+        lto=True,
+    )
+    ltoir = cres.metadata.get("ltoir")
+    if ltoir:
+        diag_linker.add_ltoir(ltoir)
+    for link_file in target_options.get("link", []):
+        diag_linker.add_file_guess_ext(link_file, ignore_nonlto=True)
+    ptx_after_lto = diag_linker.get_linked_ptx().decode("utf-8")
+    name = cres.fndesc.qualname
+    print(("ASSEMBLY (AFTER LTO) %s" % name).center(80, "-"))
+    print(ptx_after_lto)
+    print("=" * 80)
+
+
 def optimize(cres):
     with context.get_context():
         target_options = cres.metadata["targetoptions"]
@@ -316,7 +423,15 @@ def optimize(cres):
             print_after_all=target_options.get("print_after_all", False),
         )
         pm.run(module.operation)
-        cres.metadata["mlir_module_optimized"] = str(module)
+
+        if target_options.get("debug"):
+            _emit_deferred_dbg_declares(module)
+        if target_options.get("debug") or target_options.get("lineinfo"):
+            with StringIO() as sb:
+                module.operation.print(enable_debug_info=True, file=sb)
+                cres.metadata["mlir_module_optimized"] = sb.getvalue()
+        else:
+            cres.metadata["mlir_module_optimized"] = str(module)
         if dump_mlir:
             _dump_module(
                 module, "=============== Optimized MLIR Module ==============="
@@ -339,10 +454,10 @@ def optimize(cres):
 
         from numba.cuda.cudadrv.nvvm import LibDevice
 
-        use_nvvm70 = _needs_nvvm70_path(cc)
+        use_llvm70 = _needs_llvm70_path(cc)
 
-        if use_nvvm70:
-            ptx = _call_nvvm70_capi(module, target_options)
+        if use_llvm70:
+            ptx = _call_llvm70_capi(module, target_options)
             llvm_ir = None
         else:
             llvm_ir = _prepare_llvm_ir(
@@ -362,8 +477,8 @@ def optimize(cres):
         linker = copy.deepcopy(cres.metadata["linker"])
 
         if is_lto:
-            if use_nvvm70:
-                ltoir = _call_nvvm70_capi(module, target_options, gen_lto=True)
+            if use_llvm70:
+                ltoir = _call_llvm70_capi(module, target_options, gen_lto=True)
             else:
                 nvvm_opts = _nvvm_options(cc, target_options)
                 cu_lto = CompilationUnit({**nvvm_opts, "gen-lto": None})
@@ -379,6 +494,12 @@ def optimize(cres):
         _maybe_link_nrt(linker)
         code = linker.complete()
         cres.metadata["cubin"] = code.code
+
+        if is_lto:
+            from cusimt.numba_cuda import config
+
+            if config.DUMP_ASSEMBLY:
+                _dump_lto_assembly(cres, linker, target_options)
 
         if target_options.get("dump_cubin", False):
             print(f"=============== Cubin ===============\n\n{code.code}\n\n")

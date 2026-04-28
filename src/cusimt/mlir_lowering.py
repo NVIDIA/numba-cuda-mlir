@@ -235,6 +235,8 @@ class MLIRLower(object):
         self._mlir_gpu_module: gpu.GPUModuleOp | None = None
         self._shared_memory_base: ir.Value | None = None
         self._total_shared_memory_bytes: ir.Value | None = None
+        self._deferred_dbg_declare_vars: set[str] = set()
+        self._debug_forced_alloca: set[str] = set()
 
         # Specializes the target context as seen inside the Lowerer
         # This adds:
@@ -288,6 +290,7 @@ class MLIRLower(object):
                 self.setup_func_op()
                 self.lower_function_body()
                 self.lower_capi_thunks()
+                self._materialize_deferred_dbg_declare_attrs()
                 assert self.metadata
                 self.metadata["mlir_module"] = self.mlir_module
                 # In debug/lineinfo mode, serialize with enable_debug_info so LLVM dialect
@@ -686,6 +689,72 @@ extern "C" __global__ void
                     self.varmap[var_name] = memref.alloca(
                         memref=memref_type, dynamic_sizes=[], symbol_operands=[]
                     )
+                    self._tag_alloca_for_deferred_dbg_declare(
+                        var_name, self.varmap[var_name]
+                    )
+
+    @staticmethod
+    def _canonical_dbg_var_name(var_name: str) -> str:
+        """Normalize Numba SSA names (foo.1 -> foo) for debug metadata lookup."""
+        return var_name.split(".")[0] if "." in var_name else var_name
+
+    def _get_numba_type_for_dbg_var(self, var_name: str):
+        """Resolve typemap entries for SSA-renamed variable names."""
+        base_name = self._canonical_dbg_var_name(var_name)
+        return self.fndesc.typemap.get(var_name) or self.fndesc.typemap.get(base_name)
+
+    def _tag_alloca_for_deferred_dbg_declare(self, var_name, alloca_op):
+        """Attach debug metadata to allocas for deferred dbg.declare emission.
+
+        Tag the memref.alloca with a NameLoc: ``dbg_var:<name>``. A deferred pass in
+        ``mlir_optimization.py`` consumes this tag after base_pipeline.
+        """
+        if (
+            not self._debug_full
+            or self._di_builder is None
+            or not self._di_builder.valid
+            or var_name.startswith("$")
+        ):
+            return
+
+        base_name = self._canonical_dbg_var_name(var_name)
+        numba_type = self._get_numba_type_for_dbg_var(var_name)
+        if not isinstance(numba_type, types.Complex):
+            return
+
+        var_attr = self._di_builder.di_local_vars.get(base_name)
+        if var_attr is None:
+            return
+
+        # Remember this variable so lower_to_mlir() can serialize module-local attrs.
+        self._deferred_dbg_declare_vars.add(base_name)
+        name_loc = ir.Location.name(f"dbg_var:{base_name}")
+        op = alloca_op if isinstance(alloca_op, ir.Operation) else alloca_op.owner
+        op.location = ir.Location.fused([op.location, name_loc])
+
+    def _materialize_deferred_dbg_declare_attrs(self):
+        """Persist deferred DI attrs into the serialized MLIR module.
+
+        optimize() reparses ``mlir_module_str`` and runs deferred dbg.declare
+        emission in that parsed module, so these attrs are intentionally retained
+        for the lowering->optimize handoff and consumed/stripped in
+        ``mlir_optimization._emit_deferred_dbg_declares`` after emission.
+        """
+        if (
+            not self._deferred_dbg_declare_vars
+            or not self._debug_full
+            or self._di_builder is None
+            or not self._di_builder.valid
+        ):
+            return
+
+        attrs = self.mlir_module.operation.attributes
+        attrs["metadata.dbg_declare_expr"] = self._di_builder.di_expression
+        for base_name in sorted(self._deferred_dbg_declare_vars):
+            var_attr = self._di_builder.di_local_vars.get(base_name)
+            if var_attr is None:
+                continue
+            attrs[f"metadata.dbg_declare_var_{base_name}"] = var_attr
 
     def lower_block(self, offset, block):
         """
@@ -2541,7 +2610,7 @@ extern "C" __global__ void
         ):
             return
         # Numba SSA renames: foo.1, foo.2, etc. Map back to the user name.
-        base_name = var_name.split(".")[0] if "." in var_name else var_name
+        base_name = self._canonical_dbg_var_name(var_name)
         var_attr = self._di_builder.di_local_vars.get(base_name)
         if var_attr is None:
             return
@@ -2550,8 +2619,12 @@ extern "C" __global__ void
             mlir_value = value.result
         elif not isinstance(value, ir.Value):
             return
-        is_arg = var_name in self._di_builder.arg_names
-        is_boolean = isinstance(self.fndesc.typemap.get(var_name), types.Boolean)
+        numba_type = self._get_numba_type_for_dbg_var(var_name)
+        if isinstance(numba_type, types.Complex):
+            # Complex values are emitted in a deferred pass via dbg.declare.
+            return
+        is_arg = base_name in self._di_builder.arg_names
+        is_boolean = isinstance(numba_type, types.Boolean)
         if is_arg and not is_boolean:
             # Use dbg.declare (alloca+store) for scalar args, except boolean
             # args which use dbg.value to avoid a known NVVM crash.
@@ -2617,6 +2690,9 @@ extern "C" __global__ void
 
             trace("Loading %s from LLVM stack slot", type(var_type).__name__)
             return llvm.load(res=self.get_mlir_type(var_type), addr=slot)
+        elif var.name in self._debug_forced_alloca:
+            # variable forced to memref.alloca for debug info.
+            return memref.load(memref=self.varmap[var.name], indices=[index_of(0)])
         else:
             trace("")
             # the variable is promoted to register,
@@ -2649,7 +2725,25 @@ extern "C" __global__ void
             assert not self.var_lowered(
                 var
             ), f"Var {var.name} already defined in varmap."
-            self.varmap[var.name] = value
+            numba_type = self._get_numba_type_for_dbg_var(var.name)
+            if (
+                self._debug_full
+                and isinstance(numba_type, types.Complex)
+                and isinstance(value, (ir.Value, ir.OpView))
+            ):
+                # Force single-assign complex vars onto stack so deferred dbg.declare
+                # has a stable pointer location after memref->LLVM lowering.
+                mlir_value = value.result if isinstance(value, ir.OpView) else value
+                memref_type = ir.MemRefType.get(shape=[1], element_type=mlir_value.type)
+                alloca_op = memref.alloca(
+                    memref=memref_type, dynamic_sizes=[], symbol_operands=[]
+                )
+                memref.store(value=mlir_value, memref=alloca_op, indices=[index_of(0)])
+                self.varmap[var.name] = alloca_op
+                self._debug_forced_alloca.add(var.name)
+                self._tag_alloca_for_deferred_dbg_declare(var.name, alloca_op)
+            else:
+                self.varmap[var.name] = value
 
         self._emit_dbg_value(var.name, value)
 

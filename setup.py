@@ -16,7 +16,7 @@ def _find_mlir_python_capi() -> str | None:
 
     When MLIR_DIR is set (pointing to <install>/lib/cmake/mlir), look for
     the library under <install>/python_packages/cusimt_mlir/cusimt/_mlir/_mlir_libs/
-    (our custom install prefix). This ensures libMLIRToNVVM70.so links against
+    (our custom install prefix). This ensures libMLIRToLLVM70.so links against
     the same libMLIRPythonCAPI.so that will be loaded at runtime.
     """
     mlir_dir = os.environ.get("MLIR_DIR")
@@ -58,10 +58,10 @@ class BuildExtWithCmake(build_ext):
         cmake_cmd = ["cmake", "-B", build_dir, ROOT, f"-DCMAKE_BUILD_TYPE={build_type}"]
         mlir_dir = os.environ.get("MLIR_DIR")
         if mlir_dir:
-            cmake_cmd += ["-DBUILD_NVVM70=ON", f"-DMLIR_DIR={mlir_dir}"]
+            cmake_cmd += ["-DBUILD_LLVM70=ON", f"-DMLIR_DIR={mlir_dir}"]
             capi = _find_mlir_python_capi()
             if capi:
-                cmake_cmd.append(f"-DNVVM70_MLIR_PYTHON_CAPI={capi}")
+                cmake_cmd.append(f"-DLLVM70_MLIR_PYTHON_CAPI={capi}")
         self.spawn(cmake_cmd)
         parallel = 1 if self.parallel is None else self.parallel
         self.spawn(["make", "-C", build_dir, "-j", str(parallel)])
@@ -83,29 +83,29 @@ class BuildExtWithCmake(build_ext):
                 else:
                     shutil.copy2(ext_build_path, ext_path)
 
-        # Copy libMLIRToNVVM70.so next to _cext if it was built
-        nvvm70_capi = build_dir / "cext" / "mlir-nvvm70" / "lib" / "libMLIRToNVVM70.so"
-        if nvvm70_capi.exists():
+        # Copy libMLIRToLLVM70.so next to _cext if it was built
+        llvm70_capi = build_dir / "cext" / "mlir-llvm70" / "lib" / "libMLIRToLLVM70.so"
+        if llvm70_capi.exists():
             dest_dir = Path(self.get_ext_fullpath("cusimt._cext")).parent
-            dest = dest_dir / "libMLIRToNVVM70.so"
+            dest = dest_dir / "libMLIRToLLVM70.so"
             if not self.dry_run:
                 dest_dir.mkdir(parents=True, exist_ok=True)
                 if dest.exists() or dest.is_symlink():
                     dest.unlink()
                 if self.editable_mode:
-                    dest.symlink_to(nvvm70_capi)
+                    dest.symlink_to(llvm70_capi)
                 else:
-                    shutil.copy2(nvvm70_capi, dest)
+                    shutil.copy2(llvm70_capi, dest)
 
             # Also place alongside libMLIRPythonCAPI.so so it's found
             # via RPATH when loaded from the wheel
             mlir_libs_dir = Path(self.build_lib) / "cusimt" / "_mlir" / "_mlir_libs"
             if mlir_libs_dir.exists() and not self.dry_run:
-                mlir_dest = mlir_libs_dir / "libMLIRToNVVM70.so"
+                mlir_dest = mlir_libs_dir / "libMLIRToLLVM70.so"
                 if mlir_dest.exists() or mlir_dest.is_symlink():
                     mlir_dest.unlink()
-                print(f"Staging libMLIRToNVVM70.so: {nvvm70_capi} -> {mlir_dest}")
-                shutil.copy2(nvvm70_capi, mlir_dest)
+                print(f"Staging libMLIRToLLVM70.so: {llvm70_capi} -> {mlir_dest}")
+                shutil.copy2(llvm70_capi, mlir_dest)
 
         self._stage_mlir_bindings()
         self._stage_libllvm7()
@@ -141,7 +141,7 @@ class BuildExtWithCmake(build_ext):
             shutil.copytree(str(mlir_pkg), str(dest))
 
     def _stage_libllvm7(self):
-        """Copy libLLVM-7.so into the wheel for the NVVM70 path."""
+        """Copy libLLVM-7.so into the wheel for the LLVM70 path."""
         libllvm7 = os.environ.get("LIBLLVM7")
         if not libllvm7:
             return

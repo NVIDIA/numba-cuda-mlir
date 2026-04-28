@@ -426,7 +426,7 @@ def install_mlir(venv: VEnv) -> None:
 
     When MLIR_DIR is set, uses the MLIR Python packages from the local
     LLVM build tree via a .pth file so that libMLIRPythonCAPI.so matches
-    what libMLIRToNVVM70.so was compiled against.  Otherwise uses eudsl.
+    what libMLIRToLLVM70.so was compiled against.  Otherwise uses eudsl.
     """
     local_mlir = _mlir_python_packages_from_mlir_dir()
     if local_mlir:

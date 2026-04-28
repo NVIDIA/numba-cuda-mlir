@@ -4,6 +4,7 @@
 """CI test for cusimt - creates env, installs cusimt, runs tests."""
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -11,11 +12,14 @@ from env_utils import (
     VEnv,
     install_cusimt_editable,
     CUSIMT_ROOT,
+    run,
     parse_junit_xml,
     JUnitResults,
     add_standard_parser_args,
     resolve_venv,
 )
+
+TESTING_DIR = CUSIMT_ROOT / "tests" / "numba_cuda_tests" / "testing"
 
 
 def run_tests(venv: VEnv, pytest_args: list = None) -> tuple[JUnitResults, Path]:
@@ -42,6 +46,8 @@ def main():
 
     with resolve_venv(args, "cusimt_test_venv", "cusimt_test_") as venv:
         install_cusimt_editable(venv)
+        run(["make", "-C", str(TESTING_DIR)])
+        os.environ["CL_NUMBA_COMPAT_TEST_BIN_DIR"] = str(TESTING_DIR)
         results, _ = run_tests(venv, args.pytest_args)
 
     results.print_summary()

@@ -8,27 +8,21 @@ import cuda.simt as cuda
 from cusimt.numba_cuda.cudadrv.linkable_code import LinkableCode
 from cusimt.testing import NumbaCUDATestCase
 from cusimt.numba_cuda.testing import skip_on_cudasim
+from conftest import TEST_BIN_DIR
 
-TEST_BIN_DIR = os.getenv("NUMBA_CUDA_TEST_BIN_DIR")
-if TEST_BIN_DIR:
-    test_device_functions_a = os.path.join(TEST_BIN_DIR, "test_device_functions.a")
-    test_device_functions_cubin = os.path.join(
-        TEST_BIN_DIR, "test_device_functions.cubin"
-    )
-    test_device_functions_cu = os.path.join(TEST_BIN_DIR, "test_device_functions.cu")
-    test_device_functions_fatbin = os.path.join(
-        TEST_BIN_DIR, "test_device_functions.fatbin"
-    )
-    test_device_functions_o = os.path.join(TEST_BIN_DIR, "test_device_functions.o")
-    test_device_functions_ptx = os.path.join(TEST_BIN_DIR, "test_device_functions.ptx")
-    test_device_functions_ltoir = os.path.join(
-        TEST_BIN_DIR, "test_device_functions.ltoir"
-    )
+test_device_functions_a = os.path.join(TEST_BIN_DIR, "test_device_functions.a")
+test_device_functions_cubin = os.path.join(TEST_BIN_DIR, "test_device_functions.cubin")
+test_device_functions_cu = os.path.join(TEST_BIN_DIR, "test_device_functions.cu")
+test_device_functions_fatbin = os.path.join(
+    TEST_BIN_DIR, "test_device_functions.fatbin"
+)
+test_device_functions_o = os.path.join(TEST_BIN_DIR, "test_device_functions.o")
+test_device_functions_ptx = os.path.join(TEST_BIN_DIR, "test_device_functions.ptx")
+test_device_functions_ltoir = os.path.join(TEST_BIN_DIR, "test_device_functions.ltoir")
 
 
 class TestLinkableCode(NumbaCUDATestCase):
     @skip_on_cudasim(reason="Simulator does not support linkable code")
-    @unittest.skipIf(not TEST_BIN_DIR, "necessary binaries not generated.")
     def test_linkable_code_from_path_or_obj(self):
         files_kind = [
             (test_device_functions_a, cuda.Archive),

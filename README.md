@@ -235,7 +235,7 @@ LIBLLVM7=$PWD/llvm7-install/lib/libLLVM-7.so \
 
 `setup.py` detects `MLIR_DIR` and `LIBLLVM7` and automatically bundles the
 MLIR Python bindings, `libMLIRPythonCAPI.so`, `libLLVM-7.so`, and
-`libMLIRToNVVM70.so` into the package.
+`libMLIRToLLVM70.so` into the package.
 
 ### Option 3: Build LLVM from source
 
@@ -260,15 +260,15 @@ LIBLLVM7=$PWD/llvm7-install/lib/libLLVM-7.so \
 
 See [docs/install-llvm.md](docs/install-llvm.md) for more details.
 
-### NVVM70 path (pre-Blackwell GPUs)
+### LLVM70 path (pre-Blackwell GPUs)
 
-For pre-Blackwell GPUs (< sm_100), cuSIMT uses the mlir-nvvm70 translator
+For pre-Blackwell GPUs (< sm_100), cuSIMT uses the mlir-llvm70 translator
 which rebuilds LLVM 7 IR (based on LLVM 7.0.1) from MLIR for the LLVM 7
 dialect of NVVM IR. When installed via `MLIR_DIR` + `LIBLLVM7` (Options 2/3),
 this is set up automatically.
 
-The NVVM70 path is auto-selected when the target GPU is below sm_100.
-See `cext/mlir-nvvm70/README.md` for details on the translator.
+The LLVM70 path is auto-selected when the target GPU is below sm_100.
+See `cext/mlir-llvm70/README.md` for details on the translator.
 
 ## Testing
 

@@ -24,10 +24,10 @@ add_custom_target(devinstall
 
 add_subdirectory(cext)
 
-option(BUILD_NVVM70 "Build mlir-nvvm70 (requires MLIR_DIR)" OFF)
-if(BUILD_NVVM70)
+option(BUILD_LLVM70 "Build mlir-llvm70 (requires MLIR_DIR)" OFF)
+if(BUILD_LLVM70)
   if(NOT DEFINED MLIR_DIR)
-    message(FATAL_ERROR "BUILD_NVVM70=ON requires MLIR_DIR to be set")
+    message(FATAL_ERROR "BUILD_LLVM70=ON requires MLIR_DIR to be set")
   endif()
-  add_subdirectory(cext/mlir-nvvm70)
+  add_subdirectory(cext/mlir-llvm70)
 endif()

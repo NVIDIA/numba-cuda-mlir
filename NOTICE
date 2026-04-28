@@ -101,7 +101,7 @@ For the full license text, see the "MIT License (appdirs)" section of
 Locations in this repository:
   - src/cusimt/mlir/** modulo {dialect_exts/math.py, dialect_exts/llvm.py}
   - scripts/generate-test-checks.py
-  - cext/mlir-nvvm70/**
+  - cext/mlir-llvm70/**
 
 Original copyright notices (verbatim from the upstream LICENSE file):
 

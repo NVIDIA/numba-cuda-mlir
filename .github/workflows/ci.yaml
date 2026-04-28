@@ -245,57 +245,6 @@ jobs:
   #     script: "ci/test_simulator.sh"
   #     matrix: ${{ needs.compute-matrix.outputs.SIMULATOR_MATRIX }}
 
-  # TODO: Uncomment when ci/test_wheel_deps_wheels.sh is available
-  # test-wheels-deps-wheels:
-  #   needs:
-  #     - build-linux-64
-  #     - compute-matrix
-  #   uses: ./.github/workflows/wheels-test.yaml
-  #   with:
-  #     build_type: pull-request
-  #     script: "ci/test_wheel_deps_wheels.sh"
-  #     matrix: ${{ needs.compute-matrix.outputs.TEST_MATRIX }}
-  #     matrix_filter: map(select(.ARCH == "amd64" and (.CUDA_VER | split(".") | .[0] | tonumber >= 12))) | group_by(.CUDA_VER|split(".")|map(tonumber)|.[0]) | map(max_by([(.PY_VER|split(".")|map(tonumber)), (.CUDA_VER|split(".")|map(tonumber))]))
-
-  # TODO: Uncomment when ci/test_thirdparty_cudf.sh is available
-  # test-thirdparty-cudf:
-  #   needs:
-  #     - build-linux-64
-  #     - compute-matrix
-  #   uses: ./.github/workflows/wheels-test.yaml
-  #   with:
-  #     build_type: pull-request
-  #     script: "ci/test_thirdparty_cudf.sh"
-  #     matrix: ${{ needs.compute-matrix.outputs.TEST_MATRIX }}
-  #     # TODO: Enable for CUDA 13 when a supporting version of cuDF is available
-  #     matrix_filter: map(select(.ARCH == "amd64" and (.CUDA_VER | split(".") | .[0] | tonumber == 12))) | group_by(.CUDA_VER|split(".")|map(tonumber)|.[0]) | map(max_by([(.PY_VER|split(".")|map(tonumber)), (.CUDA_VER|split(".")|map(tonumber))]))
-
-  # TODO: Uncomment when ci/test_thirdparty_nvmath.sh is available
-  # test-thirdparty-nvmath:
-  #   needs:
-  #     - build-linux-64
-  #     - compute-matrix
-  #   uses: ./.github/workflows/wheels-test.yaml
-  #   with:
-  #     build_type: pull-request
-  #     script: "ci/test_thirdparty_nvmath.sh"
-  #     matrix: ${{ needs.compute-matrix.outputs.TEST_MATRIX }}
-  #     # TODO: Enable for CUDA 13 when a supporting version of nvmath-python is available
-  #     matrix_filter: map(select(.ARCH == "amd64" and (.CUDA_VER | split(".") | .[0] | tonumber == 12))) | group_by(.CUDA_VER|split(".")|map(tonumber)|.[0]) | map(max_by([(.PY_VER|split(".")|map(tonumber)), (.CUDA_VER|split(".")|map(tonumber))]))
-
-  # TODO: Uncomment when ci/test_thirdparty_awkward.sh is available
-  # test-thirdparty-awkward:
-  #   needs:
-  #     - build-linux-64
-  #     - compute-matrix
-  #   uses: ./.github/workflows/wheels-test.yaml
-  #   with:
-  #     build_type: pull-request
-  #     script: "ci/test_thirdparty_awkward.sh"
-  #     matrix: ${{ needs.compute-matrix.outputs.TEST_MATRIX }}
-  #     # TODO: Enable for CUDA 13 in future
-  #     matrix_filter: map(select(.ARCH == "amd64" and (.CUDA_VER | split(".") | .[0] | tonumber == 12))) | group_by(.CUDA_VER|split(".")|map(tonumber)|.[0]) | map(max_by([(.PY_VER|split(".")|map(tonumber)), (.CUDA_VER|split(".")|map(tonumber))]))
-
   # TODO: Uncomment when pixi.toml docs environment + Sphinx setup are available
   # build-docs:
   #   needs:
@@ -328,9 +277,6 @@ jobs:
       - pre-commit
       # - test-conda
       # - test-simulator
-      # - test-thirdparty-cudf
-      # - test-thirdparty-nvmath
-      # - test-thirdparty-awkward
       # - build-docs
       # - coverage-report
     steps:
@@ -364,12 +310,6 @@ jobs:
           #        needs.test-conda.result == 'failure' ||
           #        needs.test-simulator.result == 'cancelled' ||
           #        needs.test-simulator.result == 'failure' ||
-          #        needs.test-thirdparty-cudf.result == 'cancelled' ||
-          #        needs.test-thirdparty-cudf.result == 'failure' ||
-          #        needs.test-thirdparty-nvmath.result == 'cancelled' ||
-          #        needs.test-thirdparty-nvmath.result == 'failure' ||
-          #        needs.test-thirdparty-awkward.result == 'cancelled' ||
-          #        needs.test-thirdparty-awkward.result == 'failure' ||
           #        needs.build-docs.result == 'cancelled' ||
           #        needs.build-docs.result == 'failure' ||
           #        needs.coverage-report.result == 'cancelled' ||

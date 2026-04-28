@@ -299,9 +299,7 @@ class TargetConfig(metaclass=_MetaTargetConfig):
         """Return a string suitable for symbol mangling."""
         zdict = self._make_compression_dictionary()
 
-        comp = zlib.compressobj(
-            zdict=zdict, level=zlib.Z_BEST_COMPRESSION, **self._ZLIB_CONFIG
-        )
+        comp = zlib.compressobj(zdict=zdict, level=zlib.Z_BEST_COMPRESSION, **self._ZLIB_CONFIG)
         # The mangled string is a compressed and base64 encoded version of the
         # summary
         buf = [comp.compress(self.summary().encode())]

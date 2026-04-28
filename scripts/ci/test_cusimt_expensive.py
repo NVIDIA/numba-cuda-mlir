@@ -87,9 +87,7 @@ def main():
         f"[expensive] Starting with args: venv={args.venv}, keep_venv={args.keep_venv}, pytest_args={args.pytest_args}"
     )
 
-    with resolve_venv(
-        args, "cusimt_expensive_test_venv", "cusimt_expensive_test_"
-    ) as venv:
+    with resolve_venv(args, "cusimt_expensive_test_venv", "cusimt_expensive_test_") as venv:
         install_cusimt_editable(venv)
         install_expensive_dependencies(venv)
         results, _ = run_benchmarks(venv, args.pytest_args)

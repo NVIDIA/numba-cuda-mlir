@@ -93,7 +93,7 @@ def _validate_bitwidth(instruction, array):
     dtype = array.dtype
 
     if not isinstance(dtype, (types.Integer, types.Float)):
-        msg = f"{instruction} requires array of integer or float type, " f"got {dtype}"
+        msg = f"{instruction} requires array of integer or float type, got {dtype}"
         raise NumbaTypeError(msg)
 
     bitwidth = dtype.bitwidth
@@ -145,9 +145,7 @@ def ld_cache_operator(operator):
 
             array, indices = args
 
-            ptr = _get_element_pointer(
-                context, builder, index_type, indices, array_type, array
-            )
+            ptr = _get_element_pointer(context, builder, index_type, indices, array_type, array)
 
             bitwidth = array_type.dtype.bitwidth
             inst = f"ld.global.{operator}.b{bitwidth}"
@@ -183,9 +181,7 @@ def st_cache_operator(operator):
 
             array, indices, value = args
 
-            ptr = _get_element_pointer(
-                context, builder, index_type, indices, array_type, array
-            )
+            ptr = _get_element_pointer(context, builder, index_type, indices, array_type, array)
 
             casted_value = context.cast(builder, value, value_type, array_type.dtype)
 

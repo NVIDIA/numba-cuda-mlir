@@ -33,18 +33,14 @@ def lower_aggregate_type_getattr(
     trace("Lowering getattr for AggregateType: %s.%s", value_type.name, attr)
 
     # Check if this is a bitfield
-    if attr in value_type.field_layout and value_type.field_layout[attr].get(
-        "is_bitfield", False
-    ):
+    if attr in value_type.field_layout and value_type.field_layout[attr].get("is_bitfield", False):
         # This is a bitfield - use shift/mask operations
         field_info = value_type.field_layout[attr]
         bit_offset = field_info["bit_offset"]
         bit_width = field_info["bit_width"]
         underlying_type = field_info["underlying_type"]
 
-        trace(
-            f"Bitfield access: {attr} at bit_offset={bit_offset}, bit_width={bit_width}"
-        )
+        trace(f"Bitfield access: {attr} at bit_offset={bit_offset}, bit_width={bit_width}")
 
         # Load the struct value
         struct_value = builder.load_var(value)
@@ -100,9 +96,7 @@ def lower_aggregate_type_getattr(
 
     # Load the struct value
     struct_value = builder.load_var(value)
-    trace(
-        f"Struct value type: {struct_value.type}, extracting field at index {field_index}"
-    )
+    trace(f"Struct value type: {struct_value.type}, extracting field at index {field_index}")
 
     # Extract the field using LLVM extractvalue
     # extractvalue takes the struct and the position (field index)
@@ -131,9 +125,7 @@ def _lower_struct_construction_impl(
     in registers or spill to stack. Fields are set via subsequent setattr operations using
     LLVM insertvalue, which works on SSA values.
     """
-    trace(
-        f"Lowering struct construction: target={target}, args={args}, kwargs={kwargs}"
-    )
+    trace(f"Lowering struct construction: target={target}, args={args}, kwargs={kwargs}")
 
     # Get the struct type being constructed
     target_type = builder.get_numba_type(target.name)
@@ -146,9 +138,7 @@ def _lower_struct_construction_impl(
     zero_struct = llvm.mlir_zero(res=mlir_struct_type)
 
     builder.store_var(target, zero_struct)
-    trace(
-        f"Created zero-initialized struct of type {target_type} in {target.name} (inline)"
-    )
+    trace(f"Created zero-initialized struct of type {target_type} in {target.name} (inline)")
 
 
 @registry.lower(AggregateType)

@@ -53,9 +53,7 @@ class PrintFunctionTemplate(AbstractTemplate):
     def generic(self, args, kws):
         for arg in args:
             if not self.is_valid_print_argument_type(arg):
-                raise TypeError(
-                    f"Invalid argument type for print: {arg=} ({type(arg)=})"
-                )
+                raise TypeError(f"Invalid argument type for print: {arg=} ({type(arg)=})")
 
         if "end" in kws:
             end = kws.pop("end")
@@ -99,7 +97,7 @@ class InlinePTXFunctionTemplate(AbstractTemplate):
         result_types = []
         arg_types = [types.string]
 
-        for i, (fmt, arg) in enumerate(zip(rest[::2], rest[1::2])):
+        for i, (fmt, _arg) in enumerate(zip(rest[::2], rest[1::2])):
             if not isinstance(fmt, types.Literal):
                 force_args_to_be_literal.add(1 + i * 2)
             else:
@@ -135,9 +133,7 @@ class PointerCastTemplate(AbstractTemplate):
     def generic(self, args, kws):
         if len(args) != 1:
             raise TypeError(f"ptr() takes exactly 1 argument ({len(args)} given)")
-        if isinstance(
-            args[0], (types.Array, types.CPointer, types.Integer, types.AggregateType)
-        ):
+        if isinstance(args[0], (types.Array, types.CPointer, types.Integer, types.AggregateType)):
             return signature(types.CPointer(types.none), args[0])
         else:
             raise TypeError(f"Invalid argument type for pointer cast: {args[0]=}")
@@ -261,9 +257,7 @@ class GenericArrayTemplate(CallableTemplate):
                 try:
                     dt = np.dtype(dtype.literal_value)
                 except TypeError:
-                    raise TypingError(
-                        f"Invalid NumPy dtype specified: '{dtype.literal_value}'"
-                    )
+                    raise TypingError(f"Invalid NumPy dtype specified: '{dtype.literal_value}'")
                 nb_dtype = from_dtype(dt)
             else:
                 return None
@@ -285,9 +279,7 @@ class ConstArrayLikeTemplate(AbstractTemplate):
         if len(args) == 1 and isinstance(args[0], types.Array):
             arr = args[0]
             # const.array_like returns an array with same shape and dtype
-            return signature(
-                types.Array(dtype=arr.dtype, ndim=arr.ndim, layout=arr.layout), arr
-            )
+            return signature(types.Array(dtype=arr.dtype, ndim=arr.ndim, layout=arr.layout), arr)
         return None
 
 
@@ -655,9 +647,7 @@ class Cuda_stub_resolver(cudadecl.CudaModuleTemplate, AttributeTemplate):
         )
         from cusimt.typing.cuda_vector_types import make_constructor_template
 
-        stub = vector_type_stubs_by_name.get(attr) or vector_type_stubs_by_alias.get(
-            attr
-        )
+        stub = vector_type_stubs_by_name.get(attr) or vector_type_stubs_by_alias.get(attr)
         if stub is not None:
             template = make_constructor_template(stub)
             return types.Function(template)
@@ -710,7 +700,7 @@ def register_syncthreads_variants():
     from cusimt import cuda
     from cusimt._mlir.dialects import nvvm
 
-    for intrin, reduction_op in [
+    for intrin, _reduction_op in [
         (cuda.syncthreads_and, nvvm.BarrierReduction.AND),
         (cuda.syncthreads_or, nvvm.BarrierReduction.OR),
         (cuda.syncthreads_count, nvvm.BarrierReduction.POPC),
@@ -860,9 +850,7 @@ def _validate_cache_hint_args(instruction, array, index):
     is_array = isinstance(array, types.Array)
     is_pointer = isinstance(array, types.CPointer)
     if not (is_array or is_pointer):
-        raise TypingError(
-            f"{instruction} operates on arrays or pointers. Got type {array}"
-        )
+        raise TypingError(f"{instruction} operates on arrays or pointers. Got type {array}")
 
     if isinstance(index, types.Integer):
         if is_array and array.ndim != 1:
@@ -871,9 +859,7 @@ def _validate_cache_hint_args(instruction, array, index):
 
     if isinstance(index, types.UniTuple):
         if is_pointer:
-            raise TypingError(
-                f"Pointers only support scalar indexing, got tuple of {index.count}"
-            )
+            raise TypingError(f"Pointers only support scalar indexing, got tuple of {index.count}")
         if index.count != array.ndim:
             raise TypingError(f"Expected {array.ndim} indices, got {index.count}")
         if isinstance(index.dtype, types.Integer):
@@ -888,9 +874,7 @@ def _validate_cache_hint_dtype(instruction, array):
 
     dtype = array.dtype
     if not isinstance(dtype, (types.Integer, types.Float)):
-        raise TypingError(
-            f"{instruction} requires array of integer or float type, got {dtype}"
-        )
+        raise TypingError(f"{instruction} requires array of integer or float type, got {dtype}")
     bitwidth = dtype.bitwidth
     if bitwidth not in CACHE_HINT_CONSTRAINT_MAP:
         valid_widths = sorted(CACHE_HINT_CONSTRAINT_MAP.keys())

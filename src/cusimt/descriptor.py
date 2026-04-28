@@ -67,9 +67,7 @@ def _strided_memory_view_to_device_array(smv):
     dtype = np.dtype(smv.dtype)
     strides = smv.strides
     if strides is None:
-        strides = tuple(
-            dtype.itemsize * int(np.prod(shape[i + 1 :])) for i in range(len(shape))
-        )
+        strides = tuple(dtype.itemsize * int(np.prod(shape[i + 1 :])) for i in range(len(shape)))
 
     size = driver.memory_size_from_info(shape, strides, dtype.itemsize)
     devptr = driver.get_devptr_for_active_ctx(smv.ptr)
@@ -92,6 +90,13 @@ class _LoadedModule:
         self.handle = handle
 
 
+def _run_teardown_cb(cb, object_code):
+    try:
+        cb(object_code)
+    except Exception:
+        logging.exception("teardown callback %r failed for %r", cb, object_code)
+
+
 class _ModuleCallbackRef:
     """Prevent GC of ObjectCode and invoke teardown callbacks when this ref is collected."""
 
@@ -103,12 +108,7 @@ class _ModuleCallbackRef:
 
     def __del__(self):
         for cb in self._teardown_cbs:
-            try:
-                cb(self._object_code)
-            except Exception:
-                logging.exception(
-                    "teardown callback %r failed for %r", cb, self._object_code
-                )
+            _run_teardown_cb(cb, self._object_code)
         self._teardown_cbs = []
         self._object_code = None
 
@@ -147,6 +147,13 @@ def _ensure_numba_cuda_context():
     from numba.cuda.cudadrv import devices
 
     return devices.get_context()
+
+
+def _typeof_or_none(arg):
+    try:
+        return typeof(arg)
+    except (ValueError, TypeError):
+        return None
 
 
 class _ArgMarshaller:
@@ -208,9 +215,7 @@ class _ArgMarshaller:
 
                     self._callbacks.append(copy_back)
                 return device_arg
-            case _ if hasattr(arg, "__cuda_array_interface__") and not isinstance(
-                arg, np.ndarray
-            ):
+            case _ if hasattr(arg, "__cuda_array_interface__") and not isinstance(arg, np.ndarray):
                 # Third-party objects implementing __cuda_array_interface__.
                 # Convert to DeviceNDArray so typeof() works.
                 from cusimt.numba_cuda.cudadrv.devicearray import DeviceNDArrayBase
@@ -219,9 +224,7 @@ class _ArgMarshaller:
                     return arg
                 from numba.cuda.api import from_cuda_array_interface
 
-                return from_cuda_array_interface(
-                    arg.__cuda_array_interface__, owner=arg
-                )
+                return from_cuda_array_interface(arg.__cuda_array_interface__, owner=arg)
             case np.ndarray() if hasattr(arg, "__cuda_array_interface__"):
                 return arg
             case np.ndarray():
@@ -265,9 +268,7 @@ class _ArgMarshaller:
                 ) from e
             val = arg
             for extension in reversed(self._extensions):
-                ty, val = extension.prepare_args(
-                    ty, val, stream=None, retr=self._callbacks
-                )
+                ty, val = extension.prepare_args(ty, val, stream=None, retr=self._callbacks)
             transformed_vals.append(val)
         return transformed_vals
 
@@ -312,12 +313,7 @@ class _ArgMarshaller:
         return coerced_args, coerced_types
 
     def __call__(self, *args):
-        original_types = []
-        for arg in args:
-            try:
-                original_types.append(typeof(arg))
-            except (ValueError, TypeError):
-                original_types.append(None)
+        original_types = [_typeof_or_none(arg) for arg in args]
 
         args = self._apply_extensions(args)
 
@@ -388,7 +384,6 @@ def get_constant_args(py_func):
 
 
 class MLIRTypingContext(typing.BaseContext):
-
     def get_getattr(self, typ, attr):
         return super().get_getattr(typ, attr)
 
@@ -495,8 +490,7 @@ class MLIRTypingContext(typing.BaseContext):
             except AttributeError:
                 if not val._can_compile:
                     raise ValueError(
-                        "using cpu function in njit_mlir code "
-                        "but its compilation is disabled"
+                        "using cpu function in njit_mlir code but its compilation is disabled"
                     )
                 targetoptions = val.targetoptions.copy()
                 disp = MLIRDispatcher(val.py_func, targetoptions)
@@ -712,15 +706,11 @@ class MLIRTargetContext(BaseContext):
         except errors.NumbaNotImplementedError:
             pass
 
-        raise NotImplementedError(
-            "No definition for lowering %s.%s = %s" % (typ, attr, valty)
-        )
+        raise NotImplementedError("No definition for lowering %s.%s = %s" % (typ, attr, valty))
 
     def _filter_numba_lowerings(self, overloads):
         filtered_versions = list(
-            filter(
-                lambda x: x[1].__module__.split(".")[0] != "numba", overloads.versions
-            )
+            filter(lambda x: x[1].__module__.split(".")[0] != "numba", overloads.versions)
         )
         overloads.versions = type(overloads.versions)(filtered_versions)
 
@@ -820,9 +810,7 @@ class MLIRTargetContext(BaseContext):
                 to get the function and we'll link it in later.
                 """
                 library = builder.load_var(val)
-                assert hasattr(
-                    library, attr
-                ), f"Library {library} has no attribute {attr!r}"
+                assert hasattr(library, attr), f"Library {library} has no attribute {attr!r}"
                 func = getattr(library, attr)
                 builder.store_var(target, func)
 
@@ -928,7 +916,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     _fold_args = False
     targetdescr = mlir_target
 
-    def __init__(self, py_func, targetoptions={}):
+    def __init__(self, py_func, targetoptions=None):
+        if targetoptions is None:
+            targetoptions = {}
         # AST transforms now happen at compile time (in compile_mlir) when we
         # have the signature (argtypes) available. This allows consteval to
         # access argument types and target options.
@@ -972,10 +962,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             cluster = normalize_kernel_dimensions(cluster, (1, 1, 1))[0]
 
         # Warn when the grid has fewer than 128 blocks (low occupancy)
-        if (
-            cuda_config.CUDA_LOW_OCCUPANCY_WARNINGS
-            and not cuda_config.DISABLE_PERFORMANCE_WARNINGS
-        ):
+        if cuda_config.CUDA_LOW_OCCUPANCY_WARNINGS and not cuda_config.DISABLE_PERFORMANCE_WARNINGS:
             min_grid_size = 128
             grid_size = griddim[0] * griddim[1] * griddim[2]
             if grid_size < min_grid_size:
@@ -1036,17 +1023,11 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             return self.overloads[sig]
 
         # Extract args to search for matching overload
-        search_args = (
-            sig.args
-            if hasattr(sig, "args")
-            else sig if isinstance(sig, tuple) else None
-        )
+        search_args = sig.args if hasattr(sig, "args") else sig if isinstance(sig, tuple) else None
         if search_args is not None:
             for key, cres in self.overloads.items():
                 key_args = (
-                    key.args
-                    if hasattr(key, "args")
-                    else key if isinstance(key, tuple) else None
+                    key.args if hasattr(key, "args") else key if isinstance(key, tuple) else None
                 )
                 if key_args == search_args:
                     return cres
@@ -1060,9 +1041,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         if search_args is not None:
             for key, cres in self.overloads.items():
                 key_args = (
-                    key.args
-                    if hasattr(key, "args")
-                    else key if isinstance(key, tuple) else None
+                    key.args if hasattr(key, "args") else key if isinstance(key, tuple) else None
                 )
                 if key_args == search_args:
                     return cres
@@ -1123,21 +1102,14 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         if sig_arg == runtime_type:
             return True
         # If signature has CPointer and runtime is int (pointer address), accept
-        if isinstance(sig_arg, types.CPointer) and isinstance(
-            runtime_type, types.Integer
-        ):
+        if isinstance(sig_arg, types.CPointer) and isinstance(runtime_type, types.Integer):
             return True
         # Allow integer type coercion (e.g., int64 runtime -> int32 sig)
-        if isinstance(sig_arg, types.Integer) and isinstance(
-            runtime_type, types.Integer
-        ):
+        if isinstance(sig_arg, types.Integer) and isinstance(runtime_type, types.Integer):
             return True
         # Allow array type compatibility (matching dtype and ndim)
         if isinstance(sig_arg, types.Array) and isinstance(runtime_type, types.Array):
-            return (
-                sig_arg.dtype == runtime_type.dtype
-                and sig_arg.ndim == runtime_type.ndim
-            )
+            return sig_arg.dtype == runtime_type.dtype and sig_arg.ndim == runtime_type.ndim
         return False
 
     @staticmethod
@@ -1146,9 +1118,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         Mirrors numba's Rating.astuple() ordering so lower tuples are better."""
         if sig_arg == runtime_type:
             return (0, 0, 0)
-        if isinstance(sig_arg, types.Integer) and isinstance(
-            runtime_type, types.Integer
-        ):
+        if isinstance(sig_arg, types.Integer) and isinstance(runtime_type, types.Integer):
             if runtime_type.bitwidth <= sig_arg.bitwidth:
                 return (0, 0, 1)
             return (1, 0, 0)
@@ -1166,9 +1136,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             if sig_arg.dtype != runtime_type.dtype:
                 return None
             return (0, 0, 0)
-        if isinstance(sig_arg, types.CPointer) and isinstance(
-            runtime_type, types.Integer
-        ):
+        if isinstance(sig_arg, types.CPointer) and isinstance(runtime_type, types.Integer):
             return (0, 1, 0)
         return None
 
@@ -1206,9 +1174,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
 
     def _raise_ambiguous(self, argtypes, tied):
         sigs_str = "\n".join(f"{sig_args} -> none" for sig_args in tied)
-        raise TypeError(
-            f"Ambiguous overloading for {self.py_func!r} {argtypes}:\n{sigs_str}"
-        )
+        raise TypeError(f"Ambiguous overloading for {self.py_func!r} {argtypes}:\n{sigs_str}")
 
     def _make_post_load_hook(self):
         """Create a callback for C++ to invoke after loading the CUlibrary."""
@@ -1249,9 +1215,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 f"\n--- cProfile for compilation of {self.py_func.__qualname__} ---",
                 file=sys.stderr,
             )
-            pstats.Stats(prof, stream=sys.stderr).sort_stats("cumulative").print_stats(
-                50
-            )
+            pstats.Stats(prof, stream=sys.stderr).sort_stats("cumulative").print_stats(50)
             if isinstance(profile_opt, str):
                 prof.dump_stats(profile_opt)
                 print(f"Profile saved to: {profile_opt}", file=sys.stderr)
@@ -1270,10 +1234,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         # Get original arg types - either from thread-local storage (for tuple args)
         # or None to let mlir_compiler_entry infer from args
         override_argtypes = None
-        if (
-            hasattr(_compile_arg_types, "types")
-            and _compile_arg_types.types is not None
-        ):
+        if hasattr(_compile_arg_types, "types") and _compile_arg_types.types is not None:
             override_argtypes = tuple(_compile_arg_types.types)
 
         # For overload lookup, we need the effective argtypes
@@ -1300,9 +1261,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         if not self._can_compile:
             best, has_any = self._resolve_overload(argtypes, allow_unsafe=True)
             if not has_any:
-                raise TypeError(
-                    f"No matching definition for argument type(s) {argtypes}"
-                )
+                raise TypeError(f"No matching definition for argument type(s) {argtypes}")
             if len(best) > 1:
                 self._raise_ambiguous(argtypes, best)
             cres = self.overloads[best[0]]
@@ -1383,9 +1342,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 )
                 optimize(cres)
 
-            cres.target_context.insert_user_function(
-                cres.entry_point, cres.fndesc, [cres.library]
-            )
+            cres.target_context.insert_user_function(cres.entry_point, cres.fndesc, [cres.library])
         finally:
             self._is_compiling = False
 
@@ -1419,9 +1376,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
 
     def forall(self, ntasks, tpb=0, stream=0, sharedmem=0):
         if ntasks < 0:
-            raise ValueError(
-                "Can't create ForAll with negative task count: %s" % ntasks
-            )
+            raise ValueError("Can't create ForAll with negative task count: %s" % ntasks)
         if ntasks == 0:
             return lambda *args, **kwargs: None
         return _ForAll(self, ntasks, tpb, stream, sharedmem)
@@ -1527,9 +1482,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             if not hasattr(self, "_device_dispatcher"):
                 opts = self.targetoptions.copy()
                 opts["device"] = True
-                self._device_dispatcher = MLIRDispatcher(
-                    self.py_func, targetoptions=opts
-                )
+                self._device_dispatcher = MLIRDispatcher(self.py_func, targetoptions=opts)
             cres = self._device_dispatcher.compile(sig)
             argtypes, _ = sigutils.normalize_signature(sig)
             if argtypes not in self.overloads:

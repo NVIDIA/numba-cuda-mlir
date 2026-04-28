@@ -32,9 +32,7 @@ class ASTTransformPass(ABC):
         pass
 
     @abstractmethod
-    def transform(
-        self, tree: ast.Module, context: TransformContext
-    ) -> tuple[ast.Module, bool]:
+    def transform(self, tree: ast.Module, context: TransformContext) -> tuple[ast.Module, bool]:
         """Apply this transformation to the AST.
 
         Args:

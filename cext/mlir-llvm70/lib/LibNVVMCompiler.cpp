@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
 //===- LibNVVMCompiler.cpp - libnvvm dlopen wrapper -------------*- C++ -*-===//
-// 
+//
 //===----------------------------------------------------------------------===//
 
 #include "llvm70/LibNVVMCompiler.h"

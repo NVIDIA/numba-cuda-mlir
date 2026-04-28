@@ -148,11 +148,7 @@ def jit(
 
     # Check for first argument specifying types - in that case the
     # decorator is not being passed a function
-    if (
-        func_or_sig is None
-        or is_signature(func_or_sig)
-        or isinstance(func_or_sig, list)
-    ):
+    if func_or_sig is None or is_signature(func_or_sig) or isinstance(func_or_sig, list):
 
         def jitwrapper(fn):
             return FakeCUDAKernel(fn, device=device, fastmath=fastmath, debug=debug)

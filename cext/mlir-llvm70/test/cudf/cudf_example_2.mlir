@@ -28,12 +28,12 @@ module {
       %18 = llvm.add %13, %arg12 : i64
       %19 = llvm.getelementptr %arg11[%18] : (!llvm.ptr, i64) -> !llvm.ptr, !llvm.struct<"string_view", (ptr, i32, i32)>
       %20 = llvm.load %19 : !llvm.ptr -> !llvm.struct<"string_view", (ptr, i32, i32)>
-      %21 = llvm.insertvalue %20, %3[0] : !llvm.struct<"Masked(string_view)", (struct<"string_view", (ptr, i32, i32)>, i1)> 
-      %22 = llvm.insertvalue %2, %21[1] : !llvm.struct<"Masked(string_view)", (struct<"string_view", (ptr, i32, i32)>, i1)> 
+      %21 = llvm.insertvalue %20, %3[0] : !llvm.struct<"Masked(string_view)", (struct<"string_view", (ptr, i32, i32)>, i1)>
+      %22 = llvm.insertvalue %2, %21[1] : !llvm.struct<"Masked(string_view)", (struct<"string_view", (ptr, i32, i32)>, i1)>
       llvm.store %22, %15 : !llvm.struct<"Masked(string_view)", (struct<"string_view", (ptr, i32, i32)>, i1)>, !llvm.ptr
       %23 = llvm.load %15 : !llvm.ptr -> !llvm.struct<"Masked(string_view)", (struct<"string_view", (ptr, i32, i32)>, i1)>
-      %24 = llvm.extractvalue %23[0] : !llvm.struct<"Masked(string_view)", (struct<"string_view", (ptr, i32, i32)>, i1)> 
-      %25 = llvm.extractvalue %23[1] : !llvm.struct<"Masked(string_view)", (struct<"string_view", (ptr, i32, i32)>, i1)> 
+      %24 = llvm.extractvalue %23[0] : !llvm.struct<"Masked(string_view)", (struct<"string_view", (ptr, i32, i32)>, i1)>
+      %25 = llvm.extractvalue %23[1] : !llvm.struct<"Masked(string_view)", (struct<"string_view", (ptr, i32, i32)>, i1)>
       llvm.store %24, %16 : !llvm.struct<"string_view", (ptr, i32, i32)>, !llvm.ptr
       %26 = llvm.call @len(%17, %16) : (!llvm.ptr, !llvm.ptr) -> i32
       %27 = llvm.load %17 : !llvm.ptr -> i32

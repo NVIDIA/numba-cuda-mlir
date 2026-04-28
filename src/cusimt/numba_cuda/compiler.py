@@ -472,15 +472,11 @@ class CUDABytecodeInterpreter(Interpreter):
         gv_fn = numba_ir.Global("bool", bool, loc=self.loc)
         self.store(value=gv_fn, name=name)
 
-        callres = numba_ir.Expr.call(
-            self.get(name), (self.get(pred),), (), loc=self.loc
-        )
+        callres = numba_ir.Expr.call(self.get(name), (self.get(pred),), (), loc=self.loc)
 
         pname = "$%spred" % (inst.offset)
         predicate = self.store(value=callres, name=pname)
-        bra = numba_ir.Branch(
-            cond=predicate, truebr=truebr, falsebr=falsebr, loc=self.loc
-        )
+        bra = numba_ir.Branch(cond=predicate, truebr=truebr, falsebr=falsebr, loc=self.loc)
         self.current_block.append(bra)
 
 
@@ -650,9 +646,7 @@ def compile_ir(
                 call_conv,
                 abi_info,
             )
-            return pipeline.compile_ir(
-                func_ir=the_ir, lifted=lifted, lifted_from=lifted_from
-            )
+            return pipeline.compile_ir(func_ir=the_ir, lifted=lifted, lifted_from=lifted_from)
 
         # compile with rewrites off, IR shouldn't be mutated irreparably
         norw_cres = compile_local(func_ir.copy(), norw_flags)
@@ -678,12 +672,8 @@ def compile_ir(
         return cres
 
     else:
-        pipeline = pipeline_class(
-            typingctx, targetctx, library, args, return_type, flags, locals
-        )
-        return pipeline.compile_ir(
-            func_ir=func_ir, lifted=lifted, lifted_from=lifted_from
-        )
+        pipeline = pipeline_class(typingctx, targetctx, library, args, return_type, flags, locals)
+        return pipeline.compile_ir(func_ir=func_ir, lifted=lifted, lifted_from=lifted_from)
 
 
 def compile_internal(
@@ -860,9 +850,7 @@ def kernel_fixup(kernel, debug):
     # value
 
     if isinstance(kernel.type, ir.PointerType):
-        new_type = ir.PointerType(
-            ir.FunctionType(ir.VoidType(), kernel.type.pointee.args[1:])
-        )
+        new_type = ir.PointerType(ir.FunctionType(ir.VoidType(), kernel.type.pointee.args[1:]))
     else:
         new_type = ir.FunctionType(ir.VoidType(), kernel.type.args[1:])
 
@@ -1228,8 +1216,7 @@ def compile(
             code = codes[0]
         else:
             raise RuntimeError(
-                "Compiling this function results in multiple "
-                "PTX files. Use compile_all() instead"
+                "Compiling this function results in multiple PTX files. Use compile_all() instead"
             )
     return code, resty
 

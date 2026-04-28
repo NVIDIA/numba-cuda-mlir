@@ -255,8 +255,5 @@ class TargetOptions:
         unused = set(options) - used
         if unused:
             # Unread options?
-            m = (
-                f"Unrecognized options: {unused}. "
-                f"Known options are {mappings.keys()}"
-            )
+            m = f"Unrecognized options: {unused}. Known options are {mappings.keys()}"
             raise KeyError(m)

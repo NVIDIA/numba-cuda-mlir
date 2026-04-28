@@ -54,9 +54,7 @@ def apply_cudf_patch(venv: VEnv) -> None:
     if not CUDF_COMPAT_PATCH.exists():
         print(f"Warning: patch not found at {CUDF_COMPAT_PATCH}, skipping", flush=True)
         return
-    result = venv.run_python(
-        "-c", "import site; print(site.getsitepackages()[0])", capture=True
-    )
+    result = venv.run_python("-c", "import site; print(site.getsitepackages()[0])", capture=True)
     site_packages = result.stdout.strip()
     patch_path = CUDF_COMPAT_PATCH.resolve()
     # -N skips hunks already applied; exit code 1 means "already applied", not an error
@@ -69,16 +67,12 @@ def setup_cudf_env(venv: VEnv) -> None:
     cfg = get_cuda_config()
     cudf_package = f"cudf-{cfg['extra']}==25.12.*"
     # cudf brings in numba-cuda; install cusimt after to overlay numba.cuda
-    venv.run_pip(
-        "install", "--extra-index-url", RAPIDS_INDEX_URL, cudf_package, *CUDF_TEST_DEPS
-    )
+    venv.run_pip("install", "--extra-index-url", RAPIDS_INDEX_URL, cudf_package, *CUDF_TEST_DEPS)
     install_cusimt_editable(venv)
     apply_cudf_patch(venv)
 
 
-def run_tests(
-    venv: VEnv, cudf_dir: Path, pytest_args: list = None
-) -> tuple[JUnitResults, Path]:
+def run_tests(venv: VEnv, cudf_dir: Path, pytest_args: list = None) -> tuple[JUnitResults, Path]:
     junit_xml = CUSIMT_ROOT / "cudf-junit-results.xml"
     groupby_junit = CUSIMT_ROOT / "cudf-junit-groupby.xml"
     common = ["-W", "ignore::UserWarning", "-v", "--tb=no", *(pytest_args or [])]

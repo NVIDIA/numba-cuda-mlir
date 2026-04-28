@@ -143,8 +143,7 @@ class TestUnify(NumbaCUDATestCase):
             tys = list(tys)
             expected = types.Optional(ctx.unify_types(*tys))
             results = [
-                ctx.unify_types(*comb)
-                for comb in itertools.permutations(tys + [types.none])
+                ctx.unify_types(*comb) for comb in itertools.permutations(tys + [types.none])
             ]
             # All results must be equal
             for res in results:
@@ -221,14 +220,10 @@ class TestUnify(NumbaCUDATestCase):
         # Unify to tuple of optionals
         aty = types.Tuple((types.none, i32))
         bty = types.Tuple((i16, types.none))
-        self.assert_unify(
-            aty, bty, types.Tuple((types.Optional(i16), types.Optional(i32)))
-        )
+        self.assert_unify(aty, bty, types.Tuple((types.Optional(i16), types.Optional(i32))))
         aty = types.Tuple((types.Optional(i32), i64))
         bty = types.Tuple((i16, types.Optional(i8)))
-        self.assert_unify(
-            aty, bty, types.Tuple((types.Optional(i32), types.Optional(i64)))
-        )
+        self.assert_unify(aty, bty, types.Tuple((types.Optional(i32), types.Optional(i64))))
 
     def test_arrays(self):
         aty = types.Array(i32, 3, "C")
@@ -499,9 +494,7 @@ def get_func_typing_errs(func, arg_types):
     _locals = {}
     flags = Flags()
 
-    pipeline = TyperCompiler(
-        typingctx, targetctx, library, arg_types, return_type, flags, _locals
-    )
+    pipeline = TyperCompiler(typingctx, targetctx, library, arg_types, return_type, flags, _locals)
     pipeline.compile_extra(func)
     return pipeline.state.typing_errors
 

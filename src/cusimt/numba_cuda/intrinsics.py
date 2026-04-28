@@ -254,9 +254,7 @@ def shfl_sync(typingctx, mask, value, src_lane):
     a_type = value
     b_type = src_lane
     c_value = 0x1F
-    return shfl_sync_intrinsic(
-        typingctx, membermask_type, mode_value, a_type, b_type, c_value
-    )
+    return shfl_sync_intrinsic(typingctx, membermask_type, mode_value, a_type, b_type, c_value)
 
 
 @intrinsic
@@ -271,9 +269,7 @@ def shfl_up_sync(typingctx, mask, value, delta):
     a_type = value
     b_type = delta
     c_value = 0
-    return shfl_sync_intrinsic(
-        typingctx, membermask_type, mode_value, a_type, b_type, c_value
-    )
+    return shfl_sync_intrinsic(typingctx, membermask_type, mode_value, a_type, b_type, c_value)
 
 
 @intrinsic
@@ -288,9 +284,7 @@ def shfl_down_sync(typingctx, mask, value, delta):
     a_type = value
     b_type = delta
     c_value = 0x1F
-    return shfl_sync_intrinsic(
-        typingctx, membermask_type, mode_value, a_type, b_type, c_value
-    )
+    return shfl_sync_intrinsic(typingctx, membermask_type, mode_value, a_type, b_type, c_value)
 
 
 @intrinsic
@@ -304,9 +298,7 @@ def shfl_xor_sync(typingctx, mask, value, lane_mask):
     a_type = value
     b_type = lane_mask
     c_value = 0x1F
-    return shfl_sync_intrinsic(
-        typingctx, membermask_type, mode_value, a_type, b_type, c_value
-    )
+    return shfl_sync_intrinsic(typingctx, membermask_type, mode_value, a_type, b_type, c_value)
 
 
 def shfl_sync_intrinsic(
@@ -406,9 +398,7 @@ def all_sync(typingctx, mask_type, predicate_type):
     a non-zero value is returned, otherwise 0 is returned.
     """
     mode_value = 0
-    sig, codegen_inner = vote_sync_intrinsic(
-        typingctx, mask_type, mode_value, predicate_type
-    )
+    sig, codegen_inner = vote_sync_intrinsic(typingctx, mask_type, mode_value, predicate_type)
 
     def codegen(context, builder, sig_outer, args):
         # Call vote_sync_intrinsic and extract the boolean result (index 1)
@@ -426,9 +416,7 @@ def any_sync(typingctx, mask_type, predicate_type):
     a non-zero value is returned, otherwise 0 is returned.
     """
     mode_value = 1
-    sig, codegen_inner = vote_sync_intrinsic(
-        typingctx, mask_type, mode_value, predicate_type
-    )
+    sig, codegen_inner = vote_sync_intrinsic(typingctx, mask_type, mode_value, predicate_type)
 
     def codegen(context, builder, sig_outer, args):
         result_tuple = codegen_inner(context, builder, sig, args)
@@ -445,9 +433,7 @@ def eq_sync(typingctx, mask_type, predicate_type):
     then a non-zero value is returned, otherwise 0 is returned.
     """
     mode_value = 2
-    sig, codegen_inner = vote_sync_intrinsic(
-        typingctx, mask_type, mode_value, predicate_type
-    )
+    sig, codegen_inner = vote_sync_intrinsic(typingctx, mask_type, mode_value, predicate_type)
 
     def codegen(context, builder, sig_outer, args):
         result_tuple = codegen_inner(context, builder, sig, args)
@@ -464,9 +450,7 @@ def ballot_sync(typingctx, mask_type, predicate_type):
     and are within the given mask.
     """
     mode_value = 3
-    sig, codegen_inner = vote_sync_intrinsic(
-        typingctx, mask_type, mode_value, predicate_type
-    )
+    sig, codegen_inner = vote_sync_intrinsic(typingctx, mask_type, mode_value, predicate_type)
 
     def codegen(context, builder, sig_outer, args):
         result_tuple = codegen_inner(context, builder, sig, args)
@@ -486,9 +470,7 @@ def vote_sync_intrinsic(typingctx, mask_type, mode_value, predicate_type):
     predicate_types = types.integer_domain | {types.boolean}
 
     if types.unliteral(predicate_type) not in predicate_types:
-        raise NumbaTypeError(
-            f"Predicate must be an integer or boolean. Got {predicate_type}"
-        )
+        raise NumbaTypeError(f"Predicate must be an integer or boolean. Got {predicate_type}")
 
     def codegen(context, builder, sig, args):
         mask, predicate = args
@@ -512,9 +494,7 @@ def vote_sync_intrinsic(typingctx, mask_type, mode_value, predicate_type):
 
         # Convert predicate to i1
         if predicate.type != ir.IntType(1):
-            predicate_bool = builder.icmp_signed(
-                "!=", predicate, ir.Constant(predicate.type, 0)
-            )
+            predicate_bool = builder.icmp_signed("!=", predicate, ir.Constant(predicate.type, 0))
         else:
             predicate_bool = predicate
 

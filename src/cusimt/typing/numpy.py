@@ -55,9 +55,7 @@ class NumpyEmptyTemplate(AbstractTemplate):
         if isinstance(shape, types.Integer):
             ndim = 1
         elif isinstance(shape, (types.UniTuple, types.Tuple)):
-            ndim = (
-                shape.count if isinstance(shape, types.UniTuple) else len(shape.types)
-            )
+            ndim = shape.count if isinstance(shape, types.UniTuple) else len(shape.types)
         else:
             return None
 
@@ -87,9 +85,7 @@ class NumpyZerosTemplate(AbstractTemplate):
         if isinstance(shape, types.Integer):
             ndim = 1
         elif isinstance(shape, (types.UniTuple, types.Tuple)):
-            ndim = (
-                shape.count if isinstance(shape, types.UniTuple) else len(shape.types)
-            )
+            ndim = shape.count if isinstance(shape, types.UniTuple) else len(shape.types)
         else:
             return None
 
@@ -118,9 +114,7 @@ class NumpyOnesTemplate(AbstractTemplate):
         if isinstance(shape, types.Integer):
             ndim = 1
         elif isinstance(shape, (types.UniTuple, types.Tuple)):
-            ndim = (
-                shape.count if isinstance(shape, types.UniTuple) else len(shape.types)
-            )
+            ndim = shape.count if isinstance(shape, types.UniTuple) else len(shape.types)
         else:
             return None
 
@@ -150,9 +144,7 @@ class NumpyFullTemplate(AbstractTemplate):
         if isinstance(shape, types.Integer):
             ndim = 1
         elif isinstance(shape, (types.UniTuple, types.Tuple)):
-            ndim = (
-                shape.count if isinstance(shape, types.UniTuple) else len(shape.types)
-            )
+            ndim = shape.count if isinstance(shape, types.UniTuple) else len(shape.types)
         else:
             return None
 
@@ -210,9 +202,7 @@ class NumpyAddTemplate(AbstractTemplate):
             if target_dtype is None:
                 return None
 
-            restype = types.Array(
-                dtype=target_dtype, ndim=target_ndim, layout=target_layout
-            )
+            restype = types.Array(dtype=target_dtype, ndim=target_ndim, layout=target_layout)
             return signature(restype, lhs, rhs)
 
         return None
@@ -254,9 +244,7 @@ class NumpySubtractTemplate(AbstractTemplate):
             if target_dtype is None:
                 return None
 
-            restype = types.Array(
-                dtype=target_dtype, ndim=target_ndim, layout=target_layout
-            )
+            restype = types.Array(dtype=target_dtype, ndim=target_ndim, layout=target_layout)
             return signature(restype, lhs, rhs)
 
         return None
@@ -298,9 +286,7 @@ class NumpyMultiplyTemplate(AbstractTemplate):
             if target_dtype is None:
                 return None
 
-            restype = types.Array(
-                dtype=target_dtype, ndim=target_ndim, layout=target_layout
-            )
+            restype = types.Array(dtype=target_dtype, ndim=target_ndim, layout=target_layout)
             return signature(restype, lhs, rhs)
 
         return None
@@ -342,9 +328,7 @@ class NumpyDivideTemplate(AbstractTemplate):
             if target_dtype is None:
                 return None
 
-            restype = types.Array(
-                dtype=target_dtype, ndim=target_ndim, layout=target_layout
-            )
+            restype = types.Array(dtype=target_dtype, ndim=target_ndim, layout=target_layout)
             return signature(restype, lhs, rhs)
 
         return None
@@ -540,9 +524,7 @@ class NumpyDotTemplate(AbstractTemplate):
             if target_dtype is None:
                 return None
 
-            restype = types.Array(
-                dtype=target_dtype, ndim=array_val.ndim, layout=array_val.layout
-            )
+            restype = types.Array(dtype=target_dtype, ndim=array_val.ndim, layout=array_val.layout)
             return signature(restype, lhs, rhs)
 
         # Array operations
@@ -564,9 +546,7 @@ class NumpyDotTemplate(AbstractTemplate):
 
             # ND @ 1D or 1D @ ND or ND @ MD
             if lhs.ndim >= 2 and rhs.ndim == 1:
-                restype = types.Array(
-                    dtype=lhs.dtype, ndim=lhs.ndim - 1, layout=lhs.layout
-                )
+                restype = types.Array(dtype=lhs.dtype, ndim=lhs.ndim - 1, layout=lhs.layout)
                 return signature(restype, lhs, rhs)
 
             if lhs.ndim >= 1 and rhs.ndim >= 2:
@@ -842,9 +822,7 @@ class NumpyReshapeTemplate(AbstractTemplate):
 
         arr, shape = args
 
-        if isinstance(arr, types.Array) and isinstance(
-            shape, (types.Tuple, types.Array)
-        ):
+        if isinstance(arr, types.Array) and isinstance(shape, (types.Tuple, types.Array)):
             # Reshape returns same dtype, potentially different ndim
             # For now, return same array type
             return signature(arr, arr, shape)
@@ -1052,9 +1030,7 @@ class OperatorAddTemplate(AbstractTemplate):
             if target_dtype is None:
                 return None
 
-            restype = types.Array(
-                dtype=target_dtype, ndim=target_ndim, layout=target_layout
-            )
+            restype = types.Array(dtype=target_dtype, ndim=target_ndim, layout=target_layout)
             return signature(restype, lhs, rhs)
 
         return None
@@ -1088,9 +1064,7 @@ class OperatorIAddTemplate(AbstractTemplate):
             if target_dtype is None:
                 return None
 
-            restype = types.Array(
-                dtype=target_dtype, ndim=target_ndim, layout=target_layout
-            )
+            restype = types.Array(dtype=target_dtype, ndim=target_ndim, layout=target_layout)
             return signature(restype, lhs, rhs)
 
         return None
@@ -1124,9 +1098,7 @@ class OperatorSubTemplate(AbstractTemplate):
             if target_dtype is None:
                 return None
 
-            restype = types.Array(
-                dtype=target_dtype, ndim=target_ndim, layout=target_layout
-            )
+            restype = types.Array(dtype=target_dtype, ndim=target_ndim, layout=target_layout)
             return signature(restype, lhs, rhs)
 
         return None
@@ -1160,9 +1132,7 @@ class OperatorISubTemplate(AbstractTemplate):
             if target_dtype is None:
                 return None
 
-            restype = types.Array(
-                dtype=target_dtype, ndim=target_ndim, layout=target_layout
-            )
+            restype = types.Array(dtype=target_dtype, ndim=target_ndim, layout=target_layout)
             return signature(restype, lhs, rhs)
 
         return None
@@ -1196,9 +1166,7 @@ class OperatorMulTemplate(AbstractTemplate):
             if target_dtype is None:
                 return None
 
-            restype = types.Array(
-                dtype=target_dtype, ndim=target_ndim, layout=target_layout
-            )
+            restype = types.Array(dtype=target_dtype, ndim=target_ndim, layout=target_layout)
             return signature(restype, lhs, rhs)
 
         return None
@@ -1232,9 +1200,7 @@ class OperatorIMulTemplate(AbstractTemplate):
             if target_dtype is None:
                 return None
 
-            restype = types.Array(
-                dtype=target_dtype, ndim=target_ndim, layout=target_layout
-            )
+            restype = types.Array(dtype=target_dtype, ndim=target_ndim, layout=target_layout)
             return signature(restype, lhs, rhs)
 
         return None
@@ -1281,9 +1247,7 @@ class OperatorTruedivTemplate(AbstractTemplate):
             else:
                 target_layout = "C"
 
-            restype = types.Array(
-                dtype=target_dtype, ndim=target_ndim, layout=target_layout
-            )
+            restype = types.Array(dtype=target_dtype, ndim=target_ndim, layout=target_layout)
             return signature(restype, lhs, rhs)
 
         return None
@@ -1317,9 +1281,7 @@ class OperatorITruedivTemplate(AbstractTemplate):
             if target_dtype is None:
                 return None
 
-            restype = types.Array(
-                dtype=target_dtype, ndim=target_ndim, layout=target_layout
-            )
+            restype = types.Array(dtype=target_dtype, ndim=target_ndim, layout=target_layout)
             return signature(restype, lhs, rhs)
 
         return None
@@ -1377,9 +1339,7 @@ class OperatorMatmulTemplate(AbstractTemplate):
                 if target_dtype is None:
                     return None
 
-                restype = types.Array(
-                    dtype=target_dtype, ndim=lhs.ndim, layout=lhs.layout
-                )
+                restype = types.Array(dtype=target_dtype, ndim=lhs.ndim, layout=lhs.layout)
                 return signature(restype, lhs, rhs)
 
         return None

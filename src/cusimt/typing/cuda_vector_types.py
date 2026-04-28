@@ -78,8 +78,7 @@ def make_constructor_template(stub_class):
             # All scalar arguments matching element count
             if len(args) == num_elements:
                 all_scalars = all(
-                    isinstance(arg, (types.Integer, types.Float, types.Boolean))
-                    for arg in args
+                    isinstance(arg, (types.Integer, types.Float, types.Boolean)) for arg in args
                 )
                 if all_scalars:
                     return signature(result_type, *args)
@@ -174,8 +173,7 @@ def _make_nc_constructor_template(nc_stub, our_stub):
             # All scalar arguments
             if len(args) == num_elements:
                 all_scalars = all(
-                    isinstance(arg, (types.Integer, types.Float, types.Boolean))
-                    for arg in args
+                    isinstance(arg, (types.Integer, types.Float, types.Boolean)) for arg in args
                 )
                 if all_scalars:
                     return signature(result_type, *args)

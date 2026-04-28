@@ -74,9 +74,7 @@ class BaseLower:
 
         # Debuginfo
         dibuildercls = (
-            self.context.DIBuilder
-            if self.context.enable_debuginfo
-            else debuginfo.DummyDIBuilder
+            self.context.DIBuilder if self.context.enable_debuginfo else debuginfo.DummyDIBuilder
         )
 
         # debuginfo def location
@@ -345,9 +343,7 @@ class BaseLower:
         """
         if self.genlower:
             raise UnsupportedError("generator as a first-class function type")
-        self.context.create_cfunc_wrapper(
-            self.library, self.fndesc, self.env, self.call_helper
-        )
+        self.context.create_cfunc_wrapper(self.library, self.fndesc, self.env, self.call_helper)
 
     def setup_function(self, fndesc):
         # Setup function
@@ -373,9 +369,7 @@ class BaseLower:
 
     def debug_print(self, msg):
         if config.DEBUG_JIT:
-            self.context.debug_print(
-                self.builder, f"DEBUGJIT [{self.fndesc.qualname}]: {msg}"
-            )
+            self.context.debug_print(self.builder, f"DEBUGJIT [{self.fndesc.qualname}]: {msg}")
 
     def print_variable(self, msg, varname):
         """Helper to emit ``print(msg, varname)`` for debugging.
@@ -448,9 +442,7 @@ class Lower(BaseLower):
                         # in the block
                         [defblk] = var_assign_map[var]
                         assign_stmts = self.blocks[defblk].find_insts(ir.assign_types)
-                        assigns = [
-                            stmt for stmt in assign_stmts if stmt.target.name == var
-                        ]
+                        assigns = [stmt for stmt in assign_stmts if stmt.target.name == var]
                         if len(assigns) == 1:
                             sav.add(var)
 
@@ -506,9 +498,7 @@ class Lower(BaseLower):
 
     def lower_inst(self, inst):
         # Set debug location for all subsequent LL instructions
-        self.debuginfo.mark_location(
-            self.builder, self._adjust_line_if_prologue(self.loc.line)
-        )
+        self.debuginfo.mark_location(self.builder, self._adjust_line_if_prologue(self.loc.line))
         self.notify_loc(self.loc)
         self.debug_print(str(inst))
         if isinstance(inst, ir.assign_types):
@@ -549,9 +539,7 @@ class Lower(BaseLower):
                 # If returning an optional type
                 self.call_conv.return_optional_value(self.builder, ty, oty, val)
                 return
-            assert ty == oty, "type '{}' does not match return type '{}'".format(
-                oty, ty
-            )
+            assert ty == oty, "type '{}' does not match return type '{}'".format(oty, ty)
             retval = self.context.get_return_value(self.builder, ty, val)
             self.call_conv.return_value(self.builder, retval)
 
@@ -564,16 +552,12 @@ class Lower(BaseLower):
             try:
                 impl = self.context.get_function("static_setitem", signature)
             except NotImplementedError:
-                return self.lower_setitem(
-                    inst.target, inst.index_var, inst.value, signature
-                )
+                return self.lower_setitem(inst.target, inst.index_var, inst.value, signature)
             else:
                 target = self.loadvar(inst.target.name)
                 value = self.loadvar(inst.value.name)
                 valuety = self.typeof(inst.value.name)
-                value = self.context.cast(
-                    self.builder, value, valuety, signature.args[2]
-                )
+                value = self.context.cast(self.builder, value, valuety, signature.args[2])
                 return impl(self.builder, (target, inst.index, value))
 
         elif isinstance(inst, ir.print_types):
@@ -698,9 +682,7 @@ class Lower(BaseLower):
             nb_types.append(typ)
             args.append(val)
 
-        self.return_dynamic_exception(
-            inst.exc_class, tuple(args), tuple(nb_types), loc=self.loc
-        )
+        self.return_dynamic_exception(inst.exc_class, tuple(args), tuple(nb_types), loc=self.loc)
 
     def lower_static_raise(self, inst):
         if inst.exc_class is None:
@@ -908,21 +890,14 @@ class Lower(BaseLower):
             # The lowering will be done in _cast_var() above.
             tp_vararg = self.typeof(vararg.name)
             assert isinstance(tp_vararg, types.BaseTuple)
-            pos_args = pos_args + [
-                _VarArgItem(vararg, i) for i in range(len(tp_vararg))
-            ]
+            pos_args = pos_args + [_VarArgItem(vararg, i) for i in range(len(tp_vararg))]
 
         # Fold keyword arguments and resolve default argument values
         pysig = signature.pysig
         if pysig is None:
             if kw_args:
-                raise NotImplementedError(
-                    "unsupported keyword arguments when calling %s" % (fnty,)
-                )
-            argvals = [
-                self._cast_var(var, sigty)
-                for var, sigty in zip(pos_args, signature.args)
-            ]
+                raise NotImplementedError("unsupported keyword arguments when calling %s" % (fnty,))
+            argvals = [self._cast_var(var, sigty) for var, sigty in zip(pos_args, signature.args)]
         else:
 
             def normal_handler(index, param, var):
@@ -936,9 +911,7 @@ class Lower(BaseLower):
             def stararg_handler(index, param, vars):
                 stararg_ty = signature.args[index]
                 assert isinstance(stararg_ty, types.BaseTuple), stararg_ty
-                values = [
-                    self._cast_var(var, sigty) for var, sigty in zip(vars, stararg_ty)
-                ]
+                values = [self._cast_var(var, sigty) for var, sigty in zip(vars, stararg_ty)]
                 return cgutils.make_anonymous_struct(self.builder, values)
 
             argvals = typing.fold_arguments(
@@ -1171,9 +1144,7 @@ class Lower(BaseLower):
         rec_ov = fnty.get_overloads(signature.args)
         mangler = self.call_conv.mangler or default_mangler
         abi_tags = self.fndesc.abi_tags
-        mangled_name = mangler(
-            rec_ov.qualname, signature.args, abi_tags=abi_tags, uid=rec_ov.uid
-        )
+        mangled_name = mangler(rec_ov.qualname, signature.args, abi_tags=abi_tags, uid=rec_ov.uid)
         # special case self recursion
         if self.builder.function.name.startswith(mangled_name):
             res = self.context.call_internal(
@@ -1360,9 +1331,7 @@ class Lower(BaseLower):
                 # Fall back on the generic getitem() implementation
                 # for this type.
                 signature = self.fndesc.calltypes[expr]
-                return self.lower_getitem(
-                    resty, expr, expr.value, expr.index_var, signature
-                )
+                return self.lower_getitem(resty, expr, expr.value, expr.index_var, signature)
         elif expr.op == "typed_getitem":
             signature = typing.signature(
                 resty,
@@ -1397,9 +1366,7 @@ class Lower(BaseLower):
                     self.context.cast(self.builder, val, fromty, toty)
                     for val, toty, fromty in zip(itemvals, resty.types, itemtys)
                 ]
-                tup = self.context.make_tuple(
-                    self.builder, types.Tuple(resty.types), castvals
-                )
+                tup = self.context.make_tuple(self.builder, types.Tuple(resty.types), castvals)
                 self.incref(resty, tup)
                 return tup
             else:
@@ -1533,8 +1500,7 @@ class Lower(BaseLower):
             ptr = self.getvar(name)
             if value.type != ptr.type.pointee:
                 msg = (
-                    "Storing {value.type} to ptr of {ptr.type.pointee} "
-                    "('{name}'). FE type {fetype}"
+                    "Storing {value.type} to ptr of {ptr.type.pointee} ('{name}'). FE type {fetype}"
                 ).format(value=value, ptr=ptr, fetype=fetype, name=name)
                 raise AssertionError(msg)
 
@@ -1679,17 +1645,13 @@ class CUDALower(Lower):
                 lltype = self.context.get_value_type(fetype)
                 sizeof_bytes = self.context.get_abi_sizeof(lltype)
                 # Bitcast to i8* and use byte-level GEP
-                byte_ptr = self.builder.bitcast(
-                    ptr, llvm_ir.PointerType(llvm_ir.IntType(8))
-                )
+                byte_ptr = self.builder.bitcast(ptr, llvm_ir.PointerType(llvm_ir.IntType(8)))
                 data_byte_ptr = self.builder.gep(
                     byte_ptr,
                     [llvm_ir.Constant(llvm_ir.IntType(64), sizeof_bytes)],
                 )
                 # Cast to the correct type pointer
-                castptr = self.builder.bitcast(
-                    data_byte_ptr, llvm_ir.PointerType(lltype)
-                )
+                castptr = self.builder.bitcast(data_byte_ptr, llvm_ir.PointerType(lltype))
                 self.builder.store(value, castptr)
                 return
 
@@ -1851,10 +1813,7 @@ class CUDALower(Lower):
             src_name = name.split(".")[0]
             ptr = self.poly_var_loc_map[src_name]
             self.decref(fetype, self.builder.load(ptr))
-            if (
-                self._cur_ir_block == self.blocks[self.lastblk]
-                and not self.poly_cleaned
-            ):
+            if self._cur_ir_block == self.blocks[self.lastblk] and not self.poly_cleaned:
                 # Zero-fill the debug union for polymorphic only
                 # at the last block
                 for v in self.poly_var_loc_map.values():
@@ -1879,17 +1838,13 @@ class CUDALower(Lower):
                 # offset = sizeof(fetype) in bytes
                 sizeof_bytes = self.context.get_abi_sizeof(lltype)
                 # Bitcast to i8* and use byte-level GEP
-                byte_ptr = self.builder.bitcast(
-                    ptr, llvm_ir.PointerType(llvm_ir.IntType(8))
-                )
+                byte_ptr = self.builder.bitcast(ptr, llvm_ir.PointerType(llvm_ir.IntType(8)))
                 value_byte_ptr = self.builder.gep(
                     byte_ptr,
                     [llvm_ir.Constant(llvm_ir.IntType(64), sizeof_bytes)],
                 )
                 # Cast to the correct type pointer
-                castptr = self.builder.bitcast(
-                    value_byte_ptr, llvm_ir.PointerType(lltype)
-                )
+                castptr = self.builder.bitcast(value_byte_ptr, llvm_ir.PointerType(lltype))
             else:
                 # Otherwise, just bitcast to the correct type
                 castptr = self.builder.bitcast(ptr, llvm_ir.PointerType(lltype))

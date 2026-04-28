@@ -112,9 +112,7 @@ def make_test_call(libname):
 
         # Construct arguments to the libdevice function. These are all
         # non-pointer arguments to the underlying bitcode function.
-        funcargs = ", ".join(
-            ["a%d" % i for i, arg in enumerate(args) if not arg.is_ptr]
-        )
+        funcargs = ", ".join(["a%d" % i for i, arg in enumerate(args) if not arg.is_ptr])
 
         # Arguments to the Python function (`pyfunc` in the template above) are
         # the arguments to the libdevice function, plus as many extra arguments

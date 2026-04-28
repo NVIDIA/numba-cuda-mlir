@@ -185,7 +185,7 @@ class TestCudaLineInfo(NumbaCUDATestCase):
         self.assertEqual(
             subprograms,
             expected_subprograms,
-            f'"Expected {expected_subprograms} DISubprograms; ' f"got {subprograms}",
+            f'"Expected {expected_subprograms} DISubprograms; got {subprograms}',
         )
 
     @pytest.mark.xfail(True, reason="Warnings not emitted")

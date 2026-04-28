@@ -54,21 +54,21 @@ def ShapedValue(cls):
     def dtype(self) -> Type:
         return self._shaped_type.element_type
 
-    setattr(cls, "literal_value", literal_value)
+    cls.literal_value = literal_value
     cls.literal_value.__set_name__(None, "literal_value")
-    setattr(cls, "_shaped_type", _shaped_type)
+    cls._shaped_type = _shaped_type
     cls._shaped_type.__set_name__(None, "_shaped_type")
 
-    setattr(cls, "has_static_shape", has_static_shape)
-    setattr(cls, "has_rank", has_rank)
+    cls.has_static_shape = has_static_shape
+    cls.has_rank = has_rank
 
-    setattr(cls, "rank", rank)
+    cls.rank = rank
     cls.rank.__set_name__(None, "rank")
-    setattr(cls, "shape", shape)
+    cls.shape = shape
     cls.shape.__set_name__(None, "shape")
-    setattr(cls, "n_elements", n_elements)
+    cls.n_elements = n_elements
     cls.n_elements.__set_name__(None, "n_elements")
-    setattr(cls, "dtype", dtype)
+    cls.dtype = dtype
     cls.dtype.__set_name__(None, "dtype")
 
     return cls
@@ -155,13 +155,11 @@ def _indices_to_indexer(
 
     in_axis = 0  # Current axis in input.
     out_axis = 0  # Current axis in output.
-    indices: List[Union[ScalarValue, slice, Ellipsis, None]] = [slice(None)] * len(
-        in_shape
-    )
+    indices: List[Union[ScalarValue, slice, Ellipsis, None]] = [slice(None)] * len(in_shape)
     newaxis_dims: List[int] = []
 
     # nb: idx_e <-> idx_element
-    for idx_i, idx_e in enumerate(idx):
+    for idx_e in idx:
         if _is_scalar(idx_e) and _has_index_type(idx_e):
             # Handle basic ScalarValue indexes.
             indices[in_axis] = idx_e
@@ -191,9 +189,7 @@ def _indices_to_indexer(
                 and (step is None or isinstance(step, int) and step == -1)
             ):
                 if step == -1:
-                    raise IndexError(
-                        f"Negative step indexing mode not yet supported:\n{idx}"
-                    )
+                    raise IndexError(f"Negative step indexing mode not yet supported:\n{idx}")
                 indices[in_axis] = slice(None)
                 out_axis += 1
                 in_axis += 1
@@ -229,9 +225,7 @@ def _indices_to_indexer(
             elif isinstance(idx, ScalarValue):
                 indices[i] = int(idx)
 
-    return _Indexer(
-        newaxis_dims=tuple(newaxis_dims), indices=tuple(indices), in_shape=in_shape
-    )
+    return _Indexer(newaxis_dims=tuple(newaxis_dims), indices=tuple(indices), in_shape=in_shape)
 
 
 def _canonicalize_tuple_index(idx: Tuple[Any], rank: int):
@@ -263,9 +257,7 @@ def _canonicalize_tuple_index(idx: Tuple[Any], rank: int):
     ellipsis_index = next(ellipses, None)
     if ellipsis_index is not None:
         if next(ellipses, None) is not None:
-            raise IndexError(
-                f"Multiple ellipses (...) not supported: {list(map(type, idx))}."
-            )
+            raise IndexError(f"Multiple ellipses (...) not supported: {list(map(type, idx))}.")
         colons = (slice(None),) * (rank - len_without_none)
         idx = idx[:ellipsis_index] + colons + idx[ellipsis_index + 1 :]
     elif len_without_none < rank:

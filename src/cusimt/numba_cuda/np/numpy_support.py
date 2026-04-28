@@ -36,9 +36,7 @@ def strides_from_shape(
         return ()
 
     # assert that c_contiguous and f_contiguous are not both False
-    assert (
-        c_contiguous or f_contiguous
-    ), "either c_contiguous or f_contiguous or both must be True"
+    assert c_contiguous or f_contiguous, "either c_contiguous or f_contiguous or both must be True"
     limits = slice(1, None) if c_contiguous and not f_contiguous else slice(None, -1)
     transform = reversed if c_contiguous else lambda x: x
     strides = tuple(
@@ -94,9 +92,7 @@ def _from_str_dtype(dtype):
     if typecode == "U":
         # unicode
         if dtype.byteorder not in "=|":
-            raise errors.NumbaNotImplementedError(
-                "Does not support non-native byteorder"
-            )
+            raise errors.NumbaNotImplementedError("Does not support non-native byteorder")
         count = dtype.itemsize // sizeof_unicode_char
         assert count == int(groups[1]), "Unicode char size mismatch"
         return types.UnicodeCharSeq(count)
@@ -271,9 +267,7 @@ def map_arrayscalar_type(val):
         try:
             dtype = np.dtype(type(val))
         except TypeError:
-            raise errors.NumbaNotImplementedError(
-                "no corresponding numpy dtype for %r" % type(val)
-            )
+            raise errors.NumbaNotImplementedError("no corresponding numpy dtype for %r" % type(val))
     return from_dtype(dtype)
 
 
@@ -370,9 +364,7 @@ def supported_ufunc_loop(ufunc, loop):
     return supported_loop
 
 
-class UFuncLoopSpec(
-    collections.namedtuple("_UFuncLoopSpec", ("inputs", "outputs", "ufunc_sig"))
-):
+class UFuncLoopSpec(collections.namedtuple("_UFuncLoopSpec", ("inputs", "outputs", "ufunc_sig"))):
     """
     An object describing a ufunc loop's inner types.  Properties:
     - inputs: the inputs' Numba types
@@ -459,9 +451,7 @@ def ufunc_find_matching_loop(ufunc, arg_types):
             for tp, letter in zip(numba_types, ufunc_letters)
         ]
         # Add missing types (presumably implicit outputs)
-        types += [
-            from_dtype(np.dtype(letter)) for letter in ufunc_letters[len(numba_types) :]
-        ]
+        types += [from_dtype(np.dtype(letter)) for letter in ufunc_letters[len(numba_types) :]]
         return types
 
     def set_output_dt_units(inputs, outputs, ufunc_inputs, ufunc_name):
@@ -503,9 +493,7 @@ def ufunc_find_matching_loop(ufunc, arg_types):
             new_outputs = []
             for out in outputs:
                 if isinstance(out, types.NPDatetime) and out.unit == "":
-                    unit = npdatetime_helpers.combine_datetime_timedelta_units(
-                        dt_unit, td_unit
-                    )
+                    unit = npdatetime_helpers.combine_datetime_timedelta_units(dt_unit, td_unit)
                     if unit is None:
                         raise TypingError(
                             f"ufunc '{ufunc_name}' is not "
@@ -596,9 +584,7 @@ def ufunc_find_matching_loop(ufunc, arg_types):
                 # argument is datetime and the second argument is timedelta,
                 # then the output units need to be determined.
                 if ufunc_inputs[0] == "m" or ufunc_inputs == "Mm":
-                    outputs = set_output_dt_units(
-                        inputs, outputs, ufunc_inputs, ufunc.__name__
-                    )
+                    outputs = set_output_dt_units(inputs, outputs, ufunc_inputs, ufunc.__name__)
 
             except errors.NumbaNotImplementedError:
                 # One of the selected dtypes isn't supported by Numba

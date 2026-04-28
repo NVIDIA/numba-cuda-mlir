@@ -141,17 +141,13 @@ class AsNumbaTypeRegistry:
             result = func(py_type)
 
         if result is not None and not isinstance(result, types.Type):
-            raise errors.TypingError(
-                f"as_numba_type should return a numba type, got {result}"
-            )
+            raise errors.TypingError(f"as_numba_type should return a numba type, got {result}")
         return result
 
     def infer(self, py_type):
         result = self.try_infer(py_type)
         if result is None:
-            raise errors.TypingError(
-                f"Cannot infer numba type of python type {py_type}"
-            )
+            raise errors.TypingError(f"Cannot infer numba type of python type {py_type}")
         return result
 
     def __call__(self, py_type):

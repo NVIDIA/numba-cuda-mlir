@@ -75,9 +75,7 @@ class CudaArrayStridedSlice(NumbaCUDATestCase):
 
         for i in range(arr.shape[0]):
             for j in range(arr.shape[1]):
-                np.testing.assert_equal(
-                    arr[i::2, j::2], darr[i::2, j::2].copy_to_host()
-                )
+                np.testing.assert_equal(arr[i::2, j::2], darr[i::2, j::2].copy_to_host())
 
     def test_strided_index_3d(self):
         arr = np.arange(6 * 7 * 8).reshape(6, 7, 8)
@@ -299,8 +297,7 @@ class CudaArraySetting(NumbaCUDATestCase):
         self.assertIn(
             member=str(e.exception),
             container=[
-                "Can't copy sequence with size 2 to array axis 0 with "
-                "dimension 5",  # device
+                "Can't copy sequence with size 2 to array axis 0 with dimension 5",  # device
                 "could not broadcast input array from shape (2,) into "
                 "shape (5,)",  # simulator, NP >= 1.20
             ],

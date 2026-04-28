@@ -16,4 +16,3 @@ set_target_properties(_helperlib PROPERTIES SKIP_BUILD_RPATH TRUE)
 if (APPLE)
     target_link_options(_helperlib PRIVATE -undefined dynamic_lookup)
 endif()
-

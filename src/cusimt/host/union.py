@@ -107,9 +107,7 @@ class UnionTypeWrapper:
         return getattr(self._type, name)
 
 
-def union(
-    variants: list[tuple[str, types.Type]], name: str | None = None
-) -> UnionTypeWrapper:
+def union(variants: list[tuple[str, types.Type]], name: str | None = None) -> UnionTypeWrapper:
     """
     Create a union type for use in CUDA kernels.
 
@@ -128,10 +126,10 @@ def union(
         >>> from numba import types
         >>>
         >>> MyUnion = union(
-        ...     'MyUnion',
+        ...     "MyUnion",
         ...     [
-        ...         ('as_int', types.uint32),
-        ...         ('as_float', types.float32),
+        ...         ("as_int", types.uint32),
+        ...         ("as_float", types.float32),
         ...     ],
         ... )
         >>>
@@ -149,9 +147,7 @@ def union(
     # Validate that variant names are unique
     variant_names = [variant[0] for variant in variants]
     if len(set(variant_names)) != len(variant_names):
-        duplicates = [
-            name for name, count in Counter(variant_names).items() if count > 1
-        ]
+        duplicates = [name for name, count in Counter(variant_names).items() if count > 1]
         raise ValueError(
             f"Union '{name}' has duplicate variant names: {duplicates}. "
             f"All variant names must be unique within a union definition."
@@ -176,7 +172,7 @@ def union(
 
     # Propagate storage size to bitfield struct variants
     # This matches C behavior where bitfields in a union struct pack into the union's storage
-    for variant_name, variant_type in variant_tuples:
+    for _, variant_type in variant_tuples:
         if isinstance(variant_type, AggregateType) and variant_type.is_bitfield_struct:
             # This is a bitfield struct - set its union storage size
             variant_type.union_storage_bits = union_storage_bits

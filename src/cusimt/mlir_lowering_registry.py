@@ -27,8 +27,8 @@ def _decorate_getattr(impl, ty, attr):
         def res(context, builder, typ, value, attr):
             return real_impl(context, builder, typ, value, attr)
 
-    setattr(res, "signature", (ty,))
-    setattr(res, "attr", attr)
+    res.signature = (ty,)
+    res.attr = attr
     return res
 
 
@@ -53,8 +53,8 @@ def _decorate_setattr(impl, ty, attr):
 
     # Signature is (target_type, value_type) for setattr lookup
     # Use types.Any for value_type to match any value type
-    setattr(res, "signature", (ty, types.Any))
-    setattr(res, "attr", attr)
+    res.signature = ty, types.Any
+    res.attr = attr
     return res
 
 

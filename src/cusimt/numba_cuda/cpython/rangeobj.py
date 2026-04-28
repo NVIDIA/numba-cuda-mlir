@@ -216,9 +216,7 @@ def make_range_attr(index, attribute):
             def codegen(context, builder, sig, args):
                 (val,) = args
                 items = cgutils.unpack_tuple(builder, val, 3)
-                return impl_ret_untracked(
-                    context, builder, sig.return_type, items[index]
-                )
+                return impl_ret_untracked(context, builder, sig.return_type, items[index])
 
             return signature(a.dtype, a), codegen
 

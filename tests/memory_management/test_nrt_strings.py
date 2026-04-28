@@ -40,9 +40,7 @@ def test_new_string_nrt():
     assert out[0]
 
 
-@pytest.mark.xfail(
-    reason="LLVM version mismatch: MLIR emits LLVM 23, llvmlite supports 20"
-)
+@pytest.mark.xfail(reason="LLVM version mismatch: MLIR emits LLVM 23, llvmlite supports 20")
 def test_new_string_nrt_lto():
     @cs.jit(lto=True)
     def getstr(s):

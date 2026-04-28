@@ -51,17 +51,13 @@ class Numpy_rules_ufunc(AbstractTemplate):
             raise TypingError(msg=msg.format(ufunc.__name__, len(args), nargs))
 
         args = [a.as_array if isinstance(a, types.ArrayCompatible) else a for a in args]
-        arg_ndims = [
-            a.ndim if isinstance(a, types.ArrayCompatible) else 0 for a in args
-        ]
+        arg_ndims = [a.ndim if isinstance(a, types.ArrayCompatible) else 0 for a in args]
         ndims = max(arg_ndims)
 
         # explicit outputs must be arrays (no explicit scalar return values supported)
         explicit_outputs = args[nin:]
 
-        if not all(
-            isinstance(output, types.ArrayCompatible) for output in explicit_outputs
-        ):
+        if not all(isinstance(output, types.ArrayCompatible) for output in explicit_outputs):
             msg = "ufunc '{0}' called with an explicit output that is not an array"
             raise TypingError(msg=msg.format(ufunc.__name__))
 
@@ -70,17 +66,13 @@ class Numpy_rules_ufunc(AbstractTemplate):
             raise TypingError(msg=msg.format(ufunc.__name__))
 
         # find the kernel to use, based only in the input types (as does NumPy)
-        base_types = [
-            x.dtype if isinstance(x, types.ArrayCompatible) else x for x in args
-        ]
+        base_types = [x.dtype if isinstance(x, types.ArrayCompatible) else x for x in args]
 
         # Figure out the output array layout, if needed.
         layout = None
         if ndims > 0 and (len(explicit_outputs) < ufunc.nout):
             layout = "C"
-            layouts = [
-                x.layout if isinstance(x, types.ArrayCompatible) else "" for x in args
-            ]
+            layouts = [x.layout if isinstance(x, types.ArrayCompatible) else "" for x in args]
 
             # Prefer C contig if any array is C contig.
             # Next, prefer F contig.
@@ -99,14 +91,10 @@ class Numpy_rules_ufunc(AbstractTemplate):
         args = [x.type if isinstance(x, types.Optional) else x for x in args]
 
         ufunc = self.ufunc
-        base_types, explicit_outputs, ndims, layout = self._handle_inputs(
-            ufunc, args, kws
-        )
+        base_types, explicit_outputs, ndims, layout = self._handle_inputs(ufunc, args, kws)
         ufunc_loop = ufunc_find_matching_loop(ufunc, base_types)
         if ufunc_loop is None:
-            raise TypingError(
-                "can't resolve ufunc {0} for types {1}".format(ufunc.__name__, args)
-            )
+            raise TypingError("can't resolve ufunc {0} for types {1}".format(ufunc.__name__, args))
 
         # check if all the types involved in the ufunc loop are supported in this mode
         if not supported_ufunc_loop(ufunc, ufunc_loop):
@@ -145,14 +133,9 @@ class Numpy_rules_ufunc(AbstractTemplate):
                         break
                 output_type = types.Array
                 if array_ufunc_type is not None:
-                    output_type = array_ufunc_type.__array_ufunc__(
-                        ufunc, "__call__", *args, **kws
-                    )
+                    output_type = array_ufunc_type.__array_ufunc__(ufunc, "__call__", *args, **kws)
                     if output_type is NotImplemented:
-                        msg = (
-                            f"unsupported use of ufunc {ufunc} on "
-                            f"{array_ufunc_type}"
-                        )
+                        msg = f"unsupported use of ufunc {ufunc} on {array_ufunc_type}"
                         # raise TypeError here because
                         # NumpyRulesArrayOperator.generic is capturing
                         # TypingError
@@ -168,13 +151,9 @@ class Numpy_rules_ufunc(AbstractTemplate):
                         raise NumbaTypeError(msg)
 
                 ret_tys = [
-                    output_type(dtype=ret_ty, ndim=ndims, layout=layout)
-                    for ret_ty in ret_tys
+                    output_type(dtype=ret_ty, ndim=ndims, layout=layout) for ret_ty in ret_tys
                 ]
-                ret_tys = [
-                    resolve_output_type(self.context, args, ret_ty)
-                    for ret_ty in ret_tys
-                ]
+                ret_tys = [resolve_output_type(self.context, args, ret_ty) for ret_ty in ret_tys]
             out.extend(ret_tys)
 
         return _ufunc_loop_sig(out, args)
@@ -616,10 +595,7 @@ def _homogeneous_dims(context, func_name, arrays):
     ndim = arrays[0].ndim
     for a in arrays:
         if a.ndim != ndim:
-            msg = (
-                f"{func_name}(): all the input arrays must have same number "
-                "of dimensions"
-            )
+            msg = f"{func_name}(): all the input arrays must have same number of dimensions"
             raise NumbaTypeError(msg)
     return ndim
 
@@ -631,8 +607,7 @@ def _sequence_of_arrays(context, func_name, arrays, dim_chooser=_homogeneous_dim
         or not all(isinstance(a, types.Array) for a in arrays)
     ):
         raise TypingError(
-            "%s(): expecting a non-empty tuple of arrays, "
-            "got %s" % (func_name, arrays)
+            "%s(): expecting a non-empty tuple of arrays, got %s" % (func_name, arrays)
         )
 
     ndim = dim_chooser(context, func_name, arrays)
@@ -663,9 +638,7 @@ def _check_linalg_matrix(a, func_name):
     if not a.ndim == 2:
         raise TypingError("np.linalg.%s() only supported on 2-D arrays" % func_name)
     if not isinstance(a.dtype, (types.Float, types.Complex)):
-        raise TypingError(
-            "np.linalg.%s() only supported on " "float and complex arrays" % func_name
-        )
+        raise TypingError("np.linalg.%s() only supported on float and complex arrays" % func_name)
 
 
 # -----------------------------------------------------------------------------

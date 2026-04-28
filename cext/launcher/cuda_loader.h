@@ -44,5 +44,3 @@ Status cuda_loader_init();
     extern typeof(name)* g_##name;
 
 FOREACH_CUDA_FUNCTION_TO_LOAD(DECLARE_CUDA_FUNC_EXTERN)
-
-

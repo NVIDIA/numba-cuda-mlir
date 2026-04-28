@@ -412,9 +412,7 @@ class BaseContext:
         if find_spec("numba.core.typing") is not None:
             from numba.core.typing import templates as core_templates
 
-            self.install_registry(
-                core_templates.builtin_registry, external_defs_only=True
-            )
+            self.install_registry(core_templates.builtin_registry, external_defs_only=True)
 
     def load_additional_registries(self):
         """

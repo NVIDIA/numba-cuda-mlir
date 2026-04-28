@@ -579,9 +579,7 @@ def _atomic_dispatcher(dispatch_fn):
         indty, indices = normalize_indices(context, builder, indty, inds, aryty, valty)
 
         lary = context.make_array(aryty)(context, builder, ary)
-        ptr = cgutils.get_item_pointer(
-            context, builder, aryty, lary, indices, wraparound=True
-        )
+        ptr = cgutils.get_item_pointer(context, builder, aryty, lary, indices, wraparound=True)
         # dispatcher to implementation base on dtype
         return dispatch_fn(context, builder, dtype, ptr, val)
 
@@ -763,9 +761,7 @@ def ptx_atomic_cas(context, builder, sig, args):
     indty, indices = normalize_indices(context, builder, indty, inds, aryty, valty)
 
     lary = context.make_array(aryty)(context, builder, ary)
-    ptr = cgutils.get_item_pointer(
-        context, builder, aryty, lary, indices, wraparound=True
-    )
+    ptr = cgutils.get_item_pointer(context, builder, aryty, lary, indices, wraparound=True)
 
     if aryty.dtype in (cuda.cudadecl.integer_numba_types):
         lmod = builder.module
@@ -780,9 +776,7 @@ def ptx_atomic_cas(context, builder, sig, args):
 
 @lower(breakpoint)
 def ptx_brkpt(context, builder, sig, args):
-    brkpt = ir.InlineAsm(
-        ir.FunctionType(ir.VoidType(), []), "brkpt;", "", side_effect=True
-    )
+    brkpt = ir.InlineAsm(ir.FunctionType(ir.VoidType(), []), "brkpt;", "", side_effect=True)
     builder.call(brkpt, ())
 
 
@@ -915,9 +909,7 @@ def _generic_array(
             "=r",
             side_effect=True,
         )
-        dynsmem_size = builder.zext(
-            builder.call(get_dynshared_size, []), ir.IntType(64)
-        )
+        dynsmem_size = builder.zext(builder.call(get_dynshared_size, []), ir.IntType(64))
         # Only 1-D dynamic shared memory is supported so the following is a
         # sufficient construction of the shape
         kitemsize = context.get_constant(types.intp, itemsize)

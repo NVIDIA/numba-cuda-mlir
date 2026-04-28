@@ -17,4 +17,3 @@ set_target_properties(_typeconv PROPERTIES SKIP_BUILD_RPATH TRUE)
 if (APPLE)
     target_link_options(_typeconv PRIVATE -undefined dynamic_lookup)
 endif()
-

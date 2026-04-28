@@ -56,7 +56,7 @@ void* do_get_proc_address(cuGetProcAddress_v2_t getter, void* dlhandle,
                           const char* name, int cuda_version) {
     void* ret = nullptr;
     CUresult res = getter(name, &ret, cuda_version, CU_GET_PROC_ADDRESS_DEFAULT, nullptr);
-    
+
     if (res != CUDA_SUCCESS) {
         raise(PyExc_RuntimeError,
               "Failed to load '%s' from the CUDA library: cuGetProcAddress_v2 returned %d",
@@ -115,5 +115,3 @@ Status cuda_loader_init() {
 
     return OK;
 }
-
-

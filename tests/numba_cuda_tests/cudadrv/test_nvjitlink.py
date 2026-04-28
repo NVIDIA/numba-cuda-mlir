@@ -20,9 +20,7 @@ from conftest import TEST_BIN_DIR
 test_device_functions_a = os.path.join(TEST_BIN_DIR, "test_device_functions.a")
 test_device_functions_cubin = os.path.join(TEST_BIN_DIR, "test_device_functions.cubin")
 test_device_functions_cu = os.path.join(TEST_BIN_DIR, "test_device_functions.cu")
-test_device_functions_fatbin = os.path.join(
-    TEST_BIN_DIR, "test_device_functions.fatbin"
-)
+test_device_functions_fatbin = os.path.join(TEST_BIN_DIR, "test_device_functions.fatbin")
 test_device_functions_fatbin_multi = os.path.join(
     TEST_BIN_DIR, "test_device_functions_multi.fatbin"
 )
@@ -62,9 +60,7 @@ class TestLinker(NumbaCUDATestCase):
             content = f.read()
 
         linker = _Linker(cc=get_current_device().compute_capability)
-        with self.assertRaisesRegex(
-            TypeError, "Expected path to file or a LinkableCode"
-        ):
+        with self.assertRaisesRegex(TypeError, "Expected path to file or a LinkableCode"):
             # Feeding raw data as bytes to add_file_guess_ext should raise,
             # because there's no way to know what kind of file to treat it as
             linker.add_file_guess_ext(content)
@@ -95,9 +91,7 @@ class TestLinker(NumbaCUDATestCase):
     def test_nvjitlink_jit_with_invalid_linkable_code(self):
         with open(test_device_functions_cubin, "rb") as f:
             content = f.read()
-        with self.assertRaisesRegex(
-            TypeError, "Expected path to file or a LinkableCode"
-        ):
+        with self.assertRaisesRegex(TypeError, "Expected path to file or a LinkableCode"):
 
             @cuda.jit("void()", link=[content])
             def kernel():

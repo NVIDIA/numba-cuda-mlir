@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
 //===- LLVM70.h - LLVM70 dialect definition -----------------------*- C++ -*-===//
-// 
+//
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM70_DIALECT_LLVM70_H

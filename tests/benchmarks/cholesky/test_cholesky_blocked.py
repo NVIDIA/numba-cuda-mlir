@@ -298,12 +298,8 @@ def run_benchmark_main():
         types.int64,
         types.int32[::1],
     )
-    trsm_sig = types.void(
-        types.float64[::1], types.int64, types.int64, types.int64, types.int64
-    )
-    syrk_sig = types.void(
-        types.float64[::1], types.int64, types.int64, types.int64, types.int64
-    )
+    trsm_sig = types.void(types.float64[::1], types.int64, types.int64, types.int64, types.int64)
+    syrk_sig = types.void(types.float64[::1], types.int64, types.int64, types.int64, types.int64)
 
     start = time.perf_counter()
     chol_panel_kernel_numba_cuda.compile(panel_sig)

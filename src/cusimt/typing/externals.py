@@ -41,7 +41,7 @@ class ExternMLIRLibraryFunction:
         tys = [_type_to_pyi(ty) for ty in self.sig.args]
         args = [f"arg{i}: {ty}" for i, ty in enumerate(tys)]
         ret = _type_to_pyi(self.sig.return_type)
-        return f'def {self.name}({", ".join(args)}) -> {ret}: ...'
+        return f"def {self.name}({', '.join(args)}) -> {ret}: ..."
 
 
 class ExternMLIRLibrary:

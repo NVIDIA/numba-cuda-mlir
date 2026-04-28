@@ -178,9 +178,7 @@ def lower_aggregate_type_ptr(builder, target, args, kwargs):
         fe_type = to_numba_type(var.type)
         attrs = types.get_cusimt_attributes(fe_type)
         alignment = attrs.get("align", None)
-        ptr = llvm.alloca(
-            llvm.PointerType.get(), i64_of(1), var.type, alignment=alignment
-        )
+        ptr = llvm.alloca(llvm.PointerType.get(), i64_of(1), var.type, alignment=alignment)
     builder.store_var(target, ptr)
 
 

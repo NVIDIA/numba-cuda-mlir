@@ -30,9 +30,7 @@ def get_function_context(func: Callable) -> dict:
     return context
 
 
-def recompile_function(
-    func: Callable, tree: ast.Module, stored_values: dict = None
-) -> Callable:
+def recompile_function(func: Callable, tree: ast.Module, stored_values: dict = None) -> Callable:
     """Compile a modified AST back into a function object.
 
     Args:

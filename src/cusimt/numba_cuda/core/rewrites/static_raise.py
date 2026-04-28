@@ -35,10 +35,7 @@ class RewriteConstRaises(Rewrite):
             return const, None
         else:
             if isinstance(const, str):
-                msg = (
-                    "Directly raising a string constant as an exception is "
-                    "not supported."
-                )
+                msg = "Directly raising a string constant as an exception is not supported."
             else:
                 msg = "Encountered unsupported constant type used for exception"
             raise errors.UnsupportedError(msg, loc)

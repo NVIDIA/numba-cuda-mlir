@@ -186,9 +186,7 @@ def _loop_lift_prepare_loop_func(loopinfo, blocks):
     )
 
 
-def _loop_lift_modify_blocks(
-    func_ir, loopinfo, blocks, typingctx, targetctx, flags, locals
-):
+def _loop_lift_modify_blocks(func_ir, loopinfo, blocks, typingctx, targetctx, flags, locals):
     """
     Modify the block inplace to call to the lifted-loop.
     Returns a dictionary of blocks of the lifted-loop.
@@ -287,9 +285,7 @@ def loop_lifting(func_ir, typingctx, targetctx, flags, locals):
     func_ir = _pre_looplift_transform(func_ir)
     blocks = func_ir.blocks.copy()
     cfg = compute_cfg_from_blocks(blocks)
-    loopinfos = _loop_lift_get_candidate_infos(
-        cfg, blocks, func_ir.variable_lifetime.livemap
-    )
+    loopinfos = _loop_lift_get_candidate_infos(cfg, blocks, func_ir.variable_lifetime.livemap)
     loops = []
     if loopinfos:
         _logger.debug(
@@ -559,13 +555,7 @@ def _cfg_nodes_in_region(cfg, region_begin, region_end):
         # a single block function will have a empty successor list
         if succlist:
             succs, _ = zip(*succlist)
-            nodes = set(
-                [
-                    node
-                    for node in succs
-                    if node not in region_nodes and node != region_end
-                ]
-            )
+            nodes = set([node for node in succs if node not in region_nodes and node != region_end])
             stack.extend(nodes)
             region_nodes |= nodes
 
@@ -606,8 +596,7 @@ def find_setupwiths(func_ir):
                     # raise detected before pop_block
                     if ir_utils.is_raise(stmt):
                         raise errors.CompilerError(
-                            "unsupported control flow due to raise "
-                            "statements inside with block"
+                            "unsupported control flow due to raise statements inside with block"
                         )
                     # if a pop_block, process it
                     if ir_utils.is_pop_block(stmt) and block in sus_pops:
@@ -648,16 +637,13 @@ def find_setupwiths(func_ir):
     # now we check for returns inside with and reject them
     for _, p in with_ranges_tuple:
         target_block = blocks[p]
-        if ir_utils.is_return(
-            func_ir.blocks[target_block.terminator.get_targets()[0]].terminator
-        ):
+        if ir_utils.is_return(func_ir.blocks[target_block.terminator.get_targets()[0]].terminator):
             _rewrite_return(func_ir, p)
 
     # now we need to rewrite the tuple such that we have SETUP_WITH matching the
     # successor of the block that contains the POP_BLOCK.
     with_ranges_tuple = [
-        (s, func_ir.blocks[p].terminator.get_targets()[0])
-        for (s, p) in with_ranges_tuple
+        (s, func_ir.blocks[p].terminator.get_targets()[0]) for (s, p) in with_ranges_tuple
     ]
 
     # finally we check for nested with statements and reject them

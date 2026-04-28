@@ -140,13 +140,11 @@ for stub in _vector_type_stubs:
     base_type_name = stub._base_type_name
     base_type = getattr(types, base_type_name)
     scalar_types = (
-        [base_type, types.Float]
-        if "float" in base_type_name
-        else [base_type, types.Integer]
+        [base_type, types.Float] if "float" in base_type_name else [base_type, types.Integer]
     )
 
     # Helper: get all vector types with n elements for this base type
-    def get_vec_type(n):
+    def get_vec_type(n, base_type=base_type):
         return VectorType(base_type, (n,))
 
     # Register patterns with vectors of smaller sizes
@@ -295,12 +293,10 @@ def _register_numba_cuda_stubs():
         base_type_name = our_stub._base_type_name
         base_type = getattr(types, base_type_name)
         scalar_types = (
-            [base_type, types.Float]
-            if "float" in base_type_name
-            else [base_type, types.Integer]
+            [base_type, types.Float] if "float" in base_type_name else [base_type, types.Integer]
         )
 
-        def get_vec_type(n):
+        def get_vec_type(n, base_type=base_type):
             return VectorType(base_type, (n,))
 
         for scalar_type in scalar_types:

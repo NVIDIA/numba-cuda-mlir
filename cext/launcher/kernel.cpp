@@ -301,7 +301,7 @@ struct ArgMetadata {
     Kind kind;
     size_t start_idx;  // Start index in LaunchHelper.cuargs
     size_t ndim;       // For arrays: number of dimensions; for scalars: 0
-    
+
     bool is_array() const { return kind == Kind::Array; }
     bool is_tma_descriptor() const { return kind == Kind::TMADescriptor; }
 };
@@ -602,7 +602,7 @@ Result<DLDataType> parse_typestr(PyObject* typestr) {
 }
 
 
-Status compute_compact_row_major_strides(const std::vector<int64_t>& shapes, 
+Status compute_compact_row_major_strides(const std::vector<int64_t>& shapes,
                                           std::vector<int64_t>& strides) {
     size_t ndim = shapes.size();
     if (ndim == 0) return OK;
@@ -670,7 +670,7 @@ Status extract_cuda_array(PyObject* pyobj, LaunchHelper& helper) {
     if (PyErr_Occurred()) return ErrorRaised;
 
     void* data_ptr = reinterpret_cast<void*>(data_ptr_int);
-    
+
     if (!helper.cuda_context)
         g_cuPointerGetAttribute(&helper.cuda_context, CU_POINTER_ATTRIBUTE_CONTEXT,
                                 reinterpret_cast<CUdeviceptr>(data_ptr));
@@ -693,7 +693,7 @@ Status extract_cuda_array(PyObject* pyobj, LaunchHelper& helper) {
     // Parse the strides
     PyObject* strides = PyDict_GetItem(dict.get(), g_strides_pyunicode);
     if (PyErr_Occurred()) return ErrorRaised;
-    
+
     std::vector<int64_t> strides_vec;
     strides_vec.reserve(ndim);
     if (!strides || strides == Py_None) {
@@ -716,7 +716,7 @@ Status extract_cuda_array(PyObject* pyobj, LaunchHelper& helper) {
     // Store in flat cuargs vector: ptr, ptr, offset, shapes..., strides...
     size_t start_idx = helper.cuargs.size();
     helper.cuargs.push_back({.device_ptr = data_ptr});  // allocated ptr
-    helper.cuargs.push_back({.device_ptr = data_ptr});  // aligned ptr  
+    helper.cuargs.push_back({.device_ptr = data_ptr});  // aligned ptr
     helper.cuargs.push_back({.i64 = 0});  // offset
     for (int64_t shape : shapes) {
         helper.cuargs.push_back({.i64 = shape});
@@ -724,7 +724,7 @@ Status extract_cuda_array(PyObject* pyobj, LaunchHelper& helper) {
     for (int64_t stride : strides_vec) {
         helper.cuargs.push_back({.i64 = stride});
     }
-    
+
     helper.arg_metadata.push_back({ArgMetadata::Kind::Array, start_idx, static_cast<size_t>(ndim)});
     helper.constants.push_back(ConstantArg(pack_dtype_and_ndim(*dtype, ndim)));
     return OK;
@@ -777,7 +777,7 @@ Status extract_dlpack_common(PyObject* dlpack_capsule, LaunchHelper& helper) {
     for (int64_t stride : strides_vec) {
         helper.cuargs.push_back({.i64 = stride});
     }
-    
+
     helper.arg_metadata.push_back({ArgMetadata::Kind::Array, start_idx, static_cast<size_t>(ndim)});
     helper.constants.push_back(ConstantArg(pack_dtype_and_ndim(tensor->dl_tensor.dtype, ndim)));
 
@@ -847,11 +847,11 @@ inline Status extract_np_datetime(PyObject* pyobj, bool is_constant, LaunchHelpe
 inline Status extract_py_long(PyObject* pyobj, bool is_constant, LaunchHelper& helper) {
     int64_t value = pylong_as<int64_t>(pyobj);
     if (PyErr_Occurred()) return ErrorRaised;
-    
+
     size_t start_idx = helper.cuargs.size();
     helper.cuargs.push_back({.i64 = value});
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 0});
-    
+
     if (is_constant)
         helper.constants.push_back(ConstantArg(value));
 
@@ -889,7 +889,7 @@ inline Status extract_py_enum(PyObject* pyobj, bool is_constant, LaunchHelper& h
 
 Status extract_tma_descriptor(PyObject* pyobj, LaunchHelper& helper) {
   PyObject *res = nullptr;
-  
+
   // Try __tma_descriptor_c_api__() first (custom wrapper objects)
   if (PyObject_HasAttrString(pyobj, "__tma_descriptor_c_api__")) {
     res = PyObject_CallMethod(pyobj, "__tma_descriptor_c_api__", nullptr);
@@ -1578,13 +1578,13 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
         return ErrorRaised;
 
     helper->cuarg_pointers.clear();
-    
+
     // Build kernel arguments in MLIR memref calling convention order.
     // For each array: (ptr, ptr, offset, shapes..., strides...)
     // For scalars: just the value
     // For TMA descriptors: the descriptor pointer
     // All values are already stored in the flat cuargs vector, we just build pointers to them.
-    
+
     for (const ArgMetadata& meta : helper->arg_metadata) {
         if (meta.is_array()) {
             // Array: cuargs contains [ptr, ptr, offset, shapes..., strides...]
@@ -1617,13 +1617,13 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
                         "Failed to get CUfunction from CUkernel: %s",
                         get_cuda_error(func_res));
         }
-        
+
         CUresult attr_res = g_cuFuncSetAttribute(
             cu_function,
             CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
             sharedmem
         );
-        
+
         if (attr_res != CUDA_SUCCESS) {
             return raise(PyExc_RuntimeError,
                         "Failed to set max dynamic shared memory size to %d bytes: %s",
@@ -2049,6 +2049,3 @@ Status kernel_init(PyObject* m) {
 
     return OK;
 }
-
-
-

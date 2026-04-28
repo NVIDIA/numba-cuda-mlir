@@ -242,9 +242,7 @@ class _Kernel(serialize.ReduceMixin):
             return
 
         all_nrt = "|".join(self.NRT_functions)
-        pattern = (
-            r"\.extern\s+\.func\s+(?:\s*\(.+\)\s*)?(" + all_nrt + r")\s*\([^)]*\)\s*;"
-        )
+        pattern = r"\.extern\s+\.func\s+(?:\s*\(.+\)\s*)?(" + all_nrt + r")\s*\([^)]*\)\s*;"
         link_nrt = False
         nrt_in_asm = re.findall(pattern, asm)
         if len(nrt_in_asm) > 0:
@@ -466,9 +464,7 @@ class _Kernel(serialize.ReduceMixin):
 
         if isinstance(blockdim, tuple):
             blockdim = functools.reduce(lambda x, y: x * y, blockdim)
-        active_per_sm = ctx.get_active_blocks_per_multiprocessor(
-            cufunc, blockdim, dynsmemsize
-        )
+        active_per_sm = ctx.get_active_blocks_per_multiprocessor(cufunc, blockdim, dynsmemsize)
         sm_count = ctx.device.MULTIPROCESSOR_COUNT
         return active_per_sm * sm_count
 
@@ -505,9 +501,7 @@ class _Kernel(serialize.ReduceMixin):
             if excval.value != 0:
                 # An error occurred
                 def load_symbol(name):
-                    mem, sz = cufunc.module.get_global_symbol(
-                        "%s__%s__" % (cufunc.name, name)
-                    )
+                    mem, sz = cufunc.module.get_global_symbol("%s__%s__" % (cufunc.name, name))
                     val = ctypes.c_int()
                     driver.device_to_host(ctypes.addressof(val), mem, sz)
                     return val.value
@@ -630,9 +624,7 @@ class _Kernel(serialize.ReduceMixin):
 class ForAll:
     def __init__(self, dispatcher, ntasks, tpb, stream, sharedmem):
         if ntasks < 0:
-            raise ValueError(
-                "Can't create ForAll with negative task count: %s" % ntasks
-            )
+            raise ValueError("Can't create ForAll with negative task count: %s" % ntasks)
         self.dispatcher = dispatcher
         self.ntasks = ntasks
         self.thread_per_block = tpb
@@ -681,10 +673,7 @@ class _LaunchConfiguration:
         self.stream = driver._to_core_stream(stream)
         self.sharedmem = sharedmem
 
-        if (
-            config.CUDA_LOW_OCCUPANCY_WARNINGS
-            and not config.DISABLE_PERFORMANCE_WARNINGS
-        ):
+        if config.CUDA_LOW_OCCUPANCY_WARNINGS and not config.DISABLE_PERFORMANCE_WARNINGS:
             # Warn when the grid has fewer than 128 blocks. This number is
             # chosen somewhat heuristically - ideally the minimum is 2 times
             # the number of SMs, but the number of SMs varies between devices -
@@ -703,9 +692,7 @@ class _LaunchConfiguration:
                 warn(errors.NumbaPerformanceWarning(msg))
 
     def __call__(self, *args):
-        return self.dispatcher.call(
-            args, self.griddim, self.blockdim, self.stream, self.sharedmem
-        )
+        return self.dispatcher.call(args, self.griddim, self.blockdim, self.stream, self.sharedmem)
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -883,9 +870,7 @@ class _DispatcherBase:  # (_dispatcher.Dispatcher):
 
     @property
     def nopython_signatures(self):
-        return [
-            cres.signature for cres in self.overloads.values() if not cres.objectmode
-        ]
+        return [cres.signature for cres in self.overloads.values() if not cres.objectmode]
 
     def disable_compile(self, val=True):
         """Disable the compilation of new signatures at call time."""
@@ -980,9 +965,7 @@ class _DispatcherBase:  # (_dispatcher.Dispatcher):
             # Received request for compiler re-entry with the list of arguments
             # indicated by e.requested_args.
             # First, check if any of these args are already Literal-ized
-            already_lit_pos = [
-                i for i in e.requested_args if isinstance(args[i], types.Literal)
-            ]
+            already_lit_pos = [i for i in e.requested_args if isinstance(args[i], types.Literal)]
             if already_lit_pos:
                 # Abort compilation if any argument is already a Literal.
                 # Letting this continue will cause infinite compilation loop.
@@ -1016,9 +999,7 @@ class _DispatcherBase:  # (_dispatcher.Dispatcher):
                     failed_args.append((i, str(typeof_exc)))
                 else:
                     if tp is None:
-                        failed_args.append(
-                            (i, f"cannot determine Numba type of value {val}")
-                        )
+                        failed_args.append((i, f"cannot determine Numba type of value {val}"))
             if failed_args:
                 # Patch error message to ease debugging
                 args_str = "\n".join(f"- argument {i}: {err}" for i, err in failed_args)
@@ -1099,9 +1080,7 @@ class _DispatcherBase:  # (_dispatcher.Dispatcher):
 
         return dict((sig, self.inspect_asm(sig)) for sig in self.signatures)
 
-    def inspect_types(
-        self, file=None, signature=None, pretty=False, style="default", **kwargs
-    ):
+    def inspect_types(self, file=None, signature=None, pretty=False, style="default", **kwargs):
         """Print/return Numba intermediate representation (IR)-annotated code.
 
         Parameters
@@ -1209,8 +1188,7 @@ class _DispatcherBase:  # (_dispatcher.Dispatcher):
             return lib.get_function_cfg(fname, py_func=self.py_func, **kwargs)
 
         return dict(
-            (sig, self.inspect_cfg(sig, show_wrapper=show_wrapper))
-            for sig in self.signatures
+            (sig, self.inspect_cfg(sig, show_wrapper=show_wrapper)) for sig in self.signatures
         )
 
     def inspect_disasm_cfg(self, signature=None):
@@ -1260,9 +1238,7 @@ class _DispatcherBase:  # (_dispatcher.Dispatcher):
         # is ensured by the OrderedDict.
         sigs = self.nopython_signatures
         # This will raise
-        self.typingctx.resolve_overload(
-            self.py_func, sigs, args, kws, allow_ambiguous=False
-        )
+        self.typingctx.resolve_overload(self.py_func, sigs, args, kws, allow_ambiguous=False)
 
     def _explain_matching_error(self, *args, **kws):
         """
@@ -1270,9 +1246,7 @@ class _DispatcherBase:  # (_dispatcher.Dispatcher):
         """
         assert not kws, "kwargs not handled"
         args = [self.typeof_pyval(a) for a in args]
-        msg = "No matching definition for argument type(s) %s" % ", ".join(
-            map(str, args)
-        )
+        msg = "No matching definition for argument type(s) %s" % ", ".join(map(str, args))
         raise TypeError(msg)
 
     def _search_new_conversions(self, *args, **kws):
@@ -1506,9 +1480,7 @@ class CUDADispatcher(serialize.ReduceMixin, _MemoMixin, _DispatcherBase):
         self.targetoptions = targetoptions
         self._cache = NullCache()
         compiler_class = _FunctionCompiler
-        self._compiler = compiler_class(
-            py_func, self.targetdescr, targetoptions, pipeline_class
-        )
+        self._compiler = compiler_class(py_func, self.targetdescr, targetoptions, pipeline_class)
         self._cache_hits = collections.Counter()
         self._cache_misses = collections.Counter()
 
@@ -1668,10 +1640,7 @@ class CUDADispatcher(serialize.ReduceMixin, _MemoMixin, _DispatcherBase):
         if self.specialized:
             return next(iter(self.overloads.values())).regs_per_thread
         else:
-            return {
-                sig: overload.regs_per_thread
-                for sig, overload in self.overloads.items()
-            }
+            return {sig: overload.regs_per_thread for sig, overload in self.overloads.items()}
 
     def get_const_mem_size(self, signature=None):
         """
@@ -1690,9 +1659,7 @@ class CUDADispatcher(serialize.ReduceMixin, _MemoMixin, _DispatcherBase):
         if self.specialized:
             return next(iter(self.overloads.values())).const_mem_size
         else:
-            return {
-                sig: overload.const_mem_size for sig, overload in self.overloads.items()
-            }
+            return {sig: overload.const_mem_size for sig, overload in self.overloads.items()}
 
     def get_shared_mem_per_block(self, signature=None):
         """
@@ -1710,10 +1677,7 @@ class CUDADispatcher(serialize.ReduceMixin, _MemoMixin, _DispatcherBase):
         if self.specialized:
             return next(iter(self.overloads.values())).shared_mem_per_block
         else:
-            return {
-                sig: overload.shared_mem_per_block
-                for sig, overload in self.overloads.items()
-            }
+            return {sig: overload.shared_mem_per_block for sig, overload in self.overloads.items()}
 
     def get_max_threads_per_block(self, signature=None):
         """
@@ -1733,10 +1697,7 @@ class CUDADispatcher(serialize.ReduceMixin, _MemoMixin, _DispatcherBase):
         if self.specialized:
             return next(iter(self.overloads.values())).max_threads_per_block
         else:
-            return {
-                sig: overload.max_threads_per_block
-                for sig, overload in self.overloads.items()
-            }
+            return {sig: overload.max_threads_per_block for sig, overload in self.overloads.items()}
 
     def get_local_mem_per_thread(self, signature=None):
         """
@@ -1754,10 +1715,7 @@ class CUDADispatcher(serialize.ReduceMixin, _MemoMixin, _DispatcherBase):
         if self.specialized:
             return next(iter(self.overloads.values())).local_mem_per_thread
         else:
-            return {
-                sig: overload.local_mem_per_thread
-                for sig, overload in self.overloads.items()
-            }
+            return {sig: overload.local_mem_per_thread for sig, overload in self.overloads.items()}
 
     def get_call_template(self, args, kws):
         # Originally copied from _DispatcherBase.get_call_template. This
@@ -1965,14 +1923,10 @@ class CUDADispatcher(serialize.ReduceMixin, _MemoMixin, _DispatcherBase):
         else:
             if device:
                 return {
-                    sig: overload.library.get_llvm_str()
-                    for sig, overload in self.overloads.items()
+                    sig: overload.library.get_llvm_str() for sig, overload in self.overloads.items()
                 }
             else:
-                return {
-                    sig: overload.inspect_llvm()
-                    for sig, overload in self.overloads.items()
-                }
+                return {sig: overload.inspect_llvm() for sig, overload in self.overloads.items()}
 
     def inspect_asm(self, signature=None):
         """
@@ -1997,10 +1951,7 @@ class CUDADispatcher(serialize.ReduceMixin, _MemoMixin, _DispatcherBase):
                     for sig, overload in self.overloads.items()
                 }
             else:
-                return {
-                    sig: overload.inspect_asm(cc)
-                    for sig, overload in self.overloads.items()
-                }
+                return {sig: overload.inspect_asm(cc) for sig, overload in self.overloads.items()}
 
     def inspect_lto_ptx(self, signature=None):
         """
@@ -2026,8 +1977,7 @@ class CUDADispatcher(serialize.ReduceMixin, _MemoMixin, _DispatcherBase):
                 }
             else:
                 return {
-                    sig: overload.inspect_lto_ptx(cc)
-                    for sig, overload in self.overloads.items()
+                    sig: overload.inspect_lto_ptx(cc) for sig, overload in self.overloads.items()
                 }
 
     def inspect_sass_cfg(self, signature=None):
@@ -2048,9 +1998,7 @@ class CUDADispatcher(serialize.ReduceMixin, _MemoMixin, _DispatcherBase):
         if signature is not None:
             return self.overloads[signature].inspect_sass_cfg()
         else:
-            return {
-                sig: defn.inspect_sass_cfg() for sig, defn in self.overloads.items()
-            }
+            return {sig: defn.inspect_sass_cfg() for sig, defn in self.overloads.items()}
 
     def inspect_sass(self, signature=None):
         """
@@ -2404,24 +2352,17 @@ class ObjModeLiftedWith(LiftedWith):
         pysig = None
         func_name = self.py_func.__name__
         name = "CallTemplate({0})".format(func_name)
-        call_template = typing.make_concrete_template(
-            name, key=func_name, signatures=signatures
-        )
+        call_template = typing.make_concrete_template(name, key=func_name, signatures=signatures)
 
         return call_template, pysig, args, kws
 
     def _legalize_arg_types(self, args):
         for i, a in enumerate(args, start=1):
             if isinstance(a, types.List):
-                msg = (
-                    "Does not support list type inputs into " "with-context for arg {}"
-                )
+                msg = "Does not support list type inputs into with-context for arg {}"
                 raise errors.TypingError(msg.format(i))
             elif isinstance(a, types.Dispatcher):
-                msg = (
-                    "Does not support function type inputs into "
-                    "with-context for arg {}"
-                )
+                msg = "Does not support function type inputs into with-context for arg {}"
                 raise errors.TypingError(msg.format(i))
 
     @global_compiler_lock

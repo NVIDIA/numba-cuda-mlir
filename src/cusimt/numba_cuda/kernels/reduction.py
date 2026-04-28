@@ -89,9 +89,7 @@ def _gpu_reduce_factory(fn, nbtype):
         # warning: this is assuming 4 warps.
         # assert numwarps == 4
         if tid < 2:
-            sm_partials[tid, 0] = reduce_op(
-                sm_partials[tid, 0], sm_partials[tid + 2, 0]
-            )
+            sm_partials[tid, 0] = reduce_op(sm_partials[tid, 0], sm_partials[tid + 2, 0])
             cuda.syncwarp()
         if tid == 0:
             partials[blkid] = reduce_op(sm_partials[0, 0], sm_partials[1, 0])

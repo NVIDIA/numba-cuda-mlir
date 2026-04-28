@@ -65,9 +65,7 @@ class TestEnum:
         kernel[1, 1](out)
         np.testing.assert_array_equal(out.copy_to_host(), [True, False, True])
 
-    @pytest.mark.parametrize(
-        "color,idx", [(Color.red, 0), (Color.green, 1), (Color.blue, 2)]
-    )
+    @pytest.mark.parametrize("color,idx", [(Color.red, 0), (Color.green, 1), (Color.blue, 2)])
     def test_argument_comparison(self, color, idx):
         @cs.jit
         def kernel(color, out):
@@ -121,9 +119,7 @@ class TestIntEnum:
     def test_arithmetic(self):
         @cs.jit
         def kernel(x, out):
-            out[0] = (
-                x + Shape.circle if x <= RequestError.not_found else x - Shape.circle
-            )
+            out[0] = x + Shape.circle if x <= RequestError.not_found else x - Shape.circle
 
         out = cs.device_array(1, dtype=np.int64)
         kernel[1, 1](300, out)

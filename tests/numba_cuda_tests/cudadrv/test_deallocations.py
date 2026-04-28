@@ -58,9 +58,7 @@ class TestDeallocation(NumbaCUDATestCase):
 
             # allocate another remaining
             # this will not trigger deallocation
-            cuda.to_device(
-                np.ones(deallocs._max_pending_bytes - deallocs._size, dtype=np.int8)
-            )
+            cuda.to_device(np.ones(deallocs._max_pending_bytes - deallocs._size, dtype=np.int8))
             self.assertEqual(len(deallocs), 2)
 
             # another byte to trigger .clear()

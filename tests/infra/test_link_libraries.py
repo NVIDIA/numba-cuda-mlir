@@ -33,9 +33,7 @@ def test_link_libraries():
     with tempfile.NamedTemporaryFile(suffix=".cu", delete=False) as temp_file:
         temp_file.write(ADD_CU_SOURCE.encode())
         temp_file.flush()
-        add = cuda.declare_device(
-            "add", "float32(float32, float32)", link=temp_file.name
-        )
+        add = cuda.declare_device("add", "float32(float32, float32)", link=temp_file.name)
 
     @cuda.jit(dump=False, print_after_all=False, opt_level=3, lineinfo=True)
     def call_external_function(x: DeviceNDArray):

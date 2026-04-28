@@ -288,9 +288,7 @@ class TestCUDAGufunc(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="guvectorize not supported")
     def check_tuple_arg(self, a, b):
-        @guvectorize(
-            [(float64[:], float64[:], float64[:])], "(n),(n)->()", target="cuda"
-        )
+        @guvectorize([(float64[:], float64[:], float64[:])], "(n),(n)->()", target="cuda")
         def gu_reduce(x, y, r):
             s = 0
             for i in range(len(x)):

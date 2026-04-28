@@ -185,7 +185,5 @@ class ComprehensionPass(ASTTransformPass):
     def name(self) -> str:
         return "LocalArrayFrom"
 
-    def transform(
-        self, tree: ast.Module, context: TransformContext
-    ) -> tuple[ast.Module, bool]:
+    def transform(self, tree: ast.Module, context: TransformContext) -> tuple[ast.Module, bool]:
         return transform_comprehensions(tree)

@@ -169,9 +169,7 @@ def test_fft():
     tolerance = 1e-2 * math.sqrt(math.log2(n))
 
     cusimt_err = np.max(np.abs(cusimt_output - reference))
-    assert (
-        cusimt_err < tolerance
-    ), f"cuSIMT error {cusimt_err} exceeds tolerance {tolerance}"
+    assert cusimt_err < tolerance, f"cuSIMT error {cusimt_err} exceeds tolerance {tolerance}"
 
 
 def test_fft_benchmark(benchmark_runner):
@@ -179,9 +177,7 @@ def test_fft_benchmark(benchmark_runner):
 
 
 def run_benchmark_main():
-    permute_sig = types.void(
-        types.complex64[::1], types.complex64[::1], types.int64, types.int64
-    )
+    permute_sig = types.void(types.complex64[::1], types.complex64[::1], types.int64, types.int64)
     stage_sig = types.void(types.complex64[::1], types.int64, types.int64, types.int64)
 
     start = time.perf_counter()

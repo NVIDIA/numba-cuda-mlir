@@ -91,9 +91,7 @@ def mk_alloc(typingctx, typemap, calltypes, lhs, size_var, dtype, scope, loc, lh
             if typemap:
                 typemap[tuple_var.name] = types.containers.UniTuple(types.intp, ndims)
             # constant sizes need to be assigned to vars
-            new_sizes = [
-                convert_size_to_var(s, typemap, scope, loc, out) for s in size_var
-            ]
+            new_sizes = [convert_size_to_var(s, typemap, scope, loc, out) for s in size_var]
             tuple_call = ir.Expr.build_tuple(new_sizes, loc)
             tuple_assign = ir.Assign(tuple_call, tuple_var, loc)
             out.append(tuple_assign)
@@ -152,9 +150,7 @@ def mk_alloc(typingctx, typemap, calltypes, lhs, size_var, dtype, scope, loc, lh
         # By default, all calls to "empty" are typed as returning a standard
         # NumPy ndarray.  If we are allocating a ndarray subclass here then
         # just change the return type to be that of the subclass.
-        cac._return_type = (
-            lhs_typ.copy(layout="C") if lhs_typ.layout == "F" else lhs_typ
-        )
+        cac._return_type = lhs_typ.copy(layout="C") if lhs_typ.layout == "F" else lhs_typ
         calltypes[alloc_call] = cac
     if lhs_typ.layout == "F":
         empty_c_typ = lhs_typ.copy(layout="C")
@@ -514,9 +510,7 @@ def add_offset_to_labels(blocks, offset):
         if isinstance(term, ir.jump_types):
             b.body[-1] = ir.Jump(term.target + offset, term.loc)
         if isinstance(term, ir.branch_types):
-            b.body[-1] = ir.Branch(
-                term.cond, term.truebr + offset, term.falsebr + offset, term.loc
-            )
+            b.body[-1] = ir.Branch(term.cond, term.truebr + offset, term.falsebr + offset, term.loc)
         new_blocks[l + offset] = b
     return new_blocks
 
@@ -561,9 +555,7 @@ def flatten_labels(blocks):
         if isinstance(term, ir.jump_types):
             b.body[-1] = ir.Jump(l_map[term.target], term.loc)
         if isinstance(term, ir.branch_types):
-            b.body[-1] = ir.Branch(
-                term.cond, l_map[term.truebr], l_map[term.falsebr], term.loc
-            )
+            b.body[-1] = ir.Branch(term.cond, l_map[term.truebr], l_map[term.falsebr], term.loc)
         new_blocks[l_map[t_node]] = b
     return new_blocks
 
@@ -580,9 +572,7 @@ def remove_args(blocks):
     for block in blocks.values():
         new_body = []
         for stmt in block.body:
-            if isinstance(stmt, ir.assign_types) and isinstance(
-                stmt.value, ir.arg_types
-            ):
+            if isinstance(stmt, ir.assign_types) and isinstance(stmt.value, ir.arg_types):
                 continue
             new_body.append(stmt)
         block.body = new_body
@@ -712,9 +702,7 @@ def remove_dead_block(
         if isinstance(stmt, ir.assign_types):
             lhs = stmt.target
             rhs = stmt.value
-            if lhs.name not in lives and has_no_side_effect(
-                rhs, lives_n_aliases, call_table
-            ):
+            if lhs.name not in lives and has_no_side_effect(rhs, lives_n_aliases, call_table):
                 if config.DEBUG_ARRAY_OPT >= 2:
                     print("Statement was removed.")
                 removed = True
@@ -797,8 +785,7 @@ def has_no_side_effect(rhs, lives, call_table):
         ):
             return True
         elif isinstance(call_list[0], _Intrinsic) and (
-            call_list[0]._name == "empty_inferred"
-            or call_list[0]._name == "unsafe_empty_inferred"
+            call_list[0]._name == "empty_inferred" or call_list[0]._name == "unsafe_empty_inferred"
         ):
             return True
 
@@ -879,9 +866,7 @@ def get_canonical_alias(v, alias_map):
     return v_aliases[0]
 
 
-def find_potential_aliases(
-    blocks, args, typemap, func_ir, alias_map=None, arg_aliases=None
-):
+def find_potential_aliases(blocks, args, typemap, func_ir, alias_map=None, arg_aliases=None):
     "find all array aliases and argument aliases to avoid remove as dead"
     if alias_map is None:
         alias_map = {}
@@ -1020,9 +1005,7 @@ def copy_propagate(blocks, typemap):
                 in_copies[label] &= out_copies[p]
 
             # out_b = gen_b | (in_b - kill_b)
-            out_copies[label] = gen_copies[label] | (
-                in_copies[label] - kill_copies[label]
-            )
+            out_copies[label] = gen_copies[label] | (in_copies[label] - kill_copies[label])
         old_point = new_point
         new_point = copy.deepcopy(out_copies)
     if config.DEBUG_ARRAY_OPT >= 1:
@@ -1102,16 +1085,11 @@ def get_block_copies(blocks, typemap):
                     if typemap[lhs] == typemap[rhs] and lhs != rhs:
                         assign_dict[lhs] = rhs
                         continue
-                if (
-                    isinstance(stmt.value, ir.expr_types)
-                    and stmt.value.op == "inplace_binop"
-                ):
+                if isinstance(stmt.value, ir.expr_types) and stmt.value.op == "inplace_binop":
                     in1_var = stmt.value.lhs.name
                     in1_typ = typemap[in1_var]
                     # inplace_binop assigns first operand if mutable
-                    if not (
-                        isinstance(in1_typ, types.Number) or in1_typ == types.string
-                    ):
+                    if not (isinstance(in1_typ, types.Number) or in1_typ == types.string):
                         extra_kill[label].add(in1_var)
                         # if a=b is in dict and b is killed, a is also killed
                         new_assign_dict = {}
@@ -1132,9 +1110,7 @@ def get_block_copies(blocks, typemap):
 apply_copy_propagate_extensions = {}
 
 
-def apply_copy_propagate(
-    blocks, in_copies, name_var_table, typemap, calltypes, save_copies=None
-):
+def apply_copy_propagate(blocks, in_copies, name_var_table, typemap, calltypes, save_copies=None):
     """apply copy propagation to IR: replace variables when copies available"""
     # save_copies keeps an approximation of the copies that were applied, so
     # that the variable names of removed user variables can be recovered to some
@@ -1172,9 +1148,7 @@ def apply_copy_propagate(
                     for l, r in var_dict.copy().items():
                         if l in kill_set or r.name in kill_set:
                             var_dict.pop(l)
-            if isinstance(stmt, ir.assign_types) and isinstance(
-                stmt.value, ir.var_types
-            ):
+            if isinstance(stmt, ir.assign_types) and isinstance(stmt.value, ir.var_types):
                 lhs = stmt.target.name
                 rhs = stmt.value.name
                 # rhs could be replaced with lhs from previous copies
@@ -1192,9 +1166,7 @@ def apply_copy_propagate(
                             lhs_kill.append(k)
                     for k in lhs_kill:
                         var_dict.pop(k, None)
-            if isinstance(stmt, ir.assign_types) and not isinstance(
-                stmt.value, ir.var_types
-            ):
+            if isinstance(stmt, ir.assign_types) and not isinstance(stmt.value, ir.var_types):
                 lhs = stmt.target.name
                 var_dict.pop(lhs, None)
                 # previous t=a is killed if a is killed
@@ -1219,9 +1191,7 @@ def fix_setitem_type(stmt, typemap, calltypes):
     t_typ = typemap[stmt.target.name]
     s_typ = calltypes[stmt].args[0]
     # test_optional t_typ can be Optional with array
-    if not isinstance(s_typ, types.npytypes.Array) or not isinstance(
-        t_typ, types.npytypes.Array
-    ):
+    if not isinstance(s_typ, types.npytypes.Array) or not isinstance(t_typ, types.npytypes.Array):
         return
     if s_typ.layout == "A" and t_typ.layout != "A":
         new_s_typ = s_typ.copy(layout=t_typ.layout)
@@ -1298,9 +1268,7 @@ def find_topo_order(blocks, cfg=None):
 call_table_extensions = {}
 
 
-def get_call_table(
-    blocks, call_table=None, reverse_call_table=None, topological_ordering=True
-):
+def get_call_table(blocks, call_table=None, reverse_call_table=None, topological_ordering=True):
     """returns a dictionary of call variables and their references."""
     # call_table example: c = np.zeros becomes c:["zeroes", np]
     # reverse_call_table example: c = np.zeros becomes np_var:c
@@ -1488,9 +1456,7 @@ def canonicalize_array_math(func_ir, typemap, calltypes, typingctx):
         block = blocks[label]
         new_body = []
         for stmt in block.body:
-            if isinstance(stmt, ir.assign_types) and isinstance(
-                stmt.value, ir.expr_types
-            ):
+            if isinstance(stmt, ir.assign_types) and isinstance(stmt.value, ir.expr_types):
                 lhs = stmt.target.name
                 rhs = stmt.value
                 # replace A.func with np.func, and save A in saved_arr_arg
@@ -1624,11 +1590,7 @@ def restore_copy_var_names(blocks, save_copies, typemap):
         # a is string name, b is variable
         # if a is user variable and b is generated temporary and b is not
         # already renamed
-        if (
-            not a.startswith("$")
-            and b.name.startswith("$")
-            and b.name not in rename_dict
-        ):
+        if not a.startswith("$") and b.name.startswith("$") and b.name not in rename_dict:
             new_name = mk_unique_var("${}".format(a))
             rename_dict[b.name] = new_name
             var_rename_map[new_name] = a
@@ -1644,9 +1606,7 @@ def simplify(func_ir, typemap, calltypes, metadata):
     in_cps, _ = copy_propagate(func_ir.blocks, typemap)
     # table mapping variable names to ir.Var objects to help replacement
     name_var_table = get_name_var_table(func_ir.blocks)
-    save_copies = apply_copy_propagate(
-        func_ir.blocks, in_cps, name_var_table, typemap, calltypes
-    )
+    save_copies = apply_copy_propagate(func_ir.blocks, in_cps, name_var_table, typemap, calltypes)
     var_rename_map = restore_copy_var_names(func_ir.blocks, save_copies, typemap)
     if "var_rename_map" not in metadata:
         metadata["var_rename_map"] = {}
@@ -1770,16 +1730,10 @@ def find_callname(func_ir, expr, typemap=None, definition_finder=get_definition)
                     mod_name == "numpy" or mod_name.startswith("numpy.")
                 )
                 # it might be a numpy function imported directly
-                if (
-                    numpy_toplevel
-                    and hasattr(numpy, value)
-                    and def_val == getattr(numpy, value)
-                ):
+                if numpy_toplevel and hasattr(numpy, value) and def_val == getattr(numpy, value):
                     attrs += ["numpy"]
                 # it might be a np.random function imported directly
-                elif hasattr(numpy.random, value) and def_val == getattr(
-                    numpy.random, value
-                ):
+                elif hasattr(numpy.random, value) and def_val == getattr(numpy.random, value):
                     attrs += ["random", "numpy"]
                 elif mod_not_none:
                     attrs.append(mod_name)
@@ -1948,9 +1902,7 @@ def get_ir_of_code(glbls, fcode):
     swapped = {}  # TODO: get this from diagnostics store
     from cusimt.numba_cuda.core.inline_closurecall import InlineClosureCallPass
 
-    inline_pass = InlineClosureCallPass(
-        ir, numba.cuda.core.options.ParallelOptions(False), swapped
-    )
+    inline_pass = InlineClosureCallPass(ir, numba.cuda.core.options.ParallelOptions(False), swapped)
     inline_pass.run()
 
     # TODO: DO NOT ADD MORE THINGS HERE!
@@ -2100,9 +2052,7 @@ def set_index_var_of_get_setitem(stmt, new_index):
         else:
             stmt.index_var = new_index
     else:
-        raise ValueError(
-            "getitem or setitem node expected but received {}".format(stmt)
-        )
+        raise ValueError("getitem or setitem node expected but received {}".format(stmt))
 
 
 def is_namedtuple_class(c):
@@ -2142,9 +2092,7 @@ def fill_block_with_call(newblock, callee, label_next, inputs, outputs):
     # unpack return value
     for i, out in enumerate(outputs):
         target = scope.get_exact(out)
-        getitem = ir.Expr.static_getitem(
-            value=callres, index=i, index_var=None, loc=loc
-        )
+        getitem = ir.Expr.static_getitem(value=callres, index=i, index_var=None, loc=loc)
         newblock.append(ir.Assign(target=target, value=getitem, loc=loc))
     # jump to next block
     newblock.append(ir.Jump(target=label_next, loc=loc))
@@ -2233,9 +2181,7 @@ def raise_on_unsupported_feature(func_ir, typemap):
                 "LLVM IR which causes excessive memory pressure "
                 "and large compile times.\n"
                 "As an alternative, the use of a 'list' is recommended in "
-                "place of a 'tuple' as lists do not suffer from this problem.".format(
-                    arg_name
-                )
+                "place of a 'tuple' as lists do not suffer from this problem.".format(arg_name)
             )
             raise UnsupportedError(msg, func_ir.loc)
 
@@ -2306,9 +2252,7 @@ def raise_on_unsupported_feature(func_ir, typemap):
                     vardescr = "" if var.startswith("$") else "'{}' ".format(var)
                     raise TypingError(
                         "'view' can only be called on NumPy dtypes, "
-                        "try wrapping the variable {}with 'np.<dtype>()'".format(
-                            vardescr
-                        ),
+                        "try wrapping the variable {}with 'np.<dtype>()'".format(vardescr),
                         loc=stmt.loc,
                     )
 
@@ -2506,8 +2450,7 @@ def convert_code_obj_to_function(code_obj, caller_ir):
     func_arg = ",".join(["%s" % (co_varnames[i]) for i in range(nargs)])
     if n_kwargs:
         kw_const = [
-            "%s = %s" % (co_varnames[i + nargs], kwarg_defaults_tup[i])
-            for i in range(n_kwargs)
+            "%s = %s" % (co_varnames[i + nargs], kwarg_defaults_tup[i]) for i in range(n_kwargs)
         ]
         func_arg += ", "
         func_arg += ", ".join(kw_const)

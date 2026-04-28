@@ -130,9 +130,7 @@ class TestTypeConv(CompatibilityTestMixin):
             (i16, i16, i16),
         ]
         self.assertEqual(
-            tm.select_overload(
-                sig, ovs, allow_unsafe=False, exact_match_required=False
-            ),
+            tm.select_overload(sig, ovs, allow_unsafe=False, exact_match_required=False),
             1,
         )
         self.assertEqual(
@@ -143,9 +141,7 @@ class TestTypeConv(CompatibilityTestMixin):
         # The same in reverse order
         ovs.reverse()
         self.assertEqual(
-            tm.select_overload(
-                sig, ovs, allow_unsafe=False, exact_match_required=False
-            ),
+            tm.select_overload(sig, ovs, allow_unsafe=False, exact_match_required=False),
             1,
         )
         self.assertEqual(
@@ -169,9 +165,7 @@ class TestTypeConv(CompatibilityTestMixin):
             (f64, f64),
         ]
         self.assertEqual(
-            tm.select_overload(
-                sig, ovs, allow_unsafe=False, exact_match_required=False
-            ),
+            tm.select_overload(sig, ovs, allow_unsafe=False, exact_match_required=False),
             0,
         )
         self.assertEqual(
@@ -182,9 +176,7 @@ class TestTypeConv(CompatibilityTestMixin):
         # The same in reverse order
         ovs.reverse()
         self.assertEqual(
-            tm.select_overload(
-                sig, ovs, allow_unsafe=False, exact_match_required=False
-            ),
+            tm.select_overload(sig, ovs, allow_unsafe=False, exact_match_required=False),
             1,
         )
         self.assertEqual(

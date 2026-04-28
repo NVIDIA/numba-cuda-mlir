@@ -173,9 +173,7 @@ def get_lower_binary_impl(key, ty, libfunc):
         if fast_replacement is not None:
             actual_libfunc = getattr(libdevice, fast_replacement)
 
-        libfunc_impl = context.get_function(
-            actual_libfunc, typing.signature(ty, ty, ty)
-        )
+        libfunc_impl = context.get_function(actual_libfunc, typing.signature(ty, ty, ty))
         return libfunc_impl(builder, args)
 
     return lower_binary_impl

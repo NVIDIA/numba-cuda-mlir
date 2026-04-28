@@ -98,9 +98,7 @@ for__ = region_op(_build_for, terminator=yield__)
 
 
 def _parfor(op_ctor):
-    def _base(
-        lower_bounds, upper_bounds=None, steps=None, *, loc=None, ip=None, **kwargs
-    ):
+    def _base(lower_bounds, upper_bounds=None, steps=None, *, loc=None, ip=None, **kwargs):
         if upper_bounds is None:
             upper_bounds = lower_bounds
             lower_bounds = [0] * len(upper_bounds)
@@ -129,9 +127,7 @@ def in_parallel():
 
 def in_parallel_(parallel_insert_slice=None):
     if isinstance(parallel_insert_slice, (tuple, list)):
-        assert (
-            len(parallel_insert_slice) <= 1
-        ), "expected at most one parallel_insert_slice op"
+        assert len(parallel_insert_slice) <= 1, "expected at most one parallel_insert_slice op"
         if len(parallel_insert_slice) == 1:
             parallel_insert_slice = parallel_insert_slice[0]
         else:

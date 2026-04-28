@@ -266,9 +266,7 @@ class FunctionDescriptor:
     def declare_function(self, module):
         fnty = self.call_conv.get_function_type(self.restype, self.argtypes)
         fn = cgutils.get_or_insert_function(module, fnty, self.mangled_name)
-        self.call_conv.decorate_function(
-            fn, self.args, self.argtypes, noalias=self.noalias
-        )
+        self.call_conv.decorate_function(fn, self.args, self.argtypes, noalias=self.noalias)
         if self.inline:
             fn.attributes.add("alwaysinline")
             # alwaysinline overrides optnone
@@ -325,9 +323,7 @@ class PythonFunctionDescriptor(FunctionDescriptor):
         typemap = defaultdict(lambda: types.pyobject)
         calltypes = typemap.copy()
         restype = types.pyobject
-        return cls._from_python_function(
-            func_ir, typemap, restype, calltypes, native=False
-        )
+        return cls._from_python_function(func_ir, typemap, restype, calltypes, native=False)
 
 
 class ExternalFunctionDescriptor(FunctionDescriptor):

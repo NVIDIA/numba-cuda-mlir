@@ -102,8 +102,7 @@ class TestSharedMemoryCreation(NumbaCUDATestCase):
             str(raises.exception),
         )
         self.assertIn(
-            "found for signature:\n \n "
-            ">>> array(shape=float32, dtype=class(float32))",
+            "found for signature:\n \n >>> array(shape=float32, dtype=class(float32))",
             str(raises.exception),
         )
 
@@ -135,7 +134,7 @@ class TestSharedMemoryCreation(NumbaCUDATestCase):
             str(raises.exception),
         )
         self.assertIn(
-            "found for signature:\n \n " ">>> array(shape=int32, dtype=class(float32))",
+            "found for signature:\n \n >>> array(shape=int32, dtype=class(float32))",
             str(raises.exception),
         )
 

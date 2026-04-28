@@ -441,8 +441,7 @@ class Literal(Type):
     def __init__(self, value):
         if type(self) is Literal:
             raise TypeError(
-                "Cannot be constructed directly. "
-                "Use `numba.cuda.types.literal(value)` instead",
+                "Cannot be constructed directly. Use `numba.cuda.types.literal(value)` instead",
             )
         self._literal_init(value)
         fmt = "Literal[{}]({})"

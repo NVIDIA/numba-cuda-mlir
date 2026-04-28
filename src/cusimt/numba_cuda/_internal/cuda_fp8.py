@@ -102,9 +102,7 @@ from cusimt.numba_cuda.target import CUDATargetContext
 from llvmlite import ir
 
 
-def prepare_ir_types(
-    context: CUDATargetContext, argtys: list[ir.Type]
-) -> list[ir.Type]:
+def prepare_ir_types(context: CUDATargetContext, argtys: list[ir.Type]) -> list[ir.Type]:
     """
     Prepare IR types for passing arguments via pointers in function calls.
 
@@ -179,21 +177,14 @@ class FunctionCallConv(BaseCallConv):
         arg_pointer_types = prepare_ir_types(context, sig.args)
 
         # All arguments are passed by pointer
-        ptrs = [
-            cgutils.alloca_once(builder, context.get_value_type(argty))
-            for argty in sig.args
-        ]
+        ptrs = [cgutils.alloca_once(builder, context.get_value_type(argty)) for argty in sig.args]
         for ptr, argty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(argty, "alignof_", None))
 
         # 3. Declare shim
         # Shim signature: int (retval_type*, arg0_type*, ...)
-        fnty = ir.FunctionType(
-            ir.IntType(32), [ir.PointerType(retval_ty)] + arg_pointer_types
-        )
-        fn = cgutils.get_or_insert_function(
-            builder.module, fnty, self.shim_function_name
-        )
+        fnty = ir.FunctionType(ir.IntType(32), [ir.PointerType(retval_ty)] + arg_pointer_types)
+        fn = cgutils.get_or_insert_function(builder.module, fnty, self.shim_function_name)
 
         # 4. Call shim
         builder.call(fn, (retval_ptr, *ptrs))
@@ -202,9 +193,7 @@ class FunctionCallConv(BaseCallConv):
         if return_type == types.void:
             return None
         else:
-            return builder.load(
-                retval_ptr, align=getattr(return_type, "alignof_", None)
-            )
+            return builder.load(retval_ptr, align=getattr(return_type, "alignof_", None))
 
 
 class ShimWriterAdapter:
@@ -3561,9 +3550,7 @@ def _lower__ZL22__nv_cvt_float_to_e8m0f17__nv_saturation_t13cudaRoundMode_nbst(
         return callconv(builder, context, sig, args)
 
 
-_lower__ZL22__nv_cvt_float_to_e8m0f17__nv_saturation_t13cudaRoundMode_nbst(
-    shim_stream, shim_obj
-)
+_lower__ZL22__nv_cvt_float_to_e8m0f17__nv_saturation_t13cudaRoundMode_nbst(shim_stream, shim_obj)
 
 
 def cvt_float2_to_e8m0x2():
@@ -3633,9 +3620,7 @@ def _lower__ZL23__nv_cvt_double_to_e8m0d17__nv_saturation_t13cudaRoundMode_nbst(
         return callconv(builder, context, sig, args)
 
 
-_lower__ZL23__nv_cvt_double_to_e8m0d17__nv_saturation_t13cudaRoundMode_nbst(
-    shim_stream, shim_obj
-)
+_lower__ZL23__nv_cvt_double_to_e8m0d17__nv_saturation_t13cudaRoundMode_nbst(shim_stream, shim_obj)
 
 
 def cvt_double2_to_e8m0x2():
@@ -3794,9 +3779,7 @@ class _typing_cvt_bfloat16raw_to_e8m0(ConcreteTemplate):
     ]
 
 
-register_global(
-    cvt_bfloat16raw_to_e8m0, types.Function(_typing_cvt_bfloat16raw_to_e8m0)
-)
+register_global(cvt_bfloat16raw_to_e8m0, types.Function(_typing_cvt_bfloat16raw_to_e8m0))
 
 
 @register

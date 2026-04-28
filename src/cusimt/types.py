@@ -107,7 +107,7 @@ def get_cusimt_attributes(obj) -> dict:
 
 
 def set_cusimt_attributes(obj, attributes: dict):
-    setattr(obj, "__cusimt_attributes__", attributes)
+    obj.__cusimt_attributes__ = attributes
     return obj
 
 

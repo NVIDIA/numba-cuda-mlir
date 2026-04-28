@@ -131,9 +131,7 @@ def _lookup_class_or_track(class_tracker_id, class_def):
     if class_tracker_id is not None:
         with _DYNAMIC_CLASS_TRACKER_LOCK:
             orig_class_def = class_def
-            class_def = _DYNAMIC_CLASS_TRACKER_BY_ID.setdefault(
-                class_tracker_id, class_def
-            )
+            class_def = _DYNAMIC_CLASS_TRACKER_BY_ID.setdefault(class_tracker_id, class_def)
             _DYNAMIC_CLASS_TRACKER_BY_CLASS[class_def] = class_tracker_id
             # Check if we are reusing a previous class_def
             if orig_class_def is not class_def:
@@ -285,9 +283,7 @@ def _should_pickle_by_reference(obj, name=None):
             return False
         return obj.__name__ in sys.modules
     else:
-        raise TypeError(
-            "cannot check importability of {} instances".format(type(obj).__name__)
-        )
+        raise TypeError("cannot check importability of {} instances".format(type(obj).__name__))
 
 
 def _lookup_module_and_qualname(obj, name=None):
@@ -388,11 +384,7 @@ def _find_imported_submodules(code, top_level_dependencies):
     subimports = []
     # check if any known dependency is an imported package
     for x in top_level_dependencies:
-        if (
-            isinstance(x, types.ModuleType)
-            and hasattr(x, "__package__")
-            and x.__package__
-        ):
+        if isinstance(x, types.ModuleType) and hasattr(x, "__package__") and x.__package__:
             # check if the package has any currently loaded sub-imports
             prefix = x.__name__ + "."
             # A concurrent thread could mutate sys.modules,
@@ -553,9 +545,7 @@ def _make_cell(value=_empty_cell_value):
     return cell
 
 
-def _make_skeleton_class(
-    type_constructor, name, bases, type_kwargs, class_tracker_id, extra
-):
+def _make_skeleton_class(type_constructor, name, bases, type_kwargs, class_tracker_id, extra):
     """Build dynamic class with an empty __dict__ to be filled once memoized
 
     If class_tracker_id is not None, try to lookup an existing class definition
@@ -581,9 +571,7 @@ def _make_skeleton_class(
     return _lookup_class_or_track(class_tracker_id, skeleton_class)
 
 
-def _make_skeleton_enum(
-    bases, name, qualname, members, module, class_tracker_id, extra
-):
+def _make_skeleton_enum(bases, name, qualname, members, module, class_tracker_id, extra):
     """Build dynamic enum with an empty __dict__ to be filled once memoized
 
     The creation of the enum class is inspired by the code of
@@ -973,9 +961,7 @@ def _file_reduce(obj):
     import io
 
     if not hasattr(obj, "name") or not hasattr(obj, "mode"):
-        raise pickle.PicklingError(
-            "Cannot pickle files that do not map to an actual file"
-        )
+        raise pickle.PicklingError("Cannot pickle files that do not map to an actual file")
     if obj is sys.stdout:
         return getattr, (sys, "stdout")
     if obj is sys.stderr:
@@ -1002,9 +988,7 @@ def _file_reduce(obj):
         contents = obj.read()
         obj.seek(curloc)
     except OSError as e:
-        raise pickle.PicklingError(
-            "Cannot pickle file %s as it cannot be read" % name
-        ) from e
+        raise pickle.PicklingError("Cannot pickle file %s as it cannot be read" % name) from e
     retval.write(contents)
     retval.seek(curloc)
 
@@ -1471,9 +1455,7 @@ class Pickler(pickle.Pickler):
             elif obj is type(NotImplemented):
                 return self.save_reduce(type, (NotImplemented,), obj=obj)
             elif obj in _BUILTIN_TYPE_NAMES:
-                return self.save_reduce(
-                    _builtin_type, (_BUILTIN_TYPE_NAMES[obj],), obj=obj
-                )
+                return self.save_reduce(_builtin_type, (_BUILTIN_TYPE_NAMES[obj],), obj=obj)
 
             if name is not None:
                 super().save_global(obj, name=name)
@@ -1495,9 +1477,7 @@ class Pickler(pickle.Pickler):
             elif PYPY and isinstance(obj.__code__, builtin_code_type):
                 return self.save_pypy_builtin_func(obj)
             else:
-                return self._save_reduce_pickle5(
-                    *self._dynamic_function_reduce(obj), obj=obj
-                )
+                return self._save_reduce_pickle5(*self._dynamic_function_reduce(obj), obj=obj)
 
         def save_pypy_builtin_func(self, obj):
             """Save pypy equivalent of builtin functions.

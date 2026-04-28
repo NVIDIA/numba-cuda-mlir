@@ -404,9 +404,7 @@ def cmath_sqrt[FTy](z_real: FTy, z_imag: FTy):
                         x2 = arith.mulf(x, x)
                         y2 = arith.mulf(y, y)
                         modulus = math_dialect.sqrt(arith.addf(x2, y2))
-                        t = math_dialect.sqrt(
-                            arith.mulf(half, arith.addf(abs_x, modulus))
-                        )
+                        t = math_dialect.sqrt(arith.mulf(half, arith.addf(abs_x, modulus)))
                         x_is_neg = arith.cmpf(arith.CmpFPredicate.OLT, x, c0)
                         two_t = arith.mulf(two, t)
                         y_div_2t = arith.divf(y, two_t)
@@ -693,13 +691,9 @@ def cmath_atan[FTy](z_real: FTy, z_imag: FTy):
                             raw_imag = arith.mulf(half, log_mod)
                             neg_imag = arith.negf(raw_imag)
                             # Preserve sign of y when result is zero (signed zero)
-                            imag_is_zero = arith.cmpf(
-                                arith.CmpFPredicate.OEQ, neg_imag, c0
-                            )
+                            imag_is_zero = arith.cmpf(arith.CmpFPredicate.OEQ, neg_imag, c0)
                             signed_zero = math_dialect.copysign(c0, y)
-                            final_imag = arith.select(
-                                imag_is_zero, signed_zero, neg_imag
-                            )
+                            final_imag = arith.select(imag_is_zero, signed_zero, neg_imag)
                             scf.yield_(final_real, final_imag)
                         scf.yield_(result_xzero.results)
                     scf.yield_(result_ynan2.results)
@@ -784,9 +778,7 @@ def cmath_asin[FTy](z_real: FTy, z_imag: FTy):
                     a2m1 = arith.subf(arith.mulf(a, a), c1)
                     # Ensure non-negative (numerical noise near a=1)
                     a2m1_safe = arith.maximumf(a2m1, c0)
-                    imag_abs = math_dialect.log(
-                        arith.addf(a, math_dialect.sqrt(a2m1_safe))
-                    )
+                    imag_abs = math_dialect.log(arith.addf(a, math_dialect.sqrt(a2m1_safe)))
                     final_imag = math_dialect.copysign(imag_abs, y)
 
                     scf.yield_(final_real, final_imag)
@@ -875,9 +867,7 @@ def cmath_asinh[FTy](z_real: FTy, z_imag: FTy):
 
                     a2m1 = arith.subf(arith.mulf(a, a), c1)
                     a2m1_safe = arith.maximumf(a2m1, c0)
-                    asin_imag_abs = math_dialect.log(
-                        arith.addf(a, math_dialect.sqrt(a2m1_safe))
-                    )
+                    asin_imag_abs = math_dialect.log(arith.addf(a, math_dialect.sqrt(a2m1_safe)))
                     # asin(iz).imag has sign of im(iz) = x
                     asin_imag = math_dialect.copysign(asin_imag_abs, x)
 

@@ -19,9 +19,7 @@ class TestArchOption(unittest.TestCase):
         supported_ccs = nvrtc.get_supported_ccs()
         for cc in supported_ccs:
             self.assertEqual(nvrtc.get_arch_option(*cc), "compute_%d%d" % cc)
-        self.assertEqual(
-            nvrtc.get_arch_option(1000, 0), "compute_%d%d" % supported_ccs[-1]
-        )
+        self.assertEqual(nvrtc.get_arch_option(1000, 0), "compute_%d%d" % supported_ccs[-1])
 
 
 if __name__ == "__main__":

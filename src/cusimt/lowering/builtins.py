@@ -49,9 +49,7 @@ from .ufunc_registry import UFuncRegistry
 ufunc_registry = UFuncRegistry("builtins")
 
 
-def _get_range_object(
-    builder, args: list[ir.Value]
-) -> tuple[ir.Value, ir.Value, ir.Value]:
+def _get_range_object(builder, args: list[ir.Value]) -> tuple[ir.Value, ir.Value, ir.Value]:
     match args:
         case [stop]:
             stop_type = builder.get_mlir_type(stop)
@@ -75,12 +73,8 @@ def _get_range_object(
                     ty=builder.get_mlir_type(start),
                     signed=True,
                 ),
-                int_of(
-                    builder.load_var(stop), ty=builder.get_mlir_type(stop), signed=True
-                ),
-                int_of(
-                    builder.load_var(step), ty=builder.get_mlir_type(step), signed=True
-                ),
+                int_of(builder.load_var(stop), ty=builder.get_mlir_type(stop), signed=True),
+                int_of(builder.load_var(step), ty=builder.get_mlir_type(step), signed=True),
             )
         case _:
             raise ValueError(f"Invalid arguments for range: {args}")
@@ -97,7 +91,7 @@ def lower_tuple_multiply(builder, target, args, kwargs):
     match tup, how_many:
         case tuple(), (int() | ir.Value()):
             pass
-        case (int() | ir.Value()), tuple():
+        case ((int() | ir.Value()), tuple()):
             tup, how_many = how_many, tup
         case _:
             raise TypeError(f"Invalid arguments for tuple multiply: {tup=} {how_many=}")
@@ -195,9 +189,7 @@ def unituple_contains_cg(builder, target, args, kwargs):
     if not mr_type.has_rank:
         raise NotImplementedError("NYI: unranked memrefs")
     if mr_type.rank != 1:
-        raise TypeError(
-            f"Expected a 1-dimensional memref, got a {rank}-dimensional memref"
-        )
+        raise TypeError(f"Expected a 1-dimensional memref, got a {rank}-dimensional memref")
 
     def body(op: linalg.ReduceOp, element: ir.Value, accumulator: ir.Value):
         found = equal(element, item)
@@ -336,9 +328,7 @@ def lower_broadcasted_binary(builder, target, args, kwargs):
                     case ir.FloatType(), ir.IntegerType():
                         return math.fpowi(lhs, rhs)
                     case ir.IntegerType(), ir.FloatType():
-                        raise InternalCompilerError(
-                            "NYI: integer power of float, unreachable"
-                        )
+                        raise InternalCompilerError("NYI: integer power of float, unreachable")
                     case ir.IntegerType(), ir.IntegerType():
                         return ipowi(lhs, rhs)
             case _:
@@ -369,9 +359,7 @@ def broadcasted_uniform_binary_intrinsic(typingctx, op, a, b):
             retty = arr1.copy(dtype=ety, ndim=max(arr1.ndim, arr2.ndim))
             return retty(a, b), lower_broadcasted_binary
         case _:
-            raise NotImplementedError(
-                f"Not implemented for types {type(a)} and {type(b)}"
-            )
+            raise NotImplementedError(f"Not implemented for types {type(a)} and {type(b)}")
 
 
 @ufunc_registry.register(operator.floordiv)
@@ -486,9 +474,7 @@ def broadcasted_pow_intrinsic(typingctx, op, a, b):
             retty = arr1.copy(dtype=ety, ndim=max(arr1.ndim, arr2.ndim))
             return retty(a, b), lower_broadcasted_binary
         case _:
-            raise NotImplementedError(
-                f"Not implemented for types {type(a)} and {type(b)}"
-            )
+            raise NotImplementedError(f"Not implemented for types {type(a)} and {type(b)}")
 
 
 @lower(int, types.Number)
@@ -541,9 +527,7 @@ def float_from_string_literal(builder, target, args, kwargs):
     elif string_val == "-inf" or string_val == "-infinity":
         val = float("-inf")
     else:
-        raise NotImplementedError(
-            f"float() with string literal '{string_val}' not supported"
-        )
+        raise NotImplementedError(f"float() with string literal '{string_val}' not supported")
 
     result = arith.constant(result=T.f64(), value=val)
     builder.store_var(target, result)
@@ -638,9 +622,7 @@ def lower_round(builder, target, args, kwargs):
     if func := getattr(round, fname, None):
         builder.lower_call_external_mlir_library_function(target, func, args, {})
         return
-    raise NotImplementedError(
-        f"round intrinsic for types {value.type} and {ndigits.type}"
-    )
+    raise NotImplementedError(f"round intrinsic for types {value.type} and {ndigits.type}")
 
 
 @lower(round, types.Number)
@@ -804,9 +786,7 @@ def operator_is_bool_literal_lower(builder, target, args, kwargs):
     left_val = try_extract_constant(left)
     right_val = try_extract_constant(right)
     if left_val is not None and right_val is not None:
-        result = arith.constant(
-            result=ir.IntegerType.get_signless(1), value=left_val is right_val
-        )
+        result = arith.constant(result=ir.IntegerType.get_signless(1), value=left_val is right_val)
     elif left_val is not None:
         result = arith.cmpi(
             arith.CmpIPredicate.eq,

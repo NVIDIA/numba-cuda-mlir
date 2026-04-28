@@ -105,9 +105,7 @@ def _call_libdevice_unary(mlir_lower, value: ir.Value, f64_name: str, f32_name: 
     return func.call(result=[float_type], callee=callee.name.value, operands_=[value])
 
 
-def _call_libdevice_binary(
-    mlir_lower, x: ir.Value, y: ir.Value, f64_name: str, f32_name: str
-):
+def _call_libdevice_binary(mlir_lower, x: ir.Value, y: ir.Value, f64_name: str, f32_name: str):
     """Call a binary libdevice function based on the value types."""
     float_type = x.type
     if float_type == T.f64():
@@ -154,15 +152,9 @@ def _get_operator_mapping(fn) -> OpForType | None:
         operator.iadd: OpForType(
             arith.addi, arith.addi, arith.addi, None, cast_to_return_type=True
         ),
-        operator.ior: OpForType(
-            None, arith.ori, arith.ori, None, cast_to_return_type=True
-        ),
-        operator.iand: OpForType(
-            None, arith.andi, arith.andi, None, cast_to_return_type=True
-        ),
-        operator.ixor: OpForType(
-            None, arith.xori, arith.xori, None, cast_to_return_type=True
-        ),
+        operator.ior: OpForType(None, arith.ori, arith.ori, None, cast_to_return_type=True),
+        operator.iand: OpForType(None, arith.andi, arith.andi, None, cast_to_return_type=True),
+        operator.ixor: OpForType(None, arith.xori, arith.xori, None, cast_to_return_type=True),
         operator.sub: OpForType(
             arith.subf,
             arith.subi,
@@ -452,9 +444,9 @@ def ixor_cg(builder, target, args, kwargs):
 @lower(cusimt.types.ptr, types.Array)
 def pointer_array_cg(builder, target, args, kwargs):
     trace()
-    assert (
-        len(args) == 1 and not kwargs
-    ), "calling types.ptr() is only supported on arrays, pointers, and integers"
+    assert len(args) == 1 and not kwargs, (
+        "calling types.ptr() is only supported on arrays, pointers, and integers"
+    )
     array = builder.load_var(args[0])
     result = memref.extract_aligned_pointer_as_index(array)
     result = convert(result, llvm.PointerType.get())
@@ -1192,9 +1184,7 @@ def math_nextafter_cg(mlir_lower, target, args, kwargs):
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)
-    result = _call_libdevice_binary(
-        mlir_lower, x, y, "__nv_nextafter", "__nv_nextafterf"
-    )
+    result = _call_libdevice_binary(mlir_lower, x, y, "__nv_nextafter", "__nv_nextafterf")
     mlir_lower.store_var(target, result)
 
 

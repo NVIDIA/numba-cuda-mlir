@@ -78,10 +78,7 @@ def unpack_single_tuple(tyctx, tup):
     """
     # See issue #6534
     if not isinstance(tup, types.BaseTuple):
-        msg = (
-            f"Only tuples are supported when unpacking a single item, "
-            f"got type: {tup}"
-        )
+        msg = f"Only tuples are supported when unpacking a single item, got type: {tup}"
         raise errors.UnsupportedError(msg)
 
     sig = tup(tup)

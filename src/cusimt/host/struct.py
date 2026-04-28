@@ -146,29 +146,29 @@ def struct(
         >>>
         >>> # Regular fields
         >>> MyStruct = struct(
-        ...     'MyStruct',
+        ...     "MyStruct",
         ...     [
-        ...         ('a', types.int32),
-        ...         ('b', types.float32),
+        ...         ("a", types.int32),
+        ...         ("b", types.float32),
         ...     ],
         ... )
         >>>
         >>> # Bitfields
         >>> MyBitfields = struct(
-        ...     'MyBitfields',
+        ...     "MyBitfields",
         ...     [
-        ...         ('flag', types.uint32, 1),      # 1-bit field
-        ...         ('value', types.uint32, 5),     # 5-bit field
+        ...         ("flag", types.uint32, 1),  # 1-bit field
+        ...         ("value", types.uint32, 5),  # 5-bit field
         ...     ],
         ... )
         >>>
         >>> # Bitfields with padding
         >>> MyPaddedBitfields = struct(
-        ...     'MyPaddedBitfields',
+        ...     "MyPaddedBitfields",
         ...     [
-        ...         ('a', types.uint32, 4),         # 4 bits
-        ...         (None, types.uint32, 4),        # 4 bits padding
-        ...         ('b', types.uint32, 8),         # 8 bits
+        ...         ("a", types.uint32, 4),  # 4 bits
+        ...         (None, types.uint32, 4),  # 4 bits padding
+        ...         ("b", types.uint32, 8),  # 8 bits
         ...     ],
         ... )
     """
@@ -189,9 +189,7 @@ def struct(
         )
 
     # Convert  namedtuples to (name, type, bit_width) tuples for AggregateType
-    field_tuples = [
-        (field[0], field[1], field[2] if len(field) > 2 else None) for field in fields
-    ]
+    field_tuples = [(field[0], field[1], field[2] if len(field) > 2 else None) for field in fields]
 
     # Create the AggregateType
     struct_type = AggregateType(name, field_tuples)
@@ -205,9 +203,7 @@ def struct(
     return wrapper
 
 
-def _register_struct_constructor(
-    wrapper: StructTypeWrapper, struct_type: AggregateType
-):
+def _register_struct_constructor(wrapper: StructTypeWrapper, struct_type: AggregateType):
     """
     Register a struct constructor so it can be called in device code.
 

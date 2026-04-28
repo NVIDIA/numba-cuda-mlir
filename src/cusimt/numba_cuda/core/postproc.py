@@ -53,9 +53,7 @@ class VariableLifetime:
 
     @cached_property
     def deadmaps(self):
-        return analysis.compute_dead_maps(
-            self.cfg, self._blocks, self.livemap, self.usedefs.defmap
-        )
+        return analysis.compute_dead_maps(self.cfg, self._blocks, self.livemap, self.usedefs.defmap)
 
 
 # other packages that define new nodes add calls for inserting dels
@@ -185,9 +183,7 @@ class PostProcessor:
             extend_lifetimes=extend_lifetimes,
         )
 
-    def _patch_var_dels(
-        self, internal_dead_map, escaping_dead_map, extend_lifetimes=False
-    ):
+    def _patch_var_dels(self, internal_dead_map, escaping_dead_map, extend_lifetimes=False):
         """
         Insert delete in each block
         """

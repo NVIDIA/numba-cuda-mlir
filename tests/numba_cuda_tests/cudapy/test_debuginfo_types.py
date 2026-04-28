@@ -456,11 +456,7 @@ class TestCudaDebugInfoTypes(NumbaCUDATestCase):
         llvmlite_minor_version = int(llvmlite.__version__.split(".")[1])
         prefixes = (
             "CHECK",
-            (
-                "CHECK-LLVMLITE-LE44"
-                if llvmlite_minor_version <= 44
-                else "CHECK-LLVMLITE-GE45"
-            ),
+            ("CHECK-LLVMLITE-LE44" if llvmlite_minor_version <= 44 else "CHECK-LLVMLITE-GE45"),
         )
 
         def sanitize_name(name: str) -> str:

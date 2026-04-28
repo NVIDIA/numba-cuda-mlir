@@ -37,9 +37,7 @@ def _maybe_link_nrt(linker) -> None:
         from cusimt.memory_management import compile_nrt_ltoir
 
         if linker._ltoirs:
-            raise UnsupportedError(
-                "Using LTOIR linking is not supported with NRT enabled."
-            )
+            raise UnsupportedError("Using LTOIR linking is not supported with NRT enabled.")
         linker.add_ltoir(compile_nrt_ltoir(cc))
     else:
         from cusimt.memory_management.nrt import compile_nrt_object
@@ -190,9 +188,7 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
             libllvm = os.path.realpath(bundled)
 
     if not libllvm:
-        raise RuntimeError(
-            "LLVM70 path requires libLLVM-7.so. Set LIBLLVM7=/path/to/libLLVM-7.so"
-        )
+        raise RuntimeError("LLVM70 path requires libLLVM-7.so. Set LIBLLVM7=/path/to/libLLVM-7.so")
 
     libnvvm = _get_libnvvm_path().decode()
     libdevice = get_libdevice()
@@ -245,12 +241,8 @@ def _prepare_llvm_ir(module, dump=False) -> bytes:
         raise ValueError(f"Expected exactly one gpu.module, found {len(gpu_modules)}")
 
     gpu_mod = gpu_modules[0]
-    gpu_mod.operation.attributes["llvm.data_layout"] = ir.StringAttr.get(
-        NVPTX64_DATALAYOUT
-    )
-    gpu_mod.operation.attributes["llvm.target_triple"] = ir.StringAttr.get(
-        NVPTX64_TRIPLE
-    )
+    gpu_mod.operation.attributes["llvm.data_layout"] = ir.StringAttr.get(NVPTX64_DATALAYOUT)
+    gpu_mod.operation.attributes["llvm.target_triple"] = ir.StringAttr.get(NVPTX64_TRIPLE)
 
     llvm_mod, llvm_ctx = translate_to_llvmir(gpu_mod.operation)
 
@@ -258,9 +250,7 @@ def _prepare_llvm_ir(module, dump=False) -> bytes:
         print(f"=============== LLVM IR ===============\n\n{dump_llvmir(llvm_mod)}\n\n")
 
     ctk_major, ctk_minor = get_cuda_runtime_version()
-    return downgrade_for_libnvvm(
-        llvm_mod, llvm_ctx, ctk_major, ctk_minor, MLIR_CAPI_LIB_PATH
-    )
+    return downgrade_for_libnvvm(llvm_mod, llvm_ctx, ctk_major, ctk_minor, MLIR_CAPI_LIB_PATH)
 
 
 def _nvvm_options(cc: str, target_options=None, **extra) -> dict:
@@ -408,9 +398,7 @@ def _dump_lto_assembly(cres, linker, target_options):
 def optimize(cres):
     with context.get_context():
         target_options = cres.metadata["targetoptions"]
-        dump_mlir = target_options.get("dump_mlir", False) or target_options.get(
-            "dump", False
-        )
+        dump_mlir = target_options.get("dump_mlir", False) or target_options.get("dump", False)
         # Parse pre-optimization MLIR (debug metadata present when debug/lineinfo enabled).
         module = ir.Module.parse(cres.metadata["mlir_module_str"])
 
@@ -433,9 +421,7 @@ def optimize(cres):
         else:
             cres.metadata["mlir_module_optimized"] = str(module)
         if dump_mlir:
-            _dump_module(
-                module, "=============== Optimized MLIR Module ==============="
-            )
+            _dump_module(module, "=============== Optimized MLIR Module ===============")
 
         run_pre_codegen_patterns(module)
         if dump_mlir:
@@ -460,9 +446,7 @@ def optimize(cres):
             ptx = _call_llvm70_capi(module, target_options)
             llvm_ir = None
         else:
-            llvm_ir = _prepare_llvm_ir(
-                module, dump=target_options.get("dump_llvmir", False)
-            )
+            llvm_ir = _prepare_llvm_ir(module, dump=target_options.get("dump_llvmir", False))
 
             libdevice = LibDevice()
             nvvm_opts = _nvvm_options(cc, target_options)

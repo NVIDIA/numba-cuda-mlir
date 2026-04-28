@@ -98,10 +98,7 @@ class TypeAnnotation:
                     if found_lifted_loop:
                         atype = "XXX Lifted Loop XXX"
                         found_lifted_loop = False
-                    elif (
-                        isinstance(inst.value, ir.expr_types)
-                        and inst.value.op == "call"
-                    ):
+                    elif isinstance(inst.value, ir.expr_types) and inst.value.op == "call":
                         atype = self.calltypes[inst.value]
                     elif isinstance(inst.value, ir.const_types) and isinstance(
                         inst.value.value, LiftedLoop

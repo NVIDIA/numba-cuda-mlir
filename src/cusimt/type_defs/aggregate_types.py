@@ -45,9 +45,7 @@ class AggregateType(NumbaType):
         # This is used by code that checks "if struct.bitfield_info:" to determine
         # if it's a bitfield struct (single storage) vs regular struct (multiple fields)
         self.bitfield_info = {
-            name: info
-            for name, info in self.field_layout.items()
-            if info.get("is_bitfield", False)
+            name: info for name, info in self.field_layout.items() if info.get("is_bitfield", False)
         }
 
         AggregateType.record_named_type(name, self)
@@ -117,9 +115,7 @@ class AggregateType(NumbaType):
         has_seen_regular_field = False
         total_bitfield_bits = 0
         has_bitfields = False
-        mlir_field_index = (
-            0  # Track MLIR struct field index for insertvalue/extractvalue
-        )
+        mlir_field_index = 0  # Track MLIR struct field index for insertvalue/extractvalue
 
         # For bitfield structs, we always use 64 bits of storage (uint64/i64)
         BITFIELD_STORAGE_BITS = 64
@@ -131,9 +127,7 @@ class AggregateType(NumbaType):
 
                 # Check: No regular fields before this bitfield
                 if has_seen_regular_field:
-                    field_desc = (
-                        "padding" if field_name is None else f"field '{field_name}'"
-                    )
+                    field_desc = "padding" if field_name is None else f"field '{field_name}'"
                     raise NotImplementedError(
                         f"TODO: Implement this. Bitfield {field_desc} appears after a regular (non-bitfield) field. "
                         f"Current implementation requires all bitfields to be at the beginning "
@@ -150,9 +144,7 @@ class AggregateType(NumbaType):
 
                 total_bitfield_bits += bit_width
                 if total_bitfield_bits > BITFIELD_STORAGE_BITS:
-                    field_desc = (
-                        "padding" if field_name is None else f"field '{field_name}'"
-                    )
+                    field_desc = "padding" if field_name is None else f"field '{field_name}'"
                     raise NotImplementedError(
                         f"TODO: Implement this. Bitfield {field_desc} would overflow the storage unit. "
                         f"Total bitfield size ({total_bitfield_bits} bits) exceeds the "
@@ -191,9 +183,7 @@ class AggregateType(NumbaType):
                 elif isinstance(field_type, types.UniTuple):
                     # Fixed-size array
                     elem_bits = (
-                        field_type.dtype.bitwidth
-                        if hasattr(field_type.dtype, "bitwidth")
-                        else 64
+                        field_type.dtype.bitwidth if hasattr(field_type.dtype, "bitwidth") else 64
                     )
                     field_bits = field_type.count * elem_bits
                 elif hasattr(field_type, "bitwidth"):
@@ -212,9 +202,7 @@ class AggregateType(NumbaType):
                 }
 
                 bit_offset += field_bits
-                mlir_field_index += (
-                    1  # Each regular field gets its own MLIR struct field
-                )
+                mlir_field_index += 1  # Each regular field gets its own MLIR struct field
 
         # For bitfield structs, increment mlir_field_index once for the storage field
         if has_bitfields and mlir_field_index == 0:
@@ -257,9 +245,7 @@ class AggregateType(NumbaType):
         """
         if self.is_bitfield_struct:
             # Bitfield struct: calculate the actual bits used (including padding)
-            max_bit_end = sum(
-                bit_width for _, _, bit_width in self.fields if bit_width is not None
-            )
+            max_bit_end = sum(bit_width for _, _, bit_width in self.fields if bit_width is not None)
             # Round up to nearest power of 2 (minimum 8)
             return max(8, 2 ** math.ceil(math.log2(max_bit_end)))
         else:
@@ -320,7 +306,7 @@ class UnionType(NumbaType):
         """
         max_bits = 0
 
-        for variant_name, variant_type in self.variants:
+        for _, variant_type in self.variants:
             # Get the size of this variant
             if hasattr(variant_type, "bitwidth"):
                 bits = variant_type.bitwidth
@@ -330,9 +316,7 @@ class UnionType(NumbaType):
             elif isinstance(variant_type, types.UniTuple):
                 # UniTuple: count * element_size
                 elem_bits = (
-                    variant_type.dtype.bitwidth
-                    if hasattr(variant_type.dtype, "bitwidth")
-                    else 64
+                    variant_type.dtype.bitwidth if hasattr(variant_type.dtype, "bitwidth") else 64
                 )
                 bits = variant_type.count * elem_bits
             else:

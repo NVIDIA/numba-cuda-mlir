@@ -52,9 +52,7 @@ class NoneStatementRemovalPass(ASTTransformPass):
     def name(self) -> str:
         return "NoneStatementRemoval"
 
-    def transform(
-        self, tree: ast.Module, context: TransformContext
-    ) -> tuple[ast.Module, bool]:
+    def transform(self, tree: ast.Module, context: TransformContext) -> tuple[ast.Module, bool]:
         return remove_none_statements(tree)
 
 

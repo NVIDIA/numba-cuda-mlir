@@ -315,9 +315,7 @@ def _get_format_and_values(mlir_lower: MLIRLower, arg) -> tuple[str, list[ir.Val
 
 
 @lower(print, types.VarArg(types.Any))
-def lower_print(
-    mlir_lower: MLIRLower, target, args, kwargs: list[tuple[str, ir.Value]]
-):
+def lower_print(mlir_lower: MLIRLower, target, args, kwargs: list[tuple[str, ir.Value]]):
     def _kwarg_str(kw_list, name, default):
         """Extract a string keyword arg from its literal type."""
         for k, v in kw_list:
@@ -331,9 +329,7 @@ def lower_print(
 
     end = _kwarg_str(kwargs, "end", "\n")
     sep = _kwarg_str(kwargs, "sep", " ")
-    remaining_kwargs = {
-        k: mlir_lower.load_var(v) for k, v in kwargs if k not in ("end", "sep")
-    }
+    remaining_kwargs = {k: mlir_lower.load_var(v) for k, v in kwargs if k not in ("end", "sep")}
     args = [mlir_lower.load_var(arg) for arg in args]
 
     if remaining_kwargs:

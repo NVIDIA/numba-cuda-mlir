@@ -80,10 +80,7 @@ def _guard_kind(kind):
     res : str
     """
     if kind.startswith("numba-cuda:") and kind not in _builtin_kinds:
-        msg = (
-            f"{kind} is not a valid event kind, "
-            "it starts with the reserved prefix 'numba-cuda:'"
-        )
+        msg = f"{kind} is not a valid event kind, it starts with the reserved prefix 'numba-cuda:'"
         raise ValueError(msg)
     if kind.startswith("numba:"):
         msg = (
@@ -112,9 +109,7 @@ class Event:
         self._kind = _guard_kind(kind)
         self._status = status
         self._data = data
-        self._exc_details = (
-            None if exc_details is None or exc_details[0] is None else exc_details
-        )
+        self._exc_details = None if exc_details is None or exc_details[0] is None else exc_details
 
     @property
     def kind(self):

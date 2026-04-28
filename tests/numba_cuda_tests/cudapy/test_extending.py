@@ -48,9 +48,7 @@ from conftest import TEST_BIN_DIR
 test_device_functions_a = os.path.join(TEST_BIN_DIR, "test_device_functions.a")
 test_device_functions_cubin = os.path.join(TEST_BIN_DIR, "test_device_functions.cubin")
 test_device_functions_cu = os.path.join(TEST_BIN_DIR, "test_device_functions.cu")
-test_device_functions_fatbin = os.path.join(
-    TEST_BIN_DIR, "test_device_functions.fatbin"
-)
+test_device_functions_fatbin = os.path.join(TEST_BIN_DIR, "test_device_functions.fatbin")
 test_device_functions_fatbin_multi = os.path.join(
     TEST_BIN_DIR, "test_device_functions_multi.fatbin"
 )
@@ -934,9 +932,7 @@ class TestNumbaInternalOverloads(NumbaCUDATestCase):
                                 except SyntaxError:
                                     # likely elipsis, e.g. rand(d0, d1, ..., dn)
                                     if DEBUG == 2:
-                                        print(
-                                            "... skipped as cannot parse " "signature"
-                                        )
+                                        print("... skipped as cannot parse signature")
                                     return None
                                 else:
                                     fn = l.get(x)
@@ -948,7 +944,7 @@ class TestNumbaInternalOverloads(NumbaCUDATestCase):
 
             def create_message(func, overload_func, func_sig, ol_sig):
                 msg = []
-                s = f"{func} from module '{func.__module__}' " "has mismatched sig."
+                s = f"{func} from module '{func.__module__}' has mismatched sig."
                 msg.append(s)
                 msg.append(f"    - expected: {func_sig}")
                 msg.append(f"    -      got: {ol_sig}")
@@ -980,9 +976,7 @@ class TestNumbaInternalOverloads(NumbaCUDATestCase):
                         if p.kind == p.POSITIONAL_ONLY:
                             # probably a built-in/C code
                             if DEBUG == 2:
-                                print(
-                                    "... skipped as positional only " "arguments found"
-                                )
+                                print("... skipped as positional only arguments found")
                             break
                         elif "*" in str(p):  # probably *args or similar
                             if DEBUG == 2:
@@ -991,12 +985,8 @@ class TestNumbaInternalOverloads(NumbaCUDATestCase):
                         else:
                             # Only error/report on functions that have a module
                             # or are from somewhere other than Numba.
-                            if not func.__module__ or not func.__module__.startswith(
-                                "numba"
-                            ):
-                                msgstr = create_message(
-                                    func, overload_func, func_sig, ol_sig
-                                )
+                            if not func.__module__ or not func.__module__.startswith("numba"):
+                                msgstr = create_message(func, overload_func, func_sig, ol_sig)
                                 if DEBUG != 0:
                                     if DEBUG == 2:
                                         print("... INVALID")
@@ -1008,7 +998,7 @@ class TestNumbaInternalOverloads(NumbaCUDATestCase):
                             else:
                                 if DEBUG == 2:
                                     if not func.__module__:
-                                        print("... skipped as no __module__ " "present")
+                                        print("... skipped as no __module__ present")
                                     else:
                                         print("... skipped as Numba internal")
                                 break

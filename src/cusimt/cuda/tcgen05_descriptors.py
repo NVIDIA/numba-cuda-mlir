@@ -197,16 +197,17 @@ def _init_device_functions():
     """Initialize device functions by compiling them."""
     cuda = _get_cuda()
 
-    global tcgen05_build_smem_descriptor, tcgen05_build_idescriptor, tcgen05_update_smem_start_address
+    global \
+        tcgen05_build_smem_descriptor, \
+        tcgen05_build_idescriptor, \
+        tcgen05_update_smem_start_address
 
     # Compile the wrapper functions (with defaults) directly as device functions
     # This matches the pattern used in test examples
     tcgen05_build_smem_descriptor = cuda.jit(device=True, inline="always")(
         tcgen05_build_smem_descriptor
     )
-    tcgen05_build_idescriptor = cuda.jit(device=True, inline="always")(
-        tcgen05_build_idescriptor
-    )
+    tcgen05_build_idescriptor = cuda.jit(device=True, inline="always")(tcgen05_build_idescriptor)
     tcgen05_update_smem_start_address = cuda.jit(device=True, inline="always")(
         tcgen05_update_smem_start_address
     )

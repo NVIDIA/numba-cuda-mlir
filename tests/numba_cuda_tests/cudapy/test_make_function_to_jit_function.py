@@ -292,9 +292,7 @@ class TestMakeFunctionToJITFunction(NumbaCUDATestCase):
         with self.assertRaises(errors.TypingError) as e:
             cusimt.jit("void(int64)")(impl)
 
-        self.assertIn(
-            "Cannot capture the non-constant value associated", str(e.exception)
-        )
+        self.assertIn("Cannot capture the non-constant value associated", str(e.exception))
 
     @pytest.mark.xfail(True, reason="ICE")
     def test_escape_with_kwargs(self):

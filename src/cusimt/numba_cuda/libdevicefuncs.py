@@ -1050,9 +1050,7 @@ def generate_stubs():
         argstr = ", ".join(argnames)
         signature = create_signature(retty, args)
 
-        param_types = "\n".join(
-            [param_template.format(a=a) for a in args if not a.is_ptr]
-        )
+        param_types = "\n".join([param_template.format(a=a) for a in args if not a.is_ptr])
         docstring = docstring_template.format(
             param_types=param_types, retty=signature.return_type, func=name
         )

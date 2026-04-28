@@ -149,16 +149,12 @@ def cvt_e8m0_to_bf16raw_impl(builder, target, args, kwargs):
     bf16_bits = arith.shli(i16_val, arith.constant(T.i16(), 7))
     target_ty = to_mlir_type(bfloat16_raw_type)
     desc = llvm.UndefOp(target_ty).result
-    desc = llvm.insertvalue(
-        container=desc, value=bf16_bits, position=ir.DenseI64ArrayAttr.get([0])
-    )
+    desc = llvm.insertvalue(container=desc, value=bf16_bits, position=ir.DenseI64ArrayAttr.get([0]))
     builder.store_var(target, desc)
 
 
 @registry.lower_getattr(bfloat16_raw_type, "x")
 def bfloat16_raw_getattr_x(context, builder, target, value):
     struct_val = builder.load_var(value)
-    x_val = llvm.extractvalue(
-        T.i16(), struct_val, position=ir.DenseI64ArrayAttr.get([0])
-    )
+    x_val = llvm.extractvalue(T.i16(), struct_val, position=ir.DenseI64ArrayAttr.get([0]))
     builder.store_var(target, x_val)

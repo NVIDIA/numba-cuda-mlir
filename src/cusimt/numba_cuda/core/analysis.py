@@ -299,9 +299,7 @@ def rewrite_semantic_constants(func_ir, called_args):
     DEBUG = 0
 
     if DEBUG > 1:
-        print(
-            ("rewrite_semantic_constants: " + func_ir.func_id.func_name).center(80, "-")
-        )
+        print(("rewrite_semantic_constants: " + func_ir.func_id.func_name).center(80, "-"))
         print("before".center(80, "*"))
         func_ir.dump()
 
@@ -340,9 +338,7 @@ def rewrite_semantic_constants(func_ir, called_args):
                     argty = called_args[arg_def.index]
                     if isinstance(argty, types.BaseTuple):
                         rewrite_statement(func_ir, stmt, argty.count)
-                elif (
-                    isinstance(arg_def, ir.expr_types) and arg_def.op == "typed_getitem"
-                ):
+                elif isinstance(arg_def, ir.expr_types) and arg_def.op == "typed_getitem":
                     argty = arg_def.dtype
                     if isinstance(argty, types.BaseTuple):
                         rewrite_statement(func_ir, stmt, argty.count)
@@ -399,10 +395,7 @@ def find_literally_calls(func_ir, argtypes):
     # Signal the dispatcher to force literal typing
     for pos in marked_args:
         query_arg = argtypes[pos]
-        do_raise = (
-            isinstance(query_arg, types.InitialValue)
-            and query_arg.initial_value is None
-        )
+        do_raise = isinstance(query_arg, types.InitialValue) and query_arg.initial_value is None
         if do_raise:
             loc = first_loc[pos]
             raise errors.ForceLiteralArg(marked_args, loc=loc)
@@ -530,9 +523,7 @@ def dead_branch_prune(func_ir, called_args):
         try:
             # Just to prevent accidents, whilst already guarded, ensure this
             # is an ir.Const
-            if not isinstance(
-                pred, ir.const_types + ir.freevar_types + ir.global_types
-            ):
+            if not isinstance(pred, ir.const_types + ir.freevar_types + ir.global_types):
                 raise TypeError("Expected constant Numba IR node")
             take_truebr = bool(pred.value)
         except TypeError:

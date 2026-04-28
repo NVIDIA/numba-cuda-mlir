@@ -36,17 +36,11 @@ def _init_tma_enums():
     TensorMapSwizzle.SWIZZLE_64B = driver.CUtensorMapSwizzle.CU_TENSOR_MAP_SWIZZLE_64B
     TensorMapSwizzle.SWIZZLE_32B = driver.CUtensorMapSwizzle.CU_TENSOR_MAP_SWIZZLE_32B
 
-    TensorMapL2Promotion.NONE = (
-        driver.CUtensorMapL2promotion.CU_TENSOR_MAP_L2_PROMOTION_NONE
-    )
+    TensorMapL2Promotion.NONE = driver.CUtensorMapL2promotion.CU_TENSOR_MAP_L2_PROMOTION_NONE
 
-    TensorMapFloatOOBFill.NONE = (
-        driver.CUtensorMapFloatOOBfill.CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE
-    )
+    TensorMapFloatOOBFill.NONE = driver.CUtensorMapFloatOOBfill.CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE
 
-    TensorMapInterleave.NONE = (
-        driver.CUtensorMapInterleave.CU_TENSOR_MAP_INTERLEAVE_NONE
-    )
+    TensorMapInterleave.NONE = driver.CUtensorMapInterleave.CU_TENSOR_MAP_INTERLEAVE_NONE
 
 
 # Initialize enums on import (lazy to avoid import-time errors if driver unavailable)

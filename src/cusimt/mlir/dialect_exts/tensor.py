@@ -37,9 +37,7 @@ S = ShapedType.get_dynamic_size()
 def empty(*sizes: Union[int, Value], element_type: Type = None, loc=None, ip=None):
     if element_type is None:
         sizes, element_type = _unpack_sizes_element_type(sizes)
-    return get_op_result_or_op_results(
-        tensor.EmptyOp(sizes, element_type, loc=loc, ip=ip)
-    )
+    return get_op_result_or_op_results(tensor.EmptyOp(sizes, element_type, loc=loc, ip=ip))
 
 
 def extract_slice(
@@ -112,11 +110,7 @@ def insert_slice(
 
 def _is_index_tensor(x):
     """Returns True if x is a TensorValue with index dtype, False otherwise."""
-    return (
-        isinstance(x, Value)
-        and isinstance(x, TensorValue)
-        and isinstance(x.dtype, IndexType)
-    )
+    return isinstance(x, Value) and isinstance(x, TensorValue) and isinstance(x.dtype, IndexType)
 
 
 @register_value_caster(RankedTensorType.static_typeid)
@@ -182,9 +176,9 @@ class TensorValue(ArithValue):
             or idx == slice(None)
             or (isinstance(idx, tuple) and all(i == slice(None) for i in idx))
         ):
-            assert (
-                self.shape == source.shape
-            ), f"Expected matching shape for dest slice {self.shape=} and source {source.shape=}"
+            assert self.shape == source.shape, (
+                f"Expected matching shape for dest slice {self.shape=} and source {source.shape=}"
+            )
             return self
 
         idx = list((idx,) if isinstance(idx, int) else idx)
@@ -192,21 +186,19 @@ class TensorValue(ArithValue):
             if isinstance(d, int):
                 idx[i] = constant(d, index=True, loc=loc)
 
-        if all(isinstance(d, ScalarValue) and d.fold() for d in idx) and len(
-            idx
-        ) == len(self.shape):
-            assert isinstance(
-                source, ScalarValue
-            ), "coordinate insert requires scalar element"
+        if all(isinstance(d, ScalarValue) and d.fold() for d in idx) and len(idx) == len(
+            self.shape
+        ):
+            assert isinstance(source, ScalarValue), "coordinate insert requires scalar element"
             res = tensor.insert(source, self, idx, loc=loc)
         else:
             if any(_is_index_tensor(i) or _is_int_arraylike(i) for i in idx):
                 raise ValueError("indexing by tensor is not currently supported")
             indexer = _indices_to_indexer(tuple(idx), self.shape)
             if indexer.is_constant():
-                assert (
-                    indexer.static_sizes() == source.shape
-                ), f"Expected matching shape for dest slice {indexer.static_sizes()=} and source {source.shape=}"
+                assert indexer.static_sizes() == source.shape, (
+                    f"Expected matching shape for dest slice {indexer.static_sizes()=} and source {source.shape=}"
+                )
                 res = insert_slice(
                     source,
                     self,
@@ -234,9 +226,7 @@ class TensorValue(ArithValue):
             return other
         elif _is_scalar(other):
             if not self.has_static_shape():
-                raise ValueError(
-                    f"can't coerce {other=} because {self=} doesn't have static shape"
-                )
+                raise ValueError(f"can't coerce {other=} because {self=} doesn't have static shape")
             if isinstance(other, (int, float)):
                 np_dtype = mlir_type_to_np_dtype(self.dtype)
                 other = TensorValue(
@@ -305,9 +295,7 @@ def expand_dims(
     if len(newaxis_dims) == 0:
         return inp
 
-    result_shape, reassoc_list = compute_result_shape_reassoc_list(
-        inp.shape, newaxis_dims
-    )
+    result_shape, reassoc_list = compute_result_shape_reassoc_list(inp.shape, newaxis_dims)
     if inp.fold():
         return TensorValue(inp.literal_value.reshape(result_shape))
 
@@ -374,17 +362,13 @@ def pad_(
     loc=None,
     ip=None,
 ):
-    assert all(
-        isinstance(l, int) for l in low
-    ), f"only literal pad values supported: {low=}"
-    assert all(
-        isinstance(l, int) for l in high
-    ), f"only literal pad values supported: {high=}"
+    assert all(isinstance(l, int) for l in low), f"only literal pad values supported: {low=}"
+    assert all(isinstance(l, int) for l in high), f"only literal pad values supported: {high=}"
 
-    dim_sizes = []
     source_type = source.type
-    for dim in range(source_type.rank):
-        dim_sizes.append(source_type.get_dim_size(dim) + low[dim] + high[dim])
+    dim_sizes = [
+        source_type.get_dim_size(dim) + low[dim] + high[dim] for dim in range(source_type.rank)
+    ]
     result_type = RankedTensorType.get(dim_sizes, source_type.element_type)
 
     return tensor.PadOp(
@@ -402,6 +386,4 @@ def pad_(
 
 pad = region_op(pad_, terminator=lambda args: tensor.YieldOp(args[0]))
 
-generate = region_op(
-    lambda result, dynamic_extents: tensor.GenerateOp(result, dynamic_extents)
-)
+generate = region_op(lambda result, dynamic_extents: tensor.GenerateOp(result, dynamic_extents))

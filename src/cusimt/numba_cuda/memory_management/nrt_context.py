@@ -280,9 +280,7 @@ class NRTContext:
 
         Returns NULL to indicate error/failure to allocate.
         """
-        return self._call_varsize_alloc(
-            builder, meminfo, size, "NRT_MemInfo_varsize_alloc"
-        )
+        return self._call_varsize_alloc(builder, meminfo, size, "NRT_MemInfo_varsize_alloc")
 
     @_check_null_result
     def meminfo_varsize_realloc(self, builder, meminfo, size):
@@ -302,9 +300,7 @@ class NRTContext:
 
         Returns NULL to indicate error/failure to allocate.
         """
-        return self._call_varsize_alloc(
-            builder, meminfo, size, "NRT_MemInfo_varsize_realloc"
-        )
+        return self._call_varsize_alloc(builder, meminfo, size, "NRT_MemInfo_varsize_realloc")
 
     def meminfo_varsize_free(self, builder, meminfo, ptr):
         """
@@ -336,9 +332,7 @@ class NRTContext:
         self._require_nrt()
 
         mod = builder.module
-        fn = cgutils.get_or_insert_function(
-            mod, meminfo_data_ty, "NRT_MemInfo_data_fast"
-        )
+        fn = cgutils.get_or_insert_function(mod, meminfo_data_ty, "NRT_MemInfo_data_fast")
         return builder.call(fn, [meminfo])
 
     def get_meminfos(self, builder, ty, val):

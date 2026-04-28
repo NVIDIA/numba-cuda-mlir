@@ -54,9 +54,7 @@ def dump_refcount(typingctx, obj):
                 # "%zu" is not portable.  just truncate refcount to 32-bit.
                 # that's good enough for a debugging util.
                 refct_32bit = builder.trunc(refct, ir.IntType(32))
-                printed = cgutils.snprintf_stackbuffer(
-                    builder, 30, "%d [%p]", refct_32bit, miptr
-                )
+                printed = cgutils.snprintf_stackbuffer(builder, 30, "%d [%p]", refct_32bit, miptr)
                 pyapi.sys_write_stdout(printed)
 
             pyapi.print_string(";\n")

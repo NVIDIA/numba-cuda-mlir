@@ -204,9 +204,7 @@ def overload(
 
     # set default options
     if jit_options is not None and "inline" in jit_options:
-        raise ValueError(
-            "`inline` should be passed as a separate argument, not in `jit_options`"
-        )
+        raise ValueError("`inline` should be passed as a separate argument, not in `jit_options`")
     opts = _overload_default_jit_options.copy()
     opts.update(jit_options or {})  # let user options override
     if inline is not None:
@@ -672,9 +670,7 @@ class SentryLiteralArgs(collections.namedtuple("_SentryLiteralArgs", ["literal_a
         )
 
 
-class BoundLiteralArgs(
-    collections.namedtuple("BoundLiteralArgs", ["pysig", "literal_args"])
-):
+class BoundLiteralArgs(collections.namedtuple("BoundLiteralArgs", ["pysig", "literal_args"])):
     """
     This class is usually created by SentryLiteralArgs.
     """

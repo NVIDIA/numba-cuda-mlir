@@ -32,9 +32,7 @@ def enum_is(context, builder, sig, args):
     tu, tv = sig.args
     u, v = args
     if tu == tv:
-        res = context.generic_compare(
-            builder, operator.eq, (tu.dtype, tv.dtype), (u, v)
-        )
+        res = context.generic_compare(builder, operator.eq, (tu.dtype, tv.dtype), (u, v))
     else:
         res = context.get_constant(sig.return_type, False)
     return impl_ret_untracked(context, builder, sig.return_type, res)

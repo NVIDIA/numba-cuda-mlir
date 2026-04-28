@@ -109,9 +109,7 @@ def _make_binary_math_template(key, return_type_fn=None):
                 and isinstance(args[0], types.Number)
                 and isinstance(args[1], types.Number)
             ):
-                return_type = (
-                    return_type_fn(args[0], args[1]) if return_type_fn else args[0]
-                )
+                return_type = return_type_fn(args[0], args[1]) if return_type_fn else args[0]
                 return signature(return_type, args[0], args[1])
 
     BinaryMathTemplate.key = key

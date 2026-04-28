@@ -15,7 +15,6 @@ import pytest
 
 
 class TestLang(NumbaCUDATestCase):
-
     @pytest.mark.xfail(True, reason="Typing error")
     def test_enumerate(self):
         tup = (1.0, 2.5, 3.0)

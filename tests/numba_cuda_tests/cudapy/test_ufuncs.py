@@ -73,9 +73,7 @@ class BaseUFuncTest:
         # rewriting of array expressions.
         return njit(args, _nrt=nrt, no_rewrites=True)(pyfunc)
 
-    def _determine_output_type(
-        self, input_type, int_output_type=None, float_output_type=None
-    ):
+    def _determine_output_type(self, input_type, int_output_type=None, float_output_type=None):
         ty = input_type
         if isinstance(ty, types.Array):
             ndim = ty.ndim
@@ -117,9 +115,7 @@ class BasicUFuncTest(BaseUFuncTest):
     ):
         pyfunc = self._make_ufunc_usecase(ufunc)
 
-        for input_operand, input_type in itertools.chain(
-            self.inputs, additional_inputs
-        ):
+        for input_operand, input_type in itertools.chain(self.inputs, additional_inputs):
             is_tuple = isinstance(input_operand, tuple)
             if is_tuple:
                 args = input_operand
@@ -146,20 +142,14 @@ class BasicUFuncTest(BaseUFuncTest):
 
             if isinstance(args[0], np.ndarray):
                 results = [
-                    np.zeros(args[0].shape, dtype=out_ty.dtype.name)
-                    for out_ty in output_types
+                    np.zeros(args[0].shape, dtype=out_ty.dtype.name) for out_ty in output_types
                 ]
                 expected = [
-                    np.zeros(args[0].shape, dtype=out_ty.dtype.name)
-                    for out_ty in output_types
+                    np.zeros(args[0].shape, dtype=out_ty.dtype.name) for out_ty in output_types
                 ]
             else:
-                results = [
-                    np.zeros(1, dtype=out_ty.dtype.name) for out_ty in output_types
-                ]
-                expected = [
-                    np.zeros(1, dtype=out_ty.dtype.name) for out_ty in output_types
-                ]
+                results = [np.zeros(1, dtype=out_ty.dtype.name) for out_ty in output_types]
+                expected = [np.zeros(1, dtype=out_ty.dtype.name) for out_ty in output_types]
 
             invalid_flag = False
             with warnings.catch_warnings(record=True) as warnlist:

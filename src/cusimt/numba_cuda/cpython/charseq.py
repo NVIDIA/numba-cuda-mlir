@@ -106,9 +106,7 @@ def unicode_charseq_get_code(a, i):
     elif unicode_byte_width == 1:
         return deref_uint8(a, i)
     else:
-        raise NotImplementedError(
-            "unicode_charseq_get_code: unicode_byte_width not in [1, 2, 4]"
-        )
+        raise NotImplementedError("unicode_charseq_get_code: unicode_byte_width not in [1, 2, 4]")
 
 
 @register_jitable
@@ -236,9 +234,7 @@ def charseq_to_bytes(context, builder, fromty, toty, val):
 def unicode_to_bytes_cast(context, builder, fromty, toty, val):
     uni_str = cgutils.create_struct_proxy(fromty)(context, builder, value=val)
     src1 = builder.bitcast(uni_str.data, ir.IntType(8).as_pointer())
-    notkind1 = builder.icmp_unsigned(
-        "!=", uni_str.kind, ir.Constant(uni_str.kind.type, 1)
-    )
+    notkind1 = builder.icmp_unsigned("!=", uni_str.kind, ir.Constant(uni_str.kind.type, 1))
     src_length = uni_str.length
 
     with builder.if_then(notkind1):
@@ -260,9 +256,7 @@ def _unicode_to_bytes(typingctx, s):
     sig = bytes_type(s)
 
     def codegen(context, builder, signature, args):
-        return unicode_to_bytes_cast(
-            context, builder, s, bytes_type, args[0]
-        )._getvalue()
+        return unicode_to_bytes_cast(context, builder, s, bytes_type, args[0])._getvalue()
 
     return sig, codegen
 
@@ -310,10 +304,7 @@ def unicode_to_unicode_charseq(context, builder, fromty, toty, val):
             context.fndesc.call_conv.return_user_exc(
                 builder,
                 ValueError,
-                (
-                    "cannot cast 16-bit unicode_type to %s-bit %s"
-                    % (unicode_byte_width * 8, toty)
-                ),
+                ("cannot cast 16-bit unicode_type to %s-bit %s" % (unicode_byte_width * 8, toty)),
             )
 
     with builder.if_then(kind4):
@@ -326,10 +317,7 @@ def unicode_to_unicode_charseq(context, builder, fromty, toty, val):
             context.fndesc.call_conv.return_user_exc(
                 builder,
                 ValueError,
-                (
-                    "cannot cast 32-bit unicode_type to %s-bit %s"
-                    % (unicode_byte_width * 8, toty)
-                ),
+                ("cannot cast 32-bit unicode_type to %s-bit %s" % (unicode_byte_width * 8, toty)),
             )
 
     return builder.load(dst_ptr)
@@ -423,9 +411,7 @@ def charseq_concat(a, b):
             return str(a) + str(b)
 
         return impl
-    if isinstance(a, (types.CharSeq, types.Bytes)) and isinstance(
-        b, (types.CharSeq, types.Bytes)
-    ):
+    if isinstance(a, (types.CharSeq, types.Bytes)) and isinstance(b, (types.CharSeq, types.Bytes)):
 
         def impl(a, b):
             return (a._to_str() + b._to_str())._to_bytes()
@@ -885,8 +871,7 @@ def _map_bytes(seq):
 @overload_method(types.Bytes, "split")
 def unicode_charseq_split(a, sep=None, maxsplit=-1):
     if not (
-        maxsplit == -1
-        or isinstance(maxsplit, (types.Omitted, types.Integer, types.IntegerLiteral))
+        maxsplit == -1 or isinstance(maxsplit, (types.Omitted, types.Integer, types.IntegerLiteral))
     ):
         return None
     if isinstance(a, types.UnicodeCharSeq):

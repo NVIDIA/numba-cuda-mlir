@@ -135,9 +135,7 @@ class ListCompare(AbstractTemplate):
         [lhs, rhs] = args
         if isinstance(lhs, types.List) and isinstance(rhs, types.List):
             # Check element-wise comparability
-            res = self.context.resolve_function_type(
-                self.key, (lhs.dtype, rhs.dtype), {}
-            )
+            res = self.context.resolve_function_type(self.key, (lhs.dtype, rhs.dtype), {})
             if res is not None:
                 return signature(types.boolean, lhs, rhs)
 

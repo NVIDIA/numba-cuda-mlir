@@ -12,9 +12,9 @@ def test_help_message():
             pass
 
     except SystemExit as e:
-        assert (
-            str(e).strip().startswith(HELP_PREFIX)
-        ), f"Expected SystemExit message to start with '{HELP_PREFIX}', got {e}"
+        assert str(e).strip().startswith(HELP_PREFIX), (
+            f"Expected SystemExit message to start with '{HELP_PREFIX}', got {e}"
+        )
 
 
 def test_help_message_because_bad_argument():
@@ -26,13 +26,15 @@ def test_help_message_because_bad_argument():
             pass
 
     except ValueError as e:
-        assert (
-            str(e).strip().startswith(HELP_PREFIX)
-        ), f"Expected ValueError message to start with '{HELP_PREFIX}', got {e}"
+        assert str(e).strip().startswith(HELP_PREFIX), (
+            f"Expected ValueError message to start with '{HELP_PREFIX}', got {e}"
+        )
 
 
 def test_help_message_because_bad_type():
-    HELP_PREFIX = "Printing the options because: Expected opt_level to be of type <class 'int'>, got foo"
+    HELP_PREFIX = (
+        "Printing the options because: Expected opt_level to be of type <class 'int'>, got foo"
+    )
     try:
 
         @jit(opt_level="foo")
@@ -40,9 +42,9 @@ def test_help_message_because_bad_type():
             pass
 
     except TypeError as e:
-        assert (
-            str(e).strip().startswith(HELP_PREFIX)
-        ), f"Expected TypeError message to start with '{HELP_PREFIX}', got {e}"
+        assert str(e).strip().startswith(HELP_PREFIX), (
+            f"Expected TypeError message to start with '{HELP_PREFIX}', got {e}"
+        )
 
 
 if __name__ == "__main__":

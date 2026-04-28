@@ -27,9 +27,7 @@ class TypeManager:
 
     def check_compatible(self, fromty, toty):
         if not isinstance(toty, types.Type):
-            raise ValueError(
-                "Specified type '%s' (%s) is not a Numba type" % (toty, type(toty))
-            )
+            raise ValueError("Specified type '%s' (%s) is not a Numba type" % (toty, type(toty)))
         name = _typeconv.check_compatible(self._ptr, fromty._code, toty._code)
         conv = Conversion[name] if name is not None else None
         assert conv is not Conversion.nil

@@ -66,9 +66,9 @@ class CUDATestCase(TestCase):
         signature: Union[Signature, None] = None,
     ) -> Iterable[str]:
         if isinstance(ir_result, str):
-            assert (
-                signature is None
-            ), "Cannot use signature because the kernel was only compiled for one signature"
+            assert signature is None, (
+                "Cannot use signature because the kernel was only compiled for one signature"
+            )
             return [ir_result]
 
         if signature is None:
@@ -89,9 +89,9 @@ class CUDATestCase(TestCase):
         """
         ir_contents = self._getIRContents(ir_producer.inspect_asm(), signature)
         assert ir_contents, "No assembly output found for the given signature."
-        assert (
-            ir_producer.__doc__ is not None
-        ), "Kernel docstring is required. To pass checks explicitly, use assertFileCheckMatches."
+        assert ir_producer.__doc__ is not None, (
+            "Kernel docstring is required. To pass checks explicitly, use assertFileCheckMatches."
+        )
         check_patterns = ir_producer.__doc__
         for ir_content in ir_contents:
             self.assertFileCheckMatches(
@@ -114,9 +114,9 @@ class CUDATestCase(TestCase):
         """
         ir_contents = self._getIRContents(ir_producer.inspect_llvm(), signature)
         assert ir_contents, "No LLVM IR output found for the given signature."
-        assert (
-            ir_producer.__doc__ is not None
-        ), "Kernel docstring is required. To pass checks explicitly, use assertFileCheckMatches."
+        assert ir_producer.__doc__ is not None, (
+            "Kernel docstring is required. To pass checks explicitly, use assertFileCheckMatches."
+        )
         check_patterns = ir_producer.__doc__
         for ir_content in ir_contents:
             assert ir_content, "LLVM IR content is empty for the given signature."
@@ -157,9 +157,7 @@ class CUDATestCase(TestCase):
         result = matcher.run()
         if result != 0:
             if self._dump_failed_filechecks:
-                dump_directory = Path(
-                    datetime.now().strftime("numba-ir-%Y_%m_%d_%H_%M_%S")
-                )
+                dump_directory = Path(datetime.now().strftime("numba-ir-%Y_%m_%d_%H_%M_%S"))
                 if not dump_directory.exists():
                     dump_directory.mkdir(parents=True, exist_ok=True)
                 base_path = self.id().replace(".", "_")
@@ -173,14 +171,9 @@ class CUDATestCase(TestCase):
                     _ = checks_file.write(check_patterns)
                     dump_instructions = f"Reproduce with:\n\nfilecheck --check-prefixes={','.join(check_prefixes)} {checks_dump} --input-file {ir_dump}"
             else:
-                dump_instructions = (
-                    "Rerun with --dump-failed-filechecks to generate a reproducer."
-                )
+                dump_instructions = "Rerun with --dump-failed-filechecks to generate a reproducer."
 
-            self.fail(
-                f"FileCheck failed:\n{matcher.stderr.getvalue()}\n\n"
-                + dump_instructions
-            )
+            self.fail(f"FileCheck failed:\n{matcher.stderr.getvalue()}\n\n" + dump_instructions)
 
 
 def skip_on_cudasim(reason):
@@ -189,9 +182,7 @@ def skip_on_cudasim(reason):
     return unittest.skipIf(config.ENABLE_CUDASIM, reason)
 
 
-skip_on_standalone_numba_cuda = unittest.skipUnless(
-    HAS_NUMBA, "requires base numba install"
-)
+skip_on_standalone_numba_cuda = unittest.skipUnless(HAS_NUMBA, "requires base numba install")
 
 
 def skip_unless_cudasim(reason):
@@ -268,9 +259,7 @@ def skip_if_curand_kernel_missing(fn):
     except FileNotFoundError:
         return unittest.skip(reason)(fn)
     curand_kernel_h = os.path.join(cuda_include_path, "curand_kernel.h")
-    curand_kernel_h_file = os.path.exists(curand_kernel_h) and os.path.isfile(
-        curand_kernel_h
-    )
+    curand_kernel_h_file = os.path.exists(curand_kernel_h) and os.path.isfile(curand_kernel_h)
     return unittest.skipUnless(curand_kernel_h_file, reason)(fn)
 
 

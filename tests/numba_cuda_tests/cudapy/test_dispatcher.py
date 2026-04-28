@@ -18,8 +18,9 @@ import cusimt
 import cuda.simt as cuda
 from numba import types
 from numba.core.errors import TypingError
+from cusimt.numba_cuda.cudadrv import nvvm
 from cusimt.testing import NumbaCUDATestCase
-from cusimt.numba_cuda.testing import cc_X_or_above
+from cusimt.numba_cuda.testing import cc_X_or_above, _get_device_compute_capability
 import math
 import pytest
 
@@ -743,9 +744,17 @@ class TestDispatcherKernelProperties(NumbaCUDATestCase):
         self.assertGreaterEqual(local_mem_per_thread, N * 4)
 
 
+def _is_sm_100():
+    return _get_device_compute_capability() == (10, 0)
+
+
 _xfail_launch_bounds = pytest.mark.xfail(
-    cc_X_or_above(10, 0),
-    reason="libnvvm does not emit .maxntid for sm_100",
+    _is_sm_100() and nvvm.NVVM().get_version() < (13, 2),
+    reason="libnvvm before CUDA 13.2 does not emit .maxntid for sm_100",
+)
+_xfail_max_cluster_rank = pytest.mark.xfail(
+    not cc_X_or_above(10, 0) or (_is_sm_100() and nvvm.NVVM().get_version() < (13, 2)),
+    reason="libnvvm does not emit .maxclusterrank before CUDA 13.2 on sm_100+",
 )
 
 
@@ -795,10 +804,8 @@ class TestLaunchBounds(NumbaCUDATestCase):
         self.assertRegex(ptx, r".minnctapersm\s+2")
         self.assertNotIn(".maxclusterrank", ptx)
 
-    @pytest.mark.xfail(reason="libnvvm does not emit .maxclusterrank")
-    @pytest.mark.skipif(
-        not cc_X_or_above(9, 0), reason="CC 9.0 needed for max cluster rank"
-    )
+    @_xfail_max_cluster_rank
+    @pytest.mark.skipif(not cc_X_or_above(9, 0), reason="CC 9.0 needed for max cluster rank")
     def test_launch_bounds_with_max_cluster_rank(self):
         launch_bounds = (128, 2, 4)
         ptx = self._test_launch_bounds_common(launch_bounds)

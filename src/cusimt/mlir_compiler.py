@@ -34,14 +34,12 @@ from numba.core.typed_passes import (
 )
 from cusimt.numba_cuda.core.typed_passes import fallback_context, type_inference_stage
 
-# numba-cuda forked numba.core.ir into numba.cuda.core.ir, creating a separate
-# UndefinedType class and UNDEFINED singleton. The core SSA pass inserts
-# numba.core.ir.UNDEFINED into phi nodes, but numba-cuda's typeinfer checks
-# `iv is not ir.UNDEFINED` using its own copy — the identity check fails.
-# Unify them so phi nodes with undefined incoming values are handled correctly.
+# numba-cuda forked numba.core.ir into numba.cuda.core.ir, creating separate
+# singleton and location classes. Unify the classes that cross core Numba passes.
 import cusimt.numba_cuda.core.ir as _cuda_ir
 import numba.core.ir as _core_ir
 
+_cuda_ir.Loc = _core_ir.Loc
 _cuda_ir.UNDEFINED = _core_ir.UNDEFINED
 _cuda_ir.UndefinedType = _core_ir.UndefinedType
 from numba.core.typing.typeof import Purpose, typeof

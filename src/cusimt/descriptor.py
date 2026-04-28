@@ -1470,8 +1470,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 )
             except FileNotFoundError as e:
                 raise RuntimeError(
-                    "nvdisasm not found. Install the CUDA toolkit and "
-                    "ensure it is on your PATH."
+                    "nvdisasm has not been found. You may need "
+                    "to install the CUDA toolkit and ensure that "
+                    "it is available on your PATH.\n"
                 ) from e
             return cp.stdout.decode("utf-8")
 

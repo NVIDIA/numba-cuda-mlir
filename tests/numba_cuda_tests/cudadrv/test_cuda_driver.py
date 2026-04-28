@@ -419,7 +419,7 @@ class TestAcceleratedArchitecture(NumbaCUDATestCase):
 
         ffi = cffi.FFI()
 
-        @cuda.jit
+        @cuda.jit(chip="sm_90a")
         def kernel(a):
             sm = cuda.shared.array(1, dtype=np.int32)
             data_ptr = ffi.from_buffer(sm)

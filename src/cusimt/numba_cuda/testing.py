@@ -9,6 +9,7 @@ from datetime import datetime
 from cusimt.numba_cuda.utils import PYVERSION
 from cusimt.numba_cuda.cuda_paths import get_conda_ctk_libdir
 from cusimt.numba_cuda.cudadrv import driver, devices, libs
+from cusimt.numba_cuda.cudadrv.error import CudaSupportError
 from cusimt.numba_cuda.dispatcher import CUDADispatcher
 from cusimt.numba_cuda import config
 from cusimt.numba_cuda.tests.support import TestCase
@@ -263,12 +264,19 @@ def skip_if_curand_kernel_missing(fn):
     return unittest.skipUnless(curand_kernel_h_file, reason)(fn)
 
 
+def _get_device_compute_capability():
+    try:
+        return devices.gpus[0].compute_capability
+    except (CudaSupportError, RuntimeError, ValueError, IndexError):
+        return None
+
+
 def cc_X_or_above(major, minor):
-    if not config.ENABLE_CUDASIM:
-        cc = devices.get_context().device.compute_capability
-        return cc >= (major, minor)
-    else:
+    if config.ENABLE_CUDASIM:
         return True
+
+    cc = _get_device_compute_capability()
+    return cc is not None and cc >= (major, minor)
 
 
 def skip_unless_cc_50(fn):
@@ -335,7 +343,7 @@ def _is_nvjitlink_13_1_and_sm_120():
             return False
 
         # Check if compute capability is 12.0 (sm_120)
-        cc = devices.get_context().device.compute_capability
+        cc = _get_device_compute_capability()
         if cc != (12, 0):
             return False
 

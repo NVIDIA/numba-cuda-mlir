@@ -120,9 +120,12 @@ class MLIRLower(object):
         if "chip" in self.targetoptions:
             arch = self.targetoptions["chip"]
             cc = parse_compute_capability(arch)
+            arch_suffix = arch.removeprefix(f"sm_{cc[0]}{cc[1]}")
+            arch_specific_cc = (*cc, arch_suffix) if arch_suffix in ("a", "f") else cc
         else:
             cc = get_gpu_compute_capability(tuple)
             arch = get_gpu_compute_capability(str)
+            arch_specific_cc = cc
 
         assert isinstance(cc, tuple)
 
@@ -135,7 +138,7 @@ class MLIRLower(object):
             linker_cc = host_cc
             linker_arch = host_arch
         else:
-            linker_cc = cc
+            linker_cc = arch_specific_cc
             linker_arch = arch
 
         link_files = list(self.targetoptions.get("link", []))

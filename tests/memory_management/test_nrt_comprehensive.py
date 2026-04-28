@@ -3,10 +3,9 @@
 
 """Comprehensive NRT tests based on numba-cuda test suite."""
 
-import os
 import pytest
 import numpy as np
-from cusimt import cuda, types
+from cusimt import cuda
 from cusimt.cuda import jit
 
 
@@ -18,13 +17,6 @@ def reset_rtsys():
     rtsys._reset()
     yield
     rtsys._reset()
-
-
-CLOBBER_CU_SOURCE = """
-extern "C" __device__ int clobber(void *p1, void* p2) {
-    return 0;
-}
-"""
 
 
 class TestNrtBasic:
@@ -45,47 +37,24 @@ class TestNrtBasic:
         g[1, 1]()
         cuda.synchronize()
 
-    @pytest.mark.xfail(reason="We might not need NRT here")
-    def test_nrt_ptx_contains_refcount(self):
+    def test_nrt_ptx_contains_runtime_calls(self):
         """Test that PTX contains NRT function calls."""
-        import re
-        from cusimt.compiler import declare_device
-        import tempfile
+        from cusimt import compiler
 
-        with tempfile.NamedTemporaryFile(suffix=".cu", delete=False) as temp_file:
-            temp_file.write(CLOBBER_CU_SOURCE.encode())
-            temp_file.flush()
-            clobber = declare_device(
-                "clobber", types.void(types.ptr), link=temp_file.name
-            )
+        @jit
+        def getstr(s):
+            return s.upper()
 
-        @jit(dump=True)
-        def f(x):
-            return x[:5]
+        @jit
+        def kernel(out):
+            out[0] = getstr("test") == "TEST"
 
-        @jit(dump=True)
-        def g():
-            x = np.empty(10, np.int64)
-            clobber(types.ptr(x))
-            y = f(x)
-            clobber(types.ptr(y))
+        out = np.zeros(1, dtype=np.bool_)
+        cres = compiler.compile_for(kernel, out)
+        ptx = cres.metadata["ptx"]
 
-        g[1, 1]()
-
-        # Get PTX from compiled kernel
-        ptx = next(iter(g.inspect_asm().values()))
-
-        # Check for NRT function calls in PTX
-        # These patterns match the PTX call instructions for NRT functions
-        patterns = [
-            r"call\.uni(.|\n)*NRT_MemInfo_alloc_aligned",
-            r"call\.uni.*\n?.*NRT_incref",
-            r"call\.uni.*\n?.*NRT_decref",
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, ptx)
-            assert match is not None, f"Pattern {pattern} not found in PTX"
+        assert "NRT_MemInfo_alloc_aligned" in ptx
+        assert "NRT_MemInfo_data_fast" in ptx
 
     def test_nrt_returns_correct(self):
         """Test that NRT array operations return correct values."""

@@ -184,44 +184,6 @@ jobs:
         with:
           extra_args: --all-files --show-diff-on-failure
 
-  compute-matrix:
-    runs-on: ubuntu-latest
-    outputs:
-      BUILD_MATRIX: ${{ steps.compute-matrix.outputs.BUILD_MATRIX }}
-      SIMULATOR_MATRIX: ${{ steps.compute-matrix.outputs.SIMULATOR_MATRIX }}
-      TEST_MATRIX: ${{ steps.compute-matrix.outputs.TEST_MATRIX }}
-    steps:
-      - uses: actions/checkout@v6
-      - name: Compute Matrices
-        id: compute-matrix
-        run: |
-          BUILD_MATRIX="$(yq '.build-matrix' ci/matrix.yml)"
-          SIMULATOR_MATRIX="$(yq '.simulator-matrix' ci/matrix.yml)"
-          TEST_MATRIX="$(yq '.test-matrix' ci/matrix.yml)"
-          {
-            echo 'BUILD_MATRIX<<EOF'
-            echo "${BUILD_MATRIX}"
-            echo 'EOF'
-            echo 'SIMULATOR_MATRIX<<EOF'
-            echo "${SIMULATOR_MATRIX}"
-            echo 'EOF'
-            echo 'TEST_MATRIX<<EOF'
-            echo "${TEST_MATRIX}"
-            echo 'EOF'
-          } >> "${GITHUB_OUTPUT}"
-
-  # TODO: Uncomment when pixi.toml + ci/test_simulator.sh are available
-  # test-simulator:
-  #   needs:
-  #     - compute-matrix
-  #     - should-skip
-  #   if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
-  #   uses: ./.github/workflows/simulator-test.yaml
-  #   with:
-  #     build_type: pull-request
-  #     script: "ci/test_simulator.sh"
-  #     matrix: ${{ needs.compute-matrix.outputs.SIMULATOR_MATRIX }}
-
   # TODO: Uncomment when pixi.toml docs environment + Sphinx setup are available
   # build-docs:
   #   needs:

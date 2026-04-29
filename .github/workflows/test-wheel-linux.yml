@@ -12,6 +12,15 @@ on:
       host-platform:
         type: string
         required: true
+      test-script:
+        type: string
+        default: "run-tests"
+      test-dependencies:
+        type: string
+        default: "jq wget libgl1 libegl1"
+      test-dependent-exes:
+        type: string
+        default: "jq wget"
       matrix_filter:
         type: string
         default: "."
@@ -91,8 +100,8 @@ jobs:
         continue-on-error: false
         with:
           # for artifact fetching, graphics libs
-          dependencies: "jq wget libgl1 libegl1"
-          dependent_exes: "jq wget"
+          dependencies: ${{ inputs.test-dependencies }}
+          dependent_exes: ${{ inputs.test-dependent-exes }}
 
       - name: Set environment variables
         env:
@@ -193,10 +202,15 @@ jobs:
         env:
           CUDA_VER: ${{ matrix.CUDA_VER }}
           LOCAL_CTK: ${{ matrix.LOCAL_CTK }}
+          TEST_SCRIPT: ${{ inputs.test-script }}
         run: |
           if [[ "${LOCAL_CTK}" != 1 ]]; then
             export CL_NUMBA_COMPAT_TEST_WHEEL_ONLY=1
             export CL_NUMBA_COMPAT_CUDA_TEST_WHEEL_ONLY=1
             export NUMBA_CUDA_TEST_WHEEL_ONLY=1
           fi
-          run-tests
+          case "${TEST_SCRIPT}" in
+            run-tests|run-coverage-tests) ;;
+            *) echo "Unsupported test script: ${TEST_SCRIPT}"; exit 1 ;;
+          esac
+          "${TEST_SCRIPT}"

@@ -229,6 +229,20 @@ jobs:
   #   if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
   #   uses: ./.github/workflows/docs-build.yaml
 
+  coverage-report:
+    needs:
+      - build-linux-64
+    permissions:
+      contents: read  # This is required for actions/checkout
+    uses: ./.github/workflows/test-wheel-linux.yml
+    with:
+      build-type: pull-request
+      host-platform: linux-64
+      test-script: run-coverage-tests
+      test-dependencies: "jq wget libgl1 libegl1 sqlite3"
+      test-dependent-exes: "jq wget sqlite3"
+      matrix_filter: 'map(select(.ARCH == "amd64" and .CUDA_VER == "12.9.1" and .PY_VER == "3.12")) | .[0:1]'
+
   # =============================================================
 
   checks:
@@ -241,6 +255,7 @@ jobs:
       - test-expensive-linux-64
       - test-expensive-linux-aarch64
       - pre-commit
+      - coverage-report
       # - test-conda
       # - test-simulator
       # - build-docs
@@ -272,7 +287,9 @@ jobs:
                  needs.test-expensive-linux-aarch64.result == 'cancelled' ||
                  needs.test-expensive-linux-aarch64.result == 'failure' ||
                  needs.pre-commit.result == 'cancelled' ||
-                 needs.pre-commit.result == 'failure' }}; then
+                 needs.pre-commit.result == 'failure' ||
+                 needs.coverage-report.result == 'cancelled' ||
+                 needs.coverage-report.result == 'failure' }}; then
           #        needs.test-simulator.result == 'cancelled' ||
           #        needs.test-simulator.result == 'failure' ||
           #        needs.build-docs.result == 'cancelled' ||

@@ -9,15 +9,32 @@
 set -euo pipefail
 
 echo "Installing cusimt wheel"
+wheels=("${CL_NUMBA_COMPAT_CUDA_ARTIFACTS_DIR}"/*.whl)
+if [[ ${#wheels[@]} -ne 1 || ! -e "${wheels[0]}" ]]; then
+  echo "Expected exactly one cusimt wheel in ${CL_NUMBA_COMPAT_CUDA_ARTIFACTS_DIR}, found ${#wheels[@]}"
+  printf '%s\n' "${wheels[@]}"
+  exit 1
+fi
+wheel="${wheels[0]}"
+
+coverage_packages=()
+pytest_args=(-v --tb=short -W ignore::UserWarning --ignore=tests/benchmarks -n auto --dist loadscope)
+if [[ "${CL_NUMBA_COMPAT_COVERAGE:-0}" == "1" ]]; then
+  coverage_packages=(pytest-cov coverage)
+  pytest_args+=(--cov=cusimt --cov=cuda --cov-report=term-missing)
+fi
+
 if [[ "${LOCAL_CTK}" == 1 ]]; then
-  pip install "${CL_NUMBA_COMPAT_CUDA_ARTIFACTS_DIR}"/*.whl \
-    "numba-cuda[cu${TEST_CUDA_MAJOR}]==0.28.1" \
-    "cuda-bindings==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*" "cuda-core[cu${TEST_CUDA_MAJOR}]"
-else
-  pip install $(ls "${CL_NUMBA_COMPAT_CUDA_ARTIFACTS_DIR}"/*.whl)["cu${TEST_CUDA_MAJOR}"] \
+  pip install "${wheel}" \
     "numba-cuda[cu${TEST_CUDA_MAJOR}]==0.28.1" \
     "cuda-bindings==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*" "cuda-core[cu${TEST_CUDA_MAJOR}]" \
-    "cuda-toolkit[cudart]==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*"
+    "${coverage_packages[@]}"
+else
+  pip install "${wheel}[cu${TEST_CUDA_MAJOR}]" \
+    "numba-cuda[cu${TEST_CUDA_MAJOR}]==0.28.1" \
+    "cuda-bindings==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*" "cuda-core[cu${TEST_CUDA_MAJOR}]" \
+    "cuda-toolkit[cudart]==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*" \
+    "${coverage_packages[@]}"
 fi
 
 if [[ "${HAS_TEST_ARTIFACTS:-0}" == "1" ]]; then
@@ -34,4 +51,13 @@ if [[ "${HAS_TEST_ARTIFACTS:-0}" == "1" ]]; then
 fi
 
 echo "Running cusimt tests"
-${SANITIZER_CMD} pytest -v --tb=short -W ignore::UserWarning --ignore=tests/benchmarks -n auto --dist loadscope
+${SANITIZER_CMD} pytest "${pytest_args[@]}"
+
+if [[ "${CL_NUMBA_COMPAT_COVERAGE:-0}" == "1" ]]; then
+  echo "Generating markdown coverage report"
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    python -m coverage report --format markdown >> "${GITHUB_STEP_SUMMARY}"
+  else
+    python -m coverage report --format markdown
+  fi
+fi

@@ -26,7 +26,9 @@ from test_cudf import clone_cudf
 
 SRC_BUILD_REPO = "https://github.com/rapidsai/cudf.git"
 SRC_BUILD_BRANCH = "release/25.12"
-MAMBAFORGE_URL = "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh"
+MAMBAFORGE_URL = (
+    "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh"
+)
 CONDA_ENV_NAME = "cudf_build"
 
 CUDA_TO_ENV_YAML = {
@@ -84,11 +86,7 @@ def setup_cudf_source_env(
     mamba_install_dir = mamba_install_dir.resolve()
     conda_bin = mamba_install_dir / "bin"
     if (conda_bin / "conda").exists() or (conda_bin / "mamba").exists():
-        mamba_bin = (
-            conda_bin / "mamba"
-            if (conda_bin / "mamba").exists()
-            else conda_bin / "conda"
-        )
+        mamba_bin = conda_bin / "mamba" if (conda_bin / "mamba").exists() else conda_bin / "conda"
     else:
         mamba_bin = install_mamba(mamba_install_dir)
         conda_bin = mamba_bin.parent

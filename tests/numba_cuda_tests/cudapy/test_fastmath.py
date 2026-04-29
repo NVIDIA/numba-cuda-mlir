@@ -38,9 +38,7 @@ class TestFastMathOption(NumbaCUDATestCase):
         criterion.check(self, fastver.inspect_asm(sig), precver.inspect_asm(sig))
 
         # Test compile_ptx code path
-        fastptx, _ = compile_ptx_for_current_device(
-            pyfunc, sig, device=device, fastmath=True
-        )
+        fastptx, _ = compile_ptx_for_current_device(pyfunc, sig, device=device, fastmath=True)
         precptx, _ = compile_ptx_for_current_device(pyfunc, sig, device=device)
 
         criterion.check(self, fastptx, precptx)
@@ -55,9 +53,7 @@ class TestFastMathOption(NumbaCUDATestCase):
         self._test_fast_math_common(
             kernel, (float32[::1], float32), device=False, criterion=criterion
         )
-        self._test_fast_math_common(
-            device_function, (float32,), device=True, criterion=criterion
-        )
+        self._test_fast_math_common(device_function, (float32,), device=True, criterion=criterion)
 
     def _test_fast_math_binary(self, op, criterion: FastMathCriterion):
         def kernel(r, x, y):
@@ -72,9 +68,7 @@ class TestFastMathOption(NumbaCUDATestCase):
             device=False,
             criterion=criterion,
         )
-        self._test_fast_math_common(
-            device, (float32, float32), device=True, criterion=criterion
-        )
+        self._test_fast_math_common(device, (float32, float32), device=True, criterion=criterion)
 
     def test_cosf(self):
         self._test_fast_math_unary(
@@ -133,9 +127,7 @@ class TestFastMathOption(NumbaCUDATestCase):
     def test_expf(self):
         self._test_fast_math_unary(
             exp,
-            FastMathCriterion(
-                fast_unexpected=["fma.rn.f32 "], prec_expected=["fma.rn.f32 "]
-            ),
+            FastMathCriterion(fast_unexpected=["fma.rn.f32 "], prec_expected=["fma.rn.f32 "]),
         )
 
     @pytest.mark.skipif(sys.version_info < (3, 11), reason="Python 3.11+ required")

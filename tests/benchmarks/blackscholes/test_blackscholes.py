@@ -25,11 +25,7 @@ THREADS_PER_BLOCK = 256
 
 def cnd_numpy(d):
     K = 1.0 / (1.0 + 0.2316419 * np.abs(d))
-    ret_val = (
-        RSQRT2PI
-        * np.exp(-0.5 * d * d)
-        * (K * (A1 + K * (A2 + K * (A3 + K * (A4 + K * A5)))))
-    )
+    ret_val = RSQRT2PI * np.exp(-0.5 * d * d) * (K * (A1 + K * (A2 + K * (A3 + K * (A4 + K * A5)))))
     return np.where(d > 0, 1.0 - ret_val, ret_val)
 
 
@@ -49,9 +45,7 @@ def black_scholes_numpy(stockPrice, optionStrike, optionYears, Riskfree, Volatil
 def cnd_numba_cuda(d):
     K = 1.0 / (1.0 + 0.2316419 * math.fabs(d))
     ret_val = (
-        RSQRT2PI
-        * math.exp(-0.5 * d * d)
-        * (K * (A1 + K * (A2 + K * (A3 + K * (A4 + K * A5)))))
+        RSQRT2PI * math.exp(-0.5 * d * d) * (K * (A1 + K * (A2 + K * (A3 + K * (A4 + K * A5)))))
     )
     if d > 0:
         ret_val = 1.0 - ret_val
@@ -76,9 +70,7 @@ def black_scholes_numba_cuda(callResult, putResult, S, X, T, R, V):
 def cnd_cusimt(d):
     K = 1.0 / (1.0 + 0.2316419 * math.fabs(d))
     ret_val = (
-        RSQRT2PI
-        * math.exp(-0.5 * d * d)
-        * (K * (A1 + K * (A2 + K * (A3 + K * (A4 + K * A5)))))
+        RSQRT2PI * math.exp(-0.5 * d * d) * (K * (A1 + K * (A2 + K * (A3 + K * (A4 + K * A5)))))
     )
     if d > 0:
         ret_val = 1.0 - ret_val

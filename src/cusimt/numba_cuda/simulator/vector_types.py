@@ -18,8 +18,7 @@ class SimulatedVectorType:
         self._attrs = self.attributes[: len(args_flattened)]
         if not self.num_elements == len(args_flattened):
             raise TypeError(
-                f"{self.name} expects {self.num_elements}"
-                f" elements, got {len(args_flattened)}"
+                f"{self.name} expects {self.num_elements} elements, got {len(args_flattened)}"
             )
 
         for arg, attr in zip(args_flattened, self._attrs):

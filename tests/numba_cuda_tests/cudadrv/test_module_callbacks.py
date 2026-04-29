@@ -188,16 +188,12 @@ __device__ int get_num(int &retval) {
 
         def set_forty_two(object_code):
             # Initialize 42 to global variable `num`
-            _, dptr, size = cuLibraryGetGlobal(
-                get_hashable_handle_value(object_code), b"num"
-            )
+            _, dptr, size = cuLibraryGetGlobal(get_hashable_handle_value(object_code), b"num")
 
             arr = np.array([42], np.int32)
             cuMemcpyHtoD(dptr, arr.ctypes.data, size)
 
-        self.lib = CUSource(
-            module, setup_callback=set_forty_two, teardown_callback=None
-        )
+        self.lib = CUSource(module, setup_callback=set_forty_two, teardown_callback=None)
 
     def test_decldevice_arg(self):
         get_num = cuda.declare_device("get_num", "int32()", link=[self.lib])
@@ -248,8 +244,7 @@ class TestMultithreadedCallbacks(NumbaCUDATestCase):
             kernel[1, 1]()
 
         threads = [
-            threading.Thread(target=concurrent_compilation_launch, args=(kernel,))
-            for _ in range(4)
+            threading.Thread(target=concurrent_compilation_launch, args=(kernel,)) for _ in range(4)
         ]
         for t in threads:
             t.start()
@@ -284,9 +279,7 @@ class TestMultithreadedCallbacks(NumbaCUDATestCase):
             kernel[1, 1](9)  # (int64)->() : module 1 from cache
             kernel[1, 1](3.14)  # (float64)->() : module 2
 
-        threads = [
-            threading.Thread(target=concurrent_compilation_launch) for _ in range(4)
-        ]
+        threads = [threading.Thread(target=concurrent_compilation_launch) for _ in range(4)]
         for t in threads:
             t.start()
         for t in threads:

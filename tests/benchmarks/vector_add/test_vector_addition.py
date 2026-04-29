@@ -22,9 +22,7 @@ def numba_cuda_vector_add(a, b, c, n):
 
 @numba_cuda.jit
 def numba_cuda_vector_add_vectorized(a, b, c, n):
-    base_idx = (
-        numba_cuda.blockIdx.x * numba_cuda.blockDim.x + numba_cuda.threadIdx.x
-    ) * 4
+    base_idx = (numba_cuda.blockIdx.x * numba_cuda.blockDim.x + numba_cuda.threadIdx.x) * 4
     if base_idx + 3 < n:
         c[base_idx] = a[base_idx] + b[base_idx]
         c[base_idx + 1] = a[base_idx + 1] + b[base_idx + 1]
@@ -45,9 +43,7 @@ def cusimt_vector_add(a, b, c, n):
 
 @cusimt_cuda.jit
 def cusimt_vector_add_vectorized(a, b, c, n):
-    base_idx = (
-        cusimt_cuda.blockIdx.x * cusimt_cuda.blockDim.x + cusimt_cuda.threadIdx.x
-    ) * 4
+    base_idx = (cusimt_cuda.blockIdx.x * cusimt_cuda.blockDim.x + cusimt_cuda.threadIdx.x) * 4
     if base_idx + 3 < n:
         c[base_idx] = a[base_idx] + b[base_idx]
         c[base_idx + 1] = a[base_idx + 1] + b[base_idx + 1]
@@ -114,9 +110,7 @@ def test_vector_addition_vectorized_benchmark(benchmark_runner):
 
 
 def run_benchmark_scalar():
-    sig = types.void(
-        types.float32[::1], types.float32[::1], types.float32[::1], types.int64
-    )
+    sig = types.void(types.float32[::1], types.float32[::1], types.float32[::1], types.int64)
 
     start = time.perf_counter()
     numba_cuda_vector_add.compile(sig)
@@ -149,9 +143,7 @@ def run_benchmark_scalar():
 
 
 def run_benchmark_vectorized():
-    sig = types.void(
-        types.float32[::1], types.float32[::1], types.float32[::1], types.int64
-    )
+    sig = types.void(types.float32[::1], types.float32[::1], types.float32[::1], types.int64)
 
     start = time.perf_counter()
     numba_cuda_vector_add_vectorized.compile(sig)

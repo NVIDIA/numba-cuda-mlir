@@ -589,13 +589,9 @@ def dot_2_vv(context, builder, sig, args, conjugate=False):
         (m,) = a.shape
         (n,) = b.shape
         if m != n:
-            raise ValueError(
-                "incompatible array sizes for np.dot(a, b) (vector * vector)"
-            )
+            raise ValueError("incompatible array sizes for np.dot(a, b) (vector * vector)")
 
-    context.compile_internal(
-        builder, check_args, signature(types.none, *sig.args), args
-    )
+    context.compile_internal(builder, check_args, signature(types.none, *sig.args), args)
     check_c_int(context, builder, n)
 
     out = cgutils.alloca_once(builder, context.get_value_type(dtype))
@@ -710,9 +706,7 @@ def dot_3_vm_check_args(a, b, out):
     if m != _m:
         raise ValueError("incompatible array sizes for np.dot(a, b) (vector * matrix)")
     if out.shape != (n,):
-        raise ValueError(
-            "incompatible output array size for " "np.dot(a, b, out) (vector * matrix)"
-        )
+        raise ValueError("incompatible output array size for np.dot(a, b, out) (vector * matrix)")
 
 
 def dot_3_mv_check_args(a, b, out):
@@ -721,9 +715,7 @@ def dot_3_mv_check_args(a, b, out):
     if n != _n:
         raise ValueError("incompatible array sizes for np.dot(a, b) (matrix * vector)")
     if out.shape != (m,):
-        raise ValueError(
-            "incompatible output array size for " "np.dot(a, b, out) (matrix * vector)"
-        )
+        raise ValueError("incompatible output array size for np.dot(a, b, out) (matrix * vector)")
 
 
 def dot_3_vm(context, builder, sig, args):
@@ -761,9 +753,7 @@ def dot_3_vm(context, builder, sig, args):
         m_data, v_data = x.data, y.data
         check_args = dot_3_mv_check_args
 
-    context.compile_internal(
-        builder, check_args, signature(types.none, *sig.args), args
-    )
+    context.compile_internal(builder, check_args, signature(types.none, *sig.args), args)
     for val in m_shapes:
         check_c_int(context, builder, val)
 
@@ -813,18 +803,13 @@ def dot_3_mm(context, builder, sig, args):
         m, k = a.shape
         _k, n = b.shape
         if k != _k:
-            raise ValueError(
-                "incompatible array sizes for np.dot(a, b) (matrix * matrix)"
-            )
+            raise ValueError("incompatible array sizes for np.dot(a, b) (matrix * matrix)")
         if out.shape != (m, n):
             raise ValueError(
-                "incompatible output array size for "
-                "np.dot(a, b, out) (matrix * matrix)"
+                "incompatible output array size for np.dot(a, b, out) (matrix * matrix)"
             )
 
-    context.compile_internal(
-        builder, check_args, signature(types.none, *sig.args), args
-    )
+    context.compile_internal(builder, check_args, signature(types.none, *sig.args), args)
 
     check_c_int(context, builder, m)
     check_c_int(context, builder, k)
@@ -918,11 +903,7 @@ def dot_3(a, b, out):
     """
     np.dot(a, b, out)
     """
-    if (
-        isinstance(a, types.Array)
-        and isinstance(b, types.Array)
-        and isinstance(out, types.Array)
-    ):
+    if isinstance(a, types.Array) and isinstance(b, types.Array) and isinstance(out, types.Array):
 
         @intrinsic
         def _impl(typingcontext, a, b, out):
@@ -989,10 +970,7 @@ def _check_homogeneous_types(func_name, *types):
     t0 = types[0].dtype
     for t in types[1:]:
         if t.dtype != t0:
-            msg = (
-                "np.linalg.%s() only supports inputs that have homogeneous dtypes."
-                % func_name
-            )
+            msg = "np.linalg.%s() only supports inputs that have homogeneous dtypes." % func_name
             raise TypingError(msg, highlighting=False)
 
 
@@ -1108,9 +1086,7 @@ def _check_linalg_1_or_2d_matrix(a, func_name, la_prefix=True):
     if not a.ndim <= 2:
         raise TypingError("%s.%s() only supported on 1 and 2-D arrays " % interp)
     if not isinstance(a.dtype, (types.Float, types.Complex)):
-        raise TypingError(
-            "%s.%s() only supported on float and complex arrays." % interp
-        )
+        raise TypingError("%s.%s() only supported on float and complex arrays." % interp)
 
 
 @overload(np.linalg.cholesky)
@@ -2884,9 +2860,7 @@ def _check_scalar_or_lt_2d_mat(a, func_name, la_prefix=True):
 def outer_impl_none(a, b, out):
     aa = np.asarray(a)
     bb = np.asarray(b)
-    return np.multiply(
-        aa.ravel().reshape((aa.size, 1)), bb.ravel().reshape((1, bb.size))
-    )
+    return np.multiply(aa.ravel().reshape((aa.size, 1)), bb.ravel().reshape((1, bb.size)))
 
 
 @register_jitable

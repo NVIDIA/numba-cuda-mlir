@@ -11,9 +11,7 @@ class MyError(Exception):
     pass
 
 
-regex_pattern = (
-    r'In function [\'"]test_exc[\'"], file [\:\.\/\\\-a-zA-Z_0-9]+, line \d+'
-)
+regex_pattern = r'In function [\'"]test_exc[\'"], file [\:\.\/\\\-a-zA-Z_0-9]+, line \d+'
 
 
 class TestUserExc(NumbaCUDATestCase):

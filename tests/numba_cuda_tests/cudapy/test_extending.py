@@ -46,9 +46,7 @@ from numba_cuda_tests.testing import TEST_BIN_DIR
 test_device_functions_a = os.path.join(TEST_BIN_DIR, "test_device_functions.a")
 test_device_functions_cubin = os.path.join(TEST_BIN_DIR, "test_device_functions.cubin")
 test_device_functions_cu = os.path.join(TEST_BIN_DIR, "test_device_functions.cu")
-test_device_functions_fatbin = os.path.join(
-    TEST_BIN_DIR, "test_device_functions.fatbin"
-)
+test_device_functions_fatbin = os.path.join(TEST_BIN_DIR, "test_device_functions.fatbin")
 test_device_functions_fatbin_multi = os.path.join(
     TEST_BIN_DIR, "test_device_functions_multi.fatbin"
 )

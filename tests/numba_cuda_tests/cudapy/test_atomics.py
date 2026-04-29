@@ -51,9 +51,7 @@ def atomic_binary_1dim_shared(
 
 
 @cusimt.jit(device=True)
-def atomic_binary_1dim_shared2(
-    ary, idx, op2, ary_dtype, ary_nelements, binop_func, cast_func
-):
+def atomic_binary_1dim_shared2(ary, idx, op2, ary_dtype, ary_nelements, binop_func, cast_func):
     tid = cuda.threadIdx.x
     sm = cuda.shared.array(ary_nelements, ary_dtype)
     sm[tid] = ary[tid]
@@ -65,9 +63,7 @@ def atomic_binary_1dim_shared2(
 
 
 @cusimt.jit(device=True)
-def atomic_binary_2dim_shared(
-    ary, op2, ary_dtype, ary_shape, binop_func, y_cast_func, neg_idx
-):
+def atomic_binary_2dim_shared(ary, op2, ary_dtype, ary_shape, binop_func, y_cast_func, neg_idx):
     tx = cuda.threadIdx.x
     ty = cuda.threadIdx.y
     sm = cuda.shared.array(ary_shape, ary_dtype)
@@ -101,33 +97,23 @@ def atomic_binary_1dim_global(ary, idx, ary_nelements, op2, binop_func, neg_idx)
 
 
 def atomic_add(ary):
-    atomic_binary_1dim_shared(
-        ary, ary, 1, uint32, 32, cuda.atomic.add, atomic_cast_none, 0, False
-    )
+    atomic_binary_1dim_shared(ary, ary, 1, uint32, 32, cuda.atomic.add, atomic_cast_none, 0, False)
 
 
 def atomic_add_wrap(ary):
-    atomic_binary_1dim_shared(
-        ary, ary, 1, uint32, 32, cuda.atomic.add, atomic_cast_none, 0, True
-    )
+    atomic_binary_1dim_shared(ary, ary, 1, uint32, 32, cuda.atomic.add, atomic_cast_none, 0, True)
 
 
 def atomic_add2(ary):
-    atomic_binary_2dim_shared(
-        ary, 1, uint32, (4, 8), cuda.atomic.add, atomic_cast_none, False
-    )
+    atomic_binary_2dim_shared(ary, 1, uint32, (4, 8), cuda.atomic.add, atomic_cast_none, False)
 
 
 def atomic_add2_wrap(ary):
-    atomic_binary_2dim_shared(
-        ary, 1, uint32, (4, 8), cuda.atomic.add, atomic_cast_none, True
-    )
+    atomic_binary_2dim_shared(ary, 1, uint32, (4, 8), cuda.atomic.add, atomic_cast_none, True)
 
 
 def atomic_add3(ary):
-    atomic_binary_2dim_shared(
-        ary, 1, uint32, (4, 8), cuda.atomic.add, atomic_cast_to_uint64, False
-    )
+    atomic_binary_2dim_shared(ary, 1, uint32, (4, 8), cuda.atomic.add, atomic_cast_to_uint64, False)
 
 
 def atomic_add_float(ary):
@@ -159,15 +145,11 @@ def atomic_add_float_wrap(ary):
 
 
 def atomic_add_float_2(ary):
-    atomic_binary_2dim_shared(
-        ary, 1.0, float32, (4, 8), cuda.atomic.add, atomic_cast_none, False
-    )
+    atomic_binary_2dim_shared(ary, 1.0, float32, (4, 8), cuda.atomic.add, atomic_cast_none, False)
 
 
 def atomic_add_float_2_wrap(ary):
-    atomic_binary_2dim_shared(
-        ary, 1.0, float32, (4, 8), cuda.atomic.add, atomic_cast_none, True
-    )
+    atomic_binary_2dim_shared(ary, 1.0, float32, (4, 8), cuda.atomic.add, atomic_cast_none, True)
 
 
 def atomic_add_float_3(ary):
@@ -217,15 +199,11 @@ def atomic_add_double_wrap(idx, ary):
 
 
 def atomic_add_double_2(ary):
-    atomic_binary_2dim_shared(
-        ary, 1.0, float64, (4, 8), cuda.atomic.add, atomic_cast_none, False
-    )
+    atomic_binary_2dim_shared(ary, 1.0, float64, (4, 8), cuda.atomic.add, atomic_cast_none, False)
 
 
 def atomic_add_double_2_wrap(ary):
-    atomic_binary_2dim_shared(
-        ary, 1.0, float64, (4, 8), cuda.atomic.add, atomic_cast_none, True
-    )
+    atomic_binary_2dim_shared(ary, 1.0, float64, (4, 8), cuda.atomic.add, atomic_cast_none, True)
 
 
 def atomic_add_double_3(ary):
@@ -235,21 +213,15 @@ def atomic_add_double_3(ary):
 
 
 def atomic_sub(ary):
-    atomic_binary_1dim_shared(
-        ary, ary, 1, int32, 32, cuda.atomic.sub, atomic_cast_none, 0, False
-    )
+    atomic_binary_1dim_shared(ary, ary, 1, int32, 32, cuda.atomic.sub, atomic_cast_none, 0, False)
 
 
 def atomic_sub2(ary):
-    atomic_binary_2dim_shared(
-        ary, 1, int32, (4, 8), cuda.atomic.sub, atomic_cast_none, False
-    )
+    atomic_binary_2dim_shared(ary, 1, int32, (4, 8), cuda.atomic.sub, atomic_cast_none, False)
 
 
 def atomic_sub3(ary):
-    atomic_binary_2dim_shared(
-        ary, 1, int32, (4, 8), cuda.atomic.sub, atomic_cast_to_uint64, False
-    )
+    atomic_binary_2dim_shared(ary, 1, int32, (4, 8), cuda.atomic.sub, atomic_cast_to_uint64, False)
 
 
 def atomic_sub_float(ary):
@@ -267,9 +239,7 @@ def atomic_sub_float(ary):
 
 
 def atomic_sub_float_2(ary):
-    atomic_binary_2dim_shared(
-        ary, 1.0, float32, (4, 8), cuda.atomic.sub, atomic_cast_none, False
-    )
+    atomic_binary_2dim_shared(ary, 1.0, float32, (4, 8), cuda.atomic.sub, atomic_cast_none, False)
 
 
 def atomic_sub_float_3(ary):
@@ -293,9 +263,7 @@ def atomic_sub_double(idx, ary):
 
 
 def atomic_sub_double_2(ary):
-    atomic_binary_2dim_shared(
-        ary, 1.0, float64, (4, 8), cuda.atomic.sub, atomic_cast_none, False
-    )
+    atomic_binary_2dim_shared(ary, 1.0, float64, (4, 8), cuda.atomic.sub, atomic_cast_none, False)
 
 
 def atomic_sub_double_3(ary):
@@ -325,9 +293,7 @@ def atomic_and(ary, op2):
 
 
 def atomic_and2(ary, op2):
-    atomic_binary_2dim_shared(
-        ary, op2, uint32, (4, 8), cuda.atomic.and_, atomic_cast_none, False
-    )
+    atomic_binary_2dim_shared(ary, op2, uint32, (4, 8), cuda.atomic.and_, atomic_cast_none, False)
 
 
 def atomic_and3(ary, op2):
@@ -351,9 +317,7 @@ def atomic_or(ary, op2):
 
 
 def atomic_or2(ary, op2):
-    atomic_binary_2dim_shared(
-        ary, op2, uint32, (4, 8), cuda.atomic.or_, atomic_cast_none, False
-    )
+    atomic_binary_2dim_shared(ary, op2, uint32, (4, 8), cuda.atomic.or_, atomic_cast_none, False)
 
 
 def atomic_or3(ary, op2):
@@ -377,9 +341,7 @@ def atomic_xor(ary, op2):
 
 
 def atomic_xor2(ary, op2):
-    atomic_binary_2dim_shared(
-        ary, op2, uint32, (4, 8), cuda.atomic.xor, atomic_cast_none, False
-    )
+    atomic_binary_2dim_shared(ary, op2, uint32, (4, 8), cuda.atomic.xor, atomic_cast_none, False)
 
 
 def atomic_xor3(ary, op2):
@@ -397,27 +359,19 @@ def atomic_xor_global_2(ary, op2):
 
 
 def atomic_inc32(ary, idx, op2):
-    atomic_binary_1dim_shared2(
-        ary, idx, op2, uint32, 32, cuda.atomic.inc, atomic_cast_none
-    )
+    atomic_binary_1dim_shared2(ary, idx, op2, uint32, 32, cuda.atomic.inc, atomic_cast_none)
 
 
 def atomic_inc64(ary, idx, op2):
-    atomic_binary_1dim_shared2(
-        ary, idx, op2, uint64, 32, cuda.atomic.inc, atomic_cast_to_int
-    )
+    atomic_binary_1dim_shared2(ary, idx, op2, uint64, 32, cuda.atomic.inc, atomic_cast_to_int)
 
 
 def atomic_inc2_32(ary, op2):
-    atomic_binary_2dim_shared(
-        ary, op2, uint32, (4, 8), cuda.atomic.inc, atomic_cast_none, False
-    )
+    atomic_binary_2dim_shared(ary, op2, uint32, (4, 8), cuda.atomic.inc, atomic_cast_none, False)
 
 
 def atomic_inc2_64(ary, op2):
-    atomic_binary_2dim_shared(
-        ary, op2, uint64, (4, 8), cuda.atomic.inc, atomic_cast_none, False
-    )
+    atomic_binary_2dim_shared(ary, op2, uint64, (4, 8), cuda.atomic.inc, atomic_cast_none, False)
 
 
 def atomic_inc3(ary, op2):
@@ -435,27 +389,19 @@ def atomic_inc_global_2(ary, op2):
 
 
 def atomic_dec32(ary, idx, op2):
-    atomic_binary_1dim_shared2(
-        ary, idx, op2, uint32, 32, cuda.atomic.dec, atomic_cast_none
-    )
+    atomic_binary_1dim_shared2(ary, idx, op2, uint32, 32, cuda.atomic.dec, atomic_cast_none)
 
 
 def atomic_dec64(ary, idx, op2):
-    atomic_binary_1dim_shared2(
-        ary, idx, op2, uint64, 32, cuda.atomic.dec, atomic_cast_to_int
-    )
+    atomic_binary_1dim_shared2(ary, idx, op2, uint64, 32, cuda.atomic.dec, atomic_cast_to_int)
 
 
 def atomic_dec2_32(ary, op2):
-    atomic_binary_2dim_shared(
-        ary, op2, uint32, (4, 8), cuda.atomic.dec, atomic_cast_none, False
-    )
+    atomic_binary_2dim_shared(ary, op2, uint32, (4, 8), cuda.atomic.dec, atomic_cast_none, False)
 
 
 def atomic_dec2_64(ary, op2):
-    atomic_binary_2dim_shared(
-        ary, op2, uint64, (4, 8), cuda.atomic.dec, atomic_cast_none, False
-    )
+    atomic_binary_2dim_shared(ary, op2, uint64, (4, 8), cuda.atomic.dec, atomic_cast_none, False)
 
 
 def atomic_dec3(ary, op2):
@@ -473,21 +419,15 @@ def atomic_dec_global_2(ary, op2):
 
 
 def atomic_exch(ary, idx, op2):
-    atomic_binary_1dim_shared2(
-        ary, idx, op2, uint32, 32, cuda.atomic.exch, atomic_cast_none
-    )
+    atomic_binary_1dim_shared2(ary, idx, op2, uint32, 32, cuda.atomic.exch, atomic_cast_none)
 
 
 def atomic_exch2(ary, op2):
-    atomic_binary_2dim_shared(
-        ary, op2, uint32, (4, 8), cuda.atomic.exch, atomic_cast_none, False
-    )
+    atomic_binary_2dim_shared(ary, op2, uint32, (4, 8), cuda.atomic.exch, atomic_cast_none, False)
 
 
 def atomic_exch3(ary, op2):
-    atomic_binary_2dim_shared(
-        ary, op2, uint64, (4, 8), cuda.atomic.exch, atomic_cast_none, False
-    )
+    atomic_binary_2dim_shared(ary, op2, uint64, (4, 8), cuda.atomic.exch, atomic_cast_none, False)
 
 
 def atomic_exch_global(idx, ary, op2):
@@ -1239,9 +1179,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def test_atomic_max_double_normalizedindex(self):
         vals = np.random.randint(0, 65535, size=(32, 32)).astype(np.float64)
         res = np.zeros(1, np.float64)
-        cuda_func = cusimt.jit("void(float64[:], float64[:,:])")(
-            atomic_max_double_normalizedindex
-        )
+        cuda_func = cusimt.jit("void(float64[:], float64[:,:])")(atomic_max_double_normalizedindex)
         cuda_func[32, 32](res, vals)
 
         gold = np.max(vals)
@@ -1250,9 +1188,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def test_atomic_max_double_oneindex(self):
         vals = np.random.randint(0, 128, size=32).astype(np.float64)
         res = np.zeros(1, np.float64)
-        cuda_func = cusimt.jit("void(float64[:], float64[:])")(
-            atomic_max_double_oneindex
-        )
+        cuda_func = cusimt.jit("void(float64[:], float64[:])")(atomic_max_double_oneindex)
         cuda_func[1, 32](res, vals)
 
         gold = np.max(vals)
@@ -1288,9 +1224,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def test_atomic_min_double_normalizedindex(self):
         vals = np.random.randint(0, 65535, size=(32, 32)).astype(np.float64)
         res = np.ones(1, np.float64) * 65535
-        cuda_func = cusimt.jit("void(float64[:], float64[:,:])")(
-            atomic_min_double_normalizedindex
-        )
+        cuda_func = cusimt.jit("void(float64[:], float64[:,:])")(atomic_min_double_normalizedindex)
         cuda_func[32, 32](res, vals)
 
         gold = np.min(vals)
@@ -1299,9 +1233,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def test_atomic_min_double_oneindex(self):
         vals = np.random.randint(0, 128, size=32).astype(np.float64)
         res = np.ones(1, np.float64) * 128
-        cuda_func = cusimt.jit("void(float64[:], float64[:])")(
-            atomic_min_double_oneindex
-        )
+        cuda_func = cusimt.jit("void(float64[:], float64[:])")(atomic_min_double_oneindex)
         cuda_func[1, 32](res, vals)
 
         gold = np.min(vals)
@@ -1429,9 +1361,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         )
 
     def test_atomic_cas_1dim(self):
-        self.check_cas(
-            n=100, fill=-99, unfill=-1, dtype=np.int32, cas_func=atomic_cas_1dim
-        )
+        self.check_cas(n=100, fill=-99, unfill=-1, dtype=np.int32, cas_func=atomic_cas_1dim)
 
     def test_atomic_cas_2dim(self):
         self.check_cas(
@@ -1444,9 +1374,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         )
 
     def test_atomic_cas2_1dim(self):
-        self.check_cas(
-            n=100, fill=-45, unfill=-1, dtype=np.int64, cas_func=atomic_cas_1dim
-        )
+        self.check_cas(n=100, fill=-45, unfill=-1, dtype=np.int64, cas_func=atomic_cas_1dim)
 
     def test_atomic_cas2_2dim(self):
         self.check_cas(
@@ -1626,9 +1554,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         vals = np.random.randint(0, 128, size=32).astype(np.float64)
         vals[1::2] = np.nan
         res = np.zeros(1, np.float64)
-        cuda_func = cusimt.jit("void(float64[:], float64[:])")(
-            atomic_max_double_oneindex
-        )
+        cuda_func = cusimt.jit("void(float64[:], float64[:])")(atomic_max_double_oneindex)
         cuda_func[1, 32](res, vals)
 
         gold = np.nanmax(vals)
@@ -1678,9 +1604,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         vals = np.random.randint(0, 128, size=32).astype(np.float64)
         vals[1::2] = np.nan
         res = np.array([128], np.float64)
-        cuda_func = cusimt.jit("void(float64[:], float64[:])")(
-            atomic_min_double_oneindex
-        )
+        cuda_func = cusimt.jit("void(float64[:], float64[:])")(atomic_min_double_oneindex)
         cuda_func[1, 32](res, vals)
 
         gold = np.nanmin(vals)

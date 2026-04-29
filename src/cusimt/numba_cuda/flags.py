@@ -117,8 +117,7 @@ detail""",
         type=bool,
         default=False,
         doc=(
-            "Extend variable lifetime for debugging. "
-            "This automatically turns on with debug=True."
+            "Extend variable lifetime for debugging. This automatically turns on with debug=True."
         ),
     )
 
@@ -134,7 +133,7 @@ detail""",
     dbg_directives_only = Option(
         type=bool,
         default=False,
-        doc=("Make debug emissions directives-only. " "Used when generating lineinfo."),
+        doc=("Make debug emissions directives-only. Used when generating lineinfo."),
     )
 
 

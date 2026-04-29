@@ -202,9 +202,7 @@ def test_comparison_ufunc_array_to_array_float_output(ufunc):
 @pytest.mark.parametrize("ufunc", COMPARISON_UFUNCS)
 def test_comparison_ufunc_array_to_array_int_output(ufunc):
     """Test comparison ufuncs with int output array."""
-    arr1, arr2 = np.array([1, 2, 3], dtype=np.int32), np.array(
-        [2, 2, 2], dtype=np.int32
-    )
+    arr1, arr2 = np.array([1, 2, 3], dtype=np.int32), np.array([2, 2, 2], dtype=np.int32)
 
     @cuda.jit
     def kernel(a: DeviceNDArray, b: DeviceNDArray, out: DeviceNDArray):

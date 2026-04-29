@@ -6,30 +6,30 @@ This README file is from the NVIDIA_OSS standard repo template of [PLC-OSS-Templ
 
 - Files (org-wide templates in the NVIDIA .github org repo; per-repo overrides allowed) in [PLC-OSS-Template](https://github.com/NVIDIA-GitHub-Management/PLC-OSS-Template?tab=readme-ov-file)
 
-   - Root 
-     - README.md skeleton (CTA + Quickstart + Support/Security/Governance links) 
+   - Root
+     - README.md skeleton (CTA + Quickstart + Support/Security/Governance links)
      - LICENSE (Apache 2.0 by default)
         - For other licenses, see the [Confluence page](https://confluence.nvidia.com/pages/viewpage.action?pageId=788418816) for other licenses
         - CLA.md file (delete if not using MIT or BSD licenses)
-     - CODE_OF_CONDUCT.md 
-     - SECURITY.md (vuln reporting path) 
+     - CODE_OF_CONDUCT.md
+     - SECURITY.md (vuln reporting path)
      - CONTRIBUTING.md (base; repo can add specifics)
      - SUPPORT.md (Support levels/channels)
      - GOVERNANCE.md (baseline; repo may extend)
      - CITATION.md (for projects that need citation)
 
-   - .github/ 
+   - .github/
      - ISSUE_TEMPLATE/ (<https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/configuring-issue-templates-for-your-repository>)
-       - bug.yml, feature.yml, task.yml, config.yml 
+       - bug.yml, feature.yml, task.yml, config.yml
      - PULL_REQUEST_TEMPLATE.md (<https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/creating-a-pull-request-template-for-your-repository>)
      - workflows/
      - Note: workflow-templates/ for starter workflows should live in the org-level .github repo, not per-repo
 
    - Repo-specific (not org-template, maintained by the team)
      - CODEOWNERS (place at .github/CODEOWNERS or repo root)
-     - CHANGELOG.md (or RELEASE.md) 
-     - ROADMAP.md 
-     - MAINTAINERS.md 
+     - CHANGELOG.md (or RELEASE.md)
+     - ROADMAP.md
+     - MAINTAINERS.md
      - NOTICE or THIRD_PARTY_NOTICES / THIRD_PARTY_LICENSES (dependency specific)
      - Build/package files (CMake, pyproject, Dockerfile, etc.)
 
@@ -58,7 +58,7 @@ This README file is from the NVIDIA_OSS standard repo template of [PLC-OSS-Templ
 - CONTRIBUTING.md (base)
 - .github/ISSUE_TEMPLATE/.yml (bug/feature/task + config.yml)
 - .github/PULL_REQUEST_TEMPLATE.md
-- Reusable workflows 
+- Reusable workflows
 
 **What you must customize per repo**
 - README.md: copy the skeleton and fill in product-specific details (Quickstart, Requirements, Usage, Support level, links)
@@ -70,7 +70,7 @@ This README file is from the NVIDIA_OSS standard repo template of [PLC-OSS-Templ
 - ROADMAP.md (optional): upcoming milestones
 - NOTICE / THIRD_PARTY_NOTICES (if you ship third‑party content)
 - Build/package files (CMake/pyproject/Dockerfile/etc.), tests/, docs/, examples/, scripts/ as appropriate
-- Workflows: Edit if you need custom behavior 
+- Workflows: Edit if you need custom behavior
 
 
 4. Change git origin to point to new repo and push
@@ -83,14 +83,14 @@ This README file is from the NVIDIA_OSS standard repo template of [PLC-OSS-Templ
 <!-- REMOVE THE LINE BELOW AND EVERYTHING ABOVE -->
 -----------------------------------------
 # [Project Title]
-One-sentence value proposition for users. Who is it for, and why it matters. 
+One-sentence value proposition for users. Who is it for, and why it matters.
 
 # Overview
 What the project does? Why the project is useful?
 Provide a brief overview, highlighting key features or problem-solving capabilities.
 
 # Getting Started
-Guide users on how they can get started with the project. This should include basic installation step, quick-start examples 
+Guide users on how they can get started with the project. This should include basic installation step, quick-start examples
 ```bash
 # Option A: Package manager (pip/conda/npm/etc.)
 <copy-paste install>
@@ -102,7 +102,7 @@ docker run <image> <args>
 <one-liner or ~10-line example>
 ```
 # Requirements
-Include a list of pre-requisites. 
+Include a list of pre-requisites.
 - OS/Arch: <summary or link to full matrix>
 - Runtime/Compiler: <versions>
 - GPU/Drivers (if applicable): CUDA <ver>, driver <ver>, etc.
@@ -118,10 +118,10 @@ Include a list of pre-requisites.
 # Performance (Optional)
 Summary of benchmarks; link to detailed results and hardware used.
 
-## Releases & Roadmap 
+## Releases & Roadmap
 - Releases/Changelog: <link>
 - (Optional) Next milestones or link to `ROADMAP.md`.
-  
+
 # Contribution Guidelines
 - Start here: `CONTRIBUTING.md`
 - Code of Conduct: `CODE_OF_CONDUCT.md`

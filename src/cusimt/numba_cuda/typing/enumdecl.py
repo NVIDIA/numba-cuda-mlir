@@ -53,11 +53,7 @@ class EnumClassStaticGetItem(AbstractTemplate):
 class EnumCompare(AbstractTemplate):
     def generic(self, args, kws):
         [lhs, rhs] = args
-        if (
-            isinstance(lhs, types.EnumMember)
-            and isinstance(rhs, types.EnumMember)
-            and lhs == rhs
-        ):
+        if isinstance(lhs, types.EnumMember) and isinstance(rhs, types.EnumMember) and lhs == rhs:
             return signature(types.boolean, lhs, rhs)
 
 

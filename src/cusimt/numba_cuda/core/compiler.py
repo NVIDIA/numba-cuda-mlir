@@ -25,9 +25,7 @@ class _CompileStatus:
         self.can_fallback = can_fallback
 
     def __repr__(self):
-        return ", ".join(
-            "{k}={v}".format(k=k, v=getattr(self, k)) for k in self.__slots__
-        )
+        return ", ".join("{k}={v}".format(k=k, v=getattr(self, k)) for k in self.__slots__)
 
 
 class StateDict(dict):
@@ -133,9 +131,7 @@ class CompilerBase:
         self.state.call_conv = call_conv
         self.state.abi_info = abi_info
 
-        self.state.status = _CompileStatus(
-            can_fallback=self.state.flags.enable_pyobject
-        )
+        self.state.status = _CompileStatus(can_fallback=self.state.flags.enable_pyobject)
 
     def compile_extra(self, func):
         self.state.func_id = bytecode.FunctionIdentity.from_function(func)

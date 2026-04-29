@@ -195,10 +195,7 @@ class PassManager:
             isinstance(pass_cls, str)
             or (
                 inspect.isclass(pass_cls)
-                and (
-                    issubclass(pass_cls, CompilerPass)
-                    or issubclass(pass_cls, nccm.CompilerPass)
-                )
+                and (issubclass(pass_cls, CompilerPass) or issubclass(pass_cls, nccm.CompilerPass))
             )
         ):
             msg = (
@@ -448,9 +445,7 @@ class PassRegistry:
             assert not self._does_pass_name_alias(pass_class.name())
             pass_class.pass_id = self._id
             self._id += 1
-            self._registry[pass_class] = pass_info(
-                pass_class(), mutates_CFG, analysis_only
-            )
+            self._registry[pass_class] = pass_info(pass_class(), mutates_CFG, analysis_only)
             return pass_class
 
         return make_festive

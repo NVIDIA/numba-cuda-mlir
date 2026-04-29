@@ -133,10 +133,9 @@ class TestBranchPruneBase(NumbaCUDATestCase):
             print("expect_removed", sorted(expect_removed))
             raise e
 
-        if [
-            arg is types.NoneType("none") or arg is types.Omitted(None)
-            for arg in args_tys
-        ].count(True) == 0:
+        if [arg is types.NoneType("none") or arg is types.Omitted(None) for arg in args_tys].count(
+            True
+        ) == 0:
             self.run_func(func, args)
 
     def run_func(self, impl, args):

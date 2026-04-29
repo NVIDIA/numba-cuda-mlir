@@ -295,9 +295,7 @@ class Driver:
         self.ensure_initialized()
 
         if self.initialization_error is not None:
-            raise CudaSupportError(
-                "Error at driver init: \n%s:" % self.initialization_error
-            )
+            raise CudaSupportError("Error at driver init: \n%s:" % self.initialization_error)
 
         return self._cuda_python_wrap_fn(fname)
 
@@ -907,9 +905,7 @@ def _ensure_memory_manager():
         mgr_module = importlib.import_module(config.CUDA_MEMORY_MANAGER)
         set_memory_manager(mgr_module._numba_memory_manager)
     except Exception:
-        raise RuntimeError(
-            "Failed to use memory manager from %s" % config.CUDA_MEMORY_MANAGER
-        )
+        raise RuntimeError("Failed to use memory manager from %s" % config.CUDA_MEMORY_MANAGER)
 
 
 def set_memory_manager(mm_plugin):
@@ -980,10 +976,7 @@ class _PendingDeallocs:
         _logger.info("add pending dealloc: %s %s bytes", dtor.__name__, size)
         self._cons.append((dtor, handle, size))
         self._size += int(size)
-        if (
-            len(self._cons) > config.CUDA_DEALLOCS_COUNT
-            or self._size > self._max_pending_bytes
-        ):
+        if len(self._cons) > config.CUDA_DEALLOCS_COUNT or self._size > self._max_pending_bytes:
             self.clear()
 
     def clear(self):
@@ -1074,9 +1067,7 @@ class Context:
         """Returns (free, total) memory in bytes in the context."""
         return self.memory_manager.get_memory_info()
 
-    def get_active_blocks_per_multiprocessor(
-        self, func, blocksize, memsize, flags=None
-    ):
+    def get_active_blocks_per_multiprocessor(self, func, blocksize, memsize, flags=None):
         """Return occupancy of a function.
         :param func: kernel for which occupancy is calculated
         :param blocksize: block size the kernel is intended to be launched with
@@ -1085,9 +1076,7 @@ class Context:
         args = (func, blocksize, memsize, flags)
         return self._cuda_python_active_blocks_per_multiprocessor(*args)
 
-    def _cuda_python_active_blocks_per_multiprocessor(
-        self, func, blocksize, memsize, flags
-    ):
+    def _cuda_python_active_blocks_per_multiprocessor(self, func, blocksize, memsize, flags):
         ps = [func.handle, blocksize, memsize]
 
         if not flags:
@@ -1107,9 +1096,7 @@ class Context:
 
         return retval.value
 
-    def get_max_potential_block_size(
-        self, func, b2d_func, memsize, blocksizelimit, flags=None
-    ):
+    def get_max_potential_block_size(self, func, b2d_func, memsize, blocksizelimit, flags=None):
         """Suggest a launch configuration with reasonable occupancy.
         :param func: kernel for which occupancy is calculated
         :param b2d_func: function that calculates how much per-block dynamic
@@ -1262,9 +1249,7 @@ class Context:
         return not self.__eq__(other)
 
 
-def load_module_image(
-    context, object_code, setup_callbacks=None, teardown_callbacks=None
-):
+def load_module_image(context, object_code, setup_callbacks=None, teardown_callbacks=None):
     return CudaPythonModule(
         weakref.proxy(context),
         object_code,
@@ -1529,9 +1514,7 @@ class IpcHandle:
             strides = dtype.itemsize
         dptr = self.open(context)
         # read the device pointer as an array
-        return devicearray.DeviceNDArray(
-            shape=shape, strides=strides, dtype=dtype, gpu_data=dptr
-        )
+        return devicearray.DeviceNDArray(shape=shape, strides=strides, dtype=dtype, gpu_data=dptr)
 
     def close(self):
         if self._impl is None:
@@ -2170,9 +2153,7 @@ class CudaPythonFunction:
         if not (-1 <= carveout <= 100):
             raise ValueError("Carveout must be between -1 and 100")
 
-        attr = (
-            binding.CUfunction_attribute.CU_FUNC_ATTRIBUTE_PREFERRED_SHARED_MEMORY_CARVEOUT
-        )
+        attr = binding.CUfunction_attribute.CU_FUNC_ATTRIBUTE_PREFERRED_SHARED_MEMORY_CARVEOUT
         driver.cuKernelSetAttribute(attr, carveout, self.handle, self.device.id)
 
 
@@ -2250,9 +2231,7 @@ class _Linker:
             else:
                 kind = FILE_EXTENSION_MAP.get(ext.lstrip("."), None)
                 if kind is None:
-                    raise RuntimeError(
-                        f"Don't know how to link file with extension {ext}"
-                    )
+                    raise RuntimeError(f"Don't know how to link file with extension {ext}")
 
                 if ignore_nonlto:
                     warn_and_return = False

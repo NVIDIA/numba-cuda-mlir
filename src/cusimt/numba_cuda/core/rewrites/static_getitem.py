@@ -176,9 +176,7 @@ class RewriteConstSetitems(Rewrite):
         for inst in self.block.body:
             if inst in self.setitems:
                 const = self.setitems[inst]
-                new_inst = ir.StaticSetItem(
-                    inst.target, const, inst.index, inst.value, inst.loc
-                )
+                new_inst = ir.StaticSetItem(inst.target, const, inst.index, inst.value, inst.loc)
                 new_block.append(new_inst)
             else:
                 new_block.append(inst)

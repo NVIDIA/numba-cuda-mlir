@@ -80,9 +80,7 @@ class PointerTypeConstructorTemplate(AbstractTemplate):
 
     def generic(self, args, kws):
         if len(args) != 1:
-            raise TypeError(
-                f"POINTER takes exactly 1 argument ({len(args)} given, {args=})"
-            )
+            raise TypeError(f"POINTER takes exactly 1 argument ({len(args)} given, {args=})")
 
         value = args[0]
         match value:
@@ -152,9 +150,7 @@ class Ctypes_stub_resolver(AttributeTemplate):
                         )
                         return None
             else:
-                trace(
-                    f"ctypes attribute {attrname=} is not a simple data type or callable"
-                )
+                trace(f"ctypes attribute {attrname=} is not a simple data type or callable")
                 return None
         else:
             trace("Unknown ctypes attribute attrname=%s, pymod=%s", attrname, pymod)

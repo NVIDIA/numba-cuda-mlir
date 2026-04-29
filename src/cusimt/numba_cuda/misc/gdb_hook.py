@@ -15,11 +15,7 @@ from cusimt.numba_cuda.extending import overload, intrinsic
 _path = os.path.dirname(__file__)
 
 _platform = sys.platform
-_unix_like = (
-    _platform.startswith("linux")
-    or _platform.startswith("darwin")
-    or ("bsd" in _platform)
-)
+_unix_like = _platform.startswith("linux") or _platform.startswith("darwin") or ("bsd" in _platform)
 
 
 def _confirm_gdb(need_ptrace_attach=True):
@@ -44,9 +40,7 @@ def _confirm_gdb(need_ptrace_attach=True):
     # Is Yama being used as a kernel security module and if so is ptrace_scope
     # limited? In this case ptracing non-child processes requires special
     # permission so raise an exception.
-    ptrace_scope_file = os.path.join(
-        os.sep, "proc", "sys", "kernel", "yama", "ptrace_scope"
-    )
+    ptrace_scope_file = os.path.join(os.sep, "proc", "sys", "kernel", "yama", "ptrace_scope")
     has_ptrace_scope = os.path.exists(ptrace_scope_file)
     if has_ptrace_scope:
         with open(ptrace_scope_file, "rt") as f:
@@ -192,9 +186,7 @@ def gen_gdb_impl(const_args, do_break):
         function_sig = types.void()
 
         def codegen(cgctx, builder, signature, args):
-            init_gdb_codegen(
-                cgctx, builder, signature, args, const_args, do_break=do_break
-            )
+            init_gdb_codegen(cgctx, builder, signature, args, const_args, do_break=do_break)
             return cgctx.get_constant(types.none, None)
 
         return function_sig, codegen
@@ -225,9 +217,7 @@ def gen_bp_impl():
         def codegen(cgctx, builder, signature, args):
             mod = builder.module
             fnty = ir.FunctionType(ir.VoidType(), tuple())
-            breakpoint = cgutils.get_or_insert_function(
-                mod, fnty, "numba_gdb_breakpoint"
-            )
+            breakpoint = cgutils.get_or_insert_function(mod, fnty, "numba_gdb_breakpoint")
             builder.call(breakpoint, tuple())
             return cgctx.get_constant(types.none, None)
 

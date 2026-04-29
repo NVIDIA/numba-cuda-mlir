@@ -554,12 +554,8 @@ class TestBfloat16HighLevelBindings(NumbaCUDATestCase):
         kernel[1, 1](out)
         raw = out.copy_to_host()
 
-        f4_expected = (
-            np.array([test_val] * 4, "float32").astype(mldtypes_bf16).view("int16")
-        )
-        f8_expected = (
-            np.array([test_val] * 1, "float64").astype(mldtypes_bf16).view("int16")
-        )
+        f4_expected = np.array([test_val] * 4, "float32").astype(mldtypes_bf16).view("int16")
+        f8_expected = np.array([test_val] * 1, "float64").astype(mldtypes_bf16).view("int16")
 
         np.testing.assert_array_less(_bf16_ulp_distance(raw[0:4], f4_expected), 2)
         np.testing.assert_array_less(_bf16_ulp_distance(raw[4:], f8_expected), 2)
@@ -579,9 +575,7 @@ def _bf16_ulp_rank(bits_int16: np.ndarray) -> np.ndarray:
     return np.where(sign == 0, u + 0x8000, 0x8000 - u).astype(np.int32)
 
 
-def _bf16_ulp_distance(
-    a_bits_int16: np.ndarray, b_bits_int16: np.ndarray
-) -> np.ndarray:
+def _bf16_ulp_distance(a_bits_int16: np.ndarray, b_bits_int16: np.ndarray) -> np.ndarray:
     """
     Compute the difference between two bfloat16 values in ULPs.
     """

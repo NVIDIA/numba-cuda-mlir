@@ -190,9 +190,7 @@ def unbox_enum(typ, obj, c):
 @box(types.UndefVar)
 def box_undefvar(typ, val, c):
     """This type cannot be boxed, there's no Python equivalent"""
-    msg = (
-        "UndefVar type cannot be boxed, there is no Python equivalent of " "this type."
-    )
+    msg = "UndefVar type cannot be boxed, there is no Python equivalent of this type."
     raise TypingError(msg)
 
 
@@ -256,9 +254,7 @@ def box_unicodecharseq(typ, val, c):
 def unbox_unicodecharseq(typ, obj, c):
     lty = c.context.get_value_type(typ)
 
-    ok, buffer, size, kind, is_ascii, hashv = c.pyapi.string_as_string_size_and_kind(
-        obj
-    )
+    ok, buffer, size, kind, is_ascii, hashv = c.pyapi.string_as_string_size_and_kind(obj)
 
     # If conversion is ok, copy the buffer to the output storage.
     with cgutils.if_likely(c.builder, ok):
@@ -275,9 +271,7 @@ def unbox_unicodecharseq(typ, obj, c):
 
         # We don't need to set the NULL-terminator because the storage
         # is already zero-filled.
-        cgutils.memcpy(
-            c.builder, c.builder.bitcast(outspace, buffer.type), buffer, size
-        )
+        cgutils.memcpy(c.builder, c.builder.bitcast(outspace, buffer.type), buffer, size)
 
     ret = c.builder.load(outspace)
     return NativeValue(ret, is_error=c.builder.not_(ok))
@@ -334,9 +328,7 @@ def unbox_charseq(typ, obj, c):
 
         # We don't need to set the NULL-terminator because the storage
         # is already zero-filled.
-        cgutils.memcpy(
-            c.builder, c.builder.bitcast(outspace, buffer.type), buffer, size
-        )
+        cgutils.memcpy(c.builder, c.builder.bitcast(outspace, buffer.type), buffer, size)
 
     ret = c.builder.load(outspace)
     return NativeValue(ret, is_error=c.builder.not_(ok))
@@ -583,9 +575,7 @@ def unbox_tuple(typ, obj, c):
 
     # Issue #1638: need to check the tuple size
     actual_size = c.pyapi.tuple_size(obj)
-    size_matches = c.builder.icmp_unsigned(
-        "==", actual_size, ir.Constant(actual_size.type, n)
-    )
+    size_matches = c.builder.icmp_unsigned("==", actual_size, ir.Constant(actual_size.type, n))
     with c.builder.if_then(c.builder.not_(size_matches), likely=False):
         c.pyapi.err_format(
             "PyExc_ValueError",
@@ -757,9 +747,7 @@ def _python_list_to_native(typ, obj, c, size, listptr, errorptr):
                 list.parent = obj
             # Stuff meminfo pointer into the Python object for
             # later reuse.
-            with c.builder.if_then(
-                c.builder.not_(c.builder.load(errorptr)), likely=False
-            ):
+            with c.builder.if_then(c.builder.not_(c.builder.load(errorptr)), likely=False):
                 c.pyapi.object_set_private_data(obj, list.meminfo)
             list.set_dirty(False)
             c.builder.store(list.value, listptr)
@@ -873,9 +861,7 @@ def _python_set_to_native(typ, obj, c, size, setptr, errorptr):
     with c.builder.if_else(ok, likely=True) as (if_ok, if_not_ok):
         with if_ok:
             # Traverse Python set and unbox objects into native set
-            typobjptr = cgutils.alloca_once_value(
-                c.builder, ir.Constant(c.pyapi.pyobj, None)
-            )
+            typobjptr = cgutils.alloca_once_value(c.builder, ir.Constant(c.pyapi.pyobj, None))
 
             with c.pyapi.set_iterate(obj) as loop:
                 itemobj = loop.value
@@ -891,9 +877,7 @@ def _python_set_to_native(typ, obj, c, size, setptr, errorptr):
                         c.builder.store(typobj, typobjptr)
                     with if_not_first:
                         # Otherwise, check item type
-                        type_mismatch = c.builder.icmp_signed(
-                            "!=", typobj, expected_typobj
-                        )
+                        type_mismatch = c.builder.icmp_signed("!=", typobj, expected_typobj)
                         with c.builder.if_then(type_mismatch, likely=False):
                             c.builder.store(cgutils.true_bit, errorptr)
                             c.pyapi.err_set_string(
@@ -913,9 +897,7 @@ def _python_set_to_native(typ, obj, c, size, setptr, errorptr):
             if typ.reflected:
                 inst.parent = obj
             # Associate meminfo pointer with the Python object for later reuse.
-            with c.builder.if_then(
-                c.builder.not_(c.builder.load(errorptr)), likely=False
-            ):
+            with c.builder.if_then(c.builder.not_(c.builder.load(errorptr)), likely=False):
                 c.pyapi.object_set_private_data(obj, inst.meminfo)
             inst.set_dirty(False)
             c.builder.store(inst.value, setptr)
@@ -1130,9 +1112,7 @@ def unbox_deferred(typ, obj, c):
     native_value = c.pyapi.to_native_value(typ.get(), obj)
     model = c.context.data_model_manager[typ]
     res = model.set(c.builder, model.make_uninitialized(), native_value.value)
-    return NativeValue(
-        res, is_error=native_value.is_error, cleanup=native_value.cleanup
-    )
+    return NativeValue(res, is_error=native_value.is_error, cleanup=native_value.cleanup)
 
 
 @unbox(types.Dispatcher)
@@ -1291,9 +1271,7 @@ def unbox_numpy_random_bitgenerator(typ, obj, c):
             interface_next_fn_casted_value = object_getattr_safely(
                 interface_next_fn_casted, "value"
             )
-            with cgutils.early_exit_if_null(
-                c.builder, stack, interface_next_fn_casted_value
-            ):
+            with cgutils.early_exit_if_null(c.builder, stack, interface_next_fn_casted_value):
                 handle_failure()
 
             # Wire up

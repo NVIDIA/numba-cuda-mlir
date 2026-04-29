@@ -148,9 +148,7 @@ class Signature:
         return types.FunctionType(self)
 
     def __unliteral__(self):
-        return signature(
-            types.unliteral(self.return_type), *map(types.unliteral, self.args)
-        )
+        return signature(types.unliteral(self.return_type), *map(types.unliteral, self.args))
 
     def dump(self, tab=""):
         c = self.as_type()._code
@@ -369,8 +367,9 @@ class AbstractTemplate(FunctionTemplate):
         if sig is not None:
             if not isinstance(sig, Signature):
                 raise AssertionError(
-                    "generic() must return a Signature or None. "
-                    "{} returned {}".format(generic, type(sig)),
+                    "generic() must return a Signature or None. {} returned {}".format(
+                        generic, type(sig)
+                    ),
                 )
 
         # Unpack optional type if no matching signature
@@ -390,9 +389,7 @@ class AbstractTemplate(FunctionTemplate):
 
     def get_template_info(self):
         impl = self.generic
-        basepath = os.path.dirname(
-            os.path.dirname(os.path.dirname(numba_cuda.__file__))
-        )
+        basepath = os.path.dirname(os.path.dirname(os.path.dirname(numba_cuda.__file__)))
 
         code, firstlineno, path = self.get_source_code_info(impl)
         sig = str(utils.pysignature(impl))
@@ -461,9 +458,7 @@ class CallableTemplate(FunctionTemplate):
         if not isinstance(sig, Signature):
             # If not a signature, `sig` is assumed to be the return type
             if not isinstance(sig, types.Type):
-                raise TypeError(
-                    "invalid return type for callable template: got %r" % (sig,)
-                )
+                raise TypeError("invalid return type for callable template: got %r" % (sig,))
             sig = signature(sig, *bound.args)
         if self.recvr is not None:
             sig = sig.replace(recvr=self.recvr)
@@ -479,9 +474,7 @@ class CallableTemplate(FunctionTemplate):
 
     def get_template_info(self):
         impl = self.generic
-        basepath = os.path.dirname(
-            os.path.dirname(os.path.dirname(numba_cuda.__file__))
-        )
+        basepath = os.path.dirname(os.path.dirname(os.path.dirname(numba_cuda.__file__)))
         code, firstlineno, path = self.get_source_code_info(impl)
         sig = str(utils.pysignature(impl))
         info = {
@@ -697,9 +690,7 @@ class _OverloadFunctionTemplate(AbstractTemplate):
             # situations that will succeed. For context see #5887.
             resolve = disp_type.dispatcher.get_call_template
             template, pysig, folded_args, kws = resolve(new_args, kws)
-            ir = inline_worker.run_untyped_passes(
-                disp_type.dispatcher.py_func, enable_ssa=True
-            )
+            ir = inline_worker.run_untyped_passes(disp_type.dispatcher.py_func, enable_ssa=True)
 
             (typemap, return_type, calltypes, _) = typed_passes.type_inference_stage(
                 self.context, tgctx, ir, folded_args, None
@@ -820,10 +811,7 @@ class _OverloadFunctionTemplate(AbstractTemplate):
 
         # Check type of pyfunc
         if not isinstance(pyfunc, FunctionType):
-            msg = (
-                "Implementation function returned by `@overload` "
-                "has an unexpected type.  Got {}"
-            )
+            msg = "Implementation function returned by `@overload` has an unexpected type.  Got {}"
             raise AssertionError(msg.format(pyfunc))
 
         # check that the typing and impl sigs match up
@@ -867,9 +855,7 @@ class _OverloadFunctionTemplate(AbstractTemplate):
             - "docstring": str
                 The docstring of the definition.
         """
-        basepath = os.path.dirname(
-            os.path.dirname(os.path.dirname(numba_cuda.__file__))
-        )
+        basepath = os.path.dirname(os.path.dirname(os.path.dirname(numba_cuda.__file__)))
         impl = cls._overload_func
         code, firstlineno, path = cls.get_source_code_info(impl)
         sig = str(utils.pysignature(impl))
@@ -884,9 +870,7 @@ class _OverloadFunctionTemplate(AbstractTemplate):
         return info
 
     def get_template_info(self):
-        basepath = os.path.dirname(
-            os.path.dirname(os.path.dirname(numba_cuda.__file__))
-        )
+        basepath = os.path.dirname(os.path.dirname(os.path.dirname(numba_cuda.__file__)))
         impl = self._overload_func
         code, firstlineno, path = self.get_source_code_info(impl)
         sig = str(utils.pysignature(impl))
@@ -1043,9 +1027,7 @@ class _IntrinsicTemplate(_TemplateTargetHelperMixin, AbstractTemplate):
         return self._overload_cache[sig.args]
 
     def get_template_info(self):
-        basepath = os.path.dirname(
-            os.path.dirname(os.path.dirname(numba_cuda.__file__))
-        )
+        basepath = os.path.dirname(os.path.dirname(os.path.dirname(numba_cuda.__file__)))
         impl = self._definition_func
         code, firstlineno, path = self.get_source_code_info(impl)
         sig = str(utils.pysignature(impl))
@@ -1205,9 +1187,7 @@ class _OverloadMethodTemplate(_OverloadAttributeTemplate):
                     return sig.as_method()
 
             def get_template_info(self):
-                basepath = os.path.dirname(
-                    os.path.dirname(os.path.dirname(numba_cuda.__file__))
-                )
+                basepath = os.path.dirname(os.path.dirname(os.path.dirname(numba_cuda.__file__)))
                 impl = self._overload_func
                 code, firstlineno, path = self.get_source_code_info(impl)
                 sig = str(utils.pysignature(impl))
@@ -1255,9 +1235,7 @@ def make_overload_attribute_template(
     return obj
 
 
-def make_overload_method_template(
-    typ, attr, overload_func, inline, prefer_literal=False, **kwargs
-):
+def make_overload_method_template(typ, attr, overload_func, inline, prefer_literal=False, **kwargs):
     """
     Make a template class for method *attr* of *typ* overloaded by
     *overload_func*.
@@ -1397,8 +1375,7 @@ class BaseRegistryLoader:
 
     def __init__(self, registry):
         self._registrations = dict(
-            (name, utils.stream_list(getattr(registry, name)))
-            for name in self.registry_items
+            (name, utils.stream_list(getattr(registry, name))) for name in self.registry_items
         )
 
     def new_registrations(self, name):

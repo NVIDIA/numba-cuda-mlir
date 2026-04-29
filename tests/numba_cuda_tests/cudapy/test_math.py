@@ -749,9 +749,7 @@ class TestCudaMath(NumbaCUDATestCase):
         # 32 bit float
 
         # float32 modf on simple float
-        modf_template_compare(
-            np.linspace(0, 10, nelem), dtype=np.float32, arytype=float32[:]
-        )
+        modf_template_compare(np.linspace(0, 10, nelem), dtype=np.float32, arytype=float32[:])
 
         # float32 modf on +- infinity"):
         modf_template_compare(
@@ -766,9 +764,7 @@ class TestCudaMath(NumbaCUDATestCase):
         # 64 bit float
 
         # float64 modf on simple float"
-        modf_template_compare(
-            np.linspace(0, 10, nelem), dtype=np.float64, arytype=float64[:]
-        )
+        modf_template_compare(np.linspace(0, 10, nelem), dtype=np.float64, arytype=float64[:])
         # float64 modf on +- infinity
         modf_template_compare(
             np.array([np.inf, -np.inf]),

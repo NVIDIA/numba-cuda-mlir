@@ -87,9 +87,9 @@ def _register_uint64_pointer_setitem():
         value = lowering_utilities.convert(value, array.type.element_type)
         memref.store(value=value, memref=array, indices=[index])
 
-    lowering_registry.lower(
-        operator.setitem, types.Array, types.Integer, Uint64Pointer
-    )(lower_array_setitem_uint64_pointer)
+    lowering_registry.lower(operator.setitem, types.Array, types.Integer, Uint64Pointer)(
+        lower_array_setitem_uint64_pointer
+    )
 
 
 _register_uint64_pointer_setitem()
@@ -183,9 +183,7 @@ def test_prepare_args_receives_argument_types():
     out = np.zeros(1, dtype=np.float32)
     kernel[1, 1](out, 1.0)
 
-    assert any(
-        name == "float" and isinstance(ty, types.Float) for name, ty in received_types
-    )
+    assert any(name == "float" and isinstance(ty, types.Float) for name, ty in received_types)
 
 
 def test_transforms_value():

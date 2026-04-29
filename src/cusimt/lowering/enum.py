@@ -33,16 +33,13 @@ def _enum_cmp(builder, target, args, int_pred, float_pred, different_type_result
         if _is_float_enum(lhs_type):
             if float_pred is None:
                 raise ValueError(
-                    f"float comparison predicate required for float-backed "
-                    f"enum type {lhs_type}"
+                    f"float comparison predicate required for float-backed enum type {lhs_type}"
                 )
             result = arith.cmpf(float_pred, lhs_val, rhs_val)
         else:
             result = arith.cmpi(int_pred, lhs_val, rhs_val)
     else:
-        result = arith.constant(
-            arith.IntegerType.get_signless(1), different_type_result
-        )
+        result = arith.constant(arith.IntegerType.get_signless(1), different_type_result)
     builder.store_var(target, result)
 
 

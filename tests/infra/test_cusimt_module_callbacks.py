@@ -57,9 +57,7 @@ def test_per_argtype_callbacks():
     assert state["n"] == 0
 
 
-@pytest.mark.parametrize(
-    "use_jit_link", [True, False], ids=["jit_link", "declare_device_link"]
-)
+@pytest.mark.parametrize("use_jit_link", [True, False], ids=["jit_link", "declare_device_link"])
 def test_callback_sets_device_global(use_jit_link):
     def set_value(obj):
         _, dptr, size = cuLibraryGetGlobal(obj.handle, b"value")

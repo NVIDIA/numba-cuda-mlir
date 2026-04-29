@@ -119,8 +119,7 @@ class TestContextLeak(NumbaCUDATestCase):
             self.assertEqual(
                 int(ac.context_handle),
                 outer_handle,
-                "Previous context was not restored after exiting "
-                "cuda.gpus context manager",
+                "Previous context was not restored after exiting cuda.gpus context manager",
             )
 
 

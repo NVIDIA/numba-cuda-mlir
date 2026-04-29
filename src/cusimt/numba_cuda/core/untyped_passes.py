@@ -576,9 +576,7 @@ class CanonicalizeLoopEntry(FunctionPass):
                         if isinstance(defn, ir.Global):
                             if expr.func.is_temp:
                                 deps.add(expr.func)
-                elif (
-                    isinstance(rhs, ir.Global) and rhs.value in self._supported_globals
-                ):
+                elif isinstance(rhs, ir.Global) and rhs.value in self._supported_globals:
                     startpt = assign
 
         if startpt is None:
@@ -640,20 +638,12 @@ class MakeFunctionToJitFunction(FunctionPass):
                             if kw_default is None or isinstance(kw_default, ir.Const):
                                 ok = True
                             elif isinstance(kw_default, tuple):
-                                ok = all(
-                                    [
-                                        isinstance(getdef(x), ir.Const)
-                                        for x in kw_default
-                                    ]
-                                )
+                                ok = all([isinstance(getdef(x), ir.Const) for x in kw_default])
                             elif isinstance(kw_default, ir.Expr):
                                 if kw_default.op != "build_tuple":
                                     continue
                                 ok = all(
-                                    [
-                                        isinstance(getdef(x), ir.Const)
-                                        for x in kw_default.items
-                                    ]
+                                    [isinstance(getdef(x), ir.Const) for x in kw_default.items]
                                 )
                             if not ok:
                                 continue
@@ -692,23 +682,16 @@ class TransformLiteralUnrollConstListToTuple(FunctionPass):
             calls = [_ for _ in blk.find_exprs("call")]
             for call in calls:
                 glbl = guard(get_definition, func_ir, call.func)
-                if glbl and (
-                    isinstance(glbl, ir.Global) or isinstance(glbl, ir.FreeVar)
-                ):
+                if glbl and (isinstance(glbl, ir.Global) or isinstance(glbl, ir.FreeVar)):
                     # find a literal_unroll
                     if glbl.value is literal_unroll:
                         if len(call.args) > 1:
                             msg = "literal_unroll takes one argument, found %s"
-                            raise errors.UnsupportedError(
-                                msg % len(call.args), call.loc
-                            )
+                            raise errors.UnsupportedError(msg % len(call.args), call.loc)
                         # get the arg, make sure its a build_list
                         unroll_var = call.args[0]
                         to_unroll = guard(get_definition, func_ir, unroll_var)
-                        if (
-                            isinstance(to_unroll, ir.Expr)
-                            and to_unroll.op == "build_list"
-                        ):
+                        if isinstance(to_unroll, ir.Expr) and to_unroll.op == "build_list":
                             # make sure they are all const items in the list
                             for i, item in enumerate(to_unroll.items):
                                 val = guard(get_definition, func_ir, item)
@@ -717,9 +700,7 @@ class TransformLiteralUnrollConstListToTuple(FunctionPass):
                                         "multiple definitions for variable "
                                         "%s, cannot resolve constant"
                                     )
-                                    raise errors.UnsupportedError(
-                                        msg % item, to_unroll.loc
-                                    )
+                                    raise errors.UnsupportedError(msg % item, to_unroll.loc)
                                 if not isinstance(val, ir.Const):
                                     msg = (
                                         "Found non-constant value at "
@@ -740,12 +721,9 @@ class TransformLiteralUnrollConstListToTuple(FunctionPass):
 
                             if to_unroll_lhs is None:
                                 msg = (
-                                    "multiple definitions for variable "
-                                    "%s, cannot resolve constant"
+                                    "multiple definitions for variable %s, cannot resolve constant"
                                 )
-                                raise errors.UnsupportedError(
-                                    msg % unroll_var, to_unroll.loc
-                                )
+                                raise errors.UnsupportedError(msg % unroll_var, to_unroll.loc)
                             # scan all blocks looking for the LHS
                             for b in func_ir.blocks.values():
                                 asgn = b.find_variable_assignment(to_unroll_lhs.name)
@@ -753,7 +731,7 @@ class TransformLiteralUnrollConstListToTuple(FunctionPass):
                                     break
                             else:
                                 msg = (
-                                    "Cannot find assignment for known " "variable %s"
+                                    "Cannot find assignment for known variable %s"
                                 ) % to_unroll_lhs.name
                                 raise errors.CompilerError(msg, to_unroll.loc)
 
@@ -763,15 +741,11 @@ class TransformLiteralUnrollConstListToTuple(FunctionPass):
                             # swap the list for the tuple
                             asgn.value = tup
                             mutated = True
-                        elif (
-                            isinstance(to_unroll, ir.Expr)
-                            and to_unroll.op == "build_tuple"
-                        ):
+                        elif isinstance(to_unroll, ir.Expr) and to_unroll.op == "build_tuple":
                             # this is fine, do nothing
                             pass
                         elif (
-                            isinstance(to_unroll, ir.Global)
-                            or isinstance(to_unroll, ir.FreeVar)
+                            isinstance(to_unroll, ir.Global) or isinstance(to_unroll, ir.FreeVar)
                         ) and isinstance(to_unroll.value, tuple):
                             # this is fine, do nothing
                             pass
@@ -802,8 +776,7 @@ class TransformLiteralUnrollConstListToTuple(FunctionPass):
                             else:
                                 if to_unroll is None:
                                     extra = (
-                                        "multiple definitions of "
-                                        'variable "%s".' % unroll_var.name
+                                        'multiple definitions of variable "%s".' % unroll_var.name
                                     )
                                     loc = unroll_var.loc
                                 else:
@@ -871,9 +844,7 @@ class MixedContainerUnroller(FunctionPass):
             new_blocks[l + offset] = b
         return new_blocks
 
-    def inject_loop_body(
-        self, switch_ir, loop_ir, caller_max_label, dont_replace, switch_data
-    ):
+    def inject_loop_body(self, switch_ir, loop_ir, caller_max_label, dont_replace, switch_data):
         """
         Injects the "loop body" held in `loop_ir` into `switch_ir` where ever
         there is a statement of the form `SENTINEL.<int> = RHS`. It also:
@@ -943,9 +914,7 @@ class MixedContainerUnroller(FunctionPass):
             # relabel blocks WRT switch table, each block replacement will shift
             # the maximum label
             max_label = max(switch_ir.blocks.keys())
-            loop_blocks = self.add_offset_to_labels_w_ignore(
-                loop_blocks, max_label + 1, ignore_set
-            )
+            loop_blocks = self.add_offset_to_labels_w_ignore(loop_blocks, max_label + 1, ignore_set)
 
             # start label
             loop_start_lbl = min(loop_blocks.keys())
@@ -955,27 +924,14 @@ class MixedContainerUnroller(FunctionPass):
                 new_body = []
                 for stmt in blk.body:
                     if isinstance(stmt, ir.Assign):
-                        if (
-                            isinstance(stmt.value, ir.Expr)
-                            and stmt.value.op == "typed_getitem"
-                        ):
+                        if isinstance(stmt.value, ir.Expr) and stmt.value.op == "typed_getitem":
                             if isinstance(branch_ty, types.Literal):
                                 scope = switch_ir.blocks[lbl].scope
-                                new_const_name = scope.redefine(
-                                    "branch_const", stmt.loc
-                                ).name
-                                new_const_var = ir.Var(
-                                    blk.scope, new_const_name, stmt.loc
-                                )
-                                new_const_val = ir.Const(
-                                    branch_ty.literal_value, stmt.loc
-                                )
-                                const_assign = ir.Assign(
-                                    new_const_val, new_const_var, stmt.loc
-                                )
-                                new_assign = ir.Assign(
-                                    new_const_var, stmt.target, stmt.loc
-                                )
+                                new_const_name = scope.redefine("branch_const", stmt.loc).name
+                                new_const_var = ir.Var(blk.scope, new_const_name, stmt.loc)
+                                new_const_val = ir.Const(branch_ty.literal_value, stmt.loc)
+                                const_assign = ir.Assign(new_const_val, new_const_var, stmt.loc)
+                                new_assign = ir.Assign(new_const_var, stmt.target, stmt.loc)
                                 new_body.append(const_assign)
                                 new_body.append(new_assign)
                                 dont_replace.append(new_const_name)
@@ -987,9 +943,7 @@ class MixedContainerUnroller(FunctionPass):
                                     index=orig.index,
                                     loc=orig.loc,
                                 )
-                                new_assign = ir.Assign(
-                                    new_typed_getitem, stmt.target, stmt.loc
-                                )
+                                new_assign = ir.Assign(new_typed_getitem, stmt.target, stmt.loc)
                                 new_body.append(new_assign)
                         else:
                             new_body.append(stmt)
@@ -1105,9 +1059,7 @@ class MixedContainerUnroller(FunctionPass):
         )
         keys = [k for k in data.keys()]
 
-        elifs = [
-            elif_tplt % ",".join(map(str, data[keys[i]])) for i in range(1, len(keys))
-        ]
+        elifs = [elif_tplt % ",".join(map(str, data[keys[i]])) for i in range(1, len(keys))]
         src = b % (",".join(map(str, data[keys[0]])), "".join(elifs))
         wstr = src
         l = {}
@@ -1158,9 +1110,7 @@ class MixedContainerUnroller(FunctionPass):
                 # does not conform to the following then raise
 
                 # scan loop header
-                iternexts = [
-                    _ for _ in func_ir.blocks[loop.header].find_exprs("iternext")
-                ]
+                iternexts = [_ for _ in func_ir.blocks[loop.header].find_exprs("iternext")]
                 # needs to be an single iternext driven loop
                 if len(iternexts) != 1:
                     continue
@@ -1241,10 +1191,7 @@ class MixedContainerUnroller(FunctionPass):
                     blk = func_ir.blocks[lbli]
                     for stmt in blk.body:
                         if isinstance(stmt, ir.Assign):
-                            if (
-                                isinstance(stmt.value, ir.Expr)
-                                and stmt.value.op == "getitem"
-                            ):
+                            if isinstance(stmt.value, ir.Expr) and stmt.value.op == "getitem":
                                 # check for something like a[i]
                                 if stmt.value.value != arg:
                                     # that failed, so check for the
@@ -1656,9 +1603,7 @@ class PropagateLiterals(FunctionPass):
                 target = assign.target
                 if not flags.enable_ssa:
                     # SSA is disabled when doing inlining
-                    if (
-                        guard(get_definition, func_ir, target.name) is None
-                    ):  # noqa: E501
+                    if guard(get_definition, func_ir, target.name) is None:  # noqa: E501
                         continue
 
                 # Numba cannot safely determine if an isinstance call
@@ -1684,9 +1629,7 @@ class PropagateLiterals(FunctionPass):
                     if fn is None:
                         continue
 
-                    if not (
-                        isinstance(fn, ir.Global) and fn.name in accepted_functions
-                    ):
+                    if not (isinstance(fn, ir.Global) and fn.name in accepted_functions):
                         continue
 
                     for arg in value.args:
@@ -1751,9 +1694,7 @@ class LiteralPropagationSubPipelinePass(FunctionPass):
         func_ir = state.func_ir
         for blk in func_ir.blocks.values():
             for asgn in blk.find_insts(ir.Assign):
-                if isinstance(asgn.value, ir.Global) or isinstance(
-                    asgn.value, ir.FreeVar
-                ):
+                if isinstance(asgn.value, ir.Global) or isinstance(asgn.value, ir.FreeVar):
                     value = asgn.value.value
                     if value is isinstance or value is hasattr:
                         found = True
@@ -1800,9 +1741,7 @@ class LiteralUnroll(FunctionPass):
         func_ir = state.func_ir
         for blk in func_ir.blocks.values():
             for asgn in blk.find_insts(ir.Assign):
-                if isinstance(asgn.value, ir.Global) or isinstance(
-                    asgn.value, ir.FreeVar
-                ):
+                if isinstance(asgn.value, ir.Global) or isinstance(asgn.value, ir.FreeVar):
                     if asgn.value.value is literal_unroll:
                         found = True
                         break
@@ -1826,9 +1765,7 @@ class LiteralUnroll(FunctionPass):
         # recompute partial typemap following IR change
         pm.add_pass(PartialTypeInference, "performs partial type inference")
         # canonicalise loops
-        pm.add_pass(
-            IterLoopCanonicalization, "switch iter loops for range driven loops"
-        )
+        pm.add_pass(IterLoopCanonicalization, "switch iter loops for range driven loops")
         # rewrite consts
         pm.add_pass(RewriteSemanticConstants, "rewrite semantic constants")
         # do the unroll

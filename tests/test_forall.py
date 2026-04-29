@@ -13,9 +13,7 @@ def _increment(arr):
         arr[i] += 1
 
 
-@pytest.mark.parametrize(
-    "size,tpb", [(1000, 0), (256, 64)], ids=["default_tpb", "explicit_tpb"]
-)
+@pytest.mark.parametrize("size,tpb", [(1000, 0), (256, 64)], ids=["default_tpb", "explicit_tpb"])
 def test_forall_basic(size, tpb):
     arr = np.zeros(size, dtype=np.float32)
     dev_arr = cuda.to_device(arr)
@@ -33,9 +31,7 @@ def test_forall_no_work():
 
 
 def test_forall_negative_raises():
-    with pytest.raises(
-        ValueError, match="Can't create ForAll with negative task count"
-    ):
+    with pytest.raises(ValueError, match="Can't create ForAll with negative task count"):
         _increment.forall(-1)
 
 

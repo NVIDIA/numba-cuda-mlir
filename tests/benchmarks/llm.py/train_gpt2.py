@@ -30,16 +30,12 @@ class NewGELU(nn.Module):
             * input
             * (
                 1.0
-                + torch.tanh(
-                    math.sqrt(2.0 / math.pi)
-                    * (input + 0.044715 * torch.pow(input, 3.0))
-                )
+                + torch.tanh(math.sqrt(2.0 / math.pi) * (input + 0.044715 * torch.pow(input, 3.0)))
             )
         )
 
 
 class CausalSelfAttention(nn.Module):
-
     def __init__(self, config):
         super().__init__()
         assert config.n_embd % config.n_head == 0
@@ -59,21 +55,13 @@ class CausalSelfAttention(nn.Module):
         )
 
     def forward(self, x):
-        B, T, C = (
-            x.size()
-        )  # batch size, sequence length, embedding dimensionality (n_embd)
+        B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
         qkv = self.c_attn(x)
         q, k, v = qkv.split(self.n_embd, dim=2)
-        k = k.view(B, T, self.n_head, C // self.n_head).transpose(
-            1, 2
-        )  # (B, nh, T, hs)
-        q = q.view(B, T, self.n_head, C // self.n_head).transpose(
-            1, 2
-        )  # (B, nh, T, hs)
-        v = v.view(B, T, self.n_head, C // self.n_head).transpose(
-            1, 2
-        )  # (B, nh, T, hs)
+        k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
+        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
+        v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
         # manual implementation of attention
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
         att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float("-inf"))
@@ -88,7 +76,6 @@ class CausalSelfAttention(nn.Module):
 
 
 class MLP(nn.Module):
-
     def __init__(self, config):
         super().__init__()
         self.c_fc = nn.Linear(config.n_embd, 4 * config.n_embd)
@@ -103,7 +90,6 @@ class MLP(nn.Module):
 
 
 class Block(nn.Module):
-
     def __init__(self, config):
         super().__init__()
         self.ln_1 = nn.LayerNorm(config.n_embd)
@@ -127,7 +113,6 @@ class GPTConfig:
 
 
 class GPT(nn.Module):
-
     def __init__(self, config):
         super().__init__()
         self.config = config
@@ -148,9 +133,9 @@ class GPT(nn.Module):
     def forward(self, idx, targets=None):
         device = idx.device
         b, t = idx.size()
-        assert (
-            t <= self.config.block_size
-        ), f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
+        assert t <= self.config.block_size, (
+            f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
+        )
         pos = torch.arange(0, t, dtype=torch.long, device=device)  # shape (t)
 
         # forward the GPT model itself
@@ -170,9 +155,7 @@ class GPT(nn.Module):
             )
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
-            logits = self.lm_head(
-                x[:, [-1], :]
-            )  # note: using list [-1] to preserve the time dim
+            logits = self.lm_head(x[:, [-1], :])  # note: using list [-1] to preserve the time dim
             loss = None
 
         return logits, loss
@@ -223,9 +206,9 @@ class GPT(nn.Module):
         ]
         # basically the openai checkpoints use a "Conv1D" module, but we only want to use a vanilla Linear
         # this means that we have to transpose these weights when we import them
-        assert len(sd_keys_hf) == len(
-            sd_keys
-        ), f"mismatched keys: {len(sd_keys_hf)} != {len(sd_keys)}"
+        assert len(sd_keys_hf) == len(sd_keys), (
+            f"mismatched keys: {len(sd_keys_hf)} != {len(sd_keys)}"
+        )
         for k in sd_keys_hf:
             if any(k.endswith(w) for w in transposed):
                 # special treatment for the Conv1D weights we need to transpose
@@ -250,9 +233,7 @@ class GPT(nn.Module):
         for _ in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = (
-                idx
-                if idx.size(1) <= self.config.block_size
-                else idx[:, -self.config.block_size :]
+                idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size :]
             )
             # forward the model to get the logits for the index in the sequence
             logits, _ = self(idx_cond)
@@ -368,9 +349,7 @@ def write_tokenizer(enc, filename):
             b = enc.decode_bytes([i])
             length = len(b)
             assert length < 256, f"Token length exceeds 255: {length}"
-            file.write(
-                struct.pack("<B", length)
-            )  # Write the length as a 1-byte unsigned integer
+            file.write(struct.pack("<B", length))  # Write the length as a 1-byte unsigned integer
             file.write(b)  # Write the actual bytes
     print(f"wrote {filename}")
 
@@ -389,23 +368,15 @@ if __name__ == "__main__":
     # if you'd like to e.g. time the forward pass only, call this script as:
     # python train_gpt2.py --inference_only 1 --write_tensors 0 --sequence_length 1024
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--write_tensors", type=int, default=1, help="write tensors to disk"
-    )
-    parser.add_argument(
-        "--inference_only", type=int, default=0, help="only run inference"
-    )
-    parser.add_argument(
-        "--compile", type=int, default=0, help="torch.compile the model"
-    )
+    parser.add_argument("--write_tensors", type=int, default=1, help="write tensors to disk")
+    parser.add_argument("--inference_only", type=int, default=0, help="only run inference")
+    parser.add_argument("--compile", type=int, default=0, help="torch.compile the model")
     parser.add_argument("--tensorcores", type=int, default=0, help="use tensorcores")
     parser.add_argument(
         "--num_iterations", type=int, default=10, help="number of iterations to run"
     )
     parser.add_argument("--batch_size", type=int, default=4, help="batch size")
-    parser.add_argument(
-        "--sequence_length", type=int, default=64, help="sequence length"
-    )
+    parser.add_argument("--sequence_length", type=int, default=64, help="sequence length")
     args = parser.parse_args()
     B, T = args.batch_size, args.sequence_length
     assert 1 <= T <= 1024
@@ -447,12 +418,10 @@ if __name__ == "__main__":
     # we're using val instead of train split just because it is smaller/faster
     shake_tokens_bin = "data/tiny_shakespeare_val.bin"
     story_tokens_bin = "data/TinyStories_val.bin"
-    assert os.path.isfile(shake_tokens_bin) or os.path.isfile(
-        story_tokens_bin
-    ), "you must run prepro on some dataset"
-    tokens_bin = (
-        shake_tokens_bin if os.path.isfile(shake_tokens_bin) else story_tokens_bin
+    assert os.path.isfile(shake_tokens_bin) or os.path.isfile(story_tokens_bin), (
+        "you must run prepro on some dataset"
     )
+    tokens_bin = shake_tokens_bin if os.path.isfile(shake_tokens_bin) else story_tokens_bin
     assert os.path.isfile(tokens_bin)
     print(f"loading cached tokens in {tokens_bin}")
     with open(tokens_bin, "rb") as f:
@@ -499,9 +468,9 @@ if __name__ == "__main__":
         t1 = time.time()
         if i > args.num_iterations - 20:
             timings.append(t1 - t0)
-        print(f"iteration {i}, loss: {loss.item()}, time: {(t1-t0)*1000:.3f}ms")
+        print(f"iteration {i}, loss: {loss.item()}, time: {(t1 - t0) * 1000:.3f}ms")
     if len(timings) > 0:
-        print(f"final 20 iters avg: {np.mean(timings)*1000:.3f}ms")
+        print(f"final 20 iters avg: {np.mean(timings) * 1000:.3f}ms")
 
     # before we end, let's also do one round of inference
     # we'll kick off the generation with "<|endoftext|>", which designates the start of a new sequence

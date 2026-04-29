@@ -167,12 +167,7 @@ class TestDeviceFunc(NumbaCUDATestCase):
 
         @cusimt.jit("int32(int32, int32, int32, int32)", device=True)
         def rgba(r, g, b, a):
-            return (
-                ((r & 0xFF) << 16)
-                | ((g & 0xFF) << 8)
-                | ((b & 0xFF) << 0)
-                | ((a & 0xFF) << 24)
-            )
+            return ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | ((b & 0xFF) << 0) | ((a & 0xFF) << 24)
 
         @cusimt.jit
         def rgba_caller(x, channels):
@@ -533,9 +528,7 @@ void consume(int *a)
 
 class TestDeclareDeviceCABI(NumbaCUDATestCase):
     def test_declare_device_cabi_basic(self):
-        times2 = cuda.declare_device(
-            "times2", "int32(int32)", link=times2_cabi_cu, abi="c"
-        )
+        times2 = cuda.declare_device("times2", "int32(int32)", link=times2_cabi_cu, abi="c")
 
         @cusimt.jit
         def kernel(r, x):
@@ -549,9 +542,7 @@ class TestDeclareDeviceCABI(NumbaCUDATestCase):
         np.testing.assert_equal(r, x * 2)
 
     def test_declare_device_cabi_zero_args(self):
-        const42 = cuda.declare_device(
-            "const42", "int32()", link=const42_cabi_cu, abi="c"
-        )
+        const42 = cuda.declare_device("const42", "int32()", link=const42_cabi_cu, abi="c")
 
         @cusimt.jit
         def kernel(r, x):
@@ -565,9 +556,7 @@ class TestDeclareDeviceCABI(NumbaCUDATestCase):
         np.testing.assert_equal(r, x + 42)
 
     def test_declare_device_cabi_two_args(self):
-        add2 = cuda.declare_device(
-            "add2", "int32(int32, int32)", link=add2_cabi_cu, abi="c"
-        )
+        add2 = cuda.declare_device("add2", "int32(int32, int32)", link=add2_cabi_cu, abi="c")
 
         @cusimt.jit
         def kernel(r, x):
@@ -581,9 +570,7 @@ class TestDeclareDeviceCABI(NumbaCUDATestCase):
         np.testing.assert_equal(r, x + np.arange(10, dtype=np.int32))
 
     def test_declare_device_cabi_void_return(self):
-        consume = cuda.declare_device(
-            "consume", "void(int32)", link=consume_cabi_cu, abi="c"
-        )
+        consume = cuda.declare_device("consume", "void(int32)", link=consume_cabi_cu, abi="c")
 
         @cusimt.jit
         def kernel(r, x):

@@ -115,9 +115,7 @@ class StructModel(DataModel):
         try:
             return self._fields.index(field)
         except ValueError:
-            raise KeyError(
-                "%s does not have a field named %r" % (self.__class__.__name__, field)
-            )
+            raise KeyError("%s does not have a field named %r" % (self.__class__.__name__, field))
 
     @property
     def field_count(self):
@@ -285,9 +283,9 @@ class UnionType(PrimitiveModel):
         ele_ty = dmm.lookup(fe_type.types[0]).get_value_type()
         for type in fe_type.types[1:]:
             ty = dmm.lookup(type).get_value_type()
-            assert (
-                ele_ty == ty
-            ), f"UnionType results in different MLIR types between {ele_ty} and {ty}."
+            assert ele_ty == ty, (
+                f"UnionType results in different MLIR types between {ele_ty} and {ty}."
+            )
         super().__init__(dmm, fe_type, ele_ty)
 
 
@@ -300,9 +298,7 @@ class ArrayModel(PrimitiveModel):
         # memref (memref<?xi8>).  Elements are accessed via byte offset
         # pointer arithmetic.
         if isinstance(fe_type.dtype, (Record, types.CharSeq, types.UnicodeCharSeq)):
-            shape = []
-            for each in range(fe_type.ndim):
-                shape.append(ShapedType.get_dynamic_size())
+            shape = [ShapedType.get_dynamic_size() for _each in range(fe_type.ndim)]
 
             dyn_stride = MemRefType.get_dynamic_stride_or_offset()
             layout = ir.StridedLayoutAttr.get(
@@ -314,9 +310,7 @@ class ArrayModel(PrimitiveModel):
             return
 
         ele_ty = dmm.lookup(fe_type.dtype).get_value_type()
-        shape = []
-        for each in range(fe_type.ndim):
-            shape.append(ShapedType.get_dynamic_size())
+        shape = [ShapedType.get_dynamic_size() for _each in range(fe_type.ndim)]
 
         # Create strided layout with all dynamic strides
         # This allows the memref to work with any stride pattern (row-major, column-major, etc.)
@@ -329,9 +323,7 @@ class ArrayModel(PrimitiveModel):
 
         # This will create memref<?x?xf32> with strided layout for 2D arrays
         if isinstance(ele_ty, IntegerType):
-            be_type = MemRefType.get(
-                shape, IntegerType.get_signless(ele_ty.width), layout=layout
-            )
+            be_type = MemRefType.get(shape, IntegerType.get_signless(ele_ty.width), layout=layout)
         else:
             be_type = MemRefType.get(shape, ele_ty, layout=layout)
         super().__init__(dmm, fe_type, be_type)
@@ -397,9 +389,7 @@ class ComplexModel(PrimitiveModel):
             case 128:
                 be_type = ComplexType.get(F64Type.get())
             case _:
-                raise ValueError(
-                    f"Cannot convert type {str(fe_type)} to complex MLIR type."
-                )
+                raise ValueError(f"Cannot convert type {str(fe_type)} to complex MLIR type.")
         super().__init__(dmm, fe_type, be_type)
 
 
@@ -540,8 +530,7 @@ class AggregateTypeModel(PrimitiveModel):
         else:
             # Regular struct: create a field for each struct field
             field_types = [
-                dmm.lookup(field_type).get_value_type()
-                for _, field_type, *_ in fe_type.fields
+                dmm.lookup(field_type).get_value_type() for _, field_type, *_ in fe_type.fields
             ]
         be_type = llvm.StructType.new_identified(fe_type.name, field_types)
         types.AggregateType.record_named_type(be_type.name, fe_type)

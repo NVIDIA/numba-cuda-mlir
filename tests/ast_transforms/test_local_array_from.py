@@ -46,9 +46,7 @@ def test_local_array_from_expression():
 
     @cusimt.jit(experimental_ast_transforms=True)
     def kernel(out, values):
-        arr = cusimt.cuda.local_array_from(
-            (v * 2 + 1 for v in values), dtype=np.float32
-        )
+        arr = cusimt.cuda.local_array_from((v * 2 + 1 for v in values), dtype=np.float32)
         for i in range(3):
             out[i] = arr[i]
 

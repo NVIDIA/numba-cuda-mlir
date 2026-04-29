@@ -12,15 +12,12 @@ _active_context_default = "cpu"
 
 
 class _TargetRegistry(DelayedRegistry):
-
     def __getitem__(self, item):
         try:
             return super().__getitem__(item)
         except KeyError:
             msg = "No target is registered against '{}', known targets:\n{}"
-            known = "\n".join(
-                [f"{k: <{10}} -> {v}" for k, v in target_registry.items()]
-            )
+            known = "\n".join([f"{k: <{10}} -> {v}" for k, v in target_registry.items()])
             raise NonexistentTargetError(msg.format(item, known)) from None
 
 
@@ -109,7 +106,6 @@ def _get_local_target_checked(tyctx, hwstr, reason):
 
 
 class JitDecorator(ABC):
-
     @abstractmethod
     def __call__(self):
         return NotImplemented

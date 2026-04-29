@@ -84,9 +84,7 @@ def test_addressof_default_result_type(m):
     from cusimt._mlir.dialects import func
 
     linkage = ir.Attribute.parse("#llvm.linkage<external>")
-    llvm.GlobalOp(
-        T.i32(), "g2", linkage, addr_space=0, value=ir.IntegerAttr.get(T.i32(), 0)
-    )
+    llvm.GlobalOp(T.i32(), "g2", linkage, addr_space=0, value=ir.IntegerAttr.get(T.i32(), 0))
     f = func.FuncOp("test", ir.FunctionType.get([], [llvm.ptr()]))
     entry = f.add_entry_block()
     with ir.InsertionPoint(entry):

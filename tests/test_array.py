@@ -93,9 +93,7 @@ def test_gpu_array_interleaved():
     except ValueError:
         pass
     else:
-        raise AssertionError(
-            "Should raise exception complaining the contiguous-ness of the array."
-        )
+        raise AssertionError("Should raise exception complaining the contiguous-ness of the array.")
         # Should we handle this use case?
         # assert z.size == y.size
         # copykernel[1, n](y, x)

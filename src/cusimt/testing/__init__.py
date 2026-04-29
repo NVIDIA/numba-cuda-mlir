@@ -144,11 +144,7 @@ def generate_test_checks(mlir_module_str: str | ir.Module, generic=True):
 
     if result.returncode != 0:
         raise ValueError(
-            result.stderr.decode()
-            + "\n"
-            + stripped_input
-            + "\n"
-            + result.stdout.decode()
+            result.stderr.decode() + "\n" + stripped_input + "\n" + result.stdout.decode()
         )
 
     out = indent(result.stdout.decode().replace("// ", "# "), " " * 4)
@@ -192,9 +188,9 @@ class NumbaCUDATestCase(unittest.TestCase):
         signature: Union[Signature, None] = None,
     ) -> Iterable[str]:
         if isinstance(ir_result, str):
-            assert (
-                signature is None
-            ), "Cannot use signature because the kernel was only compiled for one signature"
+            assert signature is None, (
+                "Cannot use signature because the kernel was only compiled for one signature"
+            )
             return [ir_result]
 
         if signature is None:
@@ -215,9 +211,9 @@ class NumbaCUDATestCase(unittest.TestCase):
         """
         ir_contents = self._getIRContents(ir_producer.inspect_asm(), signature)
         assert ir_contents, "No assembly output found for the given signature."
-        assert (
-            ir_producer.__doc__ is not None
-        ), "Kernel docstring is required. To pass checks explicitly, use assertFileCheckMatches."
+        assert ir_producer.__doc__ is not None, (
+            "Kernel docstring is required. To pass checks explicitly, use assertFileCheckMatches."
+        )
         check_patterns = ir_producer.__doc__
         for ir_content in ir_contents:
             self.assertFileCheckMatches(
@@ -255,9 +251,7 @@ class NumbaCUDATestCase(unittest.TestCase):
         result = matcher.run()
         if result != 0:
             if self._dump_failed_filechecks:
-                dump_directory = Path(
-                    datetime.now().strftime("numba-ir-%Y_%m_%d_%H_%M_%S")
-                )
+                dump_directory = Path(datetime.now().strftime("numba-ir-%Y_%m_%d_%H_%M_%S"))
                 if not dump_directory.exists():
                     dump_directory.mkdir(parents=True, exist_ok=True)
                 base_path = self.id().replace(".", "_")
@@ -271,14 +265,9 @@ class NumbaCUDATestCase(unittest.TestCase):
                     _ = checks_file.write(check_patterns)
                     dump_instructions = f"Reproduce with:\n\nfilecheck --check-prefixes={','.join(check_prefixes)} {checks_dump} --input-file {ir_dump}"
             else:
-                dump_instructions = (
-                    "Rerun with --dump-failed-filechecks to generate a reproducer."
-                )
+                dump_instructions = "Rerun with --dump-failed-filechecks to generate a reproducer."
 
-            self.fail(
-                f"FileCheck failed:\n{matcher.stderr.getvalue()}\n\n"
-                + dump_instructions
-            )
+            self.fail(f"FileCheck failed:\n{matcher.stderr.getvalue()}\n\n" + dump_instructions)
 
     def assertPreciseEqual(
         self,
@@ -323,9 +312,7 @@ class NumbaCUDATestCase(unittest.TestCase):
         will raise an error.
         """
         try:
-            self._assertPreciseEqual(
-                first, second, prec, ulps, msg, ignore_sign_on_zero, abs_tol
-            )
+            self._assertPreciseEqual(first, second, prec, ulps, msg, ignore_sign_on_zero, abs_tol)
         except AssertionError as exc:
             failure_msg = str(exc)
             # Fall off of the 'except' scope to avoid Python 3 exception
@@ -348,20 +335,13 @@ class NumbaCUDATestCase(unittest.TestCase):
         """Recursive workhorse for assertPreciseEqual()."""
 
         def _assertNumberEqual(first, second, delta=None):
-            if (
-                delta is None
-                or first == second == 0.0
-                or math.isinf(first)
-                or math.isinf(second)
-            ):
+            if delta is None or first == second == 0.0 or math.isinf(first) or math.isinf(second):
                 self.assertEqual(first, second, msg=msg)
                 # For signed zeros
                 if not ignore_sign_on_zero:
                     try:
                         if math.copysign(1, first) != math.copysign(1, second):
-                            self.fail(
-                                self._formatMessage(msg, "%s != %s" % (first, second))
-                            )
+                            self.fail(self._formatMessage(msg, "%s != %s" % (first, second)))
                     except TypeError:
                         pass
             else:
@@ -387,9 +367,7 @@ class NumbaCUDATestCase(unittest.TestCase):
             self.assertEqual(dtype, self._fix_dtype(second.dtype))
             self.assertEqual(first.ndim, second.ndim, "different number of dimensions")
             self.assertEqual(first.shape, second.shape, "different shapes")
-            self.assertEqual(
-                first.flags.writeable, second.flags.writeable, "different mutability"
-            )
+            self.assertEqual(first.flags.writeable, second.flags.writeable, "different mutability")
             # itemsize is already checked by the dtype test above
             self.assertEqual(
                 self._fix_strides(first), self._fix_strides(second), "different strides"
@@ -399,17 +377,13 @@ class NumbaCUDATestCase(unittest.TestCase):
             if second.dtype != dtype:
                 second = second.astype(dtype)
             for a, b in zip(first.flat, second.flat):
-                self._assertPreciseEqual(
-                    a, b, prec, ulps, msg, ignore_sign_on_zero, abs_tol
-                )
+                self._assertPreciseEqual(a, b, prec, ulps, msg, ignore_sign_on_zero, abs_tol)
             return
 
         elif compare_family == "sequence":
             self.assertEqual(len(first), len(second), msg=msg)
             for a, b in zip(first, second):
-                self._assertPreciseEqual(
-                    a, b, prec, ulps, msg, ignore_sign_on_zero, abs_tol
-                )
+                self._assertPreciseEqual(a, b, prec, ulps, msg, ignore_sign_on_zero, abs_tol)
             return
 
         elif compare_family == "exact":
@@ -529,11 +503,7 @@ class NumbaCUDATestCase(unittest.TestCase):
         """
         # Under 64-bit Windows, Numpy may return either int32 or int64
         # arrays depending on the function.
-        if (
-            sys.platform == "win32"
-            and sys.maxsize > 2**32
-            and dtype == np.dtype("int32")
-        ):
+        if sys.platform == "win32" and sys.maxsize > 2**32 and dtype == np.dtype("int32"):
             return np.dtype("int64")
         else:
             return dtype

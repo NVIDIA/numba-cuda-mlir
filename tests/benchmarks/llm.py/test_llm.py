@@ -38,9 +38,7 @@ def setup_llm_data():
     yield LLM_DIR
 
 
-@pytest.mark.skipif(
-    cuda_version < (13, 0), reason="Requires CUDA toolkit 13.0 or newer"
-)
+@pytest.mark.skipif(cuda_version < (13, 0), reason="Requires CUDA toolkit 13.0 or newer")
 @pytest.mark.xfail(reason="CCCL Support is incomplete")
 def test_llm_training_loss(setup_llm_data):
     """Test that LLM training produces valid losses (< 5 and not NaN)."""

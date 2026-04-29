@@ -144,10 +144,7 @@ def test():
             # It's helpful to report that this went wrong to the user, but we
             # don't set failed to True because this doesn't have any connection
             # to actual CUDA functionality.
-            print(
-                f"\tERROR: Could not open {mapsfile} to determine absolute "
-                "path to libcuda.so"
-            )
+            print(f"\tERROR: Could not open {mapsfile} to determine absolute path to libcuda.so")
         else:
             # In this case we could read the maps, so we can report the
             # relevant ones to the user

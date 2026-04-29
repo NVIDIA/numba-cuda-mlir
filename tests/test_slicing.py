@@ -55,9 +55,7 @@ def test_incomplete_slice(shape, answer):
     h = np.ones(shape, dtype=np.int32)
     d = cs.to_device(h)
     k[1, 1](d)
-    assert np.allclose(
-        d.copy_to_host(), answer
-    ), f"Expected {answer}, got {d.copy_to_host()}"
+    assert np.allclose(d.copy_to_host(), answer), f"Expected {answer}, got {d.copy_to_host()}"
 
     # CHECK-LABEL: gpu.func
     # CHECK-SAME: (%[[ARG:.+]]: memref

@@ -30,9 +30,7 @@ class _BaseUFuncBuilder:
             targetoptions = self.targetoptions
         else:
             targetoptions = self.nb_func.targetoptions
-        cres, args, return_type = _compile_element_wise_function(
-            self.nb_func, targetoptions, sig
-        )
+        cres, args, return_type = _compile_element_wise_function(self.nb_func, targetoptions, sig)
         sig = self._finalize_signature(cres, args, return_type)
         self._sigs.append(sig)
         self._cres[sig] = cres

@@ -24,4 +24,3 @@ set_target_properties(_cext PROPERTIES SKIP_BUILD_RPATH TRUE)
 if (APPLE)
     target_link_options(_cext PRIVATE -undefined dynamic_lookup)
 endif()
-

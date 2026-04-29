@@ -98,9 +98,7 @@ def type_inference_stage(
     warnings = errors.WarningsFixer(errors.NumbaWarning)
 
     infer = typeinfer.TypeInferer(typingctx, interp, warnings)
-    callstack_ctx = typingctx.callstack.register(
-        targetctx.target, infer, interp.func_id, args
-    )
+    callstack_ctx = typingctx.callstack.register(targetctx.target, infer, interp.func_id, args)
     # Setup two contexts: 1) callstack setup/teardown 2) flush warnings
     with callstack_ctx, warnings:
         # Seed argument types
@@ -169,10 +167,7 @@ class BaseTypeInference(FunctionPass):
                         if isinstance(inst, ir.Return):
                             retstmts.append(inst.value.name)
                         elif isinstance(inst, ir.Assign):
-                            if (
-                                isinstance(inst.value, ir.Expr)
-                                and inst.value.op == "cast"
-                            ):
+                            if isinstance(inst.value, ir.Expr) and inst.value.op == "cast":
                                 caststmts[inst.target.name] = inst.value
                             elif isinstance(inst.value, ir.Arg):
                                 argvars.add(inst.target.name)
@@ -189,9 +184,7 @@ class BaseTypeInference(FunctionPass):
                             )
                             raise errors.NumbaTypeError(msg)
 
-            elif isinstance(return_type, types.Function) or isinstance(
-                return_type, types.Phantom
-            ):
+            elif isinstance(return_type, types.Function) or isinstance(return_type, types.Phantom):
                 if self._raise_errors:
                     msg = "Can't return function object ({}) in nopython mode"
                     raise errors.NumbaTypeError(msg.format(return_type))
@@ -334,9 +327,7 @@ class BaseNativeLowering(abc.ABC, LoweringPass):
 
         mangler = call_conv.mangler
 
-        msg = "Function %s failed at nopython mode lowering" % (
-            state.func_id.func_name,
-        )
+        msg = "Function %s failed at nopython mode lowering" % (state.func_id.func_name,)
         with fallback_context(state, msg):
             # Lowering
             fndesc = funcdesc.PythonFunctionDescriptor.from_specialized_function(
@@ -353,9 +344,7 @@ class BaseNativeLowering(abc.ABC, LoweringPass):
             )
 
             with targetctx.push_code_library(library):
-                lower = self.lowering_class(
-                    targetctx, library, fndesc, interp, metadata=metadata
-                )
+                lower = self.lowering_class(targetctx, library, fndesc, interp, metadata=metadata)
                 lower.lower()
                 if not flags.no_cpython_wrapper:
                     lower.create_cpython_wrapper(flags.release_gil)
@@ -717,9 +706,7 @@ class InlineOverloads(FunctionPass):
         if not inline_type.is_always_inline:
             from cusimt.numba_cuda.typing.templates import _inline_info
 
-            caller_inline_info = _inline_info(
-                state.func_ir, state.typemap, state.calltypes, sig
-            )
+            caller_inline_info = _inline_info(state.func_ir, state.typemap, state.calltypes, sig)
 
             # must be a cost-model function, run the function
             iinfo = template._inline_overloads[arg_typs]["iinfo"]
@@ -852,9 +839,7 @@ class PreLowerStripPhis(FunctionPass):
 
                 # Insert at the earliest possible location; i.e. after the
                 # last assignment to rhs
-                assignments = [
-                    stmt for stmt in newblk.find_insts(ir.Assign) if stmt.target == rhs
-                ]
+                assignments = [stmt for stmt in newblk.find_insts(ir.Assign) if stmt.target == rhs]
                 if assignments:
                     # Variable was assigned in this block; use RHS location
                     # to keep the location info at the assignment site.

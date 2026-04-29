@@ -191,13 +191,9 @@ def slice_constructor_impl(context, builder, sig, args):
             return val
 
     step = get_arg_value(2, default_step)
-    is_step_negative = builder.icmp_signed(
-        "<", step, context.get_constant(types.intp, 0)
-    )
+    is_step_negative = builder.icmp_signed("<", step, context.get_constant(types.intp, 0))
     default_stop = builder.select(is_step_negative, default_stop_neg, default_stop_pos)
-    default_start = builder.select(
-        is_step_negative, default_start_neg, default_start_pos
-    )
+    default_start = builder.select(is_step_negative, default_start_neg, default_start_pos)
     stop = get_arg_value(1, default_stop)
     start = get_arg_value(0, default_start)
 

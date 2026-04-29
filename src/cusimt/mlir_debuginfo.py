@@ -77,9 +77,7 @@ def _complex_di_type(name, float_bits):
     )
 
 
-def _derived_di_type(
-    tag, *, name=None, base_type=None, size_bits=None, offset_bits=None
-):
+def _derived_di_type(tag, *, name=None, base_type=None, size_bits=None, offset_bits=None):
     params = [f"tag = {tag}"]
     if name is not None:
         params.append(f'name = "{name}"')
@@ -92,9 +90,7 @@ def _derived_di_type(
     return f"#llvm.di_derived_type<{', '.join(params)}>"
 
 
-def _composite_di_type(
-    tag, *, name=None, base_type=None, size_bits=None, elements=None
-):
+def _composite_di_type(tag, *, name=None, base_type=None, size_bits=None, elements=None):
     params = [f"tag = {tag}"]
     if name is not None:
         params.append(f'name = "{name}"')
@@ -298,14 +294,10 @@ def _numba_type_to_di_type_str(numba_type):
             return _enum_member_di_type(numba_type)
         case types.NPDatetime():
             # NumPy stores datetime64 as signed int64.
-            return _basic_di_type(
-                f"datetime64[{numba_type.unit}]", _INT_LITERAL_BITS, "signed"
-            )
+            return _basic_di_type(f"datetime64[{numba_type.unit}]", _INT_LITERAL_BITS, "signed")
         case types.NPTimedelta():
             # NumPy stores timedelta64 as signed int64.
-            return _basic_di_type(
-                f"timedelta64[{numba_type.unit}]", _INT_LITERAL_BITS, "signed"
-            )
+            return _basic_di_type(f"timedelta64[{numba_type.unit}]", _INT_LITERAL_BITS, "signed")
         case types.Complex(underlying_float=types.Float(bitwidth=bw)):
             return _complex_di_type(f"complex{bw * 2}", bw)
         case types.UniTuple():
@@ -370,9 +362,7 @@ class DIBuilder:
             f">"
         )
         subprogram_flags = "Definition|Optimized" if opt else "Definition"
-        self._di_subroutine_type_str = (
-            "#llvm.di_subroutine_type<types = #llvm.di_null_type>"
-        )
+        self._di_subroutine_type_str = "#llvm.di_subroutine_type<types = #llvm.di_null_type>"
         self._di_sp_str = (
             f"#llvm.di_subprogram<"
             f"id = distinct[1]<>, "

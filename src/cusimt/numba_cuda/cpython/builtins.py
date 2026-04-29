@@ -292,9 +292,7 @@ def round_impl_binary(context, builder, sig, args):
     fltty = sig.args[0]
     # Allow calling the intrinsic from the Python implementation below.
     # This avoids the conversion to an int in Python 3's unary round().
-    _round = types.ExternalFunction(
-        _round_intrinsic(fltty), typing.signature(fltty, fltty)
-    )
+    _round = types.ExternalFunction(_round_intrinsic(fltty), typing.signature(fltty, fltty))
 
     def round_ndigits(x, ndigits):
         if math.isinf(x) or math.isnan(x):
@@ -571,9 +569,7 @@ def lower_get_type_min_value(context, builder, sig, args):
     elif isinstance(typ, (types.NPDatetime, types.NPTimedelta)):
         bw = 64
         lty = ir.IntType(bw)
-        val = (
-            types.int64.minval + 1
-        )  # minval is NaT, so minval + 1 is the smallest value
+        val = types.int64.minval + 1  # minval is NaT, so minval + 1 is the smallest value
         res = ir.Constant(lty, val)
     return impl_ret_untracked(context, builder, lty, res)
 
@@ -928,10 +924,7 @@ def ol_isinstance(var, typs):
             # Use of Numba type classes is in general not supported as they do
             # not work when the jit is disabled.
             if key not in (types.ListType, types.DictType):
-                msg = (
-                    "Numba type classes (except numba.typed.* container "
-                    "types) are not supported."
-                )
+                msg = "Numba type classes (except numba.typed.* container types) are not supported."
                 raise NumbaTypeError(msg)
             # Case for TypeRef (i.e. isinstance(var, typed.List))
             #      var_ty == ListType[int64] (instance)
@@ -951,14 +944,10 @@ def ol_isinstance(var, typs):
             ):
                 # check for jitclasses
                 return true_impl
-            elif (
-                isinstance(numba_typ, types.Container)
-                and numba_typ.key[0] == types.undefined
-            ):
+            elif isinstance(numba_typ, types.Container) and numba_typ.key[0] == types.undefined:
                 # check for containers (list, tuple, set, ...)
                 if isinstance(var_ty, numba_typ.__class__) or (
-                    isinstance(var_ty, types.BaseTuple)
-                    and isinstance(numba_typ, types.BaseTuple)
+                    isinstance(var_ty, types.BaseTuple) and isinstance(numba_typ, types.BaseTuple)
                 ):
                     return true_impl
 

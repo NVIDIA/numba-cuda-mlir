@@ -356,11 +356,7 @@ def _typeof_dlpack(val, c):
             return
 
         smv_layout = smv._layout
-        layout = (
-            "C"
-            if smv_layout.is_contiguous_c
-            else "F" if smv_layout.is_contiguous_f else "A"
-        )
+        layout = "C" if smv_layout.is_contiguous_c else "F" if smv_layout.is_contiguous_f else "A"
         return types.Array(
             dtype=numpy_support.from_dtype(smv.dtype),
             ndim=len(smv.shape),

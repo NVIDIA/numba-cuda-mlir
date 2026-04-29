@@ -31,9 +31,7 @@ class DataModelTester(unittest.TestCase):
 
         undef_value = ir.Constant(self.datamodel.get_value_type(), None)
         args = self.datamodel.as_argument(builder, undef_value)
-        self.assertIsNot(
-            args, NotImplemented, "as_argument returned NotImplementedError"
-        )
+        self.assertIsNot(args, NotImplemented, "as_argument returned NotImplementedError")
 
         if isinstance(args, (tuple, list)):
 

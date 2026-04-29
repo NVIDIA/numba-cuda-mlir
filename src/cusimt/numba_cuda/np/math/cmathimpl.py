@@ -22,15 +22,11 @@ def is_nan(builder, z):
 
 
 def is_inf(builder, z):
-    return builder.or_(
-        mathimpl.is_inf(builder, z.real), mathimpl.is_inf(builder, z.imag)
-    )
+    return builder.or_(mathimpl.is_inf(builder, z.real), mathimpl.is_inf(builder, z.imag))
 
 
 def is_finite(builder, z):
-    return builder.and_(
-        mathimpl.is_finite(builder, z.real), mathimpl.is_finite(builder, z.imag)
-    )
+    return builder.and_(mathimpl.is_finite(builder, z.real), mathimpl.is_finite(builder, z.imag))
 
 
 # @lower(cmath.isnan, types.Complex)
@@ -100,9 +96,7 @@ def intrinsic_complex_unary(inner_func):
         # its value and pass it to the pure Python implementation.
         x_is_finite = mathimpl.is_finite(builder, x)
         y_is_finite = mathimpl.is_finite(builder, y)
-        inner_sig = signature(
-            sig.return_type, *(typ.underlying_float,) * 2 + (types.boolean,) * 2
-        )
+        inner_sig = signature(sig.return_type, *(typ.underlying_float,) * 2 + (types.boolean,) * 2)
         res = context.compile_internal(
             builder, inner_func, inner_sig, (x, y, x_is_finite, y_is_finite)
         )
@@ -411,9 +405,7 @@ def acos_impl(context, builder, sig, args):
             # Avoid unnecessary overflow for large arguments
             # (also handles infinities gracefully)
             real = math.atan2(abs(z.imag), z.real)
-            imag = math.copysign(
-                math.log(math.hypot(z.real * 0.5, z.imag * 0.5)) + LN_4, -z.imag
-            )
+            imag = math.copysign(math.log(math.hypot(z.real * 0.5, z.imag * 0.5)) + LN_4, -z.imag)
             return complex(real, imag)
         else:
             s1 = cmath.sqrt(complex(1.0 - z.real, -z.imag))
@@ -464,9 +456,7 @@ def asinh_impl(context, builder, sig, args):
         """cmath.asinh(z)"""
         # CPython's algorithm (see c_asinh() in cmathmodule.c)
         if abs(z.real) > THRES or abs(z.imag) > THRES:
-            real = math.copysign(
-                math.log(math.hypot(z.real * 0.5, z.imag * 0.5)) + LN_4, z.real
-            )
+            real = math.copysign(math.log(math.hypot(z.real * 0.5, z.imag * 0.5)) + LN_4, z.real)
             imag = math.atan2(z.imag, abs(z.real))
             return complex(real, imag)
         else:

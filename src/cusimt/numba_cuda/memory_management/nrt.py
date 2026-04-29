@@ -121,9 +121,7 @@ class _Runtime:
         Compile memsys.cu and create a module from it in the current context
         """
         # Define the path for memsys.cu
-        memsys_mod = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "memsys.cu"
-        )
+        memsys_mod = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memsys.cu")
         cc = get_current_device().compute_capability
 
         # Create a new linker instance and add the cu file
@@ -212,18 +210,14 @@ class _Runtime:
         """
         Enable memsys statistics
         """
-        self._single_thread_launch(
-            self._memsys_module, stream, "NRT_MemSys_enable_stats"
-        )
+        self._single_thread_launch(self._memsys_module, stream, "NRT_MemSys_enable_stats")
 
     @_alloc_init_guard
     def memsys_disable_stats(self, stream=None):
         """
         Disable memsys statistics
         """
-        self._single_thread_launch(
-            self._memsys_module, stream, "NRT_MemSys_disable_stats"
-        )
+        self._single_thread_launch(self._memsys_module, stream, "NRT_MemSys_disable_stats")
 
     @_alloc_init_guard
     def memsys_stats_enabled(self, stream=None):
@@ -261,9 +255,7 @@ class _Runtime:
         stats_for_read = cuda.managed_array(1, dt)
         stats_ptr = stats_for_read.device_ctypes_pointer
 
-        self._single_thread_launch(
-            self._memsys_module, stream, "NRT_MemSys_read", [stats_ptr]
-        )
+        self._single_thread_launch(self._memsys_module, stream, "NRT_MemSys_read", [stats_ptr])
         cuda.synchronize()
 
         return stats_for_read[0]
@@ -349,9 +341,7 @@ class _Runtime:
         and declare a pointer to NRT_MemSys structure.
         """
         if self._memsys is None:
-            raise RuntimeError(
-                "Please allocate NRT Memsys first before setting to module."
-            )
+            raise RuntimeError("Please allocate NRT Memsys first before setting to module.")
 
         memsys_ptr = self._memsys.device_ctypes_pointer
 

@@ -66,9 +66,7 @@ class RewriteRegistry:
             work_list = list(blocks.items())
             while work_list:
                 key, block = work_list.pop()
-                matches = rewrite.match(
-                    state.func_ir, block, state.typemap, state.calltypes
-                )
+                matches = rewrite.match(state.func_ir, block, state.typemap, state.calltypes)
                 if matches:
                     if config.DEBUG or config.DUMP_IR:
                         print("_" * 70)

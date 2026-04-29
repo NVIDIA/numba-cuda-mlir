@@ -54,9 +54,7 @@ def _check_arity_and_homogeneity(sig, args, arity, return_type=None):
 cast_arg_ty = types.float64
 
 
-def _call_func_by_name_with_cast(
-    context, builder, sig, args, func_name, ty=cast_arg_ty
-):
+def _call_func_by_name_with_cast(context, builder, sig, args, func_name, ty=cast_arg_ty):
     # it is quite common in NumPy to have loops implemented as a call
     # to the double version of the function, wrapped in casts. This
     # helper function facilitates that.
@@ -64,9 +62,7 @@ def _call_func_by_name_with_cast(
     lty = context.get_argument_type(ty)
     fnty = llvmlite.ir.FunctionType(lty, [lty] * len(sig.args))
     fn = cgutils.insert_pure_function(mod, fnty, name=func_name)
-    cast_args = [
-        context.cast(builder, arg, argty, ty) for arg, argty in zip(args, sig.args)
-    ]
+    cast_args = [context.cast(builder, arg, argty, ty) for arg, argty in zip(args, sig.args)]
 
     result = builder.call(fn, cast_args)
     return context.cast(builder, result, types.float64, sig.return_type)
@@ -830,12 +826,8 @@ def np_complex_log1p_impl(context, builder, sig, args):
     in1 = context.make_complex(builder, ty, value=args[0])
     out = context.make_complex(builder, ty)
     real_plus_one = builder.fadd(in1.real, ONE)
-    l = np_real_hypot_impl(
-        context, builder, float_binary_sig, [real_plus_one, in1.imag]
-    )
-    out.imag = np_real_atan2_impl(
-        context, builder, float_binary_sig, [in1.imag, real_plus_one]
-    )
+    l = np_real_hypot_impl(context, builder, float_binary_sig, [real_plus_one, in1.imag])
+    out.imag = np_real_atan2_impl(context, builder, float_binary_sig, [in1.imag, real_plus_one])
     out.real = np_real_log_impl(context, builder, float_unary_sig, [l])
 
     return out._getvalue()
@@ -1723,9 +1715,7 @@ def np_real_nextafter_impl(context, builder, sig, args):
         types.float64: "numba_nextafter",
     }
 
-    return _dispatch_func_by_name_type(
-        context, builder, sig, args, dispatch_table, "nextafter"
-    )
+    return _dispatch_func_by_name_type(context, builder, sig, args, dispatch_table, "nextafter")
 
 
 def np_real_spacing_impl(context, builder, sig, args):

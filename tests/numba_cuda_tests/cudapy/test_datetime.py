@@ -75,9 +75,9 @@ class TestCudaDateTime(NumbaCUDATestCase):
                 out[i] = arr[i]
 
         # CuPy doesn't allow constructing the datetime64[D] array directly
-        arr = cp.array(
-            np.arange("2005-02", "2006-02", dtype="datetime64[D]").view("int64")
-        ).view("datetime64[D]")
+        arr = cp.array(np.arange("2005-02", "2006-02", dtype="datetime64[D]").view("int64")).view(
+            "datetime64[D]"
+        )
 
         out = cp.empty(arr.size, dtype="float64").view("datetime64[D]")
         assign[1, 1](out, arr)

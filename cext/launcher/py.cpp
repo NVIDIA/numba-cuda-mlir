@@ -46,4 +46,3 @@ void log_python_error(const char* filename, int line, const char* level, SavedEx
 
     PyErr_SetExcInfo(old_excinfo_type, old_excinfo_value, old_excinfo_tb);
 }
-

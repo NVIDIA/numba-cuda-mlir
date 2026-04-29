@@ -47,9 +47,7 @@ class VectorLoadTemplate(AbstractTemplate):
             return None
 
         # CPointer only supports 1D (scalar) index
-        if isinstance(array, types.CPointer) and isinstance(
-            index, (types.Tuple, types.UniTuple)
-        ):
+        if isinstance(array, types.CPointer) and isinstance(index, (types.Tuple, types.UniTuple)):
             raise TypeError(
                 "vector.load with CPointer only supports scalar index, not tuple. "
                 "Linearize the index before passing to vector.load."
@@ -68,9 +66,7 @@ class VectorLoadTemplate(AbstractTemplate):
                 pass
             elif isinstance(alignment, types.IntegerLiteral):
                 # Aligned path - alignment must be a compile-time constant
-                return signature(
-                    VectorType(array.dtype, vec_shape), array, index, shape, alignment
-                )
+                return signature(VectorType(array.dtype, vec_shape), array, index, shape, alignment)
             elif isinstance(alignment, types.Integer):
                 # Force user to provide a literal for alignment
                 raise ForceLiteralArg({3})
@@ -107,9 +103,7 @@ class VectorStoreTemplate(AbstractTemplate):
             return None
 
         # CPointer only supports 1D (scalar) index
-        if isinstance(array, types.CPointer) and isinstance(
-            index, (types.Tuple, types.UniTuple)
-        ):
+        if isinstance(array, types.CPointer) and isinstance(index, (types.Tuple, types.UniTuple)):
             raise TypeError(
                 "vector.store with CPointer only supports scalar index, not tuple. "
                 "Linearize the index before passing to vector.store."

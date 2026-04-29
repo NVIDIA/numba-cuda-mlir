@@ -15,9 +15,7 @@ class _FakeLoc:
     col = 4
 
     def strformat(self):
-        return (
-            f'File "{self.filename}", line {self.line}:\n    fake_source_line()\n    ^'
-        )
+        return f'File "{self.filename}", line {self.line}:\n    fake_source_line()\n    ^'
 
 
 class _FakeLower:

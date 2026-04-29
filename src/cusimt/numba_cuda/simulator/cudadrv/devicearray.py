@@ -266,10 +266,7 @@ class FakeCUDAArray:
         return FakeCUDAArray(self._ary**other)
 
     def split(self, section, stream=0):
-        return [
-            FakeCUDAArray(a)
-            for a in np.split(self._ary, range(section, len(self), section))
-        ]
+        return [FakeCUDAArray(a) for a in np.split(self._ary, range(section, len(self), section))]
 
 
 def array_core(ary):
@@ -319,9 +316,7 @@ def check_array_compatibility(ary1, ary2):
     if ary1sq.shape != ary2sq.shape:
         raise ValueError("incompatible shape: %s vs. %s" % (ary1.shape, ary2.shape))
     if ary1sq.strides != ary2sq.strides:
-        raise ValueError(
-            "incompatible strides: %s vs. %s" % (ary1.strides, ary2.strides)
-        )
+        raise ValueError("incompatible strides: %s vs. %s" % (ary1.strides, ary2.strides))
 
 
 def to_device(ary, stream=0, copy=True, to=None):

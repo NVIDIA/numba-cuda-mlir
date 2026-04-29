@@ -6,7 +6,6 @@ from abc import ABCMeta, abstractmethod
 
 
 class TargetDescriptor(metaclass=ABCMeta):
-
     def __init__(self, target_name):
         self._target_name = target_name
 

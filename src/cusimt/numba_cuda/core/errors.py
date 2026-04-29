@@ -40,9 +40,7 @@ class NumbaWarning(Warning):
             return x
 
         if loc:
-            super(NumbaWarning, self).__init__(
-                highlight("%s\n%s\n" % (msg, loc.strformat()))
-            )
+            super(NumbaWarning, self).__init__(highlight("%s\n%s\n" % (msg, loc.strformat())))
         else:
             super(NumbaWarning, self).__init__(highlight("%s" % (msg,)))
 
@@ -182,10 +180,7 @@ try:
     colorama_version = getattr(colorama, "__version__", "0.0.0")
 
     if tuple([int(x) for x in colorama_version.split(".")]) < (0, 3, 9):
-        msg = (
-            "Insufficiently recent colorama version found. "
-            "Numba requires colorama >= 0.3.9"
-        )
+        msg = "Insufficiently recent colorama version found. Numba requires colorama >= 0.3.9"
         # warn the user
         warnings.warn(msg)
         # trip the exception to disable color errors
@@ -532,9 +527,7 @@ class WarningsFixer(object):
             # creates some uniqueness
             return str(arg) + str(id(arg))
 
-        for (filename, lineno, category), messages in sorted(
-            self._warnings.items(), key=key
-        ):
+        for (filename, lineno, category), messages in sorted(self._warnings.items(), key=key):
             for msg in sorted(messages):
                 warnings.warn_explicit(msg, category, filename, lineno)
         self._warnings.clear()
@@ -631,10 +624,7 @@ class NotDefinedError(IRError):
 
     def __init__(self, name, loc=None):
         self.name = name
-        msg = (
-            "The compiler failed to analyze the bytecode. "
-            "Variable '%s' is not defined." % name
-        )
+        msg = "The compiler failed to analyze the bytecode. Variable '%s' is not defined." % name
         super(NotDefinedError, self).__init__(msg, loc=loc)
 
 
@@ -697,8 +687,7 @@ class UntypedAttributeError(TypingError):
         if module is not None and module == np:
             # unsupported numpy feature.
             msg = (
-                "Use of unsupported NumPy function 'numpy.%s' "
-                "or unsupported use of the function."
+                "Use of unsupported NumPy function 'numpy.%s' or unsupported use of the function."
             ) % attr
         else:
             msg = "Unknown attribute '{attr}' of type {type}"

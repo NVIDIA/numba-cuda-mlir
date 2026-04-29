@@ -39,9 +39,7 @@ class TestSupportedVersion(NumbaCUDATestCase):
 @skip_under_cuda_memcheck("Hangs cuda-memcheck")
 class TestCUDAFindLibs(NumbaCUDATestCase):
     def run_cmd(self, cmdline, env):
-        popen = subprocess.Popen(
-            cmdline, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env
-        )
+        popen = subprocess.Popen(cmdline, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
 
         # finish in 5 minutes or kill it
         timeout = threading.Timer(5 * 60.0, popen.kill)

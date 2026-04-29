@@ -78,8 +78,6 @@ class _DualCompilerLock:
 
 # Create the global compiler lock, wrapping both locks if numba is available
 if HAS_NUMBA:
-    global_compiler_lock = _DualCompilerLock(
-        _numba_cuda_compiler_lock, _numba_compiler_lock
-    )
+    global_compiler_lock = _DualCompilerLock(_numba_cuda_compiler_lock, _numba_compiler_lock)
 else:
     global_compiler_lock = _numba_cuda_compiler_lock

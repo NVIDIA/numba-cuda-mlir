@@ -24,9 +24,7 @@ def mlir_convert(ctor):
 
     def converter(mlir_lower, target, args, kwargs):
         assert not kwargs, "mlir_convert does not accept any keyword arguments"
-        mlir_lower.store_var(
-            target, mlir_lower.mlir_convert(mlir_lower.load_var(args[0]), ctor())
-        )
+        mlir_lower.store_var(target, mlir_lower.mlir_convert(mlir_lower.load_var(args[0]), ctor()))
 
     return converter
 

@@ -149,9 +149,7 @@ class TestIrUtils(NumbaCUDATestCase):
         check_dce_ir(w_dce)
 
         # check that the count of initial - removed = dce
-        self.assertEqual(
-            len(no_dce.blocks[0].body) - len(removed), len(w_dce.blocks[0].body)
-        )
+        self.assertEqual(len(no_dce.blocks[0].body) - len(removed), len(w_dce.blocks[0].body))
 
     def test_find_const_global(self):
         """

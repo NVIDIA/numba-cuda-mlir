@@ -31,9 +31,7 @@ class TestCupyBfloat16Interop(NumbaCUDATestCase):
         def my_ker(arr_in, arr_in2, arr_out):
             tid = cuda.grid(1)
             if tid < arr_in.size:
-                arr_out[tid] = (
-                    2 * arr_in[tid] + 4 * arr_in2[tid] + ml_dtypes.bfloat16(3.0)
-                )
+                arr_out[tid] = 2 * arr_in[tid] + 4 * arr_in2[tid] + ml_dtypes.bfloat16(3.0)
 
         block = 128
         grid = (arr_d.size + block - 1) // block

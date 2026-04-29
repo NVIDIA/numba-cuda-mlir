@@ -74,14 +74,10 @@ def normalize_timedeltas(context, builder, left, right, leftty, rightty):
     Scale either *left* or *right* to the other's unit, in order to have
     homogeneous units.
     """
-    factor = npdatetime_helpers.get_timedelta_conversion_factor(
-        leftty.unit, rightty.unit
-    )
+    factor = npdatetime_helpers.get_timedelta_conversion_factor(leftty.unit, rightty.unit)
     if factor is not None:
         return scale_by_constant(builder, left, factor), right
-    factor = npdatetime_helpers.get_timedelta_conversion_factor(
-        rightty.unit, leftty.unit
-    )
+    factor = npdatetime_helpers.get_timedelta_conversion_factor(rightty.unit, leftty.unit)
     if factor is not None:
         return left, scale_by_constant(builder, right, factor)
     # Typing should not let this happen, except on == and != operators
@@ -389,9 +385,7 @@ def timedelta_mod_timedelta(context, builder, sig, args):
             vapos = builder.icmp_signed(">", va, zero)
             vbpos = builder.icmp_signed(">", vb, zero)
             rem = builder.srem(va, vb)
-            cond = builder.or_(
-                builder.and_(vapos, vbpos), builder.icmp_signed("==", rem, zero)
-            )
+            cond = builder.or_(builder.and_(vapos, vbpos), builder.icmp_signed("==", rem, zero))
             with builder.if_else(cond) as (then, otherwise):
                 with then:
                     builder.store(rem, ret)
@@ -416,9 +410,7 @@ def _create_timedelta_comparison_impl(ll_op, default_value):
         ):
             with then:
                 try:
-                    norm_a, norm_b = normalize_timedeltas(
-                        context, builder, va, vb, ta, tb
-                    )
+                    norm_a, norm_b = normalize_timedeltas(context, builder, va, vb, ta, tb)
                 except RuntimeError:
                     # Cannot normalize units => the values are unequal (except if NaT)
                     builder.store(default_value, ret)
@@ -485,18 +477,12 @@ def is_leap_year(builder, year_val):
     leap year.
     """
     actual_year = builder.add(year_val, Constant(DATETIME64, 1970))
-    multiple_of_4 = cgutils.is_null(
-        builder, builder.and_(actual_year, Constant(DATETIME64, 3))
-    )
+    multiple_of_4 = cgutils.is_null(builder, builder.and_(actual_year, Constant(DATETIME64, 3)))
     not_multiple_of_100 = cgutils.is_not_null(
         builder, builder.srem(actual_year, Constant(DATETIME64, 100))
     )
-    multiple_of_400 = cgutils.is_null(
-        builder, builder.srem(actual_year, Constant(DATETIME64, 400))
-    )
-    return builder.and_(
-        multiple_of_4, builder.or_(not_multiple_of_100, multiple_of_400)
-    )
+    multiple_of_400 = cgutils.is_null(builder, builder.srem(actual_year, Constant(DATETIME64, 400)))
+    return builder.and_(multiple_of_4, builder.or_(not_multiple_of_100, multiple_of_400))
 
 
 def year_to_days(builder, year_val):
@@ -562,9 +548,7 @@ def reduce_datetime_for_unit(builder, dt_val, src_unit, dest_unit):
 
     else:
         # Months to days
-        leap_array = cgutils.global_constant(
-            builder, "leap_year_months_acc", leap_year_months_acc
-        )
+        leap_array = cgutils.global_constant(builder, "leap_year_months_acc", leap_year_months_acc)
         normal_array = cgutils.global_constant(
             builder, "normal_year_months_acc", normal_year_months_acc
         )
@@ -577,14 +561,10 @@ def reduce_datetime_for_unit(builder, dt_val, src_unit, dest_unit):
         # Then deduce the number of days
         with builder.if_else(is_leap_year(builder, year)) as (then, otherwise):
             with then:
-                addend = builder.load(
-                    cgutils.gep(builder, leap_array, 0, month, inbounds=True)
-                )
+                addend = builder.load(cgutils.gep(builder, leap_array, 0, month, inbounds=True))
                 builder.store(addend, days)
             with otherwise:
-                addend = builder.load(
-                    cgutils.gep(builder, normal_array, 0, month, inbounds=True)
-                )
+                addend = builder.load(cgutils.gep(builder, normal_array, 0, month, inbounds=True))
                 builder.store(addend, days)
 
         days_val = year_to_days(builder, year)
@@ -608,9 +588,7 @@ def convert_datetime_for_arith(builder, dt_val, src_unit, dest_unit):
     dt_factor = npdatetime_helpers.get_timedelta_conversion_factor(dt_unit, dest_unit)
     if dt_factor is None:
         # This can happen when using explicit output in a ufunc.
-        raise LoweringError(
-            "cannot convert datetime64 from %r to %r" % (src_unit, dest_unit)
-        )
+        raise LoweringError("cannot convert datetime64 from %r to %r" % (src_unit, dest_unit))
     return scale_by_constant(builder, dt_val, dt_factor)
 
 
@@ -619,9 +597,7 @@ def _datetime_timedelta_arith(ll_op_name):
         ret = alloc_timedelta_result(builder)
         with cgutils.if_likely(builder, are_not_nat(builder, [dt_arg, td_arg])):
             dt_arg = convert_datetime_for_arith(builder, dt_arg, dt_unit, ret_unit)
-            td_factor = npdatetime_helpers.get_timedelta_conversion_factor(
-                td_unit, ret_unit
-            )
+            td_factor = npdatetime_helpers.get_timedelta_conversion_factor(td_unit, ret_unit)
             td_arg = scale_by_constant(builder, td_arg, td_factor)
             ret_val = getattr(builder, ll_op_name)(dt_arg, td_arg)
             builder.store(ret_val, ret)
@@ -891,11 +867,7 @@ def _cast_npdatetime_int64(context, builder, fromty, toty, val):
 @overload_method(types.NPTimedelta, "__hash__")
 @overload_method(types.NPDatetime, "__hash__")
 def ol_hash_npdatetime(x):
-    if (
-        numpy_support.numpy_version >= (2, 2)
-        and isinstance(x, types.NPTimedelta)
-        and not x.unit
-    ):
+    if numpy_support.numpy_version >= (2, 2) and isinstance(x, types.NPTimedelta) and not x.unit:
         raise ValueError("Can't hash generic timedelta64")
 
     if IS_32BITS:

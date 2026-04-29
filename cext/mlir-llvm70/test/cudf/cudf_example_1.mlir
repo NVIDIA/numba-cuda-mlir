@@ -39,8 +39,8 @@ module {
       %29 = llvm.ashr %28, %27 : i64
       %30 = llvm.and %29, %0 : i64
       %31 = llvm.icmp "ne" %30, %3 : i64
-      %32 = llvm.insertvalue %21, %4[0] : !llvm.struct<"Masked(int64)", (i64, i1)> 
-      %33 = llvm.insertvalue %31, %32[1] : !llvm.struct<"Masked(int64)", (i64, i1)> 
+      %32 = llvm.insertvalue %21, %4[0] : !llvm.struct<"Masked(int64)", (i64, i1)>
+      %33 = llvm.insertvalue %31, %32[1] : !llvm.struct<"Masked(int64)", (i64, i1)>
       %34 = llvm.add %14, %arg32 : i64
       %35 = llvm.getelementptr %arg22[%arg23] : (!llvm.ptr, i64) -> !llvm.ptr, i64
       %36 = llvm.mul %34, %arg25 overflow<nsw, nuw> : i64
@@ -56,17 +56,17 @@ module {
       %46 = llvm.ashr %45, %44 : i64
       %47 = llvm.and %46, %0 : i64
       %48 = llvm.icmp "ne" %47, %3 : i64
-      %49 = llvm.insertvalue %38, %4[0] : !llvm.struct<"Masked(int64)", (i64, i1)> 
-      %50 = llvm.insertvalue %48, %49[1] : !llvm.struct<"Masked(int64)", (i64, i1)> 
+      %49 = llvm.insertvalue %38, %4[0] : !llvm.struct<"Masked(int64)", (i64, i1)>
+      %50 = llvm.insertvalue %48, %49[1] : !llvm.struct<"Masked(int64)", (i64, i1)>
       llvm.store %33, %16 : !llvm.struct<"Masked(int64)", (i64, i1)>, !llvm.ptr
       %51 = llvm.getelementptr %16[16] : (!llvm.ptr) -> !llvm.ptr, i8
       llvm.store %50, %51 : !llvm.struct<"Masked(int64)", (i64, i1)>, !llvm.ptr
       %52 = llvm.load %16 : !llvm.ptr -> !llvm.struct<"Masked(int64)", (i64, i1)>
       %53 = llvm.load %51 : !llvm.ptr -> !llvm.struct<"Masked(int64)", (i64, i1)>
-      %54 = llvm.extractvalue %52[0] : !llvm.struct<"Masked(int64)", (i64, i1)> 
-      %55 = llvm.extractvalue %52[1] : !llvm.struct<"Masked(int64)", (i64, i1)> 
-      %56 = llvm.extractvalue %53[0] : !llvm.struct<"Masked(int64)", (i64, i1)> 
-      %57 = llvm.extractvalue %53[1] : !llvm.struct<"Masked(int64)", (i64, i1)> 
+      %54 = llvm.extractvalue %52[0] : !llvm.struct<"Masked(int64)", (i64, i1)>
+      %55 = llvm.extractvalue %52[1] : !llvm.struct<"Masked(int64)", (i64, i1)>
+      %56 = llvm.extractvalue %53[0] : !llvm.struct<"Masked(int64)", (i64, i1)>
+      %57 = llvm.extractvalue %53[1] : !llvm.struct<"Masked(int64)", (i64, i1)>
       %58 = llvm.and %55, %57 : i1
       %59 = llvm.add %54, %56 : i64
       %60 = llvm.getelementptr %arg1[%arg2] : (!llvm.ptr, i64) -> !llvm.ptr, i64

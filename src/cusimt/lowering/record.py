@@ -108,9 +108,7 @@ def get_record_field_ptr(builder, record_ptr, record_type, field_name):
     offset = record_type.offset(field_name)
     field_numba_type = record_type.typeof(field_name)
 
-    trace(
-        f"get_record_field_ptr: field={field_name}, offset={offset}, type={field_numba_type}"
-    )
+    trace(f"get_record_field_ptr: field={field_name}, offset={offset}, type={field_numba_type}")
 
     # GEP with byte offset
     # llvm.getelementptr ptr[offset] : (!llvm.ptr) -> !llvm.ptr
@@ -146,23 +144,17 @@ def lower_record_getattr(
     # Check field exists
     if attr not in record_type.fields:
         available = list(record_type.fields.keys())
-        raise AttributeError(
-            f"Record has no field '{attr}'. Available fields: {available}"
-        )
+        raise AttributeError(f"Record has no field '{attr}'. Available fields: {available}")
 
     # Load the record pointer
     record_ptr = builder.load_var(value)
 
     # Get pointer to the field
-    field_ptr, field_numba_type = get_record_field_ptr(
-        builder, record_ptr, record_type, attr
-    )
+    field_ptr, field_numba_type = get_record_field_ptr(builder, record_ptr, record_type, attr)
 
     if isinstance(field_numba_type, NestedArray):
         # Nested array field - create a memref pointing to the data
-        result = _load_nested_array_field(
-            builder, field_ptr, field_numba_type, record_type
-        )
+        result = _load_nested_array_field(builder, field_ptr, field_numba_type, record_type)
     else:
         # Scalar field - load directly
         field_mlir_type = builder.get_mlir_type(field_numba_type)
@@ -218,24 +210,18 @@ def lower_record_setattr(
     # Check field exists
     if attr not in record_type.fields:
         available = list(record_type.fields.keys())
-        raise AttributeError(
-            f"Record has no field '{attr}'. Available fields: {available}"
-        )
+        raise AttributeError(f"Record has no field '{attr}'. Available fields: {available}")
 
     # Load the record pointer and value
     record_ptr = builder.load_var(record_var)
     value = builder.load_var(value_var)
 
     # Get pointer to the field
-    field_ptr, field_numba_type = get_record_field_ptr(
-        builder, record_ptr, record_type, attr
-    )
+    field_ptr, field_numba_type = get_record_field_ptr(builder, record_ptr, record_type, attr)
 
     if isinstance(field_numba_type, NestedArray):
         # Nested array field - need to copy data
-        _store_nested_array_field(
-            builder, field_ptr, value, field_numba_type, value_type
-        )
+        _store_nested_array_field(builder, field_ptr, value, field_numba_type, value_type)
     else:
         # Scalar field - store directly
         field_mlir_type = builder.get_mlir_type(field_numba_type)
@@ -315,9 +301,7 @@ def _store_nested_array_field(builder, field_ptr, value, nested_type, value_type
             src_elem = memref_dialect.load(value, memref_indices)
         elif is_source_llvm_ptr:
             # Linear byte offset for source (row-major, contiguous)
-            src_byte_offset = arith.muli(
-                linear_i64, arith_dialect.constant(T.i64(), elem_size)
-            )
+            src_byte_offset = arith.muli(linear_i64, arith_dialect.constant(T.i64(), elem_size))
             src_elem_ptr = llvm.getelementptr(
                 llvm.PointerType.get(),
                 value,
@@ -382,18 +366,12 @@ def lower_record_static_getitem_str(builder, target, args, kwargs):
 
     if attr not in record_type.fields:
         available = list(record_type.fields.keys())
-        raise AttributeError(
-            f"Record has no field '{attr}'. Available fields: {available}"
-        )
+        raise AttributeError(f"Record has no field '{attr}'. Available fields: {available}")
 
-    field_ptr, field_numba_type = get_record_field_ptr(
-        builder, record_ptr, record_type, attr
-    )
+    field_ptr, field_numba_type = get_record_field_ptr(builder, record_ptr, record_type, attr)
 
     if isinstance(field_numba_type, NestedArray):
-        result = _load_nested_array_field(
-            builder, field_ptr, field_numba_type, record_type
-        )
+        result = _load_nested_array_field(builder, field_ptr, field_numba_type, record_type)
     else:
         field_mlir_type = builder.get_mlir_type(field_numba_type)
         if _is_complex_type(field_mlir_type):
@@ -426,7 +404,7 @@ def lower_record_static_getitem_int(builder, target, args, kwargs):
     field_names = list(record_type.fields.keys())
     if field_index < 0 or field_index >= len(field_names):
         raise IndexError(
-            f"Record field index {field_index} out of range (0-{len(field_names)-1})"
+            f"Record field index {field_index} out of range (0-{len(field_names) - 1})"
         )
     attr = field_names[field_index]
 
@@ -439,14 +417,10 @@ def lower_record_static_getitem_int(builder, target, args, kwargs):
 
     record_ptr = builder.load_var(record_var)
 
-    field_ptr, field_numba_type = get_record_field_ptr(
-        builder, record_ptr, record_type, attr
-    )
+    field_ptr, field_numba_type = get_record_field_ptr(builder, record_ptr, record_type, attr)
 
     if isinstance(field_numba_type, NestedArray):
-        result = _load_nested_array_field(
-            builder, field_ptr, field_numba_type, record_type
-        )
+        result = _load_nested_array_field(builder, field_ptr, field_numba_type, record_type)
     else:
         field_mlir_type = builder.get_mlir_type(field_numba_type)
         if _is_complex_type(field_mlir_type):
@@ -476,27 +450,19 @@ def lower_record_static_setitem_str(builder, target, args, kwargs):
     field_name_type = builder.get_numba_type(field_name_var)
     attr = field_name_type.literal_value
 
-    trace(
-        "Lowering Record static_setitem: %s['%s'] = %s", record_type, attr, value_type
-    )
+    trace("Lowering Record static_setitem: %s['%s'] = %s", record_type, attr, value_type)
 
     record_ptr = builder.load_var(record_var)
     value = builder.load_var(value_var)
 
     if attr not in record_type.fields:
         available = list(record_type.fields.keys())
-        raise AttributeError(
-            f"Record has no field '{attr}'. Available fields: {available}"
-        )
+        raise AttributeError(f"Record has no field '{attr}'. Available fields: {available}")
 
-    field_ptr, field_numba_type = get_record_field_ptr(
-        builder, record_ptr, record_type, attr
-    )
+    field_ptr, field_numba_type = get_record_field_ptr(builder, record_ptr, record_type, attr)
 
     if isinstance(field_numba_type, NestedArray):
-        _store_nested_array_field(
-            builder, field_ptr, value, field_numba_type, value_type
-        )
+        _store_nested_array_field(builder, field_ptr, value, field_numba_type, value_type)
     else:
         field_mlir_type = builder.get_mlir_type(field_numba_type)
         value = convert(value, field_mlir_type)
@@ -526,7 +492,7 @@ def _compute_nested_array_elem_ptr(builder, base_ptr, nested_type, indices):
 
     # Compute linear byte offset: sum(index[i] * stride[i])
     byte_offset = None
-    for i, (idx, stride) in enumerate(zip(indices, strides)):
+    for _i, (idx, stride) in enumerate(zip(indices, strides)):
         # stride is in bytes
         stride_val = arith_dialect.constant(T.i64(), stride)
         term = arith.muli(idx, stride_val)
@@ -623,8 +589,7 @@ def _unpack_tuple_indices(indices_val, num_indices):
     """Unpack tuple indices from a Python tuple or LLVM struct."""
     indices = []
     if isinstance(indices_val, tuple):
-        for idx in indices_val:
-            indices.append(convert(idx, T.i64()))
+        indices.extend(convert(idx, T.i64()) for idx in indices_val)
     elif hasattr(indices_val, "type"):
         for i in range(num_indices):
             idx = llvm.extractvalue(

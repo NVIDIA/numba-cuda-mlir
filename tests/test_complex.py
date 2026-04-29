@@ -11,7 +11,6 @@ import cuda.simt as cuda
 
 
 class TestAtomicOnComplexComponents(unittest.TestCase):
-
     def test_atomic_on_real_1d(self):
         @cuda.jit
         def atomic_add_one(values):

@@ -87,9 +87,7 @@ class TestManagedMemory:
             cuda.current_context().synchronize()
 
         # Filter for our specific warning
-        copy_warnings = [
-            w for w in record if "Host array used in CUDA kernel" in str(w.message)
-        ]
+        copy_warnings = [w for w in record if "Host array used in CUDA kernel" in str(w.message)]
         assert len(copy_warnings) == 0, "Managed arrays should not trigger copy warning"
 
     def test_managed_array_mixed_with_device_array(self):
@@ -176,9 +174,7 @@ class TestDeviceArrayInterface:
             kernel[1, 10](device_ary)
             cuda.current_context().synchronize()
 
-        copy_warnings = [
-            w for w in record if "Host array used in CUDA kernel" in str(w.message)
-        ]
+        copy_warnings = [w for w in record if "Host array used in CUDA kernel" in str(w.message)]
         assert len(copy_warnings) == 0, "Device arrays should not trigger copy warning"
 
     def test_numpy_array_triggers_warning(self):
@@ -194,8 +190,6 @@ class TestDeviceArrayInterface:
         numpy_ary = np.zeros(10, dtype=np.double)
 
         # This SHOULD produce a warning about host array copy
-        with pytest.warns(
-            NumbaPerformanceWarning, match="Host array used in CUDA kernel"
-        ):
+        with pytest.warns(NumbaPerformanceWarning, match="Host array used in CUDA kernel"):
             kernel[1, 10](numpy_ary)
             cuda.current_context().synchronize()

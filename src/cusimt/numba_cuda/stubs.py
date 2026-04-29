@@ -556,9 +556,7 @@ def make_vector_type_stubs():
     vector_type_element_counts = (1, 2, 3, 4)
     vector_type_attribute_names = ("x", "y", "z", "w")
 
-    for prefix, nelem in itertools.product(
-        vector_type_prefix, vector_type_element_counts
-    ):
+    for prefix, nelem in itertools.product(vector_type_prefix, vector_type_element_counts):
         type_name = f"{prefix}x{nelem}"
         attr_names = vector_type_attribute_names[:nelem]
 
@@ -575,7 +573,7 @@ def make_vector_type_stubs():
                             for attr_name in attr_names[:nelem]
                         ]
                     ),
-                    "__doc__": f"A stub for {type_name} to be used in " "CUDA kernels.",
+                    "__doc__": f"A stub for {type_name} to be used in CUDA kernels.",
                 },
                 **{"aliases": []},
             },

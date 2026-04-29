@@ -58,9 +58,7 @@ unbox = _unboxers.register
 reflect = _reflectors.register
 
 
-class _BoxContext(
-    namedtuple("_BoxContext", ("context", "builder", "pyapi", "env_manager"))
-):
+class _BoxContext(namedtuple("_BoxContext", ("context", "builder", "pyapi", "env_manager"))):
     """
     The facilities required by boxing implementations.
     """
@@ -362,9 +360,7 @@ class PythonAPI:
         raises a new error, the new error is kept, otherwise the old
         error indicator is restored at the end of the block.
         """
-        pty, pval, ptb = [
-            cgutils.alloca_once(self.builder, self.pyobj) for i in range(3)
-        ]
+        pty, pval, ptb = [cgutils.alloca_once(self.builder, self.pyobj) for i in range(3)]
         self.err_fetch(pty, pval, ptb)
         yield
         ty = self.builder.load(pty)
@@ -395,9 +391,7 @@ class PythonAPI:
         """
         # A LLVM global variable is implicitly a pointer to the declared
         # type, so fix up by using pyobj.pointee.
-        return self.context.get_c_value(
-            self.builder, self.pyobj.pointee, name, dllimport=True
-        )
+        return self.context.get_c_value(self.builder, self.pyobj.pointee, name, dllimport=True)
 
     def raise_missing_global_error(self, name):
         msg = "global name '%s' is not defined" % name
@@ -528,19 +522,13 @@ class PythonAPI:
         return self.builder.call(fn, [ival])
 
     def long_from_ulong(self, ival):
-        return self._long_from_native_int(
-            ival, "PyLong_FromUnsignedLong", self.long, signed=False
-        )
+        return self._long_from_native_int(ival, "PyLong_FromUnsignedLong", self.long, signed=False)
 
     def long_from_ssize_t(self, ival):
-        return self._long_from_native_int(
-            ival, "PyLong_FromSsize_t", self.py_ssize_t, signed=True
-        )
+        return self._long_from_native_int(ival, "PyLong_FromSsize_t", self.py_ssize_t, signed=True)
 
     def long_from_longlong(self, ival):
-        return self._long_from_native_int(
-            ival, "PyLong_FromLongLong", self.longlong, signed=True
-        )
+        return self._long_from_native_int(ival, "PyLong_FromLongLong", self.longlong, signed=True)
 
     def long_from_ulonglong(self, ival):
         return self._long_from_native_int(
@@ -689,9 +677,7 @@ class PythonAPI:
         pstart = cgutils.alloca_once(self.builder, self.py_ssize_t)
         pstop = cgutils.alloca_once(self.builder, self.py_ssize_t)
         pstep = cgutils.alloca_once(self.builder, self.py_ssize_t)
-        fnty = ir.FunctionType(
-            ir.IntType(32), [self.pyobj] + [self.py_ssize_t.as_pointer()] * 3
-        )
+        fnty = ir.FunctionType(ir.IntType(32), [self.pyobj] + [self.py_ssize_t.as_pointer()] * 3)
         fn = self._get_function(fnty, name="numba_unpack_slice")
         res = self.builder.call(fn, (obj, pstart, pstop, pstep))
         start = self.builder.load(pstart)
@@ -704,9 +690,7 @@ class PythonAPI:
     #
 
     def sequence_getslice(self, obj, start, stop):
-        fnty = ir.FunctionType(
-            self.pyobj, [self.pyobj, self.py_ssize_t, self.py_ssize_t]
-        )
+        fnty = ir.FunctionType(self.pyobj, [self.pyobj, self.py_ssize_t, self.py_ssize_t])
         fn = self._get_function(fnty, name="PySequence_GetSlice")
         return self.builder.call(fn, (obj, start, stop))
 
@@ -739,9 +723,7 @@ class PythonAPI:
         """
         Warning: Steals reference to ``val``
         """
-        fnty = ir.FunctionType(
-            ir.IntType(32), [self.pyobj, self.py_ssize_t, self.pyobj]
-        )
+        fnty = ir.FunctionType(ir.IntType(32), [self.pyobj, self.py_ssize_t, self.pyobj])
         fn = self._get_function(fnty, name="PyList_SetItem")
         return self.builder.call(fn, [lst, idx, val])
 
@@ -800,9 +782,7 @@ class PythonAPI:
         """
         Steals a reference to `item`.
         """
-        fnty = ir.FunctionType(
-            ir.IntType(32), [self.pyobj, self.py_ssize_t, self.pyobj]
-        )
+        fnty = ir.FunctionType(ir.IntType(32), [self.pyobj, self.py_ssize_t, self.pyobj])
         setitem_fn = self._get_function(fnty, name="PyTuple_SetItem")
         index = self.py_ssize_t(index)
         self.builder.call(setitem_fn, [tuple_val, index, item])
@@ -860,9 +840,7 @@ class PythonAPI:
 
         hashptr = cgutils.alloca_once(builder, self.py_hash_t, name="hashptr")
         keyptr = cgutils.alloca_once(builder, self.pyobj, name="keyptr")
-        posptr = cgutils.alloca_once_value(
-            builder, Constant(self.py_ssize_t, 0), name="posptr"
-        )
+        posptr = cgutils.alloca_once_value(builder, Constant(self.py_ssize_t, 0), name="posptr")
 
         bb_body = builder.append_basic_block("bb_body")
         bb_end = builder.append_basic_block("bb_end")
@@ -963,9 +941,7 @@ class PythonAPI:
 
     def call_method(self, callee, method, objargs=()):
         cname = self.context.insert_const_string(self.module, method)
-        fnty = ir.FunctionType(
-            self.pyobj, [self.pyobj, self.cstring, self.cstring], var_arg=True
-        )
+        fnty = ir.FunctionType(self.pyobj, [self.pyobj, self.cstring, self.cstring], var_arg=True)
         fn = self._get_function(fnty, name="PyObject_CallMethod")
         fmt = "O" * len(objargs)
         cfmt = self.context.insert_const_string(self.module, fmt)
@@ -1180,9 +1156,7 @@ class PythonAPI:
         return self.builder.call(fn, [string])
 
     def string_from_kind_and_data(self, kind, string, size):
-        fnty = ir.FunctionType(
-            self.pyobj, [ir.IntType(32), self.cstring, self.py_ssize_t]
-        )
+        fnty = ir.FunctionType(self.pyobj, [ir.IntType(32), self.cstring, self.py_ssize_t])
         fname = "PyUnicode_FromKindAndData"
         fn = self._get_function(fnty, name=fname)
         return self.builder.call(fn, [kind, string, size])
@@ -1267,9 +1241,7 @@ class PythonAPI:
         # Embed the Python type of the array (maybe subclass) in the LLVM IR.
         serial_aryty_pytype = self.unserialize(self.serialize_object(aryty.box_type))
 
-        fnty = ir.FunctionType(
-            self.pyobj, [self.voidptr, self.pyobj, intty, intty, self.pyobj]
-        )
+        fnty = ir.FunctionType(self.pyobj, [self.voidptr, self.pyobj, intty, intty, self.pyobj])
         fn = self._get_function(fnty, name="NRT_adapt_ndarray_to_python_acqref")
         fn.args[0].add_attribute("nocapture")
 
@@ -1340,9 +1312,7 @@ class PythonAPI:
 
     def nrt_adapt_buffer_from_python(self, buf, ptr):
         assert self.context.enable_nrt
-        fnty = ir.FunctionType(
-            ir.VoidType(), [ir.PointerType(self.py_buffer_t), self.voidptr]
-        )
+        fnty = ir.FunctionType(ir.VoidType(), [ir.PointerType(self.py_buffer_t), self.voidptr])
         fn = self._get_function(fnty, name="NRT_adapt_buffer_from_python")
         fn.args[0].add_attribute("nocapture")
         fn.args[1].add_attribute("nocapture")
@@ -1464,9 +1434,7 @@ class PythonAPI:
             gv = self.module.__serialized[obj]
         except KeyError:
             struct = self.serialize_uncached(obj)
-            name = ".const.picklebuf.%s" % (
-                id(obj) if config.DIFF_IR == 0 else "DIFF_IR"
-            )
+            name = ".const.picklebuf.%s" % (id(obj) if config.DIFF_IR == 0 else "DIFF_IR")
             gv = self.context.insert_unique_const(self.module, name, struct)
             # Make the id() (and hence the name) unique while populating the module.
             self.module.__serialized[obj] = gv
@@ -1487,9 +1455,9 @@ class PythonAPI:
         return impl(typ, obj, c)
 
     def from_native_return(self, typ, val, env_manager):
-        assert not isinstance(
-            typ, types.Optional
-        ), "callconv should have prevented the return of optional value"
+        assert not isinstance(typ, types.Optional), (
+            "callconv should have prevented the return of optional value"
+        )
         out = self.from_native_value(typ, val, env_manager)
         return out
 
@@ -1550,9 +1518,7 @@ class PythonAPI:
         # This is the raw finalizer generated by _lower_generator_finalize_func()
         finalizerty = ir.FunctionType(ir.VoidType(), [self.voidptr])
         if typ.has_finalizer:
-            finalizer = self._get_function(
-                finalizerty, name=gendesc.llvm_finalizer_name
-            )
+            finalizer = self._get_function(finalizerty, name=gendesc.llvm_finalizer_name)
         else:
             finalizer = Constant(ir.PointerType(finalizerty), None)
 
@@ -1586,9 +1552,7 @@ class PythonAPI:
         return self.builder.call(fn, (ary, ptr))
 
     def numba_buffer_adaptor(self, buf, ptr):
-        fnty = ir.FunctionType(
-            ir.VoidType(), [ir.PointerType(self.py_buffer_t), self.voidptr]
-        )
+        fnty = ir.FunctionType(ir.VoidType(), [ir.PointerType(self.py_buffer_t), self.voidptr])
         fn = self._get_function(fnty, name="numba_adapt_buffer")
         fn.args[0].add_attribute("nocapture")
         fn.args[1].add_attribute("nocapture")
@@ -1600,16 +1564,12 @@ class PythonAPI:
         return self.builder.call(fn, [cobj, cmplx])
 
     def extract_record_data(self, obj, pbuf):
-        fnty = ir.FunctionType(
-            self.voidptr, [self.pyobj, ir.PointerType(self.py_buffer_t)]
-        )
+        fnty = ir.FunctionType(self.voidptr, [self.pyobj, ir.PointerType(self.py_buffer_t)])
         fn = self._get_function(fnty, name="numba_extract_record_data")
         return self.builder.call(fn, [obj, pbuf])
 
     def get_buffer(self, obj, pbuf):
-        fnty = ir.FunctionType(
-            ir.IntType(32), [self.pyobj, ir.PointerType(self.py_buffer_t)]
-        )
+        fnty = ir.FunctionType(ir.IntType(32), [self.pyobj, ir.PointerType(self.py_buffer_t)])
         fn = self._get_function(fnty, name="numba_get_buffer")
         return self.builder.call(fn, [obj, pbuf])
 
@@ -1686,9 +1646,7 @@ class PythonAPI:
         if got_retty != retty:
             # This error indicates an error in *func* or the caller of this
             # method.
-            raise errors.LoweringError(
-                f"mismatching signature {got_retty} != {retty}.\n"
-            )
+            raise errors.LoweringError(f"mismatching signature {got_retty} != {retty}.\n")
         # Call into *func*
         status, res = self.context.call_internal_no_propagate(
             builder,

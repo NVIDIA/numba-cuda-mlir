@@ -19,9 +19,7 @@ from typing import Any
 llvm_kDynamic = -2147483648
 
 
-def _cpointer_to_element_ptr(
-    ptr: ir.Value, index: ir.Value, element_type: ir.Type
-) -> ir.Value:
+def _cpointer_to_element_ptr(ptr: ir.Value, index: ir.Value, element_type: ir.Type) -> ir.Value:
     """Convert CPointer + index to element pointer using getelementptr."""
     idx = convert(index, T.i64())
     return llvm.getelementptr(
@@ -54,9 +52,7 @@ def _get_padding_value(element_type: ir.Type) -> ir.Value:
     elif isinstance(element_type, ir.IntegerType):
         return arith.constant(element_type, 0)
     else:
-        raise NotImplementedError(
-            f"Unsupported element type for vector: {element_type}"
-        )
+        raise NotImplementedError(f"Unsupported element type for vector: {element_type}")
 
 
 def _get_permutation_map(memref_rank: int, vec_rank: int) -> ir.AffineMap:
@@ -96,9 +92,7 @@ def vector_load_1d_index(lower: MLIRLower, target, args: list[Any], kwargs):
     padding = _get_padding_value(vec_type.element_type)
     perm_map = _get_permutation_map(memref_rank, vec_rank)
     in_bounds = ir.ArrayAttr.get([ir.BoolAttr.get(True)] * vec_rank)
-    result = vector.transfer_read(
-        vec_type, array, [index], perm_map, padding, in_bounds
-    )
+    result = vector.transfer_read(vec_type, array, [index], perm_map, padding, in_bounds)
     lower.store_var(target, result)
 
 
@@ -122,9 +116,7 @@ def vector_load_nd_index(lower: MLIRLower, target, args: list[Any], kwargs):
     padding = _get_padding_value(vec_type.element_type)
     perm_map = _get_permutation_map(memref_rank, vec_rank)
     in_bounds = ir.ArrayAttr.get([ir.BoolAttr.get(True)] * vec_rank)
-    result = vector.transfer_read(
-        vec_type, array, indices, perm_map, padding, in_bounds
-    )
+    result = vector.transfer_read(vec_type, array, indices, perm_map, padding, in_bounds)
     lower.store_var(target, result)
 
 
@@ -140,12 +132,8 @@ def vector_load_nd_index(lower: MLIRLower, target, args: list[Any], kwargs):
     types.IntegerLiteral,
     types.IntegerLiteral,
 )
-@lower(
-    vector_module.load, types.Array, types.Integer, types.Tuple, types.IntegerLiteral
-)
-@lower(
-    vector_module.load, types.Array, types.Integer, types.UniTuple, types.IntegerLiteral
-)
+@lower(vector_module.load, types.Array, types.Integer, types.Tuple, types.IntegerLiteral)
+@lower(vector_module.load, types.Array, types.Integer, types.UniTuple, types.IntegerLiteral)
 def vector_load_1d_index_aligned(lower: MLIRLower, target, args: list[Any], kwargs):
     """Aligned vector load using llvm.load (1D index)."""
     array = lower.load_var(args[0])
@@ -171,9 +159,7 @@ def vector_load_1d_index_aligned(lower: MLIRLower, target, args: list[Any], kwar
     types.IntegerLiteral,
     types.IntegerLiteral,
 )
-@lower(
-    vector_module.load, types.Array, types.UniTuple, types.Tuple, types.IntegerLiteral
-)
+@lower(vector_module.load, types.Array, types.UniTuple, types.Tuple, types.IntegerLiteral)
 @lower(
     vector_module.load,
     types.Array,
@@ -189,9 +175,7 @@ def vector_load_1d_index_aligned(lower: MLIRLower, target, args: list[Any], kwar
     types.IntegerLiteral,
 )
 @lower(vector_module.load, types.Array, types.Tuple, types.Tuple, types.IntegerLiteral)
-@lower(
-    vector_module.load, types.Array, types.Tuple, types.UniTuple, types.IntegerLiteral
-)
+@lower(vector_module.load, types.Array, types.Tuple, types.UniTuple, types.IntegerLiteral)
 def vector_load_nd_index_aligned(lower: MLIRLower, target, args: list[Any], kwargs):
     """Aligned vector load using llvm.load (N-D index)."""
     array = lower.load_var(args[0])
@@ -257,9 +241,7 @@ def vector_store_nd_index(lower: MLIRLower, target, args: list[Any], kwargs):
 # =============================================================================
 
 
-@lower(
-    vector_module.store, types.Array, types.Integer, VectorType, types.IntegerLiteral
-)
+@lower(vector_module.store, types.Array, types.Integer, VectorType, types.IntegerLiteral)
 def vector_store_1d_index_aligned(lower: MLIRLower, target, args: list[Any], kwargs):
     """Aligned vector store using llvm.store (1D index)."""
     array = lower.load_var(args[0])
@@ -276,9 +258,7 @@ def vector_store_1d_index_aligned(lower: MLIRLower, target, args: list[Any], kwa
     lower.store_var(target, None)
 
 
-@lower(
-    vector_module.store, types.Array, types.UniTuple, VectorType, types.IntegerLiteral
-)
+@lower(vector_module.store, types.Array, types.UniTuple, VectorType, types.IntegerLiteral)
 @lower(vector_module.store, types.Array, types.Tuple, VectorType, types.IntegerLiteral)
 def vector_store_nd_index_aligned(lower: MLIRLower, target, args: list[Any], kwargs):
     """Aligned vector store using llvm.store (N-D index)."""
@@ -337,9 +317,7 @@ def vector_load_cpointer_1d(lower: MLIRLower, target, args: list[Any], kwargs):
     lower.store_var(target, result)
 
 
-@lower(
-    vector_module.store, types.CPointer, types.Integer, VectorType, types.IntegerLiteral
-)
+@lower(vector_module.store, types.CPointer, types.Integer, VectorType, types.IntegerLiteral)
 def vector_store_cpointer_1d(lower: MLIRLower, target, args: list[Any], kwargs):
     """Vector store to CPointer using llvm.store with alignment (1D index)."""
     ptr = lower.load_var(args[0])

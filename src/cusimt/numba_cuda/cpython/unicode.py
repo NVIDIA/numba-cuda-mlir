@@ -177,9 +177,7 @@ def make_string_from_constant(context, builder, typ, literal_string):
     Get string data by `compile_time_get_string_data()` and return a
     unicode_type LLVM value
     """
-    databytes, length, kind, is_ascii, hashv = compile_time_get_string_data(
-        literal_string
-    )
+    databytes, length, kind, is_ascii, hashv = compile_time_get_string_data(literal_string)
     mod = builder.module
     gv = context.insert_const_bytes(mod, databytes)
     uni_str = cgutils.create_struct_proxy(typ)(context, builder)
@@ -219,9 +217,7 @@ def unbox_unicode_str(typ, obj, c):
     """
     Convert a unicode str object to a native unicode structure.
     """
-    ok, data, length, kind, is_ascii, hashv = c.pyapi.string_as_string_size_and_kind(
-        obj
-    )
+    ok, data, length, kind, is_ascii, hashv = c.pyapi.string_as_string_size_and_kind(obj)
     uni_str = cgutils.create_struct_proxy(typ)(c.context, c.builder)
     uni_str.data = data
     uni_str.length = length
@@ -1030,9 +1026,7 @@ def unicode_startswith(s, prefix, start=None, end=None):
     if not is_nonelike(end) and not isinstance(end, types.Integer):
         raise TypingError("When specified, the arg 'end' must be an Integer or None")
 
-    if isinstance(prefix, types.UniTuple) and isinstance(
-        prefix.dtype, types.UnicodeType
-    ):
+    if isinstance(prefix, types.UniTuple) and isinstance(prefix.dtype, types.UnicodeType):
 
         def startswith_tuple_impl(s, prefix, start=None, end=None):
             for item in prefix:
@@ -1077,15 +1071,10 @@ def unicode_startswith(s, prefix, start=None, end=None):
 
 @overload_method(types.UnicodeType, "endswith")
 def unicode_endswith(s, substr, start=None, end=None):
-    if not (
-        start is None
-        or isinstance(start, (types.Omitted, types.Integer, types.NoneType))
-    ):
+    if not (start is None or isinstance(start, (types.Omitted, types.Integer, types.NoneType))):
         raise TypingError("The arg must be a Integer or None")
 
-    if not (
-        end is None or isinstance(end, (types.Omitted, types.Integer, types.NoneType))
-    ):
+    if not (end is None or isinstance(end, (types.Omitted, types.Integer, types.NoneType))):
         raise TypingError("The arg must be a Integer or None")
 
     if isinstance(substr, (types.Tuple, types.UniTuple)):
@@ -1199,8 +1188,7 @@ def unicode_expandtabs(data, tabsize=8):
 @overload_method(types.UnicodeType, "split")
 def unicode_split(a, sep=None, maxsplit=-1):
     if not (
-        maxsplit == -1
-        or isinstance(maxsplit, (types.Omitted, types.Integer, types.IntegerLiteral))
+        maxsplit == -1 or isinstance(maxsplit, (types.Omitted, types.Integer, types.IntegerLiteral))
     ):
         return None  # fail typing if maxsplit is not an integer
 
@@ -1248,11 +1236,7 @@ def unicode_split(a, sep=None, maxsplit=-1):
             return parts
 
         return split_impl
-    elif (
-        sep is None
-        or isinstance(sep, types.NoneType)
-        or getattr(sep, "value", False) is None
-    ):
+    elif sep is None or isinstance(sep, types.NoneType) or getattr(sep, "value", False) is None:
 
         def split_whitespace_impl(a, sep=None, maxsplit=-1):
             a_len = len(a)
@@ -1337,9 +1321,7 @@ def generate_rsplit_whitespace_impl(isspace_func):
 unicode_rsplit_whitespace_impl = register_jitable(
     generate_rsplit_whitespace_impl(_PyUnicode_IsSpace)
 )
-ascii_rsplit_whitespace_impl = register_jitable(
-    generate_rsplit_whitespace_impl(_Py_ISSPACE)
-)
+ascii_rsplit_whitespace_impl = register_jitable(generate_rsplit_whitespace_impl(_Py_ISSPACE))
 
 
 # https://github.com/python/cpython/blob/1d4b6ba19466aba0eb91c4ba01ba509acf18c723/Objects/unicodeobject.c#L13095-L13108    # noqa: E501
@@ -1436,9 +1418,7 @@ def unicode_center(string, width, fillchar=" "):
 
         return center_impl
 
-    if not (
-        fillchar == " " or isinstance(fillchar, (types.Omitted, types.UnicodeType))
-    ):
+    if not (fillchar == " " or isinstance(fillchar, (types.Omitted, types.UnicodeType))):
         raise TypingError("The fillchar must be a UnicodeType")
 
     def center_impl(string, width, fillchar=" "):
@@ -1483,9 +1463,7 @@ def gen_unicode_Xjust(STRING_FIRST):
 
                 return rjust_impl
 
-        if not (
-            fillchar == " " or isinstance(fillchar, (types.Omitted, types.UnicodeType))
-        ):
+        if not (fillchar == " " or isinstance(fillchar, (types.Omitted, types.UnicodeType))):
             raise TypingError("The fillchar must be a UnicodeType")
 
         def impl(string, width, fillchar=" "):
@@ -1493,9 +1471,7 @@ def gen_unicode_Xjust(STRING_FIRST):
             fillchar_len = len(fillchar)
 
             if fillchar_len != 1:
-                raise ValueError(
-                    "The fill character must be exactly one character long"
-                )
+                raise ValueError("The fill character must be exactly one character long")
 
             if width <= str_len:
                 return string
@@ -1569,9 +1545,7 @@ def unicode_splitlines(data, keepends=False):
 
     accepted = (types.Integer, int, types.Boolean, bool)
     if thety is not None and not isinstance(thety, accepted):
-        raise TypingError(
-            '"{}" must be {}, not {}'.format("keepends", accepted, keepends)
-        )
+        raise TypingError('"{}" must be {}, not {}'.format("keepends", accepted, keepends))
 
     def splitlines_impl(data, keepends=False):
         if data._is_ascii:
@@ -1713,19 +1687,14 @@ def unicode_strip_right_bound(string, chars):
 def unicode_strip_types_check(chars):
     if isinstance(chars, types.Optional):
         chars = chars.type  # catch optional type with invalid non-None type
-    if not (
-        chars is None
-        or isinstance(chars, (types.Omitted, types.UnicodeType, types.NoneType))
-    ):
+    if not (chars is None or isinstance(chars, (types.Omitted, types.UnicodeType, types.NoneType))):
         raise TypingError("The arg must be a UnicodeType or None")
 
 
 def _count_args_types_check(arg):
     if isinstance(arg, types.Optional):
         arg = arg.type
-    if not (
-        arg is None or isinstance(arg, (types.Omitted, types.Integer, types.NoneType))
-    ):
+    if not (arg is None or isinstance(arg, (types.Omitted, types.Integer, types.NoneType))):
         raise TypingError("The slice indices must be an Integer or None")
 
 
@@ -1899,9 +1868,7 @@ def _get_str_slice_view(typingctx, src_t, start_t, length_t):
 
     def codegen(context, builder, sig, args):
         src, start, length = args
-        in_str = cgutils.create_struct_proxy(types.unicode_type)(
-            context, builder, value=src
-        )
+        in_str = cgutils.create_struct_proxy(types.unicode_type)(context, builder, value=src)
         view_str = cgutils.create_struct_proxy(types.unicode_type)(context, builder)
         view_str.meminfo = in_str.meminfo
         view_str.kind = in_str.kind
@@ -2083,8 +2050,7 @@ def unicode_replace(s, old_str, new_str, count=-1):
 
     if not isinstance(thety, (int, types.Integer)):
         raise TypingError(
-            "Unsupported parameters. The parameters "
-            "must be Integer. Given count: {}".format(count)
+            "Unsupported parameters. The parameters must be Integer. Given count: {}".format(count)
         )
 
     if not isinstance(old_str, (types.UnicodeType, types.NoneType)):
@@ -2157,13 +2123,9 @@ def gen_isAlX(ascii_func, unicode_func):
 
 
 # https://github.com/python/cpython/blob/1d4b6ba19466aba0eb91c4ba01ba509acf18c723/Objects/unicodeobject.c#L11928-L11964    # noqa: E501
-overload_method(types.UnicodeType, "isalpha")(
-    gen_isAlX(_Py_ISALPHA, _PyUnicode_IsAlpha)
-)
+overload_method(types.UnicodeType, "isalpha")(gen_isAlX(_Py_ISALPHA, _PyUnicode_IsAlpha))
 
-_unicode_is_alnum = register_jitable(
-    lambda x: (_PyUnicode_IsNumeric(x) or _PyUnicode_IsAlpha(x))
-)
+_unicode_is_alnum = register_jitable(lambda x: (_PyUnicode_IsNumeric(x) or _PyUnicode_IsAlpha(x)))
 
 # https://github.com/python/cpython/blob/1d4b6ba19466aba0eb91c4ba01ba509acf18c723/Objects/unicodeobject.c#L11975-L12006    # noqa: E501
 overload_method(types.UnicodeType, "isalnum")(gen_isAlX(_Py_ISALNUM, _unicode_is_alnum))
@@ -2351,9 +2313,7 @@ overload_method(types.UnicodeType, "isdigit")(gen_isX(_PyUnicode_IsDigit))
 overload_method(types.UnicodeType, "isdecimal")(gen_isX(_PyUnicode_IsDecimalDigit))
 
 # https://github.com/python/cpython/blob/1d4b6ba19466aba0eb91c4ba01ba509acf18c723/Objects/unicodeobject.c#L12188-L12213    # noqa: E501
-overload_method(types.UnicodeType, "isprintable")(
-    gen_isX(_PyUnicode_IsPrintable, False)
-)
+overload_method(types.UnicodeType, "isprintable")(gen_isX(_PyUnicode_IsPrintable, False))
 
 # ------------------------------------------------------------------------------
 # String methods that apply a transformation to the characters themselves

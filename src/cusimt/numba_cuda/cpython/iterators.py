@@ -115,9 +115,7 @@ def iternext_zip(context, builder, sig, args, result):
         result.set_exhausted()
         return
 
-    p_ret_tup = cgutils.alloca_once(
-        builder, context.get_value_type(zip_type.yield_type)
-    )
+    p_ret_tup = cgutils.alloca_once(builder, context.get_value_type(zip_type.yield_type))
     p_is_valid = cgutils.alloca_once_value(builder, value=cgutils.true_bit)
 
     for i, (iterobj, srcty) in enumerate(zip(zipobj, zip_type.source_types)):

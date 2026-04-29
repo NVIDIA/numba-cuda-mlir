@@ -57,9 +57,7 @@ def use_activemask(ary_out):
     ary_out[i] = mask
 
 
-@pytest.mark.skipif(
-    not _safe_cc_check((7, 0)), reason="Vote sync requires CC 7.0 or greater"
-)
+@pytest.mark.skipif(not _safe_cc_check((7, 0)), reason="Vote sync requires CC 7.0 or greater")
 class TestVoteSyncOperations:
     def test_any_sync_one_true(self):
         compiled = cuda.jit(use_any_sync)
@@ -169,9 +167,7 @@ class TestVoteSyncOperations:
         assert np.all(ary_out == 0)
 
 
-@pytest.mark.skipif(
-    not _safe_cc_check((7, 0)), reason="Match sync requires CC 7.0 or greater"
-)
+@pytest.mark.skipif(not _safe_cc_check((7, 0)), reason="Match sync requires CC 7.0 or greater")
 class TestMatchSyncOperations:
     def test_match_any_sync_all_same(self):
         compiled = cuda.jit(use_match_any_sync)
@@ -224,9 +220,7 @@ class TestMatchSyncOperations:
         assert np.all(ary_pred_out == 0)
 
 
-@pytest.mark.skipif(
-    not _safe_cc_check((7, 0)), reason="Activemask requires CC 7.0 or greater"
-)
+@pytest.mark.skipif(not _safe_cc_check((7, 0)), reason="Activemask requires CC 7.0 or greater")
 class TestActivemask:
     def test_activemask_full_warp(self):
         compiled = cuda.jit(use_activemask)

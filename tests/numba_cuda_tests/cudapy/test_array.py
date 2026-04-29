@@ -89,8 +89,7 @@ class TestCudaArray:
             pass
         else:
             raise AssertionError(
-                "Should raise exception complaining the "
-                "contiguous-ness of the array."
+                "Should raise exception complaining the contiguous-ness of the array."
             )
             # Should we handle this use case?
             # assert z.size == y.size
@@ -112,12 +111,8 @@ class TestCudaArray:
         np.testing.assert_equal(array.shape, array_like.shape)
         np.testing.assert_equal(array.strides, array_like.strides)
         np.testing.assert_equal(array.dtype, array_like.dtype)
-        np.testing.assert_equal(
-            array.flags["C_CONTIGUOUS"], array_like.flags["C_CONTIGUOUS"]
-        )
-        np.testing.assert_equal(
-            array.flags["F_CONTIGUOUS"], array_like.flags["F_CONTIGUOUS"]
-        )
+        np.testing.assert_equal(array.flags["C_CONTIGUOUS"], array_like.flags["C_CONTIGUOUS"])
+        np.testing.assert_equal(array.flags["F_CONTIGUOUS"], array_like.flags["F_CONTIGUOUS"])
 
     @pytest.mark.parametrize("like_func", ARRAY_LIKE_FUNCTIONS)
     def test_array_like_1d(self, like_func):
@@ -171,12 +166,8 @@ class TestCudaArray:
         # Use NumPy as a reference for the expected strides
         np_like = np.zeros_like(view)
         np.testing.assert_equal(nb_like.strides, np_like.strides)
-        np.testing.assert_equal(
-            nb_like.flags["C_CONTIGUOUS"], np_like.flags["C_CONTIGUOUS"]
-        )
-        np.testing.assert_equal(
-            nb_like.flags["F_CONTIGUOUS"], np_like.flags["F_CONTIGUOUS"]
-        )
+        np.testing.assert_equal(nb_like.flags["C_CONTIGUOUS"], np_like.flags["C_CONTIGUOUS"])
+        np.testing.assert_equal(nb_like.flags["F_CONTIGUOUS"], np_like.flags["F_CONTIGUOUS"])
 
     @pytest.mark.parametrize("like_func", ARRAY_LIKE_FUNCTIONS)
     def test_array_like_1d_view(self, like_func):

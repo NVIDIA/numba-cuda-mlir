@@ -805,9 +805,7 @@ class TestLaunchBounds(NumbaCUDATestCase):
         self.assertNotIn(".maxclusterrank", ptx)
 
     @_xfail_max_cluster_rank
-    @pytest.mark.skipif(
-        not cc_X_or_above(9, 0), reason="CC 9.0 needed for max cluster rank"
-    )
+    @pytest.mark.skipif(not cc_X_or_above(9, 0), reason="CC 9.0 needed for max cluster rank")
     def test_launch_bounds_with_max_cluster_rank(self):
         launch_bounds = (128, 2, 4)
         ptx = self._test_launch_bounds_common(launch_bounds)

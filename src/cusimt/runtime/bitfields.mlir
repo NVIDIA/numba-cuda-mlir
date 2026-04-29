@@ -3,11 +3,11 @@
 module attributes {cusimt.link_target} {
     // Args match the bit-fields described in InstrDescriptor.
     // Each field is zero-extended, shifted into position, OR’d into the 32-bit result.
-    // 
+    //
     // union InstrDescriptor
     // {
     //   uint32_t desc_;
-    // 
+    //
     //   struct {
     //     // Bitfield implementation avoids the need for shifts in assignment
     //     uint16_t sparse_id2_    : 2,  // bit [ 0, 2) : Sparse meta data id2
@@ -117,12 +117,12 @@ module attributes {cusimt.link_target} {
     }
 
     // Utility function to encode the shared memory descriptor
-    // 
+    //
     // union SmemDescriptor {
     //   uint64_t desc_;
     //   uint32_t reg32_[2];
     //   uint16_t reg16_[4];
-    // 
+    //
     //   // Bitfield implementation avoids the need for shifts in assignment
     //   struct {
     //     // start_address, bit [0,14), 4LSB not included
@@ -139,12 +139,12 @@ module attributes {cusimt.link_target} {
     //     // base_offset, bit [49,52)
     //     // Valid only for SWIZZLE_128B and SWIZZLE_64B
     //     uint8_t : 1, base_offset_ : 3, : 4; // 1 bit unused, 3 bits [1,4), 4 bits unused
-    //     // layout type, bit [61,64), 
-    //     // SWIZZLE_NONE matrix descriptor = 0, 
-    //     // SWIZZLE_128B matrix descriptor = 2, 
-    //     // SWIZZLE_64B descriptor = 4, 
-    //     // SWIZZLE_32B descriptor = 6, 
-    //     // SWIZZLE_128B_BASE32B = 1, 
+    //     // layout type, bit [61,64),
+    //     // SWIZZLE_NONE matrix descriptor = 0,
+    //     // SWIZZLE_128B matrix descriptor = 2,
+    //     // SWIZZLE_64B descriptor = 4,
+    //     // SWIZZLE_32B descriptor = 6,
+    //     // SWIZZLE_128B_BASE32B = 1,
     //     // N/A = 3, N/A = 5, N/A = 7
     //     uint8_t : 5, layout_type_ : 3; // 6 bits unused, 3 bits [5,8)
     //   };

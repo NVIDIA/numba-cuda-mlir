@@ -22,9 +22,7 @@ class TestCUDAVectorizeScalarArg(NumbaCUDATestCase):
         dA = cuda.to_device(A)
         v = vector_add(1.0, dA)
 
-        np.testing.assert_array_almost_equal(
-            v.copy_to_host(), np.arange(1, 11, dtype=np.float64)
-        )
+        np.testing.assert_array_almost_equal(v.copy_to_host(), np.arange(1, 11, dtype=np.float64))
 
     def test_vectorize_all_scalars(self):
         @vectorize(sig, target="cuda")

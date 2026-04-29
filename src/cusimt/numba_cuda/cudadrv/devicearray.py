@@ -102,17 +102,13 @@ class DeviceNDArrayBase:
         self.size = size = dummy.size
         # prepare gpu memory
         if size:
-            self.alloc_size = alloc_size = _driver.memory_size_from_info(
-                shape, strides, itemsize
-            )
+            self.alloc_size = alloc_size = _driver.memory_size_from_info(shape, strides, itemsize)
             if gpu_data is None:
                 gpu_data = devices.get_context().memalloc(alloc_size)
         else:
             # Make NULL pointer for empty allocation
             null = _driver.binding.CUdeviceptr(0)
-            gpu_data = _driver.MemoryPointer(
-                context=devices.get_context(), pointer=null, size=0
-            )
+            gpu_data = _driver.MemoryPointer(context=devices.get_context(), pointer=null, size=0)
             self.alloc_size = 0
 
         self.gpu_data = gpu_data
@@ -228,11 +224,7 @@ class DeviceNDArrayBase:
                 ary_core,
                 order="C" if self_core.flags["C_CONTIGUOUS"] else "F",
                 subok=True,
-                copy=(
-                    (not ary_core.flags["WRITEABLE"])
-                    if numpy_version < (2, 0)
-                    else None
-                ),
+                copy=((not ary_core.flags["WRITEABLE"]) if numpy_version < (2, 0) else None),
             )
             check_array_compatibility(self_core, ary_core)
             _driver.host_to_device(self, ary_core, self.alloc_size, stream=stream)
@@ -366,8 +358,7 @@ class DeviceNDArrayBase:
         if self.dtype.itemsize != dtype.itemsize:
             if not self.is_c_contiguous():
                 raise ValueError(
-                    "To change to a dtype of a different size,"
-                    " the array must be C-contiguous"
+                    "To change to a dtype of a different size, the array must be C-contiguous"
                 )
 
             shape[-1], rem = divmod(shape[-1] * self.dtype.itemsize, dtype.itemsize)
@@ -464,9 +455,7 @@ class DeviceRecord(DeviceNDArrayBase):
                 return DeviceRecord(dtype=typ, stream=stream, gpu_data=newdata)
             else:
                 hostary = np.empty(1, dtype=typ)
-                _driver.device_to_host(
-                    dst=hostary, src=newdata, size=typ.itemsize, stream=stream
-                )
+                _driver.device_to_host(dst=hostary, src=newdata, size=typ.itemsize, stream=stream)
             return hostary[0]
         else:
             shape, strides, dtype = prepare_shape_strides_dtype(
@@ -680,9 +669,7 @@ class DeviceNDArray(DeviceNDArrayBase):
             if not arr.is_array:
                 # Check for structured array type (record)
                 if self.dtype.names is not None:
-                    return DeviceRecord(
-                        dtype=self.dtype, stream=stream, gpu_data=newdata
-                    )
+                    return DeviceRecord(dtype=self.dtype, stream=stream, gpu_data=newdata)
                 else:
                     # Element indexing
                     hostary = np.empty(1, dtype=self.dtype)
@@ -756,9 +743,7 @@ class DeviceNDArray(DeviceNDArrayBase):
 
         rhs, _ = auto_device(value, stream=stream, user_explicit=True)
         if rhs.ndim > lhs.ndim:
-            raise ValueError(
-                "Can't assign %s-D array to %s-D self" % (rhs.ndim, lhs.ndim)
-            )
+            raise ValueError("Can't assign %s-D array to %s-D self" % (rhs.ndim, lhs.ndim))
         rhs_shape = np.ones(lhs.ndim, dtype=np.int64)
         # negative indices would not work if rhs.ndim == 0
         rhs_shape[lhs.ndim - rhs.ndim :] = rhs.shape
@@ -845,9 +830,7 @@ class ManagedNDArray(DeviceNDArrayBase, np.ndarray):
 
 def from_array_like(ary, stream=0, gpu_data=None):
     "Create a DeviceNDArray object that is like ary."
-    return DeviceNDArray(
-        ary.shape, ary.strides, ary.dtype, stream=stream, gpu_data=gpu_data
-    )
+    return DeviceNDArray(ary.shape, ary.strides, ary.dtype, stream=stream, gpu_data=gpu_data)
 
 
 def from_record_like(rec, stream=0, gpu_data=None):
@@ -922,23 +905,15 @@ def auto_device(obj, stream=0, copy=True, user_explicit=False):
             # https://docs.scipy.org/doc/numpy-1.13.0/reference/arrays.interface.html
             # into this function (with no overhead -- copies -- for `obj`s
             # that are already `ndarray`s.
-            obj = np.array(
-                obj, copy=False if numpy_version < (2, 0) else None, subok=True
-            )
+            obj = np.array(obj, copy=False if numpy_version < (2, 0) else None, subok=True)
             sentry_contiguous(obj)
             devobj = from_array_like(obj, stream=stream)
         if copy:
-            if (
-                config.CUDA_WARN_ON_IMPLICIT_COPY
-                and not config.DISABLE_PERFORMANCE_WARNINGS
-            ):
+            if config.CUDA_WARN_ON_IMPLICIT_COPY and not config.DISABLE_PERFORMANCE_WARNINGS:
                 if not user_explicit and (
                     not isinstance(obj, DeviceNDArray) and isinstance(obj, np.ndarray)
                 ):
-                    msg = (
-                        "Host array used in CUDA kernel will incur "
-                        "copy overhead to/from device."
-                    )
+                    msg = "Host array used in CUDA kernel will incur copy overhead to/from device."
                     warn(NumbaPerformanceWarning(msg))
             devobj.copy_to_device(obj, stream=stream)
         return devobj, True
@@ -955,8 +930,7 @@ _UNSUPPORTED_DLPACK_TYPES = (
 
 def _make_strided_memory_view(obj, *, stream_ptr) -> StridedMemoryView:
     if isinstance(obj, _UNSUPPORTED_DLPACK_TYPES) or (
-        isinstance(obj, np.ndarray)
-        and issubclass(obj.dtype.type, _UNSUPPORTED_DLPACK_TYPES)
+        isinstance(obj, np.ndarray) and issubclass(obj.dtype.type, _UNSUPPORTED_DLPACK_TYPES)
     ):
         return StridedMemoryView.from_array_interface(obj)
     return StridedMemoryView.from_any_interface(obj, stream_ptr=stream_ptr)
@@ -1015,9 +989,7 @@ def _to_strided_memory_view(
         and hasattr(obj, "__dlpack__")
         and (
             (dtype := getattr(obj, "dtype", None)) is None
-            or not issubclass(
-                getattr(dtype, "type", type(None)), _UNSUPPORTED_DLPACK_TYPES
-            )
+            or not issubclass(getattr(dtype, "type", type(None)), _UNSUPPORTED_DLPACK_TYPES)
         )
     ):
         # numpy arrays need to be copied to the device
@@ -1026,9 +998,7 @@ def _to_strided_memory_view(
         # not sure if this is true in general, since what if a numpy array was
         # constructed using `np.from_dlpack`?
         return (
-            StridedMemoryView.from_dlpack(
-                obj, stream_ptr=getattr(stream, "handle", stream)
-            ),
+            StridedMemoryView.from_dlpack(obj, stream_ptr=getattr(stream, "handle", stream)),
             False,
         )
     elif (desc := getattr(obj, "__cuda_array_interface__", None)) is not None:
@@ -1066,21 +1036,13 @@ def _to_strided_memory_view(
             dtype=hostobj.dtype,
         )
         if copy:
-            if (
-                config.CUDA_WARN_ON_IMPLICIT_COPY
-                and not config.DISABLE_PERFORMANCE_WARNINGS
-            ):
+            if config.CUDA_WARN_ON_IMPLICIT_COPY and not config.DISABLE_PERFORMANCE_WARNINGS:
                 if not user_explicit and (
                     not isinstance(obj, DeviceNDArray) and isinstance(obj, np.ndarray)
                 ):
-                    msg = (
-                        "Host array used in CUDA kernel will incur "
-                        "copy overhead to/from device."
-                    )
+                    msg = "Host array used in CUDA kernel will incur copy overhead to/from device."
                     warn(NumbaPerformanceWarning(msg))
-            _driver.driver.cuMemcpyHtoDAsync(
-                devobj.ptr, hostobj.ptr, nbytes, stream_ptr
-            )
+            _driver.driver.cuMemcpyHtoDAsync(devobj.ptr, hostobj.ptr, nbytes, stream_ptr)
         return devobj, True
 
 
@@ -1093,6 +1055,4 @@ def check_array_compatibility(ary1, ary2):
     # We check strides only if the size is nonzero, because strides are
     # irrelevant (and can differ) for zero-length copies.
     if ary1.size and ary1sq.strides != ary2sq.strides:
-        raise ValueError(
-            "incompatible strides: %s vs. %s" % (ary1.strides, ary2.strides)
-        )
+        raise ValueError("incompatible strides: %s vs. %s" % (ary1.strides, ary2.strides))

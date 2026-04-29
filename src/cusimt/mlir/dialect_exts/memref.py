@@ -65,9 +65,7 @@ def __alloc(
         else:
             memref_shape.append(ShapedType.get_dynamic_size())
             dynamic_sizes.append(s)
-    result_type = T.memref(
-        *memref_shape, element_type=element_type, memory_space=memory_space
-    )
+    result_type = T.memref(*memref_shape, element_type=element_type, memory_space=memory_space)
 
     symbol_operands = []
     return get_op_result_or_op_results(
@@ -277,9 +275,7 @@ def expand_shape(
     if len(newaxis_dims) == 0:
         return inp
 
-    result_shape, reassoc_list = compute_result_shape_reassoc_list(
-        inp.shape, newaxis_dims
-    )
+    result_shape, reassoc_list = compute_result_shape_reassoc_list(inp.shape, newaxis_dims)
 
     return MemRefValue(
         memref.expand_shape(
@@ -297,9 +293,7 @@ def expand_shape(
 def _infer_memref_subview_result_type(source_memref_type, offsets, sizes, strides):
     source_strides, source_offset = source_memref_type.get_strides_and_offset()
     # "canonicalize" from tuple|list -> list
-    offsets, sizes, strides, source_strides = map(
-        list, (offsets, sizes, strides, source_strides)
-    )
+    offsets, sizes, strides, source_strides = map(list, (offsets, sizes, strides, source_strides))
 
     if any(not _is_static_int_like(i) for i in offsets + [source_offset]):
         target_offset = ShapedType.get_dynamic_size()
@@ -317,9 +311,7 @@ def _infer_memref_subview_result_type(source_memref_type, offsets, sizes, stride
         default_strides = list(accumulate(sizes[1:][::-1], operator.mul))[::-1] + [1]
     else:
         default_strides = None
-        sizes = [
-            s if isinstance(s, int) else ShapedType.get_dynamic_size() for s in sizes
-        ]
+        sizes = [s if isinstance(s, int) else ShapedType.get_dynamic_size() for s in sizes]
 
     if target_strides == default_strides and target_offset == 0:
         layout = None
@@ -360,9 +352,7 @@ def subview(
     if result_type is None:
         # If any are arith.constant results then this will canonicalize to python int
         # (which can then be used to fully specify the subview).
-        result_type = _infer_memref_subview_result_type(
-            source.type, offsets, sizes, strides
-        )
+        result_type = _infer_memref_subview_result_type(source.type, offsets, sizes, strides)
 
     offsets, _packed_offsets, static_offsets = _dispatch_mixed_values(offsets)
     sizes, _packed_sizes, static_sizes = _dispatch_mixed_values(sizes)
@@ -373,20 +363,14 @@ def subview(
         layout_strides = None
         if result_type.layout:
             layout_strides = result_type.layout.strides
-        for i, (s, ss) in reversed(
-            list(enumerate(list(zip_longest(sizes, static_sizes))))
-        ):
-            if (
-                s is not None and _is_static_int_like(s) and s.literal_value == 1
-            ) or ss == 1:
+        for i, (s, ss) in reversed(list(enumerate(list(zip_longest(sizes, static_sizes))))):
+            if (s is not None and _is_static_int_like(s) and s.literal_value == 1) or ss == 1:
                 del result_shape[i]
                 if layout_strides is not None:
                     del layout_strides[i]
         reduced_layout = None
         if layout_strides is not None:
-            reduced_layout = StridedLayoutAttr.get(
-                result_type.layout.offset, layout_strides
-            )
+            reduced_layout = StridedLayoutAttr.get(result_type.layout.offset, layout_strides)
         result_type = MemRefType.get(
             result_shape,
             result_type.element_type,
@@ -432,15 +416,11 @@ def _subview(
             if isinstance(ind, slice):
                 maybe_size = _maybe_compute_size(ind.start, ind.stop, ind.step)
                 if maybe_size is None:
-                    raise RuntimeError(
-                        f"failed to canonicalize start, stop, step: {ind=}"
-                    )
+                    raise RuntimeError(f"failed to canonicalize start, stop, step: {ind=}")
                 offsets[i] = ind.start
                 sizes[i] = maybe_size
                 strides[i] = (
-                    ind.step.literal_value
-                    if isinstance(ind.step, ScalarValue)
-                    else ind.step
+                    ind.step.literal_value if isinstance(ind.step, ScalarValue) else ind.step
                 )
             elif isinstance(ind, Value):
                 offsets[i] = ind
@@ -448,9 +428,9 @@ def _subview(
                 strides[i] = 1
             else:
                 raise RuntimeError(f"indexing of {mem=} not supported by {ind=}")
-        assert all(
-            map(lambda x: x is not None, offsets + sizes + strides)
-        ), f"not each slice is statically known: {indexer.indices}"
+        assert all(map(lambda x: x is not None, offsets + sizes + strides)), (
+            f"not each slice is statically known: {indexer.indices}"
+        )
 
     out = subview(
         out,
@@ -478,9 +458,9 @@ def _copy_to_subview(
         source = expand_shape(source, (0,), loc=loc, ip=ip)
 
     dest_subview = _subview(dest, idx, loc=loc, ip=ip)
-    assert (
-        dest_subview.shape == source.shape
-    ), f"Expected matching shape for dest subview {dest_subview.shape} and source {source.shape=}"
+    assert dest_subview.shape == source.shape, (
+        f"Expected matching shape for dest subview {dest_subview.shape} and source {source.shape=}"
+    )
 
     return memref.copy(source, dest_subview, loc=loc, ip=ip)
 
@@ -508,12 +488,8 @@ def global_(
 ):
     if sym_name is None:
         previous_frame = inspect.currentframe().f_back
-        sym_name = _get_sym_name(
-            previous_frame, check_func_call="memref\\.global_|global_"
-        )
-        assert (
-            sym_name is not None
-        ), "couldn't automatically find sym_name in previous frame"
+        sym_name = _get_sym_name(previous_frame, check_func_call="memref\\.global_|global_")
+        assert sym_name is not None, "couldn't automatically find sym_name in previous frame"
     if initial_value is None:
         assert type is not None
     else:
@@ -579,17 +555,13 @@ def view(source, shape, dtype=None, shift=0, memory_space=None, loc=None, ip=Non
 _get_global = get_global
 
 
-def get_global(
-    name_or_global, *, name=None, global_=None, result=None, loc=None, ip=None
-):
+def get_global(name_or_global, *, name=None, global_=None, result=None, loc=None, ip=None):
     if isinstance(name_or_global, GlobalOp):
         global_ = name_or_global
     elif isinstance(name_or_global, str):
         name = name_or_global
     elif name_or_global is not None:
-        raise ValueError(
-            f"only string or GlobalOp can be provided; got {name_or_global}"
-        )
+        raise ValueError(f"only string or GlobalOp can be provided; got {name_or_global}")
 
     if global_ is None:
         assert name is not None, "name must be provided"
@@ -639,9 +611,7 @@ def reinterpret_cast(
 
     default_strides = None
     if not static_strides and all(_is_static_int_like(s) for s in static_sizes):
-        default_strides = list(accumulate(list(static_sizes)[1:][::-1], operator.mul))[
-            ::-1
-        ] + [1]
+        default_strides = list(accumulate(list(static_sizes)[1:][::-1], operator.mul))[::-1] + [1]
         static_strides = default_strides
 
     target_offset = 0

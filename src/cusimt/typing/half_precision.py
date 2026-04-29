@@ -75,9 +75,7 @@ def register_bf16_globals():
             ]
 
         registry.register(BF16AsShortTemplate)
-        registry.register_global(
-            _bfloat16_as_short, types.Function(BF16AsShortTemplate)
-        )
+        registry.register_global(_bfloat16_as_short, types.Function(BF16AsShortTemplate))
 
     _bfloat16_as_ushort = getattr(mod, "__bfloat16_as_ushort", None)
     if _bfloat16_as_ushort:
@@ -96,9 +94,7 @@ def register_bf16_globals():
             ]
 
         registry.register(BF16AsUShortTemplate)
-        registry.register_global(
-            _bfloat16_as_ushort, types.Function(BF16AsUShortTemplate)
-        )
+        registry.register_global(_bfloat16_as_ushort, types.Function(BF16AsUShortTemplate))
 
     _short_as_bfloat16 = getattr(mod, "__short_as_bfloat16", None)
     if _short_as_bfloat16:
@@ -113,9 +109,7 @@ def register_bf16_globals():
             ]
 
         registry.register(ShortAsBF16Template)
-        registry.register_global(
-            _short_as_bfloat16, types.Function(ShortAsBF16Template)
-        )
+        registry.register_global(_short_as_bfloat16, types.Function(ShortAsBF16Template))
 
     _ushort_as_bfloat16 = getattr(mod, "__ushort_as_bfloat16", None)
     if _ushort_as_bfloat16:
@@ -132,6 +126,4 @@ def register_bf16_globals():
             ]
 
         registry.register(UShortAsBF16Template)
-        registry.register_global(
-            _ushort_as_bfloat16, types.Function(UShortAsBF16Template)
-        )
+        registry.register_global(_ushort_as_bfloat16, types.Function(UShortAsBF16Template))

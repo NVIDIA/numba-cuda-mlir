@@ -316,9 +316,7 @@ class _IternextResult:
         """
         Return whether the iterator is marked valid.
         """
-        return self._context.get_argument_value(
-            self._builder, types.boolean, self._pairobj.second
-        )
+        return self._context.get_argument_value(self._builder, types.boolean, self._pairobj.second)
 
     def yielded_value(self):
         """

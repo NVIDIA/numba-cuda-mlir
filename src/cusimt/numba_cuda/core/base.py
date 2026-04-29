@@ -64,9 +64,7 @@ class OverloadSelector:
         Select all compatible signatures and their implementation.
         """
         return {
-            ver_sig: impl
-            for ver_sig, impl in self.versions
-            if self._match_arglist(ver_sig, sig)
+            ver_sig: impl for ver_sig, impl in self.versions if self._match_arglist(ver_sig, sig)
         }
 
     def _best_signature(self, candidates):
@@ -402,14 +400,10 @@ class BaseContext:
             if is_external_type_sig(sig)
         ]
         casts = [
-            (impl, sig)
-            for impl, sig in loader.new_registrations("casts")
-            if is_external(impl)
+            (impl, sig) for impl, sig in loader.new_registrations("casts") if is_external(impl)
         ]
         constants = [
-            (impl, sig)
-            for impl, sig in loader.new_registrations("constants")
-            if is_external(impl)
+            (impl, sig) for impl, sig in loader.new_registrations("constants") if is_external(impl)
         ]
 
         self.insert_func_defn(funcs)
@@ -682,9 +676,7 @@ class BaseContext:
         except errors.NumbaNotImplementedError:
             pass
 
-        raise NotImplementedError(
-            "No definition for lowering %s.%s = %s" % (typ, attr, valty)
-        )
+        raise NotImplementedError("No definition for lowering %s.%s = %s" % (typ, attr, valty))
 
     def get_argument_value(self, builder, ty, val):
         """
@@ -743,9 +735,7 @@ class BaseContext:
             impl = self._casts.find((fromty, toty))
             return impl(self, builder, fromty, toty, val)
         except errors.NumbaNotImplementedError:
-            raise errors.NumbaNotImplementedError(
-                "Cannot cast %s to %s: %s" % (fromty, toty, val)
-            )
+            raise errors.NumbaNotImplementedError("Cannot cast %s to %s: %s" % (fromty, toty, val))
 
     def generic_compare(self, builder, key, argtypes, args):
         """
@@ -803,10 +793,7 @@ class BaseContext:
         return gv
 
     def call_external_function(self, builder, callee, argtys, args):
-        args = [
-            self.get_value_as_argument(builder, ty, arg)
-            for ty, arg in zip(argtys, args)
-        ]
+        args = [self.get_value_as_argument(builder, ty, arg) for ty, arg in zip(argtys, args)]
         retval = builder.call(callee, args)
         return retval
 
@@ -893,9 +880,7 @@ class BaseContext:
             self.active_code_library.add_linking_library(cres.library)
             return cres
 
-    def compile_subroutine(
-        self, builder, impl, sig, locals=None, flags=None, caching=True
-    ):
+    def compile_subroutine(self, builder, impl, sig, locals=None, flags=None, caching=True):
         """
         Compile the function *impl* for the given *sig* (in nopython mode).
         Return an instance of CompileResult.
@@ -947,9 +932,7 @@ class BaseContext:
         """Similar to `.call_internal()` but does not handle or propagate
         the return status automatically.
         """
-        return self.fndesc.call_conv.call_internal_no_propagate(
-            builder, fndesc, sig, args
-        )
+        return self.fndesc.call_conv.call_internal_no_propagate(builder, fndesc, sig, args)
 
     def call_unresolved(self, builder, name, sig, args):
         """
@@ -987,9 +970,7 @@ class BaseContext:
         fnty = self.call_conv.get_function_type(sig.return_type, sig.args)
         fn = codegen.insert_unresolved_ref(builder, fnty, name)
         # Normal call sequence
-        status, res = self.call_conv.call_function(
-            builder, fn, sig.return_type, sig.args, args
-        )
+        status, res = self.call_conv.call_function(builder, fn, sig.return_type, sig.args, args)
         with cgutils.if_unlikely(builder, status.is_error):
             self.call_conv.return_status_propagate(builder, status)
 
@@ -1085,9 +1066,7 @@ class BaseContext:
         # don't freeze ary of non-contig or bigger than 1MB
         size_limit = 10**6
 
-        if self.allow_dynamic_globals and (
-            typ.layout not in "FC" or ary.nbytes > size_limit
-        ):
+        if self.allow_dynamic_globals and (typ.layout not in "FC" or ary.nbytes > size_limit):
             # get pointer from the ary
             dataptr = ary.ctypes.data
             data = self.add_dynamic_addr(builder, dataptr, info=str(type(dataptr)))
@@ -1098,9 +1077,7 @@ class BaseContext:
             flat = ary.flatten(order=typ.layout)
             # Note: we use `bytearray(flat.data)` instead of `bytearray(flat)` to
             #       workaround issue #1850 which is due to numpy issue #3147
-            consts = cgutils.create_constant_array(
-                llvmir.IntType(8), bytearray(flat.data)
-            )
+            consts = cgutils.create_constant_array(llvmir.IntType(8), bytearray(flat.data))
             data = cgutils.global_constant(builder, ".const.array.data", consts)
             # Ensure correct data alignment (issue #1933)
             data.align = self.get_abi_alignment(datatype)

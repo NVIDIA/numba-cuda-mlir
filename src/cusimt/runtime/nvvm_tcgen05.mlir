@@ -7,7 +7,7 @@ module attributes {cusimt.link_target} {
     // =========================================================================
     // CTA_1 (single CTA) variants
     // =========================================================================
-    
+
     // Allocate TMEM (Tensor Memory)
     func.func private @tcgen05_alloc(%ptr: !llvm.ptr, %columns: i32) attributes {always_inline} {
         %ptr3 = llvm.addrspacecast %ptr : !llvm.ptr to !llvm.ptr<3>

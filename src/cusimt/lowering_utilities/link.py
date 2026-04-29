@@ -43,9 +43,9 @@ def _extract_linkable_ops(module: ir.Module) -> list[ir.Operation]:
         if _is_linkable_op(op):
             ops.append(op)
         elif isinstance(op, gpu.GPUModuleOp):
-            for nested_op in op.regions[0].blocks[0]:
-                if _is_linkable_op(nested_op):
-                    ops.append(nested_op)
+            ops.extend(
+                nested_op for nested_op in op.regions[0].blocks[0] if _is_linkable_op(nested_op)
+            )
     return ops
 
 

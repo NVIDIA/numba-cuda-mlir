@@ -50,9 +50,7 @@ _overload_template = (
 )
 
 
-_err_reasons = {
-    "specific_error": "Rejected as the implementation raised a " "specific error:\n{}"
-}
+_err_reasons = {"specific_error": "Rejected as the implementation raised a specific error:\n{}"}
 
 
 def _bt_as_lines(bt):
@@ -156,9 +154,7 @@ class _ResolutionFailures:
                 # literal/nonliteral be specific
                 if len(err_dict) == 1:
                     template = [_ for _ in err_dict.keys()][0]
-                    source_name, source_file, source_lines, source_kind = template_info(
-                        template
-                    )
+                    source_name, source_file, source_lines, source_kind = template_info(template)
                     source_lines = source_lines[0]
                 else:
                     source_file = "<numerous>"
@@ -210,9 +206,7 @@ class _ResolutionFailures:
                 if config.DEVELOPER_MODE:
                     if isinstance(error, BaseException):
                         # if the error is an actual exception instance, trace it
-                        bt = traceback.format_exception(
-                            type(error), error, error.__traceback__
-                        )
+                        bt = traceback.format_exception(type(error), error, error.__traceback__)
                     else:
                         bt = [""]
                     bt_as_lines = _bt_as_lines(bt)
@@ -331,9 +325,7 @@ class BaseFunction(Callable):
                         registered_sigs = getattr(temp, "cases", None)
                         if registered_sigs is not None:
                             msg = "No match for registered cases:\n%s"
-                            msg = msg % "\n".join(
-                                " * {}".format(x) for x in registered_sigs
-                            )
+                            msg = msg % "\n".join(" * {}".format(x) for x in registered_sigs)
                         else:
                             msg = "No match."
                         failures.add_error(temp, True, msg, uselit)
@@ -451,15 +443,11 @@ class BoundFunction(Callable, Opaque):
                 def add_bt(error):
                     if isinstance(error, BaseException):
                         # if the error is an actual exception instance, trace it
-                        bt = traceback.format_exception(
-                            type(error), error, error.__traceback__
-                        )
+                        bt = traceback.format_exception(type(error), error, error.__traceback__)
                     else:
                         bt = [""]
                     nd2indent = "\n{}".format(2 * indent)
-                    errstr = _termcolor.reset(
-                        nd2indent + nd2indent.join(_bt_as_lines(bt))
-                    )
+                    errstr = _termcolor.reset(nd2indent + nd2indent.join(_bt_as_lines(bt)))
                     return _termcolor.reset(errstr)
 
             else:
@@ -472,8 +460,7 @@ class BoundFunction(Callable, Opaque):
                 return tmplt.format(literalness, str(new_e))
 
             raise errors.TypingError(
-                nested_msg("literal", literal_e)
-                + nested_msg("non-literal", nonliteral_e)
+                nested_msg("literal", literal_e) + nested_msg("non-literal", nonliteral_e)
             )
         return out
 
@@ -541,12 +528,7 @@ class Dispatcher(WeakType, Callable, Dummy):
         super().__init__("type(%s)" % dispatcher)
 
     def dump(self, tab=""):
-        print(
-            (
-                f"{tab}DUMP {type(self).__name__}[code={self._code}, "
-                f"name={self.name}]"
-            )
-        )
+        print((f"{tab}DUMP {type(self).__name__}[code={self._code}, name={self.name}]"))
         self.dispatcher.dump(tab=tab + "  ")
         print(f"{tab}END DUMP")
 

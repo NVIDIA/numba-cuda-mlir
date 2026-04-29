@@ -114,9 +114,7 @@ def _inject_ci_token(repo_url: str) -> str:
     return repo_url.replace("https://", f"https://gitlab-ci-token:{token}@", 1)
 
 
-def clone_numbast_internal(
-    clone_dir: Path, repo: str, branch: Optional[str] = None
-) -> Path:
+def clone_numbast_internal(clone_dir: Path, repo: str, branch: Optional[str] = None) -> Path:
     numbast_dir = clone_dir / "numbast-internal"
     auth_repo = _inject_ci_token(repo)
     run(
@@ -169,9 +167,7 @@ def resolve_test_targets(numbast_dir: Path) -> list[str]:
     return targets
 
 
-def install_cusimt_for_numbast_internal(
-    conda_exe: str, env_name: str, extra: str
-) -> None:
+def install_cusimt_for_numbast_internal(conda_exe: str, env_name: str, extra: str) -> None:
     wheels = sorted((CUSIMT_ROOT / "dist").glob("cusimt-*.whl"))
     if wheels:
         wheel = wheels[-1]
@@ -215,15 +211,11 @@ def install_cusimt_for_numbast_internal(
     )
 
 
-def setup_numbast_internal_env(
-    conda_exe: str, env_name: str, numbast_dir: Path
-) -> None:
+def setup_numbast_internal_env(conda_exe: str, env_name: str, numbast_dir: Path) -> None:
     cfg = get_cuda_config()
     test_extra = f"test-{cfg['extra']}"
 
-    conda_run(
-        conda_exe, env_name, ["python", "-m", "pip", "install", "--upgrade", "pip"]
-    )
+    conda_run(conda_exe, env_name, ["python", "-m", "pip", "install", "--upgrade", "pip"])
     install_cusimt_for_numbast_internal(conda_exe, env_name, cfg["extra"])
     conda_run(
         conda_exe,

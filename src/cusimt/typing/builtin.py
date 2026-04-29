@@ -29,9 +29,7 @@ class TupleMultiplyTemplate(AbstractTemplate):
         if not isinstance(how_many, types.Literal):
             raise ForceLiteralArg(set([args.index(how_many)]))
 
-        return signature(
-            types.Tuple((tup.dtype,) * how_many.literal_value), tup, how_many
-        )
+        return signature(types.Tuple((tup.dtype,) * how_many.literal_value), tup, how_many)
 
 
 @registry.register_global(operator.setitem)

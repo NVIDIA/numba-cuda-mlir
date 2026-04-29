@@ -175,6 +175,7 @@ jobs:
         python-version:
           - "3.12"
         cuda-version:
+          - "12.2.2"
           - ${{ inputs.cuda-version }}
           - ${{ inputs.prev-cuda-version }}
     name: py${{ matrix.python-version }} CUDA ${{ matrix.cuda-version }}
@@ -228,6 +229,11 @@ jobs:
           CUDA_MINOR="$(cut -d '.' -f 2 <<< ${{ matrix.cuda-version }})"
           echo "CUDA_MAJOR=${CUDA_MAJOR}" >> "${GITHUB_ENV}"
           echo "CUDA_MINOR=${CUDA_MINOR}" >> "${GITHUB_ENV}"
+          CUDA_ARTIFACT_SUFFIX="cu${CUDA_MAJOR}"
+          if [[ "${CUDA_MAJOR}.${CUDA_MINOR}" == "12.2" ]]; then
+            CUDA_ARTIFACT_SUFFIX="cu${CUDA_MAJOR}${CUDA_MINOR}"
+          fi
+          echo "CUDA_ARTIFACT_SUFFIX=${CUDA_ARTIFACT_SUFFIX}" >> "${GITHUB_ENV}"
 
       - name: Dump environment
         run: |
@@ -267,7 +273,10 @@ jobs:
           nvcc --version
 
           if [[ "${CUDA_MAJOR}" == 12 ]]; then
-            CC_LIST=(70 75 80 86 89 90 120)
+            CC_LIST=(70 75 80 86 89 90)
+            if [[ "${CUDA_MINOR}" -ge 8 ]]; then
+              CC_LIST+=(120)
+            fi
           elif [[ "${CUDA_MAJOR}" == 13 ]]; then
             CC_LIST=(75 80 86 89 90 120)
           fi
@@ -282,19 +291,19 @@ jobs:
 
           if [[ "${{ inputs.host-platform }}" == linux* ]]; then
             "${SCCACHE_PATH}" --show-adv-stats
-            "${SCCACHE_PATH}" --show-stats --stats-format=json > "${GITHUB_WORKSPACE}/sccache_test_artifacts_cu${CUDA_MAJOR}.json"
+            "${SCCACHE_PATH}" --show-stats --stats-format=json > "${GITHUB_WORKSPACE}/sccache_test_artifacts_${CUDA_ARTIFACT_SUFFIX}.json"
           fi
 
-      - name: Report sccache stats (test artifacts cu${{ env.CUDA_MAJOR }})
+      - name: Report sccache stats (test artifacts ${{ env.CUDA_ARTIFACT_SUFFIX }})
         uses: ./.github/actions/sccache-summary
         with:
-          json-file: sccache_test_artifacts_cu${{ env.CUDA_MAJOR }}.json
+          json-file: sccache_test_artifacts_${{ env.CUDA_ARTIFACT_SUFFIX }}.json
           label: "test artifacts (CUDA ${{ matrix.cuda-version }})"
           build-step: "Build cuda-lang-numba-compat test artifacts against CUDA ${{ matrix.cuda-version }}"
 
       - name: Upload cuda-lang-numba-compat test artifacts
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
-          name: ${{ env.CL_NUMBA_COMPAT_CUDA_TEST_ARTIFACT_NAME }}-cu${{ env.CUDA_MAJOR }}
+          name: ${{ env.CL_NUMBA_COMPAT_CUDA_TEST_ARTIFACT_NAME }}-${{ env.CUDA_ARTIFACT_SUFFIX }}
           path: tests/numba_cuda_tests/testing/cu*
           if-no-files-found: error

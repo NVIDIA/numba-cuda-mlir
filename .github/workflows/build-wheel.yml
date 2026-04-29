@@ -212,6 +212,34 @@ jobs:
         with:
           enable-apt: true
 
+      - name: Install GCC 12 for CUDA 12.2
+        if: ${{ matrix.cuda-version == '12.2.2' }}
+        uses: ./.github/actions/install_unix_deps
+        continue-on-error: false
+        with:
+          dependencies: "gcc-12 g++-12"
+          dependent_exes: "gcc-12 g++-12"
+
+      - name: Patch glibc aarch64 vector math declarations for CUDA 12.2
+        if: ${{ inputs.host-platform == 'linux-aarch64' && matrix.cuda-version == '12.2.2' }}
+        run: |
+          sudo python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("/usr/include/aarch64-linux-gnu/bits/math-vector.h")
+          text = path.read_text()
+          replacements = {
+              "#if __GNUC_PREREQ(9, 0)": "#if __GNUC_PREREQ(9, 0) && !defined(__CUDACC__)",
+              "#elif __glibc_clang_prereq(8, 0)": "#elif __glibc_clang_prereq(8, 0) && !defined(__CUDACC__)",
+              "#if __GNUC_PREREQ(10, 0) || __glibc_clang_prereq(11, 0)": "#if (__GNUC_PREREQ(10, 0) || __glibc_clang_prereq(11, 0)) && !defined(__CUDACC__)",
+          }
+          for old, new in replacements.items():
+              if old not in text and new not in text:
+                  raise SystemExit(f"Expected pattern not found in {path}: {old}")
+              text = text.replace(old, new)
+          path.write_text(text)
+          PY
+
       - name: Set up Python
         id: setup-python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
@@ -252,7 +280,11 @@ jobs:
 
       - name: Install cuda-lang-numba-compat
         run: |
-          python -m pip install "${CL_NUMBA_COMPAT_CUDA_ARTIFACTS_DIR}"/*.whl "cuda-bindings==${CUDA_MAJOR}.${CUDA_MINOR}.*"
+          CUDA_BINDINGS_SPEC="cuda-bindings==${CUDA_MAJOR}.${CUDA_MINOR}.*"
+          if [[ "${CUDA_MAJOR}.${CUDA_MINOR}" == "12.2" ]]; then
+            CUDA_BINDINGS_SPEC="cuda-bindings>=12.9.1,<13.0.0"
+          fi
+          python -m pip install "${CL_NUMBA_COMPAT_CUDA_ARTIFACTS_DIR}"/*.whl "${CUDA_BINDINGS_SPEC}"
 
       - name: Set up mini CTK ${{ matrix.cuda-version }}
         uses: ./.github/actions/fetch_ctk
@@ -281,9 +313,14 @@ jobs:
             CC_LIST=(75 80 86 89 90 120)
           fi
 
+          NVCC_FLAGS=(-O3 -rdc true -std=c++17)
+          if [[ "${CUDA_MAJOR}.${CUDA_MINOR}" == "12.2" ]]; then
+            NVCC_FLAGS+=(-ccbin g++-12)
+          fi
+
           BUILD_JOBS="$(python -c 'import os; print(os.cpu_count() or 2)')"
           for cc in "${CC_LIST[@]}"; do
-            make -j "${BUILD_JOBS}" GPU_CC="${cc}"
+            make -j "${BUILD_JOBS}" GPU_CC="${cc}" NVCC_FLAGS="${NVCC_FLAGS[*]}"
             mkdir -p "cu${CUDA_MAJOR}_cc${cc}"
             mv *.cubin *.fatbin *.ptx *.o *.a *.ltoir "cu${CUDA_MAJOR}_cc${cc}"
           done

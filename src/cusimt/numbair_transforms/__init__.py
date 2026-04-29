@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # Numba IR transformation passes for cusimt
-from numba.core.compiler_lock import global_compiler_lock
-from numba.core.untyped_passes import (
+from cusimt.numba_cuda.core.compiler_lock import global_compiler_lock
+from cusimt.numba_cuda.core.untyped_passes import (
     FunctionPass,
     register_pass,
     TransformLiteralUnrollConstListToTuple,
@@ -12,16 +12,10 @@ from numba.core.untyped_passes import (
     GenericRewrites,
     InlineInlinables,
 )
-from numba.core import untyped_passes as untyped_passes_module
-from numba.core.typed_passes import PartialTypeInference
-from numba.core import ir
-from numba.misc.special import literal_unroll as core_literal_unroll
-
-# Try to import cuda's literal_unroll (may not exist in all numba versions)
-try:
-    from cusimt.numba_cuda.misc.special import literal_unroll as cuda_literal_unroll
-except ImportError:
-    cuda_literal_unroll = None
+from cusimt.numba_cuda.core import untyped_passes as untyped_passes_module
+from cusimt.numba_cuda.core.typed_passes import PartialTypeInference
+from cusimt.numba_cuda.core import ir
+from cusimt.numba_cuda.misc.special import literal_unroll
 
 
 @register_pass(mutates_CFG=True, analysis_only=False)
@@ -39,9 +33,7 @@ class CusimtLiteralUnroll(FunctionPass):
 
     def _is_literal_unroll(self, value):
         """Check if value is either version of literal_unroll."""
-        if value is core_literal_unroll:
-            return True
-        if cuda_literal_unroll is not None and value is cuda_literal_unroll:
+        if value is literal_unroll:
             return True
         return False
 
@@ -62,13 +54,7 @@ class CusimtLiteralUnroll(FunctionPass):
             return False
 
         # run as subpipeline
-        from numba.core.compiler_machinery import PassManager
-
-        # Patch the literal_unroll in untyped_passes module to support cuda variant
-        # This is needed because MixedContainerUnroller checks `call_func_value is literal_unroll`
-        if cuda_literal_unroll is not None:
-            _original_literal_unroll = untyped_passes_module.literal_unroll
-            untyped_passes_module.literal_unroll = cuda_literal_unroll
+        from cusimt.numba_cuda.core.compiler_machinery import PassManager
 
         pm = PassManager("literal_unroll_subpipeline")
         # get types where possible to help with list->tuple change
@@ -94,8 +80,6 @@ class CusimtLiteralUnroll(FunctionPass):
         pm.add_pass(RewriteSemanticConstants, "rewrite semantic constants")
         pm.finalize()
         pm.run(state)
-        if cuda_literal_unroll is not None:
-            untyped_passes_module.literal_unroll = _original_literal_unroll
         return True
 
 
@@ -108,11 +92,7 @@ class CusimtIterLoopCanonicalization(IterLoopCanonicalization):
 
     _name = "cusimt_iter_loop_canonicalisation"
 
-    # Override _accepted_calls to include both versions
-    if cuda_literal_unroll is not None:
-        _accepted_calls = (core_literal_unroll, cuda_literal_unroll)
-    else:
-        _accepted_calls = (core_literal_unroll,)
+    _accepted_calls = (literal_unroll,)
 
 
 @register_pass(mutates_CFG=True, analysis_only=False)

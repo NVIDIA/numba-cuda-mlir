@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from numba.core import typing
+from cusimt.numba_cuda import typing
 import inspect
 from cusimt import types
 from functools import singledispatch
@@ -424,7 +424,7 @@ def _(ty: types.Type) -> ir.Type:
 @to_mlir_type.register
 def _typeref_to_mlir(ty) -> ir.Type:
     """Handle TypeRef by extracting and converting its instance_type."""
-    from numba.core.types.abstract import TypeRef
+    from cusimt.numba_cuda.types.abstract import TypeRef
 
     if isinstance(ty, TypeRef):
         return to_mlir_type(ty.instance_type)
@@ -433,7 +433,7 @@ def _typeref_to_mlir(ty) -> ir.Type:
 
 # Explicitly register TypeRef to avoid singledispatch issues with subclassing
 try:
-    from numba.core.types.abstract import TypeRef
+    from cusimt.numba_cuda.types.abstract import TypeRef
 
     to_mlir_type.register(TypeRef, _typeref_to_mlir)
 except ImportError:

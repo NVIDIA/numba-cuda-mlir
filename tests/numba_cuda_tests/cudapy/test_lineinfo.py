@@ -3,8 +3,8 @@
 
 import cusimt
 import cuda.simt as cuda
-from numba import float32, int32
-from numba.core.errors import NumbaInvalidConfigWarning
+from cusimt.numba_cuda.types import float32, int32
+from cusimt.numba_cuda.core.errors import NumbaInvalidConfigWarning
 import pytest
 
 from cusimt.testing import NumbaCUDATestCase
@@ -188,7 +188,6 @@ class TestCudaLineInfo(NumbaCUDATestCase):
             f'"Expected {expected_subprograms} DISubprograms; ' f"got {subprograms}",
         )
 
-    @pytest.mark.xfail(True, reason="Warnings not emitted")
     def test_debug_and_lineinfo_warning(self):
         with pytest.warns(
             NumbaInvalidConfigWarning,

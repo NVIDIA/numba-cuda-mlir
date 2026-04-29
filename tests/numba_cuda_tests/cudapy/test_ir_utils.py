@@ -2,20 +2,21 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 from cusimt.testing import NumbaCUDATestCase
-from numba.core.compiler import CompilerBase
-from numba.core.compiler import Flags
-from numba.core.compiler_machinery import PassManager
-from numba.core import ir_utils
-from numba import types
-from numba.core import ir, bytecode
-from numba.core import compiler
-from numba.core.untyped_passes import (
+from cusimt.numba_cuda.compiler import CompilerBase
+from cusimt.numba_cuda.compiler import CUDAFlags
+from cusimt.numba_cuda.compiler import run_frontend
+from cusimt.numba_cuda.core.compiler_machinery import PassManager
+from cusimt.numba_cuda.core import ir_utils
+from cusimt.numba_cuda import types
+from cusimt.numba_cuda.core import ir, bytecode
+from cusimt.numba_cuda.core import compiler
+from cusimt.numba_cuda.core.untyped_passes import (
     ExtractByteCode,
     TranslateByteCode,
     FixupArgs,
     IRProcessing,
 )
-from numba.core.typed_passes import (
+from cusimt.numba_cuda.core.typed_passes import (
     NopythonTypeInference,
     DeadCodeElimination,
 )
@@ -31,7 +32,6 @@ class TestIrUtils(NumbaCUDATestCase):
     Tests ir handling utility functions like find_callname.
     """
 
-    @pytest.mark.xfail(True, reason="Calling convention issue")
     def test_dead_code_elimination(self):
         class Tester(CompilerBase):
             @classmethod
@@ -48,7 +48,7 @@ class TestIrUtils(NumbaCUDATestCase):
                 if locals is None:
                     locals = {}
                 if not flags:
-                    flags = Flags()
+                    flags = CUDAFlags()
 
                 if typing_context is None:
                     from cusimt.numba_cuda.descriptor import cuda_target
@@ -165,7 +165,7 @@ class TestIrUtils(NumbaCUDATestCase):
             c = FREEVAR_C
             return a + b + c
 
-        f_ir = compiler.run_frontend(foo)
+        f_ir = run_frontend(foo)
         block = f_ir.blocks[0]
         const_b = None
         const_c = None

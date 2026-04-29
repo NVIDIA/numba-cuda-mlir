@@ -420,6 +420,8 @@ class DeviceRecord(DeviceNDArrayBase):
     An on-GPU record type
     """
 
+    __device_record__ = True
+
     def __init__(self, dtype, stream=0, gpu_data=None):
         shape = ()
         strides = ()

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from numba.core.types import (
+from cusimt.numba_cuda.types import (
     BoundFunction,
     Poison,
     UnicodeType,
@@ -80,7 +80,7 @@ from numba.core.types import (
     Record,
     NestedArray,
 )
-from numba.core.typing import Signature, signature
+from cusimt.numba_cuda.typing import Signature, signature
 from cusimt.type_defs.aggregate_types import AggregateType, UnionType
 from cusimt.type_defs.cuda_types import CUTensorMapType, CUTensorMapStorageType
 from cusimt.type_defs.pointer_types import ByValPointerType

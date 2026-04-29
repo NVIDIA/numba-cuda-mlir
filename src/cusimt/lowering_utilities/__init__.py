@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from abc import abstractmethod
 import functools
 import numpy as np
-from numba.core import types, typing
+from cusimt.numba_cuda import types, typing
 from cusimt.annotations import AnyCallable, PS
 from cusimt.lowering_utilities import type_conversions
 from cusimt.lowering_utilities.type_conversions import (

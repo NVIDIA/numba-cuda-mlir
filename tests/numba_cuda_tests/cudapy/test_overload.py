@@ -3,15 +3,13 @@
 
 import cusimt
 import cuda.simt as cuda
-from numba import types
+from cusimt.numba_cuda import types
 
-from numba.core.errors import TypingError
-from numba import njit
-import numba
+from cusimt.numba_cuda.core.errors import TypingError
 
-from numba.extending import overload, overload_attribute
-from numba.core.typing.typeof import typeof
-from numba.core.typing.typeof import typeof as cpu_typeof
+from cusimt.extending import overload, overload_attribute
+from cusimt.numba_cuda.typing.typeof import typeof
+from cusimt.numba_cuda.typing.typeof import typeof as cpu_typeof
 from cusimt.testing import NumbaCUDATestCase
 import numpy as np
 import pytest
@@ -230,11 +228,6 @@ class TestOverload(NumbaCUDATestCase):
         cusimt.jit(kernel)[1, 1](x)
         self.assertEqual(x[0], expected)
 
-    def check_overload_cpu(self, kernel, expected):
-        x = np.ones(1, dtype=np.int32)
-        njit(kernel)(x)
-        self.assertEqual(x[0], expected)
-
     def test_generic(self):
         def kernel(x):
             generic_func_1(x)
@@ -329,14 +322,6 @@ class TestOverload(NumbaCUDATestCase):
         # Check the CUDA overloads are used on CUDA
         expected = CUDA_TARGET_OL_CALLS_TARGET_OL * CUDA_TARGET_OL
         self.check_overload(kernel, expected)
-
-    def test_target_overloaded_calls_target_overloaded_cpu(self):
-        def kernel(x):
-            target_overloaded_calls_target_overloaded(x)
-
-        # Check that the CPU overloads are used on the CPU
-        expected = GENERIC_TARGET_OL_CALLS_TARGET_OL * GENERIC_TARGET_OL
-        self.check_overload_cpu(kernel, expected)
 
     @pytest.mark.xfail(True, reason="ICE")
     def test_default_values_and_kwargs(self):

@@ -5,12 +5,12 @@ Struct support for cusimt - similar to ctypes structures
 """
 
 from collections import namedtuple, Counter
-from numba.core import types
+from cusimt.numba_cuda import types
 from cusimt.type_defs.aggregate_types import AggregateType
 from typing import Any
 import ctypes
 from cusimt.descriptor import mlir_target
-from numba.core.typing.templates import ConcreteTemplate
+from cusimt.numba_cuda.typing.templates import ConcreteTemplate
 from cusimt import typing
 from cusimt.lowering.struct import registry as lowering_registry
 from cusimt.lowering.struct import _lower_struct_construction_impl

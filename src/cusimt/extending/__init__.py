@@ -2,15 +2,16 @@
 # SPDX-License-Identifier: Apache-2.0
 from types import MappingProxyType
 
-from numba import types
-from numba.core.typing.templates import (
+from cusimt.numba_cuda import types
+from cusimt.numba_cuda.typing.templates import (
     Registry,
     _OverloadAttributeTemplate,
     _OverloadMethodTemplate,
     make_overload_template,
     make_overload_attribute_template,
 )
-from numba.extending import (
+
+from cusimt.numba_cuda.extending import (
     intrinsic,
     _Intrinsic,
     type_callable,

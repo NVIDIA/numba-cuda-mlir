@@ -6,12 +6,11 @@ import itertools
 import warnings
 import numpy as np
 
-from numba import njit
 import cusimt
 import cuda.simt as cuda
-from numba import types
-from numba.core.typing.typeof import typeof
-from numba.np import numpy_support
+from cusimt.numba_cuda import types
+from cusimt.numba_cuda.typing.typeof import typeof
+from cusimt.numba_cuda.np import numpy_support
 from cusimt.testing import NumbaCUDATestCase
 
 
@@ -71,7 +70,7 @@ class BaseUFuncTest:
     def _compile(self, pyfunc, args, nrt=False):
         # NOTE: to test the implementation of Numpy ufuncs, we disable
         # rewriting of array expressions.
-        return njit(args, _nrt=nrt, no_rewrites=True)(pyfunc)
+        return cuda.jit(args, _nrt=nrt, no_rewrites=True)(pyfunc)
 
     def _determine_output_type(
         self, input_type, int_output_type=None, float_output_type=None

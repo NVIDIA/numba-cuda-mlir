@@ -9,7 +9,7 @@ import numpy as np
 from io import StringIO
 import cusimt
 import cuda.simt as cuda
-from numba.types import float16, float32, float64, int32, intp, CPointer
+from cusimt.numba_cuda.types import float16, float32, float64, int32, intp, CPointer
 from cusimt.compiler import declare_device
 from cusimt.testing import NumbaCUDATestCase
 from cusimt.numba_cuda.testing import (

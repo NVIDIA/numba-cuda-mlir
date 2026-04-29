@@ -37,7 +37,7 @@ class RewriteConstGetitems(Rewrite):
         new_block = self.block.copy()
         new_block.clear()
         for inst in self.block.body:
-            if isinstance(inst, ir.assign_types):
+            if isinstance(inst, ir.Assign):
                 expr = inst.value
                 if expr in self.getitems:
                     const = self.getitems[expr]
@@ -83,7 +83,7 @@ class RewriteStringLiteralGetitems(Rewrite):
         """
         new_block = ir.Block(self.block.scope, self.block.loc)
         for inst in self.block.body:
-            if isinstance(inst, ir.assign_types):
+            if isinstance(inst, ir.Assign):
                 expr = inst.value
                 if expr in self.getitems:
                     const, lit_val = self.getitems[expr]
@@ -115,7 +115,7 @@ class RewriteStringLiteralSetitems(Rewrite):
         self.setitems = setitems = {}
         self.block = block
         self.calltypes = calltypes
-        for inst in block.find_insts(ir.setitem_types):
+        for inst in block.find_insts(ir.SetItem):
             index_ty = typemap[inst.index.name]
             if isinstance(index_ty, types.StringLiteral):
                 setitems[inst] = (inst.index, index_ty.literal_value)
@@ -129,7 +129,7 @@ class RewriteStringLiteralSetitems(Rewrite):
         """
         new_block = ir.Block(self.block.scope, self.block.loc)
         for inst in self.block.body:
-            if isinstance(inst, ir.setitem_types):
+            if isinstance(inst, ir.SetItem):
                 if inst in self.setitems:
                     const, lit_val = self.setitems[inst]
                     new_inst = ir.StaticSetItem(
@@ -158,7 +158,7 @@ class RewriteConstSetitems(Rewrite):
         self.block = block
         # Detect all setitem statements and find which ones can be
         # rewritten
-        for inst in block.find_insts(ir.setitem_types):
+        for inst in block.find_insts(ir.SetItem):
             try:
                 const = func_ir.infer_constant(inst.index)
             except errors.ConstantInferenceError:

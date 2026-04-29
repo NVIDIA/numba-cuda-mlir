@@ -4,8 +4,10 @@
 import time
 import math
 import numpy as np
-from numba import cuda as numba_cuda, float32, int32, uint32, types
+from numba import cuda as numba_cuda, types as nty
 import cuda.simt as cusimt_cuda
+from cusimt.numba_cuda import types as cty
+
 
 DEFAULT_SIZE = 8192
 SEED = 42
@@ -14,11 +16,11 @@ BLOCK_SIZE = 256
 
 
 @numba_cuda.jit(device=True, inline="always")
-def bit_reverse_numba_cuda(x: uint32, bits: int32) -> uint32:
-    result = uint32(0)
+def bit_reverse_numba_cuda(x: nty.uint32, bits: nty.int32) -> nty.uint32:
+    result = nty.uint32(0)
     for i in range(bits):
-        if x & (uint32(1) << i):
-            result |= uint32(1) << (bits - 1 - i)
+        if x & (nty.uint32(1) << i):
+            result |= nty.uint32(1) << (bits - 1 - i)
     return result
 
 
@@ -27,7 +29,7 @@ def bitreverse_permute_numba_cuda(in_arr, out_arr, n, logn):
     i = numba_cuda.blockIdx.x * numba_cuda.blockDim.x + numba_cuda.threadIdx.x
     if i >= n:
         return
-    rev = bit_reverse_numba_cuda(uint32(i), logn)
+    rev = bit_reverse_numba_cuda(nty.uint32(i), logn)
     out_arr[rev] = in_arr[i]
 
 
@@ -48,8 +50,8 @@ def fft_stage_inplace_numba_cuda(data, n, stage, inverse):
     i1 = i0 + half
 
     stride = n // m
-    k = float32(j * stride)
-    ang = float32(-2.0) * M_PI * k / float32(n)
+    k = nty.float32(j * stride)
+    ang = nty.float32(-2.0) * M_PI * k / nty.float32(n)
     if inverse:
         ang = -ang
 
@@ -67,11 +69,11 @@ def fft_stage_inplace_numba_cuda(data, n, stage, inverse):
 
 
 @cusimt_cuda.jit(device=True, inline="always")
-def bit_reverse_cusimt(x: uint32, bits: int32) -> uint32:
-    result = uint32(0)
+def bit_reverse_cusimt(x: cty.uint32, bits: cty.int32) -> cty.uint32:
+    result = cty.uint32(0)
     for i in range(bits):
-        if x & (uint32(1) << i):
-            result |= uint32(1) << (bits - 1 - i)
+        if x & (cty.uint32(1) << i):
+            result |= cty.uint32(1) << (bits - 1 - i)
     return result
 
 
@@ -80,7 +82,7 @@ def bitreverse_permute_cusimt(in_arr, out_arr, n, logn):
     i = cusimt_cuda.blockIdx.x * cusimt_cuda.blockDim.x + cusimt_cuda.threadIdx.x
     if i >= n:
         return
-    rev = bit_reverse_cusimt(uint32(i), logn)
+    rev = bit_reverse_cusimt(cty.uint32(i), logn)
     out_arr[rev] = in_arr[i]
 
 
@@ -101,8 +103,8 @@ def fft_stage_inplace_cusimt(data, n, stage, inverse):
     i1 = i0 + half
 
     stride = n // m
-    k = float32(j * stride)
-    ang = float32(-2.0) * M_PI * k / float32(n)
+    k = cty.float32(j * stride)
+    ang = cty.float32(-2.0) * M_PI * k / cty.float32(n)
     if inverse:
         ang = -ang
 

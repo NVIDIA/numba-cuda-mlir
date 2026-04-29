@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
-from numba import types
-from numba.core import cgutils
+from cusimt.numba_cuda import types
+from cusimt.numba_cuda import cgutils
 import numpy as np
 
 import functools

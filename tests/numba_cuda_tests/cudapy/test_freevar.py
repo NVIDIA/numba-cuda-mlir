@@ -13,7 +13,7 @@ class TestFreeVar(NumbaCUDATestCase):
         """Make sure we can compile the following kernel with freevar reference
         in arguments to shared.array
         """
-        from numba import float32
+        from cusimt.numba_cuda.types import float32
 
         size = 1024
         nbtype = float32

@@ -4,10 +4,10 @@
 from cusimt.testing import NumbaCUDATestCase
 import itertools
 
-from numba import types
-from numba.core.typeconv.typeconv import TypeManager, TypeCastingRules
-from numba.core.typeconv import rules
-from numba.core.typeconv import castgraph, Conversion
+from cusimt.numba_cuda import types
+from cusimt.numba_cuda.typeconv.typeconv import TypeManager, TypeCastingRules
+from cusimt.numba_cuda.typeconv import rules
+from cusimt.numba_cuda.typeconv import castgraph, Conversion
 from cusimt.testing import NumbaCUDATestCase
 
 

@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 import cusimt.cuda.libdevice as libdevice
 import cusimt.cuda.libdevicefuncs as libdevicefuncs
-from numba.core.typing.templates import (
+from cusimt.numba_cuda.typing.templates import (
     AttributeTemplate,
     ConcreteTemplate,
     Registry,
 )
-from numba import types
+from cusimt.numba_cuda import types
 
 registry = Registry()
 _mapping = dict[str, ConcreteTemplate]()

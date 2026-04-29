@@ -15,22 +15,11 @@ from collections import defaultdict
 from functools import wraps
 from abc import abstractmethod
 
-import numba
+# The default, from Numba config
+COLOR_SCHEME = "no_color"
 
 # Filled at the end
 __all__ = []
-
-
-def _is_numba_core_config_loaded():
-    """
-    To detect if numba.core.config has been initialized due to circular imports.
-    """
-    try:
-        _ = numba.cuda.core.config
-    except AttributeError:
-        return False
-    else:
-        return True
 
 
 class NumbaWarning(Warning):
@@ -47,14 +36,8 @@ class NumbaWarning(Warning):
         self.msg = msg
         self.loc = loc
 
-        # If a warning is emitted inside validation of env-vars in
-        # numba.core.config. Highlighting will not be available.
-        if highlighting and _is_numba_core_config_loaded():
-            highlight = termcolor().errmsg
-        else:
-
-            def highlight(x):
-                return x
+        def highlight(x):
+            return x
 
         if loc:
             super(NumbaWarning, self).__init__(
@@ -372,7 +355,7 @@ else:
     def termcolor():
         global _termcolor_inst
         if _termcolor_inst is None:
-            scheme = themes[numba.core.config.COLOR_SCHEME]
+            scheme = themes[COLOR_SCHEME]
             _termcolor_inst = HighlightColorScheme(scheme)
         return _termcolor_inst
 
@@ -563,7 +546,7 @@ class WarningsFixer(object):
         self.flush()
 
 
-class NumbaError(numba.core.errors.NumbaError):
+class NumbaError(Exception):
     def __init__(self, msg, loc=None, highlighting=True):
         self.msg = msg
         self.loc = loc

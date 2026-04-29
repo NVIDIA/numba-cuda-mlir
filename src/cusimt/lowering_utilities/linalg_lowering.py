@@ -12,7 +12,7 @@ from cusimt.lowering_utilities import (
     mul,
     add,
 )
-from numba import types
+from cusimt.numba_cuda import types
 from cusimt.mlir_lowering import KERNEL_ERROR_CODES
 
 

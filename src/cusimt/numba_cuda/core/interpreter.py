@@ -213,8 +213,7 @@ def _call_function_ex_replace_kws_large(
         # The first value must be a constant.
         const_stmt = old_body[search_start]
         if not (
-            isinstance(const_stmt, ir.assign_types)
-            and isinstance(const_stmt.value, ir.const_types)
+            isinstance(const_stmt, ir.Assign) and isinstance(const_stmt.value, ir.Const)
         ):
             # We cannot handle this format so raise the
             # original error message.
@@ -227,8 +226,8 @@ def _call_function_ex_replace_kws_large(
         while search_start <= search_end and not found_getattr:
             getattr_stmt = old_body[search_start]
             if (
-                isinstance(getattr_stmt, ir.assign_types)
-                and isinstance(getattr_stmt.value, ir.expr_types)
+                isinstance(getattr_stmt, ir.Assign)
+                and isinstance(getattr_stmt.value, ir.Expr)
                 and getattr_stmt.value.op == "getattr"
                 and (getattr_stmt.value.value.name == buildmap_name)
                 and getattr_stmt.value.attr == "__setitem__"
@@ -258,8 +257,8 @@ def _call_function_ex_replace_kws_large(
             raise UnsupportedBytecodeError(errmsg)
         setitem_stmt = old_body[search_start + 1]
         if not (
-            isinstance(setitem_stmt, ir.assign_types)
-            and isinstance(setitem_stmt.value, ir.expr_types)
+            isinstance(setitem_stmt, ir.Assign)
+            and isinstance(setitem_stmt.value, ir.Expr)
             and setitem_stmt.value.op == "call"
             and (setitem_stmt.value.func.name == getattr_stmt.target.name)
             and len(setitem_stmt.value.args) == 2
@@ -362,9 +361,7 @@ def _call_function_ex_replace_args_large(
     # tuple.
     search_start = 0
     total_args = []
-    if isinstance(vararg_stmt, ir.assign_types) and isinstance(
-        vararg_stmt.value, ir.var_types
-    ):
+    if isinstance(vararg_stmt, ir.Assign) and isinstance(vararg_stmt.value, ir.Var):
         target_name = vararg_stmt.value.name
         # If there is an initial assignment, delete it
         new_body[search_end] = None
@@ -383,9 +380,9 @@ def _call_function_ex_replace_args_large(
     while search_end >= search_start:
         concat_stmt = old_body[search_end]
         if (
-            isinstance(concat_stmt, ir.assign_types)
+            isinstance(concat_stmt, ir.Assign)
             and concat_stmt.target.name == target_name
-            and isinstance(concat_stmt.value, ir.expr_types)
+            and isinstance(concat_stmt.value, ir.Expr)
             and concat_stmt.value.op == "build_tuple"
             and not concat_stmt.value.items
         ):
@@ -400,9 +397,9 @@ def _call_function_ex_replace_args_large(
             # We expect to find another arg to append.
             # The first stmt must be a binop "add"
             if (search_end == search_start) or not (
-                isinstance(concat_stmt, ir.assign_types)
+                isinstance(concat_stmt, ir.Assign)
                 and (concat_stmt.target.name == target_name)
-                and isinstance(concat_stmt.value, ir.expr_types)
+                and isinstance(concat_stmt.value, ir.Expr)
                 and concat_stmt.value.op == "binop"
                 and concat_stmt.value.fn == operator.add
             ):
@@ -414,8 +411,8 @@ def _call_function_ex_replace_args_large(
             # build_tuple containing the arg.
             arg_tuple_stmt = old_body[search_end - 1]
             if not (
-                isinstance(arg_tuple_stmt, ir.assign_types)
-                and isinstance(arg_tuple_stmt.value, ir.expr_types)
+                isinstance(arg_tuple_stmt, ir.Assign)
+                and isinstance(arg_tuple_stmt.value, ir.Expr)
                 and (arg_tuple_stmt.value.op == "build_tuple")
                 and len(arg_tuple_stmt.value.items) == 1
             ):
@@ -444,7 +441,7 @@ def _call_function_ex_replace_args_large(
             keep_looking = True
             while search_end >= search_start and keep_looking:
                 next_stmt = old_body[search_end]
-                if isinstance(next_stmt, ir.assign_types) and (
+                if isinstance(next_stmt, ir.Assign) and (
                     next_stmt.target.name == target_name
                 ):
                     keep_looking = False
@@ -520,8 +517,8 @@ def peep_hole_call_function_ex_to_call_function_kw(func_ir):
         new_body = []
         for i, stmt in enumerate(blk.body):
             if (
-                isinstance(stmt, ir.assign_types)
-                and isinstance(stmt.value, ir.expr_types)
+                isinstance(stmt, ir.Assign)
+                and isinstance(stmt.value, ir.Expr)
                 and stmt.value.op == "call"
                 and stmt.value.varkwarg is not None
             ):
@@ -546,7 +543,7 @@ def peep_hole_call_function_ex_to_call_function_kw(func_ir):
                 while varkwarg_loc >= 0 and not found:
                     keyword_def = blk.body[varkwarg_loc]
                     if (
-                        isinstance(keyword_def, ir.assign_types)
+                        isinstance(keyword_def, ir.Assign)
                         and keyword_def.target.name == varkwarg.name
                     ):
                         found = True
@@ -556,7 +553,7 @@ def peep_hole_call_function_ex_to_call_function_kw(func_ir):
                     kws
                     or not found
                     or not (
-                        isinstance(keyword_def.value, ir.expr_types)
+                        isinstance(keyword_def.value, ir.Expr)
                         and keyword_def.value.op == "build_map"
                     )
                 ):
@@ -622,7 +619,7 @@ def peep_hole_call_function_ex_to_call_function_kw(func_ir):
                     while vararg_loc >= 0 and not found:
                         args_def = blk.body[vararg_loc]
                         if (
-                            isinstance(args_def, ir.assign_types)
+                            isinstance(args_def, ir.Assign)
                             and args_def.target.name == vararg.name
                         ):
                             found = True
@@ -633,7 +630,7 @@ def peep_hole_call_function_ex_to_call_function_kw(func_ir):
                         # then we can't handle this format.
                         raise UnsupportedBytecodeError(errmsg)
                     if (
-                        isinstance(args_def.value, ir.expr_types)
+                        isinstance(args_def.value, ir.Expr)
                         and args_def.value.op == "build_tuple"
                     ):
                         # n_args <= 30 case.
@@ -654,7 +651,7 @@ def peep_hole_call_function_ex_to_call_function_kw(func_ir):
                             already_deleted_defs,
                         )
                     elif (
-                        isinstance(args_def.value, ir.expr_types)
+                        isinstance(args_def.value, ir.Expr)
                         and args_def.value.op == "list_to_tuple"
                     ):
                         # If there is a call with vararg we need to check
@@ -706,8 +703,8 @@ def peep_hole_call_function_ex_to_call_function_kw(func_ir):
                 # Update the definition
                 func_ir._definitions[stmt.target.name].append(new_call)
             elif (
-                isinstance(stmt, ir.assign_types)
-                and isinstance(stmt.value, ir.expr_types)
+                isinstance(stmt, ir.Assign)
+                and isinstance(stmt.value, ir.Expr)
                 and stmt.value.op == "call"
                 and stmt.value.vararg is not None
             ):
@@ -723,7 +720,7 @@ def peep_hole_call_function_ex_to_call_function_kw(func_ir):
                     # If this value is still a list to tuple raise the
                     # exception.
                     expr = func_ir._definitions[vararg_name][0]
-                    if isinstance(expr, ir.expr_types) and expr.op == "list_to_tuple":
+                    if isinstance(expr, ir.Expr) and expr.op == "list_to_tuple":
                         raise UnsupportedBytecodeError(errmsg)
 
             new_body.append(stmt)
@@ -778,17 +775,14 @@ def peep_hole_list_to_tuple(func_ir):
                 found = False
                 for idx in reversed(range(len(blk.body))):
                     stmt = blk.body[idx]
-                    if isinstance(stmt, ir.assign_types):
+                    if isinstance(stmt, ir.Assign):
                         value = stmt.value
-                        if (
-                            isinstance(value, ir.expr_types)
-                            and value.op == "list_to_tuple"
-                        ):
+                        if isinstance(value, ir.Expr) and value.op == "list_to_tuple":
                             target_list = value.info[0]
                             found = True
                             bt = (idx, stmt)
                     if found:
-                        if isinstance(stmt, ir.assign_types):
+                        if isinstance(stmt, ir.Assign):
                             if stmt.target.name == target_list:
                                 region = (bt, (idx, stmt))
                                 return region
@@ -810,8 +804,8 @@ def peep_hole_list_to_tuple(func_ir):
                 # Walk through the peep_hole and find things that are being
                 # "extend"ed and "append"ed to the BUILD_LIST
                 for x in peep_hole:
-                    if isinstance(x, ir.assign_types):
-                        if isinstance(x.value, ir.expr_types):
+                    if isinstance(x, ir.Assign):
+                        if isinstance(x.value, ir.Expr):
                             expr = x.value
                             if expr.op == "getattr" and expr.value.name == const_list:
                                 # it's not strictly necessary to split out
@@ -852,8 +846,8 @@ def peep_hole_list_to_tuple(func_ir):
                 t2l_agn = region[0][1]
                 acc = the_build_list
                 for x in peep_hole:
-                    if isinstance(x, ir.assign_types):
-                        if isinstance(x.value, ir.expr_types):
+                    if isinstance(x, ir.Assign):
+                        if isinstance(x.value, ir.Expr):
                             expr = x.value
                             if expr.op == "getattr":
                                 if x.target.name in extends or x.target.name in appends:
@@ -869,7 +863,7 @@ def peep_hole_list_to_tuple(func_ir):
                                 fname = expr.func.name
                                 if fname in extends or fname in appends:
                                     arg = expr.args[0]
-                                    if isinstance(arg, ir.var_types):
+                                    if isinstance(arg, ir.Var):
                                         tmp_name = "%s_var_%s" % (
                                             fname,
                                             arg.name,
@@ -984,7 +978,7 @@ def peep_hole_delete_with_exit(func_ir):
             # Any assignment that uses any of the dead variable is considered
             # dead.
             if used & dead_vars:
-                if isinstance(stmt, ir.assign_types):
+                if isinstance(stmt, ir.Assign):
                     dead_vars.add(stmt.target)
 
         new_body = [
@@ -1102,9 +1096,7 @@ def peep_hole_fuse_dict_add_updates(func_ir):
             # vars in statement. This is always the lhs with
             # a build_map.
             stmt_build_map_out = None
-            if isinstance(stmt, ir.assign_types) and isinstance(
-                stmt.value, ir.expr_types
-            ):
+            if isinstance(stmt, ir.Assign) and isinstance(stmt.value, ir.Expr):
                 if stmt.value.op == "build_map":
                     # Skip the output build_map when looking for used vars.
                     stmt_build_map_out = stmt.target.name
@@ -1122,9 +1114,9 @@ def peep_hole_fuse_dict_add_updates(func_ir):
                     getattr_stmt = blk.body[i - 1]
                     args = stmt.value.args
                     if (
-                        isinstance(getattr_stmt, ir.assign_types)
+                        isinstance(getattr_stmt, ir.Assign)
                         and getattr_stmt.target.name == func_name
-                        and isinstance(getattr_stmt.value, ir.expr_types)
+                        and isinstance(getattr_stmt.value, ir.Expr)
                         and getattr_stmt.value.op == "getattr"
                         and getattr_stmt.value.attr
                         in ("__setitem__", "_update_from_bytecode")
@@ -1196,8 +1188,8 @@ def peep_hole_fuse_dict_add_updates(func_ir):
             # will be removed when handling their call in the next
             # iteration.
             if not (
-                isinstance(stmt, ir.assign_types)
-                and isinstance(stmt.value, ir.expr_types)
+                isinstance(stmt, ir.Assign)
+                and isinstance(stmt.value, ir.Expr)
                 and stmt.value.op == "getattr"
                 and stmt.value.value.name in lit_map_use_idx
                 and stmt.value.attr in ("__setitem__", "_update_from_bytecode")
@@ -1235,7 +1227,7 @@ def peep_hole_split_at_pop_block(func_ir):
         # Gather locations of PopBlock
         pop_block_locs = []
         for i, inst in enumerate(blk.body):
-            if isinstance(inst, ir.popblock_types):
+            if isinstance(inst, ir.PopBlock):
                 pop_block_locs.append(i)
         # Rewrite block with PopBlock
         if pop_block_locs:
@@ -1287,10 +1279,10 @@ def _build_new_build_map(func_ir, name, old_body, old_lineno, new_items):
     for pair in new_items:
         k, v = pair
         key_def = ir_utils.guard(ir_utils.get_definition, func_ir, k)
-        if isinstance(key_def, ir.const_types + ir.global_types + ir.freevar_types):
+        if isinstance(key_def, (ir.Const, ir.Global, ir.FreeVar)):
             literal_keys.append(key_def.value)
         value_def = ir_utils.guard(ir_utils.get_definition, func_ir, v)
-        if isinstance(value_def, ir.const_types + ir.global_types + ir.freevar_types):
+        if isinstance(value_def, (ir.Const, ir.Global, ir.FreeVar)):
             values.append(value_def.value)
         else:
             # Append unknown value if not a literal.
@@ -1495,7 +1487,7 @@ class Interpreter:
         # Propagate the exception variables to LHS of assignment
         for varname, defnvars in self.definitions.items():
             for v in defnvars:
-                if isinstance(v, ir.var_types):
+                if isinstance(v, ir.Var):
                     k = v.name
                     if k in excvars:
                         excvars.add(varname)
@@ -1568,7 +1560,7 @@ class Interpreter:
             while self.syntax_blocks:
                 if offset >= self.syntax_blocks[-1].exit:
                     synblk = self.syntax_blocks.pop()
-                    if isinstance(synblk, ir.with_types):
+                    if isinstance(synblk, ir.With):
                         self.current_block.append(ir.PopBlock(self.loc))
                 else:
                     break
@@ -1663,11 +1655,11 @@ class Interpreter:
             # like a = b[i] = 1, so need to handle replaced temporaries in
             # later setitem/setattr nodes
             if (
-                isinstance(inst, ir.setitem_types + ir.setattr_types)
+                isinstance(inst, (ir.SetItem, ir.SetAttr))
                 and inst.value.name in replaced_var
             ):
                 inst.value = replaced_var[inst.value.name]
-            elif isinstance(inst, ir.assign_types):
+            elif isinstance(inst, ir.Assign):
                 if (
                     inst.target.is_temp
                     and inst.target.name in self.assigner.unused_dests
@@ -1676,17 +1668,14 @@ class Interpreter:
                 # the same temporary is assigned to multiple variables in cases
                 # like a = b = 1, so need to handle replaced temporaries in
                 # later assignments
-                if (
-                    isinstance(inst.value, ir.var_types)
-                    and inst.value.name in replaced_var
-                ):
+                if isinstance(inst.value, ir.Var) and inst.value.name in replaced_var:
                     inst.value = replaced_var[inst.value.name]
                     new_body.append(inst)
                     continue
                 # chained unpack cases may reuse temporary
                 # e.g. a = (b, c) = (x, y)
                 if (
-                    isinstance(inst.value, ir.expr_types)
+                    isinstance(inst.value, ir.Expr)
                     and inst.value.op == "exhaust_iter"
                     and inst.value.value.name in replaced_var
                 ):
@@ -1699,10 +1688,10 @@ class Interpreter:
                 # the temporary variable is not reused elsewhere since CPython
                 # bytecode is stack-based and this pattern corresponds to a pop
                 if (
-                    isinstance(inst.value, ir.var_types)
+                    isinstance(inst.value, ir.Var)
                     and inst.value.is_temp
                     and new_body
-                    and isinstance(new_body[-1], ir.assign_types)
+                    and isinstance(new_body[-1], ir.Assign)
                 ):
                     prev_assign = new_body[-1]
                     # _var_used_in_binop check makes sure we don't create a new
@@ -1732,7 +1721,7 @@ class Interpreter:
         in it as an argument
         """
         return (
-            isinstance(expr, ir.expr_types)
+            isinstance(expr, ir.Expr)
             and expr.op in ("binop", "inplace_binop")
             and (varname == expr.lhs.name or varname == expr.rhs.name)
         )
@@ -1814,7 +1803,7 @@ class Interpreter:
         if PYVERSION in ((3, 11), (3, 12), (3, 13), (3, 14)):
             if self.syntax_blocks:
                 top = self.syntax_blocks[-1]
-                if isinstance(top, ir.with_types):
+                if isinstance(top, ir.With):
                     if inst.offset >= top.exit:
                         self.current_block.append(ir.PopBlock(loc=self.loc))
                         self.syntax_blocks.pop()
@@ -1861,7 +1850,7 @@ class Interpreter:
             target = self.current_scope.redefine(name, loc=self.loc, rename=rename)
         else:
             target = self.current_scope.get_or_define(name, loc=self.loc)
-        if isinstance(value, ir.var_types):
+        if isinstance(value, ir.Var):
             value = self.assigner.assign(value, target)
         stmt = ir.Assign(value=value, target=target, loc=self.loc)
         self.current_block.append(stmt)
@@ -2682,7 +2671,7 @@ class Interpreter:
         # Find names const
         names = self.get(names)
         for inst in self.current_block.body:
-            if isinstance(inst, ir.assign_types) and inst.target is names:
+            if isinstance(inst, ir.Assign) and inst.target is names:
                 self.current_block.remove(inst)
                 # scan up the block looking for the values, remove them
                 # and find their name strings
@@ -2781,7 +2770,7 @@ class Interpreter:
         keyvar = self.get(keys)
         # TODO: refactor this pattern. occurred several times.
         for inst in self.current_block.body:
-            if isinstance(inst, ir.assign_types) and inst.target is keyvar:
+            if isinstance(inst, ir.Assign) and inst.target is keyvar:
                 self.current_block.remove(inst)
                 # scan up the block looking for the values, remove them
                 # and find their name strings
@@ -2807,7 +2796,7 @@ class Interpreter:
             if len(defns) != 1:
                 break
             defn = defns[0]
-            if not isinstance(defn, ir.const_types):
+            if not isinstance(defn, ir.Const):
                 break
             literal_items.append(defn.value)
 
@@ -2816,7 +2805,7 @@ class Interpreter:
             if len(defns) != 1:
                 return _UNKNOWN_VALUE(self.get(v).name)
             defn = defns[0]
-            if not isinstance(defn, ir.const_types):
+            if not isinstance(defn, ir.Const):
                 return _UNKNOWN_VALUE(self.get(v).name)
             return defn.value
 
@@ -2954,7 +2943,7 @@ class Interpreter:
                 if len(defns) != 1:
                     break
                 defn = defns[0]
-                if not isinstance(defn, ir.const_types):
+                if not isinstance(defn, ir.Const):
                     break
                 literal_items.append(defn.value)
             return literal_items
@@ -3437,7 +3426,7 @@ class Interpreter:
                 defaults = self.get(defaults)
 
         assume_code_const = self.definitions[code][0]
-        if not isinstance(assume_code_const, ir.const_types):
+        if not isinstance(assume_code_const, ir.Const):
             msg = (
                 "Unsupported use of closure. "
                 "Probably caused by complex control-flow constructs; "
@@ -3532,23 +3521,23 @@ class Interpreter:
 
         # is last emitted statement a build_tuple?
         stmt = self.current_block.body[-1]
-        ok = isinstance(stmt.value, ir.expr_types) and stmt.value.op == "build_tuple"
+        ok = isinstance(stmt.value, ir.Expr) and stmt.value.op == "build_tuple"
         # check statements from self.current_block.body[-1] through to target,
         # make sure they are consts
         build_empty_list = None
         if ok:
             for stmt in reversed(self.current_block.body[:-1]):
-                if not isinstance(stmt, ir.assign_types):
+                if not isinstance(stmt, ir.Assign):
                     ok = False
                     break
                 # if its not a const, it needs to be the `build_list` for the
                 # target, else it's something else we don't know about so just
                 # bail
-                if isinstance(stmt.value, ir.const_types):
+                if isinstance(stmt.value, ir.Const):
                     continue
 
                 # it's not a const, check for target
-                elif isinstance(stmt.value, ir.expr_types) and stmt.target == target:
+                elif isinstance(stmt.value, ir.Expr) and stmt.target == target:
                     build_empty_list = stmt
                     # it's only ok to do this if the target has no initializer
                     # already

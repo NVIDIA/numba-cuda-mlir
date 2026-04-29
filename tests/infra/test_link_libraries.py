@@ -3,7 +3,6 @@
 from cusimt.numba_cuda.cudadrv.devicearray import DeviceNDArray
 import cuda.simt as cuda
 from cuda.simt import types, compiler, testing
-import numba.cuda
 import numpy as np
 import pytest
 import tempfile

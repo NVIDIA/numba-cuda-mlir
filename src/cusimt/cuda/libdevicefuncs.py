@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from numba.core import typing, types
+from cusimt.numba_cuda import typing, types
 from dataclasses import dataclass
 from cusimt.numba_cuda.libdevicefuncs import functions, create_signature
 

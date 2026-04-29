@@ -9,17 +9,15 @@ import logging
 import operator
 from typing import Any, Callable, Sequence
 import numpy as np
-from numba.core import typing, utils, targetconfig, errors
-from numba.core import ir as numba_ir
-from numba.core import dispatcher
-from numba.core import analysis
-from numba.core.extending import _Intrinsic
+from cusimt.numba_cuda import typing, utils
+from cusimt.numba_cuda.core import targetconfig, errors
+from cusimt.numba_cuda.core import ir as numba_ir
+from cusimt.numba_cuda import dispatcher
+from cusimt.numba_cuda.core import analysis
+from cusimt.numba_cuda.extending import _Intrinsic
 
-from cusimt.numba_cuda.extending import _Intrinsic as _CudaIntrinsic
-
-from numba.core.environment import Environment
-from numba import types
-from numba.parfors import parfor
+from cusimt.numba_cuda.core.environment import Environment
+from cusimt.numba_cuda import types
 from cusimt.annotations import Builder, AnyCallable, PS
 from cusimt.errors import InternalCompilerError, ensure_verifies
 from cusimt.lowering_utilities.type_conversions import to_mlir_type, to_numba_type
@@ -120,9 +118,12 @@ class MLIRLower(object):
         if "chip" in self.targetoptions:
             arch = self.targetoptions["chip"]
             cc = parse_compute_capability(arch)
+            arch_suffix = arch.removeprefix(f"sm_{cc[0]}{cc[1]}")
+            arch_specific_cc = (*cc, arch_suffix) if arch_suffix in ("a", "f") else cc
         else:
             cc = get_gpu_compute_capability(tuple)
             arch = get_gpu_compute_capability(str)
+            arch_specific_cc = cc
 
         assert isinstance(cc, tuple)
 
@@ -135,7 +136,7 @@ class MLIRLower(object):
             linker_cc = host_cc
             linker_arch = host_arch
         else:
-            linker_cc = cc
+            linker_cc = arch_specific_cc
             linker_arch = arch
 
         link_files = list(self.targetoptions.get("link", []))
@@ -169,6 +170,7 @@ class MLIRLower(object):
         )
         self._seen_mlir_libraries = set()
         self._cloned_device_funcs: set[str] = set()
+        self._linked_external_items = set()
         self.linker = self._create_linker()
 
         # Collect module callbacks from LinkableCode objects (e.g. CUSource)
@@ -176,11 +178,7 @@ class MLIRLower(object):
         self._setup_callbacks = []
         self._teardown_callbacks = []
         for link_file in link_files:
-            if hasattr(link_file, "setup_callback") and link_file.setup_callback:
-                self._setup_callbacks.append(link_file.setup_callback)
-            if hasattr(link_file, "teardown_callback") and link_file.teardown_callback:
-                self._teardown_callbacks.append(link_file.teardown_callback)
-            self.linker.add_file_guess_ext(link_file)
+            self._link_external_item(link_file)
 
         self._capi_sym_name = None
         if capi := self.targetoptions.get("capi", False):
@@ -660,10 +658,6 @@ extern "C" __global__ void
                             var_assign_count[var.name] += 1
                         else:
                             var_assign_count[var.name] = 1
-                    elif isinstance(inst, parfor.Parfor):
-                        for loop_body_block in inst.loop_body.values():
-                            for loop_body_block_inst in loop_body_block.body:
-                                collect_var_assign_count_from_inst(loop_body_block_inst)
                     else:
                         pass
 
@@ -1412,7 +1406,7 @@ extern "C" __global__ void
     def build_user_defined_function_call(
         self,
         target: numba_ir.Var,
-        fn: dispatcher.Dispatcher,
+        fn: dispatcher._DispatcherBase,
         args: list[numba_ir.Var],
         kws: list[tuple[str, numba_ir.Var]] = [],
     ):
@@ -1776,7 +1770,7 @@ extern "C" __global__ void
         if builder := self._lookup_actual_function(fn, signature):
             return builder
 
-        if isinstance(fn, (_Intrinsic, _CudaIntrinsic)):
+        if isinstance(fn, _Intrinsic):
             has_arrays = any(
                 isinstance(arg_ty, types.Array) for arg_ty in signature.args
             )
@@ -1801,11 +1795,27 @@ extern "C" __global__ void
             )
 
         for link_item in fn_value.link:
-            if hasattr(link_item, "setup_callback") and link_item.setup_callback:
-                self._setup_callbacks.append(link_item.setup_callback)
-            if hasattr(link_item, "teardown_callback") and link_item.teardown_callback:
-                self._teardown_callbacks.append(link_item.teardown_callback)
-            self.linker.add_file_guess_ext(link_item)
+            self._link_external_item(link_item)
+
+    def _link_external_item(self, link_item):
+        key = self._external_link_item_key(link_item)
+        if key in self._linked_external_items:
+            return
+        self._linked_external_items.add(key)
+
+        if hasattr(link_item, "setup_callback") and link_item.setup_callback:
+            self._setup_callbacks.append(link_item.setup_callback)
+        if hasattr(link_item, "teardown_callback") and link_item.teardown_callback:
+            self._teardown_callbacks.append(link_item.teardown_callback)
+        self.linker.add_file_guess_ext(link_item)
+
+    @staticmethod
+    def _external_link_item_key(link_item):
+        try:
+            hash(link_item)
+        except TypeError:
+            return id(link_item)
+        return link_item
 
     def _link_external_mlir_library(self, other: ExternMLIRLibrary):
         trace("linking %s", other)
@@ -1939,7 +1949,7 @@ extern "C" __global__ void
             ]
 
         # Handle literal_unroll specially - it just passes through its argument
-        from numba.misc.special import literal_unroll
+        from cusimt.numba_cuda.misc.special import literal_unroll
 
         if fn_value is literal_unroll:
             if len(args) == 1:
@@ -2126,7 +2136,7 @@ extern "C" __global__ void
 
     def _assume_builder_is_usable_for_mlir(self, object):
         module = getattr(object, "__module__", None) or ""
-        is_numba = module.startswith("numba.")
+        is_numba = module.startswith("cusimt.numba_cuda.")
         is_cccl = module.startswith("cuda.coop")
         trace(
             "\n\tis object %s defined in numba?: %s, in cccl?: %s",
@@ -2283,7 +2293,7 @@ extern "C" __global__ void
             if builder := self.context.get_setattr(attr, setattr_sig):
                 # Check if this builder is from our registry (not upstream numba)
                 module = getattr(builder, "__module__", "")
-                if not module.startswith("numba."):
+                if not module.startswith("cusimt.numba_cuda."):
                     builder(self, [target, value])
                     return
         except NotImplementedError:
@@ -2596,11 +2606,68 @@ extern "C" __global__ void
             else:
                 return_ctor([value])
 
+    def _unwrap_mlir_value(self, value):
+        if isinstance(value, ir.OpView):
+            return value.result
+        if isinstance(value, ir.Value):
+            return value
+        return None
+
+    def _need_deferred_debug_emission(self, value_type):
+        return isinstance(
+            value_type,
+            (types.Array, types.Complex, ir.ComplexType, ir.MemRefType),
+        )
+
+    def _llvm_struct_type(self, elem_types):
+        return ir.Type.parse(f"!llvm.struct<({', '.join(str(t) for t in elem_types)})>")
+
+    def _build_llvm_aggregate_value(self, aggregate_type, elems, elem_types):
+        if len(elems) != len(elem_types):
+            return None
+
+        aggregate = llvm.UndefOp(aggregate_type).result
+        for i, (elem, elem_type) in enumerate(zip(elems, elem_types, strict=True)):
+            elem = self.mlir_convert(elem, elem_type)
+            aggregate = llvm.insertvalue(
+                container=aggregate,
+                value=elem,
+                position=ir.DenseI64ArrayAttr.get([i]),
+            )
+        return aggregate
+
+    def _materialize_tuple_value(self, value, numba_type):
+        if len(value) != numba_type.count:
+            return None
+
+        elems = []
+        for elem in value:
+            elem = self._unwrap_mlir_value(elem)
+            if elem is None:
+                return None
+            elems.append(elem)
+
+        if isinstance(numba_type, types.UniTuple):
+            elem_types = [self.get_mlir_type(numba_type.dtype)] * numba_type.count
+            if any(self._need_deferred_debug_emission(t) for t in elem_types):
+                return None
+            aggregate_type = ir.Type.parse(
+                f"!llvm.array<{numba_type.count} x {elem_types[0]}>"
+            )
+        else:
+            elem_types = [self.get_mlir_type(t) for t in numba_type.types]
+            if any(self._need_deferred_debug_emission(t) for t in elem_types):
+                return None
+            aggregate_type = self._llvm_struct_type(elem_types)
+
+        return self._build_llvm_aggregate_value(aggregate_type, elems, elem_types)
+
     def _emit_dbg_value(self, var_name, value):
         """Emit llvm.intr.dbg.value for a local scalar variable if full debug is on.
 
-        Scalar function arguments (except booleans) are described via dbg.declare on
-        a stack alloca for a stable debug location, while scalar locals use dbg.value.
+        Scalar function arguments (except booleans) and supported aggregate locals
+        are described via dbg.declare on stack storage for a stable debug location,
+        while scalar locals use dbg.value.
         """
         if (
             not self._debug_full
@@ -2614,21 +2681,32 @@ extern "C" __global__ void
         var_attr = self._di_builder.di_local_vars.get(base_name)
         if var_attr is None:
             return
-        mlir_value = value
-        if isinstance(value, ir.OpView):
-            mlir_value = value.result
-        elif not isinstance(value, ir.Value):
-            return
         numba_type = self._get_numba_type_for_dbg_var(var_name)
-        if isinstance(numba_type, types.Complex):
-            # Complex values are emitted in a deferred pass via dbg.declare.
+        if self._need_deferred_debug_emission(numba_type):
+            return
+        if isinstance(numba_type, types.BaseTuple) and isinstance(value, tuple):
+            aggregate = self._materialize_tuple_value(value, numba_type)
+            if aggregate is not None:
+                self._emit_dbg_declare(base_name, aggregate, var_attr)
+            return
+        if isinstance(numba_type, types.Record):
+            mlir_value = self._unwrap_mlir_value(value)
+            if mlir_value is not None:
+                llvm.intr_dbg_declare(
+                    mlir_value,
+                    var_attr,
+                    location_expr=self._di_builder.di_expression,
+                )
+            return
+        mlir_value = self._unwrap_mlir_value(value)
+        if mlir_value is None:
             return
         is_arg = base_name in self._di_builder.arg_names
         is_boolean = isinstance(numba_type, types.Boolean)
         if is_arg and not is_boolean:
             # Use dbg.declare (alloca+store) for scalar args, except boolean
             # args which use dbg.value to avoid a known NVVM crash.
-            self._emit_dbg_declare(var_name, mlir_value, var_attr)
+            self._emit_dbg_declare(base_name, mlir_value, var_attr)
         else:
             llvm.intr_dbg_value(
                 mlir_value,
@@ -2637,7 +2715,7 @@ extern "C" __global__ void
             )
 
     def _emit_dbg_declare(self, var_name, value, var_attr):
-        """Emit llvm.intr.dbg.declare for a scalar argument via a stack alloca."""
+        """Emit llvm.intr.dbg.declare for a value materialized in stack storage."""
         alloca_ptr = self.alloca(value.type)
         llvm.store(value, alloca_ptr)
         llvm.intr_dbg_declare(

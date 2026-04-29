@@ -57,7 +57,7 @@ class TestCUDAFindLibs(NumbaCUDATestCase):
         env_copy = os.environ.copy()
         env_copy[envvar] = str(envvar_value)
         code = """if 1:
-            from numba import cuda
+            from cuda import simt as cuda
             @cuda.jit('(int64,)')
             def kernel(x):
                 pass

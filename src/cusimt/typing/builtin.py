@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from cusimt.errors import ForceLiteralArg
-from numba.core.typing.templates import (
+from cusimt.numba_cuda.typing.templates import (
     AttributeTemplate,
     ConcreteTemplate,
     AbstractTemplate,

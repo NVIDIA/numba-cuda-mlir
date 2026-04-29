@@ -6,10 +6,10 @@ import re
 import numpy as np
 import cusimt
 import cuda.simt as cuda
-from numba.types import int32, int64, float32, float64
+from cusimt.numba_cuda.types import int32, int64, float32, float64
 from cusimt.compiler import compile_ptx
 from cusimt.testing import NumbaCUDATestCase
-from numba.core import errors
+from cusimt.numba_cuda.core import errors
 import pytest
 
 

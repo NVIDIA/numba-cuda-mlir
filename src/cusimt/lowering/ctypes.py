@@ -3,7 +3,7 @@
 from cusimt.mlir_lowering_registry import MLIRLoweringRegistry
 import operator
 import ctypes
-from numba.core.types import ffi as _numba_ffi_type
+from cusimt.numba_cuda.types import ffi as _numba_ffi_type
 from cusimt import types
 from cusimt.lowering_utilities.type_conversions import to_mlir_type, to_numba_type
 from cusimt.lowering_utilities import (

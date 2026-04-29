@@ -14,7 +14,6 @@ from collections import namedtuple
 from collections.abc import Sequence
 from types import MethodType, FunctionType, MappingProxyType
 
-import numba
 from cusimt import numba_cuda
 from cusimt.numba_cuda import types
 from cusimt.numba_cuda.core.errors import (
@@ -25,11 +24,6 @@ from cusimt.numba_cuda.core.options import InlineOptions
 
 from cusimt.numba_cuda import utils
 from cusimt.numba_cuda.core import targetconfig
-
-from cusimt.numba_cuda import HAS_NUMBA
-
-if HAS_NUMBA:
-    from numba.core.typing import Signature as CoreSignature
 
 # info store for inliner callback functions e.g. cost model
 _inline_info = namedtuple("inline_info", "func_ir typemap calltypes signature")
@@ -98,10 +92,7 @@ class Signature:
         return hash((self.args, self.return_type))
 
     def __eq__(self, other):
-        sig_types = (Signature,)
-        if HAS_NUMBA:
-            sig_types = (Signature, CoreSignature)
-        if isinstance(other, sig_types):
+        if isinstance(other, Signature):
             return (
                 self.args == other.args
                 and self.return_type == other.return_type
@@ -201,11 +192,7 @@ def make_callable_template(key, typer, recvr=None):
 def signature(return_type, *args, **kws):
     recvr = kws.pop("recvr", None)
     assert not kws
-    if HAS_NUMBA:
-        signature_class = CoreSignature
-    else:
-        signature_class = Signature
-    return signature_class(return_type, args, recvr=recvr)
+    return Signature(return_type, args, recvr=recvr)
 
 
 def fold_arguments(pysig, args, kws, normal_handler, default_handler, stararg_handler):
@@ -380,10 +367,7 @@ class AbstractTemplate(FunctionTemplate):
         sig = generic(args, kws)
         # Enforce that *generic()* must return None or Signature
         if sig is not None:
-            sig_types = (Signature,)
-            if HAS_NUMBA:
-                sig_types = (Signature, CoreSignature)
-            if not isinstance(sig, sig_types):
+            if not isinstance(sig, Signature):
                 raise AssertionError(
                     "generic() must return a Signature or None. "
                     "{} returned {}".format(generic, type(sig)),
@@ -407,7 +391,7 @@ class AbstractTemplate(FunctionTemplate):
     def get_template_info(self):
         impl = self.generic
         basepath = os.path.dirname(
-            os.path.dirname(os.path.dirname(numba.cuda.__file__))
+            os.path.dirname(os.path.dirname(numba_cuda.__file__))
         )
 
         code, firstlineno, path = self.get_source_code_info(impl)
@@ -496,7 +480,7 @@ class CallableTemplate(FunctionTemplate):
     def get_template_info(self):
         impl = self.generic
         basepath = os.path.dirname(
-            os.path.dirname(os.path.dirname(numba.cuda.__file__))
+            os.path.dirname(os.path.dirname(numba_cuda.__file__))
         )
         code, firstlineno, path = self.get_source_code_info(impl)
         sig = str(utils.pysignature(impl))
@@ -721,7 +705,7 @@ class _OverloadFunctionTemplate(AbstractTemplate):
                 self.context, tgctx, ir, folded_args, None
             )
             ir = PreLowerStripPhis()._strip_phi_nodes(ir)
-            ir._definitions = numba.cuda.core.ir_utils.build_definitions(ir.blocks)
+            ir._definitions = numba_cuda.core.ir_utils.build_definitions(ir.blocks)
 
             sig = Signature(return_type, folded_args, None)
             # this stores a load of info for the cost model function if supplied
@@ -884,7 +868,7 @@ class _OverloadFunctionTemplate(AbstractTemplate):
                 The docstring of the definition.
         """
         basepath = os.path.dirname(
-            os.path.dirname(os.path.dirname(numba.cuda.__file__))
+            os.path.dirname(os.path.dirname(numba_cuda.__file__))
         )
         impl = cls._overload_func
         code, firstlineno, path = cls.get_source_code_info(impl)
@@ -1060,7 +1044,7 @@ class _IntrinsicTemplate(_TemplateTargetHelperMixin, AbstractTemplate):
 
     def get_template_info(self):
         basepath = os.path.dirname(
-            os.path.dirname(os.path.dirname(numba.cuda.__file__))
+            os.path.dirname(os.path.dirname(numba_cuda.__file__))
         )
         impl = self._definition_func
         code, firstlineno, path = self.get_source_code_info(impl)
@@ -1222,7 +1206,7 @@ class _OverloadMethodTemplate(_OverloadAttributeTemplate):
 
             def get_template_info(self):
                 basepath = os.path.dirname(
-                    os.path.dirname(os.path.dirname(numba.cuda.__file__))
+                    os.path.dirname(os.path.dirname(numba_cuda.__file__))
                 )
                 impl = self._overload_func
                 code, firstlineno, path = self.get_source_code_info(impl)

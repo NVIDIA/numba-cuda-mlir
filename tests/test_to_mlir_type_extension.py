@@ -10,7 +10,7 @@ from cusimt.lowering_utilities.type_conversions import to_mlir_type
 from cusimt.models import PrimitiveModel, register_model
 from cusimt._mlir import ir as mlir_ir
 from cusimt._mlir.dialects import llvm
-from numba.core.typeconv import Conversion
+from cusimt.numba_cuda.typeconv import Conversion
 
 
 # ---------------------------------------------------------------------------

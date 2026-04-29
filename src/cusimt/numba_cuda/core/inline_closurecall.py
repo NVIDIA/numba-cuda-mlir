@@ -54,8 +54,8 @@ enable_inline_arraycall = True
 def callee_ir_validator(func_ir):
     """Checks the IR of a callee is supported for inlining"""
     for blk in func_ir.blocks.values():
-        for stmt in blk.find_insts(ir.assign_types):
-            if isinstance(stmt.value, ir.yield_types):
+        for stmt in blk.find_insts(ir.Assign):
+            if isinstance(stmt.value, ir.Yield):
                 msg = "The use of yield in a closure is unsupported."
                 raise errors.UnsupportedError(msg, loc=stmt.loc)
 
@@ -100,9 +100,9 @@ class InlineClosureCallPass:
         while work_list:
             _label, block = work_list.pop()
             for i, instr in enumerate(block.body):
-                if isinstance(instr, ir.assign_types):
+                if isinstance(instr, ir.Assign):
                     expr = instr.value
-                    if isinstance(expr, ir.expr_types) and expr.op == "call":
+                    if isinstance(expr, ir.Expr) and expr.op == "call":
                         call_name = guard(find_callname, self.func_ir, expr)
                         func_def = guard(get_definition, self.func_ir, expr.func)
 
@@ -204,7 +204,7 @@ class InlineClosureCallPass:
         return True
 
     def _inline_closure(self, work_list, block, i, func_def):
-        require(isinstance(func_def, ir.expr_types) and func_def.op == "make_function")
+        require(isinstance(func_def, ir.Expr) and func_def.op == "make_function")
         inline_closure_call(
             self.func_ir,
             self.func_ir.func_id.func.__globals__,
@@ -226,9 +226,7 @@ def check_reduce_func(func_ir, func_var):
             "Reduce function cannot be found for njit \
                             analysis"
         )
-    if isinstance(reduce_func, ir.freevar_types) or isinstance(
-        reduce_func, ir.global_types
-    ):
+    if isinstance(reduce_func, ir.FreeVar) or isinstance(reduce_func, ir.Global):
         if HAS_NUMBA:
             from numba.core.registry import CPUDispatcher
 
@@ -639,7 +637,7 @@ def inline_closure_call(
             cellget.argtypes = (ctypes.py_object,)
             items = tuple(cellget(x) for x in closure)
         else:
-            assert isinstance(closure, ir.expr_types) and closure.op == "build_tuple"
+            assert isinstance(closure, ir.Expr) and closure.op == "build_tuple"
             items = closure.items
         assert len(callee_code.co_freevars) == len(items)
         _replace_freevars(callee_blocks, items)
@@ -749,7 +747,7 @@ def _get_callee_args(call_expr, callee, loc, func_ir):
             kws = dict(call_expr.kws)
         else:
             kws = {}
-        return numba.cuda.typing.fold_arguments(
+        return typing.fold_arguments(
             pysig, args, kws, normal_handler, default_handler, stararg_handler
         )
     else:
@@ -763,18 +761,18 @@ def _get_callee_args(call_expr, callee, loc, func_ir):
             if isinstance(callee_defaults, tuple):  # Python 3.5
                 defaults_list = []
                 for x in callee_defaults:
-                    if isinstance(x, ir.var_types):
+                    if isinstance(x, ir.Var):
                         defaults_list.append(x)
                     else:
                         # this branch is predominantly for kwargs from
                         # inlinable functions
                         defaults_list.append(ir.Const(value=x, loc=loc))
                 args = args + defaults_list
-            elif isinstance(callee_defaults, ir.var_types) or isinstance(
+            elif isinstance(callee_defaults, ir.Var) or isinstance(
                 callee_defaults, str
             ):
                 default_tuple = func_ir.get_definition(callee_defaults)
-                assert isinstance(default_tuple, ir.expr_types)
+                assert isinstance(default_tuple, ir.Expr)
                 assert default_tuple.op == "build_tuple"
                 const_vals = [func_ir.get_definition(x) for x in default_tuple.items]
                 args = args + const_vals
@@ -812,9 +810,9 @@ def _replace_args_with(blocks, args):
     Replace ir.Arg(...) with real arguments from call site
     """
     for block in blocks.values():
-        assigns = block.find_insts(ir.assign_types)
+        assigns = block.find_insts(ir.Assign)
         for stmt in assigns:
-            if isinstance(stmt.value, ir.arg_types):
+            if isinstance(stmt.value, ir.Arg):
                 idx = stmt.value.index
                 assert idx < len(args)
                 stmt.value = args[idx]
@@ -825,12 +823,12 @@ def _replace_freevars(blocks, args):
     Replace ir.FreeVar(...) with real variables from parent function
     """
     for block in blocks.values():
-        assigns = block.find_insts(ir.assign_types)
+        assigns = block.find_insts(ir.Assign)
         for stmt in assigns:
-            if isinstance(stmt.value, ir.freevar_types):
+            if isinstance(stmt.value, ir.FreeVar):
                 idx = stmt.value.index
                 assert idx < len(args)
-                if isinstance(args[idx], ir.var_types):
+                if isinstance(args[idx], ir.Var):
                     stmt.value = args[idx]
                 else:
                     stmt.value = ir.Const(args[idx], stmt.loc)
@@ -844,7 +842,7 @@ def _replace_returns(blocks, target, return_label):
         casts = []
         for i in range(len(block.body)):
             stmt = block.body[i]
-            if isinstance(stmt, ir.return_types):
+            if isinstance(stmt, ir.Return):
                 assert i + 1 == len(block.body)
                 block.body[i] = ir.Assign(stmt.value, target, stmt.loc)
                 block.body.append(ir.Jump(return_label, stmt.loc))
@@ -853,8 +851,8 @@ def _replace_returns(blocks, target, return_label):
                     if cast.target.name == stmt.value.name:
                         cast.value = cast.value.value
             elif (
-                isinstance(stmt, ir.assign_types)
-                and isinstance(stmt.value, ir.expr_types)
+                isinstance(stmt, ir.Assign)
+                and isinstance(stmt.value, ir.Expr)
                 and stmt.value.op == "cast"
             ):
                 casts.append(stmt)
@@ -865,7 +863,7 @@ def _add_definitions(func_ir, block):
     Add variable definitions found in a block to parent func_ir.
     """
     definitions = func_ir._definitions
-    assigns = block.find_insts(ir.assign_types)
+    assigns = block.find_insts(ir.Assign)
     for stmt in assigns:
         definitions[stmt.target.name].append(stmt.value)
 
@@ -883,27 +881,27 @@ def _find_arraycall(func_ir, block):
     i = 0
     while i < len(block.body):
         instr = block.body[i]
-        if isinstance(instr, ir.del_types):
+        if isinstance(instr, ir.Del):
             # Stop the process if list_var becomes dead
             if list_var and array_var and instr.value == list_var.name:
                 list_var_dead_after_array_call = True
                 break
             pass
-        elif isinstance(instr, ir.assign_types):
+        elif isinstance(instr, ir.Assign):
             # Found array_var = array(list_var)
             lhs = instr.target
             expr = instr.value
             if guard(find_callname, func_ir, expr) == (
                 "array",
                 "numpy",
-            ) and isinstance(expr.args[0], ir.var_types):
+            ) and isinstance(expr.args[0], ir.Var):
                 list_var = expr.args[0]
                 array_var = lhs
                 array_stmt_index = i
                 array_kws = dict(expr.kws)
         elif (
-            isinstance(instr, ir.setitem_types)
-            and isinstance(instr.value, ir.var_types)
+            isinstance(instr, ir.SetItem)
+            and isinstance(instr.value, ir.Var)
             and not list_var
         ):
             list_var = instr.value
@@ -930,17 +928,15 @@ def _find_iter_range(func_ir, range_iter_var, swapped):
     debug_print = _make_debug_print("find_iter_range")
     range_iter_def = get_definition(func_ir, range_iter_var)
     debug_print("range_iter_var = ", range_iter_var, " def = ", range_iter_def)
-    require(
-        isinstance(range_iter_def, ir.expr_types) and range_iter_def.op == "getiter"
-    )
+    require(isinstance(range_iter_def, ir.Expr) and range_iter_def.op == "getiter")
     range_var = range_iter_def.value
     range_def = get_definition(func_ir, range_var)
     debug_print("range_var = ", range_var, " range_def = ", range_def)
-    require(isinstance(range_def, ir.expr_types) and range_def.op == "call")
+    require(isinstance(range_def, ir.Expr) and range_def.op == "call")
     func_var = range_def.func
     func_def = get_definition(func_ir, func_var)
     debug_print("func_var = ", func_var, " func_def = ", func_def)
-    require(isinstance(func_def, ir.global_types) and func_def.value is range)
+    require(isinstance(func_def, ir.Global) and func_def.value is range)
     nargs = len(range_def.args)
     swapping = [('"array comprehension"', "closure of"), range_def.func.loc]
     if nargs == 1:
@@ -1053,19 +1049,19 @@ def _inline_arraycall(
     dtype_def = None
     dtype_mod_def = None
     if "dtype" in array_kws:
-        require(isinstance(array_kws["dtype"], ir.var_types))
+        require(isinstance(array_kws["dtype"], ir.Var))
         # We require that dtype argument to be a constant of getattr Expr, and
         # we'll remember its definition for later use.
         dtype_def = get_definition(func_ir, array_kws["dtype"])
-        require(isinstance(dtype_def, ir.expr_types) and dtype_def.op == "getattr")
+        require(isinstance(dtype_def, ir.Expr) and dtype_def.op == "getattr")
         dtype_mod_def = get_definition(func_ir, dtype_def.value)
 
     list_var_def = get_definition(func_ir, list_var)
     debug_print("list_var = ", list_var, " def = ", list_var_def)
-    if isinstance(list_var_def, ir.expr_types) and list_var_def.op == "cast":
+    if isinstance(list_var_def, ir.Expr) and list_var_def.op == "cast":
         list_var_def = get_definition(func_ir, list_var_def.value)
     # Check if the definition is a build_list
-    require(isinstance(list_var_def, ir.expr_types) and list_var_def.op == "build_list")
+    require(isinstance(list_var_def, ir.Expr) and list_var_def.op == "build_list")
     # The build_list must be empty
     require(len(list_var_def.items) == 0)
 
@@ -1081,12 +1077,12 @@ def _inline_arraycall(
             continue
         block = func_ir.blocks[label]
         debug_print("check loop body block ", label)
-        for stmt in block.find_insts(ir.assign_types):
+        for stmt in block.find_insts(ir.Assign):
             expr = stmt.value
-            if isinstance(expr, ir.expr_types) and expr.op == "call":
+            if isinstance(expr, ir.Expr) and expr.op == "call":
                 func_def = get_definition(func_ir, expr.func)
                 if (
-                    isinstance(func_def, ir.expr_types)
+                    isinstance(func_def, ir.Expr)
                     and func_def.op == "getattr"
                     and func_def.attr == "append"
                 ):
@@ -1113,9 +1109,9 @@ def _inline_arraycall(
     iter_vars = []
     iter_first_vars = []
     loop_header = func_ir.blocks[loop.header]
-    for stmt in loop_header.find_insts(ir.assign_types):
+    for stmt in loop_header.find_insts(ir.Assign):
         expr = stmt.value
-        if isinstance(expr, ir.expr_types):
+        if isinstance(expr, ir.Expr):
             if expr.op == "iternext":
                 iter_def = get_definition(func_ir, expr.value)
                 debug_print("iter_def = ", iter_def)
@@ -1142,7 +1138,7 @@ def _inline_arraycall(
     removed = []
 
     def is_removed(val, removed):
-        if isinstance(val, ir.var_types):
+        if isinstance(val, ir.Var):
             for x in removed:
                 if x.name == val.name:
                     return True
@@ -1151,7 +1147,7 @@ def _inline_arraycall(
     # Skip list construction and skip terminator, add the rest to stmts
     for i in range(len(loop_entry.body) - 1):
         stmt = loop_entry.body[i]
-        if isinstance(stmt, ir.assign_types) and (
+        if isinstance(stmt, ir.Assign) and (
             stmt.value is list_def or is_removed(stmt.value, removed)
         ):
             removed.append(stmt.target)
@@ -1273,7 +1269,7 @@ def _inline_arraycall(
             # when range doesn't start from 0, index_var becomes loop index
             # (iter_first_var) minus an offset (range_def[0])
             terminator = loop_header.terminator
-            assert isinstance(terminator, ir.branch_types)
+            assert isinstance(terminator, ir.Branch)
             # find the block in the loop body that header jumps to
             block_id = terminator.truebr
             blk = func_ir.blocks[block_id]
@@ -1329,7 +1325,7 @@ def _inline_arraycall(
     # replace array call, by changing "a = array(b)" to "a = b"
     stmt = func_ir.blocks[exit_block].body[array_call_index]
     # stmt can be either array call or SetItem, we only replace array call
-    if isinstance(stmt, ir.assign_types) and isinstance(stmt.value, ir.expr_types):
+    if isinstance(stmt, ir.Assign) and isinstance(stmt.value, ir.Expr):
         stmt.value = array_var
         func_ir._definitions[stmt.target.name] = [stmt.value]
 
@@ -1338,10 +1334,10 @@ def _inline_arraycall(
 
 def _find_unsafe_empty_inferred(func_ir, expr):
     unsafe_empty_inferred  # noqa: B018
-    require(isinstance(expr, ir.expr_types) and expr.op == "call")
+    require(isinstance(expr, ir.Expr) and expr.op == "call")
     callee = expr.func
     callee_def = get_definition(func_ir, callee)
-    require(isinstance(callee_def, ir.global_types))
+    require(isinstance(callee_def, ir.Global))
     _make_debug_print("_find_unsafe_empty_inferred")(callee_def.value)
     return callee_def.value == unsafe_empty_inferred
 
@@ -1363,7 +1359,7 @@ def _fix_nested_array(func_ir):
         """
         arr_def = get_definition(func_ir, arr)
         _make_debug_print("find_array_def")(arr, arr_def)
-        if isinstance(arr_def, ir.expr_types):
+        if isinstance(arr_def, ir.Expr):
             if guard(_find_unsafe_empty_inferred, func_ir, arr_def):
                 return arr_def
             elif arr_def.op == "getitem":
@@ -1382,7 +1378,7 @@ def _fix_nested_array(func_ir):
             defined = set()
             for i in range(len(body)):
                 inst = body[i]
-                if isinstance(inst, ir.assign_types):
+                if isinstance(inst, ir.Assign):
                     defined.add(inst.target.name)
                     if inst.value is expr:
                         new_varlist = []
@@ -1398,7 +1394,7 @@ def _fix_nested_array(func_ir):
                             else:
                                 debug_print(var.name, " not yet defined")
                                 var_def = get_definition(func_ir, var.name)
-                                if isinstance(var_def, ir.const_types):
+                                if isinstance(var_def, ir.Const):
                                     loc = var.loc
                                     new_var = scope.redefine("new_var", loc)
                                     new_const = ir.Const(var_def.value, loc)
@@ -1427,8 +1423,8 @@ def _fix_nested_array(func_ir):
         3. replace the definition of
            rhs = numba.unsafe.ndarray.empty_inferred(...) with rhs = lhs[idx]
         """
-        require(isinstance(stmt, ir.setitem_types))
-        require(isinstance(stmt.value, ir.var_types))
+        require(isinstance(stmt, ir.SetItem))
+        require(isinstance(stmt.value, ir.Var))
         debug_print = _make_debug_print("fix_array_assign")
         debug_print("found SetItem: ", stmt)
         lhs = stmt.target
@@ -1437,22 +1433,21 @@ def _fix_nested_array(func_ir):
         debug_print("found lhs_def: ", lhs_def)
         rhs_def = get_definition(func_ir, stmt.value)
         debug_print("found rhs_def: ", rhs_def)
-        require(isinstance(rhs_def, ir.expr_types))
+        require(isinstance(rhs_def, ir.Expr))
         if rhs_def.op == "cast":
             rhs_def = get_definition(func_ir, rhs_def.value)
-            require(isinstance(rhs_def, ir.expr_types))
+            require(isinstance(rhs_def, ir.Expr))
         require(_find_unsafe_empty_inferred(func_ir, rhs_def))
         # Find the array dimension of rhs
         dim_def = get_definition(func_ir, rhs_def.args[0])
-        require(isinstance(dim_def, ir.expr_types) and dim_def.op == "build_tuple")
+        require(isinstance(dim_def, ir.Expr) and dim_def.op == "build_tuple")
         debug_print("dim_def = ", dim_def)
         extra_dims = [get_definition(func_ir, x, lhs_only=True) for x in dim_def.items]
         debug_print("extra_dims = ", extra_dims)
         # Expand size tuple when creating lhs_def with extra_dims
         size_tuple_def = get_definition(func_ir, lhs_def.args[0])
         require(
-            isinstance(size_tuple_def, ir.expr_types)
-            and size_tuple_def.op == "build_tuple"
+            isinstance(size_tuple_def, ir.Expr) and size_tuple_def.op == "build_tuple"
         )
         debug_print("size_tuple_def = ", size_tuple_def)
         extra_dims = fix_dependencies(size_tuple_def, extra_dims)
@@ -1663,13 +1658,13 @@ def _inline_const_arraycall(block, func_ir, context, typemap, calltypes):
     state = State()
 
     for inst in block.body:
-        if isinstance(inst, ir.assign_types):
-            if isinstance(inst.value, ir.var_types):
+        if isinstance(inst, ir.Assign):
+            if isinstance(inst.value, ir.Var):
                 if inst.value.name in state.list_vars:
                     state.list_vars.append(inst.target.name)
                     state.stmts.append(inst)
                     continue
-            elif isinstance(inst.value, ir.expr_types):
+            elif isinstance(inst.value, ir.Expr):
                 expr = inst.value
                 if expr.op == "build_list":
                     # new build_list encountered, reset state
@@ -1689,7 +1684,7 @@ def _inline_const_arraycall(block, func_ir, context, typemap, calltypes):
                     ):
                         state.modified = True
                         continue
-        elif isinstance(inst, ir.del_types):
+        elif isinstance(inst, ir.Del):
             removed_var = inst.value
             if removed_var in state.list_items:
                 state.dels.append(inst)
@@ -1708,11 +1703,10 @@ def _inline_const_arraycall(block, func_ir, context, typemap, calltypes):
                     body = []
                     for inst in state.stmts:
                         if (
-                            isinstance(inst, ir.assign_types)
+                            isinstance(inst, ir.Assign)
                             and inst.target.name in state.dead_vars
                         ) or (
-                            isinstance(inst, ir.del_types)
-                            and inst.value in state.dead_vars
+                            isinstance(inst, ir.Del) and inst.value in state.dead_vars
                         ):
                             continue
                         body.append(inst)

@@ -6,7 +6,7 @@ import numpy as np
 import cusimt
 import cuda.simt as cuda
 from cusimt.testing import NumbaCUDATestCase
-from numba import float64
+from cusimt.numba_cuda.types import float64
 import pytest
 
 

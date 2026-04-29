@@ -15,7 +15,7 @@ import os
 import io
 import contextlib
 
-from conftest import TEST_BIN_DIR
+from numba_cuda_tests.testing import TEST_BIN_DIR
 
 test_device_functions_a = os.path.join(TEST_BIN_DIR, "test_device_functions.a")
 test_device_functions_cubin = os.path.join(TEST_BIN_DIR, "test_device_functions.cubin")

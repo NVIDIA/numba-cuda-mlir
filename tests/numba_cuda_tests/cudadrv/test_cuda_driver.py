@@ -271,7 +271,7 @@ class TestCudaDriver(NumbaCUDATestCase):
         self.assertTrue(value > 0)
 
     def test_cuda_cache_config(self):
-        from numba import types
+        from cusimt.numba_cuda import types
         import numpy as np
 
         sig = (types.float32[::1], types.float32[::1])
@@ -318,7 +318,7 @@ class TestCudaDriver(NumbaCUDATestCase):
         )
 
     def test_cuda_set_shared_memory_carveout(self):
-        from numba import types
+        from cusimt.numba_cuda import types
         import numpy as np
 
         sig = (types.float32[::1], types.float32[::1])
@@ -419,7 +419,7 @@ class TestAcceleratedArchitecture(NumbaCUDATestCase):
 
         ffi = cffi.FFI()
 
-        @cuda.jit
+        @cuda.jit(chip="sm_90a")
         def kernel(a):
             sm = cuda.shared.array(1, dtype=np.int32)
             data_ptr = ffi.from_buffer(sm)

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import cuda.simt as cs
-from numba import types
+from cusimt.numba_cuda import types
 import pytest
 import numpy as np
 

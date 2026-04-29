@@ -11,7 +11,7 @@ import numpy as np
 import operator
 import pytest
 
-from numba.types import (
+from cusimt.numba_cuda.types import (
     int16,
     int32,
     int64,

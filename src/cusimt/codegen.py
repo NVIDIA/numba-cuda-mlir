@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from numba.core import serialize
-from numba.core.codegen import Codegen, CodeLibrary
+from cusimt.numba_cuda import serialize
+from cusimt.numba_cuda.codegen import Codegen, CodeLibrary
 from cusimt._mlir.ir import Context, Location, Module
 
 

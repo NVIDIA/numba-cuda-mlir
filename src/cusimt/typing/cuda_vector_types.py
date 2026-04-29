@@ -4,7 +4,7 @@
 Typing support for CUDA vector types (float32x4, int32x2, etc.)
 """
 
-from numba.core.typing.templates import (
+from cusimt.numba_cuda.typing.templates import (
     AbstractTemplate,
     AttributeTemplate,
     Registry,
@@ -135,7 +135,7 @@ class VectorTypeAttributeTemplate(AttributeTemplate):
 
 
 # Register typeof_impl for all vector type stubs so they can be used as closure variables
-from numba.core.typing import typeof
+from cusimt.numba_cuda.typing import typeof
 
 
 def _make_typeof_impl(stub_class):

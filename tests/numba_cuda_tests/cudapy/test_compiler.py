@@ -6,16 +6,16 @@ from math import sqrt
 import cusimt
 import cuda.simt as cuda
 
-from numba import float32, int16, int32, int64, types, uint32, void
+from cusimt.numba_cuda.types import float32, int16, int32, int64, types, uint32, void
 from cusimt.compiler import compile, compile_ptx
-from cusimt.numba_cuda.cudadrv import nvrtc
+from cusimt.numba_cuda.cudadrv import nvrtc, nvvm
 from cusimt.testing import NumbaCUDATestCase
-from cusimt.numba_cuda.testing import cc_X_or_above
+from cusimt.numba_cuda.testing import _get_device_compute_capability
 
 from cusimt.numba_cuda.core.callconv import CUDACallConv
 
 import pytest
-from conftest import TEST_BIN_DIR
+from numba_cuda_tests.testing import TEST_BIN_DIR
 
 test_device_functions_a = os.path.join(TEST_BIN_DIR, "test_device_functions.a")
 test_device_functions_cubin = os.path.join(TEST_BIN_DIR, "test_device_functions.cubin")
@@ -787,9 +787,13 @@ class TestCompileOnlyTests(NumbaCUDATestCase):
             self.assertIn(".target sm_100f", ptx)
 
 
+def _is_sm_100():
+    return _get_device_compute_capability() == (10, 0)
+
+
 _xfail_launch_bounds = pytest.mark.xfail(
-    cc_X_or_above(10, 0),
-    reason="libnvvm does not emit .maxntid for sm_100",
+    _is_sm_100() and nvvm.NVVM().get_version() < (13, 2),
+    reason="libnvvm before CUDA 13.2 does not emit .maxntid for sm_100",
 )
 
 

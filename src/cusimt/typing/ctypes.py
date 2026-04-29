@@ -4,7 +4,7 @@ import ctypes
 import operator
 from cusimt.lowering_utilities.type_conversions import to_numba_type
 from cusimt.logging import trace
-from numba.core.typing.templates import (
+from cusimt.numba_cuda.typing.templates import (
     AttributeTemplate,
     ConcreteTemplate,
     AbstractTemplate,

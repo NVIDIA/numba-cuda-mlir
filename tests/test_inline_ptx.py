@@ -4,7 +4,7 @@ import pytest
 import cuda.simt as cuda
 from cuda.simt import compiler, testing
 import numpy as np
-from numba.types import float32
+from cusimt.numba_cuda.types import float32
 from cuda.simt import tools
 
 brk = cuda.intrin.breakpoint

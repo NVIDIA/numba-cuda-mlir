@@ -4,7 +4,7 @@
 import numpy as np
 import cusimt
 import cuda.simt as cuda
-from numba.np.numpy_support import from_dtype
+from cusimt.numba_cuda.np.numpy_support import from_dtype
 from cusimt.testing import NumbaCUDATestCase
 import pytest
 

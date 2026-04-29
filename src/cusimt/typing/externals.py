@@ -1,10 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from dataclasses import dataclass
-from numba.extending import typeof_impl
-from numba.core.typing.templates import ConcreteTemplate, AttributeTemplate, Registry
-from numba.core.typing import Signature
-from numba.core import types
+from cusimt.numba_cuda.extending import typeof_impl
+from cusimt.numba_cuda.typing.templates import (
+    ConcreteTemplate,
+    AttributeTemplate,
+    Registry,
+)
+from cusimt.numba_cuda.typing import Signature
+from cusimt.numba_cuda import types
 from cusimt.type_defs.builtin_types import Namespace
 from cusimt.logging import trace
 from functools import lru_cache

@@ -36,7 +36,8 @@ from cusimt.numba_cuda.core.config import (
 
 from cusimt.numba_cuda.core import config
 
-from collections.abc import Sequence
+import typing as _tp
+from collections.abc import Mapping, Sequence
 
 PYVERSION = config.PYVERSION
 
@@ -565,58 +566,6 @@ def unified_function_type(numba_types, require_precise=True):
     return function
 
 
-class _RedirectSubpackage(ModuleType):
-    """Redirect a subpackage to a subpackage.
-
-    This allows all references like:
-
-    >>> from numba.old_subpackage import module
-    >>> module.item
-
-    >>> import numba.old_subpackage.module
-    >>> numba.old_subpackage.module.item
-
-    >>> from numba.old_subpackage.module import item
-    """
-
-    def __init__(self, old_module_locals, new_module):
-        old_module = old_module_locals["__name__"]
-        super().__init__(old_module)
-
-        self.__old_module_states = {}
-        self.__new_module = new_module
-
-        new_mod_obj = import_module(new_module)
-
-        # Map all sub-modules over
-        for k, v in new_mod_obj.__dict__.items():
-            # Get attributes so that `subpackage.xyz` and
-            # `from subpackage import xyz` work
-            setattr(self, k, v)
-            if isinstance(v, ModuleType):
-                # Map modules into the interpreter so that
-                # `import subpackage.xyz` works
-                sys.modules[f"{old_module}.{k}"] = sys.modules[v.__name__]
-
-        # copy across dunders so that package imports work too
-        for attr, value in old_module_locals.items():
-            if attr.startswith("__") and attr.endswith("__"):
-                if attr != "__builtins__":
-                    setattr(self, attr, value)
-                    self.__old_module_states[attr] = value
-
-    def __reduce__(self):
-        args = (self.__old_module_states, self.__new_module)
-        return _RedirectSubpackage, args
-
-
-def redirect_numba_module(old_module_locals, numba_module, numba_cuda_module):
-    if find_spec("numba"):
-        return _RedirectSubpackage(old_module_locals, numba_module)
-    else:
-        return _RedirectSubpackage(old_module_locals, numba_cuda_module)
-
-
 def get_hashable_key(value):
     """
     Given a value, returns a key that can be used
@@ -717,3 +666,28 @@ def numba_target_override():
             yield
     else:
         yield
+
+
+Tk = _tp.TypeVar("Tk")
+Tv = _tp.TypeVar("Tv")
+
+
+class SortedMap(Mapping[Tk, Tv], _tp.Generic[Tk, Tv]):
+    """Immutable"""
+
+    def __init__(self, seq):
+        self._values = []
+        self._index = {}
+        for i, (k, v) in enumerate(sorted(seq)):
+            self._index[k] = i
+            self._values.append((k, v))
+
+    def __getitem__(self, k):
+        i = self._index[k]
+        return self._values[i][1]
+
+    def __len__(self):
+        return len(self._values)
+
+    def __iter__(self):
+        return iter(k for k, v in self._values)

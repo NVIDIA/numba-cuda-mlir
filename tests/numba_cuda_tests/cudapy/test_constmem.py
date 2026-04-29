@@ -5,7 +5,7 @@ import numpy as np
 
 import cusimt
 import cuda.simt as cuda
-from numba import complex64, int32, float64
+from cusimt.numba_cuda.types import complex64, int32, float64
 from cusimt.testing import NumbaCUDATestCase
 import pytest
 

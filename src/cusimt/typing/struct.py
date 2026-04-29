@@ -4,12 +4,12 @@
 Typing support for struct and union field access
 """
 
-from numba.core.typing.templates import AttributeTemplate, Registry
-from numba.extending import typeof_impl
+from cusimt.numba_cuda.typing.templates import AttributeTemplate, Registry
+from cusimt.numba_cuda.extending import typeof_impl
 from cusimt.type_defs.aggregate_types import AggregateType, UnionType
 from cusimt.host.struct import StructInstance, StructTypeWrapper
 from cusimt.host.union import UnionInstance, UnionTypeWrapper
-from numba.core import types as numba_types
+from cusimt.numba_cuda import types as numba_types
 
 registry = Registry()
 

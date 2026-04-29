@@ -5,7 +5,8 @@ from collections.abc import Callable as CallableABC
 from cusimt import typing
 from io import StringIO
 from tabulate import tabulate
-from numba.core import sigutils, types as numba_types
+from cusimt.numba_cuda.core import sigutils
+from cusimt.numba_cuda import types as numba_types
 from cusimt.numba_cuda.core.typeinfer import register_dispatcher
 import inspect
 import sys

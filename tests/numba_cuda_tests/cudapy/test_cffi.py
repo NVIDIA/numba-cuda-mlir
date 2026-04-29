@@ -6,7 +6,7 @@ import numpy as np
 import cusimt
 import cuda.simt as cuda
 import pathlib
-from numba import types
+from cusimt.numba_cuda import types
 from cusimt.testing import NumbaCUDATestCase
 from cusimt.numba_cuda.testing import test_data_dir
 

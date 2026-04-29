@@ -83,7 +83,11 @@ def ensure_conda_env(conda_exe: str, env_name: str) -> None:
         print(f"Using existing conda env: {env_name}")
         return
     print(f"Creating conda env: {env_name}")
-    python_spec = f"python={sys.version_info.major}.{sys.version_info.minor}"
+    python_version = os.environ.get(
+        "NUMBAST_INTERNAL_PYTHON_VERSION",
+        f"{sys.version_info.major}.{sys.version_info.minor}",
+    )
+    python_spec = f"python={python_version}"
     run(
         [
             conda_exe,
@@ -165,6 +169,52 @@ def resolve_test_targets(numbast_dir: Path) -> list[str]:
     return targets
 
 
+def install_cusimt_for_numbast_internal(
+    conda_exe: str, env_name: str, extra: str
+) -> None:
+    wheels = sorted((CUSIMT_ROOT / "dist").glob("cusimt-*.whl"))
+    if wheels:
+        wheel = wheels[-1]
+        spec = f"{wheel}[{extra}]"
+        print(f"Installing cusimt from pre-built wheel for {extra}: {wheel.name}")
+        conda_run(
+            conda_exe,
+            env_name,
+            ["python", "-m", "pip", "install", spec],
+        )
+    elif os.environ.get("CI"):
+        raise RuntimeError(
+            "numbast_internal_tests requires a pre-built cusimt wheel in dist/. "
+            "Make sure this job downloads build-wheel artifacts."
+        )
+    else:
+        conda_run(
+            conda_exe,
+            env_name,
+            [
+                "python",
+                "-m",
+                "pip",
+                "install",
+                "--upgrade",
+                *MLIR_PACKAGES,
+                "-f",
+                MLIR_FIND_LINKS,
+            ],
+        )
+        conda_run(
+            conda_exe,
+            env_name,
+            ["python", "-m", "pip", "install", "-e", f"{CUSIMT_ROOT}[{extra}]"],
+        )
+
+    conda_run(
+        conda_exe,
+        env_name,
+        ["python", "-c", "from cusimt._mlir import ir; from cusimt import cuda"],
+    )
+
+
 def setup_numbast_internal_env(
     conda_exe: str, env_name: str, numbast_dir: Path
 ) -> None:
@@ -174,25 +224,7 @@ def setup_numbast_internal_env(
     conda_run(
         conda_exe, env_name, ["python", "-m", "pip", "install", "--upgrade", "pip"]
     )
-    conda_run(
-        conda_exe,
-        env_name,
-        [
-            "python",
-            "-m",
-            "pip",
-            "install",
-            "--upgrade",
-            *MLIR_PACKAGES,
-            "-f",
-            MLIR_FIND_LINKS,
-        ],
-    )
-    conda_run(
-        conda_exe,
-        env_name,
-        ["python", "-m", "pip", "install", "-e", f"{CUSIMT_ROOT}[{cfg['extra']}]"],
-    )
+    install_cusimt_for_numbast_internal(conda_exe, env_name, cfg["extra"])
     conda_run(
         conda_exe,
         env_name,

@@ -10,7 +10,7 @@ import cusimt
 import cuda.simt as cuda
 from cuda.simt import jit
 
-from numba import types
+from cusimt.numba_cuda import types
 
 import inspect
 import math
@@ -19,14 +19,12 @@ import pytest
 import unittest
 
 
-import numba
-from numba import njit
-from numba.core import cgutils
+from cusimt.numba_cuda import cgutils
 from cusimt.numba_cuda.typing.templates import AttributeTemplate
 from cusimt.numba_cuda.cudadecl import registry as cuda_registry
 from cusimt.numba_cuda.cudaimpl import lower_attr as cuda_lower_attr
 
-from numba.core import errors
+from cusimt.numba_cuda.core import errors
 from cusimt.numba_cuda.errors import LoweringError
 
 from cusimt.numba_cuda.extending import (
@@ -43,7 +41,7 @@ from cusimt.numba_cuda.extending import (
     make_attribute_wrapper,
 )
 
-from conftest import TEST_BIN_DIR
+from numba_cuda_tests.testing import TEST_BIN_DIR
 
 test_device_functions_a = os.path.join(TEST_BIN_DIR, "test_device_functions.a")
 test_device_functions_cubin = os.path.join(TEST_BIN_DIR, "test_device_functions.cubin")
@@ -76,15 +74,12 @@ class Interval:
         return self.hi - self.lo
 
 
-from numba import njit
-
-
-@njit
+@cuda.jit
 def interval_width(interval):
     return interval.width
 
 
-@njit
+@cuda.jit
 def sum_intervals(i, j):
     return Interval(i.lo + j.lo, i.hi + j.hi)
 
@@ -634,7 +629,6 @@ class TestHighLevelExtending(NumbaCUDATestCase):
         self.assertEqual(res[1], 20)
         self.assertEqual(res[2], 30)
 
-    @pytest.mark.xfail(True, reason="Typing error")
     def test_overload_method_literal_unpack(self):
         # Issue #3683
         @overload_method(types.Array, "litfoo")
@@ -896,141 +890,6 @@ class TestOverloadPreferLiteral(NumbaCUDATestCase):
         self.assertEqual(c, 300)
 
 
-class TestNumbaInternalOverloads(NumbaCUDATestCase):
-    def test_signatures_match_overloaded_api(self):
-        # This is a "best-effort" test to try and ensure that Numba's internal
-        # overload declarations have signatures with argument names that match
-        # the API they are overloading. The purpose of ensuring there is a
-        # match is so that users can use call-by-name for positional arguments.
-
-        # Set this to:
-        # 0 to make violations raise a ValueError (default).
-        # 1 to get violations reported to STDOUT
-        # 2 to get a verbose output of everything that was checked and its state
-        #   reported to STDOUT.
-        DEBUG = 0
-
-        # np.random.* does not have a signature exposed to `inspect`... so
-        # custom parse the docstrings.
-        def sig_from_np_random(x):
-            if not x.startswith("_"):
-                thing = getattr(np.random, x)
-                if inspect.isbuiltin(thing):
-                    docstr = thing.__doc__.splitlines()
-                    for l in docstr:
-                        if l:
-                            sl = l.strip()
-                            if sl.startswith(x):  # its the signature
-                                # special case np.random.seed, it has `self` in
-                                # the signature whereas all the other functions
-                                # do not!?
-                                if x == "seed":
-                                    sl = "seed(seed)"
-
-                                fake_impl = f"def {sl}:\n\tpass"
-                                l = {}
-                                try:
-                                    exec(fake_impl, {}, l)
-                                except SyntaxError:
-                                    # likely elipsis, e.g. rand(d0, d1, ..., dn)
-                                    if DEBUG == 2:
-                                        print(
-                                            "... skipped as cannot parse " "signature"
-                                        )
-                                    return None
-                                else:
-                                    fn = l.get(x)
-                                    return inspect.signature(fn)
-
-        def checker(func, overload_func):
-            if DEBUG == 2:
-                print(f"Checking: {func}")
-
-            def create_message(func, overload_func, func_sig, ol_sig):
-                msg = []
-                s = f"{func} from module '{func.__module__}' " "has mismatched sig."
-                msg.append(s)
-                msg.append(f"    - expected: {func_sig}")
-                msg.append(f"    -      got: {ol_sig}")
-                lineno = inspect.getsourcelines(overload_func)[1]
-                tmpsrcfile = inspect.getfile(overload_func)
-                srcfile = tmpsrcfile.replace(numba.__path__[0], "")
-                msg.append(f"from {srcfile}:{lineno}")
-                msgstr = "\n" + "\n".join(msg)
-                return msgstr
-
-            func_sig = None
-            try:
-                func_sig = inspect.signature(func)
-            except ValueError:
-                # probably a built-in/C code, see if it's a np.random function
-                if fname := getattr(func, "__name__", False):
-                    if maybe_func := getattr(np.random, fname, False):
-                        if maybe_func == func:
-                            # it's a built-in from np.random
-                            func_sig = sig_from_np_random(fname)
-
-            if func_sig is not None:
-                ol_sig = inspect.signature(overload_func)
-                x = list(func_sig.parameters.keys())
-                y = list(ol_sig.parameters.keys())
-                for a, b in zip(x[: len(y)], y):
-                    if a != b:
-                        p = func_sig.parameters[a]
-                        if p.kind == p.POSITIONAL_ONLY:
-                            # probably a built-in/C code
-                            if DEBUG == 2:
-                                print(
-                                    "... skipped as positional only " "arguments found"
-                                )
-                            break
-                        elif "*" in str(p):  # probably *args or similar
-                            if DEBUG == 2:
-                                print("... skipped as contains *args")
-                            break
-                        else:
-                            # Only error/report on functions that have a module
-                            # or are from somewhere other than Numba.
-                            if not func.__module__ or not func.__module__.startswith(
-                                "numba"
-                            ):
-                                msgstr = create_message(
-                                    func, overload_func, func_sig, ol_sig
-                                )
-                                if DEBUG != 0:
-                                    if DEBUG == 2:
-                                        print("... INVALID")
-                                    if msgstr:
-                                        print(msgstr)
-                                    break
-                                else:
-                                    raise ValueError(msgstr)
-                            else:
-                                if DEBUG == 2:
-                                    if not func.__module__:
-                                        print("... skipped as no __module__ " "present")
-                                    else:
-                                        print("... skipped as Numba internal")
-                                break
-                else:
-                    if DEBUG == 2:
-                        print("... OK")
-
-        # Compile something to make sure that the typing context registries
-        # are populated with everything from the CPU target.
-        jit(lambda: None).compile(())
-        tyctx = numba.cuda.target.CUDATypingContext()
-        tyctx.refresh()
-
-        # Walk the registries and check each function that is an overload
-        regs = tyctx._registries
-        for k, v in regs.items():
-            for item in k.functions:
-                if getattr(item, "_overload_func", False):
-                    checker(item.key, item._overload_func)
-
-
-@pytest.mark.xfail(True, reason="Failed assertion")
 def test_overload_array_return():
     def slice_a(a):
         pass

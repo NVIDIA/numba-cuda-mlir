@@ -6,7 +6,7 @@
 import inspect
 
 from cusimt._mlir import ir
-from numba.core import types
+from cusimt.numba_cuda import types
 import pytest
 
 from cusimt.models import StructModel, mlir_data_manager, register_model

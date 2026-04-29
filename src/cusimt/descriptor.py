@@ -15,17 +15,18 @@ from cusimt.numba_cuda.core.errors import NumbaPerformanceWarning
 from cusimt.numba_cuda.core import config as cuda_config
 from cusimt.numba_cuda.cudadrv import driver as numba_cuda_driver
 from importlib.util import find_spec
-from numba import errors, types
+from cusimt.numba_cuda.core import errors, sigutils
+from cusimt.numba_cuda import types
 from cusimt.numba_cuda.typing.typeof import typeof
 from cusimt.numba_cuda.cudadecl import registry as cuda_registry
-from numba.core import serialize, typing, sigutils
-from numba.core.base import BaseContext
-from numba.core.callconv import MinimalCallConv
-from numba.core.descriptors import TargetDescriptor
-from numba.core.compiler_lock import global_compiler_lock
-from numba.core.dispatcher import Dispatcher
-from numba.core.options import TargetOptions
-from numba.core.target_extension import (
+from cusimt.numba_cuda import serialize, typing
+from cusimt.numba_cuda.core.base import BaseContext
+from cusimt.numba_cuda.core.callconv import MinimalCallConv
+from cusimt.numba_cuda.core.descriptors import TargetDescriptor
+from cusimt.numba_cuda.core.compiler_lock import global_compiler_lock
+from cusimt.numba_cuda.dispatcher import Dispatcher
+from cusimt.numba_cuda.core.options import TargetOptions
+from cusimt.numba_cuda.core.target_extension import (
     CPU,
     target_registry,
     dispatcher_registry,
@@ -60,8 +61,8 @@ def _is_strided_memory_view(arg):
 
 def _strided_memory_view_to_device_array(smv):
     """Convert a StridedMemoryView to a DeviceNDArray for kernel dispatch."""
-    from numba.cuda.cudadrv import driver, devices
-    from numba.cuda.cudadrv.devicearray import DeviceNDArray
+    from cusimt.numba_cuda.cudadrv import driver, devices
+    from cusimt.numba_cuda.cudadrv.devicearray import DeviceNDArray
 
     shape = smv.shape
     dtype = np.dtype(smv.dtype)
@@ -144,7 +145,7 @@ def _raise_as_cuda_error(e):
 
 
 def _ensure_numba_cuda_context():
-    from numba.cuda.cudadrv import devices
+    from cusimt.numba_cuda.cudadrv import devices
 
     return devices.get_context()
 
@@ -217,7 +218,7 @@ class _ArgMarshaller:
 
                 if isinstance(arg, DeviceNDArrayBase):
                     return arg
-                from numba.cuda.api import from_cuda_array_interface
+                from cusimt.numba_cuda.api import from_cuda_array_interface
 
                 return from_cuda_array_interface(
                     arg.__cuda_array_interface__, owner=arg
@@ -472,7 +473,7 @@ class MLIRTypingContext(typing.BaseContext):
         numba-cuda registers @overload_method(types.Array, "min") / "max"
         whose bodies use numpy_take which cannot handle 0-d arrays under
         the cusimt pipeline."""
-        from numba import types as nb_types
+        from cusimt.numba_cuda import types as nb_types
 
         cusimt_methods = {"min", "max", "sum", "prod", "mean", "std", "var"}
         arr_templates = self._attributes.get(nb_types.Array, [])
@@ -482,7 +483,7 @@ class MLIRTypingContext(typing.BaseContext):
             if not (
                 hasattr(type(t), "_attr")
                 and getattr(type(t), "_attr", None) in cusimt_methods
-                and getattr(type(t), "__module__", "").startswith("numba")
+                and getattr(type(t), "__module__", "").startswith("cusimt.numba_cuda")
             )
         ]
 
@@ -1515,8 +1516,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 )
             except FileNotFoundError as e:
                 raise RuntimeError(
-                    "nvdisasm not found. Install the CUDA toolkit and "
-                    "ensure it is on your PATH."
+                    "nvdisasm has not been found. You may need "
+                    "to install the CUDA toolkit and ensure that "
+                    "it is available on your PATH.\n"
                 ) from e
             return cp.stdout.decode("utf-8")
 

@@ -7,8 +7,8 @@ from cusimt.numba_cuda.core import ir_utils, transforms
 
 class YieldPoint:
     def __init__(self, block, inst):
-        assert isinstance(block, ir.block_types)
-        assert isinstance(inst, ir.yield_types)
+        assert isinstance(block, ir.Block)
+        assert isinstance(inst, ir.Yield)
         self.block = block
         self.inst = inst
         self.live_vars = None
@@ -111,9 +111,9 @@ class PostProcessor:
         assert not dct, "rerunning _populate_generator_info"
         for block in self.func_ir.blocks.values():
             for inst in block.body:
-                if isinstance(inst, ir.assign_types):
+                if isinstance(inst, ir.Assign):
                     yieldinst = inst.value
-                    if isinstance(yieldinst, ir.yield_types):
+                    if isinstance(yieldinst, ir.Yield):
                         index = len(dct) + 1
                         yieldinst.index = index
                         yp = YieldPoint(block, yieldinst)
@@ -133,18 +133,18 @@ class PostProcessor:
             weak_live_vars = set()
             stmts = iter(yp.block.body)
             for stmt in stmts:
-                if isinstance(stmt, ir.assign_types):
+                if isinstance(stmt, ir.Assign):
                     if stmt.value is yp.inst:
                         break
                     live_vars.add(stmt.target.name)
-                elif isinstance(stmt, ir.del_types):
+                elif isinstance(stmt, ir.Del):
                     live_vars.remove(stmt.value)
             else:
                 assert 0, "couldn't find yield point"
             # Try to optimize out any live vars that are deleted immediately
             # after the yield point.
             for stmt in stmts:
-                if isinstance(stmt, ir.del_types):
+                if isinstance(stmt, ir.Del):
                     name = stmt.value
                     if name in live_vars:
                         live_vars.remove(name)
@@ -222,7 +222,7 @@ class PostProcessor:
                 else:
                     lastloc = stmt.loc
                 # Ignore dels (assuming no user inserted deletes)
-                if not isinstance(stmt, ir.del_types):
+                if not isinstance(stmt, ir.Del):
                     body.append(stmt)
                 # note: the reverse sort is not necessary for correctness
                 #       it is just to minimize changes to test for now

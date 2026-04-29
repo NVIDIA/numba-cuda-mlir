@@ -5,7 +5,7 @@ import sys
 from typing import List
 from dataclasses import dataclass, field
 import cusimt
-from numba import float32
+from cusimt.numba_cuda.types import float32
 from cusimt.compiler import compile_ptx
 from math import cos, sin, tan, exp, log, log10, log2, pow, tanh, nextafter
 from operator import truediv

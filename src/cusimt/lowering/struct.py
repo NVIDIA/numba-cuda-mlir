@@ -10,8 +10,8 @@ from cusimt.logging import trace
 from cusimt.lowering_utilities import convert
 from cusimt._mlir.dialects import llvm, arith
 from cusimt._mlir import ir as mlir_ir
-from numba.core import ir as numba_ir
-from numba import types
+from cusimt.numba_cuda.core import ir as numba_ir
+from cusimt.numba_cuda import types
 
 
 @registry.lower_getattr_generic(AggregateType)

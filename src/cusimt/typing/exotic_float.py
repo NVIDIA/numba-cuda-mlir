@@ -10,7 +10,7 @@ cvt_e8m0_to_bf16raw, and bfloat16_raw attribute access.
 """
 
 import operator
-from numba.core.typing.templates import (
+from cusimt.numba_cuda.typing.templates import (
     AttributeTemplate,
     ConcreteTemplate,
     Registry,

@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from cusimt.testing import NumbaCUDATestCase
-from numba import types
+from cusimt.numba_cuda import types
 import cusimt
 import cuda.simt as cuda
 from .complex_usecases import (
@@ -40,7 +40,7 @@ from .complex_usecases import (
     sinh_usecase,
     tanh_usecase,
 )
-from numba.np import numpy_support
+from cusimt.numba_cuda.np import numpy_support
 
 
 def compile_scalar_func(pyfunc, argtypes, restype):

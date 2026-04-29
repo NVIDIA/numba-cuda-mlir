@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 import cusimt
-from numba.core import errors
-from numba.core.extending import overload
+from cusimt.numba_cuda.core import errors
+from cusimt.numba_cuda.extending import overload
 from cusimt.testing import NumbaCUDATestCase
 import numpy as np
 

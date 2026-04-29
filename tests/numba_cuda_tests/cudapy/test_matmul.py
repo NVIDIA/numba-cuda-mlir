@@ -4,7 +4,7 @@
 import numpy as np
 
 import cusimt
-from numba import float32, void
+from cusimt.numba_cuda.types import float32, void
 import pytest
 
 bpg, tpb = 50, 32

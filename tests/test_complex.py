@@ -4,6 +4,9 @@
 import unittest
 
 import numpy as np
+import pytest
+
+from cusimt.numba_cuda import types
 import cuda.simt as cuda
 
 

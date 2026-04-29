@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import operator
 from cusimt.lowering_utilities import index_of
-from numba.core import types
+from cusimt.numba_cuda import types
 from cusimt.numba_cuda.types.ext_types import Dim3
 from cusimt.mlir_lowering import MLIRLower
 from cusimt._mlir import ir

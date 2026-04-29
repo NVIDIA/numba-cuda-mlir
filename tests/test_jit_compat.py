@@ -292,10 +292,28 @@ def kernel(arr, x):
 
 
 def test_chip_forward_compat():
-    """Test chip=sm_75 targeting Turing."""
+    """Test targeting a lower chip than the current device."""
     import cusimt
+    from cusimt.numba_cuda.cudadrv import nvrtc
 
-    @cusimt.jit(chip="sm_75")
+    current_cc = cuda.get_current_device().compute_capability
+    supported_ccs = set(nvrtc.get_supported_ccs())
+    target_cc = next(
+        (
+            cc
+            for cc in [(7, 5), (7, 0), (6, 0), (5, 0)]
+            if cc < current_cc and cc in supported_ccs
+        ),
+        None,
+    )
+    if target_cc is None:
+        supported = ", ".join(f"sm_{cc[0]}{cc[1]}" for cc in sorted(supported_ccs))
+        pytest.skip(
+            f"no supported lower chip target available for sm_{current_cc[0]}{current_cc[1]}; "
+            f"supported targets: {supported}"
+        )
+
+    @cusimt.jit(chip=f"sm_{target_cc[0]}{target_cc[1]}")
     def kernel(arr):
         arr[0] = 42
 

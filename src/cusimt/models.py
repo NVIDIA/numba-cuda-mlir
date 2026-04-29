@@ -18,8 +18,8 @@ from cusimt._mlir.ir import (
 from cusimt._mlir.dialects import llvm
 from cusimt._mlir.extras import types as T
 from cusimt import types
-from numba.core.datamodel.models import PrimitiveModel, DataModel
-from numba.core.datamodel.registry import DataModelManager, register
+from cusimt.numba_cuda.datamodel.models import PrimitiveModel, DataModel
+from cusimt.numba_cuda.datamodel.registry import DataModelManager, register
 from cusimt.numba_cuda.types.ext_types import GridGroup as GridGroupClass
 from cusimt.type_defs import float_types
 

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 from llvmlite import ir
-from numba import types
+from cusimt.numba_cuda import types
 from cusimt.numba_cuda import cgutils
 from cusimt.numba_cuda.extending import intrinsic, overload
 from cusimt.numba_cuda.core.errors import NumbaTypeError

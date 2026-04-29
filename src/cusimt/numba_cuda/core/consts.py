@@ -66,7 +66,7 @@ class ConstantInference:
         try:
             const = defn.infer_constant()
         except ConstantInferenceError:
-            if isinstance(defn, ir.expr_types):
+            if isinstance(defn, ir.Expr):
                 return self._infer_expr(defn)
             self._fail(defn)
         return const

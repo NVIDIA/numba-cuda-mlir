@@ -6,7 +6,7 @@ import operator
 import cuda.simt as cuda
 import numpy as np
 import pytest
-from numba.np import npdatetime_helpers
+from cusimt.numba_cuda.np import npdatetime_helpers
 
 date_units = ("Y", "M")
 time_units = ("W", "D", "h", "m", "s", "ms", "us", "ns", "ps", "fs", "as")

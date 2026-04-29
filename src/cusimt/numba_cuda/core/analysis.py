@@ -38,16 +38,16 @@ def compute_use_defs(blocks):
                 func = ir_extension_usedefs[type(stmt)]
                 func(stmt, use_set, def_set)
                 continue
-            if isinstance(stmt, ir.assign_types):
-                if isinstance(stmt.value, ir.inst_types):
+            if isinstance(stmt, ir.Assign):
+                if isinstance(stmt.value, ir.Inst):
                     rhs_set = set(var.name for var in stmt.value.list_vars())
-                elif isinstance(stmt.value, ir.var_types):
+                elif isinstance(stmt.value, ir.Var):
                     rhs_set = set([stmt.value.name])
                 elif (
-                    isinstance(stmt.value, ir.arg_types)
-                    or isinstance(stmt.value, ir.const_types)
-                    or isinstance(stmt.value, ir.global_types)
-                    or isinstance(stmt.value, ir.freevar_types)
+                    isinstance(stmt.value, ir.Arg)
+                    or isinstance(stmt.value, ir.Const)
+                    or isinstance(stmt.value, ir.Global)
+                    or isinstance(stmt.value, ir.FreeVar)
                 ):
                     rhs_set = ()
                 else:
@@ -320,7 +320,7 @@ def rewrite_semantic_constants(func_ir, called_args):
         if getattr(val, "op", None) == "getattr":
             if val.attr == "ndim":
                 arg_def = guard(get_definition, func_ir, val.value)
-                if isinstance(arg_def, ir.arg_types):
+                if isinstance(arg_def, ir.Arg):
                     argty = called_args[arg_def.index]
                     if isinstance(argty, types.Array):
                         rewrite_statement(func_ir, stmt, argty.ndim)
@@ -331,18 +331,16 @@ def rewrite_semantic_constants(func_ir, called_args):
             func = guard(get_definition, func_ir, val.func)
             if (
                 func is not None
-                and isinstance(func, ir.global_types)
+                and isinstance(func, ir.Global)
                 and getattr(func, "value", None) is len
             ):
                 (arg,) = val.args
                 arg_def = guard(get_definition, func_ir, arg)
-                if isinstance(arg_def, ir.arg_types):
+                if isinstance(arg_def, ir.Arg):
                     argty = called_args[arg_def.index]
                     if isinstance(argty, types.BaseTuple):
                         rewrite_statement(func_ir, stmt, argty.count)
-                elif (
-                    isinstance(arg_def, ir.expr_types) and arg_def.op == "typed_getitem"
-                ):
+                elif isinstance(arg_def, ir.Expr) and arg_def.op == "typed_getitem":
                     argty = arg_def.dtype
                     if isinstance(argty, types.BaseTuple):
                         rewrite_statement(func_ir, stmt, argty.count)
@@ -351,9 +349,9 @@ def rewrite_semantic_constants(func_ir, called_args):
 
     for blk in func_ir.blocks.values():
         for stmt in blk.body:
-            if isinstance(stmt, ir.assign_types):
+            if isinstance(stmt, ir.Assign):
                 val = stmt.value
-                if isinstance(val, ir.expr_types):
+                if isinstance(val, ir.Expr):
                     rewrite_array_ndim(val, func_ir, called_args)
                     rewrite_tuple_len(val, func_ir, called_args)
 
@@ -384,7 +382,7 @@ def find_literally_calls(func_ir, argtypes):
     for blk in func_ir.blocks.values():
         for assign in blk.find_exprs(op="call"):
             var = ir_utils.guard(ir_utils.get_definition, func_ir, assign.func)
-            if isinstance(var, ir.global_types + ir.freevar_types):
+            if isinstance(var, (ir.Global, ir.FreeVar)):
                 fnobj = var.value
             else:
                 fnobj = ir_utils.guard(ir_utils.resolve_func_from_module, func_ir, var)
@@ -392,7 +390,7 @@ def find_literally_calls(func_ir, argtypes):
                 # Found
                 [arg] = assign.args
                 defarg = func_ir.get_definition(arg)
-                if isinstance(defarg, ir.arg_types):
+                if isinstance(defarg, ir.Arg):
                     argindex = defarg.index
                     marked_args.add(argindex)
                     first_loc.setdefault(argindex, assign.loc)
@@ -464,14 +462,14 @@ def dead_branch_prune(func_ir, called_args):
         branches = []
         for blk in func_ir.blocks.values():
             branch_or_jump = blk.body[-1]
-            if isinstance(branch_or_jump, ir.branch_types):
+            if isinstance(branch_or_jump, ir.Branch):
                 branch = branch_or_jump
                 pred = guard(get_definition, func_ir, branch.cond.name)
                 if pred is not None and getattr(pred, "op", None) == "call":
                     function = guard(get_definition, func_ir, pred.func)
                     if (
                         function is not None
-                        and isinstance(function, ir.global_types)
+                        and isinstance(function, ir.Global)
                         and function.value is bool
                     ):
                         condition = guard(get_definition, func_ir, pred.args[0])
@@ -530,9 +528,7 @@ def dead_branch_prune(func_ir, called_args):
         try:
             # Just to prevent accidents, whilst already guarded, ensure this
             # is an ir.Const
-            if not isinstance(
-                pred, ir.const_types + ir.freevar_types + ir.global_types
-            ):
+            if not isinstance(pred, (ir.Const, ir.FreeVar, ir.Global)):
                 raise TypeError("Expected constant Numba IR node")
             take_truebr = bool(pred.value)
         except TypeError:
@@ -577,8 +573,8 @@ def dead_branch_prune(func_ir, called_args):
     phi2asgn = dict()
     for lbl, blk in func_ir.blocks.items():
         for stmt in blk.body:
-            if isinstance(stmt, ir.assign_types):
-                if isinstance(stmt.value, ir.expr_types) and stmt.value.op == "phi":
+            if isinstance(stmt, ir.Assign):
+                if isinstance(stmt.value, ir.Expr) and stmt.value.op == "phi":
                     phi2lbl[stmt.value] = lbl
                     phi2asgn[stmt.value] = stmt
 
@@ -592,12 +588,12 @@ def dead_branch_prune(func_ir, called_args):
 
     for branch, condition, blk in branch_info:
         const_conds = []
-        if isinstance(condition, ir.expr_types) and condition.op == "binop":
+        if isinstance(condition, ir.Expr) and condition.op == "binop":
             prune = prune_by_value
             for arg in [condition.lhs, condition.rhs]:
                 resolved_const = Unknown()
                 arg_def = guard(get_definition, func_ir, arg)
-                if isinstance(arg_def, ir.arg_types):
+                if isinstance(arg_def, ir.Arg):
                     # it's an e.g. literal argument to the function
                     resolved_const = resolve_input_arg_const(arg_def.index)
                     prune = prune_by_type
@@ -657,7 +653,7 @@ def dead_branch_prune(func_ir, called_args):
     for _, cond, blk in branch_info:
         if cond in deadcond:
             for x in blk.body:
-                if isinstance(x, ir.assign_types) and x.value is cond:
+                if isinstance(x, ir.Assign) and x.value is cond:
                     # rewrite the condition as a true/false bit
                     nullified_info = nullified_conditions[deadcond.index(cond)]
                     # only do a rewrite of conditions, predicates need to retain

@@ -6,12 +6,12 @@ Registers bf16 intrinsics dynamically at typing context initialization time
 to handle module identity issues with the cusimt redirector.
 """
 
-from numba.core.typing.templates import (
+from cusimt.numba_cuda.typing.templates import (
     ConcreteTemplate,
     Registry,
     signature,
 )
-from numba import types
+from cusimt.numba_cuda import types
 from cusimt.numba_cuda.types.ext_types import bfloat16 as bf16
 
 registry = Registry()
@@ -42,7 +42,7 @@ def register_bf16_globals():
     """Register bf16 intrinsics as globals. Must be called after bf16 module is imported."""
     import sys
 
-    mod = sys.modules.get("numba.cuda._internal.cuda_bf16")
+    mod = sys.modules.get("cusimt.numba_cuda._internal.cuda_bf16")
     if not mod:
         return
 

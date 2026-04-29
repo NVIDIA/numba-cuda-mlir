@@ -4,7 +4,7 @@
 import numpy as np
 import cusimt
 import cuda.simt as cuda
-from numba.types import float64, void
+from cusimt.numba_cuda.types import float64, void
 from cusimt.testing import NumbaCUDATestCase
 
 # NOTE: CUDA kernel does not return any value

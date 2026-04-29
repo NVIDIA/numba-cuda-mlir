@@ -3,15 +3,15 @@
 
 import cusimt
 import cuda.simt as cuda
-from numba.types import int32, float64, void
+from cusimt.numba_cuda.types import int32, float64, void
 
-from numba.core.errors import TypingError
-from numba import types
+from cusimt.numba_cuda.core.errors import TypingError
+from cusimt.numba_cuda import types
 from cusimt.testing import NumbaCUDATestCase
 from cusimt.numba_cuda.testing import cc_X_or_above
 
 import numpy as np
-from numba.np import numpy_support as nps
+from cusimt.numba_cuda.np import numpy_support as nps
 import pytest
 
 from .extensions_usecases import struct_model_type, MyStruct
@@ -404,7 +404,6 @@ class TestSharedMemory(NumbaCUDATestCase):
         host_result = d_result.copy_to_host()
         np.testing.assert_array_equal(arr, host_result)
 
-    @pytest.mark.xfail(True, reason="Typing error")
     def test_invalid_array_type(self):
         rgx = ".*Cannot infer the type of variable 'arr'.*"
 

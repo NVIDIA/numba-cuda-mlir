@@ -6,10 +6,10 @@ import numpy as np
 import pytest
 import cusimt
 from cusimt.testing import NumbaCUDATestCase
-from numba.np import numpy_support
+from cusimt.numba_cuda.np import numpy_support
 import cuda.simt as cuda
 from cuda.simt import vectorize
-from numba.types import float32, float64, int32, void, int64
+from cusimt.numba_cuda.types import float32, float64, int32, void, int64
 import math
 import pytest
 

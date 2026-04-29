@@ -3,9 +3,9 @@
 
 import numpy as np
 
-from numba import types
+from cusimt.numba_cuda import types
 import pytest
-from numba.np.numpy_support import carray, farray
+from cusimt.numba_cuda.np.numpy_support import carray, farray
 import cuda.simt as cuda
 import cusimt
 

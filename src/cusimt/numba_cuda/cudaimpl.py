@@ -22,10 +22,6 @@ from cusimt.numba_cuda.api_util import normalize_indices
 from cusimt.numba_cuda import nvvmutils, stubs
 from cusimt.numba_cuda.types.ext_types import dim3, CUDADispatcher
 
-if cuda.HAS_NUMBA:
-    from numba.core.datamodel.models import StructModel as CoreStructModel
-    from numba.core import types as core_types
-
 registry = Registry("cudaimpl")
 lower = registry.lower
 lower_attr = registry.lower_getattr
@@ -822,9 +818,6 @@ def _generic_array(
     # Check that we support the requested dtype
     number_domain = types.number_domain
     struct_model_types = (StructModel,)
-    if cuda.HAS_NUMBA:
-        number_domain |= core_types.number_domain
-        struct_model_types = (StructModel, CoreStructModel)
 
     data_model = context.data_model_manager[dtype]
     other_supported_type = (

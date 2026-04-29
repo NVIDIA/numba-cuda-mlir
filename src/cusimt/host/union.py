@@ -5,14 +5,14 @@ Union support for cusimt - similar to ctypes structures
 """
 
 from collections import namedtuple, Counter
-from numba.core import types
+from cusimt.numba_cuda import types
 from cusimt.type_defs.aggregate_types import AggregateType, UnionType
 from typing import Any
 import ctypes
 from .struct import StructTypeWrapper, StructInstance
 from cusimt.lowering.union import _lower_union_construction_impl
 from cusimt.descriptor import mlir_target
-from numba.core.typing.templates import ConcreteTemplate
+from cusimt.numba_cuda.typing.templates import ConcreteTemplate
 from cusimt import typing
 from cusimt.lowering.union import registry as lowering_registry
 

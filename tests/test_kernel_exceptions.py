@@ -49,7 +49,7 @@ def test_multiple_errors_first_wins():
 def test_error_global_in_ptx():
     """Test that the error global is present in compiled PTX."""
     from cusimt.compiler import compile_ptx
-    from numba import types
+    from cusimt.numba_cuda import types
 
     sig = types.void(types.int32[:], types.int64)
     ptx, _ = compile_ptx(tuple_bounds_check_kernel, sig)

@@ -7,7 +7,7 @@ import math
 import cusimt
 import cuda.simt as cuda
 from cuda.simt import vectorize
-from numba.types import int32, uint32, float32, float64
+from cusimt.numba_cuda.types import int32, uint32, float32, float64
 from cusimt.testing import NumbaCUDATestCase
 import pytest
 

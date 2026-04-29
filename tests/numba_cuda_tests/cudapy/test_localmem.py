@@ -5,10 +5,10 @@ import numpy as np
 
 import cusimt
 import cuda.simt as cuda
-from numba.types import int32, complex128, void
-from numba import types
+from cusimt.numba_cuda.types import int32, complex128, void
+from cusimt.numba_cuda import types
 
-from numba.core.errors import TypingError
+from cusimt.numba_cuda.core.errors import TypingError
 from cusimt.testing import NumbaCUDATestCase
 from .extensions_usecases import struct_model_type, MyStruct
 import pytest

@@ -6,7 +6,7 @@ import numpy as np
 import cusimt
 import cuda.simt as cuda
 from cusimt.testing import NumbaCUDATestCase
-from numba.extending import overload
+from cusimt.extending import overload
 
 
 class TestNumbaInterop(NumbaCUDATestCase):

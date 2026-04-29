@@ -21,8 +21,8 @@ from cusimt.lowering_utilities.linalg_lowering import lower_np_binop
 from cusimt.logging import trace
 from cusimt.mlir_lowering import MLIRLower
 from cusimt import types
-from numba.core.errors import TypingError
-from numba.extending import intrinsic
+from cusimt.numba_cuda.core.errors import TypingError
+from cusimt.numba_cuda.extending import intrinsic
 from cusimt._mlir.extras import types as T
 from cusimt._mlir.dialects import (
     linalg,
@@ -375,6 +375,7 @@ def broadcasted_uniform_binary_intrinsic(typingctx, op, a, b):
 
 
 @ufunc_registry.register(operator.floordiv)
+@lower(operator.floordiv, types.Array, types.Array)
 def lower_broadcasted_floor_division(builder, target, args, kwargs):
     trace()
 
@@ -415,6 +416,7 @@ def lower_broadcasted_floor_division(builder, target, args, kwargs):
 
 
 @ufunc_registry.register(operator.truediv)
+@lower(operator.truediv, types.Array, types.Array)
 def lower_broadcasted_div(builder, target, args, kwargs):
     trace()
 

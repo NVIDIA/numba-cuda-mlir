@@ -9,14 +9,14 @@ import cuda.coop as cudax
 import cuda.simt as cs
 import cupy
 import cupyx
-import numba
 import numpy
 import nvmath.linalg
 
 from nvmath.bindings import cublas
 from nvmath.bindings import cublasLt as cublaslt
 
-from numba import int32
+from cusimt.numba_cuda.types import int32
+from cusimt.numba_cuda.core import config
 
 
 class CublasState:
@@ -2258,7 +2258,7 @@ def run_training(
     print(f"genT: {genT}")
     print(f"max_steps: {max_steps}")
 
-    numba.config.CUDA_ARRAY_INTERFACE_SYNC = False
+    config.CUDA_ARRAY_INTERFACE_SYNC = False
 
     numpy.random.seed(1336)
 

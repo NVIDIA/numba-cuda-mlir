@@ -11,10 +11,9 @@ import numpy as np
 
 import cusimt
 import cuda.simt as cuda
-from numba import int32
-from numba.types import CPointer
+from cusimt.numba_cuda.types import CPointer, int32
 from cusimt.testing import NumbaCUDATestCase
-from numba.core.typing import signature
+from cusimt.numba_cuda.typing import signature
 import pytest
 
 ffi = cffi.FFI()

@@ -5,21 +5,16 @@ import logging
 import warnings
 
 from importlib import metadata as importlib_metadata
-from cusimt.numba_cuda import HAS_NUMBA
 
 _already_initialized = False
 logger = logging.getLogger(__name__)
 
 
 def init_all():
-    """Execute all `numba_cuda_extensions` entry points with the name `init`
+    """Execute all `cusimt_extensions` entry points with the name `init`
 
     If extensions have already been initialized, this function does nothing.
     """
-    if HAS_NUMBA:
-        from numba.core import entrypoints
-
-        entrypoints.init_all()
 
     global _already_initialized
     if _already_initialized:
@@ -36,7 +31,7 @@ def init_all():
             func()
         except Exception as e:
             msg = (
-                f"Numba extension module '{entry_point.module}' "
+                f"cusimt extension module '{entry_point.module}' "
                 f"failed to load due to '{type(e).__name__}({str(e)})'."
             )
             warnings.warn(msg, stacklevel=3)
@@ -47,9 +42,9 @@ def init_all():
     # interface, versions prior to that do not. See "compatibility note" in:
     # https://docs.python.org/3.10/library/importlib.metadata.html#entry-points
     if hasattr(eps, "select"):
-        for entry_point in eps.select(group="numba_cuda_extensions", name="init"):
+        for entry_point in eps.select(group="cusimt_extensions", name="init"):
             load_ep(entry_point)
     else:
-        for entry_point in eps.get("numba_cuda_extensions", ()):
+        for entry_point in eps.get("cusimt_extensions", ()):
             if entry_point.name == "init":
                 load_ep(entry_point)

@@ -3,11 +3,11 @@
 from functools import lru_cache
 import inspect
 from cusimt.errors import ForceLiteralArg
-from numba.core.typing import typeof
-from numba.misc.special import literal_unroll
+from cusimt.numba_cuda.typing import typeof
+from cusimt.numba_cuda.misc.special import literal_unroll
 from cusimt.numba_cuda.misc.special import literally
 from cusimt.numba_cuda.misc.special import literal_unroll as cuda_literal_unroll
-from numba.core.typing.templates import (
+from cusimt.numba_cuda.typing.templates import (
     CallableTemplate,
     AttributeTemplate,
     ConcreteTemplate,
@@ -33,7 +33,7 @@ class PrintFunctionTemplate(AbstractTemplate):
     key = print_intrinsic
 
     def is_valid_print_argument_type(self, arg_type):
-        from numba.cuda.types.ext_types import Dim3
+        from cusimt.numba_cuda.types.ext_types import Dim3
 
         if isinstance(arg_type, types.BaseTuple):
             return all(self.is_valid_print_argument_type(t) for t in arg_type.types)
@@ -111,7 +111,7 @@ class InlinePTXFunctionTemplate(AbstractTemplate):
                     result_types.append(arg_type)
 
         if len(force_args_to_be_literal) > 0:
-            from numba.core.errors import ForceLiteralArg
+            from cusimt.numba_cuda.core.errors import ForceLiteralArg
 
             raise ForceLiteralArg(force_args_to_be_literal)
 
@@ -241,7 +241,7 @@ class GenericArrayTemplate(CallableTemplate):
             if align_val is not None:
                 permitted = (types.IntegerLiteral, types.NoneType)
                 if not isinstance(align_val, permitted):
-                    from numba.core.errors import RequireLiteralValue
+                    from cusimt.numba_cuda.core.errors import RequireLiteralValue
 
                     raise RequireLiteralValue("alignment must be a constant integer")
 
@@ -255,8 +255,8 @@ class GenericArrayTemplate(CallableTemplate):
                 nb_dtype = dtype.dtype
             elif isinstance(dtype, types.StringLiteral):
                 import numpy as np
-                from numba.core.errors import TypingError
-                from numba.np.numpy_support import from_dtype
+                from cusimt.numba_cuda.core.errors import TypingError
+                from cusimt.numba_cuda.np.numpy_support import from_dtype
 
                 try:
                     dt = np.dtype(dtype.literal_value)
@@ -643,7 +643,7 @@ class Cuda_stub_resolver(cudadecl.CudaModuleTemplate, AttributeTemplate):
         return types.Module(vector)
 
     def resolve_cg(self, mod):
-        import numba.cuda.cg as cg
+        import cusimt.numba_cuda.cg as cg
 
         return types.Module(cg)
 
@@ -666,13 +666,6 @@ class Cuda_stub_resolver(cudadecl.CudaModuleTemplate, AttributeTemplate):
 
 
 @registry.register_attr
-class NumbaCudaModuleTemplate(Cuda_stub_resolver):
-    import numba.cuda as cuda
-
-    key = types.Module(cuda)
-
-
-@registry.register_attr
 class CudaSimtModuleTemplate(Cuda_stub_resolver):
     import cuda.simt as cs
 
@@ -688,7 +681,7 @@ class RealNumbaCudaModuleTemplate(Cuda_stub_resolver):
 
 @registry.register_attr
 class CgModuleTemplate(AttributeTemplate):
-    import numba.cuda.cg as cg
+    import cusimt.numba_cuda.cg as cg
 
     key = types.Module(cg)
 
@@ -855,7 +848,7 @@ CACHE_HINT_CONSTRAINT_MAP = {1: "b", 8: "r", 16: "h", 32: "r", 64: "l", 128: "q"
 
 def _validate_cache_hint_args(instruction, array, index):
     """Validate arguments for cache hint load/store operations."""
-    from numba.core.errors import TypingError
+    from cusimt.numba_cuda.core.errors import TypingError
 
     is_array = isinstance(array, types.Array)
     is_pointer = isinstance(array, types.CPointer)
@@ -884,7 +877,7 @@ def _validate_cache_hint_args(instruction, array, index):
 
 def _validate_cache_hint_dtype(instruction, array):
     """Validate dtype for cache hint operations."""
-    from numba.core.errors import TypingError
+    from cusimt.numba_cuda.core.errors import TypingError
 
     dtype = array.dtype
     if not isinstance(dtype, (types.Integer, types.Float)):

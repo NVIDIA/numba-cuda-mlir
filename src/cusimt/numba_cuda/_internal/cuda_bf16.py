@@ -16,7 +16,6 @@
 import io
 import operator
 
-import numba
 from llvmlite import ir
 from cusimt.numba_cuda import types
 from cusimt.numba_cuda.datamodel import PrimitiveModel, StructModel

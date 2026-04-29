@@ -11,52 +11,6 @@ class prange:
         return range(*args)
 
 
-def _gdb_python_call_gen(func_name, *args):
-    # generates a call to a function containing a compiled in gdb command,
-    # this is to make `numba.gdb*` work in the interpreter.
-    import numba
-
-    fn = getattr(numba, func_name)
-    argstr = ",".join(['"%s"' for _ in args]) % args
-    defn = """def _gdb_func_injection():\n\t%s(%s)\n
-    """ % (
-        func_name,
-        argstr,
-    )
-    l = {}
-    exec(defn, {func_name: fn}, l)
-    return numba.njit(l["_gdb_func_injection"])
-
-
-def gdb(*args):
-    """
-    Calling this function will invoke gdb and attach it to the current process
-    at the call site. Arguments are strings in the gdb command language syntax
-    which will be executed by gdb once initialisation has occurred.
-    """
-    _gdb_python_call_gen("gdb", *args)()
-
-
-def gdb_breakpoint():
-    """
-    Calling this function will inject a breakpoint at the call site that is
-    recognised by both `gdb` and `gdb_init`, this is to allow breaking at
-    multiple points. gdb will stop in the user defined code just after the frame
-    employed by the breakpoint returns.
-    """
-    _gdb_python_call_gen("gdb_breakpoint")()
-
-
-def gdb_init(*args):
-    """
-    Calling this function will invoke gdb and attach it to the current process
-    at the call site, then continue executing the process under gdb's control.
-    Arguments are strings in the gdb command language syntax which will be
-    executed by gdb once initialisation has occurred.
-    """
-    _gdb_python_call_gen("gdb_init", *args)()
-
-
 def literally(obj):
     """Forces Numba to interpret *obj* as an Literal value.
 
@@ -89,9 +43,6 @@ def literal_unroll(container):
 
 __all__ = [
     "prange",
-    "gdb",
-    "gdb_breakpoint",
-    "gdb_init",
     "literally",
     "literal_unroll",
 ]

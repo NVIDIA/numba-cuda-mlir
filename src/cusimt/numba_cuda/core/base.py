@@ -212,14 +212,9 @@ class BaseContext:
         self.address_size = utils.MACHINE_BITS
         self.typing_context = typing_context
         self.target_name = target
+        from cusimt.numba_cuda.core.target_extension import target_registry
 
-        if importlib.util.find_spec("numba"):
-            from numba.core.target_extension import CUDA
-
-            # Used only in Numba's target_extension implementation.
-            # Numba-CUDA has the target_extension implementation removed, and
-            # references to it hardcoded to values specific to the CUDA target.
-            self.target = CUDA
+        self.target = target_registry[target]
 
         # A mapping of installed registries to their loaders
         self._registries = {}

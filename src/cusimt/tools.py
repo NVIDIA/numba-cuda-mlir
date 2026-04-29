@@ -4,8 +4,8 @@ import subprocess
 import re
 from functools import lru_cache
 from typing import overload
-from numba.core import itanium_mangler
-from numba.core import types
+from cusimt.numba_cuda import itanium_mangler
+from cusimt.numba_cuda import types
 
 
 def parse_compute_capability(compute_cap: str) -> tuple[int, int]:
@@ -34,7 +34,7 @@ def get_cuda_toolkit_path() -> str | None:
         if val and os.path.isdir(os.path.join(val, "bin")):
             return val
 
-    from numba.cuda.cuda_paths import get_cuda_paths
+    from cusimt.numba_cuda.cuda_paths import get_cuda_paths
 
     libdevice = get_cuda_paths().get("libdevice")
     if libdevice and libdevice.info:
@@ -292,85 +292,6 @@ def argtype_normalization(argtype):
         return argtype.dtype
     else:
         return argtype
-
-
-def replace_numba_cuda_in_numba_install():
-    """
-    Replace the numba-cuda import in the numba install with the cusimt import.
-    """
-    import importlib.util
-    import os
-
-    numba_spec = importlib.util.find_spec("numba")
-    numba_cuda_spec = importlib.util.find_spec("numba_cuda")
-    numba = Path(numba_cuda_spec.origin).parent
-    numba_cuda = Path(numba_cuda_spec.origin).parent
-    their_cuda = numba / "cuda"
-    our_cuda = numba_cuda / "numba" / "cuda"
-    print(f"replacing {their_cuda} with {our_cuda}")
-    if their_cuda.exists():
-        if their_cuda.is_symlink():
-            their_cuda.unlink()
-        else:
-            their_cuda.rmdir()
-    their_cuda.symlink_to(our_cuda, target_is_directory=True)
-
-
-def create_numba_cuda_stubs():
-    """
-    Create stubs for the Numba-CUDA repository.
-    The redirector confuses IDE features, so generating stubs allows the IDE to
-    find the correct symbols overridden by numba-cuda.
-    """
-    import importlib.util
-    import os
-
-    pyright_spec = importlib.util.find_spec("pyright")
-    basedpyright_spec = importlib.util.find_spec("basedpyright")
-    if pyright_spec is None and basedpyright_spec is None:
-        raise RuntimeError("Could not find pyright or basedpyright")
-    if pyright_spec is not None:
-        import pyright
-    else:
-        import basedpyright as pyright
-    import cusimt
-    import shutil
-
-    project_root = Path(cusimt.__path__[0]).parent
-    os.chdir(project_root)
-
-    # Start with numba and overwrite with numba-cuda stubs
-    for spec in [
-        "numba",
-        "numba.experimental",
-        "numba.types",
-        "numba_cuda.numba.cuda",
-        "numba_cuda.numba.cuda.core",
-        "numba_cuda.numba.cuda.types",
-        "numba_cuda.numba.cuda.types.ext_types",
-        "cusimt",
-    ]:
-        print(f"Creating stubs for {spec=}")
-        print(pyright.run("--createstub", spec))
-
-    for root, _, files in os.walk(project_root / "typings" / "numba"):
-        numba_cuda = root.replace("numba/cuda", "numba_cuda/numba/cuda")
-        if "cuda" not in root:
-            continue
-        for file in files:
-            ours = Path(numba_cuda) / file
-            theirs = Path(root) / file
-            if file.endswith(".pyi"):
-                if ours.exists() and theirs.exists():
-                    print(ours, theirs)
-                    stheirs = open(theirs, "r").read()
-                    sours = open(ours, "r").read()
-                    with open(theirs, "w") as f:
-                        f.write(sours)
-                        f.write(stheirs)
-                elif ours.exists():
-                    shutil.copy(ours, theirs)
-    print(f"Created stubs for numba-cuda in {project_root / 'typings'}")
 
 
 def generate_libdevice_stubs():

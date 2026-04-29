@@ -10,7 +10,7 @@ This module provides:
 """
 
 import cmath
-from numba import types
+from cusimt.numba_cuda import types
 from cusimt._mlir.dialects import (
     complex as complex_dialect,
     arith,

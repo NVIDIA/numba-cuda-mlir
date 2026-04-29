@@ -8,7 +8,7 @@ This module provides cache implementations for MLIRDispatcher, allowing
 compiled CUDA kernels to be cached to disk and reloaded in subsequent runs.
 """
 
-from numba.core import typing
+from cusimt.numba_cuda import typing
 from cusimt.numba_cuda.core.caching import Cache, CacheImpl, NullCache
 
 

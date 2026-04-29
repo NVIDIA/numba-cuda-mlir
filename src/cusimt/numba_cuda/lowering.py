@@ -447,7 +447,7 @@ class Lower(BaseLower):
                         # Ensure that the variable is not defined multiple times
                         # in the block
                         [defblk] = var_assign_map[var]
-                        assign_stmts = self.blocks[defblk].find_insts(ir.assign_types)
+                        assign_stmts = self.blocks[defblk].find_insts(ir.Assign)
                         assigns = [
                             stmt for stmt in assign_stmts if stmt.target.name == var
                         ]
@@ -472,7 +472,7 @@ class Lower(BaseLower):
             self.builder.position_at_end(bb)
             all_names = set()
             for block in self.blocks.values():
-                for x in block.find_insts(ir.del_types):
+                for x in block.find_insts(ir.Del):
                     if x.value not in all_names:
                         all_names.add(x.value)
             for name in all_names:
@@ -487,9 +487,9 @@ class Lower(BaseLower):
                 self.func_ir,
                 call.func,
             )
-            if defn is not None and isinstance(defn, ir.global_types):
+            if defn is not None and isinstance(defn, ir.Global):
                 if defn.value is eh.exception_check:
-                    if isinstance(block.terminator, ir.branch_types):
+                    if isinstance(block.terminator, ir.Branch):
                         targetblk = self.blkmap[block.terminator.truebr]
                         # NOTE: This hacks in an attribute for call_conv to
                         #       pick up. This hack is no longer needed when
@@ -511,19 +511,19 @@ class Lower(BaseLower):
         )
         self.notify_loc(self.loc)
         self.debug_print(str(inst))
-        if isinstance(inst, ir.assign_types):
+        if isinstance(inst, ir.Assign):
             ty = self.typeof(inst.target.name)
             val = self.lower_assign(ty, inst)
             argidx = None
             # If this is a store from an arg, like x = arg.x then tell debuginfo
             # that this is the arg
-            if isinstance(inst.value, ir.arg_types):
+            if isinstance(inst.value, ir.Arg):
                 # NOTE: debug location is the `def <func>` line
                 self.debuginfo.mark_location(self.builder, self.defn_loc.line)
                 argidx = inst.value.index + 1  # args start at 1
             self.storevar(val, inst.target.name, argidx=argidx)
 
-        elif isinstance(inst, ir.branch_types):
+        elif isinstance(inst, ir.Branch):
             cond = self.loadvar(inst.cond.name)
             tr = self.blkmap[inst.truebr]
             fl = self.blkmap[inst.falsebr]
@@ -533,11 +533,11 @@ class Lower(BaseLower):
             assert pred.type == llvm_ir.IntType(1), "cond is not i1: %s" % pred.type
             self.builder.cbranch(pred, tr, fl)
 
-        elif isinstance(inst, ir.jump_types):
+        elif isinstance(inst, ir.Jump):
             target = self.blkmap[inst.target]
             self.builder.branch(target)
 
-        elif isinstance(inst, ir.return_types):
+        elif isinstance(inst, ir.Return):
             if self.generator_info:
                 # StopIteration
                 self.genlower.return_from_generator(self)
@@ -555,10 +555,10 @@ class Lower(BaseLower):
             retval = self.context.get_return_value(self.builder, ty, val)
             self.call_conv.return_value(self.builder, retval)
 
-        elif isinstance(inst, ir.popblock_types):
+        elif isinstance(inst, ir.PopBlock):
             pass  # this is just a marker
 
-        elif isinstance(inst, ir.staticsetitem_types):
+        elif isinstance(inst, ir.StaticSetItem):
             signature = self.fndesc.calltypes[inst]
             assert signature is not None
             try:
@@ -576,20 +576,20 @@ class Lower(BaseLower):
                 )
                 return impl(self.builder, (target, inst.index, value))
 
-        elif isinstance(inst, ir.print_types):
+        elif isinstance(inst, ir.Print):
             self.lower_print(inst)
 
-        elif isinstance(inst, ir.setitem_types):
+        elif isinstance(inst, ir.SetItem):
             signature = self.fndesc.calltypes[inst]
             assert signature is not None
             return self.lower_setitem(inst.target, inst.index, inst.value, signature)
 
-        elif isinstance(inst, ir.storemap_types):
+        elif isinstance(inst, ir.StoreMap):
             signature = self.fndesc.calltypes[inst]
             assert signature is not None
             return self.lower_setitem(inst.dct, inst.key, inst.value, signature)
 
-        elif isinstance(inst, ir.delitem_types):
+        elif isinstance(inst, ir.DelItem):
             target = self.loadvar(inst.target.name)
             index = self.loadvar(inst.index.name)
 
@@ -613,10 +613,10 @@ class Lower(BaseLower):
 
             return impl(self.builder, (target, index))
 
-        elif isinstance(inst, ir.del_types):
+        elif isinstance(inst, ir.Del):
             self.delvar(inst.value)
 
-        elif isinstance(inst, ir.setattr_types):
+        elif isinstance(inst, ir.SetAttr):
             target = self.loadvar(inst.target.name)
             value = self.loadvar(inst.value.name)
             signature = self.fndesc.calltypes[inst]
@@ -632,16 +632,16 @@ class Lower(BaseLower):
 
             return impl(self.builder, (target, value))
 
-        elif isinstance(inst, ir.dynamicraise_types):
+        elif isinstance(inst, ir.DynamicRaise):
             self.lower_dynamic_raise(inst)
 
-        elif isinstance(inst, ir.dynamictryraise_types):
+        elif isinstance(inst, ir.DynamicTryRaise):
             self.lower_try_dynamic_raise(inst)
 
-        elif isinstance(inst, ir.staticraise_types):
+        elif isinstance(inst, ir.StaticRaise):
             self.lower_static_raise(inst)
 
-        elif isinstance(inst, ir.statictryraise_types):
+        elif isinstance(inst, ir.StaticTryRaise):
             self.lower_static_try_raise(inst)
 
         else:
@@ -687,7 +687,7 @@ class Lower(BaseLower):
         args = []
         nb_types = []
         for exc_arg in exc_args:
-            if isinstance(exc_arg, ir.var_types):
+            if isinstance(exc_arg, ir.Var):
                 # dynamic values
                 typ = self.typeof(exc_arg.name)
                 val = self.loadvar(exc_arg.name)
@@ -720,25 +720,25 @@ class Lower(BaseLower):
         value = inst.value
         # In nopython mode, closure vars are frozen like globals
         if (
-            isinstance(value, ir.const_types)
-            or isinstance(value, ir.global_types)
-            or isinstance(value, ir.freevar_types)
+            isinstance(value, ir.Const)
+            or isinstance(value, ir.Global)
+            or isinstance(value, ir.FreeVar)
         ):
             res = self.context.get_constant_generic(self.builder, ty, value.value)
             self.incref(ty, res)
             return res
 
-        elif isinstance(value, ir.expr_types):
+        elif isinstance(value, ir.Expr):
             return self.lower_expr(ty, value)
 
-        elif isinstance(value, ir.var_types):
+        elif isinstance(value, ir.Var):
             val = self.loadvar(value.name)
             oty = self.typeof(value.name)
             res = self.context.cast(self.builder, val, oty, ty)
             self.incref(ty, res)
             return res
 
-        elif isinstance(value, ir.arg_types):
+        elif isinstance(value, ir.Arg):
             # Suspend debug info else all the arg repacking ends up being
             # associated with some line or other and it's actually just a detail
             # of Numba's CC.
@@ -764,7 +764,7 @@ class Lower(BaseLower):
                 self.incref(ty, res)
                 return res
 
-        elif isinstance(value, ir.yield_types):
+        elif isinstance(value, ir.Yield):
             res = self.lower_yield(ty, value)
             self.incref(ty, res)
             return res
@@ -1759,7 +1759,7 @@ class CUDALower(Lower):
         self.dbg_val_names = set()
 
         if self.context.enable_debuginfo and self._disable_sroa_like_opt:
-            for x in block.find_insts(ir.assign_types):
+            for x in block.find_insts(ir.Assign):
                 if x.target.name.startswith("$"):
                     continue
                 ssa_name = x.target.name
@@ -1786,7 +1786,7 @@ class CUDALower(Lower):
             poly_map = {}
             # pre-scan all blocks
             for block in self.blocks.values():
-                for x in block.find_insts(ir.assign_types):
+                for x in block.find_insts(ir.Assign):
                     if x.target.name.startswith("$"):
                         continue
                     ssa_name = x.target.name

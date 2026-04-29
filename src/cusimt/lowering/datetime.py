@@ -4,8 +4,8 @@ import operator
 
 from cusimt._mlir.dialects import arith, math as mlir_math
 from cusimt._mlir.extras import types as T
-from numba import types
-from numba.np import npdatetime_helpers
+from cusimt.numba_cuda import types
+from cusimt.numba_cuda.np import npdatetime_helpers
 
 from cusimt.lowering_utilities import convert
 from cusimt.mlir_lowering_registry import MLIRLoweringRegistry

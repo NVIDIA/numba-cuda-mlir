@@ -295,8 +295,10 @@ class PythonFunctionDescriptor(FunctionDescriptor):
         inline,
         noalias,
         abi_tags,
-        call_conv,
-        abi_info,
+        # XXX: Added for compatibility with cuSIMT - will need to be
+        # implemented eventually
+        call_conv=None,
+        abi_info=None,
     ):
         """
         Build a FunctionDescriptor for a given specialization of a Python

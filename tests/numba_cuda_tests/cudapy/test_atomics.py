@@ -6,7 +6,7 @@ from textwrap import dedent
 
 import cusimt
 import cuda.simt as cuda
-from numba import uint32, uint64, float32, float64, int32
+from cusimt.numba_cuda.types import uint32, uint64, float32, float64, int32
 from cusimt.testing import NumbaCUDATestCase
 import pytest
 

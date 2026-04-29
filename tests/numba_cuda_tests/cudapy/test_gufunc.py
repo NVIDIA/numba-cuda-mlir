@@ -5,12 +5,12 @@ import numpy as np
 
 import pytest
 from collections import namedtuple
-from numba.types import void, int32, float32, float64
+from cusimt.numba_cuda.types import void, int32, float32, float64
 from cuda.simt import guvectorize
 import cusimt
 import cuda.simt as cuda
 from cusimt.testing import NumbaCUDATestCase
-from numba.core.errors import NumbaPerformanceWarning, TypingError
+from cusimt.numba_cuda.core.errors import NumbaPerformanceWarning, TypingError
 
 
 def _get_matmulcore_gufunc(dtype=float32):
@@ -174,7 +174,6 @@ class TestCUDAGufunc(NumbaCUDATestCase):
         copy2d(A, out=B)
         self.assertTrue(np.allclose(A, B))
 
-    @pytest.mark.xfail(True, reason="Typing error")
     def test_not_supported_call_from_jit(self):
         # not supported
         @guvectorize([void(int32[:], int32[:])], "(n)->(n)", target="cuda")

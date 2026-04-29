@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 from cusimt.testing import NumbaCUDATestCase
-from numba.types import float64, uint32
+from cusimt.numba_cuda.types import float64, uint32
 from cusimt.compiler import compile_ptx
 
 

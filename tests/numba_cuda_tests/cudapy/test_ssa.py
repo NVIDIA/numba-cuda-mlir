@@ -10,14 +10,13 @@ import logging
 
 import numpy as np
 
-from numba import types
+from cusimt.numba_cuda import types
 import cusimt
 import cuda.simt as cuda
 from cuda.simt import jit
-from numba.core import errors
+from cusimt.numba_cuda.core import errors
 
-from numba.extending import overload
-from numba.tests.support import override_config
+from cusimt.extending import overload
 from cusimt.testing import NumbaCUDATestCase
 import pytest
 
@@ -141,13 +140,6 @@ class TestSSA(SSABaseTest):
         with self.assertRaises(UnboundLocalError):
             result = np.array([0])
             foo.py_func(result, 0)
-
-    @pytest.mark.xfail(True, reason="Attribute error")
-    def test_undefined_var(self):
-        with override_config("ALWAYS_WARN_UNINIT_VAR", 0):
-            self.check_undefined_var(should_warn=False)
-        with override_config("ALWAYS_WARN_UNINIT_VAR", 1):
-            self.check_undefined_var(should_warn=True)
 
     def test_phi_propagation(self):
         @jit

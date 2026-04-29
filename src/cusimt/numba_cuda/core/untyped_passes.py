@@ -349,9 +349,9 @@ class InlineInlinables(FunctionPass):
         while work_list:
             label, block = work_list.pop()
             for i, instr in enumerate(block.body):
-                if isinstance(instr, ir.assign_types):
+                if isinstance(instr, ir.Assign):
                     expr = instr.value
-                    if isinstance(expr, ir.expr_types) and expr.op == "call":
+                    if isinstance(expr, ir.Expr) and expr.op == "call":
                         if guard(
                             self._do_work,
                             state,
@@ -558,14 +558,14 @@ class CanonicalizeLoopEntry(FunctionPass):
 
         # Find the start of loop entry statement that needs to be included.
         startpt = None
-        list_of_insts = list(entry_block.find_insts(ir.assign_types))
+        list_of_insts = list(entry_block.find_insts(ir.Assign))
         for assign in reversed(list_of_insts):
             if assign.target in deps:
                 rhs = assign.value
-                if isinstance(rhs, ir.var_types):
+                if isinstance(rhs, ir.Var):
                     if rhs.is_temp:
                         deps.add(rhs)
-                elif isinstance(rhs, ir.expr_types):
+                elif isinstance(rhs, ir.Expr):
                     expr = rhs
                     if expr.op == "getiter":
                         startpt = assign
@@ -573,12 +573,11 @@ class CanonicalizeLoopEntry(FunctionPass):
                             deps.add(expr.value)
                     elif expr.op == "call":
                         defn = guard(get_definition, fir, expr.func)
-                        if isinstance(defn, ir.global_types):
+                        if isinstance(defn, ir.Global):
                             if expr.func.is_temp:
                                 deps.add(expr.func)
                 elif (
-                    isinstance(rhs, ir.global_types)
-                    and rhs.value in self._supported_globals
+                    isinstance(rhs, ir.Global) and rhs.value in self._supported_globals
                 ):
                     startpt = assign
 
@@ -631,30 +630,28 @@ class MakeFunctionToJitFunction(FunctionPass):
         mutated = False
         for blk in func_ir.blocks.values():
             for stmt in blk.body:
-                if isinstance(stmt, ir.assign_types):
-                    if isinstance(stmt.value, ir.expr_types):
+                if isinstance(stmt, ir.Assign):
+                    if isinstance(stmt.value, ir.Expr):
                         if stmt.value.op == "make_function":
                             node = stmt.value
                             getdef = func_ir.get_definition
                             kw_default = getdef(node.defaults)
                             ok = False
-                            if kw_default is None or isinstance(
-                                kw_default, ir.const_types
-                            ):
+                            if kw_default is None or isinstance(kw_default, ir.Const):
                                 ok = True
                             elif isinstance(kw_default, tuple):
                                 ok = all(
                                     [
-                                        isinstance(getdef(x), ir.const_types)
+                                        isinstance(getdef(x), ir.Const)
                                         for x in kw_default
                                     ]
                                 )
-                            elif isinstance(kw_default, ir.expr_types):
+                            elif isinstance(kw_default, ir.Expr):
                                 if kw_default.op != "build_tuple":
                                     continue
                                 ok = all(
                                     [
-                                        isinstance(getdef(x), ir.const_types)
+                                        isinstance(getdef(x), ir.Const)
                                         for x in kw_default.items
                                     ]
                                 )
@@ -696,8 +693,7 @@ class TransformLiteralUnrollConstListToTuple(FunctionPass):
             for call in calls:
                 glbl = guard(get_definition, func_ir, call.func)
                 if glbl and (
-                    isinstance(glbl, ir.global_types)
-                    or isinstance(glbl, ir.freevar_types)
+                    isinstance(glbl, ir.Global) or isinstance(glbl, ir.FreeVar)
                 ):
                     # find a literal_unroll
                     if glbl.value is literal_unroll:
@@ -710,7 +706,7 @@ class TransformLiteralUnrollConstListToTuple(FunctionPass):
                         unroll_var = call.args[0]
                         to_unroll = guard(get_definition, func_ir, unroll_var)
                         if (
-                            isinstance(to_unroll, ir.expr_types)
+                            isinstance(to_unroll, ir.Expr)
                             and to_unroll.op == "build_list"
                         ):
                             # make sure they are all const items in the list
@@ -724,7 +720,7 @@ class TransformLiteralUnrollConstListToTuple(FunctionPass):
                                     raise errors.UnsupportedError(
                                         msg % item, to_unroll.loc
                                     )
-                                if not isinstance(val, ir.const_types):
+                                if not isinstance(val, ir.Const):
                                     msg = (
                                         "Found non-constant value at "
                                         "position %s in a list argument to "
@@ -768,18 +764,18 @@ class TransformLiteralUnrollConstListToTuple(FunctionPass):
                             asgn.value = tup
                             mutated = True
                         elif (
-                            isinstance(to_unroll, ir.expr_types)
+                            isinstance(to_unroll, ir.Expr)
                             and to_unroll.op == "build_tuple"
                         ):
                             # this is fine, do nothing
                             pass
                         elif (
-                            isinstance(to_unroll, ir.global_types)
-                            or isinstance(to_unroll, ir.freevar_types)
+                            isinstance(to_unroll, ir.Global)
+                            or isinstance(to_unroll, ir.FreeVar)
                         ) and isinstance(to_unroll.value, tuple):
                             # this is fine, do nothing
                             pass
-                        elif isinstance(to_unroll, ir.arg_types):
+                        elif isinstance(to_unroll, ir.Arg):
                             # this is only fine if the arg is a tuple
                             ty = state.typemap[to_unroll.name]
                             if not isinstance(ty, self._accepted_types):
@@ -792,7 +788,7 @@ class TransformLiteralUnrollConstListToTuple(FunctionPass):
                                 raise errors.UnsupportedError(msg, to_unroll.loc)
                         else:
                             extra = None
-                            if isinstance(to_unroll, ir.expr_types):
+                            if isinstance(to_unroll, ir.Expr):
                                 # probably a slice
                                 if to_unroll.op == "getitem":
                                     ty = state.typemap[to_unroll.value.name]
@@ -800,7 +796,7 @@ class TransformLiteralUnrollConstListToTuple(FunctionPass):
                                     if not isinstance(ty, self._accepted_types):
                                         extra = "operation %s" % to_unroll.op
                                         loc = to_unroll.loc
-                            elif isinstance(to_unroll, ir.arg_types):
+                            elif isinstance(to_unroll, ir.Arg):
                                 extra = "non-const argument %s" % to_unroll.name
                                 loc = to_unroll.loc
                             else:
@@ -858,10 +854,10 @@ class MixedContainerUnroller(FunctionPass):
             term = None
             if b.body:
                 term = b.body[-1]
-            if isinstance(term, ir.jump_types):
+            if isinstance(term, ir.Jump):
                 if term.target not in ignore:
                     b.body[-1] = ir.Jump(term.target + offset, term.loc)
-            if isinstance(term, ir.branch_types):
+            if isinstance(term, ir.Branch):
                 if term.truebr not in ignore:
                     new_true = term.truebr + offset
                 else:
@@ -915,7 +911,7 @@ class MixedContainerUnroller(FunctionPass):
         sentinel_blocks = []
         for lbl, blk in switch_ir.blocks.items():
             for stmt in blk.body:
-                if isinstance(stmt, ir.assign_types):
+                if isinstance(stmt, ir.Assign):
                     if "SENTINEL" in stmt.target.name:
                         sentinel_blocks.append(lbl)
                         sentinel_exits.add(blk.body[-1].target)
@@ -929,10 +925,10 @@ class MixedContainerUnroller(FunctionPass):
         local_lbl = [x for x in loop_ir.blocks.keys()]
         for blk in loop_ir.blocks.values():
             for stmt in blk.body:
-                if isinstance(stmt, ir.jump_types):
+                if isinstance(stmt, ir.Jump):
                     if stmt.target not in local_lbl:
                         ignore_set.add(stmt.target)
-                if isinstance(stmt, ir.branch_types):
+                if isinstance(stmt, ir.Branch):
                     if stmt.truebr not in local_lbl:
                         ignore_set.add(stmt.truebr)
                     if stmt.falsebr not in local_lbl:
@@ -958,9 +954,9 @@ class MixedContainerUnroller(FunctionPass):
             for blk in loop_blocks.values():
                 new_body = []
                 for stmt in blk.body:
-                    if isinstance(stmt, ir.assign_types):
+                    if isinstance(stmt, ir.Assign):
                         if (
-                            isinstance(stmt.value, ir.expr_types)
+                            isinstance(stmt.value, ir.Expr)
                             and stmt.value.op == "typed_getitem"
                         ):
                             if isinstance(branch_ty, types.Literal):
@@ -1120,8 +1116,8 @@ class MixedContainerUnroller(FunctionPass):
         branches = compile_to_numba_ir(bfunc, {})
         for blk in branches.blocks.values():
             for stmt in blk.body:
-                if isinstance(stmt, ir.assign_types):
-                    if isinstance(stmt.value, ir.global_types):
+                if isinstance(stmt, ir.Assign):
+                    if isinstance(stmt.value, ir.Global):
                         if stmt.value.name == "PLACEHOLDER_INDEX":
                             stmt.value = index
         return branches
@@ -1142,12 +1138,12 @@ class MixedContainerUnroller(FunctionPass):
             # call to a global function "want" and returns the arguments
             # supplied to that function's call
             some_call = get_definition(func_ir, init_arg)
-            if not isinstance(some_call, ir.expr_types):
+            if not isinstance(some_call, ir.Expr):
                 raise GuardException
             if not some_call.op == "call":
                 raise GuardException
             the_global = get_definition(func_ir, some_call.func)
-            if not isinstance(the_global, ir.global_types):
+            if not isinstance(the_global, ir.Global):
                 raise GuardException
             if the_global.value is not want:
                 raise GuardException
@@ -1191,7 +1187,7 @@ class MixedContainerUnroller(FunctionPass):
                     literal_unroll_call = guard(get_definition, func_ir, len_arg)
                     if literal_unroll_call is None:
                         continue
-                    if not isinstance(literal_unroll_call, ir.expr_types):
+                    if not isinstance(literal_unroll_call, ir.Expr):
                         continue
                     if literal_unroll_call.op != "call":
                         continue
@@ -1244,9 +1240,9 @@ class MixedContainerUnroller(FunctionPass):
                 for lbli in loop.body:
                     blk = func_ir.blocks[lbli]
                     for stmt in blk.body:
-                        if isinstance(stmt, ir.assign_types):
+                        if isinstance(stmt, ir.Assign):
                             if (
-                                isinstance(stmt.value, ir.expr_types)
+                                isinstance(stmt.value, ir.Expr)
                                 and stmt.value.op == "getitem"
                             ):
                                 # check for something like a[i]
@@ -1325,11 +1321,8 @@ class MixedContainerUnroller(FunctionPass):
         for lbl in loop_info.loop.body:
             blk = func_ir.blocks[lbl]
             for stmt in blk.body:
-                if isinstance(stmt, ir.assign_types):
-                    if (
-                        isinstance(stmt.value, ir.expr_types)
-                        and stmt.value.op == "getitem"
-                    ):
+                if isinstance(stmt, ir.Assign):
+                    if isinstance(stmt.value, ir.Expr) and stmt.value.op == "getitem":
                         # try a couple of spellings... a[i] and ref(a)[i]
                         if stmt.value.value != getitem_target:
                             dfn = func_ir.get_definition(stmt.value.value)
@@ -1483,7 +1476,7 @@ class IterLoopCanonicalization(FunctionPass):
                     # confident that tuple unrolling is behaving require opt-in
                     # guard of `literal_unroll`, remove this later!
                     phi_val_defn = guard(get_definition, func_ir, phi.value)
-                    if not isinstance(phi_val_defn, ir.expr_types):
+                    if not isinstance(phi_val_defn, ir.Expr):
                         return False
                     if not phi_val_defn.op == "call":
                         return False
@@ -1492,9 +1485,7 @@ class IterLoopCanonicalization(FunctionPass):
                         return False
                     func_var = guard(get_definition, func_ir, call.func)
                     func = guard(get_definition, func_ir, func_var)
-                    if func is None or not isinstance(
-                        func, ir.global_types + ir.freevar_types
-                    ):
+                    if func is None or not isinstance(func, (ir.Global, ir.FreeVar)):
                         return False
                     if func.value is None or func.value not in self._accepted_calls:
                         return False
@@ -1528,8 +1519,8 @@ class IterLoopCanonicalization(FunctionPass):
         # look for iternext
         idx = 0
         for stmt in entry_block.body:
-            if isinstance(stmt, ir.assign_types):
-                if isinstance(stmt.value, ir.expr_types) and stmt.value.op == "getiter":
+            if isinstance(stmt, ir.Assign):
+                if isinstance(stmt.value, ir.Expr) and stmt.value.op == "getiter":
                     break
             idx += 1
         else:
@@ -1582,7 +1573,7 @@ class IterLoopCanonicalization(FunctionPass):
         # replace RHS use of induction var with getitem
         for lbl in check_blocks:
             for stmt in func_ir.blocks[lbl].body:
-                if isinstance(stmt, ir.assign_types):
+                if isinstance(stmt, ir.Assign):
                     # check for aliases
                     try:
                         lookup = getattr(stmt.value, "name", None)
@@ -1640,20 +1631,20 @@ class PropagateLiterals(FunctionPass):
         changed = False
 
         for block in func_ir.blocks.values():
-            for assign in block.find_insts(ir.assign_types):
+            for assign in block.find_insts(ir.Assign):
                 value = assign.value
                 if (
-                    isinstance(value, ir.arg_types)
-                    or isinstance(value, ir.const_types)
-                    or isinstance(value, ir.freevar_types)
-                    or isinstance(value, ir.global_types)
+                    isinstance(value, ir.Arg)
+                    or isinstance(value, ir.Const)
+                    or isinstance(value, ir.FreeVar)
+                    or isinstance(value, ir.Global)
                 ):
                     continue
 
                 # 1) Don't change return stmt in the form
                 # $return_xyz = cast(value=ABC)
                 # 2) Don't propagate literal values that are not primitives
-                if isinstance(value, ir.expr_types) and value.op in (
+                if isinstance(value, ir.Expr) and value.op in (
                     "cast",
                     "build_map",
                     "build_list",
@@ -1688,14 +1679,13 @@ class PropagateLiterals(FunctionPass):
                 # At the moment, one avoid propagating the literal
                 # value if the argument is a PHI node
 
-                if isinstance(value, ir.expr_types) and value.op == "call":
+                if isinstance(value, ir.Expr) and value.op == "call":
                     fn = guard(get_definition, func_ir, value.func.name)
                     if fn is None:
                         continue
 
                     if not (
-                        isinstance(fn, ir.global_types)
-                        and fn.name in accepted_functions
+                        isinstance(fn, ir.Global) and fn.name in accepted_functions
                     ):
                         continue
 
@@ -1703,7 +1693,7 @@ class PropagateLiterals(FunctionPass):
                         # check if any of the args to isinstance is a PHI node
                         iv = func_ir._definitions[arg.name]
                         assert len(iv) == 1  # SSA!
-                        if isinstance(iv[0], ir.expr_types) and iv[0].op == "phi":
+                        if isinstance(iv[0], ir.Expr) and iv[0].op == "phi":
                             msg = (
                                 f"{fn.name}() cannot determine the "
                                 f'type of variable "{arg.unversioned_name}" '
@@ -1713,7 +1703,7 @@ class PropagateLiterals(FunctionPass):
 
                 # Only propagate a PHI node if all arguments are the same
                 # constant
-                if isinstance(value, ir.expr_types) and value.op == "phi":
+                if isinstance(value, ir.Expr) and value.op == "phi":
                     # typemap will return None in case `inc.name` not in typemap
                     v = [typemap.get(inc.name) for inc in value.incoming_values]
                     # stop if the elements in `v` do not hold the same value
@@ -1760,9 +1750,9 @@ class LiteralPropagationSubPipelinePass(FunctionPass):
         found = False
         func_ir = state.func_ir
         for blk in func_ir.blocks.values():
-            for asgn in blk.find_insts(ir.assign_types):
-                if isinstance(asgn.value, ir.global_types) or isinstance(
-                    asgn.value, ir.freevar_types
+            for asgn in blk.find_insts(ir.Assign):
+                if isinstance(asgn.value, ir.Global) or isinstance(
+                    asgn.value, ir.FreeVar
                 ):
                     value = asgn.value.value
                     if value is isinstance or value is hasattr:
@@ -1809,9 +1799,9 @@ class LiteralUnroll(FunctionPass):
         found = False
         func_ir = state.func_ir
         for blk in func_ir.blocks.values():
-            for asgn in blk.find_insts(ir.assign_types):
-                if isinstance(asgn.value, ir.global_types) or isinstance(
-                    asgn.value, ir.freevar_types
+            for asgn in blk.find_insts(ir.Assign):
+                if isinstance(asgn.value, ir.Global) or isinstance(
+                    asgn.value, ir.FreeVar
                 ):
                     if asgn.value.value is literal_unroll:
                         found = True
@@ -1929,7 +1919,7 @@ class RewriteDynamicRaises(FunctionPass):
         changed = False
 
         for block in func_ir.blocks.values():
-            for raise_ in block.find_insts(ir.raise_types + ir.tryraise_types):
+            for raise_ in block.find_insts((ir.Raise, ir.TryRaise)):
                 call_inst = guard(get_definition, func_ir, raise_.exception)
                 if call_inst is None:
                     continue

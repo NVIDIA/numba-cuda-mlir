@@ -17,7 +17,6 @@ class TestArrayReductions(NumbaCUDATestCase):
     def setUp(self):
         np.random.seed(42)
 
-    @pytest.mark.xfail(True, reason="Typing error")
     def test_all_basic(self):
         cases = (
             np.float64([1.0, 0.0, float("inf"), float("nan")]),
@@ -40,7 +39,6 @@ class TestArrayReductions(NumbaCUDATestCase):
         got = out.copy_to_host()
         self.assertPreciseEqual(expected, got)
 
-    @pytest.mark.xfail(True, reason="Typing error")
     def test_any_basic(self):
         cases = (
             np.float64([0.0, -0.0, 0.0, 0.0]),

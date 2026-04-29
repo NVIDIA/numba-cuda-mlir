@@ -8,7 +8,7 @@ duplication across test files. Each definition is named descriptively to
 indicate its purpose and structure.
 """
 
-from numba import types
+from cusimt.numba_cuda import types
 from cuda.simt import host
 
 struct = host.struct

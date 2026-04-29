@@ -4,12 +4,12 @@
 import numpy as np
 import cusimt
 from cusimt.testing import NumbaCUDATestCase
-from numba import types
-from numba.types import f2, b1
-from numba.core.typing import signature
+from cusimt.numba_cuda import types
+from cusimt.numba_cuda.types import f2, b1
+from cusimt.numba_cuda.typing import signature
 import operator
 import itertools
-from numba.np.numpy_support import from_dtype
+from cusimt.numba_cuda.np.numpy_support import from_dtype
 import pytest
 
 

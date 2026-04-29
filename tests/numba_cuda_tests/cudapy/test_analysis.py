@@ -6,27 +6,25 @@ import collections
 import types as pytypes
 
 import numpy as np
-from numba.core.compiler import run_frontend, Flags, StateDict
+from cusimt.numba_cuda.compiler import run_frontend
+from cusimt.numba_cuda.core.compiler import StateDict
 from cuda.simt import jit
-from numba import types
-from numba.core import errors
-from numba.core import ir
-from numba.core.utils import PYVERSION
-from numba.core import postproc, rewrites, ir_utils
-from numba.core.cpu_options import ParallelOptions
-from numba.core.inline_closurecall import InlineClosureCallPass
-from numba.core.analysis import (
+from cusimt.numba_cuda import types
+from cusimt.numba_cuda.core import errors
+from cusimt.numba_cuda.core import ir
+from cusimt.numba_cuda.utils import PYVERSION
+from cusimt.numba_cuda.core import postproc, rewrites, ir_utils
+from cusimt.numba_cuda.core.options import ParallelOptions
+from cusimt.numba_cuda.core.inline_closurecall import InlineClosureCallPass
+from cusimt.numba_cuda.core.analysis import (
     dead_branch_prune,
     rewrite_semantic_constants,
 )
-from numba.core.untyped_passes import ReconstructSSA
+from cusimt.numba_cuda.core.untyped_passes import ReconstructSSA
 from cusimt.testing import NumbaCUDATestCase
 import pytest
 
 _GLOBAL = 123
-
-enable_pyobj_flags = Flags()
-enable_pyobj_flags.enable_pyobject = True
 
 
 def compile_to_ir(func):
@@ -1078,7 +1076,6 @@ class TestBranchPrunePostSemanticConstRewrites(TestBranchPruneBase):
             tuple([1, 2]),
         )
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_attr_not_len(self):
         # The purpose of this test is to make sure that the conditions guarding
         # the rewrite part do not themselves raise exceptions.

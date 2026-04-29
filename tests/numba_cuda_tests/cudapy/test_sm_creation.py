@@ -4,9 +4,9 @@
 import numpy as np
 import cusimt
 import cuda.simt as cuda
-from numba.types import float32, int32, void
+from cusimt.numba_cuda.types import float32, int32, void
 
-from numba.core.errors import TypingError
+from cusimt.numba_cuda.core.errors import TypingError
 from cusimt.testing import NumbaCUDATestCase
 from .extensions_usecases import struct_model_type
 import pytest

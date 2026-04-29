@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from numba.core.types import int64, Type
+from cusimt.numba_cuda.types import int64, Type
 from .aggregate_types import AggregateType
 
 

@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from numba import types
+from cusimt.numba_cuda import types
 import numpy as np
-from numba.extending import intrinsic
+from cusimt.numba_cuda.extending import intrinsic
 
 
 @intrinsic

@@ -39,18 +39,23 @@ from cusimt.cuda import fp16
 import cusimt.cuda
 from cusimt.numba_cuda.compiler import ExternFunction
 from cusimt import types
-import numba.core.ir as numba_ir
+import cusimt.numba_cuda.core.ir as numba_ir
 import cusimt.lowering_utilities.type_conversions as type_conversions
 from cusimt.numba_cuda.types.ext_types import Dim3, GridGroup as GridGroupClass
 from cusimt.numba_cuda.cg import this_grid
-from numba.extending import overload, overload_attribute, intrinsic, overload_method
+from cusimt.numba_cuda.extending import (
+    overload,
+    overload_attribute,
+    intrinsic,
+    overload_method,
+)
 from typing import Any
 from cusimt.logging import trace
 import numpy as np
 from cusimt.lowering.mlir.memref import (
     memref_alloc,
 )
-from numba.core.typing.templates import ConcreteTemplate
+from cusimt.numba_cuda.typing.templates import ConcreteTemplate
 from cusimt.numba_cuda import stubs as cuda_stubs
 
 
@@ -184,7 +189,7 @@ def cuda_syncthreads(
 
 def _ensure_cudadevrt_linked(lower: MLIRLower):
     if not lower.metadata.get("_cudadevrt_linked"):
-        from numba.cuda.cudadrv.libs import get_cudalib
+        from cusimt.numba_cuda.cudadrv.libs import get_cudalib
 
         lower.linker.add_file_guess_ext(get_cudalib("cudadevrt", static=True))
         lower.metadata["_cudadevrt_linked"] = True

@@ -3,7 +3,7 @@
 import cuda.simt as cuda
 import math
 from cusimt.numba_cuda.cudadrv import driver
-from numba.np import numpy_support as nps
+from cusimt.numba_cuda.np import numpy_support as nps
 
 
 def transpose(a, b=None):

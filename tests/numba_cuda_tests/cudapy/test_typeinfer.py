@@ -5,17 +5,17 @@ import itertools
 
 import pytest
 
-from numba.core import errors
-from numba.core import types, typing
-from numba.core.typeconv import Conversion
+from cusimt.numba_cuda.core import errors
+from cusimt.numba_cuda import types, typing
+from cusimt.numba_cuda.typeconv import Conversion
 
 from cusimt.testing import NumbaCUDATestCase
 from .test_typeconv import CompatibilityTestMixin
-from numba.core.untyped_passes import TranslateByteCode, IRProcessing
-from numba.core.typed_passes import PartialTypeInference
-from numba.core.compiler_machinery import FunctionPass, register_pass
+from cusimt.numba_cuda.core.untyped_passes import TranslateByteCode, IRProcessing
+from cusimt.numba_cuda.core.typed_passes import PartialTypeInference
+from cusimt.numba_cuda.core.compiler_machinery import FunctionPass, register_pass
 
-from numba.core.compiler import Flags
+from cusimt.numba_cuda.compiler import CUDAFlags
 
 
 i8 = types.int8
@@ -497,7 +497,7 @@ def get_func_typing_errs(func, arg_types):
     library = None
     return_type = None
     _locals = {}
-    flags = Flags()
+    flags = CUDAFlags()
 
     pipeline = TyperCompiler(
         typingctx, targetctx, library, arg_types, return_type, flags, _locals
@@ -506,7 +506,6 @@ def get_func_typing_errs(func, arg_types):
     return pipeline.state.typing_errors
 
 
-@pytest.mark.xfail(True, reason="Typing error")
 def test_partial_typing_error():
     """
     Make sure partial typing stores type errors in compiler state properly

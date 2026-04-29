@@ -4,9 +4,9 @@
 import numpy as np
 import cusimt
 import cuda.simt as cuda
-from numba import types
+from cusimt.numba_cuda import types
 from cusimt.testing import NumbaCUDATestCase
-from numba.np import numpy_support
+from cusimt.numba_cuda.np import numpy_support
 import pytest
 
 

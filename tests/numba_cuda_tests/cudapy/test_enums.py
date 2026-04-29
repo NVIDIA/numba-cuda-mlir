@@ -7,12 +7,12 @@ Test cases adapted from numba/tests/test_enums.py
 
 import numpy as np
 
-from numba import int16, int32
+from cusimt.numba_cuda.types import int16, int32
+from cusimt.extending import register_jitable
 
-from numba import njit
 import cusimt
 import cuda.simt as cuda
-from numba import types
+from cusimt.numba_cuda import types
 from cusimt.testing import NumbaCUDATestCase
 from .enum_usecases import (
     Color,
@@ -63,7 +63,7 @@ class EnumTest(NumbaCUDATestCase):
         self.assertPreciseEqual(expected, got)
 
     def test_return_from_device_func(self):
-        @njit
+        @register_jitable
         def inner(pred):
             return Color.red if pred else Color.green
 

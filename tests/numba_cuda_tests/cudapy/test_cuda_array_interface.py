@@ -11,6 +11,7 @@ from cusimt.numba_cuda.testing import ForeignArray
 from unittest.mock import call, patch
 
 import pytest
+import gc
 
 
 class TestCudaArrayInterface(NumbaCUDATestCase):
@@ -39,7 +40,11 @@ class TestCudaArrayInterface(NumbaCUDATestCase):
         # Get the deallocation queue
         ctx = cuda.current_context()
         deallocs = ctx.memory_manager.deallocations
-        # Flush all deallocations
+        # Flush all deallocations. First ensure that any dead device arrays in
+        # reference cycles are collected so they are moved to the deallocations
+        # list now (and not when we're potentially in the middle of the checks
+        # below).
+        gc.collect()
         deallocs.clear()
         self.assertEqual(len(deallocs), 0)
         # Make new device array
@@ -359,7 +364,6 @@ class TestCudaArrayInterface(NumbaCUDATestCase):
         # Ensure the synchronize method of a stream was not called
         mock_sync.assert_not_called()
 
-    @pytest.mark.xfail(True, reason="Issue with mock and vendored code")
     def test_launch_sync(self):
         # Create a foreign array with a stream
         s = cuda.stream()
@@ -377,7 +381,6 @@ class TestCudaArrayInterface(NumbaCUDATestCase):
         # Ensure the synchronize method of a stream was called
         mock_sync.assert_called_once_with()
 
-    @pytest.mark.xfail(True, reason="Issue with mock and vendored code")
     def test_launch_sync_two_streams(self):
         # Create two foreign arrays with streams
         s1 = cuda.stream()

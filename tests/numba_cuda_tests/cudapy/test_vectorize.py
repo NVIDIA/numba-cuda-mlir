@@ -8,8 +8,9 @@ from functools import partial
 from itertools import product
 from cuda.simt import vectorize as cuda_vectorize
 import cuda.simt as cuda
-from numba import vectorize as numba_vectorize
-from numba.types import int32, float32, float64
+
+# from numba import vectorize as numba_vectorize
+from cusimt.numba_cuda.types import int32, float32, float64
 from cusimt.numba_cuda.cudadrv.driver import CudaAPIError, driver
 from cusimt.testing import NumbaCUDATestCase
 import pytest
@@ -41,7 +42,7 @@ input_sizes = (8, 100, 2**10 + 1)
 
 # Vectorize functions to test
 # cuda.vectorize doesn't need target parameter, numba.vectorize needs target="cuda"
-vectorize_funcs = [cuda_vectorize, partial(numba_vectorize, target="cuda")]
+vectorize_funcs = [cuda_vectorize]  # , partial(numba_vectorize, target="cuda")]
 
 
 @pytest.mark.xfail(True, reason="Vectorize not supported")

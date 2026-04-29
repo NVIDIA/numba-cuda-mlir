@@ -4,7 +4,7 @@
 import cusimt
 from cusimt.testing import NumbaCUDATestCase
 import llvmlite
-from numba import types
+from cusimt.numba_cuda import types
 import pytest
 
 """

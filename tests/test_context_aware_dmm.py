@@ -5,7 +5,7 @@
 are invalidated when the active ir.Context changes."""
 
 from cusimt._mlir import ir
-from numba.core import types
+from cusimt.numba_cuda import types
 
 from cusimt.models import (
     mlir_data_manager,

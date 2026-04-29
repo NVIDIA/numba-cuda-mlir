@@ -22,7 +22,7 @@ from cusimt.lowering.numba_compat.llvm_utils import (
     translate_to_llvmir,
     dump_llvmir,
 )
-from numba.core.errors import UnsupportedError
+from cusimt.numba_cuda.core.errors import UnsupportedError
 
 
 def _maybe_link_nrt(linker) -> None:
@@ -150,7 +150,7 @@ def _get_llvm70_capi():
 
 def _get_libnvvm_path() -> bytes:
     """Resolve libnvvm.so from the user's CTK (CUDA_HOME, conda, or pip)."""
-    from numba.cuda.cudadrv.libs import get_cudalib
+    from cusimt.numba_cuda.cudadrv.libs import get_cudalib
 
     return get_cudalib("nvvm").encode()
 
@@ -168,7 +168,7 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
     """Compile MLIR gpu.module via in-process LLVM70 C API (raw Operation*)."""
     from cusimt._mlir.dialects import gpu
     from cusimt.tools import get_gpu_compute_capability
-    from numba.cuda.cudadrv.libs import get_libdevice
+    from cusimt.numba_cuda.cudadrv.libs import get_libdevice
 
     lib = _get_llvm70_capi()
     chip = target_options.get("chip", get_gpu_compute_capability())
@@ -452,7 +452,7 @@ def optimize(cres):
         cc = chip.replace("sm_", "")
         is_lto = target_options.get("output", "ptx") == "ltoir"
 
-        from numba.cuda.cudadrv.nvvm import LibDevice
+        from cusimt.numba_cuda.cudadrv.nvvm import LibDevice
 
         use_llvm70 = _needs_llvm70_path(cc)
 

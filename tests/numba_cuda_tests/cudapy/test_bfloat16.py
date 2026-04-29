@@ -6,7 +6,7 @@ import numpy as np
 from ml_dtypes import bfloat16 as mldtypes_bf16
 import cusimt
 import cuda.simt as cuda
-from numba.types import (
+from cusimt.numba_cuda.types import (
     float32,
     float64,
     int16,

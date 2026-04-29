@@ -5,7 +5,7 @@ import numpy as np
 import math
 import cusimt
 import cuda.simt as cuda
-from numba.types import double, void
+from cusimt.numba_cuda.types import double, void
 from cusimt.testing import NumbaCUDATestCase
 
 

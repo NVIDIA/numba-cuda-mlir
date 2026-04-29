@@ -6,12 +6,12 @@ Test extending types via the numba.extending.* API.
 """
 
 from cuda.simt import jit
-from numba import types
+from cusimt.numba_cuda import types
 
-from numba.core.errors import TypingError, NumbaTypeError
-from numba.core.extending import make_attribute_wrapper
-from numba.core.extending import overload
-from numba.core.imputils import Registry
+from cusimt.numba_cuda.core.errors import TypingError, NumbaTypeError
+from cusimt.numba_cuda.extending import make_attribute_wrapper
+from cusimt.numba_cuda.extending import overload
+from cusimt.numba_cuda.core.imputils import Registry
 
 import unittest
 

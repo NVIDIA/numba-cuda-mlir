@@ -113,7 +113,7 @@ def simple_lmem(A, B, dty):
         B[i] = C[i]
 
 
-from conftest import TEST_BIN_DIR
+from numba_cuda_tests.testing import TEST_BIN_DIR
 
 test_device_functions_ltoir = os.path.join(TEST_BIN_DIR, "test_device_functions.ltoir")
 

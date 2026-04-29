@@ -7,8 +7,8 @@ from cusimt.errors import InternalCompilerError
 from cusimt.mlir_lowering import MLIRLower
 from textwrap import dedent
 from cusimt.lowering_utilities import convert, tensor_to_memref
-from numba import types
-from numba.core import typing as typing
+from cusimt.numba_cuda import types
+from cusimt.numba_cuda import typing as typing
 from cusimt.logging import trace
 from cusimt._mlir import ir
 from cusimt._mlir.dialects import func, llvm, tensor, memref
@@ -16,13 +16,13 @@ from cusimt.mlir_lowering_registry import MLIRLoweringRegistry
 
 registry = MLIRLoweringRegistry()
 lower = registry.lower
-from numba.extending import overload, intrinsic
+from cusimt.numba_cuda.extending import overload, intrinsic
 import cusimt.cuda.libdevice as libdevice
 import cusimt.cuda.libdevicefuncs as libdevicefuncs
 import inspect
 import ast
 from cusimt.lowering_utilities import get_or_insert_function
-from numba.core.typing.templates import ConcreteTemplate
+from cusimt.numba_cuda.typing.templates import ConcreteTemplate
 from typing import Callable, Any
 
 _libdevice_descriptors: dict[Callable[..., Any], libdevicefuncs.Descriptor] = {}

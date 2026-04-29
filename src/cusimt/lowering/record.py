@@ -7,9 +7,9 @@ Records are represented as pointers to byte arrays. Field access is done via
 byte offset calculations using LLVM GEP and bitcast operations.
 """
 
-from numba.core import types
+from cusimt.numba_cuda import types
 from cusimt.types import Record, NestedArray
-from numba.core import ir as numba_ir
+from cusimt.numba_cuda.core import ir as numba_ir
 import operator
 
 from cusimt._mlir.dialects import (

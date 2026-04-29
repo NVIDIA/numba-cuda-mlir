@@ -3,7 +3,7 @@
 """Tests for cooperative kernel launch support."""
 
 import cuda.simt as cuda
-from numba.cuda.cudadrv.devicearray import DeviceNDArray
+from cusimt.numba_cuda.cudadrv.devicearray import DeviceNDArray
 import numpy as np
 import tempfile
 

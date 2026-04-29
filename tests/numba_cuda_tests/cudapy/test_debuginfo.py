@@ -3,15 +3,15 @@
 
 from collections import namedtuple
 import cusimt
-from numba import types
-from numba.np import numpy_support
+from cusimt.numba_cuda import types
+from cusimt.numba_cuda.np import numpy_support
 from cusimt.testing import NumbaCUDATestCase
 from textwrap import dedent
 import itertools
 import re
 import unittest
 import warnings
-from numba.core.errors import NumbaDebugInfoWarning
+from cusimt.numba_cuda.core.errors import NumbaDebugInfoWarning
 import numpy as np
 import inspect
 import pytest
@@ -518,7 +518,6 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         ir = foo.inspect_llvm()[sig]
         self.assertFileCheckMatches(ir, foo.__doc__)
 
-    @pytest.mark.xfail(True, reason="debuginfo issues")
     def test_missing_source(self):
         strsrc = """
         def foo():

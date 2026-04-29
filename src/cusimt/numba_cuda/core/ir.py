@@ -14,10 +14,6 @@ from types import FunctionType, BuiltinFunctionType
 from functools import total_ordering
 from io import StringIO
 
-from cusimt.numba_cuda import HAS_NUMBA
-
-if HAS_NUMBA:
-    import numba
 from cusimt.numba_cuda.core import errors
 from cusimt.numba_cuda.core import config
 from cusimt.numba_cuda.utils import UNARY_BUILTINS_TO_OPERATORS, OPERATORS_TO_BUILTINS
@@ -334,9 +330,9 @@ class Inst(EqualityCheckMixin, AbstractRHS):
         """
         A recursive helper used to implement list_vars() in subclasses.
         """
-        if isinstance(val, var_types):
+        if isinstance(val, Var):
             return [val]
-        elif isinstance(val, inst_types):
+        elif isinstance(val, Inst):
             return val.list_vars()
         elif isinstance(val, (list, tuple)):
             lst = []
@@ -393,7 +389,7 @@ class Expr(Inst):
 
     def __init__(self, op, loc, **kws):
         assert isinstance(op, str)
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         self.op = op
         self.loc = loc
         self._kws = kws
@@ -412,9 +408,9 @@ class Expr(Inst):
     @classmethod
     def binop(cls, fn, lhs, rhs, loc):
         assert isinstance(fn, BuiltinFunctionType)
-        assert isinstance(lhs, var_types)
-        assert isinstance(rhs, var_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(lhs, Var)
+        assert isinstance(rhs, Var)
+        assert isinstance(loc, Loc)
         op = "binop"
         return cls(
             op=op,
@@ -430,9 +426,9 @@ class Expr(Inst):
     def inplace_binop(cls, fn, immutable_fn, lhs, rhs, loc):
         assert isinstance(fn, BuiltinFunctionType)
         assert isinstance(immutable_fn, BuiltinFunctionType)
-        assert isinstance(lhs, var_types)
-        assert isinstance(rhs, var_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(lhs, Var)
+        assert isinstance(rhs, Var)
+        assert isinstance(loc, Loc)
         op = "inplace_binop"
         return cls(
             op=op,
@@ -448,16 +444,16 @@ class Expr(Inst):
     @classmethod
     def unary(cls, fn, value, loc):
         if not isinstance(value, (str, FunctionType)):
-            assert isinstance(value, var_types)
-        assert isinstance(loc, loc_types)
+            assert isinstance(value, Var)
+        assert isinstance(loc, Loc)
         op = "unary"
         fn = UNARY_BUILTINS_TO_OPERATORS.get(fn, fn)
         return cls(op=op, loc=loc, fn=fn, value=value)
 
     @classmethod
     def call(cls, func, args, kws, loc, vararg=None, varkwarg=None, target=None):
-        assert isinstance(func, var_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(func, Var)
+        assert isinstance(loc, Loc)
         op = "call"
         return cls(
             op=op,
@@ -472,25 +468,25 @@ class Expr(Inst):
 
     @classmethod
     def build_tuple(cls, items, loc):
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         op = "build_tuple"
         return cls(op=op, loc=loc, items=items)
 
     @classmethod
     def build_list(cls, items, loc):
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         op = "build_list"
         return cls(op=op, loc=loc, items=items)
 
     @classmethod
     def build_set(cls, items, loc):
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         op = "build_set"
         return cls(op=op, loc=loc, items=items)
 
     @classmethod
     def build_map(cls, items, size, literal_value, value_indexes, loc):
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         op = "build_map"
         return cls(
             op=op,
@@ -503,68 +499,68 @@ class Expr(Inst):
 
     @classmethod
     def pair_first(cls, value, loc):
-        assert isinstance(value, var_types)
+        assert isinstance(value, Var)
         op = "pair_first"
         return cls(op=op, loc=loc, value=value)
 
     @classmethod
     def pair_second(cls, value, loc):
-        assert isinstance(value, var_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(value, Var)
+        assert isinstance(loc, Loc)
         op = "pair_second"
         return cls(op=op, loc=loc, value=value)
 
     @classmethod
     def getiter(cls, value, loc):
-        assert isinstance(value, var_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(value, Var)
+        assert isinstance(loc, Loc)
         op = "getiter"
         return cls(op=op, loc=loc, value=value)
 
     @classmethod
     def iternext(cls, value, loc):
-        assert isinstance(value, var_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(value, Var)
+        assert isinstance(loc, Loc)
         op = "iternext"
         return cls(op=op, loc=loc, value=value)
 
     @classmethod
     def exhaust_iter(cls, value, count, loc):
-        assert isinstance(value, var_types)
+        assert isinstance(value, Var)
         assert isinstance(count, int)
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         op = "exhaust_iter"
         return cls(op=op, loc=loc, value=value, count=count)
 
     @classmethod
     def getattr(cls, value, attr, loc):
-        assert isinstance(value, var_types)
+        assert isinstance(value, Var)
         assert isinstance(attr, str)
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         op = "getattr"
         return cls(op=op, loc=loc, value=value, attr=attr)
 
     @classmethod
     def getitem(cls, value, index, loc):
-        assert isinstance(value, var_types)
-        assert isinstance(index, var_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(value, Var)
+        assert isinstance(index, Var)
+        assert isinstance(loc, Loc)
         op = "getitem"
         fn = operator.getitem
         return cls(op=op, loc=loc, value=value, index=index, fn=fn)
 
     @classmethod
     def typed_getitem(cls, value, dtype, index, loc):
-        assert isinstance(value, var_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(value, Var)
+        assert isinstance(loc, Loc)
         op = "typed_getitem"
         return cls(op=op, loc=loc, value=value, dtype=dtype, index=index)
 
     @classmethod
     def static_getitem(cls, value, index, index_var, loc):
-        assert isinstance(value, var_types)
-        assert index_var is None or isinstance(index_var, var_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(value, Var)
+        assert index_var is None or isinstance(index_var, Var)
+        assert isinstance(loc, Loc)
         op = "static_getitem"
         fn = operator.getitem
         return cls(op=op, loc=loc, value=value, index=index, index_var=index_var, fn=fn)
@@ -574,15 +570,15 @@ class Expr(Inst):
         """
         A node for implicit casting at the return statement
         """
-        assert isinstance(value, var_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(value, Var)
+        assert isinstance(loc, Loc)
         op = "cast"
         return cls(op=op, value=value, loc=loc)
 
     @classmethod
     def phi(cls, loc):
         """Phi node"""
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         return cls(op="phi", incoming_values=[], incoming_blocks=[], loc=loc)
 
     @classmethod
@@ -590,7 +586,7 @@ class Expr(Inst):
         """
         A node for making a function object.
         """
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         op = "make_function"
         return cls(
             op=op,
@@ -609,7 +605,7 @@ class Expr(Inst):
         This node is not handled by type inference. It is only added by
         post-typing passes.
         """
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         op = "null"
         return cls(op=op, loc=loc)
 
@@ -618,7 +614,7 @@ class Expr(Inst):
         """
         A node for undefined value specifically from LOAD_FAST_AND_CLEAR opcode.
         """
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         op = "undef"
         return cls(op=op, loc=loc)
 
@@ -632,7 +628,7 @@ class Expr(Inst):
         by type inference or lowering. It's presence outside of the interpreter
         renders IR as illegal.
         """
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         assert isinstance(op, str)
         return cls(op=op, info=info, loc=loc)
 
@@ -672,10 +668,10 @@ class SetItem(Stmt):
     """
 
     def __init__(self, target, index, value, loc):
-        assert isinstance(target, var_types)
-        assert isinstance(index, var_types)
-        assert isinstance(value, var_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(target, Var)
+        assert isinstance(index, Var)
+        assert isinstance(value, Var)
+        assert isinstance(loc, Loc)
         self.target = target
         self.index = index
         self.value = value
@@ -691,11 +687,11 @@ class StaticSetItem(Stmt):
     """
 
     def __init__(self, target, index, index_var, value, loc):
-        assert isinstance(target, var_types)
-        assert not isinstance(index, var_types)
-        assert isinstance(index_var, var_types)
-        assert isinstance(value, var_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(target, Var)
+        assert not isinstance(index, Var)
+        assert isinstance(index_var, Var)
+        assert isinstance(value, Var)
+        assert isinstance(loc, Loc)
         self.target = target
         self.index = index
         self.index_var = index_var
@@ -712,9 +708,9 @@ class DelItem(Stmt):
     """
 
     def __init__(self, target, index, loc):
-        assert isinstance(target, var_types)
-        assert isinstance(index, var_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(target, Var)
+        assert isinstance(index, Var)
+        assert isinstance(loc, Loc)
         self.target = target
         self.index = index
         self.loc = loc
@@ -725,10 +721,10 @@ class DelItem(Stmt):
 
 class SetAttr(Stmt):
     def __init__(self, target, attr, value, loc):
-        assert isinstance(target, var_types)
+        assert isinstance(target, Var)
         assert isinstance(attr, str)
-        assert isinstance(value, var_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(value, Var)
+        assert isinstance(loc, Loc)
         self.target = target
         self.attr = attr
         self.value = value
@@ -740,9 +736,9 @@ class SetAttr(Stmt):
 
 class DelAttr(Stmt):
     def __init__(self, target, attr, loc):
-        assert isinstance(target, var_types)
+        assert isinstance(target, Var)
         assert isinstance(attr, str)
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         self.target = target
         self.attr = attr
         self.loc = loc
@@ -753,10 +749,10 @@ class DelAttr(Stmt):
 
 class StoreMap(Stmt):
     def __init__(self, dct, key, value, loc):
-        assert isinstance(dct, var_types)
-        assert isinstance(key, var_types)
-        assert isinstance(value, var_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(dct, Var)
+        assert isinstance(key, Var)
+        assert isinstance(value, Var)
+        assert isinstance(loc, Loc)
         self.dct = dct
         self.key = key
         self.value = value
@@ -769,7 +765,7 @@ class StoreMap(Stmt):
 class Del(Stmt):
     def __init__(self, value, loc):
         assert isinstance(value, str)
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         self.value = value
         self.loc = loc
 
@@ -781,8 +777,8 @@ class Raise(Terminator):
     is_exit = True
 
     def __init__(self, exception, loc):
-        assert exception is None or isinstance(exception, var_types)
-        assert isinstance(loc, loc_types)
+        assert exception is None or isinstance(exception, Var)
+        assert isinstance(loc, Loc)
         self.exception = exception
         self.loc = loc
 
@@ -804,7 +800,7 @@ class StaticRaise(Terminator):
 
     def __init__(self, exc_class, exc_args, loc):
         assert exc_class is None or isinstance(exc_class, type)
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         assert exc_args is None or isinstance(exc_args, tuple)
         self.exc_class = exc_class
         self.exc_args = exc_args
@@ -836,7 +832,7 @@ class DynamicRaise(Terminator):
 
     def __init__(self, exc_class, exc_args, loc):
         assert exc_class is None or isinstance(exc_class, type)
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         assert exc_args is None or isinstance(exc_args, tuple)
         self.exc_class = exc_class
         self.exc_args = exc_args
@@ -863,8 +859,8 @@ class TryRaise(Stmt):
     """
 
     def __init__(self, exception, loc):
-        assert exception is None or isinstance(exception, var_types)
-        assert isinstance(loc, loc_types)
+        assert exception is None or isinstance(exception, Var)
+        assert isinstance(loc, Loc)
         self.exception = exception
         self.loc = loc
 
@@ -879,7 +875,7 @@ class StaticTryRaise(Stmt):
 
     def __init__(self, exc_class, exc_args, loc):
         assert exc_class is None or isinstance(exc_class, type)
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         assert exc_args is None or isinstance(exc_args, tuple)
         self.exc_class = exc_class
         self.exc_args = exc_args
@@ -902,7 +898,7 @@ class DynamicTryRaise(Stmt):
 
     def __init__(self, exc_class, exc_args, loc):
         assert exc_class is None or isinstance(exc_class, type)
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         assert exc_args is None or isinstance(exc_args, tuple)
         self.exc_class = exc_class
         self.exc_args = exc_args
@@ -926,8 +922,8 @@ class Return(Terminator):
     is_exit = True
 
     def __init__(self, value, loc):
-        assert isinstance(value, var_types), type(value)
-        assert isinstance(loc, loc_types)
+        assert isinstance(value, Var), type(value)
+        assert isinstance(loc, Loc)
         self.value = value
         self.loc = loc
 
@@ -944,7 +940,7 @@ class Jump(Terminator):
     """
 
     def __init__(self, target, loc):
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         self.target = target
         self.loc = loc
 
@@ -961,8 +957,8 @@ class Branch(Terminator):
     """
 
     def __init__(self, cond, truebr, falsebr, loc):
-        assert isinstance(cond, var_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(cond, Var)
+        assert isinstance(loc, Loc)
         self.cond = cond
         self.truebr = truebr
         self.falsebr = falsebr
@@ -981,9 +977,9 @@ class Assign(Stmt):
     """
 
     def __init__(self, value, target, loc):
-        assert isinstance(value, abstractrhs_types)
-        assert isinstance(target, var_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(value, AbstractRHS)
+        assert isinstance(target, Var)
+        assert isinstance(loc, Loc)
         self.value = value
         self.target = target
         self.loc = loc
@@ -998,10 +994,10 @@ class Print(Stmt):
     """
 
     def __init__(self, args, vararg, loc):
-        assert all(isinstance(x, var_types) for x in args)
+        assert all(isinstance(x, Var) for x in args)
         if vararg is not None:
-            assert isinstance(vararg, var_types)
-        assert isinstance(loc, loc_types)
+            assert isinstance(vararg, Var)
+        assert isinstance(loc, Loc)
         self.args = tuple(args)
         self.vararg = vararg
         # Constant-inferred arguments
@@ -1014,8 +1010,8 @@ class Print(Stmt):
 
 class Yield(Inst):
     def __init__(self, value, loc, index):
-        assert isinstance(value, var_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(value, Var)
+        assert isinstance(loc, Loc)
         self.value = value
         self.loc = loc
         self.index = index
@@ -1040,8 +1036,8 @@ class EnterWith(Stmt):
         loc : ir.Loc instance
             Source location
         """
-        assert isinstance(contextmanager, var_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(contextmanager, Var)
+        assert isinstance(loc, Loc)
         self.contextmanager = contextmanager
         self.begin = begin
         self.end = end
@@ -1058,7 +1054,7 @@ class PopBlock(Stmt):
     """Marker statement for a pop block op code"""
 
     def __init__(self, loc):
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         self.loc = loc
 
     def __str__(self):
@@ -1069,7 +1065,7 @@ class Arg(EqualityCheckMixin, AbstractRHS):
     def __init__(self, name, index, loc):
         assert isinstance(name, str)
         assert isinstance(index, int)
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         self.name = name
         self.index = index
         self.loc = loc
@@ -1083,7 +1079,7 @@ class Arg(EqualityCheckMixin, AbstractRHS):
 
 class Const(EqualityCheckMixin, AbstractRHS):
     def __init__(self, value, loc, use_literal_type=True):
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         self.value = value
         self.loc = loc
         # Note: need better way to tell if this is a literal or not.
@@ -1106,7 +1102,7 @@ class Const(EqualityCheckMixin, AbstractRHS):
 
 class Global(EqualityCheckMixin, AbstractRHS):
     def __init__(self, name, value, loc):
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         self.name = name
         self.value = value
         self.loc = loc
@@ -1132,7 +1128,7 @@ class FreeVar(EqualityCheckMixin, AbstractRHS):
     def __init__(self, index, name, value, loc):
         assert isinstance(index, int)
         assert isinstance(name, str)
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         # index inside __code__.co_freevars
         self.index = index
         # variable name
@@ -1167,9 +1163,9 @@ class Var(EqualityCheckMixin, AbstractRHS):
     def __init__(self, scope, name, loc):
         # NOTE: Use of scope=None should be removed.
         if scope is not None:
-            assert isinstance(scope, scope_types)
+            assert isinstance(scope, Scope)
         assert isinstance(name, str)
-        assert isinstance(loc, loc_types)
+        assert isinstance(loc, Loc)
         self.scope = scope
         self.name = name
         self.loc = loc
@@ -1229,8 +1225,8 @@ class Scope(EqualityCheckMixin):
 
     def __init__(self, parent, loc):
         if parent is not None:
-            assert isinstance(parent, scope_types)
-        assert isinstance(loc, loc_types)
+            assert isinstance(parent, Scope)
+        assert isinstance(loc, Loc)
         self.parent = parent
         self.localvars = VarMap()
         self.loc = loc
@@ -1336,8 +1332,8 @@ class Block(EqualityCheckMixin):
     """A code block"""
 
     def __init__(self, scope, loc):
-        assert isinstance(scope, scope_types)
-        assert isinstance(loc, loc_types)
+        assert isinstance(scope, Scope)
+        assert isinstance(loc, Loc)
         self.scope = scope
         self.body = []
         self.loc = loc
@@ -1352,9 +1348,9 @@ class Block(EqualityCheckMixin):
         Iterate over exprs of the given *op* in this block.
         """
         for inst in self.body:
-            if isinstance(inst, assign_types):
+            if isinstance(inst, Assign):
                 expr = inst.value
-                if isinstance(expr, expr_types):
+                if isinstance(expr, Expr):
                     if op is None or expr.op == op:
                         yield expr
 
@@ -1371,21 +1367,21 @@ class Block(EqualityCheckMixin):
         Returns the assignment inst associated with variable "name", None if
         it cannot be found.
         """
-        for x in self.find_insts(cls=assign_types):
+        for x in self.find_insts(cls=Assign):
             if x.target.name == name:
                 return x
         return None
 
     def prepend(self, inst):
-        assert isinstance(inst, stmt_types)
+        assert isinstance(inst, Stmt)
         self.body.insert(0, inst)
 
     def append(self, inst):
-        assert isinstance(inst, stmt_types)
+        assert isinstance(inst, Stmt)
         self.body.append(inst)
 
     def remove(self, inst):
-        assert isinstance(inst, stmt_types)
+        assert isinstance(inst, Stmt)
         del self.body[self.body.index(inst)]
 
     def clear(self):
@@ -1425,7 +1421,7 @@ class Block(EqualityCheckMixin):
         self.body.insert(index + 1, stmt)
 
     def insert_before_terminator(self, stmt):
-        assert isinstance(stmt, stmt_types)
+        assert isinstance(stmt, Stmt)
         assert self.is_terminated
         self.body.insert(-1, stmt)
 
@@ -1509,8 +1505,8 @@ class FunctionIR:
                 if block != other_blk:
                     msg.append(("Block %s differs" % label).center(80, "-"))
                     # see if the instructions are just a permutation
-                    block_del = [x for x in block.body if isinstance(x, del_types)]
-                    oth_del = [x for x in other_blk.body if isinstance(x, del_types)]
+                    block_del = [x for x in block.body if isinstance(x, Del)]
+                    oth_del = [x for x in other_blk.body if isinstance(x, Del)]
                     if block_del != oth_del:
                         # this is a common issue, dels are all present, but
                         # order shuffled.
@@ -1630,7 +1626,7 @@ class FunctionIR:
         """
         Try to infer the constant value of a given variable.
         """
-        if isinstance(name, var_types):
+        if isinstance(name, Var):
             name = name.name
         return self._consts.infer_constant(name)
 
@@ -1642,7 +1638,7 @@ class FunctionIR:
         """
         lhs = value
         while True:
-            if isinstance(value, var_types):
+            if isinstance(value, Var):
                 lhs = value
                 name = value.name
             elif isinstance(value, str):
@@ -1669,10 +1665,10 @@ class FunctionIR:
         else:
             blocks = [self.blocks[blk] for blk in list(in_blocks)]
 
-        assert isinstance(rhs_value, abstractrhs_types)
+        assert isinstance(rhs_value, AbstractRHS)
 
         for blk in blocks:
-            for assign in blk.find_insts(assign_types):
+            for assign in blk.find_insts(Assign):
                 if assign.value == rhs_value:
                     return assign.target
 
@@ -1787,74 +1783,3 @@ class UndefinedType(EqualityCheckMixin):
 
 
 UNDEFINED = UndefinedType()
-
-if HAS_NUMBA:
-    abstractrhs_types = (AbstractRHS, numba.core.ir.AbstractRHS)
-    arg_types = (Arg, numba.core.ir.Arg)
-    assign_types = (Assign, numba.core.ir.Assign)
-    block_types = (Block, numba.core.ir.Block)
-    branch_types = (Branch, numba.core.ir.Branch)
-    const_types = (Const, numba.core.ir.Const)
-    del_types = (Del, numba.core.ir.Del)
-    delattr_types = (DelAttr, numba.core.ir.DelAttr)
-    delitem_types = (DelItem, numba.core.ir.DelItem)
-    dynamicraise_types = (DynamicRaise, numba.core.ir.DynamicRaise)
-    dynamictryraise_types = (DynamicTryRaise, numba.core.ir.DynamicTryRaise)
-    enterwith_types = (EnterWith, numba.core.ir.EnterWith)
-    expr_types = (Expr, numba.core.ir.Expr)
-    freevar_types = (FreeVar, numba.core.ir.FreeVar)
-    global_types = (Global, numba.core.ir.Global)
-    inst_types = (Inst, numba.core.ir.Inst)
-    jump_types = (Jump, numba.core.ir.Jump)
-    loc_types = (Loc, numba.core.ir.Loc)
-    popblock_types = (PopBlock, numba.core.ir.PopBlock)
-    print_types = (Print, numba.core.ir.Print)
-    raise_types = (Raise, numba.core.ir.Raise)
-    return_types = (Return, numba.core.ir.Return)
-    scope_types = (Scope, numba.core.ir.Scope)
-    setattr_types = (SetAttr, numba.core.ir.SetAttr)
-    setitem_types = (SetItem, numba.core.ir.SetItem)
-    staticraise_types = (StaticRaise, numba.core.ir.StaticRaise)
-    staticsetitem_types = (StaticSetItem, numba.core.ir.StaticSetItem)
-    statictryraise_types = (StaticTryRaise, numba.core.ir.StaticTryRaise)
-    stmt_types = (Stmt, numba.core.ir.Stmt)
-    storemap_types = (StoreMap, numba.core.ir.StoreMap)
-    tryraise_types = (TryRaise, numba.core.ir.TryRaise)
-    var_types = (Var, numba.core.ir.Var)
-    with_types = (With, numba.core.ir.With)
-    yield_types = (Yield, numba.core.ir.Yield)
-else:
-    abstractrhs_types = (AbstractRHS,)
-    arg_types = (Arg,)
-    assign_types = (Assign,)
-    block_types = (Block,)
-    branch_types = (Branch,)
-    const_types = (Const,)
-    del_types = (Del,)
-    delattr_types = (DelAttr,)
-    delitem_types = (DelItem,)
-    dynamicraise_types = (DynamicRaise,)
-    dynamictryraise_types = (DynamicTryRaise,)
-    enterwith_types = (EnterWith,)
-    expr_types = (Expr,)
-    freevar_types = (FreeVar,)
-    global_types = (Global,)
-    inst_types = (Inst,)
-    jump_types = (Jump,)
-    loc_types = (Loc,)
-    popblock_types = (PopBlock,)
-    print_types = (Print,)
-    raise_types = (Raise,)
-    return_types = (Return,)
-    scope_types = (Scope,)
-    setattr_types = (SetAttr,)
-    setitem_types = (SetItem,)
-    staticraise_types = (StaticRaise,)
-    staticsetitem_types = (StaticSetItem,)
-    statictryraise_types = (StaticTryRaise,)
-    stmt_types = (Stmt,)
-    storemap_types = (StoreMap,)
-    tryraise_types = (TryRaise,)
-    var_types = (Var,)
-    with_types = (With,)
-    yield_types = (Yield,)

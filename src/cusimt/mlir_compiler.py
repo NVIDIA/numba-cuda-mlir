@@ -8,9 +8,10 @@ from typing import Any, Dict, Callable
 from cusimt.annotations import AnyCallable, PS
 
 import warnings
-from numba.core import compiler, errors, funcdesc, sigutils, types, typing
-from numba.core.compiler_lock import global_compiler_lock
-from numba.core.compiler import CompilerBase, DefaultPassBuilder
+from cusimt.numba_cuda import compiler, types, typing
+from cusimt.numba_cuda.core import errors, funcdesc, sigutils
+from cusimt.numba_cuda.core.compiler_lock import global_compiler_lock
+from cusimt.numba_cuda.compiler import CompilerBase, DefaultPassBuilder
 from cusimt.numba_cuda.flags import CUDAFlags
 from cusimt.numba_cuda.core.options import ParallelOptions
 from cusimt.numba_cuda.core import config as cuda_config
@@ -18,16 +19,16 @@ from cusimt.numba_cuda.core.errors import (
     NumbaInvalidConfigWarning,
     NumbaDebugInfoWarning,
 )
-from numba.core.compiler import compile_result
+from cusimt.numba_cuda.compiler import compile_result
 from cusimt.descriptor import mlir_target, MLIRDispatcher
 from cusimt.lowering_utilities.type_conversions import to_numba_type
-from numba.core.compiler_machinery import (
+from cusimt.numba_cuda.core.compiler_machinery import (
     FunctionPass,
     LoweringPass,
     PassManager,
     register_pass,
 )
-from numba.core.typed_passes import (
+from cusimt.numba_cuda.core.typed_passes import (
     AnnotateTypes,
     IRLegalization,
     NopythonTypeInference,
@@ -40,12 +41,9 @@ from cusimt.numba_cuda.core.typed_passes import fallback_context, type_inference
 # `iv is not ir.UNDEFINED` using its own copy — the identity check fails.
 # Unify them so phi nodes with undefined incoming values are handled correctly.
 import cusimt.numba_cuda.core.ir as _cuda_ir
-import numba.core.ir as _core_ir
 
-_cuda_ir.UNDEFINED = _core_ir.UNDEFINED
-_cuda_ir.UndefinedType = _core_ir.UndefinedType
-from numba.core.typing.typeof import Purpose, typeof
-from numba.core.untyped_passes import LiteralUnroll, InlineInlinables
+from cusimt.numba_cuda.typing.typeof import Purpose, typeof
+from cusimt.numba_cuda.core.untyped_passes import LiteralUnroll, InlineInlinables
 from cusimt.numbair_transforms import (
     CusimtLiteralUnroll,
     CusimtInlineInlinables,
@@ -265,8 +263,26 @@ def _get_compiler_class(targetoptions: Dict[str, Any]):
 
         # Capture user targetoptions from the active stack into compiler metadata
         def __init__(
-            self, typingctx, targetctx, library, args, return_type, flags, locals
+            self,
+            typingctx,
+            targetctx,
+            library,
+            args,
+            return_type,
+            flags,
+            locals,
+            call_conv=None,
+            abi_info=None,
         ):
+            # These are added to work with the vendored Numba/Numba-CUDA code.
+            # They will eventually need implementing, as part of the
+            # requirement to support them in line with Numba-CUDA, but for now
+            # we accept these parameters if they are None so that callees can
+            # correctly call it.
+            if call_conv is not None:
+                raise RuntimeError("MLIR compiler does not support call_conv")
+            if abi_info is not None:
+                raise RuntimeError("MLIRCompiler does not support abi_info")
             super().__init__(
                 typingctx, targetctx, library, args, return_type, flags, locals
             )
@@ -330,7 +346,7 @@ def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
     flags.error_model = "python"
 
     # Run compilation pipeline
-    from numba.core.target_extension import target_override
+    from cusimt.numba_cuda.core.target_extension import target_override
 
     flags.lto = targetoptions.get("output", "ptx") == "ltoir"
 

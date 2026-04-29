@@ -6,11 +6,11 @@ this has already been checked.
 """
 
 from ast import Not
-from numba.core.typing import typeof
-from numba import types
+from cusimt.numba_cuda.typing import typeof
+from cusimt.numba_cuda import types
 from cusimt.lowering_utilities.type_conversions import to_numba_type
 import torch
-from numba.core.typing.templates import AttributeTemplate, Registry
+from cusimt.numba_cuda.typing.templates import AttributeTemplate, Registry
 
 registry = Registry()
 

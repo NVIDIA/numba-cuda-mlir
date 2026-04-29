@@ -4,10 +4,11 @@
 import pytest
 import numpy as np
 import cuda.simt as cuda
+from cusimt.numba_cuda.testing import cc_X_or_above
 
 
 def _safe_cc_check(cc):
-    return cuda.get_current_device().compute_capability >= cc
+    return cc_X_or_above(*cc)
 
 
 # vote_sync kernels

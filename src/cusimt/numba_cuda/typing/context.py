@@ -407,15 +407,6 @@ class BaseContext:
         self.install_registry(npdatetime.registry)
         self.install_registry(templates.builtin_registry)
 
-        # Install only third-party declarations from Numba's typing registry
-        # if it is available. Exclude Numba's own typing declarations.
-        if find_spec("numba.core.typing") is not None:
-            from numba.core.typing import templates as core_templates
-
-            self.install_registry(
-                core_templates.builtin_registry, external_defs_only=True
-            )
-
     def load_additional_registries(self):
         """
         Load target-specific registries.  Can be overridden by subclasses.

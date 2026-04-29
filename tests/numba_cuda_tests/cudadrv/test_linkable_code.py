@@ -8,7 +8,7 @@ import cuda.simt as cuda
 from cusimt.numba_cuda.cudadrv.linkable_code import LinkableCode
 from cusimt.testing import NumbaCUDATestCase
 from cusimt.numba_cuda.testing import skip_on_cudasim
-from conftest import TEST_BIN_DIR
+from numba_cuda_tests.testing import TEST_BIN_DIR
 
 test_device_functions_a = os.path.join(TEST_BIN_DIR, "test_device_functions.a")
 test_device_functions_cubin = os.path.join(TEST_BIN_DIR, "test_device_functions.cubin")

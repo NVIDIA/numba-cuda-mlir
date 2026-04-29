@@ -3,9 +3,9 @@
 
 import linecache
 import os
-
 from typing import NamedTuple
 
+from cusimt.numba_cuda import types
 from cusimt._mlir import ir
 from cusimt.lowering_utilities import context as cusimt_context
 from cusimt.numba_cuda import types
@@ -92,6 +92,193 @@ def _derived_di_type(
     return f"#llvm.di_derived_type<{', '.join(params)}>"
 
 
+def _composite_di_type(
+    tag, *, name=None, base_type=None, size_bits=None, elements=None
+):
+    params = [f"tag = {tag}"]
+    if name is not None:
+        params.append(f'name = "{name}"')
+    if base_type is not None:
+        params.append(f"baseType = {base_type}")
+    if size_bits is not None:
+        params.append(f"sizeInBits = {size_bits}")
+    if elements:
+        params.append(f"elements = {', '.join(elements)}")
+    return f"#llvm.di_composite_type<{', '.join(params)}>"
+
+
+def _subrange_di_type(count):
+    return f"#llvm.di_subrange<count = {count}>"
+
+
+def _llvm_type_str(numba_type):
+    match numba_type:
+        case types.Boolean() | types.BooleanLiteral():
+            return "i8"
+        case types.Integer(bitwidth=bw):
+            return f"i{bw}"
+        case types.IntegerLiteral():
+            return "i64"
+        case types.Float(bitwidth=16):
+            return "half"
+        case types.Float(bitwidth=32):
+            return "float"
+        case types.Float(bitwidth=64):
+            return "double"
+        case types.UniTuple(dtype=dtype, count=count):
+            elem_str = _llvm_type_str(dtype)
+            return None if elem_str is None else f"[{count} x {elem_str}]"
+        case types.BaseTuple():
+            elem_strs = [_llvm_type_str(t) for t in numba_type.types]
+            if any(elem_str is None for elem_str in elem_strs):
+                return None
+            return "{" + ", ".join(elem_strs) + "}"
+        case _:
+            return None
+
+
+def _align_to_bits(offset_bits, alignment_bits):
+    return (
+        offset_bits
+        if offset_bits % alignment_bits == 0
+        else offset_bits + alignment_bits - offset_bits % alignment_bits
+    )
+
+
+def _type_alignment_bits(numba_type):
+    match numba_type:
+        case types.Boolean() | types.BooleanLiteral():
+            return _BYTE_SIZE_BITS
+        case types.Integer(bitwidth=bw) | types.Float(bitwidth=bw):
+            return bw
+        case types.IntegerLiteral():
+            return _INT_LITERAL_BITS
+        case types.UniTuple(dtype=dtype):
+            return _type_alignment_bits(dtype)
+        case types.BaseTuple():
+            layout = _llvm_struct_layout_bits(numba_type.types)
+            return None if layout is None else layout[2]
+        case _:
+            return None
+
+
+def _llvm_struct_layout_bits(field_types):
+    """Compute LLVM literal-struct layout, including alignment padding."""
+    member_offsets = []
+    offset_bits = 0
+    max_alignment_bits = _BYTE_SIZE_BITS
+    for t in field_types:
+        field_size_bits = _type_size_bits(t)
+        field_alignment_bits = _type_alignment_bits(t)
+        if field_size_bits is None or field_alignment_bits is None:
+            return None
+        offset_bits = _align_to_bits(offset_bits, field_alignment_bits)
+        member_offsets.append(offset_bits)
+        offset_bits += field_size_bits
+        max_alignment_bits = max(max_alignment_bits, field_alignment_bits)
+    total_size_bits = _align_to_bits(offset_bits, max_alignment_bits)
+    return (member_offsets, total_size_bits, max_alignment_bits)
+
+
+def _type_size_bits(numba_type):
+    match numba_type:
+        case types.Boolean() | types.BooleanLiteral():
+            return _BYTE_SIZE_BITS
+        case types.Integer(bitwidth=bw) | types.Float(bitwidth=bw):
+            return bw
+        case types.IntegerLiteral():
+            return _INT_LITERAL_BITS
+        case types.UniTuple(dtype=dtype, count=count):
+            elem_bits = _type_size_bits(dtype)
+            return None if elem_bits is None else elem_bits * count
+        case types.BaseTuple():
+            layout = _llvm_struct_layout_bits(numba_type.types)
+            return None if layout is None else layout[1]
+        case types.Record():
+            return numba_type.size * _BYTE_SIZE_BITS
+        case _:
+            return None
+
+
+def _uni_tuple_di_type(numba_type):
+    elem_di = _numba_type_to_di_type_str(numba_type.dtype)
+    elem_bits = _type_size_bits(numba_type.dtype)
+    elem_str = _llvm_type_str(numba_type.dtype)
+    if elem_di is None or elem_bits is None or elem_str is None:
+        return None
+
+    return _composite_di_type(
+        "DW_TAG_array_type",
+        name=f"UniTuple({numba_type.dtype} x {numba_type.count}) ([{numba_type.count} x {elem_str}])",
+        base_type=elem_di,
+        size_bits=numba_type.count * elem_bits,
+        elements=[_subrange_di_type(numba_type.count)],
+    )
+
+
+def _base_tuple_di_type(numba_type):
+    members_di = []
+    llvm_member_types = []
+    tuple_layout = _llvm_struct_layout_bits(numba_type.types)
+    if tuple_layout is None:
+        return None
+    member_offsets, total_size_bits, _ = tuple_layout
+    for i, (field_type, offset_bits) in enumerate(
+        zip(numba_type.types, member_offsets, strict=True)
+    ):
+        field_di = _numba_type_to_di_type_str(field_type)
+        field_bits = _type_size_bits(field_type)
+        if field_di is None or field_bits is None:
+            return None
+        members_di.append(
+            _derived_di_type(
+                "DW_TAG_member",
+                name=f"f{i}",
+                base_type=field_di,
+                offset_bits=offset_bits,
+                size_bits=field_bits,
+            )
+        )
+        llvm_str = _llvm_type_str(field_type)
+        if llvm_str is None:
+            return None
+        llvm_member_types.append(llvm_str)
+    type_name = ", ".join(str(t) for t in numba_type.types)
+    llvm_type = ", ".join(llvm_member_types)
+    return _composite_di_type(
+        "DW_TAG_structure_type",
+        name=f"Tuple({type_name}) ({{{llvm_type}}})",
+        size_bits=total_size_bits,
+        elements=members_di,
+    )
+
+
+def _record_di_type(numba_type):
+    members_di = []
+    for field_name in numba_type.fields:
+        field_type = numba_type.typeof(field_name)
+        field_di = _numba_type_to_di_type_str(field_type)
+        field_bits = _type_size_bits(field_type)
+        if field_di is None or field_bits is None:
+            return None
+        field_offset_bits = numba_type.offset(field_name) * _BYTE_SIZE_BITS
+        members_di.append(
+            _derived_di_type(
+                "DW_TAG_member",
+                name=field_name,
+                base_type=field_di,
+                offset_bits=field_offset_bits,
+                size_bits=field_bits,
+            )
+        )
+    return _composite_di_type(
+        "DW_TAG_structure_type",
+        name=str(numba_type),
+        size_bits=numba_type.size * _BYTE_SIZE_BITS,
+        elements=members_di,
+    )
+
+
 def _numba_type_to_di_type_str(numba_type):
     """Map a Numba type to an MLIR #llvm.di_basic_type string."""
     match numba_type:
@@ -121,6 +308,12 @@ def _numba_type_to_di_type_str(numba_type):
             )
         case types.Complex(underlying_float=types.Float(bitwidth=bw)):
             return _complex_di_type(f"complex{bw * 2}", bw)
+        case types.UniTuple():
+            return _uni_tuple_di_type(numba_type)
+        case types.BaseTuple():
+            return _base_tuple_di_type(numba_type)
+        case types.Record():
+            return _record_di_type(numba_type)
         case Bfloat16():
             return _basic_di_type("__nv_bfloat16", _BFLOAT16_BITS, "float")
         case GridGroup():

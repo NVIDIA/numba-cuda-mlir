@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 import numpy as np
-from numba import types
+from cusimt.numba_cuda import types
 import cuda.simt as cs
 from test_struct_union_defns import (
     SimpleBitfieldStruct,

@@ -15,8 +15,8 @@ from cusimt.mlir_lowering_registry import MLIRLoweringRegistry
 
 registry = MLIRLoweringRegistry()
 lower = registry.lower
-from numba import types
-from numba.core import ir as numba_ir
+from cusimt.numba_cuda import types
+from cusimt.numba_cuda.core import ir as numba_ir
 import cusimt.types
 import math
 from cusimt._mlir.extras import types as T

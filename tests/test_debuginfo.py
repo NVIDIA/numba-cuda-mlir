@@ -1,12 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import numpy as np
 from enum import IntEnum
 
 import pytest
 import cuda.simt as cuda
 from cuda.simt import types, compiler, testing
 from cusimt.numba_cuda.types.ext_types import bfloat16
+from cusimt.numba_cuda.np import numpy_support
 
 
 def k_scalar_add(out, a, b):
@@ -421,4 +423,124 @@ def test_mlir_mixed_complex_scalar():
         CHECK-DAG: name = "result"
         """,
         optimized_mlir,
+    )
+
+
+def test_mlir_unituple_type():
+    """UniTuple local uses dbg.declare and llvm.di_composite_type with DW_TAG_array_type."""
+
+    def k_tuple_uniform(out, a, b, c):
+        i = cuda.threadIdx.x
+        t = (a, b, c)
+        out[i] = t[0] + t[1] + t[2]
+
+    mlir = compiler.compile_mlir(
+        k_tuple_uniform,
+        types.void(types.int64[::1], types.int64, types.int64, types.int64),
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK: #[[TUPLE_TYPE:di_composite_type[0-9]*]] = #llvm.di_composite_type<tag = DW_TAG_array_type, name = "UniTuple(int64 x 3) ([3 x i64])"
+        CHECK-SAME: elements = #llvm.di_subrange<count = 3 : i64>
+        CHECK: #[[TUPLE_VAR:di_local_variable[0-9]*]] = #llvm.di_local_variable<{{.*}}name = "t"
+        CHECK-SAME: type = #[[TUPLE_TYPE]]
+        CHECK: llvm.intr.dbg.declare #[[TUPLE_VAR]] = %{{[0-9]+}} : !llvm.ptr
+        """,
+        mlir,
+    )
+
+
+def test_mlir_basetuple_type():
+    """Base tuple local uses dbg.declare and llvm.di_composite_type with DW_TAG_structure_type."""
+
+    def k_tuple_hetero(out, a, b):
+        i = cuda.threadIdx.x
+        t = (a, b)
+        out[i] = t[0] + int(t[1])
+
+    mlir = compiler.compile_mlir(
+        k_tuple_hetero,
+        types.void(types.int64[::1], types.int64, types.float64),
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK: #[[TUPLE_MEMBER0:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "f0"
+        CHECK-SAME: sizeInBits = 64
+        CHECK: #[[TUPLE_MEMBER1:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "f1"
+        CHECK-SAME: sizeInBits = 64
+        CHECK-SAME: offsetInBits = 64
+        CHECK: #[[TUPLE_TYPE:di_composite_type[0-9]*]] = #llvm.di_composite_type<tag = DW_TAG_structure_type, name = "Tuple(int64, float64) ({i64, double})"
+        CHECK-SAME: elements = #[[TUPLE_MEMBER0]], #[[TUPLE_MEMBER1]]
+        CHECK: #[[TUPLE_VAR:di_local_variable[0-9]*]] = #llvm.di_local_variable<{{.*}}name = "t"
+        CHECK-SAME: type = #[[TUPLE_TYPE]]
+        CHECK: llvm.intr.dbg.declare #[[TUPLE_VAR]] = %{{[0-9]+}} : !llvm.ptr
+        """,
+        mlir,
+    )
+
+
+def test_mlir_basetuple_type_with_alignment_padding():
+    """Base tuple size and member offsets include LLVM struct alignment padding."""
+
+    def k_tuple_padded(out, a, b, c):
+        i = cuda.threadIdx.x
+        t = (a, b, c)
+        out[i] = t[0] + int(t[1]) + int(t[2])
+
+    mlir = compiler.compile_mlir(
+        k_tuple_padded,
+        types.void(types.int64[::1], types.int32, types.float64, types.boolean),
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK: #[[TUPLE_MEMBER0:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "f0"
+        CHECK-SAME: sizeInBits = 32
+        CHECK: #[[TUPLE_MEMBER1:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "f1"
+        CHECK-SAME: sizeInBits = 64
+        CHECK-SAME: offsetInBits = 64
+        CHECK: #[[TUPLE_MEMBER2:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "f2"
+        CHECK-SAME: sizeInBits = 8
+        CHECK-SAME: offsetInBits = 128
+        CHECK: #[[TUPLE_TYPE:di_composite_type[0-9]*]] = #llvm.di_composite_type<tag = DW_TAG_structure_type, name = "Tuple(int32, float64, bool) ({i32, double, i8})"
+        CHECK-SAME: sizeInBits = 192
+        CHECK-SAME: elements = #[[TUPLE_MEMBER0]], #[[TUPLE_MEMBER1]], #[[TUPLE_MEMBER2]]
+        CHECK: #[[TUPLE_VAR:di_local_variable[0-9]*]] = #llvm.di_local_variable<{{.*}}name = "t"
+        CHECK-SAME: type = #[[TUPLE_TYPE]]
+        CHECK: llvm.intr.dbg.declare #[[TUPLE_VAR]] = %{{[0-9]+}} : !llvm.ptr
+        """,
+        mlir,
+    )
+
+
+def test_mlir_record_type():
+    """Record local uses dbg.declare and llvm.di_composite_type with DW_TAG_structure_type."""
+
+    record_dtype = np.dtype([("a", np.int32), ("b", np.float64)], align=True)
+    record_type = numpy_support.from_dtype(record_dtype)
+
+    def k_record_local(records, out):
+        i = cuda.threadIdx.x
+        r = records[i]
+        out[i] = r.a + int(r.b)
+
+    mlir = compiler.compile_mlir(
+        k_record_local,
+        types.void(types.Array(record_type, 1, "C"), types.int64[::1]),
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK: #[[RECORD_TYPE:di_composite_type[0-9]*]] = #llvm.di_composite_type<tag = DW_TAG_structure_type, name = "Record(a[type=int32;offset=0],b[type=float64;offset=8];16;True)"
+        CHECK: #[[RECORD_VAR:di_local_variable[0-9]*]] = #llvm.di_local_variable<{{.*}}name = "r"
+        CHECK-SAME: type = #[[RECORD_TYPE]]
+        CHECK: llvm.intr.dbg.declare #[[RECORD_VAR]] = %{{[0-9]+}} : !llvm.ptr
+        """,
+        mlir,
     )

@@ -166,15 +166,15 @@ class BaseTypeInference(FunctionPass):
                 argvars = set()
                 for blk in interp.blocks.values():
                     for inst in blk.body:
-                        if isinstance(inst, ir.return_types):
+                        if isinstance(inst, ir.Return):
                             retstmts.append(inst.value.name)
-                        elif isinstance(inst, ir.assign_types):
+                        elif isinstance(inst, ir.Assign):
                             if (
-                                isinstance(inst.value, ir.expr_types)
+                                isinstance(inst.value, ir.Expr)
                                 and inst.value.op == "cast"
                             ):
                                 caststmts[inst.target.name] = inst.value
-                            elif isinstance(inst.value, ir.arg_types):
+                            elif isinstance(inst.value, ir.Arg):
                                 argvars.add(inst.target.name)
 
                 assert retstmts, "No return statements?"
@@ -521,9 +521,9 @@ class InlineOverloads(FunctionPass):
             label, block = work_list.pop()
             for i, instr in enumerate(block.body):
                 # TO-DO: other statements (setitem)
-                if isinstance(instr, ir.assign_types):
+                if isinstance(instr, ir.Assign):
                     expr = instr.value
-                    if isinstance(expr, ir.expr_types):
+                    if isinstance(expr, ir.Expr):
                         workfn = self._do_work_expr
 
                         if guard(
@@ -822,8 +822,8 @@ class PreLowerStripPhis(FunctionPass):
         phis = set()
         # Find all variables that needs to be exported
         for block in func_ir.blocks.values():
-            for assign in block.find_insts(ir.assign_types):
-                if isinstance(assign.value, ir.expr_types):
+            for assign in block.find_insts(ir.Assign):
+                if isinstance(assign.value, ir.Expr):
                     if assign.value.op == "phi":
                         phis.add(assign)
                         phi = assign.value
@@ -853,9 +853,7 @@ class PreLowerStripPhis(FunctionPass):
                 # Insert at the earliest possible location; i.e. after the
                 # last assignment to rhs
                 assignments = [
-                    stmt
-                    for stmt in newblk.find_insts(ir.assign_types)
-                    if stmt.target == rhs
+                    stmt for stmt in newblk.find_insts(ir.Assign) if stmt.target == rhs
                 ]
                 if assignments:
                     # Variable was assigned in this block; use RHS location

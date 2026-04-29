@@ -49,6 +49,7 @@ class CUDATypingContext(typing.BaseContext):
             vector_types,
         )
         from cusimt.numba_cuda.typing import enumdecl, cffi_utils, npydecl
+        from cusimt.extending import typing_registry as extending_typing_registry
 
         self.install_registry(cudadecl.registry)
         self.install_registry(cffi_utils.registry)
@@ -61,11 +62,12 @@ class CUDATypingContext(typing.BaseContext):
         self.install_registry(fp16.typing_registry)
         self.install_registry(bf16.typing_registry)
         self.install_registry(fp8.typing_registry)
+        self.install_registry(extending_typing_registry)
 
     def resolve_value_type(self, val):
         # treat other dispatcher object as another device function
         from cusimt.numba_cuda.dispatcher import CUDADispatcher
-        from numba.core.dispatcher import Dispatcher
+        from cusimt.numba_cuda.dispatcher import Dispatcher
 
         if HAS_NUMBA:
             if isinstance(val, Dispatcher) and not isinstance(val, CUDADispatcher):
@@ -219,13 +221,6 @@ class CUDATargetContext(BaseContext):
         self.install_registry(npdatetime.registry)
         self.install_registry(arrayobj.registry)
         self.install_registry(arraymath.registry)
-
-        # Install only implementations that are defined outside of numba (i.e.,
-        # in third-party extensions) from Numba's builtin_registry.
-        if importlib.util.find_spec("numba.core.imputils") is not None:
-            from numba.core.imputils import builtin_registry
-
-            self.install_external_registry(builtin_registry)
 
     def codegen(self):
         return self._internal_codegen

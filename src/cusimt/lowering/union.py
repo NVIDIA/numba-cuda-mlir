@@ -13,7 +13,8 @@ from cusimt.logging import trace
 from cusimt.lowering_utilities import convert
 from cusimt._mlir.dialects import llvm, arith
 from cusimt._mlir import ir as mlir_ir
-from numba.core import ir as numba_ir, types as numba_types
+from cusimt.numba_cuda.core import ir as numba_ir
+from cusimt.numba_cuda import types as numba_types
 
 
 def _lower_union_construction_impl(

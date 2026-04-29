@@ -8,7 +8,7 @@ import pytest
 from cusimt.numba_cuda.core import config as cuda_config
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(autouse=True)
 def enable_nrt_for_memory_tests():
     """Enable NRT for all memory management tests."""
     old_env = os.environ.get("NUMBA_CUDA_ENABLE_NRT")

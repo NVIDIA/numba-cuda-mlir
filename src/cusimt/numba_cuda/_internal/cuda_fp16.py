@@ -16,7 +16,6 @@
 import io
 import operator
 
-import numba
 from llvmlite import ir
 from cusimt.numba_cuda import types
 from cusimt.numba_cuda.cudadrv.driver import _have_nvjitlink
@@ -7661,6 +7660,8 @@ def _fp16_binary_operator(l_key, retty):
         key = l_key
 
         def generic(self, args, kws):
+            from cusimt.numba_cuda.typeconv import Conversion
+
             assert not kws
 
             if len(args) == 2 and (
@@ -7679,9 +7680,9 @@ def _fp16_binary_operator(l_key, retty):
                 #  - Conversion.safe
 
                 if (
-                    (convertible == numba.cuda.typeconv.Conversion.exact)
-                    or (convertible == numba.cuda.typeconv.Conversion.promote)
-                    or (convertible == numba.cuda.typeconv.Conversion.safe)
+                    (convertible == Conversion.exact)
+                    or (convertible == Conversion.promote)
+                    or (convertible == Conversion.safe)
                 ):
                     return signature(retty, types.float16, types.float16)
 

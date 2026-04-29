@@ -3,8 +3,8 @@
 from cusimt.errors import ForceLiteralArg
 import operator
 import numpy as np
-from numba.core.typing import typeof
-from numba.core.typing.templates import (
+from cusimt.numba_cuda.typing import typeof
+from cusimt.numba_cuda.typing.templates import (
     CallableTemplate,
     AttributeTemplate,
     ConcreteTemplate,
@@ -872,7 +872,7 @@ class LenTemplate(AbstractTemplate):
 # NumPy Array Methods
 # ============================================================================
 
-from numba.core.typing.templates import AttributeTemplate
+from cusimt.numba_cuda.typing.templates import AttributeTemplate
 
 
 @registry.register_attr

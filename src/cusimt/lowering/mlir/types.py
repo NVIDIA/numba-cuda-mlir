@@ -2,8 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 from cusimt._mlir.extras import types as T
 from cusimt.mlir_lowering_registry import MLIRLoweringRegistry
-from numba import types
-from numba.extending import intrinsic, _Intrinsic, overload, overload_attribute
+from cusimt.numba_cuda import types
+from cusimt.numba_cuda.extending import (
+    intrinsic,
+    _Intrinsic,
+    overload,
+    overload_attribute,
+)
 from cusimt.descriptor import MLIRTypingContext
 
 registry = MLIRLoweringRegistry()

@@ -30,13 +30,13 @@ lower_getattr = registry.lower_getattr
 lower_getattr_generic = registry.lower_getattr_generic
 lower_constant = registry.lower_constant
 from cusimt import numba_cuda as cuda
-from numba import types
-import numba.core.ir as numba_ir
+from cusimt.numba_cuda import types
+import cusimt.numba_cuda.core.ir as numba_ir
 from cusimt.numba_cuda.types.ext_types import Dim3
 from typing import Any, cast
 from cusimt.logging import trace
 import numpy as np
-from numba.np.arrayobj import numpy_empty_like_nd
+from cusimt.numba_cuda.np.arrayobj import numpy_empty_like_nd
 from .ufunc_registry import UFuncRegistry
 
 from cusimt.lowering_utilities import (
@@ -2174,7 +2174,7 @@ def operator_neg_array_lower(builder, target, args, kwargs):
     zero_scalar = arith.constant(result=element_type, value=zero_value)
 
     # Store the zero scalar in a temporary variable for lower_np_binop
-    import numba.core.ir as numba_ir
+    import cusimt.numba_cuda.core.ir as numba_ir
 
     zero_var = numba_ir.Var(
         scope=array_arg.scope, name=f"$const_zero_{array_arg.name}", loc=array_arg.loc

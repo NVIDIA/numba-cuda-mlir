@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 from functools import lru_cache
 from typing import Callable, override
-from numba.core.imputils import Registry
-from numba.core import types
+from cusimt.numba_cuda.core.imputils import Registry
+from cusimt.numba_cuda import types
 import functools
 
 

@@ -39,6 +39,7 @@ from cusimt.numba_cuda.compiler import (
     compile_extra,
     compile_ir,
 )
+from cusimt.numba_cuda import compiler
 from cusimt.numba_cuda.core import sigutils, config, entrypoints
 from cusimt.numba_cuda.flags import Flags
 from cusimt.numba_cuda.cudadrv import driver, nvvm
@@ -1455,6 +1456,278 @@ class _FunctionCompiler:
 
     def _customize_flags(self, flags):
         return flags
+
+
+class Dispatcher(serialize.ReduceMixin, _MemoMixin, _DispatcherBase):
+    """
+    Implementation of user-facing dispatcher objects (i.e. created using
+    the @jit decorator).
+    This is an abstract base class. Subclasses should define the targetdescr
+    class attribute.
+    """
+
+    _fold_args = True
+
+    __numba__ = "py_func"
+
+    def __init__(self, py_func, locals=None, targetoptions=None):
+        # Removed pipeline_class=compiler.Compiler to avoid vendoring more
+        # code.
+        """
+        Parameters
+        ----------
+        py_func: function object to be compiled
+        locals: dict, optional
+            Mapping of local variable names to Numba types.  Used to override
+            the types deduced by the type inference engine.
+        targetoptions: dict, optional
+            Target-specific config options.
+        pipeline_class: type numba.compiler.CompilerBase
+            The compiler pipeline type.
+        """
+        if locals is None:
+            locals = {}
+        if targetoptions is None:
+            targetoptions = {}
+        self.typingctx = self.targetdescr.typing_context
+        self.targetctx = self.targetdescr.target_context
+
+        pysig = utils.pysignature(py_func)
+        arg_count = len(pysig.parameters)
+        can_fallback = not targetoptions.get("nopython", False)
+
+        _DispatcherBase.__init__(
+            self, arg_count, py_func, pysig, can_fallback, exact_match_required=False
+        )
+
+        functools.update_wrapper(self, py_func)
+
+        self.targetoptions = targetoptions
+        self.locals = locals
+        self._cache = NullCache()
+        compiler_class = _FunctionCompiler
+        # Normally a _FunctionCompiler should have a pipeline_class, but it is
+        # only needed for proper compilation. We only need the
+        # Dispatcher._compiler to fold argument types, which doesn't require
+        # the pipeline class.
+        pipeline_class = None
+        self._compiler = compiler_class(
+            py_func, self.targetdescr, targetoptions, pipeline_class
+        )
+        self._cache_hits = collections.Counter()
+        self._cache_misses = collections.Counter()
+
+        self._type = types.Dispatcher(self)
+        self.typingctx.insert_global(self, self._type)
+
+        # This was part of the dispatcher C extension. We initialize it in
+        # Python here to break dependency on the Dispatcher C code for cuSIMT.
+        self._can_compile = True
+
+    def dump(self, tab=""):
+        print(
+            f"{tab}DUMP {type(self).__name__}[{self.py_func.__name__}"
+            f", type code={self._type._code}]"
+        )
+        for cres in self.overloads.values():
+            cres.dump(tab=tab + "  ")
+        print(f"{tab}END DUMP {type(self).__name__}[{self.py_func.__name__}]")
+
+    @property
+    def _numba_type_(self):
+        return types.Dispatcher(self)
+
+    def enable_caching(self):
+        self._cache = FunctionCache(self.py_func)
+
+    def __get__(self, obj, objtype=None):
+        """Allow a JIT function to be bound as a method to an object"""
+        if obj is None:  # Unbound method
+            return self
+        else:  # Bound method
+            return pytypes.MethodType(self, obj)
+
+    def _reduce_states(self):
+        """
+        Reduce the instance for pickling.  This will serialize
+        the original function as well the compilation options and
+        compiled signatures, but not the compiled code itself.
+
+        NOTE: part of ReduceMixin protocol
+        """
+        if self._can_compile:
+            sigs = []
+        else:
+            sigs = [cr.signature for cr in self.overloads.values()]
+
+        return dict(
+            uuid=str(self._uuid),
+            py_func=self.py_func,
+            locals=self.locals,
+            targetoptions=self.targetoptions,
+            can_compile=self._can_compile,
+            sigs=sigs,
+        )
+
+    @classmethod
+    def _rebuild(cls, uuid, py_func, locals, targetoptions, can_compile, sigs):
+        """
+        Rebuild an Dispatcher instance after it was __reduce__'d.
+
+        NOTE: part of ReduceMixin protocol
+        """
+        try:
+            return cls._memo[uuid]
+        except KeyError:
+            pass
+        self = cls(py_func, locals, targetoptions)
+        # Make sure this deserialization will be merged with subsequent ones
+        self._set_uuid(uuid)
+        for sig in sigs:
+            self.compile(sig)
+        self._can_compile = can_compile
+        return self
+
+    def compile(self, sig):
+        with ExitStack() as scope:
+            cres = None
+
+            def cb_compiler(dur):
+                if cres is not None:
+                    self._callback_add_compiler_timer(dur, cres)
+
+            def cb_llvm(dur):
+                if cres is not None:
+                    self._callback_add_llvm_timer(dur, cres)
+
+            scope.enter_context(ev.install_timer("numba:compiler_lock", cb_compiler))
+            scope.enter_context(ev.install_timer("numba:llvm_lock", cb_llvm))
+            scope.enter_context(global_compiler_lock)
+
+            if not self._can_compile:
+                raise RuntimeError("compilation disabled")
+            # Use counter to track recursion compilation depth
+            with self._compiling_counter:
+                args, return_type = sigutils.normalize_signature(sig)
+                # Don't recompile if signature already exists
+                existing = self.overloads.get(tuple(args))
+                if existing is not None:
+                    return existing.entry_point
+                # Try to load from disk cache
+                cres = self._cache.load_overload(sig, self.targetctx)
+                if cres is not None:
+                    self._cache_hits[sig] += 1
+                    # XXX fold this in add_overload()? (also see compiler.py)
+                    if not cres.objectmode:
+                        self.targetctx.insert_user_function(
+                            cres.entry_point, cres.fndesc, [cres.library]
+                        )
+                    self.add_overload(cres)
+                    return cres.entry_point
+
+                self._cache_misses[sig] += 1
+                ev_details = dict(
+                    dispatcher=self,
+                    args=args,
+                    return_type=return_type,
+                )
+                with ev.trigger_event("numba:compile", data=ev_details):
+                    try:
+                        cres = self._compiler.compile(args, return_type)
+                    except errors.ForceLiteralArg as e:
+
+                        def folded(args, kws):
+                            return self._compiler.fold_argument_types(args, kws)[1]
+
+                        raise e.bind_fold_arguments(folded)
+                    self.add_overload(cres)
+                self._cache.save_overload(sig, cres)
+                return cres.entry_point
+
+    def get_compile_result(self, sig):
+        """Compile (if needed) and return the compilation result with the
+        given signature.
+
+        Returns ``CompileResult``.
+        Raises ``NumbaError`` if the signature is incompatible.
+        """
+        atypes = tuple(sig.args)
+        if atypes not in self.overloads:
+            if self._can_compile:
+                # Compiling may raise any NumbaError
+                self.compile(atypes)
+            else:
+                msg = f"{sig} not available and compilation disabled"
+                raise errors.TypingError(msg)
+        return self.overloads[atypes]
+
+    def recompile(self):
+        """
+        Recompile all signatures afresh.
+        """
+        sigs = list(self.overloads)
+        old_can_compile = self._can_compile
+        # Ensure the old overloads are disposed of,
+        # including compiled functions.
+        self._make_finalizer()()
+        self._reset_overloads()
+        self._cache.flush()
+        self._can_compile = True
+        try:
+            for sig in sigs:
+                self.compile(sig)
+        finally:
+            self._can_compile = old_can_compile
+
+    @property
+    def stats(self):
+        return _CompileStats(
+            cache_path=self._cache.cache_path,
+            cache_hits=self._cache_hits,
+            cache_misses=self._cache_misses,
+        )
+
+    def parallel_diagnostics(self, signature=None, level=1):
+        """
+        Print parallel diagnostic information for the given signature. If no
+        signature is present it is printed for all known signatures. level is
+        used to adjust the verbosity, level=1 (default) is minimal verbosity,
+        and 2, 3, and 4 provide increasing levels of verbosity.
+        """
+
+        def dump(sig):
+            ol = self.overloads[sig]
+            pfdiag = ol.metadata.get("parfor_diagnostics", None)
+            if pfdiag is None:
+                msg = "No parfors diagnostic available, is 'parallel=True' set?"
+                raise ValueError(msg)
+            pfdiag.dump(level)
+
+        if signature is not None:
+            dump(signature)
+        else:
+            [dump(sig) for sig in self.signatures]
+
+    def get_metadata(self, signature=None):
+        """
+        Obtain the compilation metadata for a given signature.
+        """
+        if signature is not None:
+            return self.overloads[signature].metadata
+        else:
+            return dict((sig, self.overloads[sig].metadata) for sig in self.signatures)
+
+    def get_function_type(self):
+        """Return unique function type of dispatcher when possible, otherwise
+        return None.
+
+        A Dispatcher instance has unique function type when it
+        contains exactly one compilation result and its compilation
+        has been disabled (via its disable_compile method).
+        """
+        if not self._can_compile and len(self.overloads) == 1:
+            cres = tuple(self.overloads.values())[0]
+            return types.FunctionType(cres.signature)
 
 
 class CUDADispatcher(serialize.ReduceMixin, _MemoMixin, _DispatcherBase):

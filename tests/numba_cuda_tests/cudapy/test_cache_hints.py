@@ -1,7 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
-from numba import errors, typeof, types
+from cusimt.numba_cuda import types
+from cusimt.numba_cuda.core import errors
+from cusimt.numba_cuda.typing.typeof import typeof
 from cusimt.testing import NumbaCUDATestCase
 import numpy as np
 import cusimt

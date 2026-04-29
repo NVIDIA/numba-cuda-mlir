@@ -8,4 +8,4 @@ from cusimt._mlir.extras import types as T
 
 @cuda.intrin.define
 def elect_sync() -> types.boolean:
-    return nvvm.elect_sync(T.bool())
+    return nvvm.elect_sync()

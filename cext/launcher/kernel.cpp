@@ -379,8 +379,10 @@ enum class PythonArgKind {
     NpComplex64,
     // A TMA descriptor
     TMADescriptor,
-    // numpy.void (scalar record/structured dtype)
+    // numpy.void (scalar record/structured dtype, host memory)
     NumpyVoid,
+    // DeviceRecord (scalar record already on device)
+    DeviceRecord,
     // Python Enum with int or float value (IntEnum is handled directly as PyLong)
     PyEnum,
     // numpy.datetime64 or numpy.timedelta64 scalar (stored as int64)
@@ -475,6 +477,12 @@ Result<std::pair<PythonArgKind, ParameterKind>> classify_arg(PyObject* arg) {
     // Numba wraps numpy.void scalars in a type called "record"
     if (type_name && (strcmp(type_name, "numpy.void") == 0 || strcmp(type_name, "record") == 0))
         return {{PythonArgKind::NumpyVoid, ParameterKind::Record}};
+
+    // DeviceRecord: a scalar record already resident in device memory.
+    // It has __cuda_array_interface__ (inherited) but must be passed as a single pointer,
+    // not as a memref descriptor — check before the generic __cuda_array_interface__ path.
+    if (PyObject_HasAttrString(arg, "__device_record__"))
+        return {{PythonArgKind::DeviceRecord, ParameterKind::Record}};
 
     // Check __cuda_array_interface__ first - CUDA arrays (including managed arrays)
     // may also have __dlpack__ from numpy inheritance, but we should use the CUDA
@@ -1124,6 +1132,46 @@ Status extract_numpy_void(PyObject* pyobj, LaunchHelper& helper) {
     return OK;
 }
 
+Status extract_device_record(PyObject* pyobj, LaunchHelper& helper) {
+    // DeviceRecord: data is already on device — extract pointer from __cuda_array_interface__
+    // and pass it as a single pointer (no allocation or copy).
+    PyPtr dict = steal(PyObject_GetAttr(pyobj, g___cuda_array_interface___pyunicode));
+    if (!dict || !PyDict_Check(dict.get())) {
+        PyErr_SetString(PyExc_TypeError, "DeviceRecord missing __cuda_array_interface__");
+        return ErrorRaised;
+    }
+
+    PyObject* data = PyDict_GetItemWithError(dict.get(), g_data_pyunicode);
+    if (!data) {
+        if (!PyErr_Occurred())
+            PyErr_SetString(PyExc_TypeError, "__cuda_array_interface__ is missing 'data'");
+        return ErrorRaised;
+    }
+    if (!PyTuple_Check(data) || PyTuple_GET_SIZE(data) != 2) {
+        PyErr_SetString(PyExc_TypeError, "__cuda_array_interface__['data'] is not a 2-tuple");
+        return ErrorRaised;
+    }
+
+    PyObject* data_ptr_pylong = PyTuple_GET_ITEM(data, 0);
+    if (!PyLong_Check(data_ptr_pylong)) {
+        PyErr_SetString(PyExc_TypeError, "__cuda_array_interface__['data'][0] is not an integer");
+        return ErrorRaised;
+    }
+
+    intptr_t device_ptr_int = pylong_as<intptr_t>(data_ptr_pylong);
+    if (PyErr_Occurred()) return ErrorRaised;
+    void* device_ptr = reinterpret_cast<void*>(device_ptr_int);
+
+    if (!helper.cuda_context)
+        g_cuPointerGetAttribute(&helper.cuda_context, CU_POINTER_ATTRIBUTE_CONTEXT,
+                                reinterpret_cast<CUdeviceptr>(device_ptr));
+
+    size_t start_idx = helper.cuargs.size();
+    helper.cuargs.push_back({.device_ptr = device_ptr});
+    helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 0});
+    return OK;
+}
+
 Status extract_cuda_args(PyObject* const* pyargs, size_t num_pyargs,
                          const std::vector<PythonArgKind>& arg_kinds,
                          const std::vector<bool>& constant_arg_flags,
@@ -1186,6 +1234,9 @@ Status extract_cuda_args(PyObject* const* pyargs, size_t num_pyargs,
             break;
         case PythonArgKind::NumpyVoid:
             if (!extract_numpy_void(pyobj, helper)) return ErrorRaised;
+            break;
+        case PythonArgKind::DeviceRecord:
+            if (!extract_device_record(pyobj, helper)) return ErrorRaised;
             break;
         case PythonArgKind::NpDatetime:
             if (!extract_np_datetime(pyobj, is_constant, helper)) return ErrorRaised;

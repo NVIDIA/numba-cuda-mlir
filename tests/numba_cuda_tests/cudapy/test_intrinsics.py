@@ -7,10 +7,10 @@ import operator
 import re
 import cusimt
 import cuda.simt as cuda
-from numba import int64
+from cusimt.numba_cuda.types import int64
 import pytest
-from numba.core.errors import TypingError
-from numba.types import f2
+from cusimt.numba_cuda.core.errors import TypingError
+from cusimt.numba_cuda.types import f2
 from cusimt.testing import NumbaCUDATestCase
 
 

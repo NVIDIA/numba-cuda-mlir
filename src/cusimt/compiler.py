@@ -6,7 +6,11 @@ import inspect
 from typing import Callable, Any
 from cusimt import types, typing
 from functools import lru_cache
-from numba.core.typing.templates import ConcreteTemplate, AttributeTemplate, Registry
+from cusimt.numba_cuda.typing.templates import (
+    ConcreteTemplate,
+    AttributeTemplate,
+    Registry,
+)
 from pathlib import Path
 from cusimt.mlir_optimization import optimize
 from cusimt.numba_cuda.codegen import ExternalCodeLibrary
@@ -231,7 +235,7 @@ class CompileResult:
 
     def _max_cooperative_grid_blocks(self, blockdim, dynsmemsize=0):
         import functools
-        from numba.cuda.cudadrv import devices
+        from cusimt.numba_cuda.cudadrv import devices
 
         ctx = devices.get_context()
         cufunc = self._codelibrary.get_cufunc()
@@ -259,7 +263,7 @@ def _compile_only(pyfunc, sig=None, targetoptions=None):
     """Compile to MLIR without running the optimization pipeline."""
     from cusimt.cuda import jit
     from cusimt import mlir_compiler
-    from numba.core import sigutils
+    from cusimt.numba_cuda.core import sigutils
 
     dispatcher = pyfunc
     if not isinstance(dispatcher, MLIRDispatcher):
@@ -306,7 +310,7 @@ def _compile(pyfunc, sig=None, targetoptions=None, optimized=True):
 
 
 def compile_for(func, *args):
-    from numba import typeof
+    from cusimt.numba_cuda.typing.typeof import typeof
 
     sig = typing.signature(types.none, *[typeof(arg) for arg in args])
     cres = _compile_and_optimize(func, sig)

@@ -4,7 +4,7 @@
 import argparse
 import time
 import numpy as np
-from numba import types
+from cusimt.numba_cuda import types
 
 import numba.cuda as numba_cuda
 import cuda.simt as cusimt_cuda

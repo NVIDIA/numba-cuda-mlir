@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from numba.core.types import Type as NumbaType
-from numba import types
+from cusimt.numba_cuda.types import Type as NumbaType
+from cusimt.numba_cuda import types
 import math
 from cusimt._mlir import ir
 

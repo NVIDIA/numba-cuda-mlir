@@ -225,31 +225,6 @@ def overload(
         if callable(func):
             infer_global(func, types.Function(template))
 
-        # For generic/CPU targets, also register in numba.core registry
-        if target in ("generic", "cpu"):
-            try:
-                from numba.core.typing.templates import (
-                    make_overload_template as core_make_overload_template,
-                    infer as core_infer,
-                    infer_global as core_infer_global,
-                )
-                from numba.core import types as core_types
-
-                core_template = core_make_overload_template(
-                    func,
-                    overload_func,
-                    opts,
-                    strict,
-                    inline,
-                    prefer_literal,
-                    **kwargs,
-                )
-                core_infer(core_template)
-                if callable(func):
-                    core_infer_global(func, core_types.Function(core_template))
-            except ImportError:
-                pass
-
         return overload_func
 
     return decorate

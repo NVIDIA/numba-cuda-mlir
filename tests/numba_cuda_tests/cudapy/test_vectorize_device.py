@@ -3,7 +3,7 @@
 
 from cuda.simt import vectorize
 import cusimt
-from numba.types import float32
+from cusimt.numba_cuda.types import float32
 import numpy as np
 from cusimt.testing import NumbaCUDATestCase
 import pytest

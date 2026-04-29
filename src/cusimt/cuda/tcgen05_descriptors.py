@@ -10,7 +10,7 @@ reused across different kernels.
 """
 
 import ctypes  # Import at module level for use in device functions
-from numba import types
+from cusimt.numba_cuda import types
 from cusimt.host import struct, union
 
 # ============================================================================

@@ -209,7 +209,7 @@ def _run_ssa_block_pass(states, blk, handler):
     _logger.debug("Running %s", handler)
     for stmt in blk.body:
         _logger.debug("on stmt: %s", stmt)
-        if isinstance(stmt, ir.assign_types):
+        if isinstance(stmt, ir.Assign):
             ret = handler.on_assign(states, stmt)
         else:
             ret = handler.on_other(states, stmt)
@@ -329,7 +329,7 @@ class _FixSSAVars(_BaseHandler):
 
     def on_assign(self, states, assign):
         rhs = assign.value
-        if isinstance(rhs, ir.inst_types):
+        if isinstance(rhs, ir.Inst):
             newdef = self._fix_var(
                 states,
                 assign,
@@ -347,7 +347,7 @@ class _FixSSAVars(_BaseHandler):
                         value=rhs,
                         loc=assign.loc,
                     )
-        elif isinstance(rhs, ir.var_types):
+        elif isinstance(rhs, ir.Var):
             newdef = self._fix_var(states, assign, [rhs])
             # Has a replacement that is not the current variable
             if newdef is not None and newdef.target is not ir.UNDEFINED:

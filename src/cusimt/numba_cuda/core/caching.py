@@ -3,7 +3,6 @@
 
 from abc import abstractmethod, ABCMeta
 import itertools
-import numba
 import os
 import contextlib
 import uuid
@@ -14,6 +13,7 @@ import inspect
 import tempfile
 import sys
 
+import cusimt
 from cusimt.numba_cuda.misc.appdirs import AppDirs
 from pathlib import Path
 
@@ -100,7 +100,7 @@ class IndexDataCacheFile:
         self._index_path = os.path.join(self._cache_path, self._index_name)
         self._data_name_pattern = "%s.{number:d}.nbc" % (filename_base,)
         self._source_stamp = source_stamp
-        self._version = numba.__version__
+        self._version = cusimt.__version__
 
     def flush(self):
         self._save_index({})
@@ -454,61 +454,6 @@ class _InTreeCacheLocator(_SourceFileBackedLocatorMixin, _CacheLocator):
         return self._cache_path
 
 
-class _SourceFileBackedLocatorMixin:
-    """
-    A cache locator mixin for functions which are backed by a well-known
-    Python source file.
-    """
-
-    def get_source_stamp(self):
-        if getattr(sys, "frozen", False):
-            st = os.stat(sys.executable)
-        else:
-            st = os.stat(self._py_file)
-        # We use both timestamp and size as some filesystems only have second
-        # granularity.
-        return st.st_mtime, st.st_size
-
-    def get_disambiguator(self):
-        return str(self._lineno)
-
-    @classmethod
-    def from_function(cls, py_func, py_file):
-        if not os.path.exists(py_file):
-            # Perhaps a placeholder (e.g. "<ipython-XXX>")
-            return
-        self = cls(py_func, py_file)
-        try:
-            self.ensure_cache_path()
-        except OSError:
-            # Cannot ensure the cache directory exists or is writable
-            return
-        return self
-
-
-class _UserProvidedCacheLocator(_SourceFileBackedLocatorMixin, _CacheLocator):
-    """
-    A locator that always point to the user provided directory in
-    `numba.config.CACHE_DIR`
-    """
-
-    def __init__(self, py_func, py_file):
-        self._py_file = py_file
-        self._lineno = py_func.__code__.co_firstlineno
-        cache_subpath = self.get_suitable_cache_subpath(py_file)
-        self._cache_path = os.path.join(config.CACHE_DIR, cache_subpath)
-
-    def get_cache_path(self):
-        return self._cache_path
-
-    @classmethod
-    def from_function(cls, py_func, py_file):
-        if not config.CACHE_DIR:
-            return
-        parent = super(_UserProvidedCacheLocator, cls)
-        return parent.from_function(py_func, py_file)
-
-
 class _UserProvidedCacheLocator(_SourceFileBackedLocatorMixin, _CacheLocator):
     """
     A locator that always point to the user provided directory in
@@ -541,7 +486,7 @@ class _UserWideCacheLocator(_SourceFileBackedLocatorMixin, _CacheLocator):
     def __init__(self, py_func, py_file):
         self._py_file = py_file
         self._lineno = py_func.__code__.co_firstlineno
-        appdirs = AppDirs(appname="numba", appauthor=False)
+        appdirs = AppDirs(appname="cusimt", appauthor=False)
         cache_dir = appdirs.user_cache_dir
         cache_subpath = self.get_suitable_cache_subpath(py_file)
         self._cache_path = os.path.join(cache_dir, cache_subpath)
@@ -589,7 +534,7 @@ class _IPythonCacheLocator(_CacheLocator):
         except ImportError:
             # older IPython version
             from IPython.utils.path import get_ipython_cache_dir
-        return os.path.join(get_ipython_cache_dir(), "numba_cache")
+        return os.path.join(get_ipython_cache_dir(), "cusimt_cache")
 
     def get_source_stamp(self):
         return hashlib.sha256(self._bytes_source).hexdigest()
@@ -631,7 +576,7 @@ class _ZipCacheLocator(_SourceFileBackedLocatorMixin, _CacheLocator):
         # We use AppDirs at the moment. A more advanced version of this could also allow
         # a provided `cache_dir`, though that starts to create (cache location x source
         # type) number of cache classes.
-        appdirs = AppDirs(appname="numba", appauthor=False)
+        appdirs = AppDirs(appname="cusimt", appauthor=False)
         cache_dir = appdirs.user_cache_dir
         cache_subpath = self.get_suitable_cache_subpath(py_file)
         self._cache_path = os.path.join(cache_dir, cache_subpath)

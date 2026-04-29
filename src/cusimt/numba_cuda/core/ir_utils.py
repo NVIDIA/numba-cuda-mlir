@@ -10,7 +10,6 @@ import collections
 import warnings
 
 import cusimt.numba_cuda
-from cusimt.numba_cuda import HAS_NUMBA
 from cusimt.numba_cuda import types
 from cusimt.numba_cuda.core import ir
 from cusimt.numba_cuda import typing
@@ -203,7 +202,7 @@ def convert_size_to_var(size_var, typemap, scope, loc, nodes):
         size_assign = ir.Assign(ir.Const(size_var, loc), new_size, loc)
         nodes.append(size_assign)
         return new_size
-    assert isinstance(size_var, ir.var_types)
+    assert isinstance(size_var, ir.Var)
     return size_var
 
 
@@ -263,7 +262,7 @@ def mk_range_block(typemap, start, stop, step, calltypes, scope, loc):
 
 def _mk_range_args(typemap, start, stop, step, scope, loc):
     nodes = []
-    if isinstance(stop, ir.var_types):
+    if isinstance(stop, ir.Var):
         g_stop_var = stop
     else:
         assert isinstance(stop, int)
@@ -275,7 +274,7 @@ def _mk_range_args(typemap, start, stop, step, scope, loc):
     if start == 0 and step == 1:
         return nodes, [g_stop_var]
 
-    if isinstance(start, ir.var_types):
+    if isinstance(start, ir.Var):
         g_start_var = start
     else:
         assert isinstance(start, int)
@@ -287,7 +286,7 @@ def _mk_range_args(typemap, start, stop, step, scope, loc):
     if step == 1:
         return nodes, [g_start_var, g_stop_var]
 
-    if isinstance(step, ir.var_types):
+    if isinstance(step, ir.Var):
         g_step_var = step
     else:
         assert isinstance(step, int)
@@ -378,7 +377,7 @@ def replace_var_names(blocks, namedict):
     new_namedict = {l: r for l, r in namedict.items() if l != r}
 
     def replace_name(var, namedict):
-        assert isinstance(var, ir.var_types)
+        assert isinstance(var, ir.Var)
         while var.name in namedict:
             var = ir.Var(var.scope, namedict[var.name], var.loc)
         return var
@@ -387,7 +386,7 @@ def replace_var_names(blocks, namedict):
 
 
 def replace_var_callback(var, vardict):
-    assert isinstance(var, ir.var_types)
+    assert isinstance(var, ir.Var)
     while var.name in vardict.keys():
         assert vardict[var.name].name != var.name
         new_var = vardict[var.name]
@@ -431,44 +430,44 @@ def visit_vars_stmt(stmt, callback, cbdata):
         if isinstance(stmt, t):
             f(stmt, callback, cbdata)
             return
-    if isinstance(stmt, ir.assign_types):
+    if isinstance(stmt, ir.Assign):
         stmt.target = visit_vars_inner(stmt.target, callback, cbdata)
         stmt.value = visit_vars_inner(stmt.value, callback, cbdata)
-    elif isinstance(stmt, ir.arg_types):
+    elif isinstance(stmt, ir.Arg):
         stmt.name = visit_vars_inner(stmt.name, callback, cbdata)
-    elif isinstance(stmt, ir.return_types):
+    elif isinstance(stmt, ir.Return):
         stmt.value = visit_vars_inner(stmt.value, callback, cbdata)
-    elif isinstance(stmt, ir.raise_types):
+    elif isinstance(stmt, ir.Raise):
         stmt.exception = visit_vars_inner(stmt.exception, callback, cbdata)
-    elif isinstance(stmt, ir.branch_types):
+    elif isinstance(stmt, ir.Branch):
         stmt.cond = visit_vars_inner(stmt.cond, callback, cbdata)
-    elif isinstance(stmt, ir.jump_types):
+    elif isinstance(stmt, ir.Jump):
         stmt.target = visit_vars_inner(stmt.target, callback, cbdata)
-    elif isinstance(stmt, ir.del_types):
+    elif isinstance(stmt, ir.Del):
         # Because Del takes only a var name, we make up by
         # constructing a temporary variable.
         var = ir.Var(None, stmt.value, stmt.loc)
         var = visit_vars_inner(var, callback, cbdata)
         stmt.value = var.name
-    elif isinstance(stmt, ir.delattr_types):
+    elif isinstance(stmt, ir.DelAttr):
         stmt.target = visit_vars_inner(stmt.target, callback, cbdata)
         stmt.attr = visit_vars_inner(stmt.attr, callback, cbdata)
-    elif isinstance(stmt, ir.setattr_types):
+    elif isinstance(stmt, ir.SetAttr):
         stmt.target = visit_vars_inner(stmt.target, callback, cbdata)
         stmt.attr = visit_vars_inner(stmt.attr, callback, cbdata)
         stmt.value = visit_vars_inner(stmt.value, callback, cbdata)
-    elif isinstance(stmt, ir.delitem_types):
+    elif isinstance(stmt, ir.DelItem):
         stmt.target = visit_vars_inner(stmt.target, callback, cbdata)
         stmt.index = visit_vars_inner(stmt.index, callback, cbdata)
-    elif isinstance(stmt, ir.staticsetitem_types):
+    elif isinstance(stmt, ir.StaticSetItem):
         stmt.target = visit_vars_inner(stmt.target, callback, cbdata)
         stmt.index_var = visit_vars_inner(stmt.index_var, callback, cbdata)
         stmt.value = visit_vars_inner(stmt.value, callback, cbdata)
-    elif isinstance(stmt, ir.setitem_types):
+    elif isinstance(stmt, ir.SetItem):
         stmt.target = visit_vars_inner(stmt.target, callback, cbdata)
         stmt.index = visit_vars_inner(stmt.index, callback, cbdata)
         stmt.value = visit_vars_inner(stmt.value, callback, cbdata)
-    elif isinstance(stmt, ir.print_types):
+    elif isinstance(stmt, ir.Print):
         stmt.args = [visit_vars_inner(x, callback, cbdata) for x in stmt.args]
     else:
         # TODO: raise NotImplementedError("no replacement for IR node: ", stmt)
@@ -477,13 +476,13 @@ def visit_vars_stmt(stmt, callback, cbdata):
 
 
 def visit_vars_inner(node, callback, cbdata):
-    if isinstance(node, ir.var_types):
+    if isinstance(node, ir.Var):
         return callback(node, cbdata)
     elif isinstance(node, list):
         return [visit_vars_inner(n, callback, cbdata) for n in node]
     elif isinstance(node, tuple):
         return tuple([visit_vars_inner(n, callback, cbdata) for n in node])
-    elif isinstance(node, ir.expr_types):
+    elif isinstance(node, ir.Expr):
         # if node.op in ['binop', 'inplace_binop']:
         #     lhs = node.lhs.name
         #     rhs = node.rhs.name
@@ -491,7 +490,7 @@ def visit_vars_inner(node, callback, cbdata):
         #     node.rhs.name = callback, cbdata.get(rhs, rhs)
         for arg in node._kws.keys():
             node._kws[arg] = visit_vars_inner(node._kws[arg], callback, cbdata)
-    elif isinstance(node, ir.yield_types):
+    elif isinstance(node, ir.Yield):
         node.value = visit_vars_inner(node.value, callback, cbdata)
     return node
 
@@ -511,9 +510,9 @@ def add_offset_to_labels(blocks, offset):
                 for T, f in add_offset_to_labels_extensions.items():
                     if isinstance(inst, T):
                         f(inst, offset)
-        if isinstance(term, ir.jump_types):
+        if isinstance(term, ir.Jump):
             b.body[-1] = ir.Jump(term.target + offset, term.loc)
-        if isinstance(term, ir.branch_types):
+        if isinstance(term, ir.Branch):
             b.body[-1] = ir.Branch(
                 term.cond, term.truebr + offset, term.falsebr + offset, term.loc
             )
@@ -558,9 +557,9 @@ def flatten_labels(blocks):
         term = None
         if b.body:
             term = b.body[-1]
-        if isinstance(term, ir.jump_types):
+        if isinstance(term, ir.Jump):
             b.body[-1] = ir.Jump(l_map[term.target], term.loc)
-        if isinstance(term, ir.branch_types):
+        if isinstance(term, ir.Branch):
             b.body[-1] = ir.Branch(
                 term.cond, l_map[term.truebr], l_map[term.falsebr], term.loc
             )
@@ -571,7 +570,7 @@ def flatten_labels(blocks):
 def remove_dels(blocks):
     """remove ir.Del nodes"""
     for block in blocks.values():
-        block.body = [stmt for stmt in block.body if not isinstance(stmt, ir.del_types)]
+        block.body = [stmt for stmt in block.body if not isinstance(stmt, ir.Del)]
     return
 
 
@@ -580,9 +579,7 @@ def remove_args(blocks):
     for block in blocks.values():
         new_body = []
         for stmt in block.body:
-            if isinstance(stmt, ir.assign_types) and isinstance(
-                stmt.value, ir.arg_types
-            ):
+            if isinstance(stmt, ir.Assign) and isinstance(stmt.value, ir.Arg):
                 continue
             new_body.append(stmt)
         block.body = new_body
@@ -709,7 +706,7 @@ def remove_dead_block(
                 continue
 
         # ignore assignments that their lhs is not live or lhs==rhs
-        if isinstance(stmt, ir.assign_types):
+        if isinstance(stmt, ir.Assign):
             lhs = stmt.target
             rhs = stmt.value
             if lhs.name not in lives and has_no_side_effect(
@@ -719,21 +716,21 @@ def remove_dead_block(
                     print("Statement was removed.")
                 removed = True
                 continue
-            if isinstance(rhs, ir.var_types) and lhs.name == rhs.name:
+            if isinstance(rhs, ir.Var) and lhs.name == rhs.name:
                 if config.DEBUG_ARRAY_OPT >= 2:
                     print("Statement was removed.")
                 removed = True
                 continue
             # TODO: remove other nodes like SetItem etc.
 
-        if isinstance(stmt, ir.del_types):
+        if isinstance(stmt, ir.Del):
             if stmt.value not in lives:
                 if config.DEBUG_ARRAY_OPT >= 2:
                     print("Statement was removed.")
                 removed = True
                 continue
 
-        if isinstance(stmt, ir.setitem_types):
+        if isinstance(stmt, ir.SetItem):
             name = stmt.target.name
             if name not in lives_n_aliases:
                 if config.DEBUG_ARRAY_OPT >= 2:
@@ -747,9 +744,9 @@ def remove_dead_block(
             lives |= uses
         else:
             lives |= {v.name for v in stmt.list_vars()}
-            if isinstance(stmt, ir.assign_types):
+            if isinstance(stmt, ir.Assign):
                 # make sure lhs is not used in rhs, e.g. a = g(a)
-                if isinstance(stmt.value, ir.expr_types):
+                if isinstance(stmt.value, ir.Expr):
                     rhs_vars = {v.name for v in stmt.value.list_vars()}
                     if lhs.name not in rhs_vars:
                         lives.remove(lhs.name)
@@ -781,7 +778,7 @@ def has_no_side_effect(rhs, lives, call_table):
     """
     from cusimt.numba_cuda.extending import _Intrinsic
 
-    if isinstance(rhs, ir.expr_types) and rhs.op == "call":
+    if isinstance(rhs, ir.Expr) and rhs.op == "call":
         func_name = rhs.func.name
         if func_name not in call_table or call_table[func_name] == []:
             return False
@@ -802,24 +799,15 @@ def has_no_side_effect(rhs, lives, call_table):
         ):
             return True
 
-        if HAS_NUMBA:
-            from numba.core.registry import CPUDispatcher
-            from cusimt.numba_cuda.np.linalg import dot_3_mv_check_args
-
-            if isinstance(call_list[0], CPUDispatcher):
-                py_func = call_list[0].py_func
-                if py_func == dot_3_mv_check_args:
-                    return True
-
         for f in remove_call_handlers:
             if f(rhs, lives, call_list):
                 return True
         return False
-    if isinstance(rhs, ir.expr_types) and rhs.op == "inplace_binop":
+    if isinstance(rhs, ir.Expr) and rhs.op == "inplace_binop":
         return rhs.lhs.name not in lives
-    if isinstance(rhs, ir.yield_types):
+    if isinstance(rhs, ir.Yield):
         return False
-    if isinstance(rhs, ir.expr_types) and rhs.op == "pair_first":
+    if isinstance(rhs, ir.Expr) and rhs.op == "pair_first":
         # don't remove pair_first since prange looks for it
         return False
     return True
@@ -833,7 +821,7 @@ def is_pure(rhs, lives, call_table):
     returns the same result.  This is not the case for things
     like calls to numpy.random.
     """
-    if isinstance(rhs, ir.expr_types):
+    if isinstance(rhs, ir.Expr):
         if rhs.op == "call":
             func_name = rhs.func.name
             if func_name not in call_table or call_table[func_name] == []:
@@ -854,7 +842,7 @@ def is_pure(rhs, lives, call_table):
             return False
         elif rhs.op == "getiter" or rhs.op == "iternext":
             return False
-    if isinstance(rhs, ir.yield_types):
+    if isinstance(rhs, ir.Yield):
         return False
     return True
 
@@ -898,38 +886,38 @@ def find_potential_aliases(
             if type(instr) in alias_analysis_extensions:
                 f = alias_analysis_extensions[type(instr)]
                 f(instr, args, typemap, func_ir, alias_map, arg_aliases)
-            if isinstance(instr, ir.assign_types):
+            if isinstance(instr, ir.Assign):
                 expr = instr.value
                 lhs = instr.target.name
                 # only mutable types can alias
                 if is_immutable_type(lhs, typemap):
                     continue
-                if isinstance(expr, ir.var_types) and lhs != expr.name:
+                if isinstance(expr, ir.Var) and lhs != expr.name:
                     _add_alias(lhs, expr.name, alias_map, arg_aliases)
                 # subarrays like A = B[0] for 2D B
-                if isinstance(expr, ir.expr_types) and (
+                if isinstance(expr, ir.Expr) and (
                     expr.op == "cast" or expr.op in ["getitem", "static_getitem"]
                 ):
                     _add_alias(lhs, expr.value.name, alias_map, arg_aliases)
-                if isinstance(expr, ir.expr_types) and expr.op == "inplace_binop":
+                if isinstance(expr, ir.Expr) and expr.op == "inplace_binop":
                     _add_alias(lhs, expr.lhs.name, alias_map, arg_aliases)
                 # array attributes like A.T
                 if (
-                    isinstance(expr, ir.expr_types)
+                    isinstance(expr, ir.Expr)
                     and expr.op == "getattr"
                     and expr.attr in ["T", "ctypes", "flat"]
                 ):
                     _add_alias(lhs, expr.value.name, alias_map, arg_aliases)
                 # a = b.c.  a should alias b
                 if (
-                    isinstance(expr, ir.expr_types)
+                    isinstance(expr, ir.Expr)
                     and expr.op == "getattr"
                     and expr.attr not in ["shape"]
                     and expr.value.name in arg_aliases
                 ):
                     _add_alias(lhs, expr.value.name, alias_map, arg_aliases)
                 # calls that can create aliases such as B = A.ravel()
-                if isinstance(expr, ir.expr_types) and expr.op == "call":
+                if isinstance(expr, ir.Expr) and expr.op == "call":
                     fdef = guard(find_callname, func_ir, expr, typemap)
                     # TODO: sometimes gufunc backend creates duplicate code
                     # causing find_callname to fail. Example: test_argmax
@@ -943,7 +931,7 @@ def find_potential_aliases(
                         alias_func(lhs, expr.args, alias_map, arg_aliases)
                     if fmod == "numpy" and fname in np_alias_funcs:
                         _add_alias(lhs, expr.args[0].name, alias_map, arg_aliases)
-                    if isinstance(fmod, ir.var_types) and fname in np_alias_funcs:
+                    if isinstance(fmod, ir.Var) and fname in np_alias_funcs:
                         _add_alias(lhs, fmod.name, alias_map, arg_aliases)
 
     # copy to avoid changing size during iteration
@@ -1089,9 +1077,9 @@ def get_block_copies(blocks, typemap):
                             extra_kill[label].add(l)
                     assign_dict = new_assign_dict
                     extra_kill[label] |= kill_set
-            if isinstance(stmt, ir.assign_types):
+            if isinstance(stmt, ir.Assign):
                 lhs = stmt.target.name
-                if isinstance(stmt.value, ir.var_types):
+                if isinstance(stmt.value, ir.Var):
                     rhs = stmt.value.name
                     # copy is valid only if same type (see
                     # TestCFunc.test_locals)
@@ -1102,10 +1090,7 @@ def get_block_copies(blocks, typemap):
                     if typemap[lhs] == typemap[rhs] and lhs != rhs:
                         assign_dict[lhs] = rhs
                         continue
-                if (
-                    isinstance(stmt.value, ir.expr_types)
-                    and stmt.value.op == "inplace_binop"
-                ):
+                if isinstance(stmt.value, ir.Expr) and stmt.value.op == "inplace_binop":
                     in1_var = stmt.value.lhs.name
                     in1_typ = typemap[in1_var]
                     # inplace_binop assigns first operand if mutable
@@ -1158,7 +1143,7 @@ def apply_copy_propagate(
                 )
             # only rhs of assignments should be replaced
             # e.g. if x=y is available, x in x=z shouldn't be replaced
-            elif isinstance(stmt, ir.assign_types):
+            elif isinstance(stmt, ir.Assign):
                 stmt.value = replace_vars_inner(stmt.value, var_dict)
             else:
                 replace_vars_stmt(stmt, var_dict)
@@ -1172,9 +1157,7 @@ def apply_copy_propagate(
                     for l, r in var_dict.copy().items():
                         if l in kill_set or r.name in kill_set:
                             var_dict.pop(l)
-            if isinstance(stmt, ir.assign_types) and isinstance(
-                stmt.value, ir.var_types
-            ):
+            if isinstance(stmt, ir.Assign) and isinstance(stmt.value, ir.Var):
                 lhs = stmt.target.name
                 rhs = stmt.value.name
                 # rhs could be replaced with lhs from previous copies
@@ -1192,9 +1175,7 @@ def apply_copy_propagate(
                             lhs_kill.append(k)
                     for k in lhs_kill:
                         var_dict.pop(k, None)
-            if isinstance(stmt, ir.assign_types) and not isinstance(
-                stmt.value, ir.var_types
-            ):
+            if isinstance(stmt, ir.Assign) and not isinstance(stmt.value, ir.Var):
                 lhs = stmt.target.name
                 var_dict.pop(lhs, None)
                 # previous t=a is killed if a is killed
@@ -1214,7 +1195,7 @@ def fix_setitem_type(stmt, typemap, calltypes):
     with 'A' layout. The replaced variable can be 'C' or 'F', so we update
     setitem call type reflect this (from matrix power test)
     """
-    if not isinstance(stmt, ir.setitem_types + ir.staticsetitem_types):
+    if not isinstance(stmt, (ir.SetItem, ir.StaticSetItem)):
         return
     t_typ = typemap[stmt.target.name]
     s_typ = calltypes[stmt].args[0]
@@ -1269,7 +1250,7 @@ def find_topo_order(blocks, cfg=None):
             seen.add(node)
             succs = cfg._succs[node]
             last_inst = blocks[node].body[-1]
-            if isinstance(last_inst, ir.branch_types):
+            if isinstance(last_inst, ir.Branch):
                 succs = [last_inst.truebr, last_inst.falsebr]
             for dest in succs:
                 if (node, dest) not in cfg._back_edges:
@@ -1316,12 +1297,12 @@ def get_call_table(
 
     for label in reversed(order):
         for inst in reversed(blocks[label].body):
-            if isinstance(inst, ir.assign_types):
+            if isinstance(inst, ir.Assign):
                 lhs = inst.target.name
                 rhs = inst.value
-                if isinstance(rhs, ir.expr_types) and rhs.op == "call":
+                if isinstance(rhs, ir.Expr) and rhs.op == "call":
                     call_table[rhs.func.name] = []
-                if isinstance(rhs, ir.expr_types) and rhs.op == "getattr":
+                if isinstance(rhs, ir.Expr) and rhs.op == "getattr":
                     if lhs in call_table:
                         call_table[lhs].append(rhs.attr)
                         reverse_call_table[rhs.value.name] = lhs
@@ -1329,19 +1310,19 @@ def get_call_table(
                         call_var = reverse_call_table[lhs]
                         call_table[call_var].append(rhs.attr)
                         reverse_call_table[rhs.value.name] = call_var
-                if isinstance(rhs, ir.global_types):
+                if isinstance(rhs, ir.Global):
                     if lhs in call_table:
                         call_table[lhs].append(rhs.value)
                     if lhs in reverse_call_table:
                         call_var = reverse_call_table[lhs]
                         call_table[call_var].append(rhs.value)
-                if isinstance(rhs, ir.freevar_types):
+                if isinstance(rhs, ir.FreeVar):
                     if lhs in call_table:
                         call_table[lhs].append(rhs.value)
                     if lhs in reverse_call_table:
                         call_var = reverse_call_table[lhs]
                         call_table[call_var].append(rhs.value)
-                if isinstance(rhs, ir.var_types):
+                if isinstance(rhs, ir.Var):
                     if lhs in call_table:
                         call_table[lhs].append(rhs.name)
                         reverse_call_table[rhs.name] = lhs
@@ -1366,12 +1347,12 @@ def get_tuple_table(blocks, tuple_table=None):
 
     for block in blocks.values():
         for inst in block.body:
-            if isinstance(inst, ir.assign_types):
+            if isinstance(inst, ir.Assign):
                 lhs = inst.target.name
                 rhs = inst.value
-                if isinstance(rhs, ir.expr_types) and rhs.op == "build_tuple":
+                if isinstance(rhs, ir.Expr) and rhs.op == "build_tuple":
                     tuple_table[lhs] = rhs.items
-                if isinstance(rhs, ir.const_types) and isinstance(rhs.value, tuple):
+                if isinstance(rhs, ir.Const) and isinstance(rhs.value, tuple):
                     tuple_table[lhs] = rhs.value
             for T, f in tuple_table_extensions.items():
                 if isinstance(inst, T):
@@ -1381,7 +1362,7 @@ def get_tuple_table(blocks, tuple_table=None):
 
 def get_stmt_writes(stmt):
     writes = set()
-    if isinstance(stmt, ir.assign_types + ir.setitem_types + ir.staticsetitem_types):
+    if isinstance(stmt, (ir.Assign, ir.SetItem, ir.StaticSetItem)):
         writes.add(stmt.target.name)
     return writes
 
@@ -1395,7 +1376,7 @@ def rename_labels(blocks):
     # make a block with return last if available (just for readability)
     return_label = -1
     for l, b in blocks.items():
-        if isinstance(b.body[-1], ir.return_types):
+        if isinstance(b.body[-1], ir.Return):
             return_label = l
     # some cases like generators can have no return blocks
     if return_label != -1:
@@ -1411,9 +1392,9 @@ def rename_labels(blocks):
         term = b.terminator
         # create new IR nodes instead of mutating the existing one as copies of
         # the IR may also refer to the same nodes!
-        if isinstance(term, ir.jump_types):
+        if isinstance(term, ir.Jump):
             b.body[-1] = ir.Jump(label_map[term.target], term.loc)
-        if isinstance(term, ir.branch_types):
+        if isinstance(term, ir.Branch):
             b.body[-1] = ir.Branch(
                 term.cond,
                 label_map[term.truebr],
@@ -1437,7 +1418,7 @@ def simplify_CFG(blocks):
 
     def find_single_branch(label):
         block = blocks[label]
-        return len(block.body) == 1 and isinstance(block.body[0], ir.branch_types)
+        return len(block.body) == 1 and isinstance(block.body[0], ir.Branch)
 
     single_branch_blocks = list(filter(find_single_branch, blocks.keys()))
     marked_for_del = set()
@@ -1447,7 +1428,7 @@ def simplify_CFG(blocks):
         delete_block = True
         for p, _ in predecessors:
             block = blocks[p]
-            if isinstance(block.body[-1], ir.jump_types):
+            if isinstance(block.body[-1], ir.Jump):
                 block.body[-1] = copy.copy(inst)
             else:
                 delete_block = False
@@ -1488,9 +1469,7 @@ def canonicalize_array_math(func_ir, typemap, calltypes, typingctx):
         block = blocks[label]
         new_body = []
         for stmt in block.body:
-            if isinstance(stmt, ir.assign_types) and isinstance(
-                stmt.value, ir.expr_types
-            ):
+            if isinstance(stmt, ir.Assign) and isinstance(stmt.value, ir.Expr):
                 lhs = stmt.target.name
                 rhs = stmt.value
                 # replace A.func with np.func, and save A in saved_arr_arg
@@ -1547,15 +1526,15 @@ def get_array_accesses(blocks, accesses=None):
 
     for block in blocks.values():
         for inst in block.body:
-            if isinstance(inst, ir.setitem_types):
+            if isinstance(inst, ir.SetItem):
                 accesses.add((inst.target.name, inst.index.name))
-            if isinstance(inst, ir.staticsetitem_types):
+            if isinstance(inst, ir.StaticSetItem):
                 accesses.add((inst.target.name, inst.index_var.name))
-            if isinstance(inst, ir.assign_types):
+            if isinstance(inst, ir.Assign):
                 rhs = inst.value
-                if isinstance(rhs, ir.expr_types) and rhs.op == "getitem":
+                if isinstance(rhs, ir.Expr) and rhs.op == "getitem":
                     accesses.add((rhs.value.name, rhs.index.name))
-                if isinstance(rhs, ir.expr_types) and rhs.op == "static_getitem":
+                if isinstance(rhs, ir.Expr) and rhs.op == "static_getitem":
                     index = rhs.index
                     # slice is unhashable, so just keep the variable
                     if index is None or is_slice_index(index):
@@ -1706,7 +1685,7 @@ def build_definitions(blocks, definitions=None):
 
     for block in blocks.values():
         for inst in block.body:
-            if isinstance(inst, ir.assign_types):
+            if isinstance(inst, ir.Assign):
                 name = inst.target.name
                 definition = definitions.get(name, [])
                 if definition == []:
@@ -1732,13 +1711,13 @@ def find_callname(func_ir, expr, typemap=None, definition_finder=get_definition)
     """
     from cusimt.numba_cuda.extending import _Intrinsic
 
-    require(isinstance(expr, ir.expr_types) and expr.op == "call")
+    require(isinstance(expr, ir.Expr) and expr.op == "call")
     callee = expr.func
     callee_def = definition_finder(func_ir, callee)
     attrs = []
     obj = None
     while True:
-        if isinstance(callee_def, ir.global_types + ir.freevar_types):
+        if isinstance(callee_def, (ir.Global, ir.FreeVar)):
             # require(callee_def.value == numpy)
             # these checks support modules like numpy, numpy.random as well as
             # calls like len() and intrinsics like assertEquiv
@@ -1790,7 +1769,7 @@ def find_callname(func_ir, expr, typemap=None, definition_finder=get_definition)
                 if class_name != "module":
                     attrs.append(class_name)
             break
-        elif isinstance(callee_def, ir.expr_types) and callee_def.op == "getattr":
+        elif isinstance(callee_def, ir.Expr) and callee_def.op == "getattr":
             obj = callee_def.value
             attrs.append(callee_def.attr)
             if typemap and obj.name in typemap:
@@ -1812,9 +1791,9 @@ def find_build_sequence(func_ir, var):
     operator, or raise GuardException otherwise.
     Note: only build_tuple is immutable, so use with care.
     """
-    require(isinstance(var, ir.var_types))
+    require(isinstance(var, ir.Var))
     var_def = get_definition(func_ir, var)
-    require(isinstance(var_def, ir.expr_types))
+    require(isinstance(var_def, ir.Expr))
     build_ops = ["build_tuple", "build_list", "build_set"]
     require(var_def.op in build_ops)
     return var_def.items, var_def.op
@@ -1824,9 +1803,9 @@ def find_const(func_ir, var):
     """Check if a variable is defined as constant, and return
     the constant value, or raise GuardException otherwise.
     """
-    require(isinstance(var, ir.var_types))
+    require(isinstance(var, ir.Var))
     var_def = get_definition(func_ir, var)
-    require(isinstance(var_def, ir.const_types + ir.global_types + ir.freevar_types))
+    require(isinstance(var_def, (ir.Const, ir.Global, ir.FreeVar)))
     return var_def.value
 
 
@@ -1949,7 +1928,7 @@ def get_ir_of_code(glbls, fcode):
     from cusimt.numba_cuda.core.inline_closurecall import InlineClosureCallPass
 
     inline_pass = InlineClosureCallPass(
-        ir, numba.cuda.core.options.ParallelOptions(False), swapped
+        ir, cusimt.numba_cuda.core.options.ParallelOptions(False), swapped
     )
     inline_pass.run()
 
@@ -1980,7 +1959,7 @@ def replace_arg_nodes(block, args):
     Replace ir.Arg(...) with variables
     """
     for stmt in block.body:
-        if isinstance(stmt, ir.assign_types) and isinstance(stmt.value, ir.arg_types):
+        if isinstance(stmt, ir.Assign) and isinstance(stmt.value, ir.Arg):
             idx = stmt.value.index
             assert idx < len(args)
             stmt.value = args[idx]
@@ -1996,12 +1975,12 @@ def replace_returns(blocks, target, return_label):
         if not block.body:
             continue
         stmt = block.terminator
-        if isinstance(stmt, ir.return_types):
+        if isinstance(stmt, ir.Return):
             block.body.pop()  # remove return
             cast_stmt = block.body.pop()
             assert (
-                isinstance(cast_stmt, ir.assign_types)
-                and isinstance(cast_stmt.value, ir.expr_types)
+                isinstance(cast_stmt, ir.Assign)
+                and isinstance(cast_stmt.value, ir.Expr)
                 and cast_stmt.value.op == "cast"
             ), "invalid return cast"
             block.body.append(ir.Assign(cast_stmt.value.value, target, stmt.loc))
@@ -2046,7 +2025,7 @@ def dump_blocks(blocks):
 def is_operator_or_getitem(expr):
     """true if expr is unary or binary operator or getitem"""
     return (
-        isinstance(expr, ir.expr_types)
+        isinstance(expr, ir.Expr)
         and getattr(expr, "op", False)
         and expr.op in ["unary", "binop", "inplace_binop", "getitem", "static_getitem"]
     )
@@ -2060,15 +2039,15 @@ def is_get_setitem(stmt):
 def is_getitem(stmt):
     """true if stmt is a getitem or static_getitem assignment"""
     return (
-        isinstance(stmt, ir.assign_types)
-        and isinstance(stmt.value, ir.expr_types)
+        isinstance(stmt, ir.Assign)
+        and isinstance(stmt.value, ir.Expr)
         and stmt.value.op in ["getitem", "static_getitem"]
     )
 
 
 def is_setitem(stmt):
     """true if stmt is a SetItem or StaticSetItem node"""
-    return isinstance(stmt, ir.setitem_types + ir.staticsetitem_types)
+    return isinstance(stmt, (ir.SetItem, ir.StaticSetItem))
 
 
 def index_var_of_get_setitem(stmt):
@@ -2080,7 +2059,7 @@ def index_var_of_get_setitem(stmt):
             return stmt.value.index_var
 
     if is_setitem(stmt):
-        if isinstance(stmt, ir.setitem_types):
+        if isinstance(stmt, ir.SetItem):
             return stmt.index
         else:
             return stmt.index_var
@@ -2095,7 +2074,7 @@ def set_index_var_of_get_setitem(stmt, new_index):
         else:
             stmt.value.index_var = new_index
     elif is_setitem(stmt):
-        if isinstance(stmt, ir.setitem_types):
+        if isinstance(stmt, ir.SetItem):
             stmt.index = new_index
         else:
             stmt.index_var = new_index
@@ -2194,10 +2173,10 @@ def find_outer_value(func_ir, var):
     or raise GuardException otherwise.
     """
     dfn = get_definition(func_ir, var)
-    if isinstance(dfn, ir.global_types + ir.freevar_types):
+    if isinstance(dfn, (ir.Global, ir.FreeVar)):
         return dfn.value
 
-    if isinstance(dfn, ir.expr_types) and dfn.op == "getattr":
+    if isinstance(dfn, ir.Expr) and dfn.op == "getattr":
         prev_val = find_outer_value(func_ir, dfn.value)
         try:
             val = getattr(prev_val, dfn.attr)
@@ -2240,9 +2219,9 @@ def raise_on_unsupported_feature(func_ir, typemap):
             raise UnsupportedError(msg, func_ir.loc)
 
     for blk in func_ir.blocks.values():
-        for stmt in blk.find_insts(ir.assign_types):
+        for stmt in blk.find_insts(ir.Assign):
             # This raises on finding `make_function`
-            if isinstance(stmt.value, ir.expr_types):
+            if isinstance(stmt.value, ir.Expr):
                 if stmt.value.op == "make_function":
                     val = stmt.value
 
@@ -2273,7 +2252,7 @@ def raise_on_unsupported_feature(func_ir, typemap):
                     raise UnsupportedError(msg, stmt.value.loc)
 
             # this checks for gdb initialization calls, only one is permitted
-            if isinstance(stmt.value, ir.global_types + ir.freevar_types):
+            if isinstance(stmt.value, (ir.Global, ir.FreeVar)):
                 val = stmt.value
                 val = getattr(val, "value", None)
                 if val is None:
@@ -2289,7 +2268,7 @@ def raise_on_unsupported_feature(func_ir, typemap):
                     gdb_calls.append(stmt.loc)  # report last seen location
 
             # this checks that np.<type> was called if view is called
-            if isinstance(stmt.value, ir.expr_types):
+            if isinstance(stmt.value, ir.Expr):
                 if stmt.value.op == "getattr" and stmt.value.attr == "view":
                     var = stmt.value.value.name
                     if isinstance(typemap[var], types.Array):
@@ -2313,7 +2292,7 @@ def raise_on_unsupported_feature(func_ir, typemap):
                     )
 
             # checks for globals that are also reflected
-            if isinstance(stmt.value, ir.global_types):
+            if isinstance(stmt.value, ir.Global):
                 ty = typemap[stmt.target.name]
                 msg = (
                     "The use of a %s type, assigned to variable '%s' in "
@@ -2328,7 +2307,7 @@ def raise_on_unsupported_feature(func_ir, typemap):
 
             # checks for generator expressions (yield in use when func_ir has
             # not been identified as a generator).
-            if isinstance(stmt.value, ir.yield_types) and not func_ir.is_generator:
+            if isinstance(stmt.value, ir.Yield) and not func_ir.is_generator:
                 msg = "The use of generator expressions is unsupported."
                 raise UnsupportedError(msg, loc=stmt.loc)
 
@@ -2391,7 +2370,7 @@ def resolve_func_from_module(func_ir, node):
             except KeyError:  # multiple definitions
                 return None
             return resolve_mod(mod)
-        elif isinstance(mod, ir.global_types + ir.freevar_types):
+        elif isinstance(mod, (ir.Global, ir.FreeVar)):
             if isinstance(mod.value, pytypes.ModuleType):
                 return mod
         return None
@@ -2414,7 +2393,7 @@ def enforce_no_dels(func_ir):
     Enforce there being no ir.Del nodes in the IR.
     """
     for blk in func_ir.blocks.values():
-        dels = [x for x in blk.find_insts(ir.del_types)]
+        dels = [x for x in blk.find_insts(ir.Del)]
         if dels:
             msg = "Illegal IR, del found at: %s" % dels[0]
             raise CompilerError(msg, loc=dels[0].loc)
@@ -2470,7 +2449,7 @@ def convert_code_obj_to_function(code_obj, caller_ir):
                 "are multiple definitions present." % x
             )
             raise TypingError(msg, loc=code_obj.loc)
-        if isinstance(freevar_def, ir.const_types):
+        if isinstance(freevar_def, ir.Const):
             freevars.append(freevar_def.value)
         else:
             msg = (
@@ -2561,7 +2540,7 @@ def transfer_scope(block, scope):
 
 
 def is_setup_with(stmt):
-    return isinstance(stmt, ir.enterwith_types)
+    return isinstance(stmt, ir.EnterWith)
 
 
 def is_terminator(stmt):
@@ -2569,12 +2548,12 @@ def is_terminator(stmt):
 
 
 def is_raise(stmt):
-    return isinstance(stmt, ir.raise_types)
+    return isinstance(stmt, ir.Raise)
 
 
 def is_return(stmt):
-    return isinstance(stmt, ir.return_types)
+    return isinstance(stmt, ir.Return)
 
 
 def is_pop_block(stmt):
-    return isinstance(stmt, ir.popblock_types)
+    return isinstance(stmt, ir.PopBlock)

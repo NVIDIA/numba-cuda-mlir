@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 import cusimt
-from numba.core.errors import TypingError
+from cusimt.numba_cuda.core.errors import TypingError
 from cusimt.testing import NumbaCUDATestCase
 import numpy as np
 import unittest
@@ -40,7 +40,6 @@ class TestSelfRecursion(NumbaCUDATestCase):
     def test_global_implicit_sig(self):
         self.check_fib(self.mod.fib3)
 
-    @pytest.mark.xfail(True, reason="Typing error")
     def test_runaway(self):
         with self.assertRaises(TypingError) as raises:
             cfunc = self.mod.runaway_self

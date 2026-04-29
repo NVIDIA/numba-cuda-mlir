@@ -5,12 +5,12 @@ import numpy as np
 
 from cusimt.compiler import compile_ptx
 import cuda.simt as cuda
-from numba.types import f2, i1, i2, i4, i8, u1, u2, u4, u8
+from cusimt.numba_cuda.types import f2, i1, i2, i4, i8, u1, u2, u4, u8
 import cusimt
-from numba import types
+from cusimt.numba_cuda import types
 import cuda.simt as cuda
 from cusimt.testing import NumbaCUDATestCase
-from numba.types import float16, float32
+from cusimt.numba_cuda.types import float16, float32
 import itertools
 import pytest
 

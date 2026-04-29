@@ -2424,56 +2424,6 @@ def _lower_ucs4(code_point, data, length, idx, mapped):
     return _PyUnicode_ToLowerFull(code_point, mapped)
 
 
-# https://github.com/python/cpython/blob/201c8f79450628241574fba940e08107178dc3a5/Objects/unicodeobject.c#L9946-L9965    # noqa: E501
-def _gen_unicode_upper_or_lower(lower):
-    def _do_upper_or_lower(data, length, res, maxchars):
-        k = 0
-        for idx in range(length):
-            mapped = np.zeros(3, dtype=_Py_UCS4)
-            code_point = _get_code_point(data, idx)
-            if lower:
-                n_res = _lower_ucs4(code_point, data, length, idx, mapped)
-            else:
-                # might be needed if call _do_upper_or_lower in unicode_upper
-                n_res = _PyUnicode_ToUpperFull(code_point, mapped)
-            for m in mapped[:n_res]:
-                maxchars[0] = max(maxchars[0], m)
-                _set_code_point(res, k, m)
-                k += 1
-        return k
-
-    return _do_upper_or_lower
-
-
-_unicode_upper = register_jitable(_gen_unicode_upper_or_lower(False))
-_unicode_lower = register_jitable(_gen_unicode_upper_or_lower(True))
-
-
-def _gen_ascii_upper_or_lower(func):
-    def _ascii_upper_or_lower(data, res):
-        for idx in range(len(data)):
-            code_point = _get_code_point(data, idx)
-            _set_code_point(res, idx, func(code_point))
-
-    return _ascii_upper_or_lower
-
-
-_ascii_upper = register_jitable(_gen_ascii_upper_or_lower(_Py_TOUPPER))
-_ascii_lower = register_jitable(_gen_ascii_upper_or_lower(_Py_TOLOWER))
-
-
-@overload_method(types.UnicodeType, "lower")
-def unicode_lower(data):
-    """Implements .lower()"""
-    return case_operation(_ascii_lower, _unicode_lower)
-
-
-@overload_method(types.UnicodeType, "upper")
-def unicode_upper(data):
-    """Implements .upper()"""
-    return case_operation(_ascii_upper, _unicode_upper)
-
-
 # https://github.com/python/cpython/blob/1d4b6ba19466aba0eb91c4ba01ba509acf18c723/Objects/unicodeobject.c#L9819-L9834    # noqa: E501
 @register_jitable
 def _unicode_casefold(data, length, res, maxchars):

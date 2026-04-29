@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
-from numba import types
+from cusimt.numba_cuda import types
 
 
 class MyStruct:
@@ -18,13 +18,12 @@ class StructModelType(types.Type):
 struct_model_type = StructModelType()
 
 
-from numba import int32
-from numba.core.extending import (
+from cusimt.numba_cuda.extending import (
     models,
     typeof_impl,
     type_callable,
 )
-from numba.core.extending import (
+from cusimt.numba_cuda.extending import (
     register_model,
     make_attribute_wrapper,
 )
@@ -40,7 +39,7 @@ def typeof_teststruct(val, c):
 @register_model(StructModelType)
 class TestStructModel(models.StructModel):
     def __init__(self, dmm, fe_type):
-        members = [("x", int32), ("y", int32)]
+        members = [("x", int32), ("y", types.int32)]
         super().__init__(dmm, fe_type, members)
 
 

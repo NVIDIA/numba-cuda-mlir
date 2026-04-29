@@ -3,7 +3,7 @@
 
 import cusimt
 import cuda.simt as cuda
-from numba.core.errors import TypingError
+from cusimt.numba_cuda.core.errors import TypingError
 from cusimt.testing import NumbaCUDATestCase
 import pytest
 

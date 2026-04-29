@@ -9,7 +9,7 @@ from cusimt.mlir_lowering_registry import MLIRLoweringRegistry
 registry = MLIRLoweringRegistry()
 lower = registry.lower
 from cusimt.numba_cuda.types.ext_types import bfloat16 as bf16
-from numba import types
+from cusimt.numba_cuda import types
 from cusimt._mlir.extras import types as T
 from cusimt._mlir.dialects import arith, math as math_dialect
 

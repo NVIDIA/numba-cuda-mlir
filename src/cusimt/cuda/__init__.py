@@ -12,7 +12,7 @@ from cusimt.numba_cuda import *  # noqa: F403
 from cusimt.numba_cuda.cudadrv.devicearray import (
     DeviceNDArray,  # ty:ignore[unresolved-import]
 )  # noqa: F401
-from numba.misc.special import literal_unroll  # noqa: F401,E402
+from cusimt.numba_cuda.misc.special import literal_unroll  # noqa: F401,E402
 
 # cuSIMT overrides/extensions
 from cusimt.cuda.lazy_api import *

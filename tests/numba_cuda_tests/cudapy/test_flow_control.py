@@ -6,14 +6,14 @@ import itertools
 
 import unittest
 from cuda.simt import jit
-from numba.core.controlflow import CFGraph, ControlFlowAnalysis
-from numba import types
-from numba.core.bytecode import (
+from cusimt.numba_cuda.core.controlflow import CFGraph, ControlFlowAnalysis
+from cusimt.numba_cuda import types
+from cusimt.numba_cuda.core.bytecode import (
     FunctionIdentity,
     ByteCode,
     _fix_LOAD_GLOBAL_arg,
 )
-from numba.core import utils
+from cusimt.numba_cuda import utils
 from cusimt.testing import NumbaCUDATestCase
 import numpy as np
 import pytest

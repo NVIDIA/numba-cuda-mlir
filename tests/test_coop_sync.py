@@ -5,6 +5,7 @@ import pytest
 import numpy as np
 import cuda.simt as cuda
 from cuda.simt import int32, float32
+from cusimt.numba_cuda.testing import cc_X_or_above
 
 
 def useless_syncthreads(ary):
@@ -113,7 +114,7 @@ def use_syncthreads_or(ary_in, ary_out):
 
 
 def _safe_cc_check(cc):
-    return cuda.get_current_device().compute_capability >= cc
+    return cc_X_or_above(*cc)
 
 
 def _test_useless(kernel):

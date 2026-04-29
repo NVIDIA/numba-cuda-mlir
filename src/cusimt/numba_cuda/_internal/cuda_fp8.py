@@ -15,7 +15,7 @@
 from cusimt.numba_cuda.typing.templates import ConcreteTemplate
 from cusimt.numba_cuda.types import float16
 from cusimt.numba_cuda.types import IntEnumMember
-from numba import types
+from cusimt.numba_cuda import types
 from cusimt.numba_cuda.extending import make_attribute_wrapper
 from cusimt.numba_cuda.types import bool_
 from cusimt.numba_cuda.types import uint64
@@ -31,12 +31,12 @@ from cusimt.numba_cuda.extending import as_numba_type
 from cusimt.numba_cuda.types import Function
 from cusimt.numba_cuda.types import Type
 from cusimt.numba_cuda.types import int32
-from numba.types import BoundFunction
+from cusimt.numba_cuda.types import BoundFunction
 from cusimt.numba_cuda.types import uint8
 from cusimt.numba_cuda.typing.templates import AttributeTemplate
 from cusimt.numba_cuda.vector_types import vector_types
 from cusimt.numba_cuda.types import int8
-from numba.core.typing import signature
+from cusimt.numba_cuda.typing import signature
 from cusimt.numba_cuda.types import bfloat16
 from cusimt.numba_cuda.typing import signature
 from cusimt.numba_cuda.extending import register_model
@@ -45,7 +45,6 @@ from cusimt.numba_cuda.datamodel import PrimitiveModel
 from cusimt.numba_cuda._internal.cuda_bf16 import (
     _type_unnamed1405307 as bfloat16_raw_type,
 )
-import numba
 from cusimt.numba_cuda.types import int16
 from cusimt.numba_cuda.types import int64
 import io

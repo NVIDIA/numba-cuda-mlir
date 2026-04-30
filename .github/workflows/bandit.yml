@@ -28,8 +28,8 @@ jobs:
         with:
           enable-cache: false
 
-      - name: Get ignore codes
-        id: ignore-codes
+      - name: Compute ruff args
+        id: ruff-args
         # This are computed so that we can run only the `S` (bandit)
         # checks. Passing --select to ruff overrides any config files
         # (ruff.toml, pyproject.toml, etc), so to avoid having keep everything
@@ -38,16 +38,16 @@ jobs:
           set -euxo pipefail
 
           CODES="$(uvx toml2json ./pyproject.toml | jq -r '.tool.ruff.lint.ignore | map(select(test("^S\\d+"))) | join(",")')"
-          echo "codes=${CODES}" >> "$GITHUB_OUTPUT"
+          ARGS="check --select S"
           if [ -n "${CODES}" ]; then
-            echo "ignore_flag=--ignore ${CODES}" >> "$GITHUB_OUTPUT"
-          else
-            echo "ignore_flag=" >> "$GITHUB_OUTPUT"
+            ARGS="${ARGS} --ignore ${CODES}"
           fi
+          ARGS="${ARGS} --output-format sarif --output-file results.sarif"
+          echo "args=${ARGS}" >> "$GITHUB_OUTPUT"
       - name: Perform Bandit Analysis using Ruff
         uses: astral-sh/ruff-action@4919ec5cf1f49eff0871dbcea0da843445b837e6  # v3.6.1
         with:
-          args: "check --select S ${{ steps.ignore-codes.outputs.ignore_flag }} --output-format sarif --output-file results.sarif"
+          args: "${{ steps.ruff-args.outputs.args }}"
       - name: Upload SARIF file
         uses: github/codeql-action/upload-sarif@v4.35.1
         with:

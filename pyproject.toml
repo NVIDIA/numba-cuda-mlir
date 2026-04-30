@@ -82,6 +82,8 @@ include-package-data = true
 
 [tool.ruff]
 line-length = 100
+# TODO: update requires-python to >=3.12 (code uses PEP 695 type params)
+target-version = "py312"
 
 [tool.ruff.format]
 docstring-code-format = true

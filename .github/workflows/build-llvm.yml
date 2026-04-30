@@ -63,7 +63,7 @@ jobs:
 
       - name: Restore LLVM Modern from GHA cache
         id: gha-cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: llvm-modern-install/
           key: ${{ steps.cache-key.outputs.key }}
@@ -103,7 +103,7 @@ jobs:
           fi
 
       - name: Upload LLVM Modern artifacts
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: llvm-modern-install-${{ matrix.py-tag }}-${{ inputs.host-platform }}
           path: llvm-modern-install/
@@ -143,7 +143,7 @@ jobs:
 
       - name: Restore LLVM 7 from GHA cache
         id: gha-cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: llvm7-install/
           key: ${{ steps.cache-key.outputs.key }}
@@ -183,7 +183,7 @@ jobs:
           fi
 
       - name: Upload LLVM 7 artifacts
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: llvm7-install-${{ inputs.host-platform }}
           path: llvm7-install/

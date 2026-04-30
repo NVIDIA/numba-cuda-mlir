@@ -1,1 +1,1 @@
-cusimt/cuda/libdevice.py
+libdevice.py

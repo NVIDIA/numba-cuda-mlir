@@ -81,6 +81,8 @@ include-package-data = true
 
 [tool.ruff]
 line-length = 100
+# TODO: update requires-python to >=3.12 (code uses PEP 695 type params)
+target-version = "py312"
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -102,9 +104,20 @@ ignore = [
     "B904",
     "B905",
     "B019",
+    # flake8-bandit (S) rules suppressed project-wide
+    "S101",   # assert usage (fundamental to test suite)
+    "S102",   # exec() used intentionally in compiler/codegen
+    "S110",   # try-except-pass for optional feature detection
+    "S301",   # pickle used for compiler serialization
+    "S603",   # subprocess calls are internal tooling
+    "S607",   # partial executable paths in subprocess (same as S603)
+    # TODO: fix violations and remove these suppressions
+    "S108",   # insecure /tmp paths (4 hits in scripts/ci/)
+    "S307",   # eval() usage (2 hits in compiler)
+    "S314",   # xml.parse without defusedxml (4 hits in scripts/ci/)
 ]
 select = ["B"]
-extend-select = ["PERF"]
+extend-select = ["PERF", "S"]
 fixable = ["ALL"]
 
 exclude = [

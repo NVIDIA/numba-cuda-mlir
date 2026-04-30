@@ -103,9 +103,16 @@ ignore = [
     "B904",
     "B905",
     "B019",
+    # flake8-bandit (S) rules suppressed project-wide
+    "S101",   # assert usage (fundamental to test suite)
+    "S102",   # exec() used intentionally in compiler/codegen
+    "S110",   # try-except-pass for optional feature detection
+    "S301",   # pickle used for compiler serialization
+    "S603",   # subprocess calls are internal tooling
+    "S607",   # partial executable paths in subprocess (same as S603)
 ]
 select = ["B"]
-extend-select = ["PERF"]
+extend-select = ["PERF", "S"]
 fixable = ["ALL"]
 
 exclude = [

@@ -7,6 +7,9 @@ import numpy as np
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 
+from numba_cuda_mlir._mlir import ir as mlir_ir
+from numba_cuda_mlir._mlir.dialects import func
+from numba_cuda_mlir.lowering_utilities import convert, get_or_insert_function
 from numba_cuda_mlir.numba_cuda import types
 
 import inspect
@@ -274,10 +277,6 @@ class TestExtendingLinkage(NumbaCUDATestCase):
 
             @lower_builtin(external_add, types.uint32, types.uint32)
             def lower_external_add(builder, target, args, kwargs):
-                from numba_cuda_mlir._mlir import ir as mlir_ir
-                from numba_cuda_mlir._mlir.dialects import func
-                from numba_cuda_mlir.lowering_utilities import convert, get_or_insert_function
-
                 builder.link_external_item(code_object)
                 i32 = builder.get_mlir_type(types.uint32)
                 fnty = mlir_ir.FunctionType.get([i32, i32], [i32])

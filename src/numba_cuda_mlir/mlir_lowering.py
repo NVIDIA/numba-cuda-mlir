@@ -1964,7 +1964,8 @@ extern "C" __global__ void
             has_arrays = any(isinstance(arg_ty, types.Array) for arg_ty in signature.args)
             if has_arrays:
                 return None
-            full_sig, maybe_builder = fn._defn(self, *signature.args)
+            tyctx = self.context.typing_context
+            full_sig, maybe_builder = fn._defn(tyctx, *signature.args)
             if maybe_builder and self._assume_builder_is_usable_for_mlir(maybe_builder):
                 return maybe_builder
 

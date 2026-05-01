@@ -1815,9 +1815,6 @@ extern "C" __global__ void
             self._teardown_callbacks.append(link_item.teardown_callback)
         self.linker.add_file_guess_ext(link_item)
 
-    def _link_external_item(self, link_item):
-        return self.link_external_item(link_item)
-
     @staticmethod
     def _external_link_item_key(link_item):
         try:

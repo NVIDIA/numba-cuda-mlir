@@ -1,0 +1,304 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: BSD-2-Clause
+
+import numpy as np
+
+from numba_cuda_mlir.numba_cuda import types
+import pytest
+from numba_cuda_mlir.numba_cuda.np.numpy_support import carray, farray
+from numba_cuda_mlir import cuda
+import numba_cuda_mlir
+
+ARRAY_LIKE_FUNCTIONS = (
+    cuda.device_array_like,
+    cuda.mapped_array_like,
+    cuda.pinned_array_like,
+)
+
+
+def array_reshape1d(arr, newshape, got):
+    y = arr.reshape(newshape)
+    for i in range(y.shape[0]):
+        got[i] = y[i]
+
+
+def array_reshape2d(arr, newshape, got):
+    y = arr.reshape(newshape)
+    for i in range(y.shape[0]):
+        for j in range(y.shape[1]):
+            got[i, j] = y[i, j]
+
+
+def array_reshape3d(arr, newshape, got):
+    y = arr.reshape(newshape)
+    for i in range(y.shape[0]):
+        for j in range(y.shape[1]):
+            for k in range(y.shape[2]):
+                got[i, j, k] = y[i, j, k]
+
+
+def array_reshape(arr, newshape):
+    return arr.reshape(newshape)
+
+
+class TestCudaArray:
+    def test_gpu_array_zero_length(self):
+        x = np.arange(0)
+        dx = cuda.to_device(x)
+        hx = dx.copy_to_host()
+        np.testing.assert_equal(x.shape, dx.shape)
+        np.testing.assert_equal(x.size, dx.size)
+        np.testing.assert_equal(x.shape, hx.shape)
+        np.testing.assert_equal(x.size, hx.size)
+
+    def test_null_shape(self):
+        null_shape = ()
+        shape1 = cuda.device_array(()).shape
+        shape2 = cuda.device_array_like(np.ndarray(())).shape
+        np.testing.assert_equal(shape1, null_shape)
+        np.testing.assert_equal(shape2, null_shape)
+
+    def test_gpu_array_strided(self):
+        @numba_cuda_mlir.jit("void(double[:])")
+        def kernel(x):
+            i = cuda.grid(1)
+            if i < x.shape[0]:
+                x[i] = i
+
+        x = np.arange(10, dtype=np.double)
+        y = np.ndarray(shape=10 * 8, buffer=x, dtype=np.byte)
+        z = np.ndarray(9, buffer=y[4:-4], dtype=np.double)
+        kernel[10, 10](z)
+        np.testing.assert_allclose(z, list(range(9)))
+
+    def test_gpu_array_interleaved(self):
+        @numba_cuda_mlir.jit("void(double[:], double[:])")
+        def copykernel(x, y):
+            i = cuda.grid(1)
+            if i < x.shape[0]:
+                x[i] = i
+                y[i] = i
+
+        x = np.arange(10, dtype=np.double)
+        y = x[:-1:2]
+        # z = x[1::2]
+        # n = y.size
+        try:
+            cuda.devicearray.auto_device(y)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(
+                "Should raise exception complaining the "
+                "contiguous-ness of the array."
+            )
+            # Should we handle this use case?
+            # assert z.size == y.size
+            # copykernel[1, n](y, x)
+            # print(y, z)
+            # assert np.all(y == z)
+            # assert np.all(y == list(range(n)))
+
+    def test_auto_device_const(self):
+        d, _ = cuda.devicearray.auto_device(2)
+        np.testing.assert_equal(d.copy_to_host(), np.array(2))
+
+    def _test_array_like_same(self, like_func, array):
+        """
+        Tests of *_array_like where shape, strides, dtype, and flags should
+        all be equal.
+        """
+        array_like = like_func(array)
+        np.testing.assert_equal(array.shape, array_like.shape)
+        np.testing.assert_equal(array.strides, array_like.strides)
+        np.testing.assert_equal(array.dtype, array_like.dtype)
+        np.testing.assert_equal(
+            array.flags["C_CONTIGUOUS"], array_like.flags["C_CONTIGUOUS"]
+        )
+        np.testing.assert_equal(
+            array.flags["F_CONTIGUOUS"], array_like.flags["F_CONTIGUOUS"]
+        )
+
+    @pytest.mark.parametrize("like_func", ARRAY_LIKE_FUNCTIONS)
+    def test_array_like_1d(self, like_func):
+        d_a = cuda.device_array(10, order="C")
+        self._test_array_like_same(like_func, d_a)
+
+    @pytest.mark.parametrize("like_func", ARRAY_LIKE_FUNCTIONS)
+    def test_array_like_2d(self, like_func):
+        d_a = cuda.device_array((10, 12), order="C")
+        self._test_array_like_same(like_func, d_a)
+
+    @pytest.mark.parametrize("like_func", ARRAY_LIKE_FUNCTIONS)
+    def test_array_like_2d_transpose(self, like_func):
+        d_a = cuda.device_array((10, 12), order="C")
+        self._test_array_like_same(like_func, d_a)
+
+    @pytest.mark.parametrize("like_func", ARRAY_LIKE_FUNCTIONS)
+    def test_array_like_3d(self, like_func):
+        d_a = cuda.device_array((10, 12, 14), order="C")
+        self._test_array_like_same(like_func, d_a)
+
+    @pytest.mark.parametrize("like_func", ARRAY_LIKE_FUNCTIONS)
+    def test_array_like_1d_f(self, like_func):
+        d_a = cuda.device_array(10, order="F")
+        self._test_array_like_same(like_func, d_a)
+
+    @pytest.mark.parametrize("like_func", ARRAY_LIKE_FUNCTIONS)
+    def test_array_like_2d_f(self, like_func):
+        d_a = cuda.device_array((10, 12), order="F")
+        self._test_array_like_same(like_func, d_a)
+
+    @pytest.mark.parametrize("like_func", ARRAY_LIKE_FUNCTIONS)
+    def test_array_like_2d_f_transpose(self, like_func):
+        d_a = cuda.device_array((10, 12), order="F")
+        self._test_array_like_same(like_func, d_a)
+
+    @pytest.mark.parametrize("like_func", ARRAY_LIKE_FUNCTIONS)
+    def test_array_like_3d_f(self, like_func):
+        d_a = cuda.device_array((10, 12, 14), order="F")
+        self._test_array_like_same(like_func, d_a)
+
+    def _test_array_like_view(self, like_func, view, d_view):
+        """
+        Tests of device_array_like where the original array is a view - the
+        strides should not be equal because a contiguous array is expected.
+        """
+        nb_like = like_func(d_view)
+        np.testing.assert_equal(d_view.shape, nb_like.shape)
+        np.testing.assert_equal(d_view.dtype, nb_like.dtype)
+
+        # Use NumPy as a reference for the expected strides
+        np_like = np.zeros_like(view)
+        np.testing.assert_equal(nb_like.strides, np_like.strides)
+        np.testing.assert_equal(
+            nb_like.flags["C_CONTIGUOUS"], np_like.flags["C_CONTIGUOUS"]
+        )
+        np.testing.assert_equal(
+            nb_like.flags["F_CONTIGUOUS"], np_like.flags["F_CONTIGUOUS"]
+        )
+
+    @pytest.mark.parametrize("like_func", ARRAY_LIKE_FUNCTIONS)
+    def test_array_like_1d_view(self, like_func):
+        shape = 10
+        view = np.zeros(shape)[::2]
+        d_view = cuda.device_array(shape)[::2]
+        self._test_array_like_view(like_func, view, d_view)
+
+    @pytest.mark.parametrize("like_func", ARRAY_LIKE_FUNCTIONS)
+    def test_array_like_1d_view_f(self, like_func):
+        shape = 10
+        view = np.zeros(shape, order="F")[::2]
+        d_view = cuda.device_array(shape, order="F")[::2]
+        self._test_array_like_view(like_func, view, d_view)
+
+    @pytest.mark.parametrize("like_func", ARRAY_LIKE_FUNCTIONS)
+    def test_array_like_2d_view(self, like_func):
+        shape = (10, 12)
+        view = np.zeros(shape)[::2, ::2]
+        d_view = cuda.device_array(shape)[::2, ::2]
+        self._test_array_like_view(like_func, view, d_view)
+
+    @pytest.mark.parametrize("like_func", ARRAY_LIKE_FUNCTIONS)
+    def test_array_like_2d_view_f(self, like_func):
+        shape = (10, 12)
+        view = np.zeros(shape, order="F")[::2, ::2]
+        d_view = cuda.device_array(shape, order="F")[::2, ::2]
+        self._test_array_like_view(like_func, view, d_view)
+
+    @pytest.mark.parametrize("like_func", ARRAY_LIKE_FUNCTIONS)
+    def test_array_like_2d_view_f_transpose(self, like_func):
+        shape = (10, 12)
+        view = np.zeros(shape, order="F")[::2, ::2].T
+        d_view = cuda.device_array(shape, order="F")[::2, ::2].T
+        self._test_array_like_view(like_func, view, d_view)
+
+    def test_issue_4628(self):
+        # CUDA Device arrays were reported as always being typed with 'A' order
+        # so launching the kernel with a host array and then a device array
+        # resulted in two overloads being compiled - one for 'C' order from
+        # the host array, and one for 'A' order from the device array. With the
+        # resolution of this issue, the order of the device array is also 'C',
+        # so after the kernel launches there should only be one overload of
+        # the function.
+        @numba_cuda_mlir.jit
+        def func(A, out):
+            i = cuda.grid(1)
+            out[i] = A[i] * 2
+
+        n = 128
+        a = np.ones((n,))
+        d_a = cuda.to_device(a)
+        result = np.zeros((n,))
+
+        func[1, 128](a, result)
+        func[1, 128](d_a, result)
+
+        np.testing.assert_equal(1, len(func.overloads))
+
+    @pytest.mark.xfail(True, reason="ICE")
+    def test_array_reshape(self):
+        def check(pyfunc, kernelfunc, arr, shape):
+            kernel = numba_cuda_mlir.jit(kernelfunc)
+            expected = pyfunc(arr, shape)
+            got = np.zeros(expected.shape, dtype=arr.dtype)
+            kernel[1, 1](arr, shape, got)
+            np.testing.assert_equal(got, expected)
+
+        def check_only_shape(kernelfunc, arr, shape, expected_shape):
+            kernel = numba_cuda_mlir.jit(kernelfunc)
+            got = np.zeros(expected_shape, dtype=arr.dtype)
+            kernel[1, 1](arr, shape, got)
+            np.testing.assert_equal(got.shape, expected_shape)
+            np.testing.assert_equal(got.size, arr.size)
+
+        # 0-sized arrays
+        def check_empty(arr):
+            check(array_reshape, array_reshape1d, arr, 0)
+            check(array_reshape, array_reshape1d, arr, (0,))
+            check(array_reshape, array_reshape3d, arr, (1, 0, 2))
+
+        # C-contiguous
+        arr = np.arange(24)
+        check(array_reshape, array_reshape1d, arr, (24,))
+        check(array_reshape, array_reshape2d, arr, (4, 6))
+        check(array_reshape, array_reshape2d, arr, (8, 3))
+        check(array_reshape, array_reshape3d, arr, (8, 1, 3))
+
+        arr = np.arange(24).reshape((1, 8, 1, 1, 3, 1))
+        check(array_reshape, array_reshape1d, arr, (24,))
+        check(array_reshape, array_reshape2d, arr, (4, 6))
+        check(array_reshape, array_reshape2d, arr, (8, 3))
+        check(array_reshape, array_reshape3d, arr, (8, 1, 3))
+
+        # Test negative shape value
+        arr = np.arange(25).reshape(5, 5)
+        check(array_reshape, array_reshape1d, arr, -1)
+        check(array_reshape, array_reshape1d, arr, (-1,))
+        check(array_reshape, array_reshape2d, arr, (-1, 5))
+        check(array_reshape, array_reshape3d, arr, (5, -1, 5))
+        check(array_reshape, array_reshape3d, arr, (5, 5, -1))
+
+        arr = np.array([])
+        check_empty(arr)
+
+    def _test_cfarray(self, cfarray):
+        @numba_cuda_mlir.jit(types.void(types.CPointer(types.float32)))
+        def add(a_ptr):
+            a = cfarray(a_ptr, (1,), dtype=cuda.float32)
+            a[0] += 1.2
+
+        a = cuda.to_device(np.array([0.0], dtype=np.float32))
+        add[1, 1](int(a.gpu_data.device_pointer))
+
+        cuda.synchronize()
+        a = a.copy_to_host()
+        assert a[0] == 1.2
+
+    @pytest.mark.xfail(True, reason="ICE")
+    def test_carray(self):
+        self._test_cfarray(carray)
+
+    @pytest.mark.xfail(True, reason="ICE")
+    def test_farray(self):
+        self._test_cfarray(farray)

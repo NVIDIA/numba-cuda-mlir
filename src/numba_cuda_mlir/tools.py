@@ -1,0 +1,320 @@
+from pathlib import Path
+import os
+import re
+from functools import lru_cache
+from typing import overload
+from numba_cuda_mlir.numba_cuda import itanium_mangler
+from numba_cuda_mlir.numba_cuda import types
+
+
+def parse_compute_capability(compute_cap: str) -> tuple[int, int]:
+    match = re.match(r"sm_([1-9]\d?)(\d)(a)?", compute_cap)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    else:
+        raise ValueError(f"Invalid compute capability: {compute_cap}")
+
+
+def format_arch(cc: tuple[int, int]) -> str:
+    """
+    Format a compute capability tuple as an sm_XX[a] string.
+
+    Args:
+        cc: Compute capability as (major, minor) tuple
+    """
+    return f"sm_{cc[0]}{cc[1]}"
+
+
+@lru_cache(maxsize=1)
+def get_cuda_toolkit_path() -> str | None:
+    """Get CUDA toolkit root path from env vars, numba-cuda discovery, or system."""
+    for var in ("CUDA_HOME", "CUDA_PATH"):
+        val = os.environ.get(var)
+        if val and os.path.isdir(os.path.join(val, "bin")):
+            return val
+
+    from numba_cuda_mlir.numba_cuda.cuda_paths import get_cuda_paths
+
+    libdevice = get_cuda_paths().get("libdevice")
+    if libdevice and libdevice.info:
+        # Toolkit root is 3 levels up: toolkit/nvvm/libdevice/libdevice.10.bc
+        root = os.path.dirname(os.path.dirname(os.path.dirname(libdevice.info)))
+        if os.path.isdir(os.path.join(root, "bin")):
+            return root
+
+    if os.path.isdir("/usr/local/cuda/bin"):
+        return "/usr/local/cuda"
+
+    return None
+
+
+@lru_cache(maxsize=1)
+def get_cuda_runtime_version() -> tuple[int, int]:
+    """
+    Get the CUDA toolkit version as a (major, minor) tuple.
+
+    Use ``nvrtcVersion()`` from libnvrtc, which reflects the version of
+    installed CUDA toolkit.
+    """
+    from cuda.bindings import nvrtc
+
+    err, major, minor = nvrtc.nvrtcVersion()
+    if err != nvrtc.nvrtcResult.NVRTC_SUCCESS:
+        raise RuntimeError(f"nvrtcVersion() failed: {err}")
+    return (major, minor)
+
+
+# CTK (major, minor) -> max PTX ISA version supported by that toolkit's libnvvm.
+# Expressed as the integer used in the `+ptxNN` target feature string.
+_CTK_TO_MAX_PTX: dict[tuple[int, int], int] = {
+    (12, 8): 87,  # PTX 8.7
+    (12, 9): 88,  # PTX 8.8
+    (13, 0): 90,  # PTX 9.0
+    (13, 1): 91,  # PTX 9.1
+    (13, 2): 92,  # PTX 9.2
+}
+
+
+@lru_cache(maxsize=1)
+def get_max_ptx_version() -> int | None:
+    """Return the highest PTX ISA version (as ``+ptxNN`` integer) the installed
+    CUDA toolkit can assemble, or ``None`` if the toolkit version is not in the
+    lookup table.
+
+    When ``None`` is returned the caller should fall back to the NVPTX backend
+    default (minimum PTX for the target SM).
+    """
+    ctk = get_cuda_runtime_version()
+    return _CTK_TO_MAX_PTX.get(ctk)
+
+
+@overload
+def get_gpu_compute_capability(as_type: type = str) -> str: ...
+
+
+@overload
+def get_gpu_compute_capability(as_type: type = tuple) -> tuple[int, int]: ...
+
+
+_cached_cc: tuple[int, int] | None = None
+
+
+def get_gpu_compute_capability(as_type: type = str) -> str | tuple[int, int]:
+    """
+    Query the compute capability of the current CUDA device.
+
+    Uses ``cuda.core.Device`` so that ``CUDA_VISIBLE_DEVICES`` is respected.
+    """
+    global _cached_cc
+    assert as_type in (str, tuple), "as_type must be str or tuple"
+
+    if _cached_cc is not None:
+        if as_type is tuple:
+            return _cached_cc
+        return f"sm_{_cached_cc[0]}{_cached_cc[1]}"
+
+    from cuda.core import Device
+
+    cc = tuple(Device().compute_capability)
+    _cached_cc = cc
+    if as_type is tuple:
+        return cc
+    return format_arch(cc)
+
+
+def _check_cuda_result(result):
+    """Unwrap CUDA driver API result, raising on error."""
+    from cuda.bindings import driver
+
+    if result[0].value != 0:
+        _, name = driver.cuGetErrorName(result[0])
+        raise RuntimeError(f"CUDA error: {name}")
+    return result[1] if len(result) == 2 else result[1:] if len(result) > 2 else None
+
+
+@lru_cache(maxsize=32)
+def get_max_active_clusters(cluster_size: int, device_id: int = 0) -> int:
+    """
+    Query the maximum number of active clusters for a given cluster size.
+
+    This compiles a minimal dummy kernel and uses cuOccupancyMaxActiveClusters
+    to determine the hardware limit for concurrent cluster execution.
+
+    Args:
+        cluster_size: Number of CTAs per cluster (1-32)
+        device_id: CUDA device ID (default: 0)
+
+    Returns:
+        Maximum number of clusters that can be active concurrently
+    """
+    if cluster_size <= 0 or cluster_size > 32:
+        raise ValueError(f"Cluster size must be between 1 and 32, got {cluster_size}")
+
+    from cuda.bindings import driver
+
+    device = _check_cuda_result(driver.cuDeviceGet(device_id))
+    max_smem = _check_cuda_result(
+        driver.cuDeviceGetAttribute(
+            driver.CUdevice_attribute.CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
+            device,
+        )
+    )
+
+    kernel = _get_dummy_kernel_function()
+    _check_cuda_result(
+        driver.cuFuncSetAttribute(
+            kernel,
+            driver.CUfunction_attribute.CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+            max_smem,
+        )
+    )
+    max_dyn_smem = _check_cuda_result(
+        driver.cuOccupancyAvailableDynamicSMemPerBlock(kernel, 1, 1)
+    )
+    max_active_blocks = _check_cuda_result(
+        driver.cuOccupancyMaxActiveBlocksPerMultiprocessor(kernel, 1, max_dyn_smem)
+    )
+    _check_cuda_result(
+        driver.cuFuncSetAttribute(
+            kernel,
+            driver.CUfunction_attribute.CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED,
+            1,
+        )
+    )
+
+    cluster_dims_attr = driver.CUlaunchAttribute()
+    cluster_dims_attr.id = (
+        driver.CUlaunchAttributeID.CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION
+    )
+    (
+        cluster_dims_attr.value.clusterDim.x,
+        cluster_dims_attr.value.clusterDim.y,
+        cluster_dims_attr.value.clusterDim.z,
+    ) = (cluster_size, 1, 1)
+
+    launch_config = driver.CUlaunchConfig()
+    launch_config.blockDimX, launch_config.blockDimY, launch_config.blockDimZ = (
+        128,
+        1,
+        1,
+    )
+    launch_config.gridDimX, launch_config.gridDimY, launch_config.gridDimZ = (
+        cluster_size,
+        max_active_blocks,
+        1,
+    )
+    launch_config.sharedMemBytes, launch_config.numAttrs, launch_config.attrs = (
+        max_dyn_smem,
+        1,
+        [cluster_dims_attr],
+    )
+
+    return _check_cuda_result(
+        driver.cuOccupancyMaxActiveClusters(kernel, launch_config)
+    )
+
+
+@lru_cache(maxsize=1)
+def _get_dummy_kernel_function():
+    """Compile and cache a minimal dummy kernel for occupancy queries."""
+    from cuda.bindings import driver
+    from numba_cuda_mlir.compiler import compile_cubin
+    from numba_cuda_mlir import types
+
+    def _dummy_kernel() -> types.void:
+        pass
+
+    cubin = compile_cubin(_dummy_kernel, ())
+    cuda_library = _check_cuda_result(
+        driver.cuLibraryLoadData(cubin, None, None, 0, None, None, 0)
+    )
+    kernels = _check_cuda_result(driver.cuLibraryEnumerateKernels(1, cuda_library))
+    return _check_cuda_result(driver.cuKernelGetFunction(kernels[0]))
+
+
+@lru_cache(maxsize=1)
+def is_using_llvm70() -> bool:
+    """Return True if the current environment will use the LLVM70 compilation path."""
+    from numba_cuda_mlir.mlir_optimization import _needs_llvm70_path
+
+    cc = get_gpu_compute_capability().replace("sm_", "")
+    return _needs_llvm70_path(cc)
+
+
+@lru_cache(maxsize=1)
+def get_llvm70_capi_path() -> str:
+    """Resolve path to the libMLIRToLLVM70.so shared library."""
+    import numba_cuda_mlir._mlir._mlir_libs as _mlir_libs
+
+    candidates = [
+        Path(__file__).parent / "libMLIRToLLVM70.so",
+        Path(_mlir_libs.__path__[0]) / "libMLIRToLLVM70.so",
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c.resolve())
+    raise FileNotFoundError(
+        "libMLIRToLLVM70.so not found. Rebuild numba_cuda_mlir with MLIR_DIR env var set."
+    )
+
+
+def generate_mangled_name(func_name, argtypes):
+    """
+    Return a mangled name given a function name and argtypes using Numba internals.
+    """
+    normalized_argtypes = [argtype_normalization(argtype) for argtype in argtypes]
+    return itanium_mangler.mangle(func_name, normalized_argtypes)
+
+
+def argtype_normalization(argtype):
+    """
+    Normalize the Numba data type
+    """
+    if isinstance(argtype, types.BooleanLiteral):
+        return types.boolean
+    elif isinstance(argtype, types.IntegerLiteral):
+        return types.int64
+    elif isinstance(argtype, types.UniTuple):
+        if isinstance(argtype.dtype, types.IntegerLiteral):
+            return types.UniTuple(
+                dtype=argtype_normalization(argtype.dtype), count=argtype.count
+            )
+        else:
+            return argtype
+    elif isinstance(argtype, types.NumberClass):
+        return argtype.dtype
+    else:
+        return argtype
+
+
+def generate_libdevice_stubs():
+    print(
+        """# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: BSD-2-Clause
+
+from numba_cuda_mlir.numba_cuda.types import (
+    int16,
+    int32,
+    int64,
+    float32,
+    float64,
+    UniTuple,
+    Tuple,
+)
+"""
+    )
+
+    T = '''
+def {name}({params}) -> {return_type}:
+    """
+    See https://docs.nvidia.com/cuda/libdevice-users-guide/__nv_{name}.html
+
+    CAPI:
+    
+    {capi};
+    """
+'''
+    from numba_cuda_mlir.cuda.libdevicefuncs import libdevice_descriptors
+
+    for descriptor in libdevice_descriptors():
+        print(descriptor)

@@ -1,0 +1,163 @@
+numba-cuda-mlir
+Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+This product is licensed to you under the Apache License, Version 2.0 (the
+"License"). You may not use this product except in compliance with the License.
+A copy of the Apache-2.0 License is included in this distribution in the file
+`LICENSE` at the root of the repository.
+
+This product integrates third-party software distributed under the following
+license families:
+  - Apache License 2.0
+  - Apache License 2.0 with LLVM Exception
+  - BSD 2-Clause "Simplified" License
+  - BSD 3-Clause "New" / "Revised" License
+  - MIT License
+
+Verbatim copies of every third-party license text used by this project are
+collected in the file `THIRD-PARTY-LICENSES` at the root of the repository.
+
+================================================================================
+Third-Party Software Attribution
+================================================================================
+
+The following third-party components are bundled with, derived from, or
+otherwise included in this product. Each entry lists the location(s) of the
+component within this repository, the verbatim upstream copyright notice(s)
+(extracted from the corresponding upstream LICENSE file), the license under
+which it is distributed, and the original-source URL.
+
+--------------------------------------------------------------------------------
+1. numba-cuda (BSD 2-Clause License)
+--------------------------------------------------------------------------------
+
+Locations in this repository:
+  - src/numba_cuda_mlir/numba_cuda/
+      (excluding src/numba_cuda_mlir/numba_cuda/cloudpickle/ and
+       src/numba_cuda_mlir/numba_cuda/misc/appdirs.py, which are listed separately
+       below)
+  - tests/numba_cuda_tests/
+  - cext/typeconv/
+  - cext/helperlib/
+  - cext/mviewbuf/
+
+Original copyright notices (verbatim from the upstream LICENSE file):
+
+  Copyright (c) 2012, Anaconda, Inc.
+  Copyright (c) 2024, NVIDIA CORPORATION.
+  All rights reserved.
+
+License:        BSD 2-Clause "Simplified" License
+Original URL:   https://github.com/NVIDIA/numba-cuda
+                (derived from https://github.com/numba/numba)
+
+For the full license text, see the "BSD 2-Clause License (numba-cuda / numba)"
+section of `THIRD-PARTY-LICENSES` at the root of the repository.
+
+--------------------------------------------------------------------------------
+2. cloudpickle (BSD 3-Clause License)
+--------------------------------------------------------------------------------
+
+Locations in this repository:
+  - src/numba_cuda_mlir/numba_cuda/cloudpickle/
+
+Original copyright notices (verbatim from the upstream LICENSE file):
+
+  This module was extracted from the `cloud` package, developed by
+  PiCloud, Inc.
+
+  Copyright (c) 2015, Cloudpickle contributors.
+  Copyright (c) 2012, Regents of the University of California.
+  Copyright (c) 2009 PiCloud, Inc. http://www.picloud.com.
+  All rights reserved.
+
+License:        BSD 3-Clause "New" / "Revised" License
+Original URL:   https://github.com/cloudpipe/cloudpickle
+
+For the full license text, see the "BSD 3-Clause License (cloudpickle)"
+section of `THIRD-PARTY-LICENSES` at the root of the repository.
+
+--------------------------------------------------------------------------------
+3. appdirs (MIT License)
+--------------------------------------------------------------------------------
+
+Locations in this repository:
+  - src/numba_cuda_mlir/numba_cuda/misc/appdirs.py
+
+Original copyright notices (verbatim from the upstream LICENSE file):
+
+  Copyright (c) 2010 ActiveState Software Inc.
+
+License:        MIT License
+Original URL:   https://github.com/ActiveState/appdirs
+
+For the full license text, see the "MIT License (appdirs)" section of
+`THIRD-PARTY-LICENSES` at the root of the repository.
+
+--------------------------------------------------------------------------------
+4. LLVM Project / EUDSL (Apache License 2.0 with LLVM Exception)
+--------------------------------------------------------------------------------
+
+Locations in this repository:
+  - src/numba_cuda_mlir/mlir/** modulo {dialect_exts/math.py, dialect_exts/llvm.py}
+  - scripts/generate-test-checks.py
+  - cext/mlir-llvm70/**
+
+Original copyright notices (verbatim from the upstream LICENSE file):
+
+  Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+  See https://llvm.org/LICENSE.txt for license information.
+  SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+  Legacy LLVM copyright (also reproduced in upstream LICENSE.txt):
+  Copyright (c) 2003-2019 University of Illinois at Urbana-Champaign.
+
+License:        Apache License 2.0 with LLVM Exception
+Original URL:   https://github.com/llvm/llvm-project
+                (files under src/numba_cuda_mlir/mlir/** are derived from the EUDSL
+                 subproject: https://github.com/llvm/eudsl)
+
+For the full license text, see the "Apache License 2.0 WITH LLVM-exception
+(LLVM)" section of `THIRD-PARTY-LICENSES` at the root of the repository.
+
+--------------------------------------------------------------------------------
+5. DLPack (Apache License 2.0)
+--------------------------------------------------------------------------------
+
+Locations in this repository:
+  - 3rdparty/dlpack/dlpack.h
+
+Original copyright notices (verbatim from the upstream LICENSE file):
+
+  Copyright 2017 by Contributors
+
+License:        Apache License 2.0
+Original URL:   https://github.com/dmlc/dlpack
+
+For the full license text, see the "Apache License 2.0 (DLPack)" section of
+`THIRD-PARTY-LICENSES` at the root of the repository.
+
+--------------------------------------------------------------------------------
+6. llm.py / llm.c (MIT License)
+--------------------------------------------------------------------------------
+
+Locations in this repository:
+  - tests/benchmarks/llm.py/llm.py
+  - tests/benchmarks/llm.py/prepro_tinyshakespeare.py
+  - tests/benchmarks/llm.py/train_gpt2.py
+
+The vendored Python sources are drawn verbatim (or with minimal adaptation)
+from aterrel/llm.py, which is itself a Python port of karpathy/llm.c. Both
+upstream projects are distributed under the MIT License and retain the
+original Andrej Karpathy copyright line unchanged.
+
+Original copyright notices (verbatim from the upstream LICENSE file):
+
+  Copyright (c) 2024 Andrej Karpathy
+
+License:        MIT License
+Original URL:   https://github.com/aterrel/llm.py
+                (Python port of https://github.com/karpathy/llm.c)
+
+For the full license text, see the "MIT License (llm.py / llm.c)" section of
+`THIRD-PARTY-LICENSES` at the root of the repository.

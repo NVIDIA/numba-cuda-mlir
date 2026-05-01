@@ -1,0 +1,121 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: BSD-2-Clause
+
+import numpy as np
+
+import numba_cuda_mlir
+from numba_cuda_mlir import cuda
+from numba_cuda_mlir.cuda import vectorize, guvectorize
+from numba_cuda_mlir.numba_cuda.np.numpy_support import from_dtype
+from numba_cuda_mlir.testing import NumbaCUDATestCase
+
+import pytest
+
+
+class TestCudaDateTime(NumbaCUDATestCase):
+    def test_basic_datetime_kernel(self):
+        @numba_cuda_mlir.jit
+        def foo(start, end, delta):
+            for i in range(cuda.grid(1), delta.size, cuda.gridsize(1)):
+                delta[i] = end[i] - start[i]
+
+        arr1 = np.arange("2005-02", "2006-02", dtype="datetime64[D]")
+        arr2 = arr1 + np.random.randint(0, 10000, arr1.size)
+        delta = np.zeros_like(arr1, dtype="timedelta64[D]")
+
+        foo[1, 32](arr1, arr2, delta)
+
+        self.assertPreciseEqual(delta, arr2 - arr1)
+
+    def test_scalar_datetime_kernel(self):
+        @numba_cuda_mlir.jit
+        def foo(dates, target, delta, matches, outdelta):
+            for i in range(cuda.grid(1), matches.size, cuda.gridsize(1)):
+                matches[i] = dates[i] == target
+                outdelta[i] = dates[i] - delta
+
+        arr1 = np.arange("2005-02", "2006-02", dtype="datetime64[D]")
+        target = arr1[5]  # datetime
+        delta = arr1[6] - arr1[5]  # timedelta
+        matches = np.zeros_like(arr1, dtype=np.bool_)
+        outdelta = np.zeros_like(arr1, dtype="datetime64[D]")
+
+        foo[1, 32](arr1, target, delta, matches, outdelta)
+        where = matches.nonzero()
+
+        self.assertEqual(list(where), [5])
+        self.assertPreciseEqual(outdelta, arr1 - delta)
+
+    @pytest.mark.xfail(True, reason="Vectorize not supported")
+    def test_ufunc(self):
+        datetime_t = from_dtype(np.dtype("datetime64[D]"))
+
+        @vectorize([(datetime_t, datetime_t)], target="cuda")
+        def timediff(start, end):
+            return end - start
+
+        arr1 = np.arange("2005-02", "2006-02", dtype="datetime64[D]")
+        arr2 = arr1 + np.random.randint(0, 10000, arr1.size)
+
+        delta = timediff(arr1, arr2)
+
+        self.assertPreciseEqual(delta, arr2 - arr1)
+
+    def test_datetime_cupy_inputs(self):
+        cp = pytest.importorskip(
+            "cupy",
+            minversion="14.0.0",
+            reason="requires CuPy >= 14 for datetime DLPack interop",
+        )
+        datetime_t = from_dtype(cp.dtype("datetime64[D]"))
+
+        @numba_cuda_mlir.jit
+        def assign(out, arr):
+            for i in range(arr.shape[0]):
+                out[i] = arr[i]
+
+        # CuPy doesn't allow constructing the datetime64[D] array directly
+        arr = cp.array(
+            np.arange("2005-02", "2006-02", dtype="datetime64[D]").view("int64")
+        ).view("datetime64[D]")
+
+        out = cp.empty(arr.size, dtype="float64").view("datetime64[D]")
+        assign[1, 1](out, arr)
+
+        self.assertPreciseEqual(arr.get(), out.get())
+
+    @pytest.mark.xfail(True, reason="GUVectorize not supported")
+    def test_gufunc(self):
+        datetime_t = from_dtype(np.dtype("datetime64[D]"))
+        timedelta_t = from_dtype(np.dtype("timedelta64[D]"))
+
+        @guvectorize(
+            [(datetime_t, datetime_t, timedelta_t[:])],
+            "(),()->()",
+            target="cuda",
+        )
+        def timediff(start, end, out):
+            out[0] = end - start
+
+        arr1 = np.arange("2005-02", "2006-02", dtype="datetime64[D]")
+        arr2 = arr1 + np.random.randint(0, 10000, arr1.size)
+
+        delta = timediff(arr1, arr2)
+
+        self.assertPreciseEqual(delta, arr2 - arr1)
+
+    def test_datetime_view_as_int64(self):
+        arr = np.arange("2005-02", "2006-02", dtype="datetime64[D]")
+        darr = cuda.to_device(arr)
+        viewed = darr.view(np.int64)
+        self.assertPreciseEqual(arr.view(np.int64), viewed.copy_to_host())
+        self.assertEqual(viewed.gpu_data, darr.gpu_data)
+
+    def test_timedelta_view_as_int64(self):
+        arr = np.arange("2005-02", "2006-02", dtype="datetime64[D]")
+        arr = arr - (arr - 1)
+        self.assertEqual(arr.dtype, np.dtype("timedelta64[D]"))
+        darr = cuda.to_device(arr)
+        viewed = darr.view(np.int64)
+        self.assertPreciseEqual(arr.view(np.int64), viewed.copy_to_host())
+        self.assertEqual(viewed.gpu_data, darr.gpu_data)

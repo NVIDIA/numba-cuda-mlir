@@ -1,0 +1,109 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = [
+    "setuptools",
+    "wheel",
+    "pip",
+    "ninja",
+    "cmake",
+    "pybind11",
+    "nanobind",
+    "numpy",
+]
+
+[project]
+name = "numba_cuda_mlir"
+dynamic = ["version",]
+description = "numba-cuda-mlir Python Compiler"
+readme = { file = "README.md", content-type = "text/markdown" }
+authors = [
+    { name = "NVIDIA Corporation" }
+]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = [
+    "numpy",
+    "tabulate",
+    "typeguard",
+    "cloudpickle",
+    "pytest",
+    "pytest-xdist",
+    "pytest-rerunfailures",
+    "pytest-benchmark",
+    "filecheck",
+    "nvidia-cuda-cuobjdump",
+    "cffi",
+    "ml-dtypes",
+]
+
+[project.optional-dependencies]
+cu12 = [
+    "cuda-cccl[cu12]",
+]
+cu13 = [
+    "cuda-cccl[cu13]",
+]
+dev = [
+    "pre-commit",
+    "black",
+]
+
+[project.urls]
+Homepage = "https://gitlab-master.nvidia.com/cuda-python/numba-cuda-mlir"
+Repository = "https://gitlab-master.nvidia.com/cuda-python/numba-cuda-mlir"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["numba_cuda_mlir", "numba_cuda_mlir*"]
+namespaces = true
+
+[tool.setuptools.package-dir]
+numba_cuda_mlir = "src/numba_cuda_mlir"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+"numba_cuda_mlir" = [
+    "lib/*.so",
+    "**/*.mlir",
+    "**/*.cu",
+    "**/*.cuh",
+    "**/*.pyi",
+    "VERSION",
+    "_mlir/**/*.so",
+    "_mlir/**/*.py",
+    "_mlir/**/*.pyi",
+]
+
+[tool.pytest.ini_options]
+testpaths = [ "tests" ]
+filterwarnings = [
+    "ignore:The CUDA driver version is older than the backend version:RuntimeWarning",
+    "ignore:Grid size.*will likely result in GPU under-utilization:",
+    "ignore:Host array used in CUDA kernel will incur copy overhead:",
+    "ignore:Numpy array was passed directly to numba-cuda-mlir kernel:",
+    "ignore:The cuda.core.experimental namespace is deprecated.:",
+    "ignore:invalid value encountered:",
+    "ignore:It is deprecated to return a value that is not None from a test case:",
+    "ignore:Benchmarks are automatically disabled because xdist:pytest_benchmark.logger.PytestBenchmarkWarning",
+]
+xfail_strict = true
+markers = [
+    "libdevice: Test cases for libdevice functions. They are flakey because of their use of `exec` and may need to be run on their own.",
+]
+addopts = [
+    "--reruns=3",
+    "--only-rerun=Call to cuMemAlloc results in CUDA_ERROR_ILLEGAL_ADDRESS",
+    "--ignore=tests/benchmarks/experimental",
+    "--ignore=tests/benchmarks/llm.py",
+    "--ignore=tests/experimental",
+]
+
+[project.scripts]
+numba-cuda-mlir-stubgen = "numba_cuda_mlir.tools:create_numba_cuda_stubs"
+numba-cuda-mlir-generate-libdevice-stubs = "numba_cuda_mlir.tools:generate_libdevice_stubs"
+numba-cuda-mlir-replace-numba-cuda = "numba_cuda_mlir.tools:replace_numba_cuda_in_numba_install"

@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: BSD-2-Clause
+
+"""CUDA Driver
+
+- Driver API binding
+- NVVM API binding
+- Device array implementation
+
+"""
+
+from numba_cuda_mlir.numba_cuda.core import config
+
+assert not config.ENABLE_CUDASIM, "Cannot use real driver API with simulator"

@@ -1,0 +1,430 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: BSD-2-Clause
+
+import re
+
+import numpy as np
+import numba_cuda_mlir
+from numba_cuda_mlir import cuda
+from numba_cuda_mlir.numba_cuda.types import int32, int64, float32, float64
+from numba_cuda_mlir.compiler import compile_ptx
+from numba_cuda_mlir.testing import NumbaCUDATestCase
+from numba_cuda_mlir.numba_cuda.core import errors
+import pytest
+
+
+def useful_syncwarp(ary):
+    i = cuda.grid(1)
+    if i == 0:
+        ary[0] = 42
+    cuda.syncwarp(0xFFFFFFFF)
+    ary[i] = ary[0]
+
+
+def use_shfl_sync_idx(ary, idx):
+    i = cuda.grid(1)
+    val = cuda.shfl_sync(0xFFFFFFFF, i, idx)
+    ary[i] = val
+
+
+def use_shfl_sync_up(ary, delta):
+    i = cuda.grid(1)
+    val = cuda.shfl_up_sync(0xFFFFFFFF, i, delta)
+    ary[i] = val
+
+
+def use_shfl_sync_down(ary, delta):
+    i = cuda.grid(1)
+    val = cuda.shfl_down_sync(0xFFFFFFFF, i, delta)
+    ary[i] = val
+
+
+def use_shfl_sync_xor(ary, xor):
+    i = cuda.grid(1)
+    val = cuda.shfl_xor_sync(0xFFFFFFFF, i, xor)
+    ary[i] = val
+
+
+def use_shfl_sync_with_val(ary, into):
+    i = cuda.grid(1)
+    val = cuda.shfl_sync(0xFFFFFFFF, into, 0)
+    ary[i] = val
+
+
+def use_vote_sync_all(ary_in, ary_out):
+    i = cuda.grid(1)
+    pred = cuda.all_sync(0xFFFFFFFF, ary_in[i])
+    ary_out[i] = pred
+
+
+def use_vote_sync_any(ary_in, ary_out):
+    i = cuda.grid(1)
+    pred = cuda.any_sync(0xFFFFFFFF, ary_in[i])
+    ary_out[i] = pred
+
+
+def use_vote_sync_eq(ary_in, ary_out):
+    i = cuda.grid(1)
+    pred = cuda.eq_sync(0xFFFFFFFF, ary_in[i])
+    ary_out[i] = pred
+
+
+def use_vote_sync_ballot(ary):
+    i = cuda.threadIdx.x
+    ballot = cuda.ballot_sync(0xFFFFFFFF, True)
+    ary[i] = ballot
+
+
+def use_match_any_sync(ary_in, ary_out):
+    i = cuda.grid(1)
+    ballot = cuda.match_any_sync(0xFFFFFFFF, ary_in[i])
+    ary_out[i] = ballot
+
+
+def use_match_all_sync(ary_in, ary_out):
+    i = cuda.grid(1)
+    ballot, pred = cuda.match_all_sync(0xFFFFFFFF, ary_in[i])
+    ary_out[i] = ballot if pred else 0
+
+
+def use_independent_scheduling(arr):
+    i = cuda.threadIdx.x
+    if i % 4 == 0:
+        ballot = cuda.ballot_sync(0x11111111, True)
+    elif i % 4 == 1:
+        ballot = cuda.ballot_sync(0x22222222, True)
+    elif i % 4 == 2:
+        ballot = cuda.ballot_sync(0x44444444, True)
+    elif i % 4 == 3:
+        ballot = cuda.ballot_sync(0x88888888, True)
+    arr[i] = ballot
+
+
+class TestCudaWarpOperations(NumbaCUDATestCase):
+    def test_useful_syncwarp(self):
+        compiled = numba_cuda_mlir.jit("void(int32[:])")(useful_syncwarp)
+        nelem = 32
+        ary = np.empty(nelem, dtype=np.int32)
+        compiled[1, nelem](ary)
+        self.assertTrue(np.all(ary == 42))
+
+    def test_shfl_sync_idx(self):
+        compiled = numba_cuda_mlir.jit("void(int32[:], int32)")(use_shfl_sync_idx)
+        nelem = 32
+        idx = 4
+        ary = np.empty(nelem, dtype=np.int32)
+        compiled[1, nelem](ary, idx)
+        self.assertTrue(np.all(ary == idx))
+
+    def test_shfl_sync_up(self):
+        compiled = numba_cuda_mlir.jit("void(int32[:], int32)")(use_shfl_sync_up)
+        nelem = 32
+        delta = 4
+        ary = np.empty(nelem, dtype=np.int32)
+        exp = np.arange(nelem, dtype=np.int32)
+        exp[delta:] -= delta
+        compiled[1, nelem](ary, delta)
+        self.assertTrue(np.all(ary == exp))
+
+    def test_shfl_sync_down(self):
+        compiled = numba_cuda_mlir.jit("void(int32[:], int32)")(use_shfl_sync_down)
+        nelem = 32
+        delta = 4
+        ary = np.empty(nelem, dtype=np.int32)
+        exp = np.arange(nelem, dtype=np.int32)
+        exp[:-delta] += delta
+        compiled[1, nelem](ary, delta)
+        self.assertTrue(np.all(ary == exp))
+
+    def test_shfl_sync_xor(self):
+        compiled = numba_cuda_mlir.jit("void(int32[:], int32)")(use_shfl_sync_xor)
+        nelem = 32
+        xor = 16
+        ary = np.empty(nelem, dtype=np.int32)
+        exp = np.arange(nelem, dtype=np.int32) ^ xor
+        compiled[1, nelem](ary, xor)
+        self.assertTrue(np.all(ary == exp))
+
+    @pytest.mark.xfail(True, reason="Uses inspect_llvm")
+    def test_shfl_sync_const_mode_val(self):
+        # Test `mode` argument is constant in shfl_sync calls.
+        # Related to https://github.com/NVIDIA/numba-cuda/pull/231
+        subtest = [
+            (use_shfl_sync_idx, 4),
+            (use_shfl_sync_up, 4),
+            (use_shfl_sync_down, 4),
+            (use_shfl_sync_xor, 16),
+        ]
+
+        args_re = r"\((.*)\)"
+        m = re.compile(args_re)
+
+        for func, value in subtest:
+            compiled = numba_cuda_mlir.jit("void(int32[:], int32)")(func)
+            nelem = 32
+            ary = np.empty(nelem, dtype=np.int32)
+            compiled[1, nelem](ary, value)
+            irs = next(iter(compiled.inspect_llvm().values()))
+
+            for ir in irs.split("\n"):
+                if "call" in ir and "llvm.nvvm.shfl.sync.i32" in ir:
+                    args = m.search(ir).group(0)
+                    arglist = args.split(",")
+                    mode_arg = arglist[1]
+                    self.assertNotIn("%", mode_arg)
+
+    def test_shfl_sync_const_mode_val_sm100(self):
+        # Test shfl_sync compiles with cc=(10, 0)
+        subtest = [
+            use_shfl_sync_idx,
+            use_shfl_sync_up,
+            use_shfl_sync_down,
+            use_shfl_sync_xor,
+        ]
+
+        for func in subtest:
+            compile_ptx(func, (int32[:], int32), cc=(10, 0))
+
+    @pytest.mark.xfail(True, reason="Assertion error")
+    def test_shfl_sync_types(self):
+        types = int32, int64, float32, float64
+        values = (
+            np.int32(-1),
+            np.int64(1 << 42),
+            np.float32(np.pi),
+            np.float64(np.pi),
+        )
+        for typ, val in zip(types, values):
+            compiled = numba_cuda_mlir.jit((typ[:], typ))(use_shfl_sync_with_val)
+            nelem = 32
+            ary = np.empty(nelem, dtype=val.dtype)
+            compiled[1, nelem](ary, val)
+            self.assertTrue(np.all(ary == val))
+
+    @pytest.mark.xfail(True, reason="Assertion error")
+    def test_vote_sync_const_mode_val(self):
+        nelem = 32
+        ary1 = np.ones(nelem, dtype=np.int32)
+        ary2 = np.empty(nelem, dtype=np.int32)
+
+        subtest = [
+            (use_vote_sync_all, "void(int32[:], int32[:])", (ary1, ary2)),
+            (use_vote_sync_any, "void(int32[:], int32[:])", (ary1, ary2)),
+            (use_vote_sync_eq, "void(int32[:], int32[:])", (ary1, ary2)),
+            (use_vote_sync_ballot, "void(uint32[:])", (ary2,)),
+        ]
+
+        args_re = r"\((.*)\)"
+        m = re.compile(args_re)
+
+        for func, sig, input in subtest:
+            compiled = numba_cuda_mlir.jit(sig)(func)
+            compiled[1, nelem](*input)
+            irs = next(iter(compiled.inspect_llvm().values()))
+
+            for ir in irs.split("\n"):
+                if "call" in ir and "llvm.nvvm.vote.sync" in ir:
+                    args = m.search(ir).group(0)
+                    arglist = args.split(",")
+                    mode_arg = arglist[1]
+                    self.assertNotIn("%", mode_arg)
+
+    def test_vote_sync_const_mode_val_sm100(self):
+        subtest = [
+            (use_vote_sync_all, "void(int32[:], int32[:])"),
+            (use_vote_sync_any, "void(int32[:], int32[:])"),
+            (use_vote_sync_eq, "void(int32[:], int32[:])"),
+            (use_vote_sync_ballot, "void(uint32[:])"),
+        ]
+
+        for func, sig in subtest:
+            compile_ptx(func, sig, cc=(10, 0))
+
+    @pytest.mark.xfail(True, reason="Assertion error")
+    def test_vote_sync_type_validation(self):
+        nelem = 32
+
+        def use_vote_sync_all_with_mask(mask, predicate, result):
+            i = cuda.grid(1)
+            if i < result.shape[0]:
+                result[i] = cuda.all_sync(mask[i], predicate[i])
+
+        invalid_cases = [
+            (
+                "void(float32[:], int32[:], int32[:])",
+                "Mask type must be an integer",
+            ),
+            (
+                "void(boolean[:], int32[:], int32[:])",
+                "Mask type must be an integer",
+            ),
+            (
+                "void(float64[:], int32[:], int32[:])",
+                "Mask type must be an integer",
+            ),
+            (
+                "void(int32[:], float32[:], int32[:])",
+                "Predicate must be an integer or boolean",
+            ),
+            (
+                "void(int32[:], float64[:], int32[:])",
+                "Predicate must be an integer or boolean",
+            ),
+        ]
+
+        for sig, expected_msg in invalid_cases:
+            with self.assertRaisesRegex(errors.TypingError, expected_msg):
+                numba_cuda_mlir.jit(sig)(use_vote_sync_all_with_mask)
+
+        valid_cases = [
+            # mask: unsigned/signed integer
+            # predicate: unsigned/signed integer, boolean
+            ("void(uint32[:], uint32[:], int32[:])", np.uint32, np.uint32),
+            ("void(int64[:], int64[:], int32[:])", np.int64, np.int64),
+            ("void(uint64[:], uint64[:], int32[:])", np.uint64, np.uint64),
+            ("void(int32[:], int32[:], int32[:])", np.int32, np.int32),
+            ("void(uint32[:], boolean[:], int32[:])", np.uint32, np.bool_),
+            ("void(uint64[:], boolean[:], int32[:])", np.uint64, np.bool_),
+        ]
+
+        for sig, mask_dtype, pred_dtype in valid_cases:
+            mask_val = (~np.array(0, dtype=mask_dtype)).item()
+            compiled = numba_cuda_mlir.jit(sig)(use_vote_sync_all_with_mask)
+            ary_mask = np.full(nelem, mask_val, dtype=mask_dtype)
+            ary_pred = np.ones(nelem, dtype=pred_dtype)
+            ary_result = np.empty(nelem, dtype=np.int32)
+            compiled[1, nelem](ary_mask, ary_pred, ary_result)
+
+        # literals
+        @numba_cuda_mlir.jit
+        def use_vote_sync_all_with_literal(result):
+            i = cuda.grid(1)
+            if i < result.shape[0]:
+                result[i] = cuda.all_sync(0xFFFFFFFF, 1)
+
+        ary_result = np.empty(nelem, dtype=np.int32)
+        use_vote_sync_all_with_literal[1, nelem](ary_result)
+
+        @numba_cuda_mlir.jit
+        def use_vote_sync_all_with_predicate_literal(mask, result):
+            i = cuda.grid(1)
+            if i < mask.shape[0]:
+                result[i] = cuda.all_sync(mask[i], 1)
+
+        ary_mask = np.full(nelem, 0xFFFFFFFF, dtype=np.uint32)
+        ary_result = np.empty(nelem, dtype=np.int32)
+        use_vote_sync_all_with_predicate_literal[1, nelem](ary_mask, ary_result)
+
+    def test_vote_sync_all(self):
+        compiled = numba_cuda_mlir.jit("void(int32[:], int32[:])")(use_vote_sync_all)
+        nelem = 32
+        ary_in = np.ones(nelem, dtype=np.int32)
+        ary_out = np.empty(nelem, dtype=np.int32)
+        compiled[1, nelem](ary_in, ary_out)
+        self.assertTrue(np.all(ary_out == 1))
+        ary_in[-1] = 0
+        compiled[1, nelem](ary_in, ary_out)
+        self.assertTrue(np.all(ary_out == 0))
+
+    def test_vote_sync_any(self):
+        compiled = numba_cuda_mlir.jit("void(int32[:], int32[:])")(use_vote_sync_any)
+        nelem = 32
+        ary_in = np.zeros(nelem, dtype=np.int32)
+        ary_out = np.empty(nelem, dtype=np.int32)
+        compiled[1, nelem](ary_in, ary_out)
+        self.assertTrue(np.all(ary_out == 0))
+        ary_in[2] = 1
+        ary_in[5] = 1
+        compiled[1, nelem](ary_in, ary_out)
+        self.assertTrue(np.all(ary_out == 1))
+
+    def test_vote_sync_eq(self):
+        compiled = numba_cuda_mlir.jit("void(int32[:], int32[:])")(use_vote_sync_eq)
+        nelem = 32
+        ary_in = np.zeros(nelem, dtype=np.int32)
+        ary_out = np.empty(nelem, dtype=np.int32)
+        compiled[1, nelem](ary_in, ary_out)
+        self.assertTrue(np.all(ary_out == 1))
+        ary_in[1] = 1
+        compiled[1, nelem](ary_in, ary_out)
+        self.assertTrue(np.all(ary_out == 0))
+        ary_in[:] = 1
+        compiled[1, nelem](ary_in, ary_out)
+        self.assertTrue(np.all(ary_out == 1))
+
+    def test_vote_sync_ballot(self):
+        compiled = numba_cuda_mlir.jit("void(uint32[:])")(use_vote_sync_ballot)
+        nelem = 32
+        ary = np.empty(nelem, dtype=np.uint32)
+        compiled[1, nelem](ary)
+        self.assertTrue(np.all(ary == np.uint32(0xFFFFFFFF)))
+
+    def test_match_any_sync(self):
+        compiled = numba_cuda_mlir.jit("void(int32[:], int32[:])")(use_match_any_sync)
+        nelem = 10
+        ary_in = np.arange(nelem, dtype=np.int32) % 2
+        ary_out = np.empty(nelem, dtype=np.int32)
+        exp = np.tile((0b0101010101, 0b1010101010), 5)
+        compiled[1, nelem](ary_in, ary_out)
+        self.assertTrue(np.all(ary_out == exp))
+
+    def test_match_all_sync(self):
+        compiled = numba_cuda_mlir.jit("void(int32[:], int32[:])")(use_match_all_sync)
+        nelem = 10
+        ary_in = np.zeros(nelem, dtype=np.int32)
+        ary_out = np.empty(nelem, dtype=np.int32)
+        compiled[1, nelem](ary_in, ary_out)
+        self.assertTrue(np.all(ary_out == 0b1111111111))
+        ary_in[1] = 4
+        compiled[1, nelem](ary_in, ary_out)
+        self.assertTrue(np.all(ary_out == 0))
+
+    def test_independent_scheduling(self):
+        compiled = numba_cuda_mlir.jit("void(uint32[:])")(use_independent_scheduling)
+        arr = np.empty(32, dtype=np.uint32)
+        exp = np.tile((0x11111111, 0x22222222, 0x44444444, 0x88888888), 8)
+        compiled[1, 32](arr)
+        self.assertTrue(np.all(arr == exp))
+
+    @pytest.mark.xfail(True, reason="Assertion error")
+    def test_activemask(self):
+        @numba_cuda_mlir.jit
+        def use_activemask(x):
+            i = cuda.grid(1)
+            if (i % 2) == 0:
+                # Even numbered threads fill in even numbered array entries
+                # with binary "...01010101"
+                x[i] = cuda.activemask()
+            else:
+                # Odd numbered threads fill in odd numbered array entries
+                # with binary "...10101010"
+                x[i] = cuda.activemask()
+
+        out = np.zeros(32, dtype=np.uint32)
+        use_activemask[1, 32](out)
+
+        # 0x5 = 0101: The pattern from even-numbered threads
+        # 0xA = 1010: The pattern from odd-numbered threads
+        expected = np.tile((0x55555555, 0xAAAAAAAA), 16)
+        np.testing.assert_equal(expected, out)
+
+    @pytest.mark.xfail(True, reason="Lanemask not implemented")
+    def test_lanemask_lt(self):
+        @numba_cuda_mlir.jit
+        def use_lanemask_lt(x):
+            i = cuda.grid(1)
+            x[i] = cuda.lanemask_lt()
+
+        out = np.zeros(32, dtype=np.uint32)
+        use_lanemask_lt[1, 32](out)
+
+        # A string of 1s that grows from the LSB for each entry:
+        # 0, 1, 3, 7, F, 1F, 3F, 7F, FF, 1FF, etc.
+        # or in binary:
+        # ...0001, ....0011, ...0111, etc.
+        expected = np.asarray([(2**i) - 1 for i in range(32)], dtype=np.uint32)
+        np.testing.assert_equal(expected, out)
+
+
+if __name__ == "__main__":
+    unittest.main()

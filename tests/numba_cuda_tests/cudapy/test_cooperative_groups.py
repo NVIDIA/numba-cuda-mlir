@@ -1,0 +1,163 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: BSD-2-Clause
+
+from __future__ import print_function
+
+import os
+
+import cffi
+
+import numpy as np
+
+import numba_cuda_mlir
+from numba_cuda_mlir import cuda
+from numba_cuda_mlir.numba_cuda.types import CPointer, int32
+from numba_cuda_mlir.testing import NumbaCUDATestCase
+from numba_cuda_mlir.numba_cuda.typing import signature
+import pytest
+
+ffi = cffi.FFI()
+
+
+@numba_cuda_mlir.jit
+def this_grid(A):
+    cuda.cg.this_grid()
+    A[0] = 1.0
+
+
+@numba_cuda_mlir.jit
+def sync_group(A):
+    g = cuda.cg.this_grid()
+    g.sync()
+    A[0] = 1.0
+
+
+@numba_cuda_mlir.jit
+def no_sync(A):
+    A[0] = cuda.grid(1)
+
+
+def sequential_rows(M):
+    # The grid writes rows one at a time. Each thread reads an element from
+    # the previous row written by its "opposite" thread.
+    #
+    # A failure to sync the grid at each row would result in an incorrect
+    # result as some threads could run ahead of threads in other blocks, or
+    # fail to see the update to the previous row from their opposite thread.
+
+    col = cuda.grid(1)
+    g = cuda.cg.this_grid()
+
+    rows = M.shape[0]
+    cols = M.shape[1]
+
+    for row in range(1, rows):
+        opposite = cols - col - 1
+        M[row, col] = M[row - 1, opposite] + 1
+        g.sync()
+
+
+class TestCudaCooperativeGroups(NumbaCUDATestCase):
+    def test_this_grid(self):
+        A = np.full(1, fill_value=np.nan)
+        this_grid[1, 1](A)
+
+        # Ensure the kernel executed beyond the call to cuda.this_grid()
+        self.assertFalse(np.isnan(A[0]), "Value was not set")
+
+    def test_this_grid_is_cooperative(self):
+        A = np.full(1, fill_value=np.nan)
+        this_grid[1, 1](A)
+
+        # this_grid should have been determined to be cooperative
+        for key, overload in this_grid.overloads.items():
+            self.assertTrue(overload.cooperative)
+
+    def test_sync_group(self):
+        A = np.full(1, fill_value=np.nan)
+        sync_group[1, 1](A)
+
+        # Ensure the kernel executed beyond the call to cuda.sync_group()
+        self.assertFalse(np.isnan(A[0]), "Value was not set")
+
+    def test_sync_group_is_cooperative(self):
+        A = np.full(1, fill_value=np.nan)
+        sync_group[1, 1](A)
+        # sync_group should have been determined to be cooperative
+        for key, overload in sync_group.overloads.items():
+            self.assertTrue(overload.cooperative)
+
+    @pytest.mark.xfail(True, reason="CodeLibrary implementation detail")
+    def test_false_cooperative_doesnt_link_cudadevrt(self):
+        """
+        We should only mark a kernel as cooperative and link cudadevrt if the
+        kernel uses grid sync. Here we ensure that one that doesn't use grid
+        synsync isn't marked as such.
+        """
+        A = np.full(1, fill_value=np.nan)
+        no_sync[1, 1](A)
+
+        for key, overload in no_sync.overloads.items():
+            self.assertFalse(overload.cooperative)
+            for link in overload._codelibrary._linking_files:
+                self.assertNotIn("cudadevrt", link)
+
+    def test_sync_at_matrix_row(self):
+        shape = (1024, 1024)
+        A = np.zeros(shape, dtype=np.int32)
+        blockdim = 32
+        griddim = A.shape[1] // blockdim
+
+        sig = (int32[:, ::1],)
+        c_sequential_rows = numba_cuda_mlir.jit(sig)(sequential_rows)
+
+        overload = c_sequential_rows.overloads[sig]
+        mb = overload.max_cooperative_grid_blocks(blockdim)
+        if griddim > mb:
+            self.skipTest("GPU cannot support enough cooperative grid blocks")
+
+        c_sequential_rows[griddim, blockdim](A)
+
+        reference = np.tile(np.arange(shape[0]), (shape[1], 1)).T
+        np.testing.assert_equal(A, reference)
+
+    def test_max_cooperative_grid_blocks(self):
+        # The maximum number of blocks will vary based on the device so we
+        # can't test for an expected value, but we can check that the function
+        # doesn't error, and that varying the number of dimensions of the block
+        # whilst keeping the total number of threads constant doesn't change
+        # the maximum to validate some of the logic.
+        sig = (int32[:, ::1],)
+        c_sequential_rows = numba_cuda_mlir.jit(sig)(sequential_rows)
+        overload = c_sequential_rows.overloads[sig]
+        blocks1d = overload.max_cooperative_grid_blocks(256)
+        blocks2d = overload.max_cooperative_grid_blocks((16, 16))
+        blocks3d = overload.max_cooperative_grid_blocks((16, 4, 4))
+        self.assertEqual(blocks1d, blocks2d)
+        self.assertEqual(blocks1d, blocks3d)
+
+    def test_external_cooperative_func(self):
+        cudapy_test_path = os.path.dirname(__file__)
+        tests_path = os.path.dirname(cudapy_test_path)
+        data_path = os.path.join(tests_path, "data")
+        src = os.path.join(data_path, "cta_barrier.cu")
+
+        sig = signature(
+            CPointer(int32),
+        )
+        cta_barrier = cuda.declare_device(
+            "cta_barrier", sig=sig, link=[src], use_cooperative=True
+        )
+
+        @numba_cuda_mlir.jit("void()")
+        def kernel():
+            cta_barrier()
+
+        overload = kernel.overloads[()]
+        block_size = 32
+        grid_size = overload.max_cooperative_grid_blocks(block_size)
+
+        kernel[grid_size, block_size]()
+
+        overload = kernel.overloads[()]
+        self.assertTrue(overload.cooperative)

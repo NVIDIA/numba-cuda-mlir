@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
 //===- LLVM70Target.cpp - MLIR → old LLVM IR → PTX via C API -----*- C++ -*-===//
-// 
+//
 //===----------------------------------------------------------------------===//
 
 #include "llvm70/LLVM70Target.h"

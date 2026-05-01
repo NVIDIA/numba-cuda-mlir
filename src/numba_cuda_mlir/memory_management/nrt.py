@@ -60,11 +60,7 @@ def _get_cache_path(cc: tuple[int, int], ltoir: bool) -> Path:
 
     rt_ver = get_cuda_runtime_version()
     suffix = "ltoir" if ltoir else "ptx"
-    filename = (
-        f"nrt_cuda{rt_ver[0]}{rt_ver[1]}"
-        f"_sm{cc[0]}{cc[1]}"
-        f"_{_get_source_hash()}.{suffix}"
-    )
+    filename = f"nrt_cuda{rt_ver[0]}{rt_ver[1]}_sm{cc[0]}{cc[1]}_{_get_source_hash()}.{suffix}"
     return _get_cache_dir() / filename
 
 

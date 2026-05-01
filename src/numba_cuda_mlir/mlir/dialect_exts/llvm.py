@@ -16,9 +16,7 @@ def insertvalue(container, value, position, **kwargs):
         position = ir.DenseI64ArrayAttr.get([position])
     elif isinstance(position, (list, tuple)):
         position = ir.DenseI64ArrayAttr.get(list(position))
-    return _llvm.insertvalue(
-        container=container, value=value, position=position, **kwargs
-    )
+    return _llvm.insertvalue(container=container, value=value, position=position, **kwargs)
 
 
 def addressof(global_name, *, res=None, loc=None, ip=None):

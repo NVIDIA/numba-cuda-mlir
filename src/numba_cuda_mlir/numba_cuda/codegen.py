@@ -306,9 +306,7 @@ class CUDACodeLibrary(serialize.ReduceMixin, CodeLibrary):
         for path in self._linking_files:
             linker.add_file_guess_ext(path, ignore_nonlto)
         if self.needs_cudadevrt:
-            linker.add_file_guess_ext(
-                get_cudalib("cudadevrt", static=True), ignore_nonlto
-            )
+            linker.add_file_guess_ext(get_cudalib("cudadevrt", static=True), ignore_nonlto)
 
     def get_cubin(self, cc=None):
         cc = self._ensure_cc(cc)
@@ -335,10 +333,7 @@ class CUDACodeLibrary(serialize.ReduceMixin, CodeLibrary):
 
     def get_cufunc(self):
         if self._entry_name is None:
-            msg = (
-                "Missing entry_name - are you trying to get the cufunc "
-                "for a device function?"
-            )
+            msg = "Missing entry_name - are you trying to get the cufunc for a device function?"
             raise RuntimeError(msg)
 
         ctx = devices.get_context()
@@ -348,9 +343,7 @@ class CUDACodeLibrary(serialize.ReduceMixin, CodeLibrary):
         if cufunc:
             return cufunc
         cubin = self.get_cubin()
-        module = ctx.create_module_image(
-            cubin, self._setup_functions, self._teardown_functions
-        )
+        module = ctx.create_module_image(cubin, self._setup_functions, self._teardown_functions)
 
         # Load
         cufunc = module.get_function(self._entry_name)
@@ -410,9 +403,7 @@ class CUDACodeLibrary(serialize.ReduceMixin, CodeLibrary):
 
     @property
     def modules(self):
-        return [self._module] + [
-            mod for lib in self._linking_libraries for mod in lib.modules
-        ]
+        return [self._module] + [mod for lib in self._linking_libraries for mod in lib.modules]
 
     @property
     def linking_libraries(self):

@@ -11,9 +11,7 @@ import numpy as np
 Extent = namedtuple("Extent", ["begin", "end"])
 
 
-def attempt_nocopy_reshape(
-    nd, dims, strides, newnd, newdims, newstrides, itemsize, is_f_order
-):
+def attempt_nocopy_reshape(nd, dims, strides, newnd, newdims, newstrides, itemsize, is_f_order):
     """
     Attempt to reshape an array without copying data.
 
@@ -407,9 +405,7 @@ class Array:
                 raise ValueError("cannot infer valid shape for unknown dimension")
             else:
                 newdims = (
-                    newdims[0:unknownidx]
-                    + (self.size // knownsize,)
-                    + newdims[unknownidx + 1 :]
+                    newdims[0:unknownidx] + (self.size // knownsize,) + newdims[unknownidx + 1 :]
                 )
 
         newsize = functools.reduce(operator.mul, newdims, 1)
@@ -464,8 +460,7 @@ class Array:
             for ax in axis:
                 if self.shape[ax] != 1:
                     raise ValueError(
-                        "cannot select an axis to squeeze out which has size "
-                        "not equal to one"
+                        "cannot select an axis to squeeze out which has size not equal to one"
                     )
             for i, (length, stride) in enumerate(zip(self.shape, self.strides)):
                 if i not in axis:

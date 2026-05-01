@@ -199,9 +199,7 @@ class ConstevalTransformer(ast.NodeTransformer):
 
         # Check for annotated assignment: name: type = consteval(...)
         if isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
-            if isinstance(stmt.target, ast.Name) and self._is_consteval_call(
-                stmt.value
-            ):
+            if isinstance(stmt.target, ast.Name) and self._is_consteval_call(stmt.value):
                 transformed = self._transform_consteval(stmt.value)
                 value = self._get_consteval_value(transformed)
                 if value is not None:
@@ -322,9 +320,7 @@ class ConstevalTransformer(ast.NodeTransformer):
                 exec_globals.update(exec_locals)
             except Exception as e:
                 raise ConstevalError(
-                    f"Error executing consteval block statement:\n"
-                    f"  {stmt_source}\n"
-                    f"Error: {e}"
+                    f"Error executing consteval block statement:\n  {stmt_source}\nError: {e}"
                 ) from e
 
         # Track all variables defined in the block for use in subsequent consteval() calls
@@ -410,9 +406,7 @@ class ConstevalPass(ASTTransformPass):
     def name(self) -> str:
         return "Consteval"
 
-    def transform(
-        self, tree: ast.Module, context: TransformContext
-    ) -> tuple[ast.Module, bool]:
+    def transform(self, tree: ast.Module, context: TransformContext) -> tuple[ast.Module, bool]:
         tree, modified, stored_values = transform_consteval(
             context.func, tree, context.targetoptions, context.argtypes
         )

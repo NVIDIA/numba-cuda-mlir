@@ -212,9 +212,7 @@ class ThreadLocalStack:
     def __init_subclass__(cls, *, stack_name, **kwargs):
         super().__init_subclass__(**kwargs)
         # Register stack_name mapping to the new subclass
-        assert (
-            stack_name not in cls._registered
-        ), f"stack_name: '{stack_name}' already in use"
+        assert stack_name not in cls._registered, f"stack_name: '{stack_name}' already in use"
         cls.stack_name = stack_name
         cls._registered[stack_name] = cls
 
@@ -343,7 +341,7 @@ def order_by_target_specificity(templates, fnkey=""):
     order = [x[0] for x in sorted(usable, key=key)]
 
     if not order:
-        msg = f"Function resolution cannot find any matches for function " f"'{fnkey}'."
+        msg = f"Function resolution cannot find any matches for function '{fnkey}'."
         from numba_cuda_mlir.numba_cuda.core.errors import UnsupportedError
 
         raise UnsupportedError(msg)

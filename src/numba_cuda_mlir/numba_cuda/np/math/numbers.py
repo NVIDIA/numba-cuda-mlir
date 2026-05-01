@@ -168,9 +168,7 @@ def int_divmod_impl(context, builder, sig, args):
 # @lower_builtin(operator.floordiv, types.Integer, types.Integer)
 # @lower_builtin(operator.ifloordiv, types.Integer, types.Integer)
 def int_floordiv_impl(context, builder, sig, args):
-    quot, rem = _int_divmod_impl(
-        context, builder, sig, args, "integer division by zero"
-    )
+    quot, rem = _int_divmod_impl(context, builder, sig, args, "integer division by zero")
     return builder.load(quot)
 
 
@@ -195,10 +193,7 @@ def int_rem_impl(context, builder, sig, args):
 
 
 def _get_power_zerodiv_return(context, return_type):
-    if (
-        isinstance(return_type, types.Integer)
-        and not context.error_model.raise_on_fp_zero_division
-    ):
+    if isinstance(return_type, types.Integer) and not context.error_model.raise_on_fp_zero_division:
         # If not raising, return 0x8000... when computing 0 ** <negative number>
         return -1 << (return_type.bitwidth - 1)
     else:
@@ -227,9 +222,7 @@ def int_power_impl(context, builder, sig, args):
                     if zerodiv_return:
                         return zerodiv_return
                     else:
-                        raise ZeroDivisionError(
-                            "0 cannot be raised to a negative power"
-                        )
+                        raise ZeroDivisionError("0 cannot be raised to a negative power")
                 if a != 1 and a != -1:
                     return 0
         else:
@@ -297,9 +290,7 @@ def static_power_impl(context, builder, sig, args):
                     if zerodiv_return:
                         return zerodiv_return
                     else:
-                        raise ZeroDivisionError(
-                            "0 cannot be raised to a negative power"
-                        )
+                        raise ZeroDivisionError("0 cannot be raised to a negative power")
                 if a != 1 and a != -1:
                     return 0
                 else:
@@ -310,9 +301,7 @@ def static_power_impl(context, builder, sig, args):
             def invert_impl(a):
                 return 1.0 / a
 
-        res = context.compile_internal(
-            builder, invert_impl, typing.signature(tp, tp), (res,)
-        )
+        res = context.compile_internal(builder, invert_impl, typing.signature(tp, tp), (res,))
 
     return res
 
@@ -789,9 +778,7 @@ def real_divmod_impl(context, builder, sig, args, loc=None):
         if_non_zero,
     ):
         with if_zero:
-            if not context.error_model.fp_zero_division(
-                builder, ("modulo by zero",), loc
-            ):
+            if not context.error_model.fp_zero_division(builder, ("modulo by zero",), loc):
                 # No exception raised => compute the nan result,
                 # and set the FP exception word for Numpy warnings.
                 q = builder.fdiv(x, y)
@@ -814,9 +801,7 @@ def real_mod_impl(context, builder, sig, args, loc=None):
         if_non_zero,
     ):
         with if_zero:
-            if not context.error_model.fp_zero_division(
-                builder, ("modulo by zero",), loc
-            ):
+            if not context.error_model.fp_zero_division(builder, ("modulo by zero",), loc):
                 # No exception raised => compute the nan result,
                 # and set the FP exception word for Numpy warnings.
                 rem = builder.frem(x, y)
@@ -835,9 +820,7 @@ def real_floordiv_impl(context, builder, sig, args, loc=None):
         if_non_zero,
     ):
         with if_zero:
-            if not context.error_model.fp_zero_division(
-                builder, ("division by zero",), loc
-            ):
+            if not context.error_model.fp_zero_division(builder, ("division by zero",), loc):
                 # No exception raised => compute the +/-inf or nan result,
                 # and set the FP exception word for Numpy warnings.
                 quot = builder.fdiv(x, y)
@@ -1135,9 +1118,7 @@ def complex_div_impl(context, builder, sig, args):
                 return complex(NAN, NAN)
             ratio = bimag / breal
             denom = breal + bimag * ratio
-            return complex(
-                (areal + aimag * ratio) / denom, (aimag - areal * ratio) / denom
-            )
+            return complex((areal + aimag * ratio) / denom, (aimag - areal * ratio) / denom)
         else:
             # Divide tops and bottom by b.imag
             if not bimag:
@@ -1436,8 +1417,7 @@ def scalar_view(scalar, viewty):
     ):
         if scalar.bitwidth != viewty.dtype.bitwidth:
             raise errors.TypingError(
-                "Changing the dtype of a 0d array is only supported if the "
-                "itemsize is unchanged"
+                "Changing the dtype of a 0d array is only supported if the itemsize is unchanged"
             )
 
         def impl(scalar, viewty):

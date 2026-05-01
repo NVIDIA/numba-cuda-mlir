@@ -241,9 +241,7 @@ class TestExtending(NumbaCUDATestCase):
 
 class TestExtendingLinkage(NumbaCUDATestCase):
     @pytest.mark.xfail(True, reason="NVVM verify error")
-    @pytest.mark.numba_cuda_test_binaries(
-        "a", "cubin", "cu", "fatbin", "o", "ptx", "ltoir"
-    )
+    @pytest.mark.numba_cuda_test_binaries("a", "cubin", "cu", "fatbin", "o", "ptx", "ltoir")
     def test_extension_adds_linkable_code(self):
         binaries = self.numba_cuda_test_binaries
         files = (

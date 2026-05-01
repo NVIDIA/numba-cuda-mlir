@@ -197,9 +197,7 @@ class TestLinker(NumbaCUDATestCase):
         # Check the warning refers to the log messages
         self.assertIn("NVRTC log messages", str(nvrtc_log_warnings[0].message))
         # Check the message pertaining to the unused variable is provided
-        self.assertIn(
-            "declared but never referenced", str(nvrtc_log_warnings[0].message)
-        )
+        self.assertIn("declared but never referenced", str(nvrtc_log_warnings[0].message))
 
     def test_linking_cu_error(self):
         bar = cuda.declare_device("bar", "int32(int32)")
@@ -304,9 +302,7 @@ class TestLinker(NumbaCUDATestCase):
 
     def test_get_shared_mem_per_specialized(self):
         compiled = cuda.jit(simple_smem)
-        compiled_specialized = compiled.specialize(
-            np.zeros(100, dtype=np.int32), np.float64
-        )
+        compiled_specialized = compiled.specialize(np.zeros(100, dtype=np.int32), np.float64)
         shared_mem_size = compiled_specialized.get_shared_mem_per_block()
         self.assertEqual(shared_mem_size, 800)
 

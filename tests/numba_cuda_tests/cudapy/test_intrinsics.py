@@ -636,9 +636,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         np.testing.assert_allclose(ary[0], ref, rtol=self.FLOAT16_RTOL)
 
     def test_hadd_ptx(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2, f2)", lto=True)(
-            simple_hadd_scalar
-        )
+        compiled = numba_cuda_mlir.jit("void(f2[:], f2, f2)", lto=True)(simple_hadd_scalar)
         args = (f2[:], f2, f2)
         ptx = compiled.inspect_lto_ptx(args)
         self.assertIn("add.f16", ptx)
@@ -664,9 +662,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Bitcode parsing error")
     def test_hfma_ptx(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2, f2, f2)", lto=True)(
-            simple_hfma_scalar
-        )
+        compiled = numba_cuda_mlir.jit("void(f2[:], f2, f2, f2)", lto=True)(simple_hfma_scalar)
         args = (f2[:], f2, f2, f2)
         ptx = compiled.inspect_lto_ptx(args)
         self.assertIn("fma.rn.f16", ptx)
@@ -689,9 +685,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         np.testing.assert_allclose(ary[0], ref, rtol=self.FLOAT16_RTOL)
 
     def test_hsub_ptx(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2, f2)", lto=True)(
-            simple_hsub_scalar
-        )
+        compiled = numba_cuda_mlir.jit("void(f2[:], f2, f2)", lto=True)(simple_hsub_scalar)
         args = (f2[:], f2, f2)
         ptx = compiled.inspect_lto_ptx(args)
         self.assertIn("sub.f16", ptx)
@@ -714,9 +708,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         np.testing.assert_allclose(ary[0], ref, rtol=self.FLOAT16_RTOL)
 
     def test_hmul_ptx(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2, f2)", lto=True)(
-            simple_hmul_scalar
-        )
+        compiled = numba_cuda_mlir.jit("void(f2[:], f2, f2)", lto=True)(simple_hmul_scalar)
         args = (f2[:], f2, f2)
         ptx = compiled.inspect_lto_ptx(args)
         self.assertIn("mul.f16", ptx)
@@ -1068,9 +1060,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
             self.assertEqual(ary[0], round(i))
 
     def test_round_to_f4(self):
-        compiled = numba_cuda_mlir.jit("void(float32[:], float32, int32)")(
-            simple_round_to
-        )
+        compiled = numba_cuda_mlir.jit("void(float32[:], float32, int32)")(simple_round_to)
         ary = np.zeros(1, dtype=np.float32)
         np.random.seed(123)
         vals = np.random.random(32).astype(np.float32)
@@ -1101,9 +1091,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
     def test_round_to_f4_overflow(self):
         # Test that the input value is returned when y in round_ndigits
         # overflows.
-        compiled = numba_cuda_mlir.jit("void(float32[:], float32, int32)")(
-            simple_round_to
-        )
+        compiled = numba_cuda_mlir.jit("void(float32[:], float32, int32)")(simple_round_to)
         ary = np.zeros(1, dtype=np.float32)
         val = np.finfo(np.float32).max
         # An unusually large number of digits is required to hit the "y
@@ -1115,9 +1103,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Incorrect result")
     def test_round_to_f4_halfway(self):
-        compiled = numba_cuda_mlir.jit("void(float32[:], float32, int32)")(
-            simple_round_to
-        )
+        compiled = numba_cuda_mlir.jit("void(float32[:], float32, int32)")(simple_round_to)
         ary = np.zeros(1, dtype=np.float32)
         # Value chosen to trigger the "round to even" branch of the
         # implementation
@@ -1127,9 +1113,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         self.assertPreciseEqual(ary[0], round(val, ndigits), prec="single")
 
     def test_round_to_f8(self):
-        compiled = numba_cuda_mlir.jit("void(float64[:], float64, int32)")(
-            simple_round_to
-        )
+        compiled = numba_cuda_mlir.jit("void(float64[:], float64, int32)")(simple_round_to)
         ary = np.zeros(1, dtype=np.float64)
         np.random.seed(123)
         vals = np.random.random(32)
@@ -1149,9 +1133,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
     def test_round_to_f8_overflow(self):
         # Test that the input value is returned when y in round_ndigits
         # overflows.
-        compiled = numba_cuda_mlir.jit("void(float64[:], float64, int32)")(
-            simple_round_to
-        )
+        compiled = numba_cuda_mlir.jit("void(float64[:], float64, int32)")(simple_round_to)
         ary = np.zeros(1, dtype=np.float64)
         val = np.finfo(np.float64).max
         # Unlike test_round_to_f4_overflow, a reasonable number of digits can
@@ -1161,9 +1143,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         self.assertEqual(ary[0], val)
 
     def test_round_to_f8_halfway(self):
-        compiled = numba_cuda_mlir.jit("void(float64[:], float64, int32)")(
-            simple_round_to
-        )
+        compiled = numba_cuda_mlir.jit("void(float64[:], float64, int32)")(simple_round_to)
         ary = np.zeros(1, dtype=np.float64)
         # Value chosen to trigger the "round to even" branch of the
         # implementation, with a value that is not exactly representable with a

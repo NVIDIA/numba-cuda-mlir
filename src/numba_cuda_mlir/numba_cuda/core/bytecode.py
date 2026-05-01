@@ -26,9 +26,7 @@ else:
 
 
 opcode_info = namedtuple("opcode_info", ["argsize"])
-_ExceptionTableEntry = namedtuple(
-    "_ExceptionTableEntry", "start end target depth lasti"
-)
+_ExceptionTableEntry = namedtuple("_ExceptionTableEntry", "start end target depth lasti")
 
 # The following offset is used as a hack to inject a NOP at the start of the
 # bytecode. So that function starting with `while True` will not have block-0
@@ -181,10 +179,7 @@ OPCODE_NOP = dis.opname.index("NOP")
 if PYVERSION in ((3, 13), (3, 14)):
 
     def _unpack_opargs(code):
-        buf = [
-            (start_offset, op, arg)
-            for _, start_offset, op, arg in dis._unpack_opargs(code)
-        ]
+        buf = [(start_offset, op, arg) for _, start_offset, op, arg in dis._unpack_opargs(code)]
         for i, (start_offset, op, arg) in enumerate(buf):
             if i + 1 < len(buf):
                 next_offset = buf[i + 1][0]
@@ -284,9 +279,7 @@ class ByteCodeIter:
 
     def next(self):
         offset, opcode, arg, nextoffset = self._fetch_opcode()
-        return offset, ByteCodeInst(
-            offset=offset, opcode=opcode, arg=arg, nextoffset=nextoffset
-        )
+        return offset, ByteCodeInst(offset=offset, opcode=opcode, arg=arg, nextoffset=nextoffset)
 
     __next__ = next
 
@@ -401,9 +394,7 @@ class _ByteCode:
         for co in co_consts:
             if isinstance(co, CodeType):
                 subtable = OrderedDict(ByteCodeIter(co))
-                d.update(
-                    cls._compute_used_globals(func, subtable, co.co_consts, co.co_names)
-                )
+                d.update(cls._compute_used_globals(func, subtable, co.co_consts, co.co_names))
         return d
 
     def get_used_globals(self):
@@ -452,9 +443,7 @@ class ByteCodePy311(_ByteCode):
         Returns the exception entry for the given instruction offset
         """
         candidates = [
-            (ent.depth, ent)
-            for ent in self.exception_entries
-            if ent.start <= offset < ent.end
+            (ent.depth, ent) for ent in self.exception_entries if ent.start <= offset < ent.end
         ]
         if candidates:
             _, ent = max(candidates)
@@ -469,9 +458,7 @@ class ByteCodePy312(ByteCodePy311):
         self._ordered_offsets = None
 
         # Fixup offsets for all exception entries.
-        entries = [
-            self.fixup_eh(e) for e in dis.Bytecode(func_id.code).exception_entries
-        ]
+        entries = [self.fixup_eh(e) for e in dis.Bytecode(func_id.code).exception_entries]
 
         # Remove exceptions, innermost ones first
         # Can be done by using a stack
@@ -524,9 +511,7 @@ class ByteCodePy312(ByteCodePy311):
         (e.g. array-comprehension).
         """
 
-        def pop_and_merge_exceptions(
-            entries: list, entry_to_remove: _ExceptionTableEntry
-        ):
+        def pop_and_merge_exceptions(entries: list, entry_to_remove: _ExceptionTableEntry):
             lower_entry_idx = entries.index(entry_to_remove) - 1
             upper_entry_idx = entries.index(entry_to_remove) + 1
 
@@ -638,9 +623,7 @@ class ByteCodePy312(ByteCodePy311):
 
         # Complete fixes to NOPs
         for inst in change_to_nop:
-            self.table[inst.offset] = ByteCodeInst(
-                inst.offset, dis.opmap["NOP"], None, inst.next
-            )
+            self.table[inst.offset] = ByteCodeInst(inst.offset, dis.opmap["NOP"], None, inst.next)
         return entries
 
 
@@ -691,9 +674,7 @@ class FunctionIdentity(serialize.ReduceMixin):
         self.func_name = func_qualname.split(".")[-1]
         self.code = code
         self.module = inspect.getmodule(func)
-        self.modname = (
-            utils._dynamic_modname if self.module is None else self.module.__name__
-        )
+        self.modname = utils._dynamic_modname if self.module is None else self.module.__name__
         self.is_generator = inspect.isgeneratorfunction(func)
         self.pysig = pysig
         self.filename = code.co_filename

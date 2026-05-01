@@ -181,9 +181,7 @@ class CUDAUFuncMechanism(UFuncMechanism):
 
     def broadcast_device(self, ary, shape):
         ax_differs = [
-            ax
-            for ax in range(len(shape))
-            if ax >= ary.ndim or ary.shape[ax] != shape[ax]
+            ax for ax in range(len(shape)) if ax >= ary.ndim or ary.shape[ax] != shape[ax]
         ]
 
         missingdim = len(shape) - len(ary.shape)
@@ -240,9 +238,7 @@ def __gufunc_{name}({args}):
 class CUDAGUFuncVectorize(deviceufunc.DeviceGUFuncVectorize):
     def build_ufunc(self):
         engine = deviceufunc.GUFuncEngine(self.inputsig, self.outputsig)
-        return CUDAGeneralizedUFunc(
-            kernelmap=self.kernelmap, engine=engine, pyfunc=self.pyfunc
-        )
+        return CUDAGeneralizedUFunc(kernelmap=self.kernelmap, engine=engine, pyfunc=self.pyfunc)
 
     def _compile_kernel(self, fnobj, sig):
         return cuda.jit(sig)(fnobj)

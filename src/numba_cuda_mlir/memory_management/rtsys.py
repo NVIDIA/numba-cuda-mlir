@@ -95,9 +95,7 @@ class _Runtime:
         if cache_file.exists():
             cubin_bytes = cache_file.read_bytes()
         else:
-            memsys_mod = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)), "memsys.cu"
-            )
+            memsys_mod = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memsys.cu")
             linker = _Linker(max_registers=0, cc=cc, lto=_have_nvjitlink())
             linker.add_cu_file(memsys_mod)
             cubin = linker.complete()
@@ -129,15 +127,11 @@ class _Runtime:
         n = len(params_ctypes)
         if n > 0:
             ptrs = [ctypes.pointer(p) for p in params_ctypes]
-            params = (ctypes.c_void_p * n)(
-                *(ctypes.cast(p, ctypes.c_void_p).value for p in ptrs)
-            )
+            params = (ctypes.c_void_p * n)(*(ctypes.cast(p, ctypes.c_void_p).value for p in ptrs))
         else:
             params = None
 
-        (err,) = drv.cuLaunchKernel(
-            func, 1, 1, 1, 1, 1, 1, 0, drv.CUstream(0), params, 0
-        )
+        (err,) = drv.cuLaunchKernel(func, 1, 1, 1, 1, 1, 1, 0, drv.CUstream(0), params, 0)
         if err != drv.CUresult.CUDA_SUCCESS:
             raise RuntimeError(f"cuLaunchKernel({name}) failed: {err}")
 
@@ -297,9 +291,7 @@ class _Runtime:
         compiled without NRT), this is a no-op.
         """
         if self._memsys is None:
-            raise RuntimeError(
-                "Please allocate NRT Memsys first before setting to library."
-            )
+            raise RuntimeError("Please allocate NRT Memsys first before setting to library.")
 
         err, kernel = drv.cuLibraryGetKernel(library, b"NRT_MemSys_set")
         if err != drv.CUresult.CUDA_SUCCESS:
@@ -314,9 +306,7 @@ class _Runtime:
         param_ptr = ctypes.pointer(param)
         params = (ctypes.c_void_p * 1)(ctypes.cast(param_ptr, ctypes.c_void_p).value)
 
-        (err,) = drv.cuLaunchKernel(
-            func, 1, 1, 1, 1, 1, 1, 0, drv.CUstream(0), params, 0
-        )
+        (err,) = drv.cuLaunchKernel(func, 1, 1, 1, 1, 1, 1, 0, drv.CUstream(0), params, 0)
         if err != drv.CUresult.CUDA_SUCCESS:
             raise RuntimeError(f"cuLaunchKernel(NRT_MemSys_set) failed: {err}")
 

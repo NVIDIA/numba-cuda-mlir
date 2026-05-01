@@ -536,16 +536,12 @@ class StructModel(CompositeModel):
 
     def get_value_type(self):
         if self._value_type is None:
-            self._value_type = ir.LiteralStructType(
-                [t.get_value_type() for t in self._models]
-            )
+            self._value_type = ir.LiteralStructType([t.get_value_type() for t in self._models])
         return self._value_type
 
     def get_data_type(self):
         if self._data_type is None:
-            self._data_type = ir.LiteralStructType(
-                [t.get_data_type() for t in self._models]
-            )
+            self._data_type = ir.LiteralStructType([t.get_data_type() for t in self._models])
         return self._data_type
 
     def get_argument_type(self):
@@ -557,9 +553,7 @@ class StructModel(CompositeModel):
     def _as(self, methname, builder, value):
         extracted = []
         for i, dm in enumerate(self._models):
-            extracted.append(
-                getattr(dm, methname)(builder, self.get(builder, value, i))
-            )
+            extracted.append(getattr(dm, methname)(builder, self.get(builder, value, i)))
         return tuple(extracted)
 
     def _from(self, methname, builder, value):
@@ -672,17 +666,13 @@ class StructModel(CompositeModel):
         """
         if isinstance(pos, str):
             pos = self.get_field_position(pos)
-        return builder.insert_value(
-            stval, val, [pos], name="inserted." + self._fields[pos]
-        )
+        return builder.insert_value(stval, val, [pos], name="inserted." + self._fields[pos])
 
     def get_field_position(self, field):
         try:
             return self._fields.index(field)
         except ValueError:
-            raise KeyError(
-                "%s does not have a field named %r" % (self.__class__.__name__, field)
-            )
+            raise KeyError("%s does not have a field named %r" % (self.__class__.__name__, field))
 
     @property
     def field_count(self):
@@ -1171,18 +1161,12 @@ class GeneratorModel(CompositeModel):
         super().__init__(dmm, fe_type)
         # XXX Fold this in DataPacker?
         self._arg_models = [
-            self._dmm.lookup(t)
-            for t in fe_type.arg_types
-            if not isinstance(t, types.Omitted)
+            self._dmm.lookup(t) for t in fe_type.arg_types if not isinstance(t, types.Omitted)
         ]
         self._state_models = [self._dmm.lookup(t) for t in fe_type.state_types]
 
-        self._args_be_type = ir.LiteralStructType(
-            [t.get_data_type() for t in self._arg_models]
-        )
-        self._state_be_type = ir.LiteralStructType(
-            [t.get_data_type() for t in self._state_models]
-        )
+        self._args_be_type = ir.LiteralStructType([t.get_data_type() for t in self._arg_models])
+        self._state_be_type = ir.LiteralStructType([t.get_data_type() for t in self._state_models])
         # The whole generator closure
         self._be_type = ir.LiteralStructType(
             [

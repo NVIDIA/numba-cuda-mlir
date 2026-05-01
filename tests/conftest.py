@@ -60,9 +60,7 @@ def _determine_cuda_include_flags(nvcc: str) -> list[str]:
     if len(includes_lines) != 1:
         pytest.skip("Could not determine CUDA include paths from nvcc")
 
-    quoted_flags = shlex.split(
-        includes_lines[0].split("INCLUDES=", 1)[1].strip(), posix=False
-    )
+    quoted_flags = shlex.split(includes_lines[0].split("INCLUDES=", 1)[1].strip(), posix=False)
     include_flags = [flag.strip('"') for flag in quoted_flags]
     include_flags += [flag + os.path.sep + "cccl" for flag in include_flags]
     return include_flags
@@ -83,9 +81,7 @@ def _check_nvrtc(args):
     return tuple(rest)
 
 
-def _write_raw_ltoir(
-    source_path: Path, output_path: Path, arch: str, nvcc: str
-) -> None:
+def _write_raw_ltoir(source_path: Path, output_path: Path, arch: str, nvcc: str) -> None:
     from cuda.bindings import nvrtc
 
     source = source_path.read_text()
@@ -117,9 +113,7 @@ def _write_raw_ltoir(
     ltoir_magic = 0x7F4E43ED
     header = int.from_bytes(ltoir[:4], byteorder="little")
     if header != ltoir_magic:
-        pytest.fail(
-            f"Unexpected LTO-IR header 0x{header:X}; expected 0x{ltoir_magic:X}"
-        )
+        pytest.fail(f"Unexpected LTO-IR header 0x{header:X}; expected 0x{ltoir_magic:X}")
 
     output_path.write_bytes(ltoir)
 
@@ -202,9 +196,7 @@ _NUMBA_CUDA_BINARY_ARTIFACTS = {
 }
 
 
-def _artifact_gencode_flags(
-    artifact_config: NumbaCudaBinaryArtifact, gpu_cc: str
-) -> list[str]:
+def _artifact_gencode_flags(artifact_config: NumbaCudaBinaryArtifact, gpu_cc: str) -> list[str]:
     alt_cc = "80" if gpu_cc.startswith("7") else "75"
 
     default_gencode = ["-gencode", f"arch=compute_{gpu_cc},code=sm_{gpu_cc}"]
@@ -229,9 +221,7 @@ def _artifact_gencode_flags(
             "-gencode",
             f"arch=compute_{alt_cc},code=[sm_{alt_cc},lto_{alt_cc}]",
         ]
-    raise ValueError(
-        f"Unknown Numba-CUDA artifact gencode: {artifact_config.gencode_kind}"
-    )
+    raise ValueError(f"Unknown Numba-CUDA artifact gencode: {artifact_config.gencode_kind}")
 
 
 class NumbaCudaTestBinaries:
@@ -282,8 +272,7 @@ class NumbaCudaTestBinaryBuilder:
         if artifact not in _NUMBA_CUDA_BINARY_ARTIFACTS:
             known = ", ".join(sorted(_NUMBA_CUDA_BINARY_ARTIFACTS))
             raise ValueError(
-                f"Unknown Numba-CUDA test binary artifact: {artifact}; "
-                f"known artifacts: {known}"
+                f"Unknown Numba-CUDA test binary artifact: {artifact}; known artifacts: {known}"
             )
 
         artifact_config = _NUMBA_CUDA_BINARY_ARTIFACTS[artifact]
@@ -422,6 +411,4 @@ def initialize_from_pytest_config(request):
     """
     Fixture to initialize the test case with pytest configuration options.
     """
-    request.cls._dump_failed_filechecks = request.config.getoption(
-        "dump_failed_filechecks"
-    )
+    request.cls._dump_failed_filechecks = request.config.getoption("dump_failed_filechecks")

@@ -60,14 +60,10 @@ class FunctionType(Type):
             # expression. For instance, the definition of the
             # first-class function may not use the same argument names
             # that the caller assumes. [numba/issues/5540].
-            raise errors.UnsupportedError(
-                "first-class function call cannot use keyword arguments"
-            )
+            raise errors.UnsupportedError("first-class function call cannot use keyword arguments")
 
         if len(args) != self.nargs:
-            raise ValueError(
-                f"mismatch of arguments number: {len(args)} vs {self.nargs}"
-            )
+            raise ValueError(f"mismatch of arguments number: {len(args)} vs {self.nargs}")
 
         sig = self.signature
 
@@ -77,9 +73,7 @@ class FunctionType(Type):
             if sig_atype.is_precise():
                 conv_score = context.context.can_convert(fromty=atype, toty=sig_atype)
                 if conv_score is None or conv_score > typing.context.Conversion.safe:
-                    raise ValueError(
-                        f"mismatch of argument types: {atype} vs {sig_atype}"
-                    )
+                    raise ValueError(f"mismatch of argument types: {atype} vs {sig_atype}")
 
         if not sig.is_precise():
             for dispatcher in self.dispatchers:
@@ -92,9 +86,7 @@ class FunctionType(Type):
     def check_signature(self, other_sig):
         """Return True if signatures match (up to being precise)."""
         sig = self.signature
-        return self.nargs == len(other_sig.args) and (
-            sig == other_sig or not sig.is_precise()
-        )
+        return self.nargs == len(other_sig.args) and (sig == other_sig or not sig.is_precise())
 
     def unify(self, context, other):
         if isinstance(other, types.UndefinedFunctionType) and self.nargs == other.nargs:

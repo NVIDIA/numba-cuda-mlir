@@ -46,15 +46,9 @@ def call(
                 + f"got {type(arguments_or_callee)}"
             )
         if arguments is not None:
-            raise ValueError(
-                "unexpected third argument when constructing a call" + "to a function"
-            )
-        if not all(
-            isinstance(a, (Value, Operation, OpView)) for a in arguments_or_callee
-        ):
-            raise ValueError(
-                f"{arguments_or_callee} must all be Value, Operation, or OpView"
-            )
+            raise ValueError("unexpected third argument when constructing a call" + "to a function")
+        if not all(isinstance(a, (Value, Operation, OpView)) for a in arguments_or_callee):
+            raise ValueError(f"{arguments_or_callee} must all be Value, Operation, or OpView")
 
         return get_op_result_or_op_results(
             call_op_ctor(
@@ -75,9 +69,7 @@ def call(
 
     if isinstance(arguments_or_callee, FlatSymbolRefAttr):
         return get_op_result_or_op_results(
-            call_op_ctor(
-                callee_or_results, arguments_or_callee, arguments, loc=loc, ip=ip
-            )
+            call_op_ctor(callee_or_results, arguments_or_callee, arguments, loc=loc, ip=ip)
         )
     elif isinstance(arguments_or_callee, str):
         return get_op_result_or_op_results(
@@ -99,9 +91,9 @@ def isalambda(v):
 
 
 def prep_func_types(sig, return_types):
-    assert not (
-        not sig.return_annotation is inspect.Signature.empty and len(return_types) > 0
-    ), f"func can use return annotation or explicit return_types but not both"
+    assert not (not sig.return_annotation is inspect.Signature.empty and len(return_types) > 0), (
+        f"func can use return annotation or explicit return_types but not both"
+    )
     return_types = (
         sig.return_annotation
         if not sig.return_annotation is inspect.Signature.empty
@@ -110,18 +102,16 @@ def prep_func_types(sig, return_types):
     if not isinstance(return_types, (tuple, list)):
         return_types = [return_types]
     return_types = list(return_types)
-    assert all(
-        isinstance(r, (str, Type, TypeVar)) or isalambda(r) for r in return_types
-    ), f"all return types must be mlir types or strings or TypeVars or lambdas {return_types=}"
+    assert all(isinstance(r, (str, Type, TypeVar)) or isalambda(r) for r in return_types), (
+        f"all return types must be mlir types or strings or TypeVars or lambdas {return_types=}"
+    )
 
     input_types = [
-        p.annotation
-        for p in sig.parameters.values()
-        if not p.annotation is inspect.Signature.empty
+        p.annotation for p in sig.parameters.values() if not p.annotation is inspect.Signature.empty
     ]
-    assert all(
-        isinstance(r, (str, Type, TypeVar)) or isalambda(r) for r in input_types
-    ), f"all input types must be mlir types or strings or TypeVars or lambdas {input_types=}"
+    assert all(isinstance(r, (str, Type, TypeVar)) or isalambda(r) for r in input_types), (
+        f"all input types must be mlir types or strings or TypeVars or lambdas {input_types=}"
+    )
     user_loc = get_user_code_loc()
     # If ir.Context is none (like for deferred func emit)
     if user_loc is None:
@@ -159,9 +149,7 @@ class ReifiedTypeParam:
         type_var_default, type_var_bound = get_type_var_default_bound(tvar)
 
         if concrete_val is None and not bool(type_var_default):
-            raise ValueError(
-                "either concrete_val must be provided or typevar must have a default"
-            )
+            raise ValueError("either concrete_val must be provided or typevar must have a default")
 
         if bool(type_var_bound):
             type_var_bound = maybe_eval_type_data_closure_vals(
@@ -272,14 +260,12 @@ class FuncBase:
         if return_types is None:
             return_types = []
         sig = inspect.signature(self.body_builder)
-        self.input_types, self.return_types, self.arg_locs = prep_func_types(
-            sig, return_types
-        )
+        self.input_types, self.return_types, self.arg_locs = prep_func_types(sig, return_types)
 
         if self._is_decl():
-            assert len(self.input_types) == len(
-                sig.parameters
-            ), f"func decl needs all input types annotated"
+            assert len(self.input_types) == len(sig.parameters), (
+                f"func decl needs all input types annotated"
+            )
             self.sym_visibility = "private"
             self.emit()
 
@@ -320,14 +306,10 @@ class FuncBase:
             return self.__getitem__(tuple(default_vals)).emit()
 
         if "T" in locals:
-            raise ValueError(
-                f"T is a reserved generic name; use a different one for {locals['T']}"
-            )
+            raise ValueError(f"T is a reserved generic name; use a different one for {locals['T']}")
         locals["T"] = types
         if "S" in locals:
-            raise ValueError(
-                f"S is a reserved generic name; use a different one for {locals['S']}"
-            )
+            raise ValueError(f"S is a reserved generic name; use a different one for {locals['S']}")
         locals["S"] = ShapedType.get_dynamic_size()
 
         # evaluate type annotations (which could be strings or lambdas)
@@ -352,9 +334,9 @@ class FuncBase:
             input_types = [a.type for a in call_args]
         else:
             input_types = self._build_input_types()
-            assert isinstance(
-                input_types, (list, self.func_op_ctor)
-            ), "expected self._build_input_types to either return a list of types or a partially specialized funcop thing."
+            assert isinstance(input_types, (list, self.func_op_ctor)), (
+                "expected self._build_input_types to either return a list of types or a partially specialized funcop thing."
+            )
             if isinstance(input_types, self.func_op_ctor):
                 return input_types
 
@@ -452,9 +434,7 @@ class FuncBase:
             self.call_op_ctor,
             return_types=self.return_types,
             sym_visibility=self.sym_visibility,
-            sym_name=(
-                self.body_builder.__name__ + "_" + "_".join(name_mangled_generics)
-            ),
+            sym_name=(self.body_builder.__name__ + "_" + "_".join(name_mangled_generics)),
             arg_attrs=self.arg_attrs,
             res_attrs=self.res_attrs,
             func_attrs=self.func_attrs,

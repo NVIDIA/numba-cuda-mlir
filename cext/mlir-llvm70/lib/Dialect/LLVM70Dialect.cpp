@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
 //===- LLVM70Dialect.cpp - MLIR dialect for LLVM70 ----------------*- C++ -*-===//
-// 
+//
 //===----------------------------------------------------------------------===//
 
 #include "llvm70/Dialect/LLVM70.h"

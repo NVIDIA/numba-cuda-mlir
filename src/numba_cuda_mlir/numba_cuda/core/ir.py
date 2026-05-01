@@ -638,9 +638,7 @@ class Expr(Inst):
     def __repr__(self):
         if self.op == "call":
             args = ", ".join(str(a) for a in self.args)
-            pres_order = (
-                self._kws.items() if config.DIFF_IR == 0 else sorted(self._kws.items())
-            )
+            pres_order = self._kws.items() if config.DIFF_IR == 0 else sorted(self._kws.items())
             kws = ", ".join("%s=%s" % (k, v) for k, v in pres_order)
             vararg = "*%s" % (self.vararg,) if self.vararg is not None else ""
             arglist = ", ".join(filter(None, [args, vararg, kws]))
@@ -652,9 +650,7 @@ class Expr(Inst):
             fn = OPERATORS_TO_BUILTINS.get(self.fn, self.fn)
             return "%s %s %s" % (lhs, fn, rhs)
         else:
-            pres_order = (
-                self._kws.items() if config.DIFF_IR == 0 else sorted(self._kws.items())
-            )
+            pres_order = self._kws.items() if config.DIFF_IR == 0 else sorted(self._kws.items())
             args = ("%s=%s" % (k, v) for k, v in pres_order)
             return "%s(%s)" % (self.op, ", ".join(args))
 
@@ -1515,10 +1511,7 @@ class FunctionIR:
                         # order shuffled.
                         if sorted(block_del) == sorted(oth_del):
                             msg.append(
-                                (
-                                    "Block %s contains the same dels but "
-                                    "their order is different"
-                                )
+                                ("Block %s contains the same dels but their order is different")
                                 % label
                             )
                     if len(block.body) > len(other_blk.body):
@@ -1559,9 +1552,7 @@ class FunctionIR:
                             pad = get_pad(_block.body, min_stmt_len)
                             title = "%s: block %s" % (name, label)
                             msg.append(title.center(80, "-"))
-                            msg.extend(
-                                ["{0}{1}".format(a, b) for a, b in zip(pad, stmts)]
-                            )
+                            msg.extend(["{0}{1}".format(a, b) for a, b in zip(pad, stmts)])
         if msg == []:
             msg.append("IR is considered equivalent.")
         return "\n".join(msg)

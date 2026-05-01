@@ -168,9 +168,7 @@ def get_max_active_clusters(cluster_size: int, device_id: int = 0) -> int:
             max_smem,
         )
     )
-    max_dyn_smem = _check_cuda_result(
-        driver.cuOccupancyAvailableDynamicSMemPerBlock(kernel, 1, 1)
-    )
+    max_dyn_smem = _check_cuda_result(driver.cuOccupancyAvailableDynamicSMemPerBlock(kernel, 1, 1))
     max_active_blocks = _check_cuda_result(
         driver.cuOccupancyMaxActiveBlocksPerMultiprocessor(kernel, 1, max_dyn_smem)
     )
@@ -183,9 +181,7 @@ def get_max_active_clusters(cluster_size: int, device_id: int = 0) -> int:
     )
 
     cluster_dims_attr = driver.CUlaunchAttribute()
-    cluster_dims_attr.id = (
-        driver.CUlaunchAttributeID.CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION
-    )
+    cluster_dims_attr.id = driver.CUlaunchAttributeID.CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION
     (
         cluster_dims_attr.value.clusterDim.x,
         cluster_dims_attr.value.clusterDim.y,
@@ -209,9 +205,7 @@ def get_max_active_clusters(cluster_size: int, device_id: int = 0) -> int:
         [cluster_dims_attr],
     )
 
-    return _check_cuda_result(
-        driver.cuOccupancyMaxActiveClusters(kernel, launch_config)
-    )
+    return _check_cuda_result(driver.cuOccupancyMaxActiveClusters(kernel, launch_config))
 
 
 @lru_cache(maxsize=1)
@@ -225,9 +219,7 @@ def _get_dummy_kernel_function():
         pass
 
     cubin = compile_cubin(_dummy_kernel, ())
-    cuda_library = _check_cuda_result(
-        driver.cuLibraryLoadData(cubin, None, None, 0, None, None, 0)
-    )
+    cuda_library = _check_cuda_result(driver.cuLibraryLoadData(cubin, None, None, 0, None, None, 0))
     kernels = _check_cuda_result(driver.cuLibraryEnumerateKernels(1, cuda_library))
     return _check_cuda_result(driver.cuKernelGetFunction(kernels[0]))
 
@@ -276,9 +268,7 @@ def argtype_normalization(argtype):
         return types.int64
     elif isinstance(argtype, types.UniTuple):
         if isinstance(argtype.dtype, types.IntegerLiteral):
-            return types.UniTuple(
-                dtype=argtype_normalization(argtype.dtype), count=argtype.count
-            )
+            return types.UniTuple(dtype=argtype_normalization(argtype.dtype), count=argtype.count)
         else:
             return argtype
     elif isinstance(argtype, types.NumberClass):
@@ -310,7 +300,7 @@ def {name}({params}) -> {return_type}:
     See https://docs.nvidia.com/cuda/libdevice-users-guide/__nv_{name}.html
 
     CAPI:
-    
+
     {capi};
     """
 '''

@@ -60,26 +60,21 @@ def _verify_abi(value: Any, targetoptions: dict[str, Any]) -> str | None:
     return None
 
 
-def _verify_shared_memory_carveout(
-    value: Any, targetoptions: dict[str, Any]
-) -> str | None:
+def _verify_shared_memory_carveout(value: Any, targetoptions: dict[str, Any]) -> str | None:
     if value is None:
         return None
     if isinstance(value, str):
         valid_strings = ["default", "maxl1", "maxshared"]
         if value.lower() not in valid_strings:
             raise ValueError(
-                f"Invalid carveout value: {value}. "
-                f"Must be -1 to 100 or one of {valid_strings}"
+                f"Invalid carveout value: {value}. Must be -1 to 100 or one of {valid_strings}"
             )
         return None
     if isinstance(value, int):
         if not (-1 <= value <= 100):
             raise ValueError("Carveout must be between -1 and 100")
         return None
-    raise TypeError(
-        f"shared_memory_carveout must be str or int, got {type(value).__name__}"
-    )
+    raise TypeError(f"shared_memory_carveout must be str or int, got {type(value).__name__}")
 
 
 def _verify_launch_bounds(value: Any, targetoptions: dict[str, Any]) -> str | None:
@@ -476,9 +471,7 @@ def _get_signatures(func_or_sig):
     elif callable(func_or_sig) or func_or_sig is None:
         return None
     else:
-        raise ValueError(
-            _target_options_help(f"Invalid function or signature: {func_or_sig}.")
-        )
+        raise ValueError(_target_options_help(f"Invalid function or signature: {func_or_sig}."))
 
 
 def verify_target_options(kws: dict[str, Any]) -> dict[str, Any]:
@@ -509,9 +502,7 @@ def verify_target_options(kws: dict[str, Any]) -> dict[str, Any]:
                     )
                 )
             if option.extra_verification is not None:
-                error = option.extra_verification(
-                    targetoptions[option.name], targetoptions
-                )
+                error = option.extra_verification(targetoptions[option.name], targetoptions)
                 if error:
                     raise ValueError(_target_options_help(f"{option.name}: {error}"))
 
@@ -723,7 +714,7 @@ def stubgen(out: StringIO = sys.stdout):
         dedent(
             f"""\
     ) -> MLIRDispatcher:
-        '''{indent(docstring, ' ' * 4)}
+        '''{indent(docstring, " " * 4)}
         '''
     """
         )

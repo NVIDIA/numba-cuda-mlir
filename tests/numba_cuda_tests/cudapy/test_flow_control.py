@@ -244,9 +244,7 @@ class TestFlowControl(NumbaCUDATestCase):
                 self.assertEqual(type(pyerr), type(cerr))
             else:
                 if pyerr is not None:
-                    self.fail(
-                        "Invalid for pure-python but numba-cuda works\n" + str(pyerr)
-                    )
+                    self.fail("Invalid for pure-python but numba-cuda works\n" + str(pyerr))
                 self.assertEqual(res1, cres1)
                 self.assertEqual(res2, cres2)
 
@@ -445,9 +443,7 @@ class TestCFGraph(NumbaCUDATestCase):
         Note there are two exit points, and the entry point has been
         changed to a non-zero value.
         """
-        g = self.from_adj_list(
-            {99: [18, 12], 12: [21], 18: [21], 21: [42, 34], 34: [], 42: []}
-        )
+        g = self.from_adj_list({99: [18, 12], 12: [21], 18: [21], 21: [42, 34], 34: [], 42: []})
         g.set_entry_point(99)
         g.process()
         return g
@@ -532,9 +528,7 @@ class TestCFGraph(NumbaCUDATestCase):
                 else:
                     ...
         """
-        g = self.from_adj_list(
-            {0: [10, 6], 6: [], 10: [13], 13: [26, 19], 19: [13], 26: [13]}
-        )
+        g = self.from_adj_list({0: [10, 6], 6: [], 10: [13], 13: [26, 19], 19: [13], 26: [13]})
         g.set_entry_point(0)
         g.process()
         return g
@@ -623,9 +617,7 @@ class TestCFGraph(NumbaCUDATestCase):
         g = self.loopless1()
         self.assertIn(g.topo_order(), ([0, 12, 18, 21], [0, 18, 12, 21]))
         g = self.loopless2()
-        self.assertIn(
-            g.topo_order(), ([99, 18, 12, 21, 34, 42], [99, 12, 18, 21, 34, 42])
-        )
+        self.assertIn(g.topo_order(), ([99, 18, 12, 21, 34, 42], [99, 12, 18, 21, 34, 42]))
         g = self.infinite_loop2()
         self.assertIn(g.topo_order(), ([0, 3, 9, 16], [0, 3, 16, 9]))
         g = self.infinite_loop1()
@@ -654,9 +646,7 @@ class TestCFGraph(NumbaCUDATestCase):
         # NOTE: topo_sort() is not stable
         check_topo_sort([18, 12, 42, 99], ([99, 12, 18, 42], [99, 18, 12, 42]))
         g = self.multiple_exits()
-        check_topo_sort(
-            [19, 10, 7, 36], ([7, 10, 19, 36], [7, 10, 36, 19], [7, 36, 10, 19])
-        )
+        check_topo_sort([19, 10, 7, 36], ([7, 10, 19, 36], [7, 10, 36, 19], [7, 36, 10, 19]))
 
     def check_dominators(self, got, expected):
         self.assertEqual(sorted(got), sorted(expected))

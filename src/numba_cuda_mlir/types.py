@@ -108,7 +108,7 @@ def get_numba_cuda_mlir_attributes(obj) -> dict:
 
 
 def set_numba_cuda_mlir_attributes(obj, attributes: dict):
-    setattr(obj, "__numba_cuda_mlir_attributes__", attributes)
+    obj.__numba_cuda_mlir_attributes__ = attributes
     return obj
 
 

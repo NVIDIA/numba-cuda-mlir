@@ -75,9 +75,7 @@ def add_kernel(a, b, out):
             pycache = tmp_path / "__pycache__"
             if pycache.exists():
                 cache_files = list(pycache.glob("*.nbi")) + list(pycache.glob("*.nbc"))
-                assert (
-                    len(cache_files) >= 2
-                ), f"Expected cache files, found: {cache_files}"
+                assert len(cache_files) >= 2, f"Expected cache files, found: {cache_files}"
         finally:
             sys.path.remove(str(tmp_path))
             if "test_kernel" in sys.modules:
@@ -350,9 +348,7 @@ def typed_kernel(arr):
             pycache = tmp_path / "__pycache__"
             cache_files = list(pycache.glob("*.nbi")) + list(pycache.glob("*.nbc"))
             # Should have 1 nbi and at least 3 nbc files (one per signature)
-            assert (
-                len(cache_files) >= 4
-            ), f"Expected at least 4 cache files, found: {cache_files}"
+            assert len(cache_files) >= 4, f"Expected at least 4 cache files, found: {cache_files}"
 
         finally:
             sys.path.remove(str(tmp_path))

@@ -214,9 +214,7 @@ def _call_function_ex_replace_kws_large(
     while search_start <= search_end:
         # The first value must be a constant.
         const_stmt = old_body[search_start]
-        if not (
-            isinstance(const_stmt, ir.Assign) and isinstance(const_stmt.value, ir.Const)
-        ):
+        if not (isinstance(const_stmt, ir.Assign) and isinstance(const_stmt.value, ir.Const)):
             # We cannot handle this format so raise the
             # original error message.
             raise UnsupportedBytecodeError(errmsg)
@@ -278,12 +276,8 @@ def _call_function_ex_replace_kws_large(
         new_body[search_start] = None
         new_body[search_start + 1] = None
         # Remove the definitions.
-        _remove_assignment_definition(
-            old_body, search_start, func_ir, already_deleted_defs
-        )
-        _remove_assignment_definition(
-            old_body, search_start + 1, func_ir, already_deleted_defs
-        )
+        _remove_assignment_definition(old_body, search_start, func_ir, already_deleted_defs)
+        _remove_assignment_definition(old_body, search_start + 1, func_ir, already_deleted_defs)
         search_start += 2
     return kws
 
@@ -316,9 +310,7 @@ def _call_function_ex_replace_args_small(
     # Delete the build tuple
     new_body[buildtuple_idx] = None
     # Remove the definition.
-    _remove_assignment_definition(
-        old_body, buildtuple_idx, func_ir, already_deleted_defs
-    )
+    _remove_assignment_definition(old_body, buildtuple_idx, func_ir, already_deleted_defs)
     # Return the args.
     return tuple_expr.items
 
@@ -368,9 +360,7 @@ def _call_function_ex_replace_args_large(
         # If there is an initial assignment, delete it
         new_body[search_end] = None
         # Remove the definition.
-        _remove_assignment_definition(
-            old_body, search_end, func_ir, already_deleted_defs
-        )
+        _remove_assignment_definition(old_body, search_end, func_ir, already_deleted_defs)
         search_end -= 1
     else:
         # There must always be an initial assignment
@@ -390,9 +380,7 @@ def _call_function_ex_replace_args_large(
         ):
             new_body[search_end] = None
             # Remove the definition.
-            _remove_assignment_definition(
-                old_body, search_end, func_ir, already_deleted_defs
-            )
+            _remove_assignment_definition(old_body, search_end, func_ir, already_deleted_defs)
             # If we have reached the build_tuple we exit.
             break
         else:
@@ -432,20 +420,14 @@ def _call_function_ex_replace_args_large(
             new_body[search_end] = None
             new_body[search_end - 1] = None
             # Remove the definitions.
-            _remove_assignment_definition(
-                old_body, search_end, func_ir, already_deleted_defs
-            )
-            _remove_assignment_definition(
-                old_body, search_end - 1, func_ir, already_deleted_defs
-            )
+            _remove_assignment_definition(old_body, search_end, func_ir, already_deleted_defs)
+            _remove_assignment_definition(old_body, search_end - 1, func_ir, already_deleted_defs)
             search_end -= 2
             # Avoid any space between appends
             keep_looking = True
             while search_end >= search_start and keep_looking:
                 next_stmt = old_body[search_end]
-                if isinstance(next_stmt, ir.Assign) and (
-                    next_stmt.target.name == target_name
-                ):
+                if isinstance(next_stmt, ir.Assign) and (next_stmt.target.name == target_name):
                     keep_looking = False
                 else:
                     # If the argument is "created" in JIT, then there
@@ -620,10 +602,7 @@ def peep_hole_call_function_ex_to_call_function_kw(func_ir):
                     found = False
                     while vararg_loc >= 0 and not found:
                         args_def = blk.body[vararg_loc]
-                        if (
-                            isinstance(args_def, ir.Assign)
-                            and args_def.target.name == vararg.name
-                        ):
+                        if isinstance(args_def, ir.Assign) and args_def.target.name == vararg.name:
                             found = True
                         else:
                             vararg_loc -= 1
@@ -631,10 +610,7 @@ def peep_hole_call_function_ex_to_call_function_kw(func_ir):
                         # If we couldn't find where the args are created
                         # then we can't handle this format.
                         raise UnsupportedBytecodeError(errmsg)
-                    if (
-                        isinstance(args_def.value, ir.Expr)
-                        and args_def.value.op == "build_tuple"
-                    ):
+                    if isinstance(args_def.value, ir.Expr) and args_def.value.op == "build_tuple":
                         # n_args <= 30 case.
                         # Here the IR is a simple build_tuple containing
                         # all of the args.
@@ -653,8 +629,7 @@ def peep_hole_call_function_ex_to_call_function_kw(func_ir):
                             already_deleted_defs,
                         )
                     elif (
-                        isinstance(args_def.value, ir.Expr)
-                        and args_def.value.op == "list_to_tuple"
+                        isinstance(args_def.value, ir.Expr) and args_def.value.op == "list_to_tuple"
                     ):
                         # If there is a call with vararg we need to check
                         # if the list -> tuple conversion failed and if so
@@ -693,13 +668,9 @@ def peep_hole_call_function_ex_to_call_function_kw(func_ir):
                             already_deleted_defs,
                         )
                 # Create a new call updating the args and kws
-                new_call = ir.Expr.call(
-                    call.func, args, kws, call.loc, target=call.target
-                )
+                new_call = ir.Expr.call(call.func, args, kws, call.loc, target=call.target)
                 # Drop the existing definition for this stmt.
-                _remove_assignment_definition(
-                    blk.body, i, func_ir, already_deleted_defs
-                )
+                _remove_assignment_definition(blk.body, i, func_ir, already_deleted_defs)
                 # Update the statement
                 stmt = ir.Assign(new_call, stmt.target, stmt.loc)
                 # Update the definition
@@ -920,9 +891,7 @@ def peep_hole_list_to_tuple(func_ir):
                                     # there could be a call in the unpack, like
                                     # *(a, x.append(y))
                                     new_hole.append(x)
-                            elif (
-                                expr.op == "build_list" and x.target.name == const_list
-                            ):
+                            elif expr.op == "build_list" and x.target.name == const_list:
                                 new = ir.Expr.build_tuple(expr.items, expr.loc)
                                 asgn = ir.Assign(new, x.target, expr.loc)
                                 # Not a temporary any more
@@ -1120,8 +1089,7 @@ def peep_hole_fuse_dict_add_updates(func_ir):
                         and getattr_stmt.target.name == func_name
                         and isinstance(getattr_stmt.value, ir.Expr)
                         and getattr_stmt.value.op == "getattr"
-                        and getattr_stmt.value.attr
-                        in ("__setitem__", "_update_from_bytecode")
+                        and getattr_stmt.value.attr in ("__setitem__", "_update_from_bytecode")
                     ):
                         update_map_name = getattr_stmt.value.value.name
                         attr = getattr_stmt.value.attr
@@ -1140,9 +1108,7 @@ def peep_hole_fuse_dict_add_updates(func_ir):
                             ):
                                 # If we have an update and the arg is also
                                 # a literal dictionary, fuse the lists.
-                                map_updates[update_map_name].extend(
-                                    map_updates[d2_map_name]
-                                )
+                                map_updates[update_map_name].extend(map_updates[d2_map_name])
                                 # Delete the old IR for d1 and d2
                                 lit_map_use_idx[update_map_name].extend(
                                     lit_map_use_idx[d2_map_name]
@@ -1656,16 +1622,10 @@ class Interpreter:
             # the same temporary is assigned to multiple variables in cases
             # like a = b[i] = 1, so need to handle replaced temporaries in
             # later setitem/setattr nodes
-            if (
-                isinstance(inst, (ir.SetItem, ir.SetAttr))
-                and inst.value.name in replaced_var
-            ):
+            if isinstance(inst, (ir.SetItem, ir.SetAttr)) and inst.value.name in replaced_var:
                 inst.value = replaced_var[inst.value.name]
             elif isinstance(inst, ir.Assign):
-                if (
-                    inst.target.is_temp
-                    and inst.target.name in self.assigner.unused_dests
-                ):
+                if inst.target.is_temp and inst.target.name in self.assigner.unused_dests:
                     continue
                 # the same temporary is assigned to multiple variables in cases
                 # like a = b = 1, so need to handle replaced temporaries in
@@ -1699,11 +1659,8 @@ class Interpreter:
                     # _var_used_in_binop check makes sure we don't create a new
                     # inplace binop operation which can fail
                     # (see TestFunctionType.test_in_iter_func_call)
-                    if (
-                        prev_assign.target.name == inst.value.name
-                        and not self._var_used_in_binop(
-                            inst.target.name, prev_assign.value
-                        )
+                    if prev_assign.target.name == inst.value.name and not self._var_used_in_binop(
+                        inst.target.name, prev_assign.value
                     ):
                         replaced_var[inst.value.name] = inst.target
                         prev_assign.target = inst.target
@@ -1935,9 +1892,7 @@ class Interpreter:
 
         # then index the tuple-like object to extract the values
         for i, st in enumerate(stores):
-            expr = ir.Expr.static_getitem(
-                self.get(tupleobj), index=i, index_var=None, loc=self.loc
-            )
+            expr = ir.Expr.static_getitem(self.get(tupleobj), index=i, index_var=None, loc=self.loc)
             self.store(expr, st)
 
     def op_FORMAT_SIMPLE(self, inst, value, res, strvar):
@@ -1984,14 +1939,10 @@ class Interpreter:
         self.store(value=slicegv, name=slicevar)
 
         if step is None:
-            sliceinst = ir.Expr.call(
-                self.get(slicevar), (start, stop), (), loc=self.loc
-            )
+            sliceinst = ir.Expr.call(self.get(slicevar), (start, stop), (), loc=self.loc)
         else:
             step = self.get(step)
-            sliceinst = ir.Expr.call(
-                self.get(slicevar), (start, stop, step), (), loc=self.loc
-            )
+            sliceinst = ir.Expr.call(self.get(slicevar), (start, stop, step), (), loc=self.loc)
         self.store(value=sliceinst, name=res)
 
     if PYVERSION in ((3, 12), (3, 13), (3, 14)):
@@ -2578,13 +2529,7 @@ class Interpreter:
                 # Python 3.12 hack for handling nested with blocks
                 if end > self.last_active_offset:
                     # Use exception entries to figure out end of syntax block
-                    end = max(
-                        [
-                            ex.end
-                            for ex in self.active_exception_entries
-                            if ex.target == end
-                        ]
-                    )
+                    end = max([ex.end for ex in self.active_exception_entries if ex.target == end])
             elif PYVERSION in ((3, 10), (3, 11)):
                 pass
             else:
@@ -2700,9 +2645,7 @@ class Interpreter:
         vararg = self.get(vararg)
         if varkwarg is not None:
             varkwarg = self.get(varkwarg)
-        expr = ir.Expr.call(
-            func, [], [], loc=self.loc, vararg=vararg, varkwarg=varkwarg
-        )
+        expr = ir.Expr.call(func, [], [], loc=self.loc, vararg=vararg, varkwarg=varkwarg)
         self.store(expr, res)
 
     def _build_tuple_unpack(self, inst, tuples, temps, is_assign):
@@ -2960,9 +2903,7 @@ class Interpreter:
         if not has_literal_keys and not has_literal_values:
             literal_dict = None
         elif has_literal_keys and not has_literal_values:
-            literal_dict = {
-                x: _UNKNOWN_VALUE(y[1]) for x, y in zip(literal_keys, got_items)
-            }
+            literal_dict = {x: _UNKNOWN_VALUE(y[1]) for x, y in zip(literal_keys, got_items)}
             value_indexes.update((k, i) for i, k in enumerate(literal_keys))
         else:
             literal_dict = {x: y for x, y in zip(literal_keys, literal_values)}
@@ -3266,9 +3207,7 @@ class Interpreter:
         else:
             op = BINOPS_TO_OPERATORS["is not"]
 
-        rhs = self.store(
-            value=ir.Const(None, loc=self.loc), name=f"$constNone{inst.offset}"
-        )
+        rhs = self.store(value=ir.Const(None, loc=self.loc), name=f"$constNone{inst.offset}")
         lhs = self.get(pred)
         isnone = ir.Expr.binop(op, lhs=lhs, rhs=rhs, loc=self.loc)
 
@@ -3413,9 +3352,7 @@ class Interpreter:
         inst = ir.Yield(value=self.get(value), index=index, loc=self.loc)
         return self.store(inst, res)
 
-    def op_MAKE_FUNCTION(
-        self, inst, name, code, closure, annotations, kwdefaults, defaults, res
-    ):
+    def op_MAKE_FUNCTION(self, inst, name, code, closure, annotations, kwdefaults, defaults, res):
         # annotations are ignored by numba but useful for static analysis
         # re. https://github.com/numba/numba/issues/7269
         if kwdefaults is not None:
@@ -3443,12 +3380,8 @@ class Interpreter:
         expr = ir.Expr.make_function(name, fcode, closure, defaults, self.loc)
         self.store(expr, res)
 
-    def op_MAKE_CLOSURE(
-        self, inst, name, code, closure, annotations, kwdefaults, defaults, res
-    ):
-        self.op_MAKE_FUNCTION(
-            inst, name, code, closure, annotations, kwdefaults, defaults, res
-        )
+    def op_MAKE_CLOSURE(self, inst, name, code, closure, annotations, kwdefaults, defaults, res):
+        self.op_MAKE_FUNCTION(inst, name, code, closure, annotations, kwdefaults, defaults, res)
 
     if PYVERSION in ((3, 11), (3, 12), (3, 13), (3, 14)):
 
@@ -3639,11 +3572,7 @@ class Interpreter:
             if block_end > self.last_active_offset:
                 # Use exception entries to figure out end of syntax block
                 block_end = max(
-                    [
-                        ex.end
-                        for ex in self.active_exception_entries
-                        if ex.target == block_end
-                    ]
+                    [ex.end for ex in self.active_exception_entries if ex.target == block_end]
                 )
 
             # Handle with

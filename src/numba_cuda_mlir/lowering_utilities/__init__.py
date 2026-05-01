@@ -45,9 +45,7 @@ import operator
 GEP_DYNAMIC_INDEX = -2147483648
 
 
-def memref_to_llvm_ptr(
-    array: ir.Value, indices: list[ir.Value], element_type: ir.Type
-) -> ir.Value:
+def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value], element_type: ir.Type) -> ir.Value:
     """Convert memref + indices to LLVM pointer.
 
     Extracts base pointer from potentially strided memref and computes
@@ -116,9 +114,7 @@ def memref_to_tensor(memref):
             tensor_type = ir.RankedTensorType.get(
                 shape=memref.type.shape, element_type=memref.type.element_type
             )
-            tensor = bufferization.to_tensor(
-                result=tensor_type, buffer=memref, restrict=True
-            )
+            tensor = bufferization.to_tensor(result=tensor_type, buffer=memref, restrict=True)
             return tensor
         case ir.RankedTensorType():
             return memref
@@ -137,9 +133,7 @@ def tensor_to_memref(tensor):
             # Create memref with strided layout
             rank = len(tensor.type.shape)
             dyn_stride = ir.MemRefType.get_dynamic_stride_or_offset()
-            layout = ir.StridedLayoutAttr.get(
-                offset=dyn_stride, strides=[dyn_stride] * rank
-            )
+            layout = ir.StridedLayoutAttr.get(offset=dyn_stride, strides=[dyn_stride] * rank)
             memref_type = ir.MemRefType.get(
                 shape=tensor.type.shape,
                 element_type=tensor.type.element_type,
@@ -196,9 +190,7 @@ def _(a: types.Type, b: types.Type) -> types.Type:
             _ as other,
             SpecialFloatType() as s,
         ):
-            raise TypeError(
-                f"Implicit promotion between {s} and {other} is not supported"
-            )
+            raise TypeError(f"Implicit promotion between {s} and {other} is not supported")
         case types.Float() as f, types.Integer() as i:
             return float_types[max(f.bitwidth, i.bitwidth)]
         case types.Integer() as i, types.Float() as f:
@@ -245,9 +237,7 @@ def _(a: ir.Type, b: ir.Type) -> ir.Type:
             raise NotImplementedError(f"Not implemented for type {a} and {b}")
 
 
-def coerce_numpy_scalars_for_binary_op(
-    a: ir.Value, b: ir.Value
-) -> tuple[ir.Value, ir.Value]:
+def coerce_numpy_scalars_for_binary_op(a: ir.Value, b: ir.Value) -> tuple[ir.Value, ir.Value]:
     coerced = numpy_implicit_type_promotion(a.type, b.type)
     return convert(a, coerced), convert(b, coerced)
 
@@ -536,17 +526,13 @@ def unverified_convert(value, target_type, *, signed: bool = False):
 @unverified_convert.register
 def convert_none(value: ir.NoneType, target_type: ir.NoneType, **_):
     if value != target_type:
-        raise InternalCompilerError(
-            "Cannot convert NoneType to anything other than NoneType"
-        )
+        raise InternalCompilerError("Cannot convert NoneType to anything other than NoneType")
     return value
 
 
 @typechecked
 @unverified_convert.register
-def opaque_data_model_convert(
-    value: type | MLIRDispatcher, target_type: ir.NoneType, **_
-):
+def opaque_data_model_convert(value: type | MLIRDispatcher, target_type: ir.NoneType, **_):
     """
     For types with an opaque data model, we defer the real lowering until later - we
     hopefully resolve this at compile time anyways.
@@ -556,9 +542,7 @@ def opaque_data_model_convert(
 
 @typechecked
 @unverified_convert.register
-def number_class_convert(
-    value: types.Type, target_type: types.functions.NumberClass, **_
-):
+def number_class_convert(value: types.Type, target_type: types.functions.NumberClass, **_):
     return value
 
 
@@ -607,9 +591,7 @@ def unverified_basic_mlir_convert(
         ):
             # Same width but different float types (e.g. f16 <-> bf16)
             # Convert via f32 as intermediate
-            trace(
-                "same-width float conversion via f32: %s -> %s", value_type, target_type
-            )
+            trace("same-width float conversion via f32: %s -> %s", value_type, target_type)
             intermediate = arith.extf(out=T.f32(), in_=value)
             return arith.truncf(out=target_type, in_=intermediate)
         case ir.FloatType(), ir.FloatType() if value_type.width != target_type.width:
@@ -644,29 +626,23 @@ def unverified_basic_mlir_convert(
                 else arith.uitofp(out=float_type, in_=value)
             )
             zero = arith.constant(result=float_type, value=0.0)
-            return complex_dialect.create_(
-                complex=target_type, real=float_val, imaginary=zero
-            )
+            return complex_dialect.create_(complex=target_type, real=float_val, imaginary=zero)
         case ir.FloatType(), ir.ComplexType():
             # Convert float to complex: float -> complex(float, 0)
             float_type = target_type.element_type
             real_val = convert(value, float_type)
             zero = arith.constant(result=float_type, value=0.0)
-            return complex_dialect.create_(
-                complex=target_type, real=real_val, imaginary=zero
-            )
+            return complex_dialect.create_(complex=target_type, real=real_val, imaginary=zero)
         case ir.ComplexType(), ir.ComplexType():
-            assert (
-                value_type.element_type != target_type.element_type
-            ), "how did we get here? the types should compare-equal."
+            assert value_type.element_type != target_type.element_type, (
+                "how did we get here? the types should compare-equal."
+            )
             target_element_type = target_type.element_type
             real = complex_dialect.re(value)
             real = convert(real, target_element_type)
             imag = complex_dialect.im(value)
             imag = convert(imag, target_element_type)
-            return complex_dialect.create_(
-                complex=target_type, real=real, imaginary=imag
-            )
+            return complex_dialect.create_(complex=target_type, real=real, imaginary=imag)
         case ir.MemRefType() as mr, ptr_type if str(ptr_type) == "!llvm.ptr":
             idx = memref.extract_aligned_pointer_as_index(value)
             return convert(idx, target_type)
@@ -692,13 +668,9 @@ def unverified_basic_mlir_convert(
                 value_type.layout,
                 target_type.memory_space,
             )
-            mr = memref.memory_space_cast(
-                dest=memref_type_with_memory_space, source=value
-            )
+            mr = memref.memory_space_cast(dest=memref_type_with_memory_space, source=value)
             return convert(mr, target_type)
-        case ir.MemRefType() as a, ir.MemRefType() as b if (
-            not a.has_rank or not b.has_rank
-        ):
+        case ir.MemRefType() as a, ir.MemRefType() as b if not a.has_rank or not b.has_rank:
             raise NotImplementedError("Conversions between unranked memrefs")
         case ir.MemRefType() as a, ir.MemRefType() as b if a.rank == b.rank:
             return memref.cast(dest=target_type, source=value)
@@ -713,9 +685,7 @@ def unverified_basic_mlir_convert(
                 value, target_type
             )  # should be compatible with a memref cast if not equal
             return value
-        case nvgpu.TensorMapDescriptorType(), ir.Type() if (
-            str(target_type) == "!llvm.ptr"
-        ):
+        case nvgpu.TensorMapDescriptorType(), ir.Type() if str(target_type) == "!llvm.ptr":
             return builtin.unrealized_conversion_cast([llvm.PointerType.get()], [value])
         case ir.Type() as a, nvgpu.TensorMapDescriptorType() if str(a) == "!llvm.ptr":
             return builtin.unrealized_conversion_cast([target_type], [value])
@@ -750,9 +720,7 @@ def unverified_basic_mlir_convert(
                 "Please file an issue with your use case. Thank you!"
             )
         case _:
-            raise NotImplementedError(
-                f"NotImplemented converting {value_type} to {target_type}"
-            )
+            raise NotImplementedError(f"NotImplemented converting {value_type} to {target_type}")
 
 
 def index_of(value: ir.Value | int) -> ir.Value:
@@ -765,9 +733,7 @@ def index_of(value: ir.Value | int) -> ir.Value:
             raise NotImplementedError(f"Not implemented for type {type(value)}")
 
 
-def int_of(
-    value: ir.Value | int | float | bool, ty: ir.Type, *, signed: bool = False
-) -> ir.Value:
+def int_of(value: ir.Value | int | float | bool, ty: ir.Type, *, signed: bool = False) -> ir.Value:
     match value:
         case int() | float() | bool():
             return arith.constant(ty, value=int(value))
@@ -828,13 +794,10 @@ def coerce_to_shape_tuple(
             return to_indices(value)
         case ir.Value() if isinstance(value.type, ir.MemRefType):
             mr_type = value.type
-            assert (
-                mr_type.has_rank and mr_type.rank == 1
-            ), "Value must be a 1-dimensional memref"
+            assert mr_type.has_rank and mr_type.rank == 1, "Value must be a 1-dimensional memref"
             assert mr_type.has_static_shape, "Shape of memref must be static"
             tuple_result = tuple(
-                memref.load(value, [index_of(i)])
-                for i in range(mr_type.get_dim_size(0))
+                memref.load(value, [index_of(i)]) for i in range(mr_type.get_dim_size(0))
             )
             return to_indices(tuple_result)
         case _:
@@ -905,13 +868,9 @@ class RangeObject:
         if error_memref is not None:
             from numba_cuda_mlir.mlir_lowering import KERNEL_ERROR_CODES
 
-            step_is_zero = arith.cmpi(
-                predicate=arith.CmpIPredicate.eq, lhs=step_val, rhs=zero
-            )
+            step_is_zero = arith.cmpi(predicate=arith.CmpIPredicate.eq, lhs=step_val, rhs=zero)
             with scf.if_ctx_manager(step_is_zero):
-                set_error_code_if_zero(
-                    error_memref, KERNEL_ERROR_CODES[ZeroDivisionError]
-                )
+                set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ZeroDivisionError])
                 scf.yield_([])
 
         # Compute trip-count in i64 to avoid issues with mixed signed/unsigned
@@ -935,13 +894,9 @@ class RangeObject:
         pos_result = arith.select(diff_positive, pos_count, zero_i64)
 
         # Negative step: ceildiv(neg_diff, neg_step) if neg_diff > 0 else 0
-        neg_numerator = arith.addi(
-            lhs=neg_diff, rhs=arith.subi(lhs=neg_step, rhs=one_i64)
-        )
+        neg_numerator = arith.addi(lhs=neg_diff, rhs=arith.subi(lhs=neg_step, rhs=one_i64))
         neg_count = arith.divui(lhs=neg_numerator, rhs=neg_step)
-        neg_diff_positive = arith.cmpi(
-            arith.CmpIPredicate.sgt, lhs=neg_diff, rhs=zero_i64
-        )
+        neg_diff_positive = arith.cmpi(arith.CmpIPredicate.sgt, lhs=neg_diff, rhs=zero_i64)
         neg_result = arith.select(neg_diff_positive, neg_count, zero_i64)
 
         count = arith.select(step_positive, pos_result, neg_result)
@@ -984,9 +939,7 @@ class RangeObject:
         one = int_of(1, int_type)
 
         current_count = self.count
-        is_valid = arith.cmpi(
-            predicate=arith.CmpIPredicate.sgt, lhs=current_count, rhs=zero
-        )
+        is_valid = arith.cmpi(predicate=arith.CmpIPredicate.sgt, lhs=current_count, rhs=zero)
         current_value = self.iter
 
         # Compute updated state (predicated without control flow)
@@ -1060,9 +1013,7 @@ class UniTupleIterObject:
         count = int_of(self._count, ty=T.i64())
 
         current_index = self.index
-        is_valid = arith.cmpi(
-            predicate=arith.CmpIPredicate.slt, lhs=current_index, rhs=count
-        )
+        is_valid = arith.cmpi(predicate=arith.CmpIPredicate.slt, lhs=current_index, rhs=count)
 
         if self._uses_llvm:
             elem_ptr = llvm.getelementptr(
@@ -1120,9 +1071,7 @@ class ArrayIterObject:
         current_index = self.index
         length = self.length
 
-        is_valid = arith.cmpi(
-            predicate=arith.CmpIPredicate.slt, lhs=current_index, rhs=length
-        )
+        is_valid = arith.cmpi(predicate=arith.CmpIPredicate.slt, lhs=current_index, rhs=length)
         index_as_index = arith.index_cast(out=ir.IndexType.get(), in_=current_index)
         current_value = memref.load(self._array, [index_as_index])
 
@@ -1191,8 +1140,7 @@ def lookup_callee_in_module(
     func_ops = list(filter(lambda x: isinstance(x, (func.FuncOp, gpu.GPUFuncOp)), body))
     matches = list(
         filter(
-            lambda x: x.name == name
-            and _func_types_match(get_func_type(x), mlir_type, exact),
+            lambda x: x.name == name and _func_types_match(get_func_type(x), mlir_type, exact),
             func_ops,
         )
     )
@@ -1304,9 +1252,7 @@ def broadcast_shapes_for_binary_op(
                         is_broadcastable, arith.constant(result=T.i(1), value=1)
                     )
                     with scf.if_ctx_manager(not_broadcastable):
-                        set_error_code_if_zero(
-                            error_memref, KERNEL_ERROR_CODES[ValueError]
-                        )
+                        set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
                         scf.yield_([])
             sh = shape.broadcast(shapes=[sb, sa], result=sa.type)
             a, b = tensor.reshape(a, sh), tensor.reshape(b, sh)

@@ -135,9 +135,7 @@ class BaseCallConv:
             # Error already raised => nothing to do
             builder.branch(bbend)
 
-        pyapi.err_set_string(
-            "PyExc_SystemError", "unknown error when calling native function"
-        )
+        pyapi.err_set_string("PyExc_SystemError", "unknown error when calling native function")
         builder.branch(bbend)
 
         builder.position_at_end(bbend)
@@ -167,9 +165,7 @@ class BaseCallConv:
         llvm_mod = builder.module
         fn = fndesc.declare_function(llvm_mod)
         # Marshal the call using the callee's ABI.
-        status, res = fndesc.call_conv.call_function(
-            builder, fn, sig.return_type, sig.args, args
-        )
+        status, res = fndesc.call_conv.call_function(builder, fn, sig.return_type, sig.args, args)
         return status, res
 
 
@@ -393,9 +389,7 @@ class CUDACABICallConv(BaseCallConv):
 
         # If types don't match, we need to cast
         if actual_type != expected_type:
-            if isinstance(actual_type, ir.IntType) and isinstance(
-                expected_type, ir.IntType
-            ):
+            if isinstance(actual_type, ir.IntType) and isinstance(expected_type, ir.IntType):
                 if actual_type.width < expected_type.width:
                     # Zero-extend smaller integers to larger ones
                     retval = builder.zext(retval, expected_type)

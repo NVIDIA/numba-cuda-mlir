@@ -22,11 +22,7 @@ RSQRT2PI = 0.39894228040143267793994605993438
 
 def cnd(d):
     K = 1.0 / (1.0 + 0.2316419 * np.abs(d))
-    ret_val = (
-        RSQRT2PI
-        * np.exp(-0.5 * d * d)
-        * (K * (A1 + K * (A2 + K * (A3 + K * (A4 + K * A5)))))
-    )
+    ret_val = RSQRT2PI * np.exp(-0.5 * d * d) * (K * (A1 + K * (A2 + K * (A3 + K * (A4 + K * A5)))))
     return np.where(d > 0, 1.0 - ret_val, ret_val)
 
 

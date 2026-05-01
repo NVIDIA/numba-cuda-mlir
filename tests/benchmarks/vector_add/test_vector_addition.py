@@ -22,9 +22,7 @@ def numba_cuda_vector_add(a, b, c, n):
 
 @numba_cuda.jit
 def numba_cuda_vector_add_vectorized(a, b, c, n):
-    base_idx = (
-        numba_cuda.blockIdx.x * numba_cuda.blockDim.x + numba_cuda.threadIdx.x
-    ) * 4
+    base_idx = (numba_cuda.blockIdx.x * numba_cuda.blockDim.x + numba_cuda.threadIdx.x) * 4
     if base_idx + 3 < n:
         c[base_idx] = a[base_idx] + b[base_idx]
         c[base_idx + 1] = a[base_idx + 1] + b[base_idx + 1]
@@ -84,9 +82,7 @@ def run_numba_cuda_mlir_vectorized(a, b):
     elements_per_thread = 4
     total_threads = (n + elements_per_thread - 1) // elements_per_thread
     blocks = (total_threads + threads - 1) // threads
-    numba_cuda_mlir_vector_add_vectorized[blocks, threads](
-        a_device, b_device, c_device, n
-    )
+    numba_cuda_mlir_vector_add_vectorized[blocks, threads](a_device, b_device, c_device, n)
     cuda.synchronize()
     return c_device.copy_to_host()
 
@@ -95,18 +91,18 @@ def test_vector_addition():
     a, b = get_input_data(TEST_N)
     expected = a + b
     numba_cuda_mlir_result = run_numba_cuda_mlir_scalar(a, b)
-    assert np.allclose(
-        numba_cuda_mlir_result, expected
-    ), "numba-cuda-mlir scalar verification failed"
+    assert np.allclose(numba_cuda_mlir_result, expected), (
+        "numba-cuda-mlir scalar verification failed"
+    )
 
 
 def test_vector_addition_vectorized():
     a, b = get_input_data(TEST_N)
     expected = a + b
     numba_cuda_mlir_result = run_numba_cuda_mlir_vectorized(a, b)
-    assert np.allclose(
-        numba_cuda_mlir_result, expected
-    ), "numba-cuda-mlir vectorized verification failed"
+    assert np.allclose(numba_cuda_mlir_result, expected), (
+        "numba-cuda-mlir vectorized verification failed"
+    )
 
 
 def test_vector_addition_scalar_benchmark(benchmark_runner):
@@ -118,9 +114,7 @@ def test_vector_addition_vectorized_benchmark(benchmark_runner):
 
 
 def run_benchmark_scalar():
-    sig = types.void(
-        types.float32[::1], types.float32[::1], types.float32[::1], types.int64
-    )
+    sig = types.void(types.float32[::1], types.float32[::1], types.float32[::1], types.int64)
 
     start = time.perf_counter()
     numba_cuda_vector_add.compile(sig)
@@ -153,9 +147,7 @@ def run_benchmark_scalar():
 
 
 def run_benchmark_vectorized():
-    sig = types.void(
-        types.float32[::1], types.float32[::1], types.float32[::1], types.int64
-    )
+    sig = types.void(types.float32[::1], types.float32[::1], types.float32[::1], types.int64)
 
     start = time.perf_counter()
     numba_cuda_vector_add_vectorized.compile(sig)
@@ -185,9 +177,7 @@ def run_benchmark_vectorized():
     a_device = cuda.to_device(a)
     b_device = cuda.to_device(b)
     c_device = cuda.device_array(n, dtype=np.float32)
-    numba_cuda_mlir_vector_add_vectorized[blocks, threads](
-        a_device, b_device, c_device, n
-    )
+    numba_cuda_mlir_vector_add_vectorized[blocks, threads](a_device, b_device, c_device, n)
     cuda.synchronize()
 
 

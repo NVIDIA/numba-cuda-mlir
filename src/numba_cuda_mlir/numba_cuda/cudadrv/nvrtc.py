@@ -15,9 +15,9 @@ import functools
 from cuda.core import Program, ProgramOptions
 from cuda.bindings import nvrtc as bindings_nvrtc
 
-NVRTC_EXTRA_SEARCH_PATHS = _readenv(
-    "NUMBA_CUDA_NVRTC_EXTRA_SEARCH_PATHS", str, ""
-) or getattr(config, "CUDA_NVRTC_EXTRA_SEARCH_PATHS", "")
+NVRTC_EXTRA_SEARCH_PATHS = _readenv("NUMBA_CUDA_NVRTC_EXTRA_SEARCH_PATHS", str, "") or getattr(
+    config, "CUDA_NVRTC_EXTRA_SEARCH_PATHS", ""
+)
 if not hasattr(config, "CUDA_NVRTC_EXTRA_SEARCH_PATHS"):
     config.CUDA_NVRTC_EXTRA_SEARCH_PATHS = NVRTC_EXTRA_SEARCH_PATHS
 
@@ -197,9 +197,8 @@ def find_closest_arch(cc):
             # Exceeded
             if i == 0:
                 # CC lower than supported
-                msg = (
-                    "GPU compute capability %d.%d is not supported"
-                    "(requires >=%d.%d)" % (cc + supported_cc)
+                msg = "GPU compute capability %d.%d is not supported(requires >=%d.%d)" % (
+                    cc + supported_cc
                 )
                 raise CCSupportError(msg)
             else:

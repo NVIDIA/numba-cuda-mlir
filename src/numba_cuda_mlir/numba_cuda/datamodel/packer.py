@@ -91,8 +91,7 @@ class ArgPacker:
         """Flatten all argument values"""
         if len(values) != self._nargs:
             raise TypeError(
-                "invalid number of args: expected %d, got %d"
-                % (self._nargs, len(values))
+                "invalid number of args: expected %d, got %d" % (self._nargs, len(values))
             )
 
         if not values:
@@ -107,9 +106,7 @@ class ArgPacker:
         """Unflatten all argument values"""
 
         valtree = self._unflattener.unflatten(args)
-        values = [
-            dm.from_argument(builder, val) for dm, val in zip(self._dm_args, valtree)
-        ]
+        values = [dm.from_argument(builder, val) for dm, val in zip(self._dm_args, valtree)]
 
         return values
 

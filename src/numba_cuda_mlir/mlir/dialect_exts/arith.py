@@ -303,9 +303,9 @@ def _binary_op(
     Returns:
       Result of binary operation. This will be a handle to an arith(add|sub|mul) op.
     """
-    if (
-        isinstance(lhs, Value) and isinstance(rhs, Value) and lhs.type != rhs.type
-    ) or isinstance(rhs, (float, int, bool, np.ndarray)):
+    if (isinstance(lhs, Value) and isinstance(rhs, Value) and lhs.type != rhs.type) or isinstance(
+        rhs, (float, int, bool, np.ndarray)
+    ):
         rhs = lhs.coerce(rhs)
     elif isinstance(rhs, Value) and isinstance(lhs, (float, int, bool, np.ndarray)):
         lhs = rhs.coerce(lhs)

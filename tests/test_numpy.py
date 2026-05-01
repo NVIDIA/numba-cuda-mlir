@@ -164,9 +164,7 @@ def test_np_elementwise_ops(subtests):
             for idx in range(len(input_data)):
                 kernel[1, 1, 0, 0](result, a, idx)
                 result_value = result.copy_to_host()[0]
-                np.testing.assert_allclose(
-                    result_value, expected[idx], rtol=1e-5, atol=1e-6
-                )
+                np.testing.assert_allclose(result_value, expected[idx], rtol=1e-5, atol=1e-6)
 
 
 def kernel_min(result: DeviceNDArray, a: DeviceNDArray):

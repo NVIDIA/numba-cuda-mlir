@@ -763,9 +763,7 @@ def _from___half_to__type_unnamed1362071_lower(shim_stream, shim_obj):
     @lower_cast(_type___half, _type_unnamed1362071)
     def impl(context, builder, fromty, toty, value):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "____half__ZNK6__halfcv10__half_rawEv_1", shim_raw_str
-        )
+        shim_stream.write_with_key("____half__ZNK6__halfcv10__half_rawEv_1", shim_raw_str)
         ptr = builder.alloca(context.get_value_type(_type___half), name="selfptr")
         builder.store(value, ptr, align=getattr(_type___half, "align", None))
 
@@ -805,9 +803,7 @@ def _from___half_to__type_unnamed1362071_lower(shim_stream, shim_obj):
     @lower_cast(_type___half, _type_unnamed1362071)
     def impl(context, builder, fromty, toty, value):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "____half__ZNVK6__halfcv10__half_rawEv_1", shim_raw_str
-        )
+        shim_stream.write_with_key("____half__ZNVK6__halfcv10__half_rawEv_1", shim_raw_str)
         ptr = builder.alloca(context.get_value_type(_type___half), name="selfptr")
         builder.store(value, ptr, align=getattr(_type___half, "align", None))
 
@@ -6159,9 +6155,7 @@ def _lower__ZpsRK6__half_nbst(shim_stream, shim_obj):
     }
         """
 
-    _ZpsRK6__half_nbst = declare_device(
-        "_ZpsRK6__half_nbst", _type___half(CPointer(_type___half))
-    )
+    _ZpsRK6__half_nbst = declare_device("_ZpsRK6__half_nbst", _type___half(CPointer(_type___half)))
 
     def _ZpsRK6__half_nbst_caller(arg_0):
         return _ZpsRK6__half_nbst(arg_0)
@@ -6194,9 +6188,7 @@ def _lower__ZngRK6__half_nbst(shim_stream, shim_obj):
     }
         """
 
-    _ZngRK6__half_nbst = declare_device(
-        "_ZngRK6__half_nbst", _type___half(CPointer(_type___half))
-    )
+    _ZngRK6__half_nbst = declare_device("_ZngRK6__half_nbst", _type___half(CPointer(_type___half)))
 
     def _ZngRK6__half_nbst_caller(arg_0):
         return _ZngRK6__half_nbst(arg_0)
@@ -7621,9 +7613,7 @@ def float16_to_integer_cast(context, builder, fromty, toty, val):
     signedness = "s" if toty.signed else "u"
 
     fnty = ir.FunctionType(context.get_value_type(toty), [ir.IntType(16)])
-    asm = ir.InlineAsm(
-        fnty, f"cvt.rni.{signedness}{bitwidth}.f16 $0, $1;", f"={constraint},h"
-    )
+    asm = ir.InlineAsm(fnty, f"cvt.rni.{signedness}{bitwidth}.f16 $0, $1;", f"={constraint},h")
     return builder.call(asm, [val])
 
 
@@ -7635,9 +7625,7 @@ def integer_to_float16_cast(context, builder, fromty, toty, val):
     signedness = "s" if fromty.signed else "u"
 
     fnty = ir.FunctionType(ir.IntType(16), [context.get_value_type(fromty)])
-    asm = ir.InlineAsm(
-        fnty, f"cvt.rn.f16.{signedness}{bitwidth} $0, $1;", f"=h,{constraint}"
-    )
+    asm = ir.InlineAsm(fnty, f"cvt.rn.f16.{signedness}{bitwidth} $0, $1;", f"=h,{constraint}")
     return builder.call(asm, [val])
 
 
@@ -7664,9 +7652,7 @@ def _fp16_binary_operator(l_key, retty):
 
             assert not kws
 
-            if len(args) == 2 and (
-                args[0] == types.float16 or args[1] == types.float16
-            ):
+            if len(args) == 2 and (args[0] == types.float16 or args[1] == types.float16):
                 if args[0] == types.float16:
                     convertible = self.context.can_convert(args[1], args[0])
                 else:

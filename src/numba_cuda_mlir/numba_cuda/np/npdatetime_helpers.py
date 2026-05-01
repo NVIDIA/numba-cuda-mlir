@@ -115,9 +115,7 @@ def get_timedelta_conversion_factor(src_unit, dest_unit):
     Return an integer multiplier allowing to convert from timedeltas
     of *src_unit* to *dest_unit*.
     """
-    return _get_conversion_multiplier(
-        DATETIME_UNITS[src_unit], DATETIME_UNITS[dest_unit]
-    )
+    return _get_conversion_multiplier(DATETIME_UNITS[src_unit], DATETIME_UNITS[dest_unit])
 
 
 def get_datetime_timedelta_conversion(datetime_unit, timedelta_unit):
@@ -135,8 +133,7 @@ def get_datetime_timedelta_conversion(datetime_unit, timedelta_unit):
     if td_unit_code < 2 and dt_unit_code >= 2:
         # Cannot combine Y or M timedelta64 with a finer-grained datetime64
         raise RuntimeError(
-            "cannot combine datetime64(%r) and timedelta64(%r)"
-            % (datetime_unit, timedelta_unit)
+            "cannot combine datetime64(%r) and timedelta64(%r)" % (datetime_unit, timedelta_unit)
         )
     dt_factor, td_factor = 1, 1
 

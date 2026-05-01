@@ -223,9 +223,7 @@ def _lower__ZN13__nv_bfloat16C1Ev(shim_stream, shim_obj):
     def ctor_impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
         shim_stream.write_with_key("_ZN13__nv_bfloat16C1Ev_nbst", shim_raw_str)
-        selfptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        selfptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         argptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(argptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -239,9 +237,7 @@ def _lower__ZN13__nv_bfloat16C1Ev(shim_stream, shim_obj):
             ),
             (selfptr, *argptrs),
         )
-        return builder.load(
-            selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None)
-        )
+        return builder.load(selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None))
 
 
 _lower__ZN13__nv_bfloat16C1Ev(shim_stream, shim_obj)
@@ -267,12 +263,8 @@ def _lower__ZN13__nv_bfloat16C1ERK17__nv_bfloat16_raw(shim_stream, shim_obj):
     @lower(__nv_bfloat16, _type_unnamed1405307)
     def ctor_impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZN13__nv_bfloat16C1ERK17__nv_bfloat16_raw_nbst", shim_raw_str
-        )
-        selfptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        shim_stream.write_with_key("_ZN13__nv_bfloat16C1ERK17__nv_bfloat16_raw_nbst", shim_raw_str)
+        selfptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         argptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(argptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -287,9 +279,7 @@ def _lower__ZN13__nv_bfloat16C1ERK17__nv_bfloat16_raw(shim_stream, shim_obj):
             ),
             (selfptr, *argptrs),
         )
-        return builder.load(
-            selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None)
-        )
+        return builder.load(selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None))
 
     @lower_cast(_type_unnamed1405307, _type___nv_bfloat16)
     def conversion_impl(context, builder, fromty, toty, value):
@@ -325,9 +315,7 @@ def _lower__ZN13__nv_bfloat16C1E6__half(shim_stream, shim_obj):
     def ctor_impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
         shim_stream.write_with_key("_ZN13__nv_bfloat16C1E6__half_nbst", shim_raw_str)
-        selfptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        selfptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         argptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(argptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -338,9 +326,7 @@ def _lower__ZN13__nv_bfloat16C1E6__half(shim_stream, shim_obj):
             signature(int32, CPointer(_type___nv_bfloat16), CPointer(float16)),
             (selfptr, *argptrs),
         )
-        return builder.load(
-            selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None)
-        )
+        return builder.load(selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None))
 
     # By default, Numbast does not generate this cast because the c++ conversion
     # constructor is marked explict. We enable it by hand here.
@@ -378,9 +364,7 @@ def _lower__ZN13__nv_bfloat16C1Ef(shim_stream, shim_obj):
     def ctor_impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
         shim_stream.write_with_key("_ZN13__nv_bfloat16C1Ef_nbst", shim_raw_str)
-        selfptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        selfptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         argptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(argptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -391,9 +375,7 @@ def _lower__ZN13__nv_bfloat16C1Ef(shim_stream, shim_obj):
             signature(int32, CPointer(_type___nv_bfloat16), CPointer(float32)),
             (selfptr, *argptrs),
         )
-        return builder.load(
-            selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None)
-        )
+        return builder.load(selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None))
 
     @lower_cast(float32, _type___nv_bfloat16)
     def conversion_impl(context, builder, fromty, toty, value):
@@ -429,9 +411,7 @@ def _lower__ZN13__nv_bfloat16C1Ed(shim_stream, shim_obj):
     def ctor_impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
         shim_stream.write_with_key("_ZN13__nv_bfloat16C1Ed_nbst", shim_raw_str)
-        selfptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        selfptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         argptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(argptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -442,9 +422,7 @@ def _lower__ZN13__nv_bfloat16C1Ed(shim_stream, shim_obj):
             signature(int32, CPointer(_type___nv_bfloat16), CPointer(float64)),
             (selfptr, *argptrs),
         )
-        return builder.load(
-            selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None)
-        )
+        return builder.load(selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None))
 
     @lower_cast(float64, _type___nv_bfloat16)
     def conversion_impl(context, builder, fromty, toty, value):
@@ -480,9 +458,7 @@ def _lower__ZN13__nv_bfloat16C1Es(shim_stream, shim_obj):
     def ctor_impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
         shim_stream.write_with_key("_ZN13__nv_bfloat16C1Es_nbst", shim_raw_str)
-        selfptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        selfptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         argptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(argptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -493,9 +469,7 @@ def _lower__ZN13__nv_bfloat16C1Es(shim_stream, shim_obj):
             signature(int32, CPointer(_type___nv_bfloat16), CPointer(int16)),
             (selfptr, *argptrs),
         )
-        return builder.load(
-            selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None)
-        )
+        return builder.load(selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None))
 
     @lower_cast(int16, _type___nv_bfloat16)
     def conversion_impl(context, builder, fromty, toty, value):
@@ -531,9 +505,7 @@ def _lower__ZN13__nv_bfloat16C1Et(shim_stream, shim_obj):
     def ctor_impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
         shim_stream.write_with_key("_ZN13__nv_bfloat16C1Et_nbst", shim_raw_str)
-        selfptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        selfptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         argptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(argptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -544,9 +516,7 @@ def _lower__ZN13__nv_bfloat16C1Et(shim_stream, shim_obj):
             signature(int32, CPointer(_type___nv_bfloat16), CPointer(uint16)),
             (selfptr, *argptrs),
         )
-        return builder.load(
-            selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None)
-        )
+        return builder.load(selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None))
 
     @lower_cast(uint16, _type___nv_bfloat16)
     def conversion_impl(context, builder, fromty, toty, value):
@@ -582,9 +552,7 @@ def _lower__ZN13__nv_bfloat16C1Ei(shim_stream, shim_obj):
     def ctor_impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
         shim_stream.write_with_key("_ZN13__nv_bfloat16C1Ei_nbst", shim_raw_str)
-        selfptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        selfptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         argptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(argptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -595,9 +563,7 @@ def _lower__ZN13__nv_bfloat16C1Ei(shim_stream, shim_obj):
             signature(int32, CPointer(_type___nv_bfloat16), CPointer(int32)),
             (selfptr, *argptrs),
         )
-        return builder.load(
-            selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None)
-        )
+        return builder.load(selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None))
 
     @lower_cast(int32, _type___nv_bfloat16)
     def conversion_impl(context, builder, fromty, toty, value):
@@ -633,9 +599,7 @@ def _lower__ZN13__nv_bfloat16C1Ej(shim_stream, shim_obj):
     def ctor_impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
         shim_stream.write_with_key("_ZN13__nv_bfloat16C1Ej_nbst", shim_raw_str)
-        selfptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        selfptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         argptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(argptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -646,9 +610,7 @@ def _lower__ZN13__nv_bfloat16C1Ej(shim_stream, shim_obj):
             signature(int32, CPointer(_type___nv_bfloat16), CPointer(uint32)),
             (selfptr, *argptrs),
         )
-        return builder.load(
-            selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None)
-        )
+        return builder.load(selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None))
 
     @lower_cast(uint32, _type___nv_bfloat16)
     def conversion_impl(context, builder, fromty, toty, value):
@@ -684,9 +646,7 @@ def _lower__ZN13__nv_bfloat16C1El(shim_stream, shim_obj):
     def ctor_impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
         shim_stream.write_with_key("_ZN13__nv_bfloat16C1El_nbst", shim_raw_str)
-        selfptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        selfptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         argptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(argptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -697,9 +657,7 @@ def _lower__ZN13__nv_bfloat16C1El(shim_stream, shim_obj):
             signature(int32, CPointer(_type___nv_bfloat16), CPointer(int64)),
             (selfptr, *argptrs),
         )
-        return builder.load(
-            selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None)
-        )
+        return builder.load(selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None))
 
     @lower_cast(int64, _type___nv_bfloat16)
     def conversion_impl(context, builder, fromty, toty, value):
@@ -735,9 +693,7 @@ def _lower__ZN13__nv_bfloat16C1Em(shim_stream, shim_obj):
     def ctor_impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
         shim_stream.write_with_key("_ZN13__nv_bfloat16C1Em_nbst", shim_raw_str)
-        selfptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        selfptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         argptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(argptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -748,9 +704,7 @@ def _lower__ZN13__nv_bfloat16C1Em(shim_stream, shim_obj):
             signature(int32, CPointer(_type___nv_bfloat16), CPointer(uint64)),
             (selfptr, *argptrs),
         )
-        return builder.load(
-            selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None)
-        )
+        return builder.load(selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None))
 
     @lower_cast(uint64, _type___nv_bfloat16)
     def conversion_impl(context, builder, fromty, toty, value):
@@ -786,9 +740,7 @@ def _lower__ZN13__nv_bfloat16C1Ex(shim_stream, shim_obj):
     def ctor_impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
         shim_stream.write_with_key("_ZN13__nv_bfloat16C1Ex_nbst", shim_raw_str)
-        selfptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        selfptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         argptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(argptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -799,9 +751,7 @@ def _lower__ZN13__nv_bfloat16C1Ex(shim_stream, shim_obj):
             signature(int32, CPointer(_type___nv_bfloat16), CPointer(int64)),
             (selfptr, *argptrs),
         )
-        return builder.load(
-            selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None)
-        )
+        return builder.load(selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None))
 
     @lower_cast(int64, _type___nv_bfloat16)
     def conversion_impl(context, builder, fromty, toty, value):
@@ -837,9 +787,7 @@ def _lower__ZN13__nv_bfloat16C1Ey(shim_stream, shim_obj):
     def ctor_impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
         shim_stream.write_with_key("_ZN13__nv_bfloat16C1Ey_nbst", shim_raw_str)
-        selfptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        selfptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         argptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(argptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -850,9 +798,7 @@ def _lower__ZN13__nv_bfloat16C1Ey(shim_stream, shim_obj):
             signature(int32, CPointer(_type___nv_bfloat16), CPointer(uint64)),
             (selfptr, *argptrs),
         )
-        return builder.load(
-            selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None)
-        )
+        return builder.load(selfptr, align=getattr(_type___nv_bfloat16, "alignof_", None))
 
     @lower_cast(uint64, _type___nv_bfloat16)
     def conversion_impl(context, builder, fromty, toty, value):
@@ -918,9 +864,7 @@ def _from___nv_bfloat16_to__type_unnamed1405307_lower(shim_stream, shim_obj):
             "____nv_bfloat16__ZNK13__nv_bfloat16cv17__nv_bfloat16_rawEv_1",
             shim_raw_str,
         )
-        ptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        ptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         builder.store(value, ptr, align=getattr(_type___nv_bfloat16, "align", None))
 
         return context.compile_internal(
@@ -963,9 +907,7 @@ def _from___nv_bfloat16_to__type_unnamed1405307_lower(shim_stream, shim_obj):
             "____nv_bfloat16__ZNVK13__nv_bfloat16cv17__nv_bfloat16_rawEv_1",
             shim_raw_str,
         )
-        ptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        ptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         builder.store(value, ptr, align=getattr(_type___nv_bfloat16, "align", None))
 
         return context.compile_internal(
@@ -1004,12 +946,8 @@ def _from___nv_bfloat16_to_float32_lower(shim_stream, shim_obj):
     @lower_cast(_type___nv_bfloat16, float32)
     def impl(context, builder, fromty, toty, value):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "____nv_bfloat16__ZNK13__nv_bfloat16cvfEv_1", shim_raw_str
-        )
-        ptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        shim_stream.write_with_key("____nv_bfloat16__ZNK13__nv_bfloat16cvfEv_1", shim_raw_str)
+        ptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         builder.store(value, ptr, align=getattr(_type___nv_bfloat16, "align", None))
 
         return context.compile_internal(
@@ -1048,12 +986,8 @@ def _from___nv_bfloat16_to_int8_lower(shim_stream, shim_obj):
     @lower_cast(_type___nv_bfloat16, int8)
     def impl(context, builder, fromty, toty, value):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "____nv_bfloat16__ZNK13__nv_bfloat16cvaEv_1", shim_raw_str
-        )
-        ptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        shim_stream.write_with_key("____nv_bfloat16__ZNK13__nv_bfloat16cvaEv_1", shim_raw_str)
+        ptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         builder.store(value, ptr, align=getattr(_type___nv_bfloat16, "align", None))
 
         return context.compile_internal(
@@ -1092,12 +1026,8 @@ def _from___nv_bfloat16_to_uint8_lower(shim_stream, shim_obj):
     @lower_cast(_type___nv_bfloat16, uint8)
     def impl(context, builder, fromty, toty, value):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "____nv_bfloat16__ZNK13__nv_bfloat16cvhEv_1", shim_raw_str
-        )
-        ptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        shim_stream.write_with_key("____nv_bfloat16__ZNK13__nv_bfloat16cvhEv_1", shim_raw_str)
+        ptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         builder.store(value, ptr, align=getattr(_type___nv_bfloat16, "align", None))
 
         return context.compile_internal(
@@ -1136,12 +1066,8 @@ def _from___nv_bfloat16_to_int8_lower(shim_stream, shim_obj):
     @lower_cast(_type___nv_bfloat16, int8)
     def impl(context, builder, fromty, toty, value):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "____nv_bfloat16__ZNK13__nv_bfloat16cvcEv_1", shim_raw_str
-        )
-        ptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        shim_stream.write_with_key("____nv_bfloat16__ZNK13__nv_bfloat16cvcEv_1", shim_raw_str)
+        ptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         builder.store(value, ptr, align=getattr(_type___nv_bfloat16, "align", None))
 
         return context.compile_internal(
@@ -1180,12 +1106,8 @@ def _from___nv_bfloat16_to_int16_lower(shim_stream, shim_obj):
     @lower_cast(_type___nv_bfloat16, int16)
     def impl(context, builder, fromty, toty, value):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "____nv_bfloat16__ZNK13__nv_bfloat16cvsEv_1", shim_raw_str
-        )
-        ptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        shim_stream.write_with_key("____nv_bfloat16__ZNK13__nv_bfloat16cvsEv_1", shim_raw_str)
+        ptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         builder.store(value, ptr, align=getattr(_type___nv_bfloat16, "align", None))
 
         return context.compile_internal(
@@ -1224,12 +1146,8 @@ def _from___nv_bfloat16_to_uint16_lower(shim_stream, shim_obj):
     @lower_cast(_type___nv_bfloat16, uint16)
     def impl(context, builder, fromty, toty, value):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "____nv_bfloat16__ZNK13__nv_bfloat16cvtEv_1", shim_raw_str
-        )
-        ptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        shim_stream.write_with_key("____nv_bfloat16__ZNK13__nv_bfloat16cvtEv_1", shim_raw_str)
+        ptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         builder.store(value, ptr, align=getattr(_type___nv_bfloat16, "align", None))
 
         return context.compile_internal(
@@ -1268,12 +1186,8 @@ def _from___nv_bfloat16_to_int32_lower(shim_stream, shim_obj):
     @lower_cast(_type___nv_bfloat16, int32)
     def impl(context, builder, fromty, toty, value):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "____nv_bfloat16__ZNK13__nv_bfloat16cviEv_1", shim_raw_str
-        )
-        ptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        shim_stream.write_with_key("____nv_bfloat16__ZNK13__nv_bfloat16cviEv_1", shim_raw_str)
+        ptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         builder.store(value, ptr, align=getattr(_type___nv_bfloat16, "align", None))
 
         return context.compile_internal(
@@ -1312,12 +1226,8 @@ def _from___nv_bfloat16_to_uint32_lower(shim_stream, shim_obj):
     @lower_cast(_type___nv_bfloat16, uint32)
     def impl(context, builder, fromty, toty, value):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "____nv_bfloat16__ZNK13__nv_bfloat16cvjEv_1", shim_raw_str
-        )
-        ptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        shim_stream.write_with_key("____nv_bfloat16__ZNK13__nv_bfloat16cvjEv_1", shim_raw_str)
+        ptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         builder.store(value, ptr, align=getattr(_type___nv_bfloat16, "align", None))
 
         return context.compile_internal(
@@ -1356,12 +1266,8 @@ def _from___nv_bfloat16_to_int64_lower(shim_stream, shim_obj):
     @lower_cast(_type___nv_bfloat16, int64)
     def impl(context, builder, fromty, toty, value):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "____nv_bfloat16__ZNK13__nv_bfloat16cvlEv_1", shim_raw_str
-        )
-        ptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        shim_stream.write_with_key("____nv_bfloat16__ZNK13__nv_bfloat16cvlEv_1", shim_raw_str)
+        ptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         builder.store(value, ptr, align=getattr(_type___nv_bfloat16, "align", None))
 
         return context.compile_internal(
@@ -1400,12 +1306,8 @@ def _from___nv_bfloat16_to_uint64_lower(shim_stream, shim_obj):
     @lower_cast(_type___nv_bfloat16, uint64)
     def impl(context, builder, fromty, toty, value):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "____nv_bfloat16__ZNK13__nv_bfloat16cvmEv_1", shim_raw_str
-        )
-        ptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        shim_stream.write_with_key("____nv_bfloat16__ZNK13__nv_bfloat16cvmEv_1", shim_raw_str)
+        ptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         builder.store(value, ptr, align=getattr(_type___nv_bfloat16, "align", None))
 
         return context.compile_internal(
@@ -1444,12 +1346,8 @@ def _from___nv_bfloat16_to_int64_lower(shim_stream, shim_obj):
     @lower_cast(_type___nv_bfloat16, int64)
     def impl(context, builder, fromty, toty, value):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "____nv_bfloat16__ZNK13__nv_bfloat16cvxEv_1", shim_raw_str
-        )
-        ptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        shim_stream.write_with_key("____nv_bfloat16__ZNK13__nv_bfloat16cvxEv_1", shim_raw_str)
+        ptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         builder.store(value, ptr, align=getattr(_type___nv_bfloat16, "align", None))
 
         return context.compile_internal(
@@ -1488,12 +1386,8 @@ def _from___nv_bfloat16_to_uint64_lower(shim_stream, shim_obj):
     @lower_cast(_type___nv_bfloat16, uint64)
     def impl(context, builder, fromty, toty, value):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "____nv_bfloat16__ZNK13__nv_bfloat16cvyEv_1", shim_raw_str
-        )
-        ptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        shim_stream.write_with_key("____nv_bfloat16__ZNK13__nv_bfloat16cvyEv_1", shim_raw_str)
+        ptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         builder.store(value, ptr, align=getattr(_type___nv_bfloat16, "align", None))
 
         return context.compile_internal(
@@ -1532,12 +1426,8 @@ def _from___nv_bfloat16_to_bool__lower(shim_stream, shim_obj):
     @lower_cast(_type___nv_bfloat16, bool_)
     def impl(context, builder, fromty, toty, value):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "____nv_bfloat16__ZNK13__nv_bfloat16cvbEv_1", shim_raw_str
-        )
-        ptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat16), name="selfptr"
-        )
+        shim_stream.write_with_key("____nv_bfloat16__ZNK13__nv_bfloat16cvbEv_1", shim_raw_str)
+        ptr = builder.alloca(context.get_value_type(_type___nv_bfloat16), name="selfptr")
         builder.store(value, ptr, align=getattr(_type___nv_bfloat16, "align", None))
 
         return context.compile_internal(
@@ -1647,9 +1537,7 @@ def _lower__ZN14__nv_bfloat162C1Ev(shim_stream, shim_obj):
     def ctor_impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
         shim_stream.write_with_key("_ZN14__nv_bfloat162C1Ev_nbst", shim_raw_str)
-        selfptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat162), name="selfptr"
-        )
+        selfptr = builder.alloca(context.get_value_type(_type___nv_bfloat162), name="selfptr")
         argptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(argptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -1663,9 +1551,7 @@ def _lower__ZN14__nv_bfloat162C1Ev(shim_stream, shim_obj):
             ),
             (selfptr, *argptrs),
         )
-        return builder.load(
-            selfptr, align=getattr(_type___nv_bfloat162, "alignof_", None)
-        )
+        return builder.load(selfptr, align=getattr(_type___nv_bfloat162, "alignof_", None))
 
 
 _lower__ZN14__nv_bfloat162C1Ev(shim_stream, shim_obj)
@@ -1692,9 +1578,7 @@ def _lower__ZN14__nv_bfloat162C1EOS_(shim_stream, shim_obj):
     def ctor_impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
         shim_stream.write_with_key("_ZN14__nv_bfloat162C1EOS__nbst", shim_raw_str)
-        selfptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat162), name="selfptr"
-        )
+        selfptr = builder.alloca(context.get_value_type(_type___nv_bfloat162), name="selfptr")
         argptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(argptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -1709,9 +1593,7 @@ def _lower__ZN14__nv_bfloat162C1EOS_(shim_stream, shim_obj):
             ),
             (selfptr, *argptrs),
         )
-        return builder.load(
-            selfptr, align=getattr(_type___nv_bfloat162, "alignof_", None)
-        )
+        return builder.load(selfptr, align=getattr(_type___nv_bfloat162, "alignof_", None))
 
 
 _lower__ZN14__nv_bfloat162C1EOS_(shim_stream, shim_obj)
@@ -1741,12 +1623,8 @@ def _lower__ZN14__nv_bfloat162C1ERK13__nv_bfloat16S2_(shim_stream, shim_obj):
     @lower(__nv_bfloat162, _type___nv_bfloat16, _type___nv_bfloat16)
     def ctor_impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZN14__nv_bfloat162C1ERK13__nv_bfloat16S2__nbst", shim_raw_str
-        )
-        selfptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat162), name="selfptr"
-        )
+        shim_stream.write_with_key("_ZN14__nv_bfloat162C1ERK13__nv_bfloat16S2__nbst", shim_raw_str)
+        selfptr = builder.alloca(context.get_value_type(_type___nv_bfloat162), name="selfptr")
         argptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(argptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -1762,9 +1640,7 @@ def _lower__ZN14__nv_bfloat162C1ERK13__nv_bfloat16S2_(shim_stream, shim_obj):
             ),
             (selfptr, *argptrs),
         )
-        return builder.load(
-            selfptr, align=getattr(_type___nv_bfloat162, "alignof_", None)
-        )
+        return builder.load(selfptr, align=getattr(_type___nv_bfloat162, "alignof_", None))
 
 
 _lower__ZN14__nv_bfloat162C1ERK13__nv_bfloat16S2_(shim_stream, shim_obj)
@@ -1791,9 +1667,7 @@ def _lower__ZN14__nv_bfloat162C1ERKS_(shim_stream, shim_obj):
     def ctor_impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
         shim_stream.write_with_key("_ZN14__nv_bfloat162C1ERKS__nbst", shim_raw_str)
-        selfptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat162), name="selfptr"
-        )
+        selfptr = builder.alloca(context.get_value_type(_type___nv_bfloat162), name="selfptr")
         argptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(argptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -1808,9 +1682,7 @@ def _lower__ZN14__nv_bfloat162C1ERKS_(shim_stream, shim_obj):
             ),
             (selfptr, *argptrs),
         )
-        return builder.load(
-            selfptr, align=getattr(_type___nv_bfloat162, "alignof_", None)
-        )
+        return builder.load(selfptr, align=getattr(_type___nv_bfloat162, "alignof_", None))
 
 
 _lower__ZN14__nv_bfloat162C1ERKS_(shim_stream, shim_obj)
@@ -1839,9 +1711,7 @@ def _lower__ZN14__nv_bfloat162C1ERK18__nv_bfloat162_raw(shim_stream, shim_obj):
         shim_stream.write_with_key(
             "_ZN14__nv_bfloat162C1ERK18__nv_bfloat162_raw_nbst", shim_raw_str
         )
-        selfptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat162), name="selfptr"
-        )
+        selfptr = builder.alloca(context.get_value_type(_type___nv_bfloat162), name="selfptr")
         argptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(argptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -1856,9 +1726,7 @@ def _lower__ZN14__nv_bfloat162C1ERK18__nv_bfloat162_raw(shim_stream, shim_obj):
             ),
             (selfptr, *argptrs),
         )
-        return builder.load(
-            selfptr, align=getattr(_type___nv_bfloat162, "alignof_", None)
-        )
+        return builder.load(selfptr, align=getattr(_type___nv_bfloat162, "alignof_", None))
 
     @lower_cast(_type_unnamed1405416, _type___nv_bfloat162)
     def conversion_impl(context, builder, fromty, toty, value):
@@ -1916,9 +1784,7 @@ def _from___nv_bfloat162_to__type_unnamed1405416_lower(shim_stream, shim_obj):
             "____nv_bfloat162__ZNK14__nv_bfloat162cv18__nv_bfloat162_rawEv_1",
             shim_raw_str,
         )
-        ptr = builder.alloca(
-            context.get_value_type(_type___nv_bfloat162), name="selfptr"
-        )
+        ptr = builder.alloca(context.get_value_type(_type___nv_bfloat162), name="selfptr")
         builder.store(value, ptr, align=getattr(_type___nv_bfloat162, "align", None))
 
         return context.compile_internal(
@@ -2196,9 +2062,7 @@ def _lower__ZL16__bfloat162float13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162float, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL16__bfloat162float13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL16__bfloat162float13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -2318,9 +2182,7 @@ def _lower__ZL11__low2float14__nv_bfloat162_nbst(shim_stream, shim_obj):
     @lower(__low2float, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL11__low2float14__nv_bfloat162_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL11__low2float14__nv_bfloat162_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -2360,9 +2222,7 @@ def _lower__ZL12__high2float14__nv_bfloat162_nbst(shim_stream, shim_obj):
     @lower(__high2float, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL12__high2float14__nv_bfloat162_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL12__high2float14__nv_bfloat162_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -2402,9 +2262,7 @@ def _lower__ZL21__float22bfloat162_rn6float2_nbst(shim_stream, shim_obj):
     @lower(__float22bfloat162_rn, float32x2)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL21__float22bfloat162_rn6float2_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL21__float22bfloat162_rn6float2_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -2444,9 +2302,7 @@ def _lower__ZL18__bfloat1622float214__nv_bfloat162_nbst(shim_stream, shim_obj):
     @lower(__bfloat1622float2, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL18__bfloat1622float214__nv_bfloat162_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL18__bfloat1622float214__nv_bfloat162_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -2486,9 +2342,7 @@ def _lower__ZL18__bfloat162char_rz13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162char_rz, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL18__bfloat162char_rz13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL18__bfloat162char_rz13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -2528,9 +2382,7 @@ def _lower__ZL19__bfloat162uchar_rz13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162uchar_rz, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL19__bfloat162uchar_rz13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL19__bfloat162uchar_rz13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -2570,9 +2422,7 @@ def _lower__ZL17__bfloat162int_rn13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162int_rn, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL17__bfloat162int_rn13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL17__bfloat162int_rn13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -2612,9 +2462,7 @@ def _lower__ZL17__bfloat162int_rz13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162int_rz, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL17__bfloat162int_rz13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL17__bfloat162int_rz13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -2654,9 +2502,7 @@ def _lower__ZL17__bfloat162int_rd13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162int_rd, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL17__bfloat162int_rd13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL17__bfloat162int_rd13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -2696,9 +2542,7 @@ def _lower__ZL17__bfloat162int_ru13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162int_ru, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL17__bfloat162int_ru13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL17__bfloat162int_ru13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -2894,9 +2738,7 @@ def _lower__ZL19__bfloat162short_rn13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162short_rn, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL19__bfloat162short_rn13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL19__bfloat162short_rn13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -2936,9 +2778,7 @@ def _lower__ZL19__bfloat162short_rz13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162short_rz, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL19__bfloat162short_rz13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL19__bfloat162short_rz13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -2978,9 +2818,7 @@ def _lower__ZL19__bfloat162short_rd13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162short_rd, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL19__bfloat162short_rd13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL19__bfloat162short_rd13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -3020,9 +2858,7 @@ def _lower__ZL19__bfloat162short_ru13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162short_ru, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL19__bfloat162short_ru13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL19__bfloat162short_ru13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -3218,9 +3054,7 @@ def _lower__ZL18__bfloat162uint_rn13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162uint_rn, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL18__bfloat162uint_rn13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL18__bfloat162uint_rn13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -3260,9 +3094,7 @@ def _lower__ZL18__bfloat162uint_rz13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162uint_rz, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL18__bfloat162uint_rz13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL18__bfloat162uint_rz13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -3302,9 +3134,7 @@ def _lower__ZL18__bfloat162uint_rd13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162uint_rd, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL18__bfloat162uint_rd13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL18__bfloat162uint_rd13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -3344,9 +3174,7 @@ def _lower__ZL18__bfloat162uint_ru13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162uint_ru, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL18__bfloat162uint_ru13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL18__bfloat162uint_ru13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -3542,9 +3370,7 @@ def _lower__ZL20__bfloat162ushort_rn13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162ushort_rn, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL20__bfloat162ushort_rn13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL20__bfloat162ushort_rn13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -3584,9 +3410,7 @@ def _lower__ZL20__bfloat162ushort_rz13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162ushort_rz, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL20__bfloat162ushort_rz13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL20__bfloat162ushort_rz13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -3626,9 +3450,7 @@ def _lower__ZL20__bfloat162ushort_rd13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162ushort_rd, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL20__bfloat162ushort_rd13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL20__bfloat162ushort_rd13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -3668,9 +3490,7 @@ def _lower__ZL20__bfloat162ushort_ru13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162ushort_ru, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL20__bfloat162ushort_ru13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL20__bfloat162ushort_ru13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -3866,9 +3686,7 @@ def _lower__ZL17__bfloat162ull_rn13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162ull_rn, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL17__bfloat162ull_rn13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL17__bfloat162ull_rn13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -3908,9 +3726,7 @@ def _lower__ZL17__bfloat162ull_rz13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162ull_rz, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL17__bfloat162ull_rz13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL17__bfloat162ull_rz13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -3941,9 +3757,7 @@ def _lower__ZL14make_bfloat16213__nv_bfloat16S__nbst(shim_stream, shim_obj):
 
     _ZL14make_bfloat16213__nv_bfloat16S__nbst = declare_device(
         "_ZL14make_bfloat16213__nv_bfloat16S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZL14make_bfloat16213__nv_bfloat16S__nbst_caller(arg_0, arg_1):
@@ -3952,9 +3766,7 @@ def _lower__ZL14make_bfloat16213__nv_bfloat16S__nbst(shim_stream, shim_obj):
     @lower(make_bfloat162, _type___nv_bfloat16, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL14make_bfloat16213__nv_bfloat16S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL14make_bfloat16213__nv_bfloat16S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -3998,9 +3810,7 @@ def _lower__ZL17__bfloat162ull_rd13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162ull_rd, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL17__bfloat162ull_rd13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL17__bfloat162ull_rd13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -4040,9 +3850,7 @@ def _lower__ZL17__bfloat162ull_ru13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162ull_ru, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL17__bfloat162ull_ru13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL17__bfloat162ull_ru13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -4238,9 +4046,7 @@ def _lower__ZL16__bfloat162ll_rn13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162ll_rn, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL16__bfloat162ll_rn13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL16__bfloat162ll_rn13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -4280,9 +4086,7 @@ def _lower__ZL16__bfloat162ll_rz13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162ll_rz, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL16__bfloat162ll_rz13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL16__bfloat162ll_rz13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -4322,9 +4126,7 @@ def _lower__ZL16__bfloat162ll_rd13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162ll_rd, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL16__bfloat162ll_rd13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL16__bfloat162ll_rd13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -4364,9 +4166,7 @@ def _lower__ZL16__bfloat162ll_ru13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162ll_ru, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL16__bfloat162ll_ru13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL16__bfloat162ll_ru13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -4882,9 +4682,7 @@ def _lower__ZL20__bfloat162bfloat16213__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat162bfloat162, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL20__bfloat162bfloat16213__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL20__bfloat162bfloat16213__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -4924,9 +4722,7 @@ def _lower__ZL17__lowhigh2highlow14__nv_bfloat162_nbst(shim_stream, shim_obj):
     @lower(__lowhigh2highlow, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL17__lowhigh2highlow14__nv_bfloat162_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL17__lowhigh2highlow14__nv_bfloat162_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -4957,9 +4753,7 @@ def _lower__ZL16__lows2bfloat16214__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL16__lows2bfloat16214__nv_bfloat162S__nbst = declare_device(
         "_ZL16__lows2bfloat16214__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL16__lows2bfloat16214__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -4968,9 +4762,7 @@ def _lower__ZL16__lows2bfloat16214__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__lows2bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL16__lows2bfloat16214__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL16__lows2bfloat16214__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -5005,9 +4797,7 @@ def _lower__ZL17__highs2bfloat16214__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL17__highs2bfloat16214__nv_bfloat162S__nbst = declare_device(
         "_ZL17__highs2bfloat16214__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL17__highs2bfloat16214__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -5016,9 +4806,7 @@ def _lower__ZL17__highs2bfloat16214__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__highs2bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL17__highs2bfloat16214__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL17__highs2bfloat16214__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -5062,9 +4850,7 @@ def _lower__ZL15__high2bfloat1614__nv_bfloat162_nbst(shim_stream, shim_obj):
     @lower(__high2bfloat16, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL15__high2bfloat1614__nv_bfloat162_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL15__high2bfloat1614__nv_bfloat162_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -5104,9 +4890,7 @@ def _lower__ZL14__low2bfloat1614__nv_bfloat162_nbst(shim_stream, shim_obj):
     @lower(__low2bfloat16, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL14__low2bfloat1614__nv_bfloat162_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL14__low2bfloat1614__nv_bfloat162_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -5176,9 +4960,7 @@ def _lower__ZL18__halves2bfloat16213__nv_bfloat16S__nbst(shim_stream, shim_obj):
 
     _ZL18__halves2bfloat16213__nv_bfloat16S__nbst = declare_device(
         "_ZL18__halves2bfloat16213__nv_bfloat16S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZL18__halves2bfloat16213__nv_bfloat16S__nbst_caller(arg_0, arg_1):
@@ -5187,9 +4969,7 @@ def _lower__ZL18__halves2bfloat16213__nv_bfloat16S__nbst(shim_stream, shim_obj):
     @lower(__halves2bfloat162, _type___nv_bfloat16, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL18__halves2bfloat16213__nv_bfloat16S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL18__halves2bfloat16213__nv_bfloat16S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -5233,9 +5013,7 @@ def _lower__ZL15__low2bfloat16214__nv_bfloat162_nbst(shim_stream, shim_obj):
     @lower(__low2bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL15__low2bfloat16214__nv_bfloat162_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL15__low2bfloat16214__nv_bfloat162_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -5275,9 +5053,7 @@ def _lower__ZL16__high2bfloat16214__nv_bfloat162_nbst(shim_stream, shim_obj):
     @lower(__high2bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL16__high2bfloat16214__nv_bfloat162_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL16__high2bfloat16214__nv_bfloat162_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -5317,9 +5093,7 @@ def _lower__ZL19__bfloat16_as_short13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat16_as_short, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL19__bfloat16_as_short13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL19__bfloat16_as_short13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -5359,9 +5133,7 @@ def _lower__ZL20__bfloat16_as_ushort13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(__bfloat16_as_ushort, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL20__bfloat16_as_ushort13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL20__bfloat16_as_ushort13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -5484,9 +5256,7 @@ def _lower__ZL11__shfl_syncj14__nv_bfloat162ii_nbst(shim_stream, shim_obj):
     @lower(__shfl_sync, uint32, _type___nv_bfloat162, int32, int32)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL11__shfl_syncj14__nv_bfloat162ii_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL11__shfl_syncj14__nv_bfloat162ii_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -5537,9 +5307,7 @@ def _lower__ZL14__shfl_up_syncj14__nv_bfloat162ji_nbst(shim_stream, shim_obj):
     @lower(__shfl_up_sync, uint32, _type___nv_bfloat162, uint32, int32)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL14__shfl_up_syncj14__nv_bfloat162ji_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL14__shfl_up_syncj14__nv_bfloat162ji_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -5584,17 +5352,13 @@ def _lower__ZL16__shfl_down_syncj14__nv_bfloat162ji_nbst(shim_stream, shim_obj):
         ),
     )
 
-    def _ZL16__shfl_down_syncj14__nv_bfloat162ji_nbst_caller(
-        arg_0, arg_1, arg_2, arg_3
-    ):
+    def _ZL16__shfl_down_syncj14__nv_bfloat162ji_nbst_caller(arg_0, arg_1, arg_2, arg_3):
         return _ZL16__shfl_down_syncj14__nv_bfloat162ji_nbst(arg_0, arg_1, arg_2, arg_3)
 
     @lower(__shfl_down_sync, uint32, _type___nv_bfloat162, uint32, int32)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL16__shfl_down_syncj14__nv_bfloat162ji_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL16__shfl_down_syncj14__nv_bfloat162ji_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -5645,9 +5409,7 @@ def _lower__ZL15__shfl_xor_syncj14__nv_bfloat162ii_nbst(shim_stream, shim_obj):
     @lower(__shfl_xor_sync, uint32, _type___nv_bfloat162, int32, int32)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL15__shfl_xor_syncj14__nv_bfloat162ii_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL15__shfl_xor_syncj14__nv_bfloat162ii_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -5694,9 +5456,7 @@ def _lower__ZL11__shfl_syncj13__nv_bfloat16ii_nbst(shim_stream, shim_obj):
     @lower(__shfl_sync, uint32, _type___nv_bfloat16, int32, int32)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL11__shfl_syncj13__nv_bfloat16ii_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL11__shfl_syncj13__nv_bfloat16ii_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -5743,9 +5503,7 @@ def _lower__ZL14__shfl_up_syncj13__nv_bfloat16ji_nbst(shim_stream, shim_obj):
     @lower(__shfl_up_sync, uint32, _type___nv_bfloat16, uint32, int32)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL14__shfl_up_syncj13__nv_bfloat16ji_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL14__shfl_up_syncj13__nv_bfloat16ji_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -5792,9 +5550,7 @@ def _lower__ZL16__shfl_down_syncj13__nv_bfloat16ji_nbst(shim_stream, shim_obj):
     @lower(__shfl_down_sync, uint32, _type___nv_bfloat16, uint32, int32)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL16__shfl_down_syncj13__nv_bfloat16ji_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL16__shfl_down_syncj13__nv_bfloat16ji_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -5841,9 +5597,7 @@ def _lower__ZL15__shfl_xor_syncj13__nv_bfloat16ii_nbst(shim_stream, shim_obj):
     @lower(__shfl_xor_sync, uint32, _type___nv_bfloat16, int32, int32)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL15__shfl_xor_syncj13__nv_bfloat16ii_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL15__shfl_xor_syncj13__nv_bfloat16ii_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -6696,9 +6450,7 @@ def _lower__ZL6__heq214__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL6__heq214__nv_bfloat162S__nbst = declare_device(
         "_ZL6__heq214__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL6__heq214__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -6742,9 +6494,7 @@ def _lower__ZL6__hne214__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL6__hne214__nv_bfloat162S__nbst = declare_device(
         "_ZL6__hne214__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL6__hne214__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -6788,9 +6538,7 @@ def _lower__ZL6__hle214__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL6__hle214__nv_bfloat162S__nbst = declare_device(
         "_ZL6__hle214__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL6__hle214__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -6834,9 +6582,7 @@ def _lower__ZL6__hge214__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL6__hge214__nv_bfloat162S__nbst = declare_device(
         "_ZL6__hge214__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL6__hge214__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -6880,9 +6626,7 @@ def _lower__ZL6__hlt214__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL6__hlt214__nv_bfloat162S__nbst = declare_device(
         "_ZL6__hlt214__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL6__hlt214__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -6926,9 +6670,7 @@ def _lower__ZL6__hgt214__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL6__hgt214__nv_bfloat162S__nbst = declare_device(
         "_ZL6__hgt214__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL6__hgt214__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -6972,9 +6714,7 @@ def _lower__ZL7__hequ214__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL7__hequ214__nv_bfloat162S__nbst = declare_device(
         "_ZL7__hequ214__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL7__hequ214__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -7018,9 +6758,7 @@ def _lower__ZL7__hneu214__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL7__hneu214__nv_bfloat162S__nbst = declare_device(
         "_ZL7__hneu214__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL7__hneu214__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -7064,9 +6802,7 @@ def _lower__ZL7__hleu214__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL7__hleu214__nv_bfloat162S__nbst = declare_device(
         "_ZL7__hleu214__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL7__hleu214__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -7110,9 +6846,7 @@ def _lower__ZL7__hgeu214__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL7__hgeu214__nv_bfloat162S__nbst = declare_device(
         "_ZL7__hgeu214__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL7__hgeu214__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -7156,9 +6890,7 @@ def _lower__ZL7__hltu214__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL7__hltu214__nv_bfloat162S__nbst = declare_device(
         "_ZL7__hltu214__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL7__hltu214__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -7202,9 +6934,7 @@ def _lower__ZL7__hgtu214__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL7__hgtu214__nv_bfloat162S__nbst = declare_device(
         "_ZL7__hgtu214__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL7__hgtu214__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -7257,9 +6987,7 @@ def _lower__ZL11__heq2_mask14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__heq2_mask, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL11__heq2_mask14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL11__heq2_mask14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -7303,9 +7031,7 @@ def _lower__ZL11__hne2_mask14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__hne2_mask, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL11__hne2_mask14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL11__hne2_mask14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -7349,9 +7075,7 @@ def _lower__ZL11__hle2_mask14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__hle2_mask, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL11__hle2_mask14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL11__hle2_mask14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -7395,9 +7119,7 @@ def _lower__ZL11__hge2_mask14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__hge2_mask, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL11__hge2_mask14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL11__hge2_mask14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -7441,9 +7163,7 @@ def _lower__ZL11__hlt2_mask14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__hlt2_mask, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL11__hlt2_mask14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL11__hlt2_mask14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -7487,9 +7207,7 @@ def _lower__ZL11__hgt2_mask14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__hgt2_mask, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL11__hgt2_mask14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL11__hgt2_mask14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -7533,9 +7251,7 @@ def _lower__ZL12__hequ2_mask14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__hequ2_mask, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL12__hequ2_mask14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL12__hequ2_mask14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -7579,9 +7295,7 @@ def _lower__ZL12__hneu2_mask14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__hneu2_mask, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL12__hneu2_mask14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL12__hneu2_mask14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -7625,9 +7339,7 @@ def _lower__ZL12__hleu2_mask14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__hleu2_mask, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL12__hleu2_mask14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL12__hleu2_mask14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -7671,9 +7383,7 @@ def _lower__ZL12__hgeu2_mask14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__hgeu2_mask, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL12__hgeu2_mask14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL12__hgeu2_mask14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -7717,9 +7427,7 @@ def _lower__ZL12__hltu2_mask14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__hltu2_mask, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL12__hltu2_mask14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL12__hltu2_mask14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -7763,9 +7471,7 @@ def _lower__ZL12__hgtu2_mask14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__hgtu2_mask, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL12__hgtu2_mask14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL12__hgtu2_mask14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -7840,9 +7546,7 @@ def _lower__ZL7__hadd214__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL7__hadd214__nv_bfloat162S__nbst = declare_device(
         "_ZL7__hadd214__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL7__hadd214__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -7886,9 +7590,7 @@ def _lower__ZL7__hsub214__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL7__hsub214__nv_bfloat162S__nbst = declare_device(
         "_ZL7__hsub214__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL7__hsub214__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -7932,9 +7634,7 @@ def _lower__ZL7__hmul214__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL7__hmul214__nv_bfloat162S__nbst = declare_device(
         "_ZL7__hmul214__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL7__hmul214__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -7978,9 +7678,7 @@ def _lower__ZL10__hadd2_rn14__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL10__hadd2_rn14__nv_bfloat162S__nbst = declare_device(
         "_ZL10__hadd2_rn14__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL10__hadd2_rn14__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -7989,9 +7687,7 @@ def _lower__ZL10__hadd2_rn14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__hadd2_rn, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL10__hadd2_rn14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL10__hadd2_rn14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -8026,9 +7722,7 @@ def _lower__ZL10__hsub2_rn14__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL10__hsub2_rn14__nv_bfloat162S__nbst = declare_device(
         "_ZL10__hsub2_rn14__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL10__hsub2_rn14__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -8037,9 +7731,7 @@ def _lower__ZL10__hsub2_rn14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__hsub2_rn, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL10__hsub2_rn14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL10__hsub2_rn14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -8074,9 +7766,7 @@ def _lower__ZL10__hmul2_rn14__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL10__hmul2_rn14__nv_bfloat162S__nbst = declare_device(
         "_ZL10__hmul2_rn14__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL10__hmul2_rn14__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -8085,9 +7775,7 @@ def _lower__ZL10__hmul2_rn14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__hmul2_rn, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL10__hmul2_rn14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL10__hmul2_rn14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -8122,9 +7810,7 @@ def _lower__ZL7__h2div14__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL7__h2div14__nv_bfloat162S__nbst = declare_device(
         "_ZL7__h2div14__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL7__h2div14__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -8208,9 +7894,7 @@ def _lower__ZL11__hadd2_sat14__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL11__hadd2_sat14__nv_bfloat162S__nbst = declare_device(
         "_ZL11__hadd2_sat14__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL11__hadd2_sat14__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -8219,9 +7903,7 @@ def _lower__ZL11__hadd2_sat14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__hadd2_sat, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL11__hadd2_sat14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL11__hadd2_sat14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -8256,9 +7938,7 @@ def _lower__ZL11__hsub2_sat14__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL11__hsub2_sat14__nv_bfloat162S__nbst = declare_device(
         "_ZL11__hsub2_sat14__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL11__hsub2_sat14__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -8267,9 +7947,7 @@ def _lower__ZL11__hsub2_sat14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__hsub2_sat, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL11__hsub2_sat14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL11__hsub2_sat14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -8304,9 +7982,7 @@ def _lower__ZL11__hmul2_sat14__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL11__hmul2_sat14__nv_bfloat162S__nbst = declare_device(
         "_ZL11__hmul2_sat14__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL11__hmul2_sat14__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -8315,9 +7991,7 @@ def _lower__ZL11__hmul2_sat14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__hmul2_sat, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL11__hmul2_sat14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL11__hmul2_sat14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -8424,9 +8098,7 @@ def _lower__ZL11__hfma2_sat14__nv_bfloat162S_S__nbst(shim_stream, shim_obj):
     )
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL11__hfma2_sat14__nv_bfloat162S_S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL11__hfma2_sat14__nv_bfloat162S_S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -8542,9 +8214,7 @@ def _lower__ZL6__hadd13__nv_bfloat16S__nbst(shim_stream, shim_obj):
 
     _ZL6__hadd13__nv_bfloat16S__nbst = declare_device(
         "_ZL6__hadd13__nv_bfloat16S__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZL6__hadd13__nv_bfloat16S__nbst_caller(arg_0, arg_1):
@@ -8588,9 +8258,7 @@ def _lower__ZL6__hsub13__nv_bfloat16S__nbst(shim_stream, shim_obj):
 
     _ZL6__hsub13__nv_bfloat16S__nbst = declare_device(
         "_ZL6__hsub13__nv_bfloat16S__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZL6__hsub13__nv_bfloat16S__nbst_caller(arg_0, arg_1):
@@ -8634,9 +8302,7 @@ def _lower__ZL6__hmul13__nv_bfloat16S__nbst(shim_stream, shim_obj):
 
     _ZL6__hmul13__nv_bfloat16S__nbst = declare_device(
         "_ZL6__hmul13__nv_bfloat16S__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZL6__hmul13__nv_bfloat16S__nbst_caller(arg_0, arg_1):
@@ -8680,9 +8346,7 @@ def _lower__ZL9__hadd_rn13__nv_bfloat16S__nbst(shim_stream, shim_obj):
 
     _ZL9__hadd_rn13__nv_bfloat16S__nbst = declare_device(
         "_ZL9__hadd_rn13__nv_bfloat16S__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZL9__hadd_rn13__nv_bfloat16S__nbst_caller(arg_0, arg_1):
@@ -8726,9 +8390,7 @@ def _lower__ZL9__hsub_rn13__nv_bfloat16S__nbst(shim_stream, shim_obj):
 
     _ZL9__hsub_rn13__nv_bfloat16S__nbst = declare_device(
         "_ZL9__hsub_rn13__nv_bfloat16S__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZL9__hsub_rn13__nv_bfloat16S__nbst_caller(arg_0, arg_1):
@@ -8772,9 +8434,7 @@ def _lower__ZL9__hmul_rn13__nv_bfloat16S__nbst(shim_stream, shim_obj):
 
     _ZL9__hmul_rn13__nv_bfloat16S__nbst = declare_device(
         "_ZL9__hmul_rn13__nv_bfloat16S__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZL9__hmul_rn13__nv_bfloat16S__nbst_caller(arg_0, arg_1):
@@ -8818,9 +8478,7 @@ def _lower__ZL6__hdiv13__nv_bfloat16S__nbst(shim_stream, shim_obj):
 
     _ZL6__hdiv13__nv_bfloat16S__nbst = declare_device(
         "_ZL6__hdiv13__nv_bfloat16S__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZL6__hdiv13__nv_bfloat16S__nbst_caller(arg_0, arg_1):
@@ -8864,9 +8522,7 @@ def _lower__ZL10__hadd_sat13__nv_bfloat16S__nbst(shim_stream, shim_obj):
 
     _ZL10__hadd_sat13__nv_bfloat16S__nbst = declare_device(
         "_ZL10__hadd_sat13__nv_bfloat16S__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZL10__hadd_sat13__nv_bfloat16S__nbst_caller(arg_0, arg_1):
@@ -8875,9 +8531,7 @@ def _lower__ZL10__hadd_sat13__nv_bfloat16S__nbst(shim_stream, shim_obj):
     @lower(__hadd_sat, _type___nv_bfloat16, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL10__hadd_sat13__nv_bfloat16S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL10__hadd_sat13__nv_bfloat16S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -8912,9 +8566,7 @@ def _lower__ZL10__hsub_sat13__nv_bfloat16S__nbst(shim_stream, shim_obj):
 
     _ZL10__hsub_sat13__nv_bfloat16S__nbst = declare_device(
         "_ZL10__hsub_sat13__nv_bfloat16S__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZL10__hsub_sat13__nv_bfloat16S__nbst_caller(arg_0, arg_1):
@@ -8923,9 +8575,7 @@ def _lower__ZL10__hsub_sat13__nv_bfloat16S__nbst(shim_stream, shim_obj):
     @lower(__hsub_sat, _type___nv_bfloat16, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL10__hsub_sat13__nv_bfloat16S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL10__hsub_sat13__nv_bfloat16S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -8960,9 +8610,7 @@ def _lower__ZL10__hmul_sat13__nv_bfloat16S__nbst(shim_stream, shim_obj):
 
     _ZL10__hmul_sat13__nv_bfloat16S__nbst = declare_device(
         "_ZL10__hmul_sat13__nv_bfloat16S__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZL10__hmul_sat13__nv_bfloat16S__nbst_caller(arg_0, arg_1):
@@ -8971,9 +8619,7 @@ def _lower__ZL10__hmul_sat13__nv_bfloat16S__nbst(shim_stream, shim_obj):
     @lower(__hmul_sat, _type___nv_bfloat16, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL10__hmul_sat13__nv_bfloat16S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL10__hmul_sat13__nv_bfloat16S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -9075,9 +8721,7 @@ def _lower__ZL10__hfma_sat13__nv_bfloat16S_S__nbst(shim_stream, shim_obj):
     )
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL10__hfma_sat13__nv_bfloat16S_S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL10__hfma_sat13__nv_bfloat16S_S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -10248,9 +9892,7 @@ def _lower__ZL6__hmax13__nv_bfloat16S__nbst(shim_stream, shim_obj):
 
     _ZL6__hmax13__nv_bfloat16S__nbst = declare_device(
         "_ZL6__hmax13__nv_bfloat16S__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZL6__hmax13__nv_bfloat16S__nbst_caller(arg_0, arg_1):
@@ -10294,9 +9936,7 @@ def _lower__ZL6__hmin13__nv_bfloat16S__nbst(shim_stream, shim_obj):
 
     _ZL6__hmin13__nv_bfloat16S__nbst = declare_device(
         "_ZL6__hmin13__nv_bfloat16S__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZL6__hmin13__nv_bfloat16S__nbst_caller(arg_0, arg_1):
@@ -10340,9 +9980,7 @@ def _lower__ZL10__hmax_nan13__nv_bfloat16S__nbst(shim_stream, shim_obj):
 
     _ZL10__hmax_nan13__nv_bfloat16S__nbst = declare_device(
         "_ZL10__hmax_nan13__nv_bfloat16S__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZL10__hmax_nan13__nv_bfloat16S__nbst_caller(arg_0, arg_1):
@@ -10351,9 +9989,7 @@ def _lower__ZL10__hmax_nan13__nv_bfloat16S__nbst(shim_stream, shim_obj):
     @lower(__hmax_nan, _type___nv_bfloat16, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL10__hmax_nan13__nv_bfloat16S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL10__hmax_nan13__nv_bfloat16S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -10388,9 +10024,7 @@ def _lower__ZL10__hmin_nan13__nv_bfloat16S__nbst(shim_stream, shim_obj):
 
     _ZL10__hmin_nan13__nv_bfloat16S__nbst = declare_device(
         "_ZL10__hmin_nan13__nv_bfloat16S__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZL10__hmin_nan13__nv_bfloat16S__nbst_caller(arg_0, arg_1):
@@ -10399,9 +10033,7 @@ def _lower__ZL10__hmin_nan13__nv_bfloat16S__nbst(shim_stream, shim_obj):
     @lower(__hmin_nan, _type___nv_bfloat16, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL10__hmin_nan13__nv_bfloat16S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL10__hmin_nan13__nv_bfloat16S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -10454,9 +10086,7 @@ def _lower__ZL11__hfma_relu13__nv_bfloat16S_S__nbst(shim_stream, shim_obj):
     )
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL11__hfma_relu13__nv_bfloat16S_S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL11__hfma_relu13__nv_bfloat16S_S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -10492,9 +10122,7 @@ def _lower__ZL7__hmax214__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL7__hmax214__nv_bfloat162S__nbst = declare_device(
         "_ZL7__hmax214__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL7__hmax214__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -10538,9 +10166,7 @@ def _lower__ZL7__hmin214__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL7__hmin214__nv_bfloat162S__nbst = declare_device(
         "_ZL7__hmin214__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL7__hmin214__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -10584,9 +10210,7 @@ def _lower__ZL11__hmax2_nan14__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL11__hmax2_nan14__nv_bfloat162S__nbst = declare_device(
         "_ZL11__hmax2_nan14__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL11__hmax2_nan14__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -10595,9 +10219,7 @@ def _lower__ZL11__hmax2_nan14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__hmax2_nan, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL11__hmax2_nan14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL11__hmax2_nan14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -10632,9 +10254,7 @@ def _lower__ZL11__hmin2_nan14__nv_bfloat162S__nbst(shim_stream, shim_obj):
 
     _ZL11__hmin2_nan14__nv_bfloat162S__nbst = declare_device(
         "_ZL11__hmin2_nan14__nv_bfloat162S__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZL11__hmin2_nan14__nv_bfloat162S__nbst_caller(arg_0, arg_1):
@@ -10643,9 +10263,7 @@ def _lower__ZL11__hmin2_nan14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(__hmin2_nan, _type___nv_bfloat162, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL11__hmin2_nan14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL11__hmin2_nan14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -10698,9 +10316,7 @@ def _lower__ZL12__hfma2_relu14__nv_bfloat162S_S__nbst(shim_stream, shim_obj):
     )
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL12__hfma2_relu14__nv_bfloat162S_S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL12__hfma2_relu14__nv_bfloat162S_S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -10754,9 +10370,7 @@ def _lower__ZL8__hcmadd14__nv_bfloat162S_S__nbst(shim_stream, shim_obj):
     )
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL8__hcmadd14__nv_bfloat162S_S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL8__hcmadd14__nv_bfloat162S_S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -11081,9 +10695,7 @@ def _lower__ZL12htanh_approx13__nv_bfloat16_nbst(shim_stream, shim_obj):
     @lower(htanh_approx, _type___nv_bfloat16)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL12htanh_approx13__nv_bfloat16_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL12htanh_approx13__nv_bfloat16_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -11123,9 +10735,7 @@ def _lower__ZL13h2tanh_approx14__nv_bfloat162_nbst(shim_stream, shim_obj):
     @lower(h2tanh_approx, _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL13h2tanh_approx14__nv_bfloat162_nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL13h2tanh_approx14__nv_bfloat162_nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -11848,9 +11458,7 @@ def _lower__ZL9atomicAddP14__nv_bfloat162S__nbst(shim_stream, shim_obj):
     @lower(atomicAdd, CPointer(_type___nv_bfloat162), _type___nv_bfloat162)
     def impl(context, builder, sig, args):
         context.active_code_library.add_linking_file(shim_obj)
-        shim_stream.write_with_key(
-            "_ZL9atomicAddP14__nv_bfloat162S__nbst", shim_raw_str
-        )
+        shim_stream.write_with_key("_ZL9atomicAddP14__nv_bfloat162S__nbst", shim_raw_str)
         ptrs = [builder.alloca(context.get_value_type(arg)) for arg in sig.args]
         for ptr, ty, arg in zip(ptrs, sig.args, args):
             builder.store(arg, ptr, align=getattr(ty, "alignof_", None))
@@ -11924,9 +11532,7 @@ def _lower__ZplRK13__nv_bfloat16S1__nbst(shim_stream, shim_obj):
 
     _ZplRK13__nv_bfloat16S1__nbst = declare_device(
         "_ZplRK13__nv_bfloat16S1__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZplRK13__nv_bfloat16S1__nbst_caller(arg_0, arg_1):
@@ -11966,9 +11572,7 @@ def _lower__ZmiRK13__nv_bfloat16S1__nbst(shim_stream, shim_obj):
 
     _ZmiRK13__nv_bfloat16S1__nbst = declare_device(
         "_ZmiRK13__nv_bfloat16S1__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZmiRK13__nv_bfloat16S1__nbst_caller(arg_0, arg_1):
@@ -12008,9 +11612,7 @@ def _lower__ZmlRK13__nv_bfloat16S1__nbst(shim_stream, shim_obj):
 
     _ZmlRK13__nv_bfloat16S1__nbst = declare_device(
         "_ZmlRK13__nv_bfloat16S1__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZmlRK13__nv_bfloat16S1__nbst_caller(arg_0, arg_1):
@@ -12050,9 +11652,7 @@ def _lower__ZdvRK13__nv_bfloat16S1__nbst(shim_stream, shim_obj):
 
     _ZdvRK13__nv_bfloat16S1__nbst = declare_device(
         "_ZdvRK13__nv_bfloat16S1__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZdvRK13__nv_bfloat16S1__nbst_caller(arg_0, arg_1):
@@ -12092,9 +11692,7 @@ def _lower__ZpLR13__nv_bfloat16RKS__nbst(shim_stream, shim_obj):
 
     _ZpLR13__nv_bfloat16RKS__nbst = declare_device(
         "_ZpLR13__nv_bfloat16RKS__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZpLR13__nv_bfloat16RKS__nbst_caller(arg_0, arg_1):
@@ -12134,9 +11732,7 @@ def _lower__ZmIR13__nv_bfloat16RKS__nbst(shim_stream, shim_obj):
 
     _ZmIR13__nv_bfloat16RKS__nbst = declare_device(
         "_ZmIR13__nv_bfloat16RKS__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZmIR13__nv_bfloat16RKS__nbst_caller(arg_0, arg_1):
@@ -12176,9 +11772,7 @@ def _lower__ZmLR13__nv_bfloat16RKS__nbst(shim_stream, shim_obj):
 
     _ZmLR13__nv_bfloat16RKS__nbst = declare_device(
         "_ZmLR13__nv_bfloat16RKS__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZmLR13__nv_bfloat16RKS__nbst_caller(arg_0, arg_1):
@@ -12218,9 +11812,7 @@ def _lower__ZdVR13__nv_bfloat16RKS__nbst(shim_stream, shim_obj):
 
     _ZdVR13__nv_bfloat16RKS__nbst = declare_device(
         "_ZdVR13__nv_bfloat16RKS__nbst",
-        _type___nv_bfloat16(
-            CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)
-        ),
+        _type___nv_bfloat16(CPointer(_type___nv_bfloat16), CPointer(_type___nv_bfloat16)),
     )
 
     def _ZdVR13__nv_bfloat16RKS__nbst_caller(arg_0, arg_1):
@@ -12572,9 +12164,7 @@ def _lower__ZplRK14__nv_bfloat162S1__nbst(shim_stream, shim_obj):
 
     _ZplRK14__nv_bfloat162S1__nbst = declare_device(
         "_ZplRK14__nv_bfloat162S1__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZplRK14__nv_bfloat162S1__nbst_caller(arg_0, arg_1):
@@ -12614,9 +12204,7 @@ def _lower__ZmiRK14__nv_bfloat162S1__nbst(shim_stream, shim_obj):
 
     _ZmiRK14__nv_bfloat162S1__nbst = declare_device(
         "_ZmiRK14__nv_bfloat162S1__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZmiRK14__nv_bfloat162S1__nbst_caller(arg_0, arg_1):
@@ -12656,9 +12244,7 @@ def _lower__ZmlRK14__nv_bfloat162S1__nbst(shim_stream, shim_obj):
 
     _ZmlRK14__nv_bfloat162S1__nbst = declare_device(
         "_ZmlRK14__nv_bfloat162S1__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZmlRK14__nv_bfloat162S1__nbst_caller(arg_0, arg_1):
@@ -12698,9 +12284,7 @@ def _lower__ZdvRK14__nv_bfloat162S1__nbst(shim_stream, shim_obj):
 
     _ZdvRK14__nv_bfloat162S1__nbst = declare_device(
         "_ZdvRK14__nv_bfloat162S1__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZdvRK14__nv_bfloat162S1__nbst_caller(arg_0, arg_1):
@@ -12740,9 +12324,7 @@ def _lower__ZpLR14__nv_bfloat162RKS__nbst(shim_stream, shim_obj):
 
     _ZpLR14__nv_bfloat162RKS__nbst = declare_device(
         "_ZpLR14__nv_bfloat162RKS__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZpLR14__nv_bfloat162RKS__nbst_caller(arg_0, arg_1):
@@ -12782,9 +12364,7 @@ def _lower__ZmIR14__nv_bfloat162RKS__nbst(shim_stream, shim_obj):
 
     _ZmIR14__nv_bfloat162RKS__nbst = declare_device(
         "_ZmIR14__nv_bfloat162RKS__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZmIR14__nv_bfloat162RKS__nbst_caller(arg_0, arg_1):
@@ -12824,9 +12404,7 @@ def _lower__ZmLR14__nv_bfloat162RKS__nbst(shim_stream, shim_obj):
 
     _ZmLR14__nv_bfloat162RKS__nbst = declare_device(
         "_ZmLR14__nv_bfloat162RKS__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZmLR14__nv_bfloat162RKS__nbst_caller(arg_0, arg_1):
@@ -12866,9 +12444,7 @@ def _lower__ZdVR14__nv_bfloat162RKS__nbst(shim_stream, shim_obj):
 
     _ZdVR14__nv_bfloat162RKS__nbst = declare_device(
         "_ZdVR14__nv_bfloat162RKS__nbst",
-        _type___nv_bfloat162(
-            CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)
-        ),
+        _type___nv_bfloat162(CPointer(_type___nv_bfloat162), CPointer(_type___nv_bfloat162)),
     )
 
     def _ZdVR14__nv_bfloat162RKS__nbst_caller(arg_0, arg_1):
@@ -13917,9 +13493,7 @@ register_global(__lowhigh2highlow, types.Function(_typing___lowhigh2highlow))
 @register
 class _typing___lows2bfloat162(ConcreteTemplate):
     key = globals()["__lows2bfloat162"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__lows2bfloat162, types.Function(_typing___lows2bfloat162))
@@ -13928,9 +13502,7 @@ register_global(__lows2bfloat162, types.Function(_typing___lows2bfloat162))
 @register
 class _typing___highs2bfloat162(ConcreteTemplate):
     key = globals()["__highs2bfloat162"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__highs2bfloat162, types.Function(_typing___highs2bfloat162))
@@ -14197,9 +13769,7 @@ register_global(__stwt, types.Function(_typing___stwt))
 @register
 class _typing___heq2(ConcreteTemplate):
     key = globals()["__heq2"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__heq2, types.Function(_typing___heq2))
@@ -14208,9 +13778,7 @@ register_global(__heq2, types.Function(_typing___heq2))
 @register
 class _typing___hne2(ConcreteTemplate):
     key = globals()["__hne2"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hne2, types.Function(_typing___hne2))
@@ -14219,9 +13787,7 @@ register_global(__hne2, types.Function(_typing___hne2))
 @register
 class _typing___hle2(ConcreteTemplate):
     key = globals()["__hle2"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hle2, types.Function(_typing___hle2))
@@ -14230,9 +13796,7 @@ register_global(__hle2, types.Function(_typing___hle2))
 @register
 class _typing___hge2(ConcreteTemplate):
     key = globals()["__hge2"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hge2, types.Function(_typing___hge2))
@@ -14241,9 +13805,7 @@ register_global(__hge2, types.Function(_typing___hge2))
 @register
 class _typing___hlt2(ConcreteTemplate):
     key = globals()["__hlt2"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hlt2, types.Function(_typing___hlt2))
@@ -14252,9 +13814,7 @@ register_global(__hlt2, types.Function(_typing___hlt2))
 @register
 class _typing___hgt2(ConcreteTemplate):
     key = globals()["__hgt2"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hgt2, types.Function(_typing___hgt2))
@@ -14263,9 +13823,7 @@ register_global(__hgt2, types.Function(_typing___hgt2))
 @register
 class _typing___hequ2(ConcreteTemplate):
     key = globals()["__hequ2"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hequ2, types.Function(_typing___hequ2))
@@ -14274,9 +13832,7 @@ register_global(__hequ2, types.Function(_typing___hequ2))
 @register
 class _typing___hneu2(ConcreteTemplate):
     key = globals()["__hneu2"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hneu2, types.Function(_typing___hneu2))
@@ -14285,9 +13841,7 @@ register_global(__hneu2, types.Function(_typing___hneu2))
 @register
 class _typing___hleu2(ConcreteTemplate):
     key = globals()["__hleu2"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hleu2, types.Function(_typing___hleu2))
@@ -14296,9 +13850,7 @@ register_global(__hleu2, types.Function(_typing___hleu2))
 @register
 class _typing___hgeu2(ConcreteTemplate):
     key = globals()["__hgeu2"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hgeu2, types.Function(_typing___hgeu2))
@@ -14307,9 +13859,7 @@ register_global(__hgeu2, types.Function(_typing___hgeu2))
 @register
 class _typing___hltu2(ConcreteTemplate):
     key = globals()["__hltu2"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hltu2, types.Function(_typing___hltu2))
@@ -14318,9 +13868,7 @@ register_global(__hltu2, types.Function(_typing___hltu2))
 @register
 class _typing___hgtu2(ConcreteTemplate):
     key = globals()["__hgtu2"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hgtu2, types.Function(_typing___hgtu2))
@@ -14446,9 +13994,7 @@ register_global(__hisnan2, types.Function(_typing___hisnan2))
 @register
 class _typing___hadd2(ConcreteTemplate):
     key = globals()["__hadd2"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hadd2, types.Function(_typing___hadd2))
@@ -14457,9 +14003,7 @@ register_global(__hadd2, types.Function(_typing___hadd2))
 @register
 class _typing___hsub2(ConcreteTemplate):
     key = globals()["__hsub2"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hsub2, types.Function(_typing___hsub2))
@@ -14468,9 +14012,7 @@ register_global(__hsub2, types.Function(_typing___hsub2))
 @register
 class _typing___hmul2(ConcreteTemplate):
     key = globals()["__hmul2"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hmul2, types.Function(_typing___hmul2))
@@ -14479,9 +14021,7 @@ register_global(__hmul2, types.Function(_typing___hmul2))
 @register
 class _typing___hadd2_rn(ConcreteTemplate):
     key = globals()["__hadd2_rn"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hadd2_rn, types.Function(_typing___hadd2_rn))
@@ -14490,9 +14030,7 @@ register_global(__hadd2_rn, types.Function(_typing___hadd2_rn))
 @register
 class _typing___hsub2_rn(ConcreteTemplate):
     key = globals()["__hsub2_rn"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hsub2_rn, types.Function(_typing___hsub2_rn))
@@ -14501,9 +14039,7 @@ register_global(__hsub2_rn, types.Function(_typing___hsub2_rn))
 @register
 class _typing___hmul2_rn(ConcreteTemplate):
     key = globals()["__hmul2_rn"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hmul2_rn, types.Function(_typing___hmul2_rn))
@@ -14512,9 +14048,7 @@ register_global(__hmul2_rn, types.Function(_typing___hmul2_rn))
 @register
 class _typing___h2div(ConcreteTemplate):
     key = globals()["__h2div"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__h2div, types.Function(_typing___h2div))
@@ -14532,9 +14066,7 @@ register_global(__habs2, types.Function(_typing___habs2))
 @register
 class _typing___hadd2_sat(ConcreteTemplate):
     key = globals()["__hadd2_sat"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hadd2_sat, types.Function(_typing___hadd2_sat))
@@ -14543,9 +14075,7 @@ register_global(__hadd2_sat, types.Function(_typing___hadd2_sat))
 @register
 class _typing___hsub2_sat(ConcreteTemplate):
     key = globals()["__hsub2_sat"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hsub2_sat, types.Function(_typing___hsub2_sat))
@@ -14554,9 +14084,7 @@ register_global(__hsub2_sat, types.Function(_typing___hsub2_sat))
 @register
 class _typing___hmul2_sat(ConcreteTemplate):
     key = globals()["__hmul2_sat"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hmul2_sat, types.Function(_typing___hmul2_sat))
@@ -15023,9 +14551,7 @@ register_global(__hfma_relu, types.Function(_typing___hfma_relu))
 @register
 class _typing___hmax2(ConcreteTemplate):
     key = globals()["__hmax2"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hmax2, types.Function(_typing___hmax2))
@@ -15034,9 +14560,7 @@ register_global(__hmax2, types.Function(_typing___hmax2))
 @register
 class _typing___hmin2(ConcreteTemplate):
     key = globals()["__hmin2"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hmin2, types.Function(_typing___hmin2))
@@ -15045,9 +14569,7 @@ register_global(__hmin2, types.Function(_typing___hmin2))
 @register
 class _typing___hmax2_nan(ConcreteTemplate):
     key = globals()["__hmax2_nan"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hmax2_nan, types.Function(_typing___hmax2_nan))
@@ -15056,9 +14578,7 @@ register_global(__hmax2_nan, types.Function(_typing___hmax2_nan))
 @register
 class _typing___hmin2_nan(ConcreteTemplate):
     key = globals()["__hmin2_nan"]
-    cases = [
-        signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)
-    ]
+    cases = [signature(_type___nv_bfloat162, _type___nv_bfloat162, _type___nv_bfloat162)]
 
 
 register_global(__hmin2_nan, types.Function(_typing___hmin2_nan))

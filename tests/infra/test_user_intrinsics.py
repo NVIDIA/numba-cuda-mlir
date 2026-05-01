@@ -226,9 +226,7 @@ def test_intrinsic_tuple_return():
     result_rem = bd.copy_to_host()
     expected_quot = np.array([1, 3, 5, 6], dtype=np.int32)
     expected_rem = np.array([3, 2, 2, 3], dtype=np.int32)
-    assert np.array_equal(
-        result_quot, expected_quot
-    ), f"{result_quot=} != {expected_quot=}"
+    assert np.array_equal(result_quot, expected_quot), f"{result_quot=} != {expected_quot=}"
     assert np.array_equal(result_rem, expected_rem), f"{result_rem=} != {expected_rem=}"
 
 

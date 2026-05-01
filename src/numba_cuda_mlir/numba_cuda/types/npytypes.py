@@ -532,11 +532,7 @@ class Array(Buffer):
         """
         Convert this Array to the *other*.
         """
-        if (
-            isinstance(other, Array)
-            and other.ndim == self.ndim
-            and other.dtype == self.dtype
-        ):
+        if isinstance(other, Array) and other.ndim == self.ndim and other.dtype == self.dtype:
             if (
                 other.layout in ("A", self.layout)
                 and (self.mutable or not other.mutable)

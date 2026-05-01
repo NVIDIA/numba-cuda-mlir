@@ -127,8 +127,7 @@ def polyutils_as_series(alist, trim=True):
     def impl(alist, trim=True):
         if tuple_input:
             arrays = [
-                np.atleast_1d(np.asarray(item)).astype(res_dtype)
-                for item in literal_unroll(alist)
+                np.atleast_1d(np.asarray(item)).astype(res_dtype) for item in literal_unroll(alist)
             ]
 
         elif list_input:
@@ -320,8 +319,7 @@ def poly_polyint(c, m=1):
         raise errors.TypingError(msg)
 
     is1D = (np.ndim(c) == 1) or (
-        isinstance(c, (types.List, types.BaseTuple))
-        and isinstance(c.dtype, types.Number)
+        isinstance(c, (types.List, types.BaseTuple)) and isinstance(c.dtype, types.Number)
     )
 
     def impl(c, m=1):

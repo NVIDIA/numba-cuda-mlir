@@ -50,7 +50,9 @@ def download():
     os.makedirs(DATA_CACHE_DIR, exist_ok=True)
 
     # download the TinyStories dataset, unless it's already downloaded
-    data_url = "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
+    data_url = (
+        "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
+    )
     data_filename = os.path.join(DATA_CACHE_DIR, "tiny_shakespeare.txt")
     if not os.path.exists(data_filename):
         print(f"Downloading {data_url} to {data_filename}...")

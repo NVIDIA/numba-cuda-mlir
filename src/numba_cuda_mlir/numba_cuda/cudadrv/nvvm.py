@@ -189,9 +189,7 @@ class NVVM:
         minorIR = c_int()
         majorDbg = c_int()
         minorDbg = c_int()
-        err = self.nvvmIRVersion(
-            byref(majorIR), byref(minorIR), byref(majorDbg), byref(minorDbg)
-        )
+        err = self.nvvmIRVersion(byref(majorIR), byref(minorIR), byref(majorDbg), byref(minorDbg))
         self.check_error(err, "Failed to get IR version.")
         return majorIR.value, minorIR.value, majorDbg.value, minorDbg.value
 
@@ -339,9 +337,7 @@ class CompilationUnit:
         - The buffer should contain an NVVM module IR either in the bitcode
           representation (LLVM3.0) or in the text representation.
         """
-        err = self.driver.nvvmAddModuleToProgram(
-            self._handle, buffer, len(buffer), None
-        )
+        err = self.driver.nvvmAddModuleToProgram(self._handle, buffer, len(buffer), None)
         self.driver.check_error(err, "Failed to add module")
 
     def lazy_add_module(self, buffer):
@@ -350,18 +346,14 @@ class CompilationUnit:
         The buffer should contain NVVM module IR either in the bitcode
         representation or in the text representation.
         """
-        err = self.driver.nvvmLazyAddModuleToProgram(
-            self._handle, buffer, len(buffer), None
-        )
+        err = self.driver.nvvmLazyAddModuleToProgram(self._handle, buffer, len(buffer), None)
         self.driver.check_error(err, "Failed to add module")
 
     def verify(self):
         """
         Run the NVVM verifier on all code added to the compilation unit.
         """
-        err = self.driver.nvvmVerifyProgram(
-            self._handle, self.n_options, self.option_ptrs
-        )
+        err = self.driver.nvvmVerifyProgram(self._handle, self.n_options, self.option_ptrs)
         self._try_error(err, "Failed to verify\n")
 
     def compile(self):
@@ -369,9 +361,7 @@ class CompilationUnit:
         Compile all modules added to the compilation unit and return the
         resulting PTX or LTO-IR (depending on the options).
         """
-        err = self.driver.nvvmCompileProgram(
-            self._handle, self.n_options, self.option_ptrs
-        )
+        err = self.driver.nvvmCompileProgram(self._handle, self.n_options, self.option_ptrs)
         self._try_error(err, "Failed to compile\n")
 
         # Get result

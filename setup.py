@@ -99,9 +99,7 @@ class BuildExtWithCmake(build_ext):
 
             # Also place alongside libMLIRPythonCAPI.so so it's found
             # via RPATH when loaded from the wheel
-            mlir_libs_dir = (
-                Path(self.build_lib) / "numba_cuda_mlir" / "_mlir" / "_mlir_libs"
-            )
+            mlir_libs_dir = Path(self.build_lib) / "numba_cuda_mlir" / "_mlir" / "_mlir_libs"
             if mlir_libs_dir.exists() and not self.dry_run:
                 mlir_dest = mlir_libs_dir / "libMLIRToLLVM70.so"
                 if mlir_dest.exists() or mlir_dest.is_symlink():
@@ -119,11 +117,7 @@ class BuildExtWithCmake(build_ext):
             return
         install_root = Path(mlir_dir).resolve().parent.parent.parent
         mlir_pkg = (
-            install_root
-            / "python_packages"
-            / "numba_cuda_mlir_mlir"
-            / "numba_cuda_mlir"
-            / "_mlir"
+            install_root / "python_packages" / "numba_cuda_mlir_mlir" / "numba_cuda_mlir" / "_mlir"
         )
         if not mlir_pkg.exists():
             print(f"WARNING: MLIR Python bindings not found at {mlir_pkg}")

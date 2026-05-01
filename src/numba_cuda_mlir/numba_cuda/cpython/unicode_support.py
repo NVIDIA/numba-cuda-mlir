@@ -113,9 +113,7 @@ def _gettyperecord_impl(typingctx, codepoint):
                 ll_ushort_ptr,  # flags
             ],
         )
-        fn = cgutils.get_or_insert_function(
-            builder.module, fnty, name="numba_gettyperecord"
-        )
+        fn = cgutils.get_or_insert_function(builder.module, fnty, name="numba_gettyperecord")
         upper = cgutils.alloca_once(builder, ll_intc, name="upper")
         lower = cgutils.alloca_once(builder, ll_intc, name="lower")
         title = cgutils.alloca_once(builder, ll_intc, name="title")

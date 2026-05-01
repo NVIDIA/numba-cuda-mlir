@@ -132,9 +132,7 @@ def _(ty: ir.Type | ir.FunctionType) -> types.Type | typing.Signature:
                     result_type = types.UniTuple(result_types[0], len(result_types))
                 else:
                     result_type = types.Tuple(result_types)
-            return typing.signature(
-                result_type, *[to_numba_type(arg) for arg in ty.inputs]
-            )
+            return typing.signature(result_type, *[to_numba_type(arg) for arg in ty.inputs])
         case ir.Type():
             # we need to downcast LLVM types for some reason...
             # TODO(ajm): this has been fixed, need to update this everywhere
@@ -143,9 +141,7 @@ def _(ty: ir.Type | ir.FunctionType) -> types.Type | typing.Signature:
                 return types.ptr
             elif "llvm.struct" in tystr:
                 st = llvm.StructType(ty)
-                assert (
-                    not st.opaque
-                ), f"Struct type {st.name} is opaque, how did this happen?"
+                assert not st.opaque, f"Struct type {st.name} is opaque, how did this happen?"
                 name = st.name
                 named_fe_type = types.AggregateType.get_named_type(name)
                 assert named_fe_type is not None, f"No named type found for {name}"

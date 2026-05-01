@@ -11,9 +11,7 @@ class TestCudaMonteCarlo(NumbaCUDATestCase):
     def test_montecarlo(self):
         """Just make sure we can compile this"""
 
-        @numba_cuda_mlir.jit(
-            "void(double[:], double[:], double, double, double, double[:])"
-        )
+        @numba_cuda_mlir.jit("void(double[:], double[:], double, double, double, double[:])")
         def step(last, paths, dt, c0, c1, normdist):
             i = cuda.grid(1)
             if i >= paths.shape[0]:

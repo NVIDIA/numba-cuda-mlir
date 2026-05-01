@@ -44,9 +44,7 @@ def main():
     add_standard_parser_args(parser)
     args = parser.parse_args()
 
-    with resolve_venv(
-        args, "numba_cuda_mlir_test_venv", "numba_cuda_mlir_test_"
-    ) as venv:
+    with resolve_venv(args, "numba_cuda_mlir_test_venv", "numba_cuda_mlir_test_") as venv:
         install_numba_cuda_mlir_editable(venv)
         run(["make", "-C", str(TESTING_DIR)])
         os.environ["NUMBA_CUDA_MLIR_TEST_BIN_DIR"] = str(TESTING_DIR)

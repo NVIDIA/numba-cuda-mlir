@@ -28,9 +28,7 @@ def atomic_cmpxchg(builder, lmod, isize, ptr, cmp, val):
 
 def declare_atomic_add_float32(lmod):
     fname = "llvm.nvvm.atomic.load.add.f32.p0f32"
-    fnty = ir.FunctionType(
-        ir.FloatType(), (ir.PointerType(ir.FloatType(), 0), ir.FloatType())
-    )
+    fnty = ir.FunctionType(ir.FloatType(), (ir.PointerType(ir.FloatType(), 0), ir.FloatType()))
     return cgutils.get_or_insert_function(lmod, fnty, fname)
 
 
@@ -40,121 +38,91 @@ def declare_atomic_add_float64(lmod):
         fname = "llvm.nvvm.atomic.load.add.f64.p0f64"
     else:
         fname = "___numba_atomic_double_add"
-    fnty = ir.FunctionType(
-        ir.DoubleType(), (ir.PointerType(ir.DoubleType()), ir.DoubleType())
-    )
+    fnty = ir.FunctionType(ir.DoubleType(), (ir.PointerType(ir.DoubleType()), ir.DoubleType()))
     return cgutils.get_or_insert_function(lmod, fnty, fname)
 
 
 def declare_atomic_sub_float32(lmod):
     fname = "___numba_atomic_float_sub"
-    fnty = ir.FunctionType(
-        ir.FloatType(), (ir.PointerType(ir.FloatType()), ir.FloatType())
-    )
+    fnty = ir.FunctionType(ir.FloatType(), (ir.PointerType(ir.FloatType()), ir.FloatType()))
     return cgutils.get_or_insert_function(lmod, fnty, fname)
 
 
 def declare_atomic_sub_float64(lmod):
     fname = "___numba_atomic_double_sub"
-    fnty = ir.FunctionType(
-        ir.DoubleType(), (ir.PointerType(ir.DoubleType()), ir.DoubleType())
-    )
+    fnty = ir.FunctionType(ir.DoubleType(), (ir.PointerType(ir.DoubleType()), ir.DoubleType()))
     return cgutils.get_or_insert_function(lmod, fnty, fname)
 
 
 def declare_atomic_inc_int32(lmod):
     fname = "llvm.nvvm.atomic.load.inc.32.p0i32"
-    fnty = ir.FunctionType(
-        ir.IntType(32), (ir.PointerType(ir.IntType(32)), ir.IntType(32))
-    )
+    fnty = ir.FunctionType(ir.IntType(32), (ir.PointerType(ir.IntType(32)), ir.IntType(32)))
     return cgutils.get_or_insert_function(lmod, fnty, fname)
 
 
 def declare_atomic_inc_int64(lmod):
     fname = "___numba_atomic_u64_inc"
-    fnty = ir.FunctionType(
-        ir.IntType(64), (ir.PointerType(ir.IntType(64)), ir.IntType(64))
-    )
+    fnty = ir.FunctionType(ir.IntType(64), (ir.PointerType(ir.IntType(64)), ir.IntType(64)))
     return cgutils.get_or_insert_function(lmod, fnty, fname)
 
 
 def declare_atomic_dec_int32(lmod):
     fname = "llvm.nvvm.atomic.load.dec.32.p0i32"
-    fnty = ir.FunctionType(
-        ir.IntType(32), (ir.PointerType(ir.IntType(32)), ir.IntType(32))
-    )
+    fnty = ir.FunctionType(ir.IntType(32), (ir.PointerType(ir.IntType(32)), ir.IntType(32)))
     return cgutils.get_or_insert_function(lmod, fnty, fname)
 
 
 def declare_atomic_dec_int64(lmod):
     fname = "___numba_atomic_u64_dec"
-    fnty = ir.FunctionType(
-        ir.IntType(64), (ir.PointerType(ir.IntType(64)), ir.IntType(64))
-    )
+    fnty = ir.FunctionType(ir.IntType(64), (ir.PointerType(ir.IntType(64)), ir.IntType(64)))
     return cgutils.get_or_insert_function(lmod, fnty, fname)
 
 
 def declare_atomic_max_float32(lmod):
     fname = "___numba_atomic_float_max"
-    fnty = ir.FunctionType(
-        ir.FloatType(), (ir.PointerType(ir.FloatType()), ir.FloatType())
-    )
+    fnty = ir.FunctionType(ir.FloatType(), (ir.PointerType(ir.FloatType()), ir.FloatType()))
     return cgutils.get_or_insert_function(lmod, fnty, fname)
 
 
 def declare_atomic_max_float64(lmod):
     fname = "___numba_atomic_double_max"
-    fnty = ir.FunctionType(
-        ir.DoubleType(), (ir.PointerType(ir.DoubleType()), ir.DoubleType())
-    )
+    fnty = ir.FunctionType(ir.DoubleType(), (ir.PointerType(ir.DoubleType()), ir.DoubleType()))
     return cgutils.get_or_insert_function(lmod, fnty, fname)
 
 
 def declare_atomic_min_float32(lmod):
     fname = "___numba_atomic_float_min"
-    fnty = ir.FunctionType(
-        ir.FloatType(), (ir.PointerType(ir.FloatType()), ir.FloatType())
-    )
+    fnty = ir.FunctionType(ir.FloatType(), (ir.PointerType(ir.FloatType()), ir.FloatType()))
     return cgutils.get_or_insert_function(lmod, fnty, fname)
 
 
 def declare_atomic_min_float64(lmod):
     fname = "___numba_atomic_double_min"
-    fnty = ir.FunctionType(
-        ir.DoubleType(), (ir.PointerType(ir.DoubleType()), ir.DoubleType())
-    )
+    fnty = ir.FunctionType(ir.DoubleType(), (ir.PointerType(ir.DoubleType()), ir.DoubleType()))
     return cgutils.get_or_insert_function(lmod, fnty, fname)
 
 
 def declare_atomic_nanmax_float32(lmod):
     fname = "___numba_atomic_float_nanmax"
-    fnty = ir.FunctionType(
-        ir.FloatType(), (ir.PointerType(ir.FloatType()), ir.FloatType())
-    )
+    fnty = ir.FunctionType(ir.FloatType(), (ir.PointerType(ir.FloatType()), ir.FloatType()))
     return cgutils.get_or_insert_function(lmod, fnty, fname)
 
 
 def declare_atomic_nanmax_float64(lmod):
     fname = "___numba_atomic_double_nanmax"
-    fnty = ir.FunctionType(
-        ir.DoubleType(), (ir.PointerType(ir.DoubleType()), ir.DoubleType())
-    )
+    fnty = ir.FunctionType(ir.DoubleType(), (ir.PointerType(ir.DoubleType()), ir.DoubleType()))
     return cgutils.get_or_insert_function(lmod, fnty, fname)
 
 
 def declare_atomic_nanmin_float32(lmod):
     fname = "___numba_atomic_float_nanmin"
-    fnty = ir.FunctionType(
-        ir.FloatType(), (ir.PointerType(ir.FloatType()), ir.FloatType())
-    )
+    fnty = ir.FunctionType(ir.FloatType(), (ir.PointerType(ir.FloatType()), ir.FloatType()))
     return cgutils.get_or_insert_function(lmod, fnty, fname)
 
 
 def declare_atomic_nanmin_float64(lmod):
     fname = "___numba_atomic_double_nanmin"
-    fnty = ir.FunctionType(
-        ir.DoubleType(), (ir.PointerType(ir.DoubleType()), ir.DoubleType())
-    )
+    fnty = ir.FunctionType(ir.DoubleType(), (ir.PointerType(ir.DoubleType()), ir.DoubleType()))
     return cgutils.get_or_insert_function(lmod, fnty, fname)
 
 

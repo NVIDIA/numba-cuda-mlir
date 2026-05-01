@@ -116,9 +116,7 @@ class CFGraph:
         are not possible).
         """
         if src not in self._nodes:
-            raise ValueError(
-                "Cannot add edge as src node %s not in nodes %s" % (src, self._nodes)
-            )
+            raise ValueError("Cannot add edge as src node %s not in nodes %s" % (src, self._nodes))
         if dest not in self._nodes:
             raise ValueError(
                 "Cannot add edge as dest node %s not in nodes %s" % (dest, self._nodes)
@@ -441,9 +439,7 @@ class CFGraph:
                 seen.add(node)
                 stack.append((post_order.append, node))
                 stack.extend(
-                    (dfs_rec, dest)
-                    for dest in succs[node]
-                    if (node, dest) not in back_edges
+                    (dfs_rec, dest) for dest in succs[node] if (node, dest) not in back_edges
                 )
 
         stack = [(dfs_rec, self._entry_point)]
@@ -484,9 +480,7 @@ class CFGraph:
         while changed:
             changed = False
             for u in order:
-                new_idom = functools.reduce(
-                    intersect, (v for v in preds_table[u] if v in idom)
-                )
+                new_idom = functools.reduce(intersect, (v for v in preds_table[u] if v in idom))
                 if u not in idom or idom[u] != new_idom:
                     idom[u] = new_idom
                     changed = True
@@ -717,9 +711,7 @@ class CFGraph:
         return in_loops
 
     def _dump_adj_lists(self, file):
-        adj_lists = dict(
-            (src, sorted(list(dests))) for src, dests in self._succs.items()
-        )
+        adj_lists = dict((src, sorted(list(dests))) for src, dests in self._succs.items())
         import pprint
 
         pprint.pprint(adj_lists, stream=file)
@@ -896,11 +888,7 @@ class ControlFlowAnalysis:
         if current_inst.opname == "SETUP_WITH":
             next_op = self.bytecode[current_inst.next].opname
             if next_op != "POP_TOP":
-                msg = (
-                    "The 'with (context manager) as "
-                    "(variable):' construct is not "
-                    "supported."
-                )
+                msg = "The 'with (context manager) as (variable):' construct is not supported."
                 raise UnsupportedError(msg)
 
     def op_SETUP_LOOP(self, inst):

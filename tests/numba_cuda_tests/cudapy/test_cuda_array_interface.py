@@ -179,9 +179,7 @@ class TestCudaArrayInterface(NumbaCUDATestCase):
 
         # Writes to a slice from a view
         arr[:5] = arr[5:]
-        np.testing.assert_array_equal(
-            c_arr.copy_to_host(), np.concatenate((h_arr[5:], h_arr[5:]))
-        )
+        np.testing.assert_array_equal(c_arr.copy_to_host(), np.concatenate((h_arr[5:], h_arr[5:])))
 
         # Writes through a view
         arr[:] = cuda.to_device(h_arr)

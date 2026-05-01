@@ -79,8 +79,7 @@ class CUDATypingContext(typing.BaseContext):
                 except AttributeError:
                     if not val._can_compile:
                         raise ValueError(
-                            "using cpu function on device "
-                            "but its compilation is disabled"
+                            "using cpu function on device but its compilation is disabled"
                         )
                     targetoptions = val.targetoptions.copy()
                     targetoptions["device"] = True
@@ -269,8 +268,7 @@ class CUDATargetContext(BaseContext):
     @property
     def call_conv(self):
         warnings.warn(
-            "Context.call_conv is deprecated. "
-            "Use FunctionDescriptor.call_conv instead.",
+            "Context.call_conv is deprecated. Use FunctionDescriptor.call_conv instead.",
             DeprecationWarning,
         )
         return self.fndesc.call_conv
@@ -291,16 +289,12 @@ class CUDATargetContext(BaseContext):
 
         lmod = builder.module
 
-        constvals = [
-            self.get_constant(types.byte, i) for i in iter(arr.tobytes(order="A"))
-        ]
+        constvals = [self.get_constant(types.byte, i) for i in iter(arr.tobytes(order="A"))]
         constaryty = ir.ArrayType(ir.IntType(8), len(constvals))
         constary = ir.Constant(constaryty, constvals)
 
         addrspace = nvvm.ADDRSPACE_CONSTANT
-        gv = cgutils.add_global_variable(
-            lmod, constary.type, "_cudapy_cmem", addrspace=addrspace
-        )
+        gv = cgutils.add_global_variable(lmod, constary.type, "_cudapy_cmem", addrspace=addrspace)
         gv.linkage = "internal"
         gv.global_constant = True
         gv.initializer = constary

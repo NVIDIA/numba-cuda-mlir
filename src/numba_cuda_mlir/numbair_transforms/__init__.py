@@ -60,9 +60,7 @@ class NumbaCudaMlirLiteralUnroll(FunctionPass):
         # get types where possible to help with list->tuple change
         pm.add_pass(PartialTypeInference, "performs partial type inference")
         # make const lists tuples
-        pm.add_pass(
-            TransformLiteralUnrollConstListToTuple, "switch const list for tuples"
-        )
+        pm.add_pass(TransformLiteralUnrollConstListToTuple, "switch const list for tuples")
         # recompute partial typemap following IR change
         pm.add_pass(PartialTypeInference, "performs partial type inference")
         # canonicalise loops - use our patched version
@@ -118,9 +116,6 @@ class NumbaCudaMlirInlineInlinables(InlineInlinables):
         import dis
 
         for instr in dis.get_instructions(pyfunc):
-            if (
-                instr.opname in ("LOAD_GLOBAL", "LOAD_DEREF")
-                and instr.argval == pyfunc.__name__
-            ):
+            if instr.opname in ("LOAD_GLOBAL", "LOAD_DEREF") and instr.argval == pyfunc.__name__:
                 return True
         return False

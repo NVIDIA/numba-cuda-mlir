@@ -35,9 +35,9 @@ class TestPTXVersionInOutput:
         ver = _extract_ptx_version(ptx)
         assert ver is not None, "No .version directive found in PTX"
         ptx_int = ver[0] * 10 + ver[1]
-        assert (
-            ptx_int == expected
-        ), f"PTX .version {ver[0]}.{ver[1]} (={ptx_int}) != expected +ptx{expected}"
+        assert ptx_int == expected, (
+            f"PTX .version {ver[0]}.{ver[1]} (={ptx_int}) != expected +ptx{expected}"
+        )
 
     def test_explicit_features_respected(self):
         """User-specified +ptxNN should not be overridden by auto-detection.

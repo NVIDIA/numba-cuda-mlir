@@ -59,9 +59,7 @@ def type_polynomial(context):
                 # If Polynomial(coef) is called, coef is cast to double dtype,
                 # and domain and window are set to equal [-1, 1], i.e. have
                 # integer dtype
-                return types.PolynomialType(
-                    double_coef, default_domain, default_window, 1
-                )
+                return types.PolynomialType(double_coef, default_domain, default_window, 1)
             else:
                 msg = "Coefficient array is not 1-d"
                 raise NumbaValueError(msg)
@@ -70,9 +68,7 @@ def type_polynomial(context):
                 if all([a.ndim == 1 for a in (domain, window)]):
                     # If Polynomial(coef, domain, window) is called, then coef,
                     # domain and window are cast to double dtype
-                    return types.PolynomialType(
-                        double_coef, double_domain, double_window, 3
-                    )
+                    return types.PolynomialType(double_coef, double_domain, double_window, 3)
             else:
                 msg = "Coefficient array is not 1-d"
                 raise NumbaValueError(msg)
@@ -125,12 +121,8 @@ def impl_polynomial3(context, builder, sig, args):
     domain_cast = context.compile_internal(builder, to_double, domain_sig, (args[1],))
     window_cast = context.compile_internal(builder, to_double, window_sig, (args[2],))
 
-    domain_helper = context.make_helper(
-        builder, domain_sig.return_type, value=domain_cast
-    )
-    window_helper = context.make_helper(
-        builder, window_sig.return_type, value=window_cast
-    )
+    domain_helper = context.make_helper(builder, domain_sig.return_type, value=domain_cast)
+    window_helper = context.make_helper(builder, window_sig.return_type, value=window_cast)
 
     i64 = ir.IntType(64)
     two = i64(2)
@@ -221,9 +213,7 @@ def box_polynomial(typ, val, c):
             res1 = c.pyapi.call_function_objargs(class_obj, (coef_obj,))
             c.builder.store(res1, ret_ptr)
         else:
-            res3 = c.pyapi.call_function_objargs(
-                class_obj, (coef_obj, domain_obj, window_obj)
-            )
+            res3 = c.pyapi.call_function_objargs(class_obj, (coef_obj, domain_obj, window_obj))
             c.builder.store(res3, ret_ptr)
 
         c.pyapi.decref(coef_obj)

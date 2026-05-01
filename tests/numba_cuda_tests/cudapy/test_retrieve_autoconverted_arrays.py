@@ -37,9 +37,7 @@ class TestRetrieveAutoconvertedArrays(NumbaCUDATestCase):
         self.set_array_to_three = numba_cuda_mlir.jit(set_array_to_three)
         self.set_array_to_three_nocopy = nocopy(numba_cuda_mlir.jit(set_array_to_three))
         self.set_record_to_three = numba_cuda_mlir.jit(set_record_to_three)
-        self.set_record_to_three_nocopy = nocopy(
-            numba_cuda_mlir.jit(set_record_to_three)
-        )
+        self.set_record_to_three_nocopy = nocopy(numba_cuda_mlir.jit(set_record_to_three))
 
     def test_array_inout(self):
         host_arr = np.zeros(1, dtype=np.int64)

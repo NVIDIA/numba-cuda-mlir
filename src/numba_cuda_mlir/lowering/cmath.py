@@ -208,9 +208,7 @@ def cmath_rect_cg(mlir_lower, target, args, kwargs):
     phi = convert(phi, element_type)
 
     # Declare or lookup the function: (FTy, FTy) -> (FTy, FTy)
-    fn_type = ir.FunctionType.get(
-        [element_type, element_type], [element_type, element_type]
-    )
+    fn_type = ir.FunctionType.get([element_type, element_type], [element_type, element_type])
     callee = get_or_insert_function(intrinsic_name, fn_type, mlir_lower.mlir_gpu_module)
 
     # Call the function
@@ -295,9 +293,7 @@ def _call_cmath_intrinsic(mlir_lower, func_name, z, target_mlir_type):
     y = convert(complex_dialect.im(z), element_type)
 
     # Lookup the function
-    fn_type = ir.FunctionType.get(
-        [element_type, element_type], [element_type, element_type]
-    )
+    fn_type = ir.FunctionType.get([element_type, element_type], [element_type, element_type])
     callee = get_or_insert_function(intrinsic_name, fn_type, mlir_lower.mlir_gpu_module)
 
     # Call the function

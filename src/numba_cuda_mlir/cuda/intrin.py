@@ -51,8 +51,7 @@ def _intrinsic_from_source(source: str):
 
     if len(functions) == 0:
         raise ValueError(
-            "No functions found in MLIR source. "
-            "Ensure the source contains a func.func definition."
+            "No functions found in MLIR source. Ensure the source contains a func.func definition."
         )
 
     if len(functions) > 1:

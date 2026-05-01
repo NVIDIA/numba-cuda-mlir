@@ -979,9 +979,7 @@ def test_consteval_block_unit_basic():
             x = VALUE
             y = x * 2
 
-    tree = ast.parse(
-        "def func():\n    with consteval():\n        x = VALUE\n        y = x * 2\n"
-    )
+    tree = ast.parse("def func():\n    with consteval():\n        x = VALUE\n        y = x * 2\n")
     func.__globals__["VALUE"] = VALUE
     func.__globals__["consteval"] = consteval
 

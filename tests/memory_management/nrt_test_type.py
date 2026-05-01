@@ -130,9 +130,7 @@ def _lower_nrt_get_refcount(builder, target, args, kwargs):
     builder.store_var(target, refct)
 
 
-lowering_registry.lower(nrt_get_refcount, nrt_managed_test_type)(
-    _lower_nrt_get_refcount
-)
+lowering_registry.lower(nrt_get_refcount, nrt_managed_test_type)(_lower_nrt_get_refcount)
 
 
 # ---------------------------------------------------------------------------

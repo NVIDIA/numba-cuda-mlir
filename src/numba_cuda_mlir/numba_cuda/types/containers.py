@@ -714,9 +714,7 @@ class DictType(IterableType, InitialValue):
         self.key_type = keyty
         self.value_type = valty
         self.keyvalue_type = Tuple([keyty, valty])
-        name = "{}[{},{}]<iv={}>".format(
-            self.__class__.__name__, keyty, valty, initial_value
-        )
+        name = "{}[{},{}]<iv={}>".format(self.__class__.__name__, keyty, valty, initial_value)
         super().__init__(name)
         InitialValue.__init__(self, initial_value)
 
@@ -815,9 +813,7 @@ class LiteralStrKeyDict(Literal, ConstSized, Hashable):
         """
         if isinstance(other, LiteralStrKeyDict):
             tys = []
-            for (k1, v1), (k2, v2) in zip(
-                self.literal_value.items(), other.literal_value.items()
-            ):
+            for (k1, v1), (k2, v2) in zip(self.literal_value.items(), other.literal_value.items()):
                 if k1 != k2:  # keys must be same
                     break
                 tys.append(typingctx.unify_pairs(v1, v2))

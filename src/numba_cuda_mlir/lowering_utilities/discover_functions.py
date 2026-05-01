@@ -16,7 +16,7 @@ class DiscoverFunctionsPass:
 
     def recurse(self, op: ir.Operation, _pass: PassManager):
         for region in op.regions:
-            for block in region.blocks:
+            for _block in region.blocks:
                 for operation in region.blocks[0]:
                     self(operation, _pass)
 
@@ -44,9 +44,7 @@ def discover_functions(module_str: str) -> dict[str, func.FuncOp]:
         try:
             module = ir.Module.parse(module_str)
         except Exception as e:
-            raise ValueError(
-                f"Failed to parse MLIR module from string:\n{module_str}\n{e}"
-            )
+            raise ValueError(f"Failed to parse MLIR module from string:\n{module_str}\n{e}")
         pm = PassManager()
         p = DiscoverFunctionsPass()
         pm.add(p)

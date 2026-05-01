@@ -65,8 +65,6 @@ def normalize_indices(context, builder, indty, inds, aryty, valty):
         raise TypeError("expect %s but got %s" % (dtype, valty))
 
     if aryty.ndim != len(indty):
-        raise TypeError(
-            "indexing %d-D array with %d-D index" % (aryty.ndim, len(indty))
-        )
+        raise TypeError("indexing %d-D array with %d-D index" % (aryty.ndim, len(indty)))
 
     return indty, indices

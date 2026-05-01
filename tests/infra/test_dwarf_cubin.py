@@ -38,9 +38,7 @@ def _cuobjdump_path() -> str:
     """Return cached cuobjdump path or skip the test."""
     path = _find_cuobjdump()
     if path is None:
-        pytest.skip(
-            "cuobjdump not found (set CUDA_HOME or ensure cuobjdump is on PATH)."
-        )
+        pytest.skip("cuobjdump not found (set CUDA_HOME or ensure cuobjdump is on PATH).")
     return path
 
 
@@ -60,8 +58,7 @@ def _dwarf_dump(cubin: bytes) -> str:
         )
         if cp.returncode != 0:
             pytest.fail(
-                f"cuobjdump exited with {cp.returncode}\n"
-                f"stdout: {cp.stdout}\nstderr: {cp.stderr}"
+                f"cuobjdump exited with {cp.returncode}\nstdout: {cp.stdout}\nstderr: {cp.stderr}"
             )
         return cp.stdout + cp.stderr
     finally:
@@ -83,9 +80,9 @@ def test_cubin_no_line_table():
         x[0] = x[0] + 1
 
     out = _compile_and_dump_dwarf(k)
-    assert (
-        ".debug_line" not in out
-    ), f"Default jit should not emit .debug_line section; cuobjdump output:\n{out}"
+    assert ".debug_line" not in out, (
+        f"Default jit should not emit .debug_line section; cuobjdump output:\n{out}"
+    )
 
 
 def test_cubin_line_table():
@@ -97,8 +94,7 @@ def test_cubin_line_table():
 
     out = _compile_and_dump_dwarf(k)
     assert ".debug_line" in out, (
-        f"cuobjdump output should contain .debug_line section when lineinfo=True; "
-        f"output:\n{out}"
+        f"cuobjdump output should contain .debug_line section when lineinfo=True; output:\n{out}"
     )
 
 
@@ -111,7 +107,7 @@ def test_cubin_no_debug_info_default():
 
     out = _compile_and_dump_dwarf(k)
     assert ".debug_info" not in out, (
-        f"Default jit should not emit .debug_info section; " f"cuobjdump output:\n{out}"
+        f"Default jit should not emit .debug_info section; cuobjdump output:\n{out}"
     )
 
 
@@ -122,10 +118,7 @@ def test_cubin_debug_info():
     def k(out: cuda.DeviceNDArray, a, b):
         out[0] = a + b
 
-    out = _compile_and_dump_dwarf(
-        k, types.void(types.int32[:], types.int32, types.int32)
-    )
+    out = _compile_and_dump_dwarf(k, types.void(types.int32[:], types.int32, types.int32))
     assert ".debug_info" in out, (
-        f"cuobjdump output should contain .debug_info section when debug=True; "
-        f"output:\n{out}"
+        f"cuobjdump output should contain .debug_info section when debug=True; output:\n{out}"
     )

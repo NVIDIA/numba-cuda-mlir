@@ -41,9 +41,7 @@ def from_cuda_array_interface(desc, owner=None, sync=True):
     shape = desc["shape"]
     strides = desc.get("strides")
 
-    shape, strides, dtype = prepare_shape_strides_dtype(
-        shape, strides, desc["typestr"], order="C"
-    )
+    shape, strides, dtype = prepare_shape_strides_dtype(shape, strides, desc["typestr"], order="C")
     size = driver.memory_size_from_info(shape, strides, dtype.itemsize)
 
     cudevptr_class = driver.binding.CUdeviceptr
@@ -141,9 +139,7 @@ def to_device(obj, stream=0, copy=True, to=None):
         hary = d_ary.copy_to_host(stream=stream)
     """
     if to is None:
-        to, new = devicearray.auto_device(
-            obj, stream=stream, copy=copy, user_explicit=True
-        )
+        to, new = devicearray.auto_device(obj, stream=stream, copy=copy, user_explicit=True)
         return to
     if copy:
         to.copy_to_device(obj, stream=stream)
@@ -157,9 +153,7 @@ def device_array(shape, dtype=np.float64, strides=None, order="C", stream=0):
     Allocate an empty device ndarray. Similar to :meth:`numpy.empty`.
     """
     shape, strides, dtype = prepare_shape_strides_dtype(shape, strides, dtype, order)
-    return devicearray.DeviceNDArray(
-        shape=shape, strides=strides, dtype=dtype, stream=stream
-    )
+    return devicearray.DeviceNDArray(shape=shape, strides=strides, dtype=dtype, stream=stream)
 
 
 @require_context
@@ -189,9 +183,7 @@ def managed_array(
     shape, strides, dtype = prepare_shape_strides_dtype(shape, strides, dtype, order)
     bytesize = driver.memory_size_from_info(shape, strides, dtype.itemsize)
     buffer = current_context().memallocmanaged(bytesize, attach_global=attach_global)
-    npary = np.ndarray(
-        shape=shape, strides=strides, dtype=dtype, order=order, buffer=buffer
-    )
+    npary = np.ndarray(shape=shape, strides=strides, dtype=dtype, order=order, buffer=buffer)
     managedview = np.ndarray.view(npary, type=devicearray.ManagedNDArray)
     managedview.device_setup(buffer, stream=stream)
     return managedview
@@ -207,9 +199,7 @@ def pinned_array(shape, dtype=np.float64, strides=None, order="C"):
     shape, strides, dtype = prepare_shape_strides_dtype(shape, strides, dtype, order)
     bytesize = driver.memory_size_from_info(shape, strides, dtype.itemsize)
     buffer = current_context().memhostalloc(bytesize)
-    return np.ndarray(
-        shape=shape, strides=strides, dtype=dtype, order=order, buffer=buffer
-    )
+    return np.ndarray(shape=shape, strides=strides, dtype=dtype, order=order, buffer=buffer)
 
 
 @require_context
@@ -237,9 +227,7 @@ def mapped_array(
     shape, strides, dtype = prepare_shape_strides_dtype(shape, strides, dtype, order)
     bytesize = driver.memory_size_from_info(shape, strides, dtype.itemsize)
     buffer = current_context().memhostalloc(bytesize, mapped=True)
-    npary = np.ndarray(
-        shape=shape, strides=strides, dtype=dtype, order=order, buffer=buffer
-    )
+    npary = np.ndarray(shape=shape, strides=strides, dtype=dtype, order=order, buffer=buffer)
     mappedview = np.ndarray.view(npary, type=devicearray.MappedNDArray)
     mappedview.device_setup(buffer, stream=stream)
     return mappedview
@@ -267,9 +255,7 @@ def open_ipc_array(handle, shape, dtype, strides=None, offset=0):
     driver_handle.reserved = handle
     # use *IpcHandle* to open the IPC memory
     ipchandle = driver.IpcHandle(None, driver_handle, size, offset=offset)
-    yield ipchandle.open_array(
-        current_context(), shape=shape, strides=strides, dtype=dtype
-    )
+    yield ipchandle.open_array(current_context(), shape=shape, strides=strides, dtype=dtype)
     ipchandle.close()
 
 

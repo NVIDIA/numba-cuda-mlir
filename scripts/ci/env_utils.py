@@ -93,9 +93,7 @@ def get_cuda_version() -> str:
 def get_cuda_config(cuda_version: str | None = None) -> dict:
     version = cuda_version or get_cuda_version()
     if version not in CUDA_CONFIGS:
-        raise ValueError(
-            f"Unsupported CUDA version: {version}. Supported: {list(CUDA_CONFIGS)}"
-        )
+        raise ValueError(f"Unsupported CUDA version: {version}. Supported: {list(CUDA_CONFIGS)}")
     return CUDA_CONFIGS[version]
 
 
@@ -174,9 +172,7 @@ class VEnv:
     def _record(self, cmd: str) -> None:
         self.history.append(cmd)
 
-    def _run_with_history(
-        self, cmd: list | str, **kwargs
-    ) -> subprocess.CompletedProcess:
+    def _run_with_history(self, cmd: list | str, **kwargs) -> subprocess.CompletedProcess:
         cmd_str = cmd if isinstance(cmd, str) else " ".join(cmd)
         self._record(cmd_str)
         try:
@@ -649,14 +645,10 @@ def filter_junit_failures(
                 if should_filter:
                     if failure is not None:
                         testcase.remove(failure)
-                        testsuite.set(
-                            "failures", str(int(testsuite.get("failures", 0)) - 1)
-                        )
+                        testsuite.set("failures", str(int(testsuite.get("failures", 0)) - 1))
                     if error is not None:
                         testcase.remove(error)
-                        testsuite.set(
-                            "errors", str(int(testsuite.get("errors", 0)) - 1)
-                        )
+                        testsuite.set("errors", str(int(testsuite.get("errors", 0)) - 1))
                     filtered_count += 1
 
     out = output_xml or junit_xml

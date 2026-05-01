@@ -2,6 +2,4 @@
 # SPDX-License-Identifier: Apache-2.0
 import importlib.resources
 
-__version__ = (
-    importlib.resources.files("numba_cuda_mlir").joinpath("VERSION").read_text().strip()
-)
+__version__ = importlib.resources.files("numba_cuda_mlir").joinpath("VERSION").read_text().strip()

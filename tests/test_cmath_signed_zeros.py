@@ -31,15 +31,11 @@ def assert_signed_equal(got, expected, msg="", rtol=1e-14):
         if math.isnan(g) and math.isnan(e):
             return
         if g == 0.0 and e == 0.0:
-            assert get_sign(g) == get_sign(
-                e
-            ), f"{msg}: {part_name} zero signs differ: {g} vs {e}"
+            assert get_sign(g) == get_sign(e), f"{msg}: {part_name} zero signs differ: {g} vs {e}"
         elif math.isinf(g) or math.isinf(e):
             assert g == e, f"{msg}: {part_name} parts differ: {g} != {e}"
         else:
-            assert math.isclose(
-                g, e, rel_tol=rtol
-            ), f"{msg}: {part_name} parts differ: {g} != {e}"
+            assert math.isclose(g, e, rel_tol=rtol), f"{msg}: {part_name} parts differ: {g} != {e}"
 
     check_part(got.real, expected.real, "real")
     check_part(got.imag, expected.imag, "imag")
@@ -231,9 +227,9 @@ class TestAcoshBranchCut:
         got = run_cmath_kernel(cmath.acosh, z)
         expected = cmath.acosh(z)
         # Check that imaginary part has correct sign
-        assert math.copysign(1.0, got.imag) == math.copysign(
-            1.0, expected.imag
-        ), f"{desc}: imag sign wrong: got {got.imag}, expected {expected.imag}"
+        assert math.copysign(1.0, got.imag) == math.copysign(1.0, expected.imag), (
+            f"{desc}: imag sign wrong: got {got.imag}, expected {expected.imag}"
+        )
 
 
 class TestExpInfInf:

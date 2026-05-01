@@ -45,21 +45,13 @@ def _generalize_type(ty: types.Type) -> types.Type:
             raise NotImplementedError(f"Unknown type: {ty}")
 
 
-def libdevice_implement_by_pointer(
-    pyfunc, py_api: typing.Signature, c_api: typing.Signature
-):
+def libdevice_implement_by_pointer(pyfunc, py_api: typing.Signature, c_api: typing.Signature):
     def core(lower: MLIRLower, target, args, kwargs):
         trace("lower: %s", pyfunc.__name__)
         args = [lower.load_var(arg) for arg in args]
-        by_ptr_return_types = [
-            ty for ty in c_api.args if isinstance(ty, types.CPointer)
-        ]
-        by_ptr_return_mlir_types = [
-            lower.get_mlir_type(ty.dtype) for ty in by_ptr_return_types
-        ]
-        by_ptr_return_vars = [
-            lower.alloca(mlir_type) for mlir_type in by_ptr_return_mlir_types
-        ]
+        by_ptr_return_types = [ty for ty in c_api.args if isinstance(ty, types.CPointer)]
+        by_ptr_return_mlir_types = [lower.get_mlir_type(ty.dtype) for ty in by_ptr_return_types]
+        by_ptr_return_vars = [lower.alloca(mlir_type) for mlir_type in by_ptr_return_mlir_types]
         args += by_ptr_return_vars
         descriptor = _libdevice_descriptors[pyfunc]
         fn_type: ir.FunctionType = lower.get_mlir_type(descriptor.c_sig)
@@ -69,8 +61,7 @@ def libdevice_implement_by_pointer(
         call = func.call(result=result, callee=callee.name.value, operands_=args)
         result = [] if c_api.return_type is types.void else [call]
         result += [
-            llvm.load(ty, var)
-            for ty, var in zip(by_ptr_return_mlir_types, by_ptr_return_vars)
+            llvm.load(ty, var) for ty, var in zip(by_ptr_return_mlir_types, by_ptr_return_vars)
         ]
         lower.store_var(target, tuple(result))
 
@@ -88,9 +79,7 @@ def libdevice_implement_uniform(pyfunc, api):
         libdevice_name = "__nv_" + pyfunc.__name__
         callee = get_or_insert_function(libdevice_name, fn_type, lower.mlir_gpu_module)
         args = [convert(arg, ty) for arg, ty in zip(args, fn_type.inputs)]
-        call = func.call(
-            result=[fn_type.results[0]], callee=callee.name.value, operands_=args
-        )
+        call = func.call(result=[fn_type.results[0]], callee=callee.name.value, operands_=args)
         call = convert(call, lower.get_mlir_type(target))
         lower.store_var(target, call)
 

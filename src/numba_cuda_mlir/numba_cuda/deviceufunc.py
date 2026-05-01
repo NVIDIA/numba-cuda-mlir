@@ -263,9 +263,7 @@ class UFuncMechanism:
                     for ax in ax_differs:
                         strides[ax] = 0
 
-                    strided = np.lib.stride_tricks.as_strided(
-                        ary, shape=shape, strides=strides
-                    )
+                    strided = np.lib.stride_tricks.as_strided(ary, shape=shape, strides=strides)
 
                     arys[i] = self.force_array_layout(strided)
 
@@ -445,8 +443,7 @@ class DeviceVectorize(_BaseUFuncBuilder):
                 )
             else:
                 msg = (
-                    "Unrecognized options. "
-                    f"cuda vectorize target does not support option: '{opt}'"
+                    f"Unrecognized options. cuda vectorize target does not support option: '{opt}'"
                 )
                 raise KeyError(msg)
         self.py_func = func
@@ -464,9 +461,7 @@ class DeviceVectorize(_BaseUFuncBuilder):
         devfnsig = signature(return_type, *args)
 
         funcname = self.pyfunc.__name__
-        kernelsource = self._get_kernel_source(
-            self._kernel_template, devfnsig, funcname
-        )
+        kernelsource = self._get_kernel_source(self._kernel_template, devfnsig, funcname)
         corefn, return_type = self._compile_core(devfnsig)
         glbl = self._get_globals(corefn)
         sig = signature(types.void, *([a[:] for a in args] + [return_type[:]]))
@@ -555,9 +550,7 @@ class DeviceGUFuncVectorize(_BaseUFuncBuilder):
             )
 
         funcname = self.py_func.__name__
-        src = expand_gufunc_template(
-            self._kernel_template, indims, outdims, funcname, args
-        )
+        src = expand_gufunc_template(self._kernel_template, indims, outdims, funcname, args)
 
         glbls = self._get_globals(sig)
 
@@ -595,18 +588,14 @@ def expand_gufunc_template(template, indims, outdims, funcname, argtypes):
     """Expand gufunc source template"""
     argdims = indims + outdims
     argnames = ["arg{0}".format(i) for i in range(len(argdims))]
-    checkedarg = "min({0})".format(
-        ", ".join(["{0}.shape[0]".format(a) for a in argnames])
-    )
+    checkedarg = "min({0})".format(", ".join(["{0}.shape[0]".format(a) for a in argnames]))
     inputs = [
         _gen_src_for_indexing(aref, adims, atype)
         for aref, adims, atype in zip(argnames, indims, argtypes)
     ]
     outputs = [
         _gen_src_for_indexing(aref, adims, atype)
-        for aref, adims, atype in zip(
-            argnames[len(indims) :], outdims, argtypes[len(indims) :]
-        )
+        for aref, adims, atype in zip(argnames[len(indims) :], outdims, argtypes[len(indims) :])
     ]
     argitems = inputs + outputs
     src = template.format(
@@ -734,9 +723,7 @@ class GeneralizedUFunc:
 
     def __call__(self, *args, **kws):
         callsteps = self._call_steps(self.engine.nin, self.engine.nout, args, kws)
-        indtypes, schedule, outdtypes, kernel = self._schedule(
-            callsteps.inputs, callsteps.outputs
-        )
+        indtypes, schedule, outdtypes, kernel = self._schedule(callsteps.inputs, callsteps.outputs)
         callsteps.adjust_input_types(indtypes)
 
         outputs = callsteps.prepare_outputs(schedule, outdtypes)
@@ -778,9 +765,7 @@ class GeneralizedUFunc:
         Note: Ordering is guaranteed by `kernelmap` being a OrderedDict
         """
         for sig in self.kernelmap.keys():
-            if all(
-                np.can_cast(actual, desired) for actual, desired in zip(sig, idtypes)
-            ):
+            if all(np.can_cast(actual, desired) for actual, desired in zip(sig, idtypes)):
                 return sig
         else:
             raise TypeError("no matching signature")
@@ -812,9 +797,9 @@ class GeneralizedUFunc:
 
         # Creating new dimension
         elif len(ary.shape) < len(newshape):
-            assert (
-                newshape[-len(ary.shape) :] == ary.shape
-            ), "cannot add dim and reshape at the same time"
+            assert newshape[-len(ary.shape) :] == ary.shape, (
+                "cannot add dim and reshape at the same time"
+            )
             return self._broadcast_add_axis(ary, newshape)
 
         # Collapsing dimension
@@ -895,9 +880,7 @@ class GUFuncCallSteps(metaclass=ABCMeta):
             raise TypeError(msg)
 
         if outputs is not None and len(args) > nin:
-            raise ValueError(
-                "cannot specify argument 'out' as both positional and keyword"
-            )
+            raise ValueError("cannot specify argument 'out' as both positional and keyword")
         else:
             # If the user did not pass outputs either in the out kwarg or as
             # positional arguments, then we need to generate an initial list of
@@ -968,9 +951,7 @@ class GUFuncCallSteps(metaclass=ABCMeta):
         device; other outputs are allocated as necessary.
         """
         outputs = []
-        for shape, dtype, output in zip(
-            schedule.output_shapes, outdtypes, self.outputs
-        ):
+        for shape, dtype, output in zip(schedule.output_shapes, outdtypes, self.outputs):
             if output is None or self._copy_result_to_host:
                 output = self.allocate_device_array(shape, dtype)
             outputs.append(output)

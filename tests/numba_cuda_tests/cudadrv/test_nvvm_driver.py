@@ -99,9 +99,9 @@ class TestNvvmDriver(unittest.TestCase):
     def _test_nvvm_support(self, arch):
         compute_xx = "compute_{0}{1}".format(*arch)
         nvvmir = self.get_nvvmir()
-        ptx = nvvm.compile_ir(
-            nvvmir, arch=compute_xx, ftz=1, prec_sqrt=0, prec_div=0
-        ).decode("utf8")
+        ptx = nvvm.compile_ir(nvvmir, arch=compute_xx, ftz=1, prec_sqrt=0, prec_div=0).decode(
+            "utf8"
+        )
         self.assertIn(".target sm_{0}{1}".format(*arch), ptx)
         self.assertIn("simple", ptx)
         self.assertIn("ave", ptx)

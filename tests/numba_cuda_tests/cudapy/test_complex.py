@@ -133,11 +133,7 @@ class BaseComplexTest(NumbaCUDATestCase):
             if isinstance(sig, tuple):
                 # Assume return type is the type of first argument
                 sig = sig[0](*sig)
-            prec = (
-                "single"
-                if sig.args[0] in (types.float32, types.complex64)
-                else "double"
-            )
+            prec = "single" if sig.args[0] in (types.float32, types.complex64) else "double"
             cudafunc = compile_scalar_func(pyfunc, sig.args, sig.return_type)
             ok_values = []
             expected_list = []
@@ -244,9 +240,7 @@ class TestCMath(BaseComplexTest):
     def test_rect(self):
         def do_test(tp, seed_values):
             values = [
-                (z.real, z.imag)
-                for z in seed_values
-                if not math.isinf(z.imag) or z.real == 0
+                (z.real, z.imag) for z in seed_values if not math.isinf(z.imag) or z.real == 0
             ]
             float_type = tp.underlying_float
             self.run_binary(rect_usecase, [tp(float_type, float_type)], values)

@@ -231,9 +231,7 @@ class TestArrayAddressAlignment(NumbaCUDATestCase):
             # The type of error we expect differs between an invalid value
             # that is still an int, and an invalid type.
             if isinstance(alignment, int):
-                self.assertRaisesRegex(
-                    ValueError, r"Alignment must be.*", f[1, 1], array
-                )
+                self.assertRaisesRegex(ValueError, r"Alignment must be.*", f[1, 1], array)
             else:
                 self.assertRaisesRegex(
                     TypingError,

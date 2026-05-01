@@ -89,9 +89,7 @@ class Buffer(IterableType, ArrayCompatible):
             ndim = self.ndim
         if layout is None:
             layout = self.layout
-        return self.__class__(
-            dtype=dtype, ndim=ndim, layout=layout, readonly=not self.mutable
-        )
+        return self.__class__(dtype=dtype, ndim=ndim, layout=layout, readonly=not self.mutable)
 
     @property
     def key(self):

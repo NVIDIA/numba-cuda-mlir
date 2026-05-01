@@ -88,9 +88,7 @@ def cuda_disabled_error_test():
 class TestInit(NumbaCUDATestCase):
     def _test_init_failure(self, target, expected):
         # Run the initialization failure test in a separate subprocess
-        with concurrent.futures.ProcessPoolExecutor(
-            mp_context=mp.get_context("spawn")
-        ) as exe:
+        with concurrent.futures.ProcessPoolExecutor(mp_context=mp.get_context("spawn")) as exe:
             # should complete within 30s
             success, msg = exe.submit(target).result(timeout=30)
 

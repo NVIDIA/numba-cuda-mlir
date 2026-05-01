@@ -26,12 +26,8 @@ def lower_matmul(mlir_lower, target, target_type, args):
     lhs_type = mlir_lower.get_numba_type(lhs.name)
     rhs_type = mlir_lower.get_numba_type(rhs.name)
 
-    assert (
-        lhs_type.ndim == 2
-    ), f"linalg.matmul requires 2D arrays, got {lhs_type.ndim}D for lhs"
-    assert (
-        rhs_type.ndim == 2
-    ), f"linalg.matmul requires 2D arrays, got {rhs_type.ndim}D for rhs"
+    assert lhs_type.ndim == 2, f"linalg.matmul requires 2D arrays, got {lhs_type.ndim}D for lhs"
+    assert rhs_type.ndim == 2, f"linalg.matmul requires 2D arrays, got {rhs_type.ndim}D for rhs"
 
     lhs_dims = []
     rhs_dims = []
@@ -92,9 +88,7 @@ def get_array_dims(mlir_lower, arg, arg_type):
         return [], 0
 
 
-def broadcast_tensor(
-    mlir_lower, input_tensor, input_dims, target_ndim, target_shape, target_type
-):
+def broadcast_tensor(mlir_lower, input_tensor, input_dims, target_ndim, target_shape, target_type):
     """Tensor broadcasting using nested SCF loops"""
     input_ndim = len(input_dims)
 
@@ -131,23 +125,17 @@ def broadcast_tensor(
 
             # Extract value from input tensor
             extracted_value = tensor.extract(tensor=input_tensor, indices=input_indices)
-            converted_value = convert(
-                extracted_value, mlir_lower.get_mlir_type(target_type.dtype)
-            )
+            converted_value = convert(extracted_value, mlir_lower.get_mlir_type(target_type.dtype))
 
             # Insert into output tensor
-            return tensor.insert(
-                scalar=converted_value, dest=tensor_arg, indices=indices_so_far
-            )
+            return tensor.insert(scalar=converted_value, dest=tensor_arg, indices=indices_so_far)
 
         # Create loop for current dimension
         lb = arith.constant(result=ir.IndexType.get(), value=0)
         ub = target_shape[dim_idx]
         step = arith.constant(result=ir.IndexType.get(), value=1)
 
-        loop = scf.ForOp(
-            lower_bound=lb, upper_bound=ub, step=step, iter_args=[tensor_arg]
-        )
+        loop = scf.ForOp(lower_bound=lb, upper_bound=ub, step=step, iter_args=[tensor_arg])
 
         with ir.InsertionPoint(loop.body):
             iv = loop.induction_variable
@@ -285,16 +273,12 @@ def lower_np_binop(mlir_lower, target, target_type, args, linalg_op):
 
         error_memref = mlir_lower._get_or_create_error_global()
         if error_memref is not None:
-            not_broadcastable = arith.xori(
-                is_broadcastable, arith.constant(result=T.i(1), value=1)
-            )
+            not_broadcastable = arith.xori(is_broadcastable, arith.constant(result=T.i(1), value=1))
             with scf.if_ctx_manager(not_broadcastable):
                 set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
                 scf.yield_([])
 
-        broadcast_shape = shape.broadcast(
-            shapes=[rhs_shape, lhs_shape], result=lhs_shape.type
-        )
+        broadcast_shape = shape.broadcast(shapes=[rhs_shape, lhs_shape], result=lhs_shape.type)
 
         broadcast_dims = []
         for i in range(result_ndim):
@@ -362,26 +346,18 @@ def lower_transpose(mlir_lower, target, array):
 def lower_linalg_dot(mlir_lower, target, target_type, args):
     lhs_type = mlir_lower.get_numba_type(args[0].name)
     rhs_type = mlir_lower.get_numba_type(args[1].name)
-    if (lhs_type.ndim == 0 and rhs_type.ndim == 0) or (
-        lhs_type.ndim == 1 and rhs_type.ndim == 1
-    ):
+    if (lhs_type.ndim == 0 and rhs_type.ndim == 0) or (lhs_type.ndim == 1 and rhs_type.ndim == 1):
         lower_linalg_dot_vector(mlir_lower, target, target_type, args)
-    elif (lhs_type.ndim == 0 and rhs_type.ndim == 1) or (
-        lhs_type.ndim == 1 and rhs_type.ndim == 0
-    ):
+    elif (lhs_type.ndim == 0 and rhs_type.ndim == 1) or (lhs_type.ndim == 1 and rhs_type.ndim == 0):
         lower_linalg_scalar_array_dot(mlir_lower, target, target_type, args)
-    elif (lhs_type.ndim == 0 and rhs_type.ndim > 1) or (
-        lhs_type.ndim > 1 and rhs_type.ndim == 0
-    ):
+    elif (lhs_type.ndim == 0 and rhs_type.ndim > 1) or (lhs_type.ndim > 1 and rhs_type.ndim == 0):
         lower_np_binop(mlir_lower, target, target_type, args, linalg.mul)
     elif lhs_type.ndim >= 2 and rhs_type.ndim == 1:
         lower_linalg_nd_1d_dot(mlir_lower, target, target_type, args)
     elif lhs_type.ndim >= 1 and rhs_type.ndim >= 2:
         lower_linalg_nd_md_dot(mlir_lower, target, target_type, args)
     else:
-        raise NotImplementedError(
-            f"Not support np.dot between {lhs_type} and {rhs_type}."
-        )
+        raise NotImplementedError(f"Not support np.dot between {lhs_type} and {rhs_type}.")
 
 
 def lower_linalg_scalar_array_dot(mlir_lower, target, target_type, args):
@@ -419,9 +395,7 @@ def lower_linalg_scalar_array_dot(mlir_lower, target, target_type, args):
 
     # Type convert arguments if needed
     if scalar_type != target_type.dtype:
-        scalar_value = convert(
-            scalar_value, mlir_lower.get_mlir_type(target_type.dtype)
-        )
+        scalar_value = convert(scalar_value, mlir_lower.get_mlir_type(target_type.dtype))
 
     if target_type.dtype != array_tensor.type.element_type:
         array_tensor = linalg.copy(array_tensor, outs=[empty_tensor])
@@ -438,9 +412,9 @@ def lower_linalg_nd_1d_dot(mlir_lower, target, target_type, args):
     rhs_ndim = mlir_lower.get_numba_type(args[1].name).ndim
 
     # Ensure lhs is N-dimensional and rhs is 1D
-    assert (
-        lhs_ndim > 1 and rhs_ndim == 1
-    ), f"linalg_nd_1d expects lhs.ndim > 1 and rhs.ndim == 1, got lhs.ndim={lhs_ndim}, rhs.ndim={rhs_ndim}"
+    assert lhs_ndim > 1 and rhs_ndim == 1, (
+        f"linalg_nd_1d expects lhs.ndim > 1 and rhs.ndim == 1, got lhs.ndim={lhs_ndim}, rhs.ndim={rhs_ndim}"
+    )
 
     # Get dimensions
     lhs_dims = []
@@ -455,9 +429,7 @@ def lower_linalg_nd_1d_dot(mlir_lower, target, target_type, args):
     )
 
     # Verify that the last dimension of lhs matches the dimension of rhs
-    dims_match = arith.cmpi(
-        predicate=arith.CmpIPredicate.eq, lhs=lhs_dims[-1], rhs=rhs_dim
-    )
+    dims_match = arith.cmpi(predicate=arith.CmpIPredicate.eq, lhs=lhs_dims[-1], rhs=rhs_dim)
     error_memref = mlir_lower._get_or_create_error_global()
     if error_memref is not None:
         dims_mismatch = arith.xori(dims_match, arith.constant(result=T.i(1), value=1))
@@ -499,9 +471,7 @@ def lower_linalg_nd_1d_dot(mlir_lower, target, target_type, args):
                 initVals=[init_value],
                 results_=[init_value.type],
             )
-            parallel_block = ir.Block.create_at_start(
-                parallel_op.regions[0], [ir.IndexType.get()]
-            )
+            parallel_block = ir.Block.create_at_start(parallel_op.regions[0], [ir.IndexType.get()])
 
             with ir.InsertionPoint(parallel_block):
                 k = parallel_block.arguments[0]
@@ -570,9 +540,7 @@ def lower_linalg_nd_md_dot(mlir_lower, target, target_type, args):
         rhs_dims.append(dim)
 
     # Verify that the last dimension of lhs matches the second last dimension of rhs
-    dims_match = arith.cmpi(
-        predicate=arith.CmpIPredicate.eq, lhs=lhs_dims[-1], rhs=rhs_dims[-2]
-    )
+    dims_match = arith.cmpi(predicate=arith.CmpIPredicate.eq, lhs=lhs_dims[-1], rhs=rhs_dims[-2])
     error_memref = mlir_lower._get_or_create_error_global()
     if error_memref is not None:
         dims_mismatch = arith.xori(dims_match, arith.constant(result=T.i(1), value=1))
@@ -621,18 +589,14 @@ def lower_linalg_nd_md_dot(mlir_lower, target, target_type, args):
                 initVals=[init_value],
                 results_=[init_value.type],
             )
-            parallel_block = ir.Block.create_at_start(
-                parallel_op.regions[0], [ir.IndexType.get()]
-            )
+            parallel_block = ir.Block.create_at_start(parallel_op.regions[0], [ir.IndexType.get()])
 
             with ir.InsertionPoint(parallel_block):
                 k = parallel_block.arguments[0]
 
                 lhs_indices = indices_so_far[: len(lhs_dims) - 1] + [k]
                 rhs_indices = (
-                    indices_so_far[
-                        len(lhs_dims) - 1 : len(lhs_dims) - 1 + len(rhs_dims) - 2
-                    ]
+                    indices_so_far[len(lhs_dims) - 1 : len(lhs_dims) - 1 + len(rhs_dims) - 2]
                     + [k]
                     + [indices_so_far[-1]]
                 )
@@ -699,9 +663,7 @@ def lower_linalg_dot_vector(mlir_lower, target, target_type, args):
         dims_match = arith.cmpi(predicate=arith.CmpIPredicate.eq, lhs=n, rhs=rhs_dim)
         error_memref = mlir_lower._get_or_create_error_global()
         if error_memref is not None:
-            dims_mismatch = arith.xori(
-                dims_match, arith.constant(result=T.i(1), value=1)
-            )
+            dims_mismatch = arith.xori(dims_match, arith.constant(result=T.i(1), value=1))
             with scf.if_ctx_manager(dims_mismatch):
                 set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
                 scf.yield_([])
@@ -716,9 +678,7 @@ def lower_linalg_dot_vector(mlir_lower, target, target_type, args):
         result_tensor = linalg.fill(zero, outs=[empty])
 
         # TODO: use linalg.dot instead of scf.ForOp. Currently, this exposes a race condition.
-        loop = scf.ForOp(
-            lower_bound=c0, upper_bound=n, step=c1, iter_args=[result_tensor]
-        )
+        loop = scf.ForOp(lower_bound=c0, upper_bound=n, step=c1, iter_args=[result_tensor])
 
         with ir.InsertionPoint(loop.body):
             i = loop.induction_variable
@@ -731,9 +691,7 @@ def lower_linalg_dot_vector(mlir_lower, target, target_type, args):
             current_value = tensor.extract(tensor=current_result, indices=[c0, c0])
             new_value = add(current_value, product)
 
-            updated_result = tensor.insert(
-                scalar=new_value, dest=current_result, indices=[c0, c0]
-            )
+            updated_result = tensor.insert(scalar=new_value, dest=current_result, indices=[c0, c0])
             scf.yield_([updated_result])
 
         result_tensor = loop.results[0]

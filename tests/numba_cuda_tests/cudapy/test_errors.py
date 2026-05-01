@@ -23,7 +23,7 @@ class TestJitErrors(NumbaCUDATestCase):
         with self.assertRaises(ValueError) as raises:
             kernfunc[(1, 2, 3, 4), (5, 6)]
         self.assertIn(
-            "griddim must be a sequence of 1, 2 or 3 integers, " "got [1, 2, 3, 4]",
+            "griddim must be a sequence of 1, 2 or 3 integers, got [1, 2, 3, 4]",
             str(raises.exception),
         )
 
@@ -36,7 +36,7 @@ class TestJitErrors(NumbaCUDATestCase):
                 (3, 4, 5, 6),
             ]
         self.assertIn(
-            "blockdim must be a sequence of 1, 2 or 3 integers, " "got [3, 4, 5, 6]",
+            "blockdim must be a sequence of 1, 2 or 3 integers, got [3, 4, 5, 6]",
             str(raises.exception),
         )
 

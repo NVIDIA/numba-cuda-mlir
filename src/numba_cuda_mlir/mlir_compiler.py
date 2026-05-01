@@ -100,9 +100,7 @@ class MLIRTypeInference(FunctionPass):
             Reject function object return types.
             """
 
-            if isinstance(return_type, types.Function) or isinstance(
-                return_type, types.Phantom
-            ):
+            if isinstance(return_type, types.Function) or isinstance(return_type, types.Phantom):
                 if self._raise_errors:
                     msg = "Can't return function object ({}) in nopython mode"
                     raise errors.NumbaTypeError(msg.format(return_type))
@@ -175,9 +173,7 @@ class MLIRBackend(LoweringPass):
         )
 
         target_options = metadata["targetoptions"]
-        dump = target_options.get("dump_numba_ir", False) or target_options.get(
-            "dump", False
-        )
+        dump = target_options.get("dump_numba_ir", False) or target_options.get("dump", False)
 
         if dump:
             print(code)
@@ -286,9 +282,7 @@ def _get_compiler_class(targetoptions: Dict[str, Any]):
                 raise RuntimeError("MLIR compiler does not support call_conv")
             if abi_info is not None:
                 raise RuntimeError("MLIRCompiler does not support abi_info")
-            super().__init__(
-                typingctx, targetctx, library, args, return_type, flags, locals
-            )
+            super().__init__(typingctx, targetctx, library, args, return_type, flags, locals)
             # Attach options early so all passes can see them via state.metadata
             self.state.metadata["targetoptions"] = targetoptions
 
@@ -431,9 +425,7 @@ def mlir_compiler_entry(
             if override_argtypes is not None:
                 vararg_types = list(override_argtypes[i:])
             else:
-                vararg_types = [
-                    typeof(a, Purpose.argument) for a in func_args_extended[i:]
-                ]
+                vararg_types = [typeof(a, Purpose.argument) for a in func_args_extended[i:]]
             argtypes.append(types.StarArgTuple.from_types(vararg_types))
             break
 

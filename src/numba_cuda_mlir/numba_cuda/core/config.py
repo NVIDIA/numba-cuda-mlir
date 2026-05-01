@@ -154,9 +154,7 @@ class _EnvReloader:
 
         # clobber file based config with any locally defined env vars
         new_environ.update(
-            (name, value)
-            for name, value in os.environ.items()
-            if name.startswith("NUMBA_")
+            (name, value) for name, value in os.environ.items() if name.startswith("NUMBA_")
         )
         # We update the config variables if at least one NUMBA environment
         # variable was modified.  This lets the user modify values
@@ -219,9 +217,7 @@ class _EnvReloader:
 
         # disable performance warnings, will switch of the generation of
         # warnings of the class NumbaPerformanceWarning
-        DISABLE_PERFORMANCE_WARNINGS = _readenv(
-            "NUMBA_DISABLE_PERFORMANCE_WARNINGS", int, 0
-        )
+        DISABLE_PERFORMANCE_WARNINGS = _readenv("NUMBA_DISABLE_PERFORMANCE_WARNINGS", int, 0)
 
         # Flag to enable full exception reporting
         FULL_TRACEBACKS = _readenv("NUMBA_FULL_TRACEBACKS", int, DEVELOPER_MODE)
@@ -249,9 +245,7 @@ class _EnvReloader:
 
         # Whether to warn about kernel launches where the grid size will
         # under utilize the GPU due to low occupancy. On by default.
-        CUDA_LOW_OCCUPANCY_WARNINGS = _readenv(
-            "NUMBA_CUDA_LOW_OCCUPANCY_WARNINGS", int, 1
-        )
+        CUDA_LOW_OCCUPANCY_WARNINGS = _readenv("NUMBA_CUDA_LOW_OCCUPANCY_WARNINGS", int, 1)
 
         # Whether to use the official CUDA Python API Bindings
         CUDA_USE_NVIDIA_BINDING = _readenv("NUMBA_CUDA_USE_NVIDIA_BINDING", int, 0)
@@ -427,9 +421,7 @@ class _EnvReloader:
         # Whether to warn about kernel launches where a host array
         # is used as a parameter, forcing a copy to and from the device.
         # On by default.
-        CUDA_WARN_ON_IMPLICIT_COPY = _readenv(
-            "NUMBA_CUDA_WARN_ON_IMPLICIT_COPY", int, 1
-        )
+        CUDA_WARN_ON_IMPLICIT_COPY = _readenv("NUMBA_CUDA_WARN_ON_IMPLICIT_COPY", int, 1)
 
         # Force CUDA compute capability to a specific version
         FORCE_CUDA_CC = _readenv("NUMBA_FORCE_CUDA_CC", _parse_cc, None)
@@ -457,9 +449,7 @@ class _EnvReloader:
         CUDA_DEALLOCS_COUNT = _readenv("NUMBA_CUDA_MAX_PENDING_DEALLOCS_COUNT", int, 10)
 
         # Maximum ratio of pending CUDA deallocations to capacity (default: 0.2)
-        CUDA_DEALLOCS_RATIO = _readenv(
-            "NUMBA_CUDA_MAX_PENDING_DEALLOCS_RATIO", float, 0.2
-        )
+        CUDA_DEALLOCS_RATIO = _readenv("NUMBA_CUDA_MAX_PENDING_DEALLOCS_RATIO", float, 0.2)
 
         CUDA_ARRAY_INTERFACE_SYNC = _readenv("NUMBA_CUDA_ARRAY_INTERFACE_SYNC", int, 1)
 
@@ -474,9 +464,7 @@ class _EnvReloader:
         CUDA_VERBOSE_JIT_LOG = _readenv("NUMBA_CUDA_VERBOSE_JIT_LOG", int, 1)
 
         # Whether the default stream is the per-thread default stream
-        CUDA_PER_THREAD_DEFAULT_STREAM = _readenv(
-            "NUMBA_CUDA_PER_THREAD_DEFAULT_STREAM", int, 0
-        )
+        CUDA_PER_THREAD_DEFAULT_STREAM = _readenv("NUMBA_CUDA_PER_THREAD_DEFAULT_STREAM", int, 0)
 
         # Location of the CUDA include files
         if IS_WIN32:
@@ -486,12 +474,8 @@ class _EnvReloader:
             else:
                 default_cuda_include_path = "cuda_include_not_found"
         else:
-            default_cuda_include_path = os.path.join(
-                os.sep, "usr", "local", "cuda", "include"
-            )
-        CUDA_INCLUDE_PATH = _readenv(
-            "NUMBA_CUDA_INCLUDE_PATH", str, default_cuda_include_path
-        )
+            default_cuda_include_path = os.path.join(os.sep, "usr", "local", "cuda", "include")
+        CUDA_INCLUDE_PATH = _readenv("NUMBA_CUDA_INCLUDE_PATH", str, default_cuda_include_path)
 
         # Threading settings
 
@@ -513,9 +497,7 @@ class _EnvReloader:
         NUMBA_DEFAULT_NUM_THREADS = num_threads_default()
 
         # Numba thread pool size (defaults to number of CPUs on the system).
-        _NUMBA_NUM_THREADS = _readenv(
-            "NUMBA_NUM_THREADS", int, NUMBA_DEFAULT_NUM_THREADS
-        )
+        _NUMBA_NUM_THREADS = _readenv("NUMBA_NUM_THREADS", int, NUMBA_DEFAULT_NUM_THREADS)
         if (
             "NUMBA_NUM_THREADS" in globals()
             and globals()["NUMBA_NUM_THREADS"] != _NUMBA_NUM_THREADS
@@ -527,8 +509,7 @@ class _EnvReloader:
                     "Cannot set NUMBA_NUM_THREADS to a "
                     "different value once the threads have been "
                     "launched (currently have %s, "
-                    "trying to set %s)"
-                    % (_NUMBA_NUM_THREADS, globals()["NUMBA_NUM_THREADS"])
+                    "trying to set %s)" % (_NUMBA_NUM_THREADS, globals()["NUMBA_NUM_THREADS"])
                 )
 
         NUMBA_NUM_THREADS = _NUMBA_NUM_THREADS
@@ -543,9 +524,7 @@ class _EnvReloader:
         RUNNING_UNDER_PROFILER = "VS_PROFILER" in os.environ
 
         # Enables jit events in LLVM to support profiling of dynamic code
-        ENABLE_PROFILING = _readenv(
-            "NUMBA_ENABLE_PROFILING", int, int(RUNNING_UNDER_PROFILER)
-        )
+        ENABLE_PROFILING = _readenv("NUMBA_ENABLE_PROFILING", int, int(RUNNING_UNDER_PROFILER))
 
         # Debug Info
 
@@ -578,9 +557,7 @@ class _EnvReloader:
         )
 
         # llvmlite memory manager
-        USE_LLVMLITE_MEMORY_MANAGER = _readenv(
-            "NUMBA_USE_LLVMLITE_MEMORY_MANAGER", int, None
-        )
+        USE_LLVMLITE_MEMORY_MANAGER = _readenv("NUMBA_USE_LLVMLITE_MEMORY_MANAGER", int, None)
 
         # Timing support.
 

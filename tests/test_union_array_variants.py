@@ -142,12 +142,8 @@ def test_union_multiple_array_views():
     result_host = result.copy_to_host()
 
     # Check uint32 views
-    assert (
-        result_host[0] == 0x33334444
-    ), f"Expected 0x33334444, got 0x{result_host[0]:08x}"
-    assert (
-        result_host[1] == 0x11112222
-    ), f"Expected 0x11112222, got 0x{result_host[1]:08x}"
+    assert result_host[0] == 0x33334444, f"Expected 0x33334444, got 0x{result_host[0]:08x}"
+    assert result_host[1] == 0x11112222, f"Expected 0x11112222, got 0x{result_host[1]:08x}"
 
     # Check uint16 views
     assert result_host[2] == 0x4444, f"Expected 0x4444, got 0x{result_host[2]:04x}"
@@ -200,12 +196,8 @@ def test_smem_descriptor_like_union():
     result_host = result.copy_to_host()
 
     # Verify reg32 access
-    assert (
-        result_host[0] == 0x87654321
-    ), f"Expected 0x87654321, got 0x{result_host[0]:08x}"
-    assert (
-        result_host[1] == 0x76543210
-    ), f"Expected 0x76543210, got 0x{result_host[1]:08x}"
+    assert result_host[0] == 0x87654321, f"Expected 0x87654321, got 0x{result_host[0]:08x}"
+    assert result_host[1] == 0x76543210, f"Expected 0x76543210, got 0x{result_host[1]:08x}"
 
     # Verify reg16 access
     assert result_host[2] == 0x4321, f"Expected 0x4321, got 0x{result_host[2]:04x}"
@@ -215,9 +207,9 @@ def test_smem_descriptor_like_union():
     expected_start = 0x4321 & 0x3FFF  # 14 bits
     expected_layout = (0x76543210 >> 61) & 0x7  # Top 3 bits of upper 32
 
-    assert (
-        result_host[4] == expected_start
-    ), f"Expected start=0x{expected_start:04x}, got 0x{result_host[4]:04x}"
+    assert result_host[4] == expected_start, (
+        f"Expected start=0x{expected_start:04x}, got 0x{result_host[4]:04x}"
+    )
 
 
 def test_union_array_variant_host_construction():

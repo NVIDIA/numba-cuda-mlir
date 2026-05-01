@@ -126,9 +126,7 @@ def layernorm_forward(out, mean, rstd, inp, weight, bias, B, T, C):
     block_size = 512
     N = B * T
     grid_size = ceil_div(N * 32, block_size)
-    layernorm_forward_kernel3[grid_size, block_size](
-        out, mean, rstd, inp, weight, bias, N, C
-    )
+    layernorm_forward_kernel3[grid_size, block_size](out, mean, rstd, inp, weight, bias, N, C)
 
 
 def matmul_forward_cublas(out, inp, weight, bias, B, T, C, OC):
@@ -198,9 +196,7 @@ def matmul_forward_cublaslt(out, inp, weight, bias, B, T, C, OC):
     opTranspose = cublas.Operation.T
     epilogueBias = cublaslt.Epilogue.BIAS
     cuda_r_32f = nvmath.CudaDataType.CUDA_R_32F
-    operation_desc = cublaslt.matmul_desc_create(
-        CublasState.cublas_compute_type, cuda_r_32f
-    )
+    operation_desc = cublaslt.matmul_desc_create(CublasState.cublas_compute_type, cuda_r_32f)
     cublaslt_setattr(operation_desc, "TRANSA", opTranspose)
     cublaslt_setattr(operation_desc, "TRANSB", opNoTranspose)
     cublaslt_setattr(operation_desc, "EPILOGUE", epilogueBias)
@@ -415,14 +411,10 @@ def attention_forward(out, vaccum, qkvr, preatt, att, inp, B, T, C, NH):
         B * NH,
     )
 
-    scale = numpy.array(1.0, dtype=numpy.float32) / numpy.sqrt(
-        numpy.array(HS, dtype=numpy.int32)
-    )
+    scale = numpy.array(1.0, dtype=numpy.float32) / numpy.sqrt(numpy.array(HS, dtype=numpy.int32))
     grid_size = ceil_div(B * NH * T * 32, softmax_block_size)
     flt_max = fp32(numpy.finfo(numpy.float32).max)  # FLT_MAX
-    softmax_forward_kernel5[grid_size, softmax_block_size](
-        att, scale, preatt, flt_max, B * NH, T
-    )
+    softmax_forward_kernel5[grid_size, softmax_block_size](att, scale, preatt, flt_max, B * NH, T)
     # new approach: first cuBLAS another batched matmul
     # y = att @ v # (B, nh, T, T) @ (B, nh, T, hs) -> (B, nh, T, hs)
     cublas.sgemm_strided_batched(
@@ -489,9 +481,7 @@ def encoder_forward(out, inpv, wte, wpe, B, T, C, V):
     inp_md = inpv.reshape(B, T)
     threads_per_block = 256
     blocks_per_grid = (out.size + threads_per_block - 1) // threads_per_block
-    encoder_forward_kernel[blocks_per_grid, threads_per_block](
-        out_md, wte_md, wpe_md, inp_md, C, T
-    )
+    encoder_forward_kernel[blocks_per_grid, threads_per_block](out_md, wte_md, wpe_md, inp_md, C, T)
 
 
 @cuda.jit("void(float32[:], float32[:], int32)", fastmath=True)
@@ -502,11 +492,7 @@ def gelu_forward_kernel(out, inp, N):
     xi = inp[idx]
     cube = fp32(0.044715) * xi * xi * xi
     scaling_factor = math.sqrt(fp32(2.0) / fp32(math.pi))
-    out[idx] = (
-        fp32(0.5)
-        * xi
-        * (fp32(1.0) + cuda.libdevice.tanhf(scaling_factor * (xi + cube)))
-    )
+    out[idx] = fp32(0.5) * xi * (fp32(1.0) + cuda.libdevice.tanhf(scaling_factor * (xi + cube)))
 
 
 def gelu_forward(out, inp, N):
@@ -553,9 +539,7 @@ def prepare_softmax_blockwide_nofloat4(idx, inp, V, P):
 
     # each thread now loads the maxval across previous warps
     # if the thread is "out of range" of data, use -FLT_MAX as the maxval
-    warp_maxval = (
-        shared_maxval[lane_id] if (lane_id < num_warps) else fp32(-3.402823e38)
-    )  # FLT_MAX
+    warp_maxval = shared_maxval[lane_id] if (lane_id < num_warps) else fp32(-3.402823e38)  # FLT_MAX
     block_maxval = warp_max(warp_maxval)
     # each thread uses maxval to scale sumval to avoid numerical instability / overflow
     thread_sumval *= math.exp(thread_maxval - block_maxval)
@@ -627,9 +611,7 @@ def softmax_forward_kernel7(out, inp, N, C):
     # making it separate is necessary to convince the compiler to do the right thing
     UNROLL_FACTOR = 8
     warps_per_block = meta_group_size
-    shared_size = (
-        2 * 512 // 32 * 4
-    )  # extern __shared__ 2 * block_size / 32 * sizeof(float)
+    shared_size = 2 * 512 // 32 * 4  # extern __shared__ 2 * block_size / 32 * sizeof(float)
     shared = cuda.shared.array(shape=shared_size, dtype=cuda.float32)
     idx = cuda.blockIdx.x
     tid = cuda.threadIdx.x
@@ -651,9 +633,7 @@ def softmax_forward_kernel7(out, inp, N, C):
     maxval = -math.inf
     for i in range(tid, C, cuda.blockDim.x * UNROLL_FACTOR):
         for u in range(UNROLL_FACTOR):
-            maxval = cuda.libdevice.fmaxf(
-                maxval, x[min(C - 1, i + u * cuda.blockDim.x)]
-            )
+            maxval = cuda.libdevice.fmaxf(maxval, x[min(C - 1, i + u * cuda.blockDim.x)])
 
     maxval = warp_max(maxval)
     # now within-warp reductions for maxval
@@ -684,9 +664,7 @@ def softmax_forward_kernel7(out, inp, N, C):
         for u in range(UNROLL_FACTOR):
             if (i + u * cuda.blockDim.x) < C:
                 output = math.exp(reg_array[u] - offset)
-                y[min(C - 1, i + u * cuda.blockDim.x)] = (
-                    output  # compiler likes redundant min()?
-                )
+                y[min(C - 1, i + u * cuda.blockDim.x)] = output  # compiler likes redundant min()?
                 sumval += output  # combined into the same loop unlike kernel3
 
     # okay now we calculated exp(x - max(x))
@@ -810,9 +788,7 @@ def matmul_backward(dinp, dweight, dbias, dout, inp, weight, B, T, C, OC):
     fastmath=True,
     link=cx_warp_files,
 )
-def layernorm_backward_kernel(
-    dinp, dweight, dbias, dout, inp, weight, mean, rstd, B, T, C
-):
+def layernorm_backward_kernel(dinp, dweight, dbias, dout, inp, weight, mean, rstd, B, T, C):
     warp_size = 32
     meta_group_size = cuda.blockDim.x // warp_size
     meta_group_rank = cuda.threadIdx.x // warp_size
@@ -966,9 +942,7 @@ def permute_kernel_backward(dinp, dq, dk, dv, B, N, NH, d):
         n = rest // d
         d_ = rest % d
 
-        inp_idx = (
-            (b * N * 3 * NH * d) + (n * 3 * NH * d) + (0 * NH * d) + (nh_ * d) + d_
-        )
+        inp_idx = (b * N * 3 * NH * d) + (n * 3 * NH * d) + (0 * NH * d) + (nh_ * d) + d_
         dinp[inp_idx] = dq[idx]
         dinp[inp_idx + NH * d] = dk[idx]
         dinp[inp_idx + 2 * (NH * d)] = dv[idx]
@@ -976,9 +950,7 @@ def permute_kernel_backward(dinp, dq, dk, dv, B, N, NH, d):
 
 # the sequence of transformations in this compound op is:
 # inp (B,T,3C) -> qkvr (B,T,3C) -> preatt (B,NH,T,T) -> att (B,NH,T,T) -> vaccum (B,T,C) -> out (B,T,C)
-def attention_backward(
-    dinp, dqkvr, dpreatt, datt, dvaccum, dout, inp, qkvr, att, B, T, C, NH
-):
+def attention_backward(dinp, dqkvr, dpreatt, datt, dvaccum, dout, inp, qkvr, att, B, T, C, NH):
     block_size = 256
     HS = C // NH  # head size
     one = numpy.array(1.0, dtype=numpy.float32)
@@ -1036,9 +1008,7 @@ def attention_backward(
         B * NH,
     )
     # backward into preatt
-    scale = numpy.array(1.0, dtype=numpy.float32) / numpy.sqrt(
-        numpy.array(HS, dtype=numpy.int32)
-    )
+    scale = numpy.array(1.0, dtype=numpy.float32) / numpy.sqrt(numpy.array(HS, dtype=numpy.int32))
     softmax_autoregressive_backward_kernel[(T // 4, B * NH), 256](
         dpreatt, datt, att, B, T, C, scale
     )
@@ -1163,8 +1133,7 @@ def adamw_kernel2(
     m /= fp32(beta1_correction)  # m_hat
     v /= fp32(beta2_correction)  # v_hat
     params_memory[i] -= learning_rate * (
-        fp32(m) / fp32(math.sqrt(fp32(v)) + fp32(eps))
-        + fp32(weight_decay) * params_memory[i]
+        fp32(m) / fp32(math.sqrt(fp32(v)) + fp32(eps)) + fp32(weight_decay) * params_memory[i]
     )
 
 
@@ -1224,7 +1193,7 @@ class DataLoader:
 
         # read the B*T+1 integers from the file into batch
         self.tokens_file.seek(self.current_position, os.SEEK_SET)
-        batch_fmt = f"{B*T+1}i"
+        batch_fmt = f"{B * T + 1}i"
         batch_len = struct.calcsize(batch_fmt)
         batch_unpack = struct.Struct(batch_fmt).unpack_from
         batch = batch_unpack(self.tokens_file.read(batch_len))
@@ -1503,12 +1472,9 @@ class GPT2:
             self.num_parameters = num_parameters
 
             # create memory for model parameters on the device
-            self.params_memory = malloc_and_point(
-                self.params, self.params_sizes, num_parameters
-            )
+            self.params_memory = malloc_and_point(self.params, self.params_sizes, num_parameters)
             size_in_mb = int(
-                round(num_parameters * cupy.dtype(cupy.float32).itemsize)
-                / (1024 * 1024)
+                round(num_parameters * cupy.dtype(cupy.float32).itemsize) / (1024 * 1024)
             )
             print(f"allocated {size_in_mb} MiB for model parameters")
 
@@ -1516,9 +1482,7 @@ class GPT2:
             params_fmt = f"{num_parameters}f"
             params_len = struct.calcsize(params_fmt)
             params_unpack = struct.Struct(params_fmt).unpack_from
-            params_memory_cpu = numpy.array(
-                params_unpack(f.read(params_len)), dtype=numpy.float32
-            )
+            params_memory_cpu = numpy.array(params_unpack(f.read(params_len)), dtype=numpy.float32)
             cupy.cuda.runtime.memcpy(
                 self.params_memory.data.ptr,
                 params_memory_cpu.ctypes.data,
@@ -1542,13 +1506,9 @@ class GPT2:
                 num_activations += self.act_sizes[i]
             print("num_activations", num_activations)
             self.num_activations = num_activations
-            self.acts_memory = malloc_and_point(
-                self.acts, self.act_sizes, num_activations
-            )
+            self.acts_memory = malloc_and_point(self.acts, self.act_sizes, num_activations)
             acts_memory = int(
-                round(
-                    num_activations * cupy.dtype(cupy.float32).itemsize / (1024 * 1024)
-                )
+                round(num_activations * cupy.dtype(cupy.float32).itemsize / (1024 * 1024))
             )
             print(f"allocated {acts_memory} MiB for activations")
             self.cpu_losses = cupyx.empty_pinned(B * T, dtype=cupy.float32)
@@ -1598,7 +1558,6 @@ class GPT2:
             )
 
         for l in range(L):
-
             residual = acts.encoded if l == 0 else acts.residual3[(l - 1) * B * T * C :]
 
             l_ln1w = params.ln1w[l * C :]
@@ -1635,14 +1594,10 @@ class GPT2:
             l_preatt = acts.preatt
             l_v_accum = acts.v_accum
 
-            layernorm_forward(
-                l_ln1, l_ln1_mean, l_ln1_rstd, residual, l_ln1w, l_ln1b, B, T, C
-            )
+            layernorm_forward(l_ln1, l_ln1_mean, l_ln1_rstd, residual, l_ln1w, l_ln1b, B, T, C)
             if cupy.isnan(l_ln1).any():
                 print(f"NaN detected in layer {l} after ln1")
-                print(
-                    f"  residual stats: min={cupy.min(residual)}, max={cupy.max(residual)}"
-                )
+                print(f"  residual stats: min={cupy.min(residual)}, max={cupy.max(residual)}")
                 print(f"  ln1w stats: min={cupy.min(l_ln1w)}, max={cupy.max(l_ln1w)}")
                 print(f"  ln1b stats: min={cupy.min(l_ln1b)}, max={cupy.max(l_ln1b)}")
 
@@ -1652,20 +1607,14 @@ class GPT2:
                 print(f"  l_ln1 stats: min={cupy.min(l_ln1)}, max={cupy.max(l_ln1)}")
                 print(f"  l_qkvw stats: min={cupy.min(l_qkvw)}, max={cupy.max(l_qkvw)}")
 
-            attention_forward(
-                l_atty, l_v_accum, l_qkvr, l_preatt, l_att, l_qkv, B, T, C, NH
-            )
+            attention_forward(l_atty, l_v_accum, l_qkvr, l_preatt, l_att, l_qkv, B, T, C, NH)
             if cupy.isnan(l_atty).any():
                 print(f"NaN detected in layer {l} after attention")
                 print(f"  l_qkv stats: min={cupy.min(l_qkv)}, max={cupy.max(l_qkv)}")
                 print(f"  l_att stats: min={cupy.min(l_att)}, max={cupy.max(l_att)}")
-                print(
-                    f"  l_preatt stats: min={cupy.min(l_preatt)}, max={cupy.max(l_preatt)}"
-                )
+                print(f"  l_preatt stats: min={cupy.min(l_preatt)}, max={cupy.max(l_preatt)}")
 
-            matmul_forward_cublaslt(
-                l_attproj, l_atty, l_attprojw, l_attprojb, B, T, C, C
-            )
+            matmul_forward_cublaslt(l_attproj, l_atty, l_attprojw, l_attprojb, B, T, C, C)
             if cupy.isnan(l_attproj).any():
                 print(f"NaN detected in layer {l} after attproj matmul")
 
@@ -1673,9 +1622,7 @@ class GPT2:
             if cupy.isnan(l_residual2).any():
                 print(f"NaN detected in layer {l} after residual2")
 
-            layernorm_forward(
-                l_ln2, l_ln2_mean, l_ln2_rstd, l_residual2, l_ln2w, l_ln2b, B, T, C
-            )
+            layernorm_forward(l_ln2, l_ln2_mean, l_ln2_rstd, l_residual2, l_ln2w, l_ln2b, B, T, C)
             if cupy.isnan(l_ln2).any():
                 print(f"NaN detected in layer {l} after ln2")
 
@@ -1687,9 +1634,7 @@ class GPT2:
             if cupy.isnan(l_fch_gelu).any():
                 print(f"NaN detected in layer {l} after gelu")
 
-            matmul_forward_cublaslt(
-                l_fcproj, l_fch_gelu, l_fcprojw, l_fcprojb, B, T, 4 * C, C
-            )
+            matmul_forward_cublaslt(l_fcproj, l_fch_gelu, l_fcprojw, l_fcprojb, B, T, 4 * C, C)
             if cupy.isnan(l_fcproj).any():
                 print(f"NaN detected in layer {l} after fcproj matmul")
 
@@ -1697,9 +1642,7 @@ class GPT2:
             if cupy.isnan(l_residual3).any():
                 print(f"NaN detected in layer {l} after residual3")
 
-        residual = acts.residual3[
-            (L - 1) * B * T * C :
-        ]  # last residual is in residual3
+        residual = acts.residual3[(L - 1) * B * T * C :]  # last residual is in residual3
         layernorm_forward(
             acts.lnf,
             acts.lnf_mean,
@@ -1713,33 +1656,21 @@ class GPT2:
         )
         if cupy.isnan(acts.lnf).any():
             print("NaN detected in final layernorm")
-            print(
-                f"  residual stats: min={cupy.min(residual)}, max={cupy.max(residual)}"
-            )
-            print(
-                f"  lnfw stats: min={cupy.min(params.lnfw)}, max={cupy.max(params.lnfw)}"
-            )
-            print(
-                f"  lnfb stats: min={cupy.min(params.lnfb)}, max={cupy.max(params.lnfb)}"
-            )
+            print(f"  residual stats: min={cupy.min(residual)}, max={cupy.max(residual)}")
+            print(f"  lnfw stats: min={cupy.min(params.lnfw)}, max={cupy.max(params.lnfw)}")
+            print(f"  lnfb stats: min={cupy.min(params.lnfb)}, max={cupy.max(params.lnfb)}")
 
         matmul_forward_cublas(acts.logits, acts.lnf, params.wte, None, B, T, C, V)
         if cupy.isnan(acts.logits).any():
             print("NaN detected in logits after matmul")
             print(f"  lnf stats: min={cupy.min(acts.lnf)}, max={cupy.max(acts.lnf)}")
-            print(
-                f"  wte stats: min={cupy.min(params.wte)}, max={cupy.max(params.wte)}"
-            )
+            print(f"  wte stats: min={cupy.min(params.wte)}, max={cupy.max(params.wte)}")
 
         if targets is not None:
-            fused_classifier3(
-                acts.logits, acts.losses, self.targets.ravel(), B, T, V, V
-            )
+            fused_classifier3(acts.logits, acts.losses, self.targets.ravel(), B, T, V, V)
             if cupy.isnan(acts.losses).any():
                 print("NaN detected in losses after fused_classifier")
-                print(
-                    f"  logits stats: min={cupy.min(acts.logits)}, max={cupy.max(acts.logits)}"
-                )
+                print(f"  logits stats: min={cupy.min(acts.logits)}, max={cupy.max(acts.logits)}")
             self.cpu_losses = cupy.asnumpy(acts.losses[: B * T])
             mean_loss = numpy.mean(self.cpu_losses)
             self.mean_loss = mean_loss
@@ -1756,12 +1687,9 @@ class GPT2:
 
     def _initialize_grads(self):
         if self.grads_memory is None:
-            self.grads_memory = malloc_and_point(
-                self.grads, self.params_sizes, self.num_parameters
-            )
+            self.grads_memory = malloc_and_point(self.grads, self.params_sizes, self.num_parameters)
             size_in_mb = int(
-                round(self.num_parameters * cupy.dtype(cupy.float32).itemsize)
-                / (1024 * 1024)
+                round(self.num_parameters * cupy.dtype(cupy.float32).itemsize) / (1024 * 1024)
             )
             print(f"allocated {size_in_mb} MiB for parameter gradients")
             # we're going to be clever for the activations backward pass. we don't need to exactly
@@ -1791,8 +1719,7 @@ class GPT2:
             )
 
             size_in_mb = int(
-                round(self.num_grad_acts * cupy.dtype(cupy.float32).itemsize)
-                / (1024 * 1024)
+                round(self.num_grad_acts * cupy.dtype(cupy.float32).itemsize) / (1024 * 1024)
             )
             print(f"allocated {size_in_mb} MiB for activation gradients")
             # init gradients of parameters and activations to zero
@@ -1838,9 +1765,7 @@ class GPT2:
         )
         if cupy.isnan(grads_acts.lnf).any():
             print("NaN detected in backward after matmul_backward (lnf)")
-        residual = acts.residual3[
-            (L - 1) * B * T * C :
-        ]  # last residual is in residual3
+        residual = acts.residual3[(L - 1) * B * T * C :]  # last residual is in residual3
         dresidual = (
             grads_acts.residual3
         )  # the main buffer holding the gradient in the backward pass
@@ -1922,15 +1847,11 @@ class GPT2:
                 C,
             )
             if cupy.isnan(dl_fch_gelu).any():
-                print(
-                    f"NaN detected in backward layer {l} after fcproj matmul_backward"
-                )
+                print(f"NaN detected in backward layer {l} after fcproj matmul_backward")
             gelu_backward(dl_fch, l_fch, dl_fch_gelu, B * T * 4 * C)
             if cupy.isnan(dl_fch).any():
                 print(f"NaN detected in backward layer {l} after gelu_backward")
-            matmul_backward(
-                dl_ln2, dl_fcw, dl_fcb, dl_fch, l_ln2, l_fcw, B, T, C, 4 * C
-            )
+            matmul_backward(dl_ln2, dl_fcw, dl_fcb, dl_fch, l_ln2, l_fcw, B, T, C, 4 * C)
             if cupy.isnan(dl_ln2).any():
                 print(f"NaN detected in backward layer {l} after fch matmul_backward")
             # layernorm backward does += to the dresidual, so it correctly accumulates grad from the MLP block above
@@ -1948,9 +1869,7 @@ class GPT2:
                 C,
             )
             if cupy.isnan(dresidual).any():
-                print(
-                    f"NaN detected in backward layer {l} after ln2 layernorm_backward"
-                )
+                print(f"NaN detected in backward layer {l} after ln2 layernorm_backward")
             matmul_backward(
                 dl_atty,
                 dl_attprojw,
@@ -1964,9 +1883,7 @@ class GPT2:
                 C,
             )
             if cupy.isnan(dl_atty).any():
-                print(
-                    f"NaN detected in backward layer {l} after attproj matmul_backward"
-                )
+                print(f"NaN detected in backward layer {l} after attproj matmul_backward")
             attention_backward(
                 dl_qkv,
                 dl_qkvr,
@@ -1984,9 +1901,7 @@ class GPT2:
             )
             if cupy.isnan(dl_qkv).any():
                 print(f"NaN detected in backward layer {l} after attention_backward")
-            matmul_backward(
-                dl_ln1, dl_qkvw, dl_qkvb, dl_qkv, l_ln1, l_qkvw, B, T, C, 3 * C
-            )
+            matmul_backward(dl_ln1, dl_qkvw, dl_qkvb, dl_qkv, l_ln1, l_qkvw, B, T, C, 3 * C)
             if cupy.isnan(dl_ln1).any():
                 print(f"NaN detected in backward layer {l} after qkv matmul_backward")
             # layernorm backward does += to dresidual, so it correctly accumulates gradient for the Attention block above
@@ -2004,9 +1919,7 @@ class GPT2:
                 C,
             )
             if cupy.isnan(dresidual).any():
-                print(
-                    f"NaN detected in backward layer {l} after ln1 layernorm_backward"
-                )
+                print(f"NaN detected in backward layer {l} after ln1 layernorm_backward")
 
         encoder_backward(grads.wte, grads.wpe, dresidual, self.inputs, B, T, C)
         if cupy.isnan(grads.wte).any():
@@ -2022,20 +1935,15 @@ class GPT2:
             self.m_memory = cupy.zeros(self.num_parameters, dtype=cupy.float32)
             self.v_memory = cupy.zeros(self.num_parameters, dtype=cupy.float32)
             size_in_mb = int(
-                round(self.num_parameters * cupy.dtype(cupy.float32).itemsize)
-                / (1024 * 1024)
+                round(self.num_parameters * cupy.dtype(cupy.float32).itemsize) / (1024 * 1024)
             )
             print(f"allocated {size_in_mb} MiB for AdamW optimizer state m")
             print(f"allocated {size_in_mb} MiB for AdamW optimizer state v")
 
         block_size = 512
         num_blocks = ceil_div(self.num_parameters, block_size)
-        beta1_correction = numpy.float32(1.0) - numpy.float_power(
-            numpy.float32(beta1), t
-        )
-        beta2_correction = numpy.float32(1.0) - numpy.float_power(
-            numpy.float32(beta2), t
-        )
+        beta1_correction = numpy.float32(1.0) - numpy.float_power(numpy.float32(beta1), t)
+        beta2_correction = numpy.float32(1.0) - numpy.float_power(numpy.float32(beta2), t)
 
         if cupy.isnan(self.grads_memory).any():
             print("NaN detected in gradients before update")
@@ -2164,9 +2072,7 @@ def train_loop(
     if max_steps is not None:
         train_num_batches = min(train_num_batches, max_steps)
     val_num_batches = (
-        train_loader.num_batches
-        if train_loader.num_batches < val_max_batches
-        else val_max_batches
+        train_loader.num_batches if train_loader.num_batches < val_max_batches else val_max_batches
     )
 
     train_losses = []
@@ -2198,7 +2104,7 @@ def train_loop(
 
         train_losses.append(model.mean_loss)
         print(
-            f"step {step+1}/{train_num_batches}: train loss {model.mean_loss} ({int((time.time() - start)*1000)} ms)"
+            f"step {step + 1}/{train_num_batches}: train loss {model.mean_loss} ({int((time.time() - start) * 1000)} ms)"
         )
         logger.log_train(step, model.mean_loss)
 

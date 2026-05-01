@@ -37,9 +37,7 @@ def test_basic(func, case):
     case = cuda.to_device(case)
     kernel[1, 1](out, case)
     out = out.copy_to_host()
-    assert close_or_both_nan(
-        out, expected
-    ), f"{func.__name__}({case}) = {out} != {expected}"
+    assert close_or_both_nan(out, expected), f"{func.__name__}({case}) = {out} != {expected}"
 
 
 @pytest.mark.parametrize(
@@ -70,9 +68,7 @@ def test_nan_reductions(func, case):
     case = cuda.to_device(case)
     kernel[1, 1](out, case)
     out = out.copy_to_host()
-    assert close_or_both_nan(
-        out, expected
-    ), f"{func.__name__}({case}) = {out} != {expected}"
+    assert close_or_both_nan(out, expected), f"{func.__name__}({case}) = {out} != {expected}"
 
 
 if __name__ == "__main__":

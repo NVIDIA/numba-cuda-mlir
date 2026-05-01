@@ -32,7 +32,6 @@ def shfl_xor_sync_test(ary, mask, lane_mask):
 
 
 class TestCudaIntrinsic(unittest.TestCase):
-
     def test_shfl_sync(self):
         compiled = cuda.jit("void(int32[:], int32, int32)")(shfl_sync_test)
         ary = np.zeros(32, dtype=np.int32)
@@ -48,9 +47,7 @@ class TestCudaIntrinsic(unittest.TestCase):
         mask = 0xFFFFFFFF
         offset = 2
         compiled[1, 32](ary, mask, offset)
-        expected = np.array(
-            [i - offset if i >= offset else i for i in range(32)], dtype=np.int32
-        )
+        expected = np.array([i - offset if i >= offset else i for i in range(32)], dtype=np.int32)
         np.testing.assert_array_equal(ary, expected)
 
     def test_shfl_down_sync(self):

@@ -126,9 +126,8 @@ def _get_cudalib_wheel_libdir():
         )
     else:
         cuda_runtime_distribution = _get_distribution("nvidia-cuda-runtime")
-        if (
-            cuda_runtime_distribution is not None
-            and cuda_runtime_distribution.version.startswith("13.")
+        if cuda_runtime_distribution is not None and cuda_runtime_distribution.version.startswith(
+            "13."
         ):
             site_packages_path = cuda_runtime_distribution.locate_file("")
             cuda_module_lib_dir = os.path.join(
@@ -272,9 +271,8 @@ def get_wheel_static_libdir():
         )
     else:
         cuda_runtime_distribution = _get_distribution("nvidia-cuda-runtime")
-        if (
-            cuda_runtime_distribution is not None
-            and cuda_runtime_distribution.version.startswith("13.")
+        if cuda_runtime_distribution is not None and cuda_runtime_distribution.version.startswith(
+            "13."
         ):
             site_packages_path = cuda_runtime_distribution.locate_file("")
             cuda_module_static_lib_dir = os.path.join(
@@ -378,9 +376,7 @@ def get_libdevice_wheel_path():
     # CUDA 13
     if libdevice_path is None:
         nvvm_distribution = _get_distribution("nvidia-nvvm")
-        if nvvm_distribution is not None and nvvm_distribution.version.startswith(
-            "13."
-        ):
+        if nvvm_distribution is not None and nvvm_distribution.version.startswith("13."):
             site_packages_path = nvvm_distribution.locate_file("")
             libdevice_path = os.path.join(
                 site_packages_path,
@@ -428,14 +424,10 @@ def _get_include_dir():
             os.path.join(located_header_dir.abs_path, "cuda_device_runtime_api.h")
         ):
             return _env_path_tuple("Unknown", None)
-        return _env_path_tuple(
-            located_header_dir.found_via, located_header_dir.abs_path
-        )
+        return _env_path_tuple(located_header_dir.found_via, located_header_dir.abs_path)
     else:
         if config.CUDA_INCLUDE_PATH:
-            return _env_path_tuple(
-                "CUDA_INCLUDE_PATH Config entry", config.CUDA_INCLUDE_PATH
-            )
+            return _env_path_tuple("CUDA_INCLUDE_PATH Config entry", config.CUDA_INCLUDE_PATH)
     return _env_path_tuple("Unknown", None)
 
 
@@ -490,15 +482,11 @@ def _get_nvvm():
     # If nvrtc was not found via system-search, we can't reliably determine
     # the CUDA installation structure
     if loaded_nvrtc.found_via != "system-search":
-        _raise_original(
-            f"nvrtc found via {loaded_nvrtc.found_via}, cannot infer CUDA_HOME"
-        )
+        _raise_original(f"nvrtc found via {loaded_nvrtc.found_via}, cannot infer CUDA_HOME")
     # Search backward from nvrtc's location to find a directory with "nvvm" subdirectory
     cuda_home = _find_cuda_home_from_lib_path(loaded_nvrtc.abs_path)
     if cuda_home is None:
-        _raise_original(
-            f"nvrtc path did not map to CUDA_HOME ({loaded_nvrtc.abs_path})"
-        )
+        _raise_original(f"nvrtc path did not map to CUDA_HOME ({loaded_nvrtc.abs_path})")
     # Temporarily set CUDA_HOME and retry pathfinder
     with temporary_env_var("CUDA_HOME", cuda_home):
         try:

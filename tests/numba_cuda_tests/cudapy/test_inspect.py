@@ -223,9 +223,7 @@ class TestInspect(NumbaCUDATestCase):
         signature = (int32[::1], float32[::1])
         self._test_inspect_sass(add, "add", add.inspect_sass(signature))
 
-    @skip_with_nvdisasm(
-        "Missing nvdisasm exception only generated when it is not present"
-    )
+    @skip_with_nvdisasm("Missing nvdisasm exception only generated when it is not present")
     def test_inspect_sass_nvdisasm_missing(self):
         @numba_cuda_mlir.jit((float32[::1],))
         def f(x):
@@ -248,6 +246,4 @@ class TestInspect(NumbaCUDATestCase):
             if i < len(x):
                 x[i] += y[i]
 
-        self.assertRegex(
-            add.inspect_sass_cfg(signature=sig), r"digraph\s*\w\s*{(.|\n)*\n}"
-        )
+        self.assertRegex(add.inspect_sass_cfg(signature=sig), r"digraph\s*\w\s*{(.|\n)*\n}")

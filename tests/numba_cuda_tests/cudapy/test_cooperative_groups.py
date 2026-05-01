@@ -145,9 +145,7 @@ class TestCudaCooperativeGroups(NumbaCUDATestCase):
         sig = signature(
             CPointer(int32),
         )
-        cta_barrier = cuda.declare_device(
-            "cta_barrier", sig=sig, link=[src], use_cooperative=True
-        )
+        cta_barrier = cuda.declare_device("cta_barrier", sig=sig, link=[src], use_cooperative=True)
 
         @numba_cuda_mlir.jit("void()")
         def kernel():

@@ -22,9 +22,7 @@ class VectorTypeStub:
     aliases: list
 
     def __new__(cls, *args):
-        raise NotImplementedError(
-            f"{cls.__name__} can only be used inside a CUDA kernel"
-        )
+        raise NotImplementedError(f"{cls.__name__} can only be used inside a CUDA kernel")
 
     def __repr__(self):
         return f"<{self.__class__.__name__}>"
@@ -48,9 +46,7 @@ def make_vector_type_stubs():
     vector_type_element_counts = (1, 2, 3, 4)
     vector_type_attribute_names = ("x", "y", "z", "w")
 
-    for prefix, nelem in itertools.product(
-        vector_type_prefix, vector_type_element_counts
-    ):
+    for prefix, nelem in itertools.product(vector_type_prefix, vector_type_element_counts):
         type_name = f"{prefix}x{nelem}"
         attr_names = vector_type_attribute_names[:nelem]
 
@@ -123,6 +119,4 @@ for stub in _vector_type_stubs:
         globals()[alias] = stub
 
 # List of all exported names
-__all__ = list(vector_type_stubs_by_name.keys()) + list(
-    vector_type_stubs_by_alias.keys()
-)
+__all__ = list(vector_type_stubs_by_name.keys()) + list(vector_type_stubs_by_alias.keys())

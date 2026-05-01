@@ -97,9 +97,7 @@ class FakeCUDAKernel:
             def fake_arg(arg):
                 # map the arguments using any extension you've registered
                 _, arg = functools.reduce(
-                    lambda ty_val, extension: extension.prepare_args(
-                        *ty_val, stream=0, retr=retr
-                    ),
+                    lambda ty_val, extension: extension.prepare_args(*ty_val, stream=0, retr=retr),
                     self.extensions,
                     (None, arg),
                 )
@@ -142,9 +140,7 @@ class FakeCUDAKernel:
 
     def forall(self, ntasks, tpb=0, stream=0, sharedmem=0):
         if ntasks < 0:
-            raise ValueError(
-                "Can't create ForAll with negative task count: %s" % ntasks
-            )
+            raise ValueError("Can't create ForAll with negative task count: %s" % ntasks)
         return self[ntasks, 1, stream, sharedmem]
 
     @property

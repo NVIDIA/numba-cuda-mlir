@@ -65,9 +65,7 @@ def _check_polymorphic_debug_info_support():
 
 
 # Check support and determine mode
-(DEBUG_POLY_SUPPORTED, DEBUG_POLY_USE_TYPED_CONST) = (
-    _check_polymorphic_debug_info_support()
-)
+(DEBUG_POLY_SUPPORTED, DEBUG_POLY_USE_TYPED_CONST) = _check_polymorphic_debug_info_support()
 
 # Set config based on polymorphic debug info support
 if not hasattr(config, "CUDA_DEBUG_POLY"):
@@ -282,8 +280,7 @@ class DIBuilder(AbstractDIBuilder):
                         "tag": ir.DIToken("DW_TAG_member"),
                         "name": name,
                         "baseType": component_basetype,
-                        "size": _BYTE_SIZE
-                        * component_size,  # DW_TAG_member size is in bits
+                        "size": _BYTE_SIZE * component_size,  # DW_TAG_member size is in bits
                         "offset": offset,
                     },
                 )
@@ -723,9 +720,7 @@ class CUDADIBuilder(DIBuilder):
                                 metadata_dict["extraData"] = ir.IntType(8)(index)
                             else:
                                 # Use metadata node reference
-                                metadata_dict["extraData"] = m.add_metadata(
-                                    [ir.IntType(8)(index)]
-                                )
+                                metadata_dict["extraData"] = m.add_metadata([ir.IntType(8)(index)])
                             # Add offset to each variant member
                             # Offset equals the element's own width
                             metadata_dict["offset"] = memberwidth

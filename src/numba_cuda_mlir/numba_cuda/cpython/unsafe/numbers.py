@@ -34,10 +34,7 @@ def viewer(tyctx, val, viewty):
 def trailing_zeros(typeingctx, src):
     """Counts trailing zeros in the binary representation of an integer."""
     if not isinstance(src, types.Integer):
-        msg = (
-            "trailing_zeros is only defined for integers, but value passed "
-            f"was '{src}'."
-        )
+        msg = f"trailing_zeros is only defined for integers, but value passed was '{src}'."
         raise errors.NumbaTypeError(msg)
 
     def codegen(context, builder, signature, args):
@@ -51,10 +48,7 @@ def trailing_zeros(typeingctx, src):
 def leading_zeros(typeingctx, src):
     """Counts leading zeros in the binary representation of an integer."""
     if not isinstance(src, types.Integer):
-        msg = (
-            "leading_zeros is only defined for integers, but value passed "
-            f"was '{src}'."
-        )
+        msg = f"leading_zeros is only defined for integers, but value passed was '{src}'."
         raise errors.NumbaTypeError(msg)
 
     def codegen(context, builder, signature, args):

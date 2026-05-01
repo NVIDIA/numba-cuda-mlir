@@ -37,4 +37,3 @@ PyMODINIT_FUNC PyInit__cext() {
 
     return m.release();
 }
-

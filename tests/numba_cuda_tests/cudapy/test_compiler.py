@@ -43,9 +43,7 @@ class TestCompile(NumbaCUDATestCase):
         self._test_global_kernel(compile_ptx, {})
 
     def test_global_kernel_compile_all(self):
-        self._test_global_kernel(
-            compile_all, {"device": False, "abi": "numba", "output": "ptx"}
-        )
+        self._test_global_kernel(compile_all, {"device": False, "abi": "numba", "output": "ptx"})
 
     def _test_global_kernel(self, compile_function, default_kwargs):
         def f(r, x, y):
@@ -71,9 +69,7 @@ class TestCompile(NumbaCUDATestCase):
         self._test_device_function(compile_ptx, {"device": True})
 
     def test_device_function_compile_all(self):
-        self._test_device_function(
-            compile_all, {"device": True, "abi": "c", "output": "ptx"}
-        )
+        self._test_device_function(compile_all, {"device": True, "abi": "c", "output": "ptx"})
 
     def _test_device_function(self, compile_function, default_kwargs):
         def add(x, y):
@@ -218,9 +214,7 @@ class TestCompile(NumbaCUDATestCase):
         self.assertRegex(ptx, '\\.file.*test_compiler.py"')
 
     def test_device_function_with_line_info(self):
-        self._test_device_function_with_line_info(
-            compile_ptx, {"device": True, "lineinfo": True}
-        )
+        self._test_device_function_with_line_info(compile_ptx, {"device": True, "lineinfo": True})
 
     def test_device_function_with_line_info_compile_all(self):
         self._test_device_function_with_line_info(
@@ -283,14 +277,10 @@ class TestCompile(NumbaCUDATestCase):
         def f(x, y):
             return x + y
 
-        with self.assertRaisesRegex(
-            NotImplementedError, "The C ABI is not supported for kernels"
-        ):
+        with self.assertRaisesRegex(NotImplementedError, "The C ABI is not supported for kernels"):
             compile_ptx(f, (int32, int32), abi="c")
 
-        with self.assertRaisesRegex(
-            NotImplementedError, "The C ABI is not supported for kernels"
-        ):
+        with self.assertRaisesRegex(NotImplementedError, "The C ABI is not supported for kernels"):
             compile_all(f, (int32, int32), abi="c", device=False, output="ptx")
 
     def test_unsupported_abi(self):
@@ -308,9 +298,7 @@ class TestCompile(NumbaCUDATestCase):
         self._test_c_abi_device_function(compile_ptx, {"device": True, "abi": "c"})
 
     def test_c_abi_device_function_compile_all(self):
-        self._test_c_abi_device_function(
-            compile_all, {"device": True, "abi": "c", "output": "ptx"}
-        )
+        self._test_c_abi_device_function(compile_all, {"device": True, "abi": "c", "output": "ptx"})
 
     def _test_c_abi_device_function(self, compile_function, default_kwargs):
         def f(x, y):
@@ -336,9 +324,7 @@ class TestCompile(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Regex doesn't match")
     def test_c_abi_device_function_module_scope(self):
-        self._test_c_abi_device_function_module_scope(
-            compile_ptx, {"device": True, "abi": "c"}
-        )
+        self._test_c_abi_device_function_module_scope(compile_ptx, {"device": True, "abi": "c"})
 
     def test_c_abi_device_function_module_scope_compile_all(self):
         self._test_c_abi_device_function_module_scope(
@@ -346,9 +332,7 @@ class TestCompile(NumbaCUDATestCase):
             {"device": True, "abi": "c", "output": "ptx"},
         )
 
-    def _test_c_abi_device_function_module_scope(
-        self, compile_function, default_kwargs
-    ):
+    def _test_c_abi_device_function_module_scope(self, compile_function, default_kwargs):
         ret = compile_function(f_module, int32(int32, int32), **default_kwargs)
         ptx, resty = self._handle_compile_result(ret, compile_function)
 
@@ -402,9 +386,7 @@ class TestCompile(NumbaCUDATestCase):
         self._test_c_abi_boolean_return(compile_ptx, {"device": True, "abi": "c"})
 
     def test_c_abi_boolean_return_compile_all(self):
-        self._test_c_abi_boolean_return(
-            compile_all, {"device": True, "abi": "c", "output": "ptx"}
-        )
+        self._test_c_abi_boolean_return(compile_all, {"device": True, "abi": "c", "output": "ptx"})
 
     def _test_c_abi_boolean_return(self, compile_function, default_kwargs):
         # Explicit cast
@@ -574,9 +556,7 @@ class TestCompile(NumbaCUDATestCase):
             binaries.test_device_functions_ptx,
             binaries.test_device_functions_ltoir,
         ]:
-            add = cuda.declare_device(
-                "add_from_numba", "uint32(uint32, uint32)", link=[link]
-            )
+            add = cuda.declare_device("add_from_numba", "uint32(uint32, uint32)", link=[link])
 
             def f(z, x, y):
                 z[0] = add(x, y)
@@ -670,28 +650,20 @@ class TestCompile(NumbaCUDATestCase):
 
                     # Cast input void* to int32*, load value
                     int32_llvm_type = context.get_value_type(types.int32)
-                    typed_input_ptr = builder.bitcast(
-                        input_ptr, int32_llvm_type.as_pointer()
-                    )
+                    typed_input_ptr = builder.bitcast(input_ptr, int32_llvm_type.as_pointer())
                     input_val = builder.load(typed_input_ptr)
 
                     # Call the inner function
-                    cres = context.compile_subroutine(
-                        builder, foo_device, inner_sig, caching=False
-                    )
+                    cres = context.compile_subroutine(builder, foo_device, inner_sig, caching=False)
 
                     # Wrapper function is compiled with cabi, but inner function
                     # is compiled with numba-abi. So cres should have CUDACallConv.
                     assert isinstance(cres.fndesc.call_conv, CUDACallConv)
 
-                    result = context.call_internal(
-                        builder, cres.fndesc, inner_sig, [input_val]
-                    )
+                    result = context.call_internal(builder, cres.fndesc, inner_sig, [input_val])
 
                     # Cast output void* to int32*, store result
-                    typed_output_ptr = builder.bitcast(
-                        output_ptr, int32_llvm_type.as_pointer()
-                    )
+                    typed_output_ptr = builder.bitcast(output_ptr, int32_llvm_type.as_pointer())
                     builder.store(result, typed_output_ptr)
 
                     return context.get_dummy_value()
@@ -758,7 +730,7 @@ class TestCompileOnlyTests(NumbaCUDATestCase):
         self.assertEqual(
             expected,
             nanosleep_count,
-            (f"Got {nanosleep_count} nanosleep instructions, " f"expected {expected}"),
+            (f"Got {nanosleep_count} nanosleep instructions, expected {expected}"),
         )
 
     @pytest.mark.xfail(True, reason="Arch-specific codegen not implemented")

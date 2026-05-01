@@ -193,9 +193,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         debug_opts = itertools.product(*[(True, False)] * 3)
 
         for kernel_debug, f1_debug, f2_debug in debug_opts:
-            self._test_chained_device_function_two_calls(
-                kernel_debug, f1_debug, f2_debug
-            )
+            self._test_chained_device_function_two_calls(kernel_debug, f1_debug, f2_debug)
 
     def test_chained_device_three_functions(self):
         # Like test_chained_device_function, but with enough functions (three)
@@ -412,9 +410,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
             CHECK-DAG: [[VM2]] = !DIDerivedType({{.*}}extraData: EXTRADATA{{.*}}name: "_float64"{{.*}}offset: 64{{.*}}tag: DW_TAG_member)
             CHECK-DAG: [[VM3]] = !DIDerivedType({{.*}}extraData: EXTRADATA{{.*}}name: "_int32"{{.*}}offset: 32{{.*}}tag: DW_TAG_member)
             CHECK-DAG: [[VM4]] = !DIDerivedType({{.*}}extraData: EXTRADATA{{.*}}name: "_int64"{{.*}}offset: 64{{.*}}tag: DW_TAG_member)
-        """.replace(
-            "EXTRADATA", extradata_pattern
-        )
+        """.replace("EXTRADATA", extradata_pattern)
 
         self.assertFileCheckMatches(llvm_ir, check_pattern)
 
@@ -690,12 +686,8 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         self.assertEqual(len(store_1_lines), 2)
         self.assertEqual(len(store_5_lines), 2)
 
-        store_1_dbginfo_set = set(
-            map(lambda x: x.split("!dbg")[1].strip(), store_1_lines)
-        )
-        store_5_dbginfo_set = set(
-            map(lambda x: x.split("!dbg")[1].strip(), store_5_lines)
-        )
+        store_1_dbginfo_set = set(map(lambda x: x.split("!dbg")[1].strip(), store_1_lines))
+        store_5_dbginfo_set = set(map(lambda x: x.split("!dbg")[1].strip(), store_5_lines))
         self.assertEqual(len(store_1_dbginfo_set), 1)
         self.assertEqual(len(store_5_dbginfo_set), 1)
         store_1_dbginfo_node = store_1_dbginfo_set.pop()
@@ -1036,9 +1028,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         # Find non-zero store to bar.N with this dbg ID
         pattern = rf'store i64 %[^,]+, i64\* %"bar\.\d+".*!dbg !{continue_dbg_id}'
         match = re.search(pattern, llvm_ir)
-        self.assertIsNotNone(
-            match, f"No non-zero store to 'bar.N' with !dbg !{continue_dbg_id}"
-        )
+        self.assertIsNotNone(match, f"No non-zero store to 'bar.N' with !dbg !{continue_dbg_id}")
 
     @pytest.mark.xfail(True, reason="debuginfo issues")
     def test_arg_load_has_dbg_location(self):

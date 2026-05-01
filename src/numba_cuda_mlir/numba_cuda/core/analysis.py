@@ -299,9 +299,7 @@ def rewrite_semantic_constants(func_ir, called_args):
     DEBUG = 0
 
     if DEBUG > 1:
-        print(
-            ("rewrite_semantic_constants: " + func_ir.func_id.func_name).center(80, "-")
-        )
+        print(("rewrite_semantic_constants: " + func_ir.func_id.func_name).center(80, "-"))
         print("before".center(80, "*"))
         func_ir.dump()
 
@@ -397,10 +395,7 @@ def find_literally_calls(func_ir, argtypes):
     # Signal the dispatcher to force literal typing
     for pos in marked_args:
         query_arg = argtypes[pos]
-        do_raise = (
-            isinstance(query_arg, types.InitialValue)
-            and query_arg.initial_value is None
-        )
+        do_raise = isinstance(query_arg, types.InitialValue) and query_arg.initial_value is None
         if do_raise:
             loc = first_loc[pos]
             raise errors.ForceLiteralArg(marked_args, loc=loc)

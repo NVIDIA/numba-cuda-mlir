@@ -89,11 +89,8 @@ class VariableNamer:
 
     # Generate a substitution name for the given ssa value name.
     def generate_name(self, source_variable_name, use_ssa_name, op_name=""):
-
         # Compute variable name
-        variable_name = (
-            self.variable_names.pop(0) if len(self.variable_names) > 0 else ""
-        )
+        variable_name = self.variable_names.pop(0) if len(self.variable_names) > 0 else ""
         if variable_name == "":
             # If `use_ssa_name` is set, use the MLIR SSA value name to generate
             # a FileCHeck substation string. As FileCheck requires these
@@ -107,9 +104,7 @@ class VariableNamer:
             if use_ssa_name and source_variable_name[0].isalpha():
                 variable_name = source_variable_name.upper()
             elif op_name != "":
-                variable_name = (
-                    op_name.upper() + "_" + str(self.op_name_counter[op_name])
-                )
+                variable_name = op_name.upper() + "_" + str(self.op_name_counter[op_name])
                 self.op_name_counter[op_name] += 1
             else:
                 variable_name = "VAL_" + str(self.name_counter)
@@ -150,7 +145,6 @@ class VariableNamer:
 
 
 class AttributeNamer:
-
     def __init__(self, attribute_names):
         self.name_counter = 0
         self.attribute_names = [name.upper() for name in attribute_names.split(",")]
@@ -159,11 +153,8 @@ class AttributeNamer:
 
     # Generate a substitution name for the given attribute name.
     def generate_name(self, source_attribute_name):
-
         # Compute FileCheck name
-        attribute_name = (
-            self.attribute_names.pop(0) if len(self.attribute_names) > 0 else ""
-        )
+        attribute_name = self.attribute_names.pop(0) if len(self.attribute_names) > 0 else ""
         if attribute_name == "":
             attribute_name = "ATTR_" + str(self.name_counter)
             self.name_counter += 1
@@ -201,9 +192,7 @@ def process_line(line_chunks, variable_namer, use_ssa_name=False, strict_name_re
         ssa = SSA_RE.match(chunk)
         op_name_with_dialect = SSA_OP_NAME_RE.search(chunk)
         ssa_name = ssa.group(0) if ssa is not None else ""
-        op_name = (
-            op_name_with_dialect.group(1) if op_name_with_dialect is not None else ""
-        )
+        op_name = op_name_with_dialect.group(1) if op_name_with_dialect is not None else ""
 
         # Check if an existing variable exists for this name.
         variable = None
@@ -267,14 +256,13 @@ def process_attribute_definition(line, attribute_namer):
 
 
 def process_attribute_references(line, attribute_namer):
-
     output_line = ""
     components = ATTR_RE.split(line)
     for component in components:
         m = ATTR_RE.match(component)
         attribute_name = attribute_namer.get_name(m.group(1)) if m else None
         if attribute_name:
-            output_line += f"#[[{attribute_name}]]{component[len(m.group()):]}"
+            output_line += f"#[[{attribute_name}]]{component[len(m.group()) :]}"
         else:
             output_line += component
     return output_line
@@ -303,15 +291,9 @@ def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument(
-        "--check-prefix", default="CHECK", help="Prefix to use from check file."
-    )
-    parser.add_argument(
-        "-o", "--output", nargs="?", type=argparse.FileType("w"), default=None
-    )
-    parser.add_argument(
-        "input", nargs="?", type=argparse.FileType("r"), default=sys.stdin
-    )
+    parser.add_argument("--check-prefix", default="CHECK", help="Prefix to use from check file.")
+    parser.add_argument("-o", "--output", nargs="?", type=argparse.FileType("w"), default=None)
+    parser.add_argument("input", nargs="?", type=argparse.FileType("r"), default=sys.stdin)
     parser.add_argument(
         "--source",
         type=str,
@@ -324,8 +306,7 @@ def main():
         "--starts_from_scope",
         type=int,
         default=1,
-        help="Omit the top specified level of content. For example, by default "
-        'it omits "module {"',
+        help='Omit the top specified level of content. For example, by default it omits "module {"',
     )
     parser.add_argument("-i", "--inplace", action="store_true", default=False)
     parser.add_argument(

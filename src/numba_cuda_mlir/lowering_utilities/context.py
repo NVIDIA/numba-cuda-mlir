@@ -5,8 +5,8 @@ import contextvars
 from typing import Any
 
 _context: ir.Context | None = None
-_compilation_options: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVar(
-    "compilation_options", default={}
+_compilation_options: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+    "compilation_options", default=None
 )
 
 
@@ -18,7 +18,11 @@ def get_context() -> ir.Context:
 
 
 def get_compilation_options() -> dict[str, Any]:
-    return _compilation_options.get()
+    opts = _compilation_options.get()
+    if opts is None:
+        opts = {}
+        _compilation_options.set(opts)
+    return opts
 
 
 def set_compilation_options(options: dict[str, Any]) -> contextvars.Token:

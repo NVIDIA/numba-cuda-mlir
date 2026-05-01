@@ -250,10 +250,7 @@ class ProcessedPassTimings:
                 m = re.match(pat, ln)
                 if m is not None:
                     raw_data = list(m.groups())
-                    data = {
-                        k: float(v) if v is not None else 0.0
-                        for k, v in zip(attrs, raw_data)
-                    }
+                    data = {k: float(v) if v is not None else 0.0 for k, v in zip(attrs, raw_data)}
                     data.update(missing)
                     pass_name = raw_data[-1]
                     rec = PassTimingRecord(

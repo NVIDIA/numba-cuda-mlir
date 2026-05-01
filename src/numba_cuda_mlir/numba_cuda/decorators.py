@@ -172,8 +172,7 @@ def jit(
     else:
         if lto and not _have_nvjitlink():
             raise RuntimeError(
-                "LTO requires nvjitlink, which is not available"
-                "or not sufficiently recent (>=12.3)"
+                "LTO requires nvjitlink, which is not availableor not sufficiently recent (>=12.3)"
             )
 
     if sigutils.is_signature(func_or_sig):
@@ -311,9 +310,7 @@ def declare_device(name, sig, link=None, use_cooperative=False, abi="numba"):
         msg = "Return type must be provided for device declarations"
         raise TypeError(msg)
 
-    template = declare_device_function(
-        name, restype, argtypes, link, use_cooperative, abi
-    )
+    template = declare_device_function(name, restype, argtypes, link, use_cooperative, abi)
 
     return template.key
 
@@ -323,13 +320,10 @@ def _validate_shared_memory_carveout(carveout):
         valid_strings = ["default", "maxl1", "maxshared"]
         if carveout.lower() not in valid_strings:
             raise ValueError(
-                f"Invalid carveout value: {carveout}. "
-                f"Must be -1 to 100 or one of {valid_strings}"
+                f"Invalid carveout value: {carveout}. Must be -1 to 100 or one of {valid_strings}"
             )
     elif isinstance(carveout, int):
         if not (-1 <= carveout <= 100):
             raise ValueError("Carveout must be between -1 and 100")
     else:
-        raise TypeError(
-            f"shared_memory_carveout must be str or int, got {type(carveout).__name__}"
-        )
+        raise TypeError(f"shared_memory_carveout must be str or int, got {type(carveout).__name__}")

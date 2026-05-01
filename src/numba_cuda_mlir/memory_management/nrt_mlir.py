@@ -360,9 +360,7 @@ def _emit_NRT_MemInfo_new(gm, stats, mg):
     )
     with ir.InsertionPoint(entry):
         data, size, dtor, dtor_info = fn.arguments
-        mi = _call(
-            gm, "NRT_Allocate", [T.i64()], [_ptr()], [_const_i64(_MEMINFO_SIZEOF)]
-        )
+        mi = _call(gm, "NRT_Allocate", [T.i64()], [_ptr()], [_const_i64(_MEMINFO_SIZEOF)])
         is_ok = _icmp_ne(mi, _null())
         init_block = fn.body.blocks.append()
         ret_null = fn.body.blocks.append()
@@ -489,9 +487,7 @@ def _emit_NRT_MemInfo_new_varsize(gm, stats, mg):
         # NULL, NULL) and then overwrite mi->dtor with func.constant +
         # unrealized_conversion_cast to ptr.
         # Actually, just use a two-step approach: alloc + init directly.
-        mi = _call(
-            gm, "NRT_Allocate", [T.i64()], [_ptr()], [_const_i64(_MEMINFO_SIZEOF)]
-        )
+        mi = _call(gm, "NRT_Allocate", [T.i64()], [_ptr()], [_const_i64(_MEMINFO_SIZEOF)])
         mi_ok2 = _icmp_ne(mi, _null())
 
         init_block2 = fn.body.blocks.append()

@@ -126,9 +126,7 @@ def _lower_array_complex_real_imag(builder, target, array_var, attr):
     # Get original sizes from the complex array
     sizes_i64 = []
     for i in range(rank):
-        dim_val = memref_dialect.dim(
-            complex_array, arith_dialect.constant(ir.IndexType.get(), i)
-        )
+        dim_val = memref_dialect.dim(complex_array, arith_dialect.constant(ir.IndexType.get(), i))
         sizes_i64.append(convert(dim_val, i64))
 
     # Strides: each complex element is 2 floats, so multiply strides by 2
@@ -456,9 +454,7 @@ def len_cg(builder, target, args, kwargs):
     rank = ty.rank
     product = arith.constant(result=T.index(), value=1)
     for i in range(rank):
-        dim_size = memref.dim(
-            source=array, index=arith.constant(result=T.index(), value=i)
-        )
+        dim_size = memref.dim(source=array, index=arith.constant(result=T.index(), value=i))
         product = lowering_utilities.mul(product, dim_size)
     product = lowering_utilities.convert(product, dtype)
     builder.store_var(target, product)
@@ -602,9 +598,7 @@ class Slice:
         # Handle None for stop (e.g., x[2:] has stop=None meaning end of array)
         if isinstance(stop, ir.NoneType):
             stop = None
-        self.stop: ir.Value | None = (
-            lowering_utilities.convert(stop, T.index()) if stop else None
-        )
+        self.stop: ir.Value | None = lowering_utilities.convert(stop, T.index()) if stop else None
         # Handle None for step (default to 1)
         if isinstance(step, ir.NoneType):
             step = None
@@ -736,9 +730,7 @@ def _rank_reducing_subview(
         layout=ir.StridedLayoutAttr.get(dyn, source_strides),
         memory_space=array_type.memory_space,
     )
-    subview = memref.subview(
-        array, sv_offsets, sv_sizes, sv_strides, result_type=subview_type
-    )
+    subview = memref.subview(array, sv_offsets, sv_sizes, sv_strides, result_type=subview_type)
 
     # Build reassociation: group each dropped dim with the next kept dim.
     reassociation: list[list[int]] = []
@@ -760,9 +752,7 @@ def _rank_reducing_subview(
     # the effective stride after collapsing).
     result_strides = []
     for group in reassociation:
-        needs_dyn = any(
-            source_strides[d] == dyn or subview_shape[d] == dyn_size for d in group
-        )
+        needs_dyn = any(source_strides[d] == dyn or subview_shape[d] == dyn_size for d in group)
         if needs_dyn:
             result_strides.append(dyn)
         else:
@@ -813,14 +803,10 @@ def lower_array_getitem(builder, target, args, kwargs):
     else:
         rank = array_type.rank
         sv_offsets = [index] + [index_of(0)] * (rank - 1)
-        sv_sizes = [index_of(1)] + [
-            memref.dim(array, index_of(i)) for i in range(1, rank)
-        ]
+        sv_sizes = [index_of(1)] + [memref.dim(array, index_of(i)) for i in range(1, rank)]
         sv_strides = [index_of(1)] * rank
         dims_to_drop = [True] + [False] * (rank - 1)
-        value = _rank_reducing_subview(
-            array, sv_offsets, sv_sizes, sv_strides, dims_to_drop
-        )
+        value = _rank_reducing_subview(array, sv_offsets, sv_sizes, sv_strides, dims_to_drop)
 
     builder.store_var(target, value)
 
@@ -888,11 +874,7 @@ class MemRefSlices:
         # TODO(ajm): replace with tensor.generate
         kws = {
             "offsets": [
-                (
-                    slice.static_offset
-                    if slice.static_offset is not None
-                    else slice.offset
-                )
+                (slice.static_offset if slice.static_offset is not None else slice.offset)
                 for slice in self.slices
             ],
             "sizes": [
@@ -900,11 +882,7 @@ class MemRefSlices:
                 for slice in self.slices
             ],
             "strides": [
-                (
-                    slice.static_stride
-                    if slice.static_stride is not None
-                    else slice.stride
-                )
+                (slice.static_stride if slice.static_stride is not None else slice.stride)
                 for slice in self.slices
             ],
         }
@@ -1051,9 +1029,7 @@ def lower_uni_tuple_getitem(builder, target, args, kwargs):
             if isinstance(val, ir.Value):
                 builder.incref(target_type, val)
         case _:
-            raise InternalCompilerError(
-                f"Tuple index must be an integer, got {type(args[1])}"
-            )
+            raise InternalCompilerError(f"Tuple index must be an integer, got {type(args[1])}")
 
 
 def _lower_record_array_setitem(builder, target, args, kwargs):
@@ -1204,9 +1180,7 @@ def _setitem_index_to_memref_index(index: ir.Value | int) -> ir.Value:
         case ir.Value() | int():
             return index_of(index)
         case _:
-            raise InternalCompilerError(
-                f"Index must be an integer or a value, got {type(index)}"
-            )
+            raise InternalCompilerError(f"Index must be an integer or a value, got {type(index)}")
 
 
 def _setitem_indices_to_memref_indices(
@@ -1223,9 +1197,7 @@ def _setitem_indices_to_memref_indices(
         ):
             mr_type = value.type
             num_elements = mr_type.get_dim_size(0)
-            return tuple(
-                index_of(memref.load(value, [index_of(i)])) for i in range(num_elements)
-            )
+            return tuple(index_of(memref.load(value, [index_of(i)])) for i in range(num_elements))
         case _:
             raise InternalCompilerError(
                 f"Indices must be a tuple of integers or a value, got {type(indices)}"
@@ -1296,9 +1268,7 @@ def lower_array_slice_setitem(builder, target, args, kwargs):
 @lower(operator.getitem, types.Array, types.Tuple)
 def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
     if len(args) != 2:
-        raise InternalCompilerError(
-            f"Tuple getitem takes exactly two arguments, got {len(args)}"
-        )
+        raise InternalCompilerError(f"Tuple getitem takes exactly two arguments, got {len(args)}")
 
     # Check if this is a nested array (embedded in a record)
     from numba_cuda_mlir.types import NestedArray
@@ -1313,18 +1283,13 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
     tuple_indices = builder.load_var(args[1])
 
     array_type = array.type
-    if (
-        not isinstance(array_type, (ir.MemRefType, ir.RankedTensorType))
-        or not array_type.has_rank
-    ):
+    if not isinstance(array_type, (ir.MemRefType, ir.RankedTensorType)) or not array_type.has_rank:
         raise InternalCompilerError(
             f"Array must be a statically-ranked memref or tensor, got {array_type}"
         )
 
     if not isinstance(tuple_indices, tuple):
-        raise InternalCompilerError(
-            f"Tuple indices must be a tuple, got {type(tuple_indices)}"
-        )
+        raise InternalCompilerError(f"Tuple indices must be a tuple, got {type(tuple_indices)}")
 
     target_type = builder.get_numba_type(target.name)
     source_rank = array_type.rank
@@ -1349,13 +1314,9 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
                 strides.append(step or 1)
                 is_scalar.append(False)
                 if error_memref is not None:
-                    is_not_positive = arith.cmpi(
-                        arith.CmpIPredicate.sle, strides[-1], zero
-                    )
+                    is_not_positive = arith.cmpi(arith.CmpIPredicate.sle, strides[-1], zero)
                     with scf.if_ctx_manager(is_not_positive):
-                        set_error_code_if_zero(
-                            error_memref, KERNEL_ERROR_CODES[ValueError]
-                        )
+                        set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
                         scf.yield_([])
             case int() as i:
                 offsets.append(arith.constant(result=T.index(), value=i))
@@ -1383,8 +1344,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
             n_kept = sum(1 for sc in full_is_scalar if not sc)
             if n_kept != target_type.ndim:
                 raise InternalCompilerError(
-                    f"Result rank {n_kept} does not match "
-                    f"target type ndim {target_type.ndim}"
+                    f"Result rank {n_kept} does not match target type ndim {target_type.ndim}"
                 )
             value = _rank_reducing_subview(
                 array, full_offsets, full_sizes, full_strides, full_is_scalar
@@ -1404,9 +1364,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
 # ============================================================================
 
 
-def create_reduction_op(
-    builder, target, args, kwargs, init_value_fn, combiner_fn, op_name
-):
+def create_reduction_op(builder, target, args, kwargs, init_value_fn, combiner_fn, op_name):
     """
     Public helper for implementing reduction operations using linalg.ReduceOp.
 
@@ -1511,9 +1469,7 @@ def np_min_cg(builder, target, args, kwargs):
         else:
             raise ValueError(f"Unsupported type for np.min: {element_type}")
 
-    create_reduction_op(
-        builder, target, args, kwargs, min_init_value, min_combiner, "np.min"
-    )
+    create_reduction_op(builder, target, args, kwargs, min_init_value, min_combiner, "np.min")
 
 
 @lower_getattr(types.Array, "min")
@@ -1556,9 +1512,7 @@ def np_max_cg(builder, target, args, kwargs):
         else:
             raise ValueError(f"Unsupported type for np.max: {element_type}")
 
-    create_reduction_op(
-        builder, target, args, kwargs, max_init_value, max_combiner, "np.max"
-    )
+    create_reduction_op(builder, target, args, kwargs, max_init_value, max_combiner, "np.max")
 
 
 @lower_getattr(types.Array, "max")
@@ -1585,9 +1539,7 @@ def np_prod_cg(builder, target, args, kwargs):
         """Multiply values - no type coercion needed as operands are same type"""
         return lowering_utilities.mul(out_arg, in_arg)
 
-    create_reduction_op(
-        builder, target, args, kwargs, prod_init_value, prod_combiner, "np.prod"
-    )
+    create_reduction_op(builder, target, args, kwargs, prod_init_value, prod_combiner, "np.prod")
 
 
 @lower_getattr(types.Array, "prod")
@@ -2221,17 +2173,13 @@ def _allocate_array(builder, target, args):
         ndim = 1
         shape_vals = [builder.load_var(shape_arg)]
     elif isinstance(shape_type, (types.UniTuple, types.Tuple)):
-        ndim = (
-            shape_type.count
-            if isinstance(shape_type, types.UniTuple)
-            else len(shape_type.types)
-        )
+        ndim = shape_type.count if isinstance(shape_type, types.UniTuple) else len(shape_type.types)
         # Extract tuple elements
         shape_loaded = builder.load_var(shape_arg)
 
-        assert isinstance(
-            shape_loaded, (list, tuple)
-        ), f"Expected Python tuple for shape, got {type(shape_loaded)}"
+        assert isinstance(shape_loaded, (list, tuple)), (
+            f"Expected Python tuple for shape, got {type(shape_loaded)}"
+        )
         shape_vals = list(shape_loaded)
     else:
         raise NotImplementedError(f"Unsupported shape type: {shape_type}")
@@ -2845,9 +2793,7 @@ def np_sin_array_to_array_cg(builder, target, args, kwargs):
     """sin(array, out_array) - element-wise sin to output array"""
     input_array_type = builder.get_numba_type(args[0].name)
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(
-            builder, target, args, complex_dialect.sin
-        )
+        create_complex_elementwise_op_with_output(builder, target, args, complex_dialect.sin)
     else:
         create_elementwise_op_with_output(builder, target, args, math_dialect.sin)
 
@@ -2894,9 +2840,7 @@ def np_cos_array_to_array_cg(builder, target, args, kwargs):
     """cos(array, out_array) - element-wise cos to output array"""
     input_array_type = builder.get_numba_type(args[0].name)
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(
-            builder, target, args, complex_dialect.cos
-        )
+        create_complex_elementwise_op_with_output(builder, target, args, complex_dialect.cos)
     else:
         create_elementwise_op_with_output(builder, target, args, math_dialect.cos)
 
@@ -2943,9 +2887,7 @@ def np_tan_array_to_array_cg(builder, target, args, kwargs):
     """tan(array, out_array) - element-wise tan to output array"""
     input_array_type = builder.get_numba_type(args[0].name)
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(
-            builder, target, args, complex_dialect.tan
-        )
+        create_complex_elementwise_op_with_output(builder, target, args, complex_dialect.tan)
     else:
         create_elementwise_op_with_output(builder, target, args, math_dialect.tan)
 
@@ -3086,9 +3028,7 @@ def np_tanh_array_to_array_cg(builder, target, args, kwargs):
     """tanh(array, out_array) - element-wise tanh to output array"""
     input_array_type = builder.get_numba_type(args[0].name)
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(
-            builder, target, args, complex_dialect.tanh
-        )
+        create_complex_elementwise_op_with_output(builder, target, args, complex_dialect.tanh)
     else:
         create_elementwise_op_with_output(builder, target, args, math_dialect.tanh)
 
@@ -3106,9 +3046,7 @@ def np_arcsinh_scalar_cg(builder, target, args, kwargs):
 @lower(np.arcsinh, types.Float, types.Array)
 def np_arcsinh_scalar_to_array_cg(builder, target, args, kwargs):
     """arcsinh(scalar, out_array) - compute arcsinh and store in output array"""
-    create_scalar_to_output_array(
-        builder, target, args, math_dialect.asinh, "np.arcsinh"
-    )
+    create_scalar_to_output_array(builder, target, args, math_dialect.asinh, "np.arcsinh")
 
 
 @ufunc_registry.register(np.arcsinh)
@@ -3155,9 +3093,7 @@ def np_arccosh_scalar_cg(builder, target, args, kwargs):
 @lower(np.arccosh, types.Float, types.Array)
 def np_arccosh_scalar_to_array_cg(builder, target, args, kwargs):
     """arccosh(scalar, out_array) - compute arccosh and store in output array"""
-    create_scalar_to_output_array(
-        builder, target, args, math_dialect.acosh, "np.arccosh"
-    )
+    create_scalar_to_output_array(builder, target, args, math_dialect.acosh, "np.arccosh")
 
 
 @ufunc_registry.register(np.arccosh)
@@ -3204,9 +3140,7 @@ def np_arctanh_scalar_cg(builder, target, args, kwargs):
 @lower(np.arctanh, types.Float, types.Array)
 def np_arctanh_scalar_to_array_cg(builder, target, args, kwargs):
     """arctanh(scalar, out_array) - compute arctanh and store in output array"""
-    create_scalar_to_output_array(
-        builder, target, args, math_dialect.atanh, "np.arctanh"
-    )
+    create_scalar_to_output_array(builder, target, args, math_dialect.atanh, "np.arctanh")
 
 
 @ufunc_registry.register(np.arctanh)
@@ -3251,9 +3185,7 @@ def np_sqrt_array_to_array_cg(builder, target, args, kwargs):
     """sqrt(array, out_array) - element-wise sqrt to output array"""
     input_array_type = builder.get_numba_type(args[0].name)
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(
-            builder, target, args, complex_dialect.sqrt
-        )
+        create_complex_elementwise_op_with_output(builder, target, args, complex_dialect.sqrt)
     else:
         create_elementwise_op_with_output(builder, target, args, math_dialect.sqrt)
 
@@ -3269,9 +3201,7 @@ def np_exp_array_to_array_cg(builder, target, args, kwargs):
     """exp(array, out_array) - element-wise exp to output array"""
     input_array_type = builder.get_numba_type(args[0].name)
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(
-            builder, target, args, complex_dialect.exp
-        )
+        create_complex_elementwise_op_with_output(builder, target, args, complex_dialect.exp)
     else:
         create_elementwise_op_with_output(builder, target, args, math_dialect.exp)
 
@@ -3287,9 +3217,7 @@ def np_log_array_to_array_cg(builder, target, args, kwargs):
     """log(array, out_array) - element-wise log to output array"""
     input_array_type = builder.get_numba_type(args[0].name)
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(
-            builder, target, args, complex_dialect.log
-        )
+        create_complex_elementwise_op_with_output(builder, target, args, complex_dialect.log)
     else:
         create_elementwise_op_with_output(builder, target, args, math_dialect.log)
 
@@ -3457,9 +3385,7 @@ def create_binary_elementwise_op_with_output(
         iterator_types_attr,
     )
     region = generic_op.regions[0]
-    block = region.blocks.append(
-        in1_mlir_elem_type, in2_mlir_elem_type, output_mlir_elem_type
-    )
+    block = region.blocks.append(in1_mlir_elem_type, in2_mlir_elem_type, output_mlir_elem_type)
     in1_elem = block.arguments[0]
     in2_elem = block.arguments[1]
     with ir.InsertionPoint(block):
@@ -3494,18 +3420,14 @@ def np_arctan2_scalar_cg(builder, target, args, kwargs):
 @lower(np.arctan2, types.Float, types.Float, types.Array)
 def np_arctan2_scalar_to_array_cg(builder, target, args, kwargs):
     """arctan2(y, x, out_array) - compute arctan2 and store in output array"""
-    create_binary_scalar_to_output_array(
-        builder, target, args, math_dialect.atan2, "np.arctan2"
-    )
+    create_binary_scalar_to_output_array(builder, target, args, math_dialect.atan2, "np.arctan2")
 
 
 @ufunc_registry.register(np.arctan2)
 @lower(np.arctan2, types.Array, types.Array)
 def np_arctan2_array_cg(builder, target, args, kwargs):
     """Element-wise arctan2 using linalg.GenericOp."""
-    create_binary_elementwise_op(
-        builder, target, args, kwargs, math_dialect.atan2, "np.arctan2"
-    )
+    create_binary_elementwise_op(builder, target, args, kwargs, math_dialect.atan2, "np.arctan2")
 
 
 @lower(np.arctan2, types.Array, types.Array, types.Array)
@@ -3554,9 +3476,7 @@ def np_hypot_array_cg(builder, target, args, kwargs):
 @lower(np.hypot, types.Array, types.Array, types.Array)
 def np_hypot_array_to_array_cg(builder, target, args, kwargs):
     """hypot(x_array, y_array, out_array) - element-wise hypot"""
-    create_binary_elementwise_op_with_output(
-        builder, target, args, _hypot_fn, "np.hypot"
-    )
+    create_binary_elementwise_op_with_output(builder, target, args, _hypot_fn, "np.hypot")
 
 
 # Comparison ufuncs
@@ -3577,9 +3497,7 @@ def _create_comparison_fn(int_pred, float_pred, complex_fn=None):
             if complex_fn is not None:
                 return complex_fn(a, b)
             else:
-                raise NotImplementedError(
-                    f"Ordering comparison not supported for complex types"
-                )
+                raise NotImplementedError(f"Ordering comparison not supported for complex types")
         else:
             return arith.cmpf(float_pred, a, b)
 
@@ -3650,15 +3568,11 @@ _greater_fn = _create_comparison_fn(
 _greater_equal_fn = _create_comparison_fn(
     arith.CmpIPredicate.sge, arith.CmpFPredicate.OGE, _complex_greater_equal
 )
-_less_fn = _create_comparison_fn(
-    arith.CmpIPredicate.slt, arith.CmpFPredicate.OLT, _complex_less
-)
+_less_fn = _create_comparison_fn(arith.CmpIPredicate.slt, arith.CmpFPredicate.OLT, _complex_less)
 _less_equal_fn = _create_comparison_fn(
     arith.CmpIPredicate.sle, arith.CmpFPredicate.OLE, _complex_less_equal
 )
-_equal_fn = _create_comparison_fn(
-    arith.CmpIPredicate.eq, arith.CmpFPredicate.OEQ, _complex_equal
-)
+_equal_fn = _create_comparison_fn(arith.CmpIPredicate.eq, arith.CmpFPredicate.OEQ, _complex_equal)
 _not_equal_fn = _create_comparison_fn(
     arith.CmpIPredicate.ne, arith.CmpFPredicate.ONE, _complex_not_equal
 )
@@ -3704,9 +3618,7 @@ def _create_comparison_scalar_lowering(cmp_fn, op_name):
 @lower(np.greater, types.Number, types.Number, types.Array)
 def np_greater_scalar_to_array_cg(builder, target, args, kwargs):
     """greater(a, b, out) - scalar a > b to output array"""
-    _create_comparison_scalar_lowering(_greater_fn, "np.greater")(
-        builder, target, args, kwargs
-    )
+    _create_comparison_scalar_lowering(_greater_fn, "np.greater")(builder, target, args, kwargs)
 
 
 @lower(np.greater, types.Array, types.Array, types.Array)
@@ -3739,9 +3651,7 @@ def np_greater_equal_array_to_array_cg(builder, target, args, kwargs):
 
 @lower(np.less, types.Number, types.Number, types.Array)
 def np_less_scalar_to_array_cg(builder, target, args, kwargs):
-    _create_comparison_scalar_lowering(_less_fn, "np.less")(
-        builder, target, args, kwargs
-    )
+    _create_comparison_scalar_lowering(_less_fn, "np.less")(builder, target, args, kwargs)
 
 
 @lower(np.less, types.Array, types.Array, types.Array)
@@ -3769,9 +3679,7 @@ def np_less_equal_array_to_array_cg(builder, target, args, kwargs):
 
 @lower(np.equal, types.Number, types.Number, types.Array)
 def np_equal_scalar_to_array_cg(builder, target, args, kwargs):
-    _create_comparison_scalar_lowering(_equal_fn, "np.equal")(
-        builder, target, args, kwargs
-    )
+    _create_comparison_scalar_lowering(_equal_fn, "np.equal")(builder, target, args, kwargs)
 
 
 @lower(np.equal, types.Array, types.Array, types.Array)
@@ -3784,9 +3692,7 @@ def np_equal_array_to_array_cg(builder, target, args, kwargs):
 
 @lower(np.not_equal, types.Number, types.Number, types.Array)
 def np_not_equal_scalar_to_array_cg(builder, target, args, kwargs):
-    _create_comparison_scalar_lowering(_not_equal_fn, "np.not_equal")(
-        builder, target, args, kwargs
-    )
+    _create_comparison_scalar_lowering(_not_equal_fn, "np.not_equal")(builder, target, args, kwargs)
 
 
 @lower(np.not_equal, types.Array, types.Array, types.Array)
@@ -3841,9 +3747,7 @@ def _logical_xor_fn(a, b):
 @lower(np.logical_and, types.Array, types.Array)
 def np_logical_and_array_cg(builder, target, args, kwargs):
     """Element-wise logical_and using linalg.GenericOp."""
-    create_binary_elementwise_op(
-        builder, target, args, kwargs, _logical_and_fn, "np.logical_and"
-    )
+    create_binary_elementwise_op(builder, target, args, kwargs, _logical_and_fn, "np.logical_and")
 
 
 @lower(np.logical_and, types.Array, types.Array, types.Array)
@@ -3858,26 +3762,20 @@ def np_logical_and_array_to_array_cg(builder, target, args, kwargs):
 @lower(np.logical_or, types.Array, types.Array)
 def np_logical_or_array_cg(builder, target, args, kwargs):
     """Element-wise logical_or using linalg.GenericOp."""
-    create_binary_elementwise_op(
-        builder, target, args, kwargs, _logical_or_fn, "np.logical_or"
-    )
+    create_binary_elementwise_op(builder, target, args, kwargs, _logical_or_fn, "np.logical_or")
 
 
 @lower(np.logical_or, types.Array, types.Array, types.Array)
 def np_logical_or_array_to_array_cg(builder, target, args, kwargs):
     """logical_or(a, b, out) - element-wise a or b"""
-    create_binary_elementwise_op_with_output(
-        builder, target, args, _logical_or_fn, "np.logical_or"
-    )
+    create_binary_elementwise_op_with_output(builder, target, args, _logical_or_fn, "np.logical_or")
 
 
 @ufunc_registry.register(np.logical_xor)
 @lower(np.logical_xor, types.Array, types.Array)
 def np_logical_xor_array_cg(builder, target, args, kwargs):
     """Element-wise logical_xor using linalg.GenericOp."""
-    create_binary_elementwise_op(
-        builder, target, args, kwargs, _logical_xor_fn, "np.logical_xor"
-    )
+    create_binary_elementwise_op(builder, target, args, kwargs, _logical_xor_fn, "np.logical_xor")
 
 
 @lower(np.logical_xor, types.Array, types.Array, types.Array)
@@ -3910,9 +3808,7 @@ def np_logical_not_array_cg(builder, target, args, kwargs):
         result = _logical_not_fn(in_elem)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(
-        builder, target, args, kwargs, logical_not_fn, "np.logical_not"
-    )
+    create_elementwise_op(builder, target, args, kwargs, logical_not_fn, "np.logical_not")
 
 
 @lower(np.logical_not, types.Array, types.Array)
@@ -3976,34 +3872,26 @@ def _fmin_fn(a, b):
 @lower(np.maximum, types.Array, types.Array)
 def np_maximum_array_cg(builder, target, args, kwargs):
     """Element-wise maximum using linalg.GenericOp."""
-    create_binary_elementwise_op(
-        builder, target, args, kwargs, _maximum_fn, "np.maximum"
-    )
+    create_binary_elementwise_op(builder, target, args, kwargs, _maximum_fn, "np.maximum")
 
 
 @lower(np.maximum, types.Array, types.Array, types.Array)
 def np_maximum_array_to_array_cg(builder, target, args, kwargs):
     """maximum(a, b, out) - element-wise max(a, b)"""
-    create_binary_elementwise_op_with_output(
-        builder, target, args, _maximum_fn, "np.maximum"
-    )
+    create_binary_elementwise_op_with_output(builder, target, args, _maximum_fn, "np.maximum")
 
 
 @ufunc_registry.register(np.minimum)
 @lower(np.minimum, types.Array, types.Array)
 def np_minimum_array_cg(builder, target, args, kwargs):
     """Element-wise minimum using linalg.GenericOp."""
-    create_binary_elementwise_op(
-        builder, target, args, kwargs, _minimum_fn, "np.minimum"
-    )
+    create_binary_elementwise_op(builder, target, args, kwargs, _minimum_fn, "np.minimum")
 
 
 @lower(np.minimum, types.Array, types.Array, types.Array)
 def np_minimum_array_to_array_cg(builder, target, args, kwargs):
     """minimum(a, b, out) - element-wise min(a, b)"""
-    create_binary_elementwise_op_with_output(
-        builder, target, args, _minimum_fn, "np.minimum"
-    )
+    create_binary_elementwise_op_with_output(builder, target, args, _minimum_fn, "np.minimum")
 
 
 @ufunc_registry.register(np.fmax)
@@ -4038,25 +3926,19 @@ def np_fmin_array_to_array_cg(builder, target, args, kwargs):
 @lower(np.bitwise_and, types.Array, types.Array, types.Array)
 def np_bitwise_and_array_to_array_cg(builder, target, args, kwargs):
     """bitwise_and(a, b, out) - element-wise a & b"""
-    create_binary_elementwise_op_with_output(
-        builder, target, args, arith.andi, "np.bitwise_and"
-    )
+    create_binary_elementwise_op_with_output(builder, target, args, arith.andi, "np.bitwise_and")
 
 
 @lower(np.bitwise_or, types.Array, types.Array, types.Array)
 def np_bitwise_or_array_to_array_cg(builder, target, args, kwargs):
     """bitwise_or(a, b, out) - element-wise a | b"""
-    create_binary_elementwise_op_with_output(
-        builder, target, args, arith.ori, "np.bitwise_or"
-    )
+    create_binary_elementwise_op_with_output(builder, target, args, arith.ori, "np.bitwise_or")
 
 
 @lower(np.bitwise_xor, types.Array, types.Array, types.Array)
 def np_bitwise_xor_array_to_array_cg(builder, target, args, kwargs):
     """bitwise_xor(a, b, out) - element-wise a ^ b"""
-    create_binary_elementwise_op_with_output(
-        builder, target, args, arith.xori, "np.bitwise_xor"
-    )
+    create_binary_elementwise_op_with_output(builder, target, args, arith.xori, "np.bitwise_xor")
 
 
 def _bitwise_not_fn(a):
@@ -4291,17 +4173,13 @@ def _create_binary_scalar_to_output_array(builder, target, args, math_fn, op_nam
 @lower(np.maximum, types.Number, types.Number, types.Array)
 def np_maximum_scalar_to_array_cg(builder, target, args, kwargs):
     """maximum(a, b, out) - scalar max(a, b) to output array"""
-    _create_binary_scalar_to_output_array(
-        builder, target, args, _maximum_fn, "np.maximum"
-    )
+    _create_binary_scalar_to_output_array(builder, target, args, _maximum_fn, "np.maximum")
 
 
 @lower(np.minimum, types.Number, types.Number, types.Array)
 def np_minimum_scalar_to_array_cg(builder, target, args, kwargs):
     """minimum(a, b, out) - scalar min(a, b) to output array"""
-    _create_binary_scalar_to_output_array(
-        builder, target, args, _minimum_fn, "np.minimum"
-    )
+    _create_binary_scalar_to_output_array(builder, target, args, _minimum_fn, "np.minimum")
 
 
 @lower(np.fmax, types.Number, types.Number, types.Array)
@@ -4319,25 +4197,19 @@ def np_fmin_scalar_to_array_cg(builder, target, args, kwargs):
 @lower(np.bitwise_and, types.Integer, types.Integer, types.Array)
 def np_bitwise_and_scalar_to_array_cg(builder, target, args, kwargs):
     """bitwise_and(a, b, out) - scalar a & b to output array"""
-    _create_binary_scalar_to_output_array(
-        builder, target, args, arith.andi, "np.bitwise_and"
-    )
+    _create_binary_scalar_to_output_array(builder, target, args, arith.andi, "np.bitwise_and")
 
 
 @lower(np.bitwise_or, types.Integer, types.Integer, types.Array)
 def np_bitwise_or_scalar_to_array_cg(builder, target, args, kwargs):
     """bitwise_or(a, b, out) - scalar a | b to output array"""
-    _create_binary_scalar_to_output_array(
-        builder, target, args, arith.ori, "np.bitwise_or"
-    )
+    _create_binary_scalar_to_output_array(builder, target, args, arith.ori, "np.bitwise_or")
 
 
 @lower(np.bitwise_xor, types.Integer, types.Integer, types.Array)
 def np_bitwise_xor_scalar_to_array_cg(builder, target, args, kwargs):
     """bitwise_xor(a, b, out) - scalar a ^ b to output array"""
-    _create_binary_scalar_to_output_array(
-        builder, target, args, arith.xori, "np.bitwise_xor"
-    )
+    _create_binary_scalar_to_output_array(builder, target, args, arith.xori, "np.bitwise_xor")
 
 
 @lower(np.invert, types.Integer, types.Array)
@@ -4605,139 +4477,105 @@ def create_complex_elementwise_op_with_output(builder, target, args, math_fn):
 @lower(np.sin, types.Complex, types.Array)
 def np_sin_complex_scalar_to_array_cg(builder, target, args, kwargs):
     """sin(complex, out_array) - compute complex sin and store in output array"""
-    create_complex_scalar_to_output_array(
-        builder, target, args, complex_dialect.sin, "np.sin"
-    )
+    create_complex_scalar_to_output_array(builder, target, args, complex_dialect.sin, "np.sin")
 
 
 @lower(np.cos, types.Complex, types.Array)
 def np_cos_complex_scalar_to_array_cg(builder, target, args, kwargs):
     """cos(complex, out_array) - compute complex cos and store in output array"""
-    create_complex_scalar_to_output_array(
-        builder, target, args, complex_dialect.cos, "np.cos"
-    )
+    create_complex_scalar_to_output_array(builder, target, args, complex_dialect.cos, "np.cos")
 
 
 @lower(np.tan, types.Complex, types.Array)
 def np_tan_complex_scalar_to_array_cg(builder, target, args, kwargs):
     """tan(complex, out_array) - compute complex tan and store in output array"""
-    create_complex_scalar_to_output_array(
-        builder, target, args, complex_dialect.tan, "np.tan"
-    )
+    create_complex_scalar_to_output_array(builder, target, args, complex_dialect.tan, "np.tan")
 
 
 @lower(np.sqrt, types.Complex, types.Array)
 def np_sqrt_complex_scalar_to_array_cg(builder, target, args, kwargs):
     """sqrt(complex, out_array) - compute complex sqrt and store in output array"""
-    create_complex_scalar_to_output_array(
-        builder, target, args, complex_dialect.sqrt, "np.sqrt"
-    )
+    create_complex_scalar_to_output_array(builder, target, args, complex_dialect.sqrt, "np.sqrt")
 
 
 @lower(np.exp, types.Complex, types.Array)
 def np_exp_complex_scalar_to_array_cg(builder, target, args, kwargs):
     """exp(complex, out_array) - compute complex exp and store in output array"""
-    create_complex_scalar_to_output_array(
-        builder, target, args, complex_dialect.exp, "np.exp"
-    )
+    create_complex_scalar_to_output_array(builder, target, args, complex_dialect.exp, "np.exp")
 
 
 @lower(np.log, types.Complex, types.Array)
 def np_log_complex_scalar_to_array_cg(builder, target, args, kwargs):
     """log(complex, out_array) - compute complex log and store in output array"""
-    create_complex_scalar_to_output_array(
-        builder, target, args, complex_dialect.log, "np.log"
-    )
+    create_complex_scalar_to_output_array(builder, target, args, complex_dialect.log, "np.log")
 
 
 @lower(np.tanh, types.Complex, types.Array)
 def np_tanh_complex_scalar_to_array_cg(builder, target, args, kwargs):
     """tanh(complex, out_array) - compute complex tanh and store in output array"""
-    create_complex_scalar_to_output_array(
-        builder, target, args, complex_dialect.tanh, "np.tanh"
-    )
+    create_complex_scalar_to_output_array(builder, target, args, complex_dialect.tanh, "np.tanh")
 
 
 # Complex inverse trig ufuncs (using formula implementations)
 @lower(np.arccos, types.Complex, types.Array)
 def np_arccos_complex_scalar_to_array_cg(builder, target, args, kwargs):
     """arccos(complex, out_array) - compute complex arccos and store in output array"""
-    create_complex_scalar_to_output_array(
-        builder, target, args, _complex_acos, "np.arccos"
-    )
+    create_complex_scalar_to_output_array(builder, target, args, _complex_acos, "np.arccos")
 
 
 @lower(np.arcsin, types.Complex, types.Array)
 def np_arcsin_complex_scalar_to_array_cg(builder, target, args, kwargs):
     """arcsin(complex, out_array) - compute complex arcsin and store in output array"""
-    create_complex_scalar_to_output_array(
-        builder, target, args, _complex_asin, "np.arcsin"
-    )
+    create_complex_scalar_to_output_array(builder, target, args, _complex_asin, "np.arcsin")
 
 
 @lower(np.arctan, types.Complex, types.Array)
 def np_arctan_complex_scalar_to_array_cg(builder, target, args, kwargs):
     """arctan(complex, out_array) - compute complex arctan and store in output array"""
-    create_complex_scalar_to_output_array(
-        builder, target, args, _complex_atan, "np.arctan"
-    )
+    create_complex_scalar_to_output_array(builder, target, args, _complex_atan, "np.arctan")
 
 
 # Complex hyperbolic ufuncs
 @lower(np.sinh, types.Complex, types.Array)
 def np_sinh_complex_scalar_to_array_cg(builder, target, args, kwargs):
     """sinh(complex, out_array) - compute complex sinh and store in output array"""
-    create_complex_scalar_to_output_array(
-        builder, target, args, _complex_sinh, "np.sinh"
-    )
+    create_complex_scalar_to_output_array(builder, target, args, _complex_sinh, "np.sinh")
 
 
 @lower(np.cosh, types.Complex, types.Array)
 def np_cosh_complex_scalar_to_array_cg(builder, target, args, kwargs):
     """cosh(complex, out_array) - compute complex cosh and store in output array"""
-    create_complex_scalar_to_output_array(
-        builder, target, args, _complex_cosh, "np.cosh"
-    )
+    create_complex_scalar_to_output_array(builder, target, args, _complex_cosh, "np.cosh")
 
 
 @lower(np.arcsinh, types.Complex, types.Array)
 def np_arcsinh_complex_scalar_to_array_cg(builder, target, args, kwargs):
     """arcsinh(complex, out_array) - compute complex arcsinh and store in output array"""
-    create_complex_scalar_to_output_array(
-        builder, target, args, _complex_asinh, "np.arcsinh"
-    )
+    create_complex_scalar_to_output_array(builder, target, args, _complex_asinh, "np.arcsinh")
 
 
 @lower(np.arccosh, types.Complex, types.Array)
 def np_arccosh_complex_scalar_to_array_cg(builder, target, args, kwargs):
     """arccosh(complex, out_array) - compute complex arccosh and store in output array"""
-    create_complex_scalar_to_output_array(
-        builder, target, args, _complex_acosh, "np.arccosh"
-    )
+    create_complex_scalar_to_output_array(builder, target, args, _complex_acosh, "np.arccosh")
 
 
 @lower(np.arctanh, types.Complex, types.Array)
 def np_arctanh_complex_scalar_to_array_cg(builder, target, args, kwargs):
     """arctanh(complex, out_array) - compute complex arctanh and store in output array"""
-    create_complex_scalar_to_output_array(
-        builder, target, args, _complex_atanh, "np.arctanh"
-    )
+    create_complex_scalar_to_output_array(builder, target, args, _complex_atanh, "np.arctanh")
 
 
 @lower(np.log2, types.Complex, types.Array)
 def np_log2_complex_scalar_to_array_cg(builder, target, args, kwargs):
     """log2(complex, out_array) - compute complex log2 and store in output array"""
-    create_complex_scalar_to_output_array(
-        builder, target, args, _complex_log2, "np.log2"
-    )
+    create_complex_scalar_to_output_array(builder, target, args, _complex_log2, "np.log2")
 
 
 @lower(np.log10, types.Complex, types.Array)
 def np_log10_complex_scalar_to_array_cg(builder, target, args, kwargs):
     """log10(complex, out_array) - compute complex log10 and store in output array"""
-    create_complex_scalar_to_output_array(
-        builder, target, args, _complex_log10, "np.log10"
-    )
+    create_complex_scalar_to_output_array(builder, target, args, _complex_log10, "np.log10")
 
 
 @lower(numpy_empty_like_nd, types.Array, types.DTypeSpec, types.TypeRef)

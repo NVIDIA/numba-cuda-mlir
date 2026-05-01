@@ -99,9 +99,7 @@ if os.name == "nt":
 else:
     # Mix the UID into the directory name to allow different users to
     # run the test suite without permission errors (issue #1586)
-    _trashcan_dir = os.path.join(
-        tempfile.gettempdir(), "%s.%s" % (_trashcan_dir, os.getuid())
-    )
+    _trashcan_dir = os.path.join(tempfile.gettempdir(), "%s.%s" % (_trashcan_dir, os.getuid()))
 
 # Stale temporary directories are deleted after they are older than this value.
 # The test suite probably won't ever take longer than this...
@@ -287,9 +285,7 @@ class TestCase(unittest.TestCase):
         new_refcounts = [sys.getrefcount(x) for x in objects]
         for old, new, obj in zip(old_refcounts, new_refcounts, objects):
             if old != new:
-                self.fail(
-                    "Refcount changed from %d to %d for object: %r" % (old, new, obj)
-                )
+                self.fail("Refcount changed from %d to %d for object: %r" % (old, new, obj))
 
     def assertRefCountEqual(self, *objects):
         gc.collect()
@@ -376,11 +372,7 @@ class TestCase(unittest.TestCase):
         """
         # Under 64-bit Windows, Numpy may return either int32 or int64
         # arrays depending on the function.
-        if (
-            sys.platform == "win32"
-            and sys.maxsize > 2**32
-            and dtype == np.dtype("int32")
-        ):
+        if sys.platform == "win32" and sys.maxsize > 2**32 and dtype == np.dtype("int32"):
             return np.dtype("int64")
         else:
             return dtype
@@ -454,9 +446,7 @@ class TestCase(unittest.TestCase):
         will raise an error.
         """
         try:
-            self._assertPreciseEqual(
-                first, second, prec, ulps, msg, ignore_sign_on_zero, abs_tol
-            )
+            self._assertPreciseEqual(first, second, prec, ulps, msg, ignore_sign_on_zero, abs_tol)
         except AssertionError as exc:
             failure_msg = str(exc)
             # Fall off of the 'except' scope to avoid Python 3 exception
@@ -479,20 +469,13 @@ class TestCase(unittest.TestCase):
         """Recursive workhorse for assertPreciseEqual()."""
 
         def _assertNumberEqual(first, second, delta=None):
-            if (
-                delta is None
-                or first == second == 0.0
-                or math.isinf(first)
-                or math.isinf(second)
-            ):
+            if delta is None or first == second == 0.0 or math.isinf(first) or math.isinf(second):
                 self.assertEqual(first, second, msg=msg)
                 # For signed zeros
                 if not ignore_sign_on_zero:
                     try:
                         if math.copysign(1, first) != math.copysign(1, second):
-                            self.fail(
-                                self._formatMessage(msg, "%s != %s" % (first, second))
-                            )
+                            self.fail(self._formatMessage(msg, "%s != %s" % (first, second)))
                     except TypeError:
                         pass
             else:
@@ -534,17 +517,13 @@ class TestCase(unittest.TestCase):
             if second.dtype != dtype:
                 second = second.astype(dtype)
             for a, b in zip(first.flat, second.flat):
-                self._assertPreciseEqual(
-                    a, b, prec, ulps, msg, ignore_sign_on_zero, abs_tol
-                )
+                self._assertPreciseEqual(a, b, prec, ulps, msg, ignore_sign_on_zero, abs_tol)
             return
 
         elif compare_family == "sequence":
             self.assertEqual(len(first), len(second), msg=msg)
             for a, b in zip(first, second):
-                self._assertPreciseEqual(
-                    a, b, prec, ulps, msg, ignore_sign_on_zero, abs_tol
-                )
+                self._assertPreciseEqual(a, b, prec, ulps, msg, ignore_sign_on_zero, abs_tol)
             return
 
         elif compare_family == "exact":
@@ -696,9 +675,7 @@ class TestCase(unittest.TestCase):
             env=env_copy,
             universal_newlines=True,
         )
-        streams = (
-            f"\ncaptured stdout: {status.stdout}\n" f"captured stderr: {status.stderr}"
-        )
+        streams = f"\ncaptured stdout: {status.stdout}\ncaptured stderr: {status.stderr}"
         self.assertEqual(status.returncode, 0, streams)
         # Python 3.12.1 report
         no_tests_ran = "NO TESTS RAN"
@@ -759,9 +736,7 @@ class TestCase(unittest.TestCase):
 
         # Dual registration for cross-target tests
         if HAS_NUMBA:
-            UpstreamDummyType = type(
-                "DummyTypeFor{}".format(test_id), (upstream_types.Opaque,), {}
-            )
+            UpstreamDummyType = type("DummyTypeFor{}".format(test_id), (upstream_types.Opaque,), {})
             upstream_dummy_type = UpstreamDummyType("my_dummy")
 
             @upstream_typeof_impl.register(Dummy)
@@ -868,9 +843,7 @@ def run_in_new_process_in_cache_dir(func, cache_dir, verbose=True):
         stderr: str
     """
     with override_env_config("NUMBA_CACHE_DIR", cache_dir):
-        with concurrent.futures.ProcessPoolExecutor(
-            mp_context=mp.get_context("spawn")
-        ) as exe:
+        with concurrent.futures.ProcessPoolExecutor(mp_context=mp.get_context("spawn")) as exe:
             future = exe.submit(_remote_runner, func)
 
         stdout, stderr, exitcode = future.result()

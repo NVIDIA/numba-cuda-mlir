@@ -42,7 +42,6 @@ def fixup_nvvm_arg_attrs(op: gpu.GPUFuncOp):
 
             # assuming the CAPI for memref types is expanded here
             if isinstance(orig_arg_type, ir.MemRefType):
-
                 # append again for the aligned pointer
                 new_arg_attrs.append(ir.DictAttr.get(new_arg_attr))
 
@@ -95,9 +94,9 @@ def _resolve_exotic_float_casts(module: ir.Module):
             if len(op.results) == 1 and len(op.operands) == 1:
                 src_ty = op.operands[0].type
                 dst_ty = op.results[0].type
-                if (
-                    isinstance(src_ty, ir.IntegerType) and _is_exotic_float(dst_ty)
-                ) or (_is_exotic_float(src_ty) and isinstance(dst_ty, ir.IntegerType)):
+                if (isinstance(src_ty, ir.IntegerType) and _is_exotic_float(dst_ty)) or (
+                    _is_exotic_float(src_ty) and isinstance(dst_ty, ir.IntegerType)
+                ):
                     worklist.append(op)
         for region in op.operation.regions:
             for block in region.blocks:

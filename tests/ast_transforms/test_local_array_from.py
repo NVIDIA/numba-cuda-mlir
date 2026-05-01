@@ -11,9 +11,7 @@ def test_local_array_from_transform():
 
     @numba_cuda_mlir.jit(experimental_ast_transforms=True)
     def kernel(out, indices):
-        arr = numba_cuda_mlir.cuda.local_array_from(
-            (i + 1 for i in indices), dtype=np.int64
-        )
+        arr = numba_cuda_mlir.cuda.local_array_from((i + 1 for i in indices), dtype=np.int64)
         out[0] = arr[0]
         out[1] = arr[1]
         out[2] = arr[2]
@@ -31,9 +29,7 @@ def test_local_array_from_runs_correctly():
 
     @numba_cuda_mlir.jit(experimental_ast_transforms=True)
     def kernel(out, indices):
-        arr = numba_cuda_mlir.cuda.local_array_from(
-            (i + 1 for i in indices), dtype=np.int64
-        )
+        arr = numba_cuda_mlir.cuda.local_array_from((i + 1 for i in indices), dtype=np.int64)
         out[0] = arr[0]
         out[1] = arr[1]
         out[2] = arr[2]
@@ -50,9 +46,7 @@ def test_local_array_from_expression():
 
     @numba_cuda_mlir.jit(experimental_ast_transforms=True)
     def kernel(out, values):
-        arr = numba_cuda_mlir.cuda.local_array_from(
-            (v * 2 + 1 for v in values), dtype=np.float32
-        )
+        arr = numba_cuda_mlir.cuda.local_array_from((v * 2 + 1 for v in values), dtype=np.float32)
         for i in range(3):
             out[i] = arr[i]
 

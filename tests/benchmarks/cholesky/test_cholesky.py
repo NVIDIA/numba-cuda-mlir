@@ -171,9 +171,9 @@ def test_cholesky():
     L_numba_cuda_mlir = run_numba_cuda_mlir_cholesky(A)
 
     numba_cuda_mlir_ok, numba_cuda_mlir_err = verify_cholesky(A, L_numba_cuda_mlir)
-    assert (
-        numba_cuda_mlir_ok
-    ), f"numba-cuda-mlir verification failed with error {numba_cuda_mlir_err}"
+    assert numba_cuda_mlir_ok, (
+        f"numba-cuda-mlir verification failed with error {numba_cuda_mlir_err}"
+    )
 
 
 def test_cholesky_benchmark(benchmark_runner):
@@ -188,9 +188,7 @@ def run_benchmark_main():
         types.int64,
         types.int32[::1],
     )
-    col_sig = types.void(
-        types.float64[::1], types.float64[::1], types.int64, types.int64
-    )
+    col_sig = types.void(types.float64[::1], types.float64[::1], types.int64, types.int64)
 
     start = time.perf_counter()
     chol_compute_diag_numba_cuda.compile(diag_sig)

@@ -281,12 +281,10 @@ def test_cholesky_blocked():
     A = get_input_matrix()
     numba_cuda_mlir_L = run_numba_cuda_mlir_cholesky_blocked(A)
 
-    numba_cuda_mlir_ok, numba_cuda_mlir_err = verify_cholesky_colmajor(
-        A, numba_cuda_mlir_L, N
+    numba_cuda_mlir_ok, numba_cuda_mlir_err = verify_cholesky_colmajor(A, numba_cuda_mlir_L, N)
+    assert numba_cuda_mlir_ok, (
+        f"numba-cuda-mlir verification failed with error {numba_cuda_mlir_err}"
     )
-    assert (
-        numba_cuda_mlir_ok
-    ), f"numba-cuda-mlir verification failed with error {numba_cuda_mlir_err}"
 
 
 def test_cholesky_blocked_benchmark(benchmark_runner):
@@ -302,12 +300,8 @@ def run_benchmark_main():
         types.int64,
         types.int32[::1],
     )
-    trsm_sig = types.void(
-        types.float64[::1], types.int64, types.int64, types.int64, types.int64
-    )
-    syrk_sig = types.void(
-        types.float64[::1], types.int64, types.int64, types.int64, types.int64
-    )
+    trsm_sig = types.void(types.float64[::1], types.int64, types.int64, types.int64, types.int64)
+    syrk_sig = types.void(types.float64[::1], types.int64, types.int64, types.int64, types.int64)
 
     start = time.perf_counter()
     chol_panel_kernel_numba_cuda.compile(panel_sig)

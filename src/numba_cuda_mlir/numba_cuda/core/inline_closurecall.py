@@ -173,9 +173,7 @@ class InlineClosureCallPass:
         # only inline reduction in sequential execution, parallel handling
         # is done in ParforPass.
         require(not self.parallel_options.reduction)
-        require(
-            call_name == ("reduce", "builtins") or call_name == ("reduce", "_functools")
-        )
+        require(call_name == ("reduce", "builtins") or call_name == ("reduce", "_functools"))
         if len(expr.args) not in (2, 3):
             raise TypeError(
                 "invalid reduce call, "
@@ -307,10 +305,7 @@ class InlineWorker:
         pair = (typemap, calltypes)
         pair_is_none = [x is None for x in pair]
         if any(pair_is_none) and not all(pair_is_none):
-            msg = (
-                "typemap and calltypes must both be either None or have a "
-                "value, got: %s, %s"
-            )
+            msg = "typemap and calltypes must both be either None or have a value, got: %s, %s"
             raise TypeError(msg % pair)
         self._permit_update_type_and_call_maps = not all(pair_is_none)
         self.typemap = typemap
@@ -329,8 +324,7 @@ class InlineWorker:
         def copy_ir(the_ir):
             kernel_copy = the_ir.copy()
             kernel_copy.blocks = {
-                block_label: copy.deepcopy(block)
-                for block_label, block in the_ir.blocks.items()
+                block_label: copy.deepcopy(block) for block_label, block in the_ir.blocks.items()
             }
             return kernel_copy
 
@@ -374,9 +368,7 @@ class InlineWorker:
         var_dict = {}
         for var in tuple(callee_scope.localvars._con.values()):
             if var.name not in callee_freevars:
-                inlined_name = _created_inlined_var_name(
-                    callee_ir.func_id.unique_name, var.name
-                )
+                inlined_name = _created_inlined_var_name(callee_ir.func_id.unique_name, var.name)
                 # Update the caller scope with the new names
                 new_var = scope.redefine(inlined_name, loc=var.loc)
                 # Also update the callee scope with the new names. Should the
@@ -449,9 +441,7 @@ class InlineWorker:
         """
         callee_ir = self.run_untyped_passes(function)
         freevars = function.__code__.co_freevars
-        return self.inline_ir(
-            caller_ir, block, i, callee_ir, freevars, arg_typs=arg_typs
-        )
+        return self.inline_ir(caller_ir, block, i, callee_ir, freevars, arg_typs=arg_typs)
 
     def run_untyped_passes(self, func, enable_ssa=False):
         """
@@ -571,9 +561,7 @@ def inline_closure_call(
     debug_print("Found closure call: ", instr, " with callee = ", callee)
     # support both function object and make_function Expr
     callee_code = callee.code if hasattr(callee, "code") else callee.__code__
-    callee_closure = (
-        callee.closure if hasattr(callee, "closure") else callee.__closure__
-    )
+    callee_closure = callee.closure if hasattr(callee, "closure") else callee.__closure__
     from numba_cuda_mlir.numba_cuda.core import ir_utils
 
     # first, get the IR of the callee
@@ -613,9 +601,7 @@ def inline_closure_call(
     var_dict = {}
     for var in callee_scope.localvars._con.values():
         if var.name not in callee_code.co_freevars:
-            inlined_name = _created_inlined_var_name(
-                callee_ir.func_id.unique_name, var.name
-            )
+            inlined_name = _created_inlined_var_name(callee_ir.func_id.unique_name, var.name)
             new_var = scope.redefine(inlined_name, loc=var.loc)
             var_dict[var.name] = new_var
     debug_print("var_dict = ", var_dict)
@@ -653,16 +639,12 @@ def inline_closure_call(
         callee_ir._definitions = ir_utils.build_definitions(callee_ir.blocks)
         dead_branch_prune(callee_ir, arg_typs)
         try:
-            [f_typemap, f_return_type, f_calltypes, _] = (
-                typed_passes.type_inference_stage(
-                    typingctx, targetctx, callee_ir, arg_typs, None
-                )
+            [f_typemap, f_return_type, f_calltypes, _] = typed_passes.type_inference_stage(
+                typingctx, targetctx, callee_ir, arg_typs, None
             )
         except Exception:
-            [f_typemap, f_return_type, f_calltypes, _] = (
-                typed_passes.type_inference_stage(
-                    typingctx, targetctx, callee_ir, arg_typs, None
-                )
+            [f_typemap, f_return_type, f_calltypes, _] = typed_passes.type_inference_stage(
+                typingctx, targetctx, callee_ir, arg_typs, None
             )
         canonicalize_array_math(callee_ir, f_typemap, f_calltypes, typingctx)
         # remove argument entries like arg.a from typemap
@@ -755,9 +737,7 @@ def _get_callee_args(call_expr, callee, loc, func_ir):
     else:
         # TODO: handle arguments for make_function case similar to function
         # case above
-        callee_defaults = (
-            callee.defaults if hasattr(callee, "defaults") else callee.__defaults__
-        )
+        callee_defaults = callee.defaults if hasattr(callee, "defaults") else callee.__defaults__
         if callee_defaults:
             debug_print("defaults = ", callee_defaults)
             if isinstance(callee_defaults, tuple):  # Python 3.5
@@ -770,9 +750,7 @@ def _get_callee_args(call_expr, callee, loc, func_ir):
                         # inlinable functions
                         defaults_list.append(ir.Const(value=x, loc=loc))
                 args = args + defaults_list
-            elif isinstance(callee_defaults, ir.Var) or isinstance(
-                callee_defaults, str
-            ):
+            elif isinstance(callee_defaults, ir.Var) or isinstance(callee_defaults, str):
                 default_tuple = func_ir.get_definition(callee_defaults)
                 assert isinstance(default_tuple, ir.Expr)
                 assert default_tuple.op == "build_tuple"
@@ -901,11 +879,7 @@ def _find_arraycall(func_ir, block):
                 array_var = lhs
                 array_stmt_index = i
                 array_kws = dict(expr.kws)
-        elif (
-            isinstance(instr, ir.SetItem)
-            and isinstance(instr.value, ir.Var)
-            and not list_var
-        ):
+        elif isinstance(instr, ir.SetItem) and isinstance(instr.value, ir.Var) and not list_var:
             list_var = instr.value
             # Found array_var[..] = list_var, the case for nested array
             array_var = instr.target
@@ -970,9 +944,7 @@ def length_of_iterator(typingctx, val):
             iter_type = range_impl_map[val_type][1]
             iterobj = cgutils.create_struct_proxy(iter_type)(context, builder, value)
             int_type = iterobj.count.type
-            return impl_ret_untracked(
-                context, builder, int_type, builder.load(iterobj.count)
-            )
+            return impl_ret_untracked(context, builder, int_type, builder.load(iterobj.count))
 
         return signature(val_type, val), codegen
     elif isinstance(val, types.ListIter):
@@ -1020,9 +992,7 @@ def length_of_iterator(typingctx, val):
         raise errors.TypingError(msg)
 
 
-def _inline_arraycall(
-    func_ir, cfg, visited, loop, swapped, enable_prange=False, typed=False
-):
+def _inline_arraycall(func_ir, cfg, visited, loop, swapped, enable_prange=False, typed=False):
     """Look for array(list) call in the exit block of a given loop, and turn
     list operations into array operations in the loop if the following
     conditions are met:
@@ -1169,9 +1139,7 @@ def _inline_arraycall(
     else:
         # index_var = -1 # starting the index with -1 since it will incremented
         # in loop header
-        stmts.append(
-            _new_definition(func_ir, index_var, ir.Const(value=-1, loc=loc), loc)
-        )
+        stmts.append(_new_definition(func_ir, index_var, ir.Const(value=-1, loc=loc), loc))
 
     # Insert statement to get the size of the loop iterator
     size_var = scope.redefine("size", loc)
@@ -1227,9 +1195,7 @@ def _inline_arraycall(
             )
         )
         stmts.append(
-            _new_definition(
-                func_ir, empty_func, ir.Global("empty", np.empty, loc=loc), loc
-            )
+            _new_definition(func_ir, empty_func, ir.Global("empty", np.empty, loc=loc), loc)
         )
         array_kws = [("dtype", dtype_var)]
     else:
@@ -1388,8 +1354,7 @@ def _fix_nested_array(func_ir):
                             # var must be defined before this inst, or live
                             # and not later defined.
                             if var.name in defined or (
-                                var.name in livemap[label]
-                                and var.name not in usedefs.defmap[label]
+                                var.name in livemap[label] and var.name not in usedefs.defmap[label]
                             ):
                                 debug_print(var.name, " already defined")
                                 new_varlist.append(var)
@@ -1400,9 +1365,7 @@ def _fix_nested_array(func_ir):
                                     loc = var.loc
                                     new_var = scope.redefine("new_var", loc)
                                     new_const = ir.Const(var_def.value, loc)
-                                    new_vardef = _new_definition(
-                                        func_ir, new_var, new_const, loc
-                                    )
+                                    new_vardef = _new_definition(func_ir, new_var, new_const, loc)
                                     new_body = []
                                     new_body.extend(body[:i])
                                     new_body.append(new_vardef)
@@ -1448,9 +1411,7 @@ def _fix_nested_array(func_ir):
         debug_print("extra_dims = ", extra_dims)
         # Expand size tuple when creating lhs_def with extra_dims
         size_tuple_def = get_definition(func_ir, lhs_def.args[0])
-        require(
-            isinstance(size_tuple_def, ir.Expr) and size_tuple_def.op == "build_tuple"
-        )
+        require(isinstance(size_tuple_def, ir.Expr) and size_tuple_def.op == "build_tuple")
         debug_print("size_tuple_def = ", size_tuple_def)
         extra_dims = fix_dependencies(size_tuple_def, extra_dims)
         size_tuple_def.items += extra_dims
@@ -1572,9 +1533,7 @@ def _inline_const_arraycall(block, func_ir, context, typemap, calltypes):
         typemap[empty_func.name] = fnty
 
         stmts.append(
-            _new_definition(
-                func_ir, empty_func, ir.Global("empty", np.empty, loc=loc), loc
-            )
+            _new_definition(func_ir, empty_func, ir.Global("empty", np.empty, loc=loc), loc)
         )
 
         # We pass two arguments to empty, first the size tuple and second
@@ -1610,9 +1569,7 @@ def _inline_const_arraycall(block, func_ir, context, typemap, calltypes):
             typemap[index_var.name] = index_typ
             stmts.append(_new_definition(func_ir, index_var, ir.Const(i, loc), loc))
             setitem = ir.SetItem(array_var, index_var, seq[i], loc)
-            calltypes[setitem] = typing.signature(
-                types.none, array_typ, index_typ, dtype
-            )
+            calltypes[setitem] = typing.signature(types.none, array_typ, index_typ, dtype)
             stmts.append(setitem)
 
         stmts.extend(dels)
@@ -1705,11 +1662,8 @@ def _inline_const_arraycall(block, func_ir, context, typemap, calltypes):
                     body = []
                     for inst in state.stmts:
                         if (
-                            isinstance(inst, ir.Assign)
-                            and inst.target.name in state.dead_vars
-                        ) or (
-                            isinstance(inst, ir.Del) and inst.value in state.dead_vars
-                        ):
+                            isinstance(inst, ir.Assign) and inst.target.name in state.dead_vars
+                        ) or (isinstance(inst, ir.Del) and inst.value in state.dead_vars):
                             continue
                         body.append(inst)
                     state.stmts = body

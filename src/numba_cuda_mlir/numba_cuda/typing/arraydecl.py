@@ -71,9 +71,7 @@ def get_array_index_type(ary, idx):
     for ty in idx:
         if ty is types.ellipsis:
             if ellipsis_met:
-                raise NumbaTypeError(
-                    "Only one ellipsis allowed in array indices " "(got %s)" % (idx,)
-                )
+                raise NumbaTypeError("Only one ellipsis allowed in array indices (got %s)" % (idx,))
             ellipsis_met = True
             in_subspace = False
         elif isinstance(ty, types.SliceType):
@@ -96,19 +94,13 @@ def get_array_index_type(ary, idx):
                 # this branch then we have a new subspace/group.
                 num_subspaces += 1
                 in_subspace = True
-        elif (
-            isinstance(ty, types.Array)
-            and ty.ndim == 0
-            and isinstance(ty.dtype, types.Integer)
-        ):
+        elif isinstance(ty, types.Array) and ty.ndim == 0 and isinstance(ty.dtype, types.Integer):
             # 0-d array used as integer index
             ndim -= 1
             if not in_subspace:
                 num_subspaces += 1
                 in_subspace = True
-        elif isinstance(ty, types.Array) and isinstance(
-            ty.dtype, (types.Integer, types.Boolean)
-        ):
+        elif isinstance(ty, types.Array) and isinstance(ty.dtype, (types.Integer, types.Boolean)):
             if ty.ndim > 1:
                 # Advanced indexing limitation # 1
                 raise NumbaTypeError("Multi-dimensional indices are not supported.")
@@ -153,9 +145,7 @@ def get_array_index_type(ary, idx):
 
     n_indices = len(all_indices) - ellipsis_met - num_newaxis
     if n_indices > ary.ndim:
-        raise NumbaTypeError(
-            "cannot index %s with %d indices: %s" % (ary, n_indices, idx)
-        )
+        raise NumbaTypeError("cannot index %s with %d indices: %s" % (ary, n_indices, idx))
     if n_indices == ary.ndim and ndim == 0 and not ellipsis_met:
         # Full integer indexing => scalar result
         # (note if ellipsis is present, a 0-d view is returned instead)
@@ -181,9 +171,7 @@ def get_array_index_type(ary, idx):
             return (
                 ty is types.ellipsis
                 or isinstance(ty, types.Integer)
-                or (
-                    is_innermost and isinstance(ty, types.SliceType) and not ty.has_step
-                )
+                or (is_innermost and isinstance(ty, types.SliceType) and not ty.has_step)
             )
 
         def check_contiguity(outer_indices):
@@ -494,9 +482,7 @@ class ArrayAttribute(AttributeTemplate):
         else:
             # vararg case
             if any(not sentry_shape_scalar(a) for a in args):
-                raise TypingError(
-                    "reshape({0}) is not supported".format(", ".join(map(str, args)))
-                )
+                raise TypingError("reshape({0}) is not supported".format(", ".join(map(str, args))))
 
             retty = ary.copy(ndim=len(args))
             return signature(retty, *args)
@@ -526,9 +512,7 @@ class ArrayAttribute(AttributeTemplate):
         assert not kws
         (dtype,) = args
         if isinstance(dtype, types.UnicodeType):
-            raise RequireLiteralValue(
-                ("array.astype if dtype is a string it must be constant")
-            )
+            raise RequireLiteralValue(("array.astype if dtype is a string it must be constant"))
         dtype = parse_dtype(dtype)
         if dtype is None:
             return
@@ -846,9 +830,7 @@ def sum_expand(self, args, kws):
             # 1d reduces to a scalar, 2d and above reduce dim by 1
             # the return type of this summation is  an array of dimension one
             # less than the input array.
-            return_type = types.Array(
-                dtype=return_type, ndim=self.this.ndim - 1, layout="C"
-            )
+            return_type = types.Array(dtype=return_type, ndim=self.this.ndim - 1, layout="C")
         out = signature(return_type, *args, recvr=self.this)
     else:
         pass
@@ -861,9 +843,7 @@ def generic_expand_cumulative(self, args, kws):
     if kws:
         raise NumbaAssertionError("kwargs unsupported")
     assert isinstance(self.this, types.Array)
-    return_type = types.Array(
-        dtype=_expand_integer(self.this.dtype), ndim=1, layout="C"
-    )
+    return_type = types.Array(dtype=_expand_integer(self.this.dtype), ndim=1, layout="C")
     return signature(return_type, recvr=self.this)
 
 

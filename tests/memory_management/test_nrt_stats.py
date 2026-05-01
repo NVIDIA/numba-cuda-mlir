@@ -121,9 +121,7 @@ class TestNRTVarCopy:
 
         assert rc[0] == 1, f"after alloc: expected 1, got {rc[0]}"
         assert rc[1] == 2, f"after y=x (via x): expected 2, got {rc[1]}"
-        assert (
-            rc[2] == 1
-        ), f"after del x (via y): expected 1 (x dead, only y alive), got {rc[2]}"
+        assert rc[2] == 1, f"after del x (via y): expected 1 (x dead, only y alive), got {rc[2]}"
 
         d_alloc = after.alloc - before.alloc
         d_free = after.free - before.free
@@ -187,8 +185,7 @@ class TestNRTFunctionArg:
         assert out[0] == 1, "child function did not execute"
         assert rc[0] == 1, f"before call: expected refcount 1, got {rc[0]}"
         assert rc[1] == 2, (
-            f"inside child: expected refcount 2 "
-            f"(caller + inlined var copy), got {rc[1]}"
+            f"inside child: expected refcount 2 (caller + inlined var copy), got {rc[1]}"
         )
         assert rc[2] == 1, f"after call: expected refcount 1, got {rc[2]}"
 
@@ -273,12 +270,10 @@ class TestNRTFunctionArg:
 
         assert rc[0] == 1, f"before call: expected refcount 1, got {rc[0]}"
         assert rc[1] == 3, (
-            f"inside child (obj): expected refcount 3 "
-            f"(caller + arg + alias), got {rc[1]}"
+            f"inside child (obj): expected refcount 3 (caller + arg + alias), got {rc[1]}"
         )
         assert rc[2] == 2, (
-            f"inside child (y): expected refcount 2 "
-            f"(caller + alias, obj dead), got {rc[2]}"
+            f"inside child (y): expected refcount 2 (caller + alias, obj dead), got {rc[2]}"
         )
         assert rc[3] == 1, f"after call: expected refcount 1, got {rc[3]}"
 
@@ -346,13 +341,10 @@ class TestNRTCallResult:
         d_mi_alloc = after.mi_alloc - before.mi_alloc
         d_mi_free = after.mi_free - before.mi_free
 
-        assert (
-            rc[0] == 1
-        ), f"expected refcount 1 in caller after non-inlined call, got {rc[0]}; "
+        assert rc[0] == 1, f"expected refcount 1 in caller after non-inlined call, got {rc[0]}; "
         assert d_alloc == 1, f"expected 1 alloc, got {d_alloc}"
         assert d_free == d_alloc, (
-            f"free ({d_free}) != alloc ({d_alloc}): "
-            "call result refcounting is broken"
+            f"free ({d_free}) != alloc ({d_alloc}): call result refcounting is broken"
         )
         assert d_mi_alloc == 1, f"expected 1 mi_alloc, got {d_mi_alloc}"
         assert d_mi_free == d_mi_alloc, f"expected mi_free == mi_alloc, got {d_mi_free}"
@@ -392,8 +384,7 @@ class TestNRTCallResult:
         )
         assert d_alloc == 1, f"expected 1 alloc, got {d_alloc}"
         assert d_free == d_alloc, (
-            f"free ({d_free}) != alloc ({d_alloc}): "
-            "chained call result refcounting is broken"
+            f"free ({d_free}) != alloc ({d_alloc}): chained call result refcounting is broken"
         )
 
 
@@ -448,8 +439,7 @@ class TestNRTBuildTuple:
         )
         assert d_alloc == 1, f"expected 1 alloc, got {d_alloc}"
         assert d_free == d_alloc, (
-            f"free ({d_free}) != alloc ({d_alloc}): "
-            "build_tuple/del refcounting is unbalanced"
+            f"free ({d_free}) != alloc ({d_alloc}): build_tuple/del refcounting is unbalanced"
         )
 
 
@@ -505,8 +495,7 @@ class TestNRTGetattr:
         )
         assert d_alloc == 1, f"expected 1 alloc, got {d_alloc}"
         assert d_free == d_alloc, (
-            f"free ({d_free}) != alloc ({d_alloc}): "
-            "getattr/del refcounting is unbalanced"
+            f"free ({d_free}) != alloc ({d_alloc}): getattr/del refcounting is unbalanced"
         )
 
 
@@ -577,8 +566,7 @@ class TestNRTTupleUnpack:
         )
         assert d_alloc == 1, f"expected 1 alloc, got {d_alloc}"
         assert d_free == d_alloc, (
-            f"free ({d_free}) != alloc ({d_alloc}): "
-            "tuple unpack refcounting is unbalanced"
+            f"free ({d_free}) != alloc ({d_alloc}): tuple unpack refcounting is unbalanced"
         )
 
     def test_tuple_unpack_two_elements(self, nrt_stats):
@@ -644,8 +632,7 @@ class TestNRTTupleUnpack:
         )
         assert d_alloc == 1, f"expected 1 alloc, got {d_alloc}"
         assert d_free == d_alloc, (
-            f"free ({d_free}) != alloc ({d_alloc}): "
-            "tuple var-copy refcounting is unbalanced"
+            f"free ({d_free}) != alloc ({d_alloc}): tuple var-copy refcounting is unbalanced"
         )
 
 

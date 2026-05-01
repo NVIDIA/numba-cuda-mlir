@@ -58,9 +58,7 @@ class Abs(ConcreteTemplate):
     int_cases = [signature(ty, ty) for ty in sorted(types.signed_domain)]
     uint_cases = [signature(ty, ty) for ty in sorted(types.unsigned_domain)]
     real_cases = [signature(ty, ty) for ty in sorted(types.real_domain)]
-    complex_cases = [
-        signature(ty.underlying_float, ty) for ty in sorted(types.complex_domain)
-    ]
+    complex_cases = [signature(ty.underlying_float, ty) for ty in sorted(types.complex_domain)]
     cases = int_cases + uint_cases + real_cases + complex_cases
 
 
@@ -172,9 +170,7 @@ def choose_result_int(*inputs):
 
 # The "machine" integer types to take into consideration for operator typing
 # (according to the integer typing NBEP)
-machine_ints = sorted(set((types.intp, types.int64))) + sorted(
-    set((types.uintp, types.uint64))
-)
+machine_ints = sorted(set((types.intp, types.int64))) + sorted(set((types.uintp, types.uint64)))
 
 # Explicit integer rules for binary operators; smaller ints will be
 # automatically upcast.
@@ -332,23 +328,15 @@ class BitwiseInvert(ConcreteTemplate):
     # while Python returns an int.  This makes it consistent with
     # np.invert() and makes array expressions correct.
     cases = [signature(types.boolean, types.boolean)]
-    cases += [
-        signature(choose_result_int(op), op) for op in sorted(types.unsigned_domain)
-    ]
-    cases += [
-        signature(choose_result_int(op), op) for op in sorted(types.signed_domain)
-    ]
+    cases += [signature(choose_result_int(op), op) for op in sorted(types.unsigned_domain)]
+    cases += [signature(choose_result_int(op), op) for op in sorted(types.signed_domain)]
 
     unsafe_casting = False
 
 
 class UnaryOp(ConcreteTemplate):
-    cases = [
-        signature(choose_result_int(op), op) for op in sorted(types.unsigned_domain)
-    ]
-    cases += [
-        signature(choose_result_int(op), op) for op in sorted(types.signed_domain)
-    ]
+    cases = [signature(choose_result_int(op), op) for op in sorted(types.unsigned_domain)]
+    cases += [signature(choose_result_int(op), op) for op in sorted(types.signed_domain)]
     cases += [signature(op, op) for op in sorted(types.real_domain)]
     cases += [signature(op, op) for op in sorted(types.complex_domain)]
     cases += [signature(types.intp, types.boolean)]
@@ -783,9 +771,7 @@ class SliceAttribute(AttributeTemplate):
             )
         (typ,) = args
         if not isinstance(typ, types.Integer):
-            raise errors.NumbaTypeError(
-                "'%s' object cannot be interpreted as an integer" % typ
-            )
+            raise errors.NumbaTypeError("'%s' object cannot be interpreted as an integer" % typ)
         return signature(types.UniTuple(types.intp, 3), types.intp)
 
 
@@ -817,7 +803,7 @@ class NumberClassAttribute(AttributeTemplate):
                 if ty.bitwidth == 64:
                     return ty
                 else:
-                    msg = f"Cannot cast {val} to {ty} as {ty} is not 64 bits " "wide."
+                    msg = f"Cannot cast {val} to {ty} as {ty} is not 64 bits wide."
                     raise errors.TypingError(msg)
             else:
                 if isinstance(val, types.Array) and val.ndim == 0 and val.dtype == ty:
@@ -868,9 +854,7 @@ class TypeRefAttribute(AttributeTemplate):
                         self.pysig = result.pysig
                     return result
 
-            return types.Function(
-                make_callable_template(key=ty, typer=Redirect(self.context))
-            )
+            return types.Function(make_callable_template(key=ty, typer=Redirect(self.context)))
 
 
 # ------------------------------------------------------------------------------
@@ -1028,9 +1012,7 @@ class Enumerate(AbstractTemplate):
         assert not kws
         it = args[0]
         if len(args) > 1 and not isinstance(args[1], types.Integer):
-            raise errors.NumbaTypeError(
-                "Only integers supported as start value in enumerate"
-            )
+            raise errors.NumbaTypeError("Only integers supported as start value in enumerate")
         elif len(args) > 2:
             # let python raise its own error
             enumerate(*args)

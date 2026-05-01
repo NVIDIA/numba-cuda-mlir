@@ -77,8 +77,7 @@ def copy_func(f, new_closure: Dict = None):
         code = f.__code__.replace(co_freevars=tuple(new_closure.keys()))
         # closure is a tuple of cells
         closure = tuple(
-            make_cell(v) if not isinstance(v, types.CellType) else v
-            for v in new_closure.values()
+            make_cell(v) if not isinstance(v, types.CellType) else v for v in new_closure.values()
         )
     else:
         closure = copy_object(f.__closure__)

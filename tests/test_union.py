@@ -60,9 +60,7 @@ def test_tmem_addr_union():
 
     assert result_host[0] == 3, f"Expected col_id=3, got {result_host[0]}"
     assert result_host[1] == 5, f"Expected row_id=5, got {result_host[1]}"
-    assert (
-        result_host[2] == 0x00050003
-    ), f"Expected raw_addr=0x00050003, got 0x{result_host[2]:08x}"
+    assert result_host[2] == 0x00050003, f"Expected raw_addr=0x00050003, got 0x{result_host[2]:08x}"
 
 
 def test_union_with_padded_bitfield_struct():
@@ -94,9 +92,7 @@ def test_union_with_padded_bitfield_struct():
 
     assert result_host[0] == 0xEF, f"Expected x=0xEF, got 0x{result_host[0]:02x}"
     assert result_host[1] == 0xABCD, f"Expected y=0xABCD, got 0x{result_host[1]:04x}"
-    assert (
-        result_host[2] == 0xABCD00EF
-    ), f"Expected raw=0xABCD00EF, got 0x{result_host[2]:08x}"
+    assert result_host[2] == 0xABCD00EF, f"Expected raw=0xABCD00EF, got 0x{result_host[2]:08x}"
 
 
 def test_padded_struct_host():

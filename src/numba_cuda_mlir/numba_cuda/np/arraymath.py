@@ -168,9 +168,7 @@ def _gen_index_tuple(tyctx, shape_tuple, value, axis):
         # the axis dimension.
 
         # compile and call create_full_slice
-        slice_data = cgctx.compile_internal(
-            builder, create_full_slice, types.slice2_type(), []
-        )
+        slice_data = cgctx.compile_internal(builder, create_full_slice, types.slice2_type(), [])
         for i in range(0, axis_value):
             tup = builder.insert_value(tup, slice_data, i)
 
@@ -232,8 +230,7 @@ def gen_sum_axis_impl(is_axis_const, const_axis_val, op, zero):
             # Catch where axis is negative or greater than 3.
             if axis < 0 or axis > 3:
                 raise ValueError(
-                    "Numba does not support sum with axis "
-                    "parameter outside the range 0 to 3."
+                    "Numba does not support sum with axis parameter outside the range 0 to 3."
                 )
 
         # Catch the case where the user misspecifies the axis to be
@@ -256,9 +253,7 @@ def gen_sum_axis_impl(is_axis_const, const_axis_val, op, zero):
         for axis_index in range(axis_len):
             if is_axis_const:
                 # constant specialized version works for any valid axis value
-                index_tuple_generic = _gen_index_tuple(
-                    arr.shape, axis_index, const_axis_val
-                )
+                index_tuple_generic = _gen_index_tuple(arr.shape, axis_index, const_axis_val)
                 result += arr[index_tuple_generic]
             else:
                 # Generate a tuple used to index the input array.
@@ -557,10 +552,7 @@ def npy_min(a):
 
     def impl_min(a):
         if a.size == 0:
-            raise ValueError(
-                "zero-size array to reduction operation "
-                "minimum which has no identity"
-            )
+            raise ValueError("zero-size array to reduction operation minimum which has no identity")
 
         it = np.nditer(a)
         min_value = next(it).take(0)
@@ -609,10 +601,7 @@ def npy_max(a):
 
     def impl_max(a):
         if a.size == 0:
-            raise ValueError(
-                "zero-size array to reduction operation "
-                "maximum which has no identity"
-            )
+            raise ValueError("zero-size array to reduction operation maximum which has no identity")
 
         it = np.nditer(a)
         max_value = next(it).take(0)
@@ -900,36 +889,26 @@ def np_allclose(a, b, rtol=1e-05, atol=1e-08, equal_nan=False):
 
     if is_a_scalar and is_b_scalar:
 
-        def np_allclose_impl_scalar_scalar(
-            a, b, rtol=1e-05, atol=1e-08, equal_nan=False
-        ):
+        def np_allclose_impl_scalar_scalar(a, b, rtol=1e-05, atol=1e-08, equal_nan=False):
             return _allclose_scalars(a, b, rtol=rtol, atol=atol, equal_nan=equal_nan)
 
         return np_allclose_impl_scalar_scalar
     elif is_a_scalar and not is_b_scalar:
 
-        def np_allclose_impl_scalar_array(
-            a, b, rtol=1e-05, atol=1e-08, equal_nan=False
-        ):
+        def np_allclose_impl_scalar_array(a, b, rtol=1e-05, atol=1e-08, equal_nan=False):
             b = np.asarray(b)
             for bv in np.nditer(b):
-                if not _allclose_scalars(
-                    a, bv.item(), rtol=rtol, atol=atol, equal_nan=equal_nan
-                ):
+                if not _allclose_scalars(a, bv.item(), rtol=rtol, atol=atol, equal_nan=equal_nan):
                     return False
             return True
 
         return np_allclose_impl_scalar_array
     elif not is_a_scalar and is_b_scalar:
 
-        def np_allclose_impl_array_scalar(
-            a, b, rtol=1e-05, atol=1e-08, equal_nan=False
-        ):
+        def np_allclose_impl_array_scalar(a, b, rtol=1e-05, atol=1e-08, equal_nan=False):
             a = np.asarray(a)
             for av in np.nditer(a):
-                if not _allclose_scalars(
-                    av.item(), b, rtol=rtol, atol=atol, equal_nan=equal_nan
-                ):
+                if not _allclose_scalars(av.item(), b, rtol=rtol, atol=atol, equal_nan=equal_nan):
                     return False
             return True
 
@@ -986,14 +965,10 @@ def np_average(a, axis=None, weights=None):
                 if arr.shape != weights.shape:
                     if axis is None:
                         raise TypeError(
-                            "Numba does not support average when shapes of "
-                            "a and weights differ."
+                            "Numba does not support average when shapes of a and weights differ."
                         )
                     if weights.ndim != 1:
-                        raise TypeError(
-                            "1D weights expected when shapes of "
-                            "a and weights differ."
-                        )
+                        raise TypeError("1D weights expected when shapes of a and weights differ.")
 
                 scl = np.sum(weights)
                 if scl == 0.0:
@@ -1167,13 +1142,9 @@ def nan_min_max_factory(comparison_op, is_complex_dtype):
 
 
 real_nanmin = register_jitable(nan_min_max_factory(less_than, is_complex_dtype=False))
-real_nanmax = register_jitable(
-    nan_min_max_factory(greater_than, is_complex_dtype=False)
-)
+real_nanmax = register_jitable(nan_min_max_factory(greater_than, is_complex_dtype=False))
 complex_nanmin = register_jitable(nan_min_max_factory(less_than, is_complex_dtype=True))
-complex_nanmax = register_jitable(
-    nan_min_max_factory(greater_than, is_complex_dtype=True)
-)
+complex_nanmax = register_jitable(nan_min_max_factory(greater_than, is_complex_dtype=True))
 
 
 @register_jitable
@@ -1593,9 +1564,7 @@ def _partition_factory(pivotimpl, argpartition=False):
 
 _partition = register_jitable(_partition_factory(less_than))
 _partition_w_nan = register_jitable(_partition_factory(nan_aware_less_than))
-_argpartition_w_nan = register_jitable(
-    _partition_factory(nan_aware_less_than, argpartition=True)
-)
+_argpartition_w_nan = register_jitable(_partition_factory(nan_aware_less_than, argpartition=True))
 
 
 def _select_factory(partitionimpl):
@@ -1822,30 +1791,22 @@ def _percentile_quantile_inner(a, q, skip_nan, factor, check_q):
 
 @overload(np.percentile)
 def np_percentile(a, q):
-    return _percentile_quantile_inner(
-        a, q, skip_nan=False, factor=1.0, check_q=percentile_is_valid
-    )
+    return _percentile_quantile_inner(a, q, skip_nan=False, factor=1.0, check_q=percentile_is_valid)
 
 
 @overload(np.nanpercentile)
 def np_nanpercentile(a, q):
-    return _percentile_quantile_inner(
-        a, q, skip_nan=True, factor=1.0, check_q=percentile_is_valid
-    )
+    return _percentile_quantile_inner(a, q, skip_nan=True, factor=1.0, check_q=percentile_is_valid)
 
 
 @overload(np.quantile)
 def np_quantile(a, q):
-    return _percentile_quantile_inner(
-        a, q, skip_nan=False, factor=100.0, check_q=quantile_is_valid
-    )
+    return _percentile_quantile_inner(a, q, skip_nan=False, factor=100.0, check_q=quantile_is_valid)
 
 
 @overload(np.nanquantile)
 def np_nanquantile(a, q):
-    return _percentile_quantile_inner(
-        a, q, skip_nan=True, factor=100.0, check_q=quantile_is_valid
-    )
+    return _percentile_quantile_inner(a, q, skip_nan=True, factor=100.0, check_q=quantile_is_valid)
 
 
 @overload(np.nanmedian)
@@ -2459,10 +2420,7 @@ def binary_search_with_guess(key, arr, length, guess):
             imax = guess - 1
 
             # last attempt to restrict search to items in cache
-            if (
-                guess > LIKELY_IN_CACHE_SIZE
-                and key >= arr[guess - LIKELY_IN_CACHE_SIZE]
-            ):
+            if guess > LIKELY_IN_CACHE_SIZE and key >= arr[guess - LIKELY_IN_CACHE_SIZE]:
                 imin = guess - LIKELY_IN_CACHE_SIZE
         else:
             # key >= arr[guess - 1]
@@ -2892,9 +2850,7 @@ def scalar_result_expected(mandatory_input, optional_input):
         return opt_is_none
 
     if isinstance(mandatory_input, types.BaseTuple):
-        if all(
-            isinstance(x, (types.Number, types.Boolean)) for x in mandatory_input.types
-        ):
+        if all(isinstance(x, (types.Number, types.Boolean)) for x in mandatory_input.types):
             return opt_is_none
         else:
             if len(mandatory_input.types) == 1 and isinstance(
@@ -2955,9 +2911,9 @@ def np_cov(m, y=None, rowvar=True, bias=False, ddof=None):
     dtype = np.result_type(m_dt, y_dt, np.float64)
 
     def np_cov_impl(m, y=None, rowvar=True, bias=False, ddof=None):
-        X = _prepare_cov_input(
-            m, y, rowvar, dtype, ddof, _DDOF_HANDLER, _M_DIM_HANDLER
-        ).astype(dtype)
+        X = _prepare_cov_input(m, y, rowvar, dtype, ddof, _DDOF_HANDLER, _M_DIM_HANDLER).astype(
+            dtype
+        )
 
         if np.any(np.array(X.shape) == 0):
             return np.full((X.shape[0], X.shape[0]), fill_value=np.nan, dtype=dtype)
@@ -2965,9 +2921,9 @@ def np_cov(m, y=None, rowvar=True, bias=False, ddof=None):
             return np_cov_impl_inner(X, bias, ddof)
 
     def np_cov_impl_single_variable(m, y=None, rowvar=True, bias=False, ddof=None):
-        X = _prepare_cov_input(
-            m, y, rowvar, ddof, dtype, _DDOF_HANDLER, _M_DIM_HANDLER
-        ).astype(dtype)
+        X = _prepare_cov_input(m, y, rowvar, ddof, dtype, _DDOF_HANDLER, _M_DIM_HANDLER).astype(
+            dtype
+        )
 
         if np.any(np.array(X.shape) == 0):
             variance = np.nan
@@ -3359,9 +3315,7 @@ def ov_np_angle(z, deg=False):
 
         return impl
     else:
-        raise NumbaTypeError(
-            f'Argument "z" must be a complex or Array[complex]. Got {z}'
-        )
+        raise NumbaTypeError(f'Argument "z" must be a complex or Array[complex]. Got {z}')
 
 
 @lower(np.nonzero, types.Array)
@@ -3384,9 +3338,7 @@ def array_nonzero(context, builder, sig, args):
     one = context.get_constant(types.intp, 1)
     count = cgutils.alloca_once_value(builder, zero)
     with cgutils.loop_nest(builder, shape, zero.type) as indices:
-        ptr = cgutils.get_item_pointer2(
-            context, builder, data, shape, strides, layout, indices
-        )
+        ptr = cgutils.get_item_pointer2(context, builder, data, shape, strides, layout, indices)
         val = load_item(context, builder, aryty, ptr)
         nz = context.is_true(builder, aryty.dtype, val)
         with builder.if_then(nz):
@@ -3394,19 +3346,14 @@ def array_nonzero(context, builder, sig, args):
 
     # Then allocate output arrays of the right size
     out_shape = (builder.load(count),)
-    outs = [
-        _empty_nd_impl(context, builder, outaryty, out_shape)._getvalue()
-        for i in range(nouts)
-    ]
+    outs = [_empty_nd_impl(context, builder, outaryty, out_shape)._getvalue() for i in range(nouts)]
     outarys = [make_array(outaryty)(context, builder, out) for out in outs]
     out_datas = [out.data for out in outarys]
 
     # And fill them up
     index = cgutils.alloca_once_value(builder, zero)
     with cgutils.loop_nest(builder, shape, zero.type) as indices:
-        ptr = cgutils.get_item_pointer2(
-            context, builder, data, shape, strides, layout, indices
-        )
+        ptr = cgutils.get_item_pointer2(context, builder, data, shape, strides, layout, indices)
         val = load_item(context, builder, aryty, ptr)
         nz = context.is_true(builder, aryty.dtype, val)
         with builder.if_then(nz):
@@ -3523,9 +3470,7 @@ def ov_np_where_x_y(condition, x, y):
 
         # corner case - 0 dim values
         def check_0_dim(arg):
-            return isinstance(arg, types.Number) or (
-                isinstance(arg, types.Array) and arg.ndim == 0
-            )
+            return isinstance(arg, types.Number) or (isinstance(arg, types.Array) and arg.ndim == 0)
 
         special_0_case = all([check_0_dim(a) for a in (condition, x, y)])
         if special_0_case:
@@ -3749,13 +3694,9 @@ def jit_np_intersect1d(ar1, ar2, assume_unique=False):
 def validate_1d_array_like(func_name, seq):
     if isinstance(seq, types.Array):
         if seq.ndim != 1:
-            raise NumbaTypeError(
-                "{0}(): input should have dimension 1".format(func_name)
-            )
+            raise NumbaTypeError("{0}(): input should have dimension 1".format(func_name))
     elif not isinstance(seq, types.Sequence):
-        raise NumbaTypeError(
-            "{0}(): input should be an array or sequence".format(func_name)
-        )
+        raise NumbaTypeError("{0}(): input should be an array or sequence".format(func_name))
 
 
 @overload(np.bincount)
@@ -3776,9 +3717,7 @@ def np_bincount(a, weights=None, minlength=0):
         @register_jitable
         def validate_inputs(a, weights, minlength):
             if len(a) != len(weights):
-                raise ValueError(
-                    "bincount(): weights and list don't have the same length"
-                )
+                raise ValueError("bincount(): weights and list don't have the same length")
 
         @register_jitable
         def count_item(out, idx, val, weights):
@@ -4089,9 +4028,7 @@ def np_histogram(a, bins=10, range=None):
                     raise ValueError("histogram(): `bins` should be a positive integer")
                 bin_min, bin_max = range
                 if not bin_min <= bin_max:
-                    raise ValueError(
-                        "histogram(): max must be larger than " "min in range parameter"
-                    )
+                    raise ValueError("histogram(): max must be larger than min in range parameter")
 
                 hist = np.zeros(bins, np.intp)
                 if bin_max > bin_min:
@@ -4459,9 +4396,7 @@ def np_asarray(a, dtype=None):
 
     elif isinstance(a, types.containers.ListType):
         if not isinstance(a.dtype, (types.Number, types.Boolean)):
-            raise TypingError(
-                "asarray support for List is limited " "to Boolean and Number types"
-            )
+            raise TypingError("asarray support for List is limited to Boolean and Number types")
 
         target_dtype = a.dtype if is_nonelike(dtype) else dtype
 
@@ -4563,15 +4498,13 @@ def np_select(condlist, choicelist, default=0):
             raise NumbaTypeError("condlist arrays must contain booleans")
     if isinstance(condlist[0], types.UniTuple):
         if not (
-            isinstance(condlist[0], types.UniTuple)
-            and isinstance(condlist[0][0], types.Boolean)
+            isinstance(condlist[0], types.UniTuple) and isinstance(condlist[0][0], types.Boolean)
         ):
             raise NumbaTypeError("condlist tuples must only contain booleans")
     # the input types are correct, now we perform checks on the dimensions
     if isinstance(condlist[0], types.Array) and condlist[0].ndim != choicelist[0].ndim:
         raise NumbaTypeError(
-            "condlist and choicelist elements must have the "
-            "same number of dimensions"
+            "condlist and choicelist elements must have the same number of dimensions"
         )
     if isinstance(condlist[0], types.Array) and condlist[0].ndim < 1:
         raise NumbaTypeError("condlist arrays must be of at least dimension 1")
@@ -4630,9 +4563,7 @@ def numpy_unwrap(p, discont=None, axis=-1, period=6.283185307179586):
         msg = 'The argument "p" must be array-like'
         raise TypingError(msg)
 
-    if not isinstance(
-        discont, (types.Integer, types.Float)
-    ) and not cgutils.is_nonelike(discont):
+    if not isinstance(discont, (types.Integer, types.Float)) and not cgutils.is_nonelike(discont):
         msg = 'The argument "discont" must be a scalar'
         raise TypingError(msg)
 
@@ -4674,14 +4605,10 @@ def numpy_unwrap(p, discont=None, axis=-1, period=6.283185307179586):
             dd = np.diff(row)
             ddmod = np.mod(dd - interval_low, period) + interval_low
             if boundary_ambiguous:
-                ddmod = np.where(
-                    (ddmod == interval_low) & (dd > 0), interval_high, ddmod
-                )
+                ddmod = np.where((ddmod == interval_low) & (dd > 0), interval_high, ddmod)
             ph_correct = ddmod - dd
 
-            ph_correct = np.where(
-                np.array([abs(x) for x in dd]) < discont, 0, ph_correct
-            )
+            ph_correct = np.where(np.array([abs(x) for x in dd]) < discont, 0, ph_correct)
             ph_ravel = np.where(np.array([abs(x) for x in dd]) < discont, 0, ph_correct)
             ph_correct = np.reshape(ph_ravel, ph_correct.shape)
             up = np.copy(row)
@@ -4711,11 +4638,7 @@ def np_bartlett_impl(M):
 @register_jitable
 def np_blackman_impl(M):
     n = np.arange(1.0 - M, M, 2)
-    return (
-        0.42
-        + 0.5 * np.cos(np.pi * n / (M - 1))
-        + 0.08 * np.cos(2.0 * np.pi * n / (M - 1))
-    )
+    return 0.42 + 0.5 * np.cos(np.pi * n / (M - 1)) + 0.08 * np.cos(2.0 * np.pi * n / (M - 1))
 
 
 @register_jitable
@@ -4933,10 +4856,7 @@ def np_cross(a, b):
         b_ = np.asarray(b)
         if a_.shape[-1] not in (2, 3) or b_.shape[-1] not in (2, 3):
             raise ValueError(
-                (
-                    "Incompatible dimensions for cross product\n"
-                    "(dimension must be 2 or 3)"
-                )
+                ("Incompatible dimensions for cross product\n(dimension must be 2 or 3)")
             )
 
         if a_.shape[-1] == 3 or b_.shape[-1] == 3:

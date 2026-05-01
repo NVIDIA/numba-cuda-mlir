@@ -337,10 +337,7 @@ class Flow:
             if current_inst.opname in {"SETUP_WITH", "BEFORE_WITH"}:
                 next_op = self._bytecode[current_inst.next].opname
                 if next_op != "POP_TOP":
-                    msg = (
-                        "The 'with (context manager) as (variable):' "
-                        "construct is not supported."
-                    )
+                    msg = "The 'with (context manager) as (variable):' construct is not supported."
                     raise UnsupportedBytecodeError(msg)
 
     else:
@@ -935,9 +932,7 @@ class TraceRunner:
             raise Exception("unreachable")
         slicevar = state.make_temp()
         res = state.make_temp()
-        state.append(
-            inst, start=start, stop=stop, step=step, res=res, slicevar=slicevar
-        )
+        state.append(inst, start=start, stop=stop, step=step, res=res, slicevar=slicevar)
         state.push(res)
 
     if PYVERSION in ((3, 12), (3, 13), (3, 14)):
@@ -1172,10 +1167,7 @@ class TraceRunner:
     def op_POP_FINALLY(self, state, inst):
         # we don't emulate the exact stack behavior
         if inst.arg != 0:
-            msg = (
-                "Unsupported use of a bytecode related to try..finally"
-                " or a with-context"
-            )
+            msg = "Unsupported use of a bytecode related to try..finally or a with-context"
             raise UnsupportedBytecodeError(msg, loc=self.get_debug_loc(inst.lineno))
 
     def op_CALL_FINALLY(self, state, inst):
@@ -1222,9 +1214,7 @@ class TraceRunner:
             bc = state._bytecode
             ehhead = bc.find_exception_entry(inst.next)
             ehrelated = [ehhead]
-            ehrelated.extend(
-                eh for eh in bc.exception_entries if eh.target == ehhead.target
-            )
+            ehrelated.extend(eh for eh in bc.exception_entries if eh.target == ehhead.target)
             end = max(eh.end for eh in ehrelated)
             state.append(inst, contextmanager=cm, exitfn=exitfn, end=end)
 
@@ -2049,11 +2039,7 @@ class TraceRunner:
             #
             # See: `_guard_with_as` for how this is handled for 3.13 and below.
             if inst.opname != "POP_TOP":
-                msg = (
-                    "The 'with (context manager) as "
-                    "(variable):' construct is not "
-                    "supported."
-                )
+                msg = "The 'with (context manager) as (variable):' construct is not supported."
                 raise UnsupportedBytecodeError(msg)
             assert inst.arg is None
 
@@ -2064,9 +2050,7 @@ class TraceRunner:
             bc = state._bytecode
             ehhead = bc.find_exception_entry(inst.offset)
             ehrelated = [ehhead]
-            ehrelated.extend(
-                eh for eh in bc.exception_entries if eh.target == ehhead.target
-            )
+            ehrelated.extend(eh for eh in bc.exception_entries if eh.target == ehhead.target)
             end = max(eh.end for eh in ehrelated)
 
             # Push the `__exit__` method (or null) to the stack,
@@ -2076,9 +2060,7 @@ class TraceRunner:
             state.push(method)
             state.push(tos)
             # Record the instruction.
-            state.append(
-                old_inst, contextmanager=tos, exit_method=method, block_end=end
-            )
+            state.append(old_inst, contextmanager=tos, exit_method=method, block_end=end)
 
             # Insert WITH-block.
             state.push_block(

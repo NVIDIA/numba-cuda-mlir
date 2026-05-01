@@ -24,9 +24,7 @@ def get_registered_loc_notify() -> Sequence["NotifyLocBase"]:
     if hasattr(config, "JIT_COVERAGE") and not config.JIT_COVERAGE:
         # Coverage disabled.
         return []
-    return list(
-        filter(lambda x: x is not None, (factory() for factory in _the_registry))
-    )
+    return list(filter(lambda x: x is not None, (factory() for factory in _the_registry)))
 
 
 class NotifyLocBase(ABC):

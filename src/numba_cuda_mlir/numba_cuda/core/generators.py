@@ -159,9 +159,7 @@ class BaseGeneratorLower:
 
         # Extract argument values and other information from generator struct
         (genptr,) = self.call_conv.get_arguments(function)
-        self.arg_packer.load_into(
-            builder, self.get_args_ptr(builder, genptr), lower.fnargs
-        )
+        self.arg_packer.load_into(builder, self.get_args_ptr(builder, genptr), lower.fnargs)
 
         self.resume_index_ptr = self.get_resume_index_ptr(builder, genptr)
         self.gen_state_ptr = self.get_state_ptr(builder, genptr)
@@ -284,9 +282,7 @@ class PyGeneratorLower(BaseGeneratorLower):
         NULL-initialize all generator state variables, to avoid spurious
         decref's on cleanup.
         """
-        lower.builder.store(
-            Constant(self.gen_state_ptr.type.pointee, None), self.gen_state_ptr
-        )
+        lower.builder.store(Constant(self.gen_state_ptr.type.pointee, None), self.gen_state_ptr)
 
     def lower_finalize_func_body(self, builder, genptr):
         """
@@ -300,17 +296,13 @@ class PyGeneratorLower(BaseGeneratorLower):
         # If resume_index is -1, generator terminated cleanly
         # (note function arguments are saved in state variables,
         #  so they don't need a separate cleanup step)
-        need_cleanup = builder.icmp_signed(
-            ">", resume_index, Constant(resume_index.type, 0)
-        )
+        need_cleanup = builder.icmp_signed(">", resume_index, Constant(resume_index.type, 0))
 
         with cgutils.if_unlikely(builder, need_cleanup):
             # Decref all live vars (some may be NULL)
             gen_state_ptr = self.get_state_ptr(builder, genptr)
             for state_index in range(len(self.gentype.state_types)):
-                state_slot = cgutils.gep_inbounds(
-                    builder, gen_state_ptr, 0, state_index
-                )
+                state_slot = cgutils.gep_inbounds(builder, gen_state_ptr, 0, state_index)
                 ty = self.gentype.state_types[state_index]
                 val = self.context.unpack_value(builder, ty, state_slot)
                 pyapi.decref(val)
@@ -335,17 +327,13 @@ class LowerYield:
         self.yp = yield_point
         self.inst = self.yp.inst
         self.live_vars = live_vars
-        self.live_var_indices = [
-            lower.generator_info.state_vars.index(v) for v in live_vars
-        ]
+        self.live_var_indices = [lower.generator_info.state_vars.index(v) for v in live_vars]
 
     def lower_yield_suspend(self):
         self.lower.debug_print("# generator suspend")
         # Save live vars in state
         for state_index, name in zip(self.live_var_indices, self.live_vars):
-            state_slot = cgutils.gep_inbounds(
-                self.builder, self.gen_state_ptr, 0, state_index
-            )
+            state_slot = cgutils.gep_inbounds(self.builder, self.gen_state_ptr, 0, state_index)
             ty = self.gentype.state_types[state_index]
             # The yield might be in a loop, in which case the state might
             # contain a predicate var that branches back to the loop head, in
@@ -370,9 +358,7 @@ class LowerYield:
         self.lower.debug_print("# generator resume")
         # Reload live vars from state
         for state_index, name in zip(self.live_var_indices, self.live_vars):
-            state_slot = cgutils.gep_inbounds(
-                self.builder, self.gen_state_ptr, 0, state_index
-            )
+            state_slot = cgutils.gep_inbounds(self.builder, self.gen_state_ptr, 0, state_index)
             ty = self.gentype.state_types[state_index]
             val = self.context.unpack_value(self.builder, ty, state_slot)
             self.lower.storevar(val, name)

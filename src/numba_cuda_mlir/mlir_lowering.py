@@ -153,11 +153,7 @@ class MLIRLower(object):
 
         link_files = list(self.targetoptions.get("link", []))
         has_ltoir_files = any(
-            (
-                f.endswith(".ltoir")
-                if isinstance(f, str)
-                else type(f).__name__ == "LTOIR"
-            )
+            (f.endswith(".ltoir") if isinstance(f, str) else type(f).__name__ == "LTOIR")
             for f in link_files
         )
         needs_lto = (
@@ -312,9 +308,7 @@ class MLIRLower(object):
                 # debug metadata (#llvm.di_*, loc) is not stripped from mlir_module_str.
                 if self._di_subprogram is not None:
                     with StringIO() as sb:
-                        self.mlir_module.operation.print(
-                            enable_debug_info=True, file=sb
-                        )
+                        self.mlir_module.operation.print(enable_debug_info=True, file=sb)
                         self.metadata["mlir_module_str"] = sb.getvalue()
                 else:
                     self.metadata["mlir_module_str"] = str(self.mlir_module)
@@ -357,8 +351,7 @@ class MLIRLower(object):
         if not hasattr(self, "_error_global_created"):
             gpu_block = self.mlir_gpu_module.bodyRegion.blocks[0]
             already_exists = any(
-                isinstance(op, llvm.GlobalOp)
-                and op.sym_name.value == ERROR_CODE_GLOBAL_NAME
+                isinstance(op, llvm.GlobalOp) and op.sym_name.value == ERROR_CODE_GLOBAL_NAME
                 for op in gpu_block
             )
             if not already_exists:
@@ -390,9 +383,7 @@ class MLIRLower(object):
         if isinstance(error_code, ir.Value):
             error_code = convert(error_code, T.i32())
         else:
-            error_code = llvm.ConstantOp(
-                T.i32(), ir.IntegerAttr.get(T.i32(), error_code)
-            ).result
+            error_code = llvm.ConstantOp(T.i32(), ir.IntegerAttr.get(T.i32(), error_code)).result
         zero = llvm.ConstantOp(T.i32(), ir.IntegerAttr.get(T.i32(), 0)).result
         llvm.cmpxchg(
             error_ptr,
@@ -424,16 +415,12 @@ extern "C" __global__ void
 {self._capi_sym_name}(
     {",\n    ".join([f"{argtype} {name}" for argtype, name in zip(capi_type.args, names)])}
 )
-""".replace(
-                    "none*", "void*"
-                )
+""".replace("none*", "void*")
             )
 
     def _function_needs_nrt(self):
         """Check whether any variable in the function uses an NRT-managed type."""
-        return any(
-            self.nrt.type_has_nrt_meminfo(typ) for typ in self.fndesc.typemap.values()
-        )
+        return any(self.nrt.type_has_nrt_meminfo(typ) for typ in self.fndesc.typemap.values())
 
     def _emit_nrt_function_bodies(self):
         """Emit NRT device function bodies directly into the GPU module.
@@ -471,21 +458,11 @@ extern "C" __global__ void
             features = ', features = "' + features + '"' if features else ""
             flags_clause = f", flags = {{{', '.join(flags)}}}" if flags else ""
             target_attr = (
-                "#nvvm.target<"
-                + chip
-                + flags_clause
-                + ", O = "
-                + str(opt_level)
-                + features
-                + ">"
+                "#nvvm.target<" + chip + flags_clause + ", O = " + str(opt_level) + features + ">"
             )
             targets = ir.ArrayAttr.get([ir.Attribute.parse(target_attr)])
-            self._mlir_gpu_module = gpu.GPUModuleOp(
-                targets=targets, sym_name=get_gpu_module_name()
-            )
-            self._mlir_gpu_module.attributes["numba_cuda_mlir.link_target"] = (
-                ir.UnitAttr.get()
-            )
+            self._mlir_gpu_module = gpu.GPUModuleOp(targets=targets, sym_name=get_gpu_module_name())
+            self._mlir_gpu_module.attributes["numba_cuda_mlir.link_target"] = ir.UnitAttr.get()
 
         with ir.InsertionPoint(self.mlir_gpu_module.bodyRegion.blocks.append()):
             # arguments with default values are represented as Omitted type in Numba,
@@ -523,11 +500,7 @@ extern "C" __global__ void
             else:
                 sym_name = generate_mangled_name(
                     self.fndesc.qualname,
-                    [
-                        argtype
-                        for argtype in self.fndesc.argtypes
-                        if not _is_omitted_arg(argtype)
-                    ],
+                    [argtype for argtype in self.fndesc.argtypes if not _is_omitted_arg(argtype)],
                 )
 
             if kernel:
@@ -548,33 +521,27 @@ extern "C" __global__ void
                         max_cluster_rank = None
                     else:
                         max_threads = launch_bounds[0]
-                        min_blocks = (
-                            launch_bounds[1] if len(launch_bounds) > 1 else None
-                        )
-                        max_cluster_rank = (
-                            launch_bounds[2] if len(launch_bounds) > 2 else None
-                        )
+                        min_blocks = launch_bounds[1] if len(launch_bounds) > 1 else None
+                        max_cluster_rank = launch_bounds[2] if len(launch_bounds) > 2 else None
 
                     # nvvm.maxntid specifies maximum threads per block (x, y, z)
-                    self.mlir_funcOp.attributes["nvvm.maxntid"] = (
-                        ir.DenseI32ArrayAttr.get([max_threads, 1, 1])
+                    self.mlir_funcOp.attributes["nvvm.maxntid"] = ir.DenseI32ArrayAttr.get(
+                        [max_threads, 1, 1]
                     )
 
                     # nvvm.minctasm specifies minimum CTAs per SM (optional)
                     if min_blocks is not None:
-                        self.mlir_funcOp.attributes["nvvm.minctasm"] = (
-                            ir.IntegerAttr.get(T.i32(), min_blocks)
+                        self.mlir_funcOp.attributes["nvvm.minctasm"] = ir.IntegerAttr.get(
+                            T.i32(), min_blocks
                         )
 
                     if max_cluster_rank is not None:
-                        self.mlir_funcOp.attributes["nvvm.cluster_max_blocks"] = (
-                            ir.IntegerAttr.get(T.i32(), max_cluster_rank)
+                        self.mlir_funcOp.attributes["nvvm.cluster_max_blocks"] = ir.IntegerAttr.get(
+                            T.i32(), max_cluster_rank
                         )
 
                 with ir.InsertionPoint(self.mlir_funcOp.add_entry_block()):
-                    self._total_shared_memory_bytes = arith.constant(
-                        result=T.index(), value=0
-                    )
+                    self._total_shared_memory_bytes = arith.constant(result=T.index(), value=0)
             else:
                 self.mlir_funcOp = func.FuncOp(
                     name=sym_name,
@@ -607,23 +574,16 @@ extern "C" __global__ void
                             case types.Type():
                                 arg_attrs[i][key] = ir.TypeAttr.get(to_mlir_type(value))
                             case _:
-                                raise NotImplementedError(
-                                    f"Not implemented for type {type(value)}"
-                                )
-            self.mlir_funcOp.attributes["numba_cuda_mlir.orig_arg_types"] = (
-                ir.ArrayAttr.get(
-                    [
-                        ir.TypeAttr.get(i)
-                        for i in self.mlir_funcOp.function_type.value.inputs
-                    ]
-                )
+                                raise NotImplementedError(f"Not implemented for type {type(value)}")
+            self.mlir_funcOp.attributes["numba_cuda_mlir.orig_arg_types"] = ir.ArrayAttr.get(
+                [ir.TypeAttr.get(i) for i in self.mlir_funcOp.function_type.value.inputs]
             )
             self.mlir_funcOp.attributes["numba_cuda_mlir.arg_attrs"] = ir.ArrayAttr.get(
                 [ir.DictAttr.get(arg_attr) for arg_attr in arg_attrs]
             )
             if self._capi_sym_name:
-                self.mlir_funcOp.attributes["numba_cuda_mlir.capi_name"] = (
-                    ir.StringAttr.get(self._capi_sym_name)
+                self.mlir_funcOp.attributes["numba_cuda_mlir.capi_name"] = ir.StringAttr.get(
+                    self._capi_sym_name
                 )
 
     @typechecked
@@ -666,20 +626,14 @@ extern "C" __global__ void
         # variable gets assigned more than once will be spilled on stack
         # this is to deal with the issue that numba IR is not in SSA form
         local_var_assign_count = {}
-        self.collect_var_assign_count(
-            self.func_ir.blocks.values(), local_var_assign_count
-        )
+        self.collect_var_assign_count(self.func_ir.blocks.values(), local_var_assign_count)
 
         for var_name, count in local_var_assign_count.items():
-            assert (
-                var_name not in self.var_assign_count
-            ), f"{var_name} already in var_assign_count"
+            assert var_name not in self.var_assign_count, f"{var_name} already in var_assign_count"
             self.var_assign_count[var_name] = count
 
         with ir.InsertionPoint(self.blkmap[self.firstblk]):
-            self.allocate_stack_space_for_vars_with_multiple_assigns(
-                local_var_assign_count
-            )
+            self.allocate_stack_space_for_vars_with_multiple_assigns(local_var_assign_count)
 
         self.cfg = analysis.compute_cfg_from_blocks(self.blocks)
         self.usedefs = analysis.compute_use_defs(self.blocks)
@@ -739,9 +693,7 @@ extern "C" __global__ void
                     self.varmap[var_name] = memref.alloca(
                         memref=memref_type, dynamic_sizes=[], symbol_operands=[]
                     )
-                    self._tag_alloca_for_deferred_dbg_declare(
-                        var_name, self.varmap[var_name]
-                    )
+                    self._tag_alloca_for_deferred_dbg_declare(var_name, self.varmap[var_name])
 
     @staticmethod
     def _canonical_dbg_var_name(var_name: str) -> str:
@@ -847,9 +799,7 @@ extern "C" __global__ void
         elif isinstance(inst, numba_ir.Print):
             self.lower_print(inst.args)
         else:
-            raise NotImplementedError(
-                f"NotImplemented lowering {inst} of type {type(inst)}."
-            )
+            raise NotImplementedError(f"NotImplemented lowering {inst} of type {type(inst)}.")
 
     def lower_print(self, args):
         trace()
@@ -932,9 +882,7 @@ extern "C" __global__ void
             )
         else:
             struct_type = ir.Type.parse("!llvm.struct<(ptr, ptr, i64)>")
-        ptr = llvm.inttoptr(
-            llvm.PointerType.get(), arith.constant(T.i64(), array["data"][0])
-        )
+        ptr = llvm.inttoptr(llvm.PointerType.get(), arith.constant(T.i64(), array["data"][0]))
         i64c = lambda v: arith.constant(T.i64(), v)
         ins = lambda d, v, *p: llvm.insertvalue(
             container=d, value=v, position=ir.DenseI64ArrayAttr.get(list(p))
@@ -949,9 +897,7 @@ extern "C" __global__ void
         for i, s in enumerate(strides):
             desc = ins(desc, i64c(s), 4, i)
 
-        self.store_var(
-            target, builtin.unrealized_conversion_cast([memref_type], [desc])
-        )
+        self.store_var(target, builtin.unrealized_conversion_cast([memref_type], [desc]))
 
     def lower_arg_assign(self, target, arg):
         trace()
@@ -1041,9 +987,7 @@ extern "C" __global__ void
             # For large unsigned integers, convert to signed representation for MLIR
             # MLIR integers are signless, but IntegerAttr expects values in signed range
             if isinstance(value, int) and isinstance(target_type, types.Integer):
-                if not target_type.signed and value >= (
-                    1 << (target_type.bitwidth - 1)
-                ):
+                if not target_type.signed and value >= (1 << (target_type.bitwidth - 1)):
                     # Convert unsigned to signed two's complement representation
                     value = value - (1 << target_type.bitwidth)
 
@@ -1075,9 +1019,7 @@ extern "C" __global__ void
         elif isinstance(const.value, (str, bytes)):
             self.store_var(target, const.value)
         else:
-            raise NotImplementedError(
-                f"NotImplemented lowering const assignment {const}"
-            )
+            raise NotImplementedError(f"NotImplemented lowering const assignment {const}")
 
     def lower_global_assign(self, target, glob):
         trace()
@@ -1120,9 +1062,7 @@ extern "C" __global__ void
         var_value = self.load_var(var)
 
         match var_value:
-            case (
-                RangeObject() | ArrayIterObject() | UniTupleIterObject() | IterResult()
-            ):
+            case RangeObject() | ArrayIterObject() | UniTupleIterObject() | IterResult():
                 self.store_var(target, var_value)
             case tuple():
                 target_type = self.get_numba_type(target.name)
@@ -1140,9 +1080,7 @@ extern "C" __global__ void
                 target_type = self.get_numba_type(target.name)
                 if source_type == target_type:
                     if isinstance(var_value, ir.Value):
-                        value_op = self.mlir_convert(
-                            var_value, self.get_mlir_type(target_type)
-                        )
+                        value_op = self.mlir_convert(var_value, self.get_mlir_type(target_type))
                         self.incref(target_type, value_op)
                         self.store_var(target, value_op)
                     else:
@@ -1164,9 +1102,7 @@ extern "C" __global__ void
             mr = tensor_to_memref(mr)
             return mr
 
-    def lower_literal_if_needed(
-        self, value: ir.Value | np.ndarray, numba_type=None
-    ) -> ir.Value:
+    def lower_literal_if_needed(self, value: ir.Value | np.ndarray, numba_type=None) -> ir.Value:
         match value:
             case tuple():
                 return tuple(map(self.lower_literal_if_needed, value))
@@ -1250,9 +1186,7 @@ extern "C" __global__ void
                 # null() represents None - store a dummy value for none-typed targets
                 self.lower_null_expr_assign(target)
             case _:
-                raise NotImplementedError(
-                    f"NotImplemented lowering expression assignment {expr}."
-                )
+                raise NotImplementedError(f"NotImplemented lowering expression assignment {expr}.")
 
     def lower_exhaust_iter_expr_assign(self, target, value, count):
         """
@@ -1331,9 +1265,9 @@ extern "C" __global__ void
         iter_result = self.load_var(value)
         if isinstance(iter_result, IterResult):
             self.store_var(target, iter_result.value)
-            if isinstance(
-                iter_result.value, ir.Value
-            ) and self.nrt.type_has_nrt_meminfo(target_type):
+            if isinstance(iter_result.value, ir.Value) and self.nrt.type_has_nrt_meminfo(
+                target_type
+            ):
                 self.incref(target_type, iter_result.value)
         else:
             elem0 = memref.load(memref=iter_result, indices=[index_of(0)])
@@ -1360,9 +1294,7 @@ extern "C" __global__ void
         if isinstance(value_type, types.RangeType):
             ro = self.load_var(value)
             if not isinstance(ro, RangeObject):
-                raise InternalCompilerError(
-                    f"Range object not found for value {value.name}"
-                )
+                raise InternalCompilerError(f"Range object not found for value {value.name}")
             self.store_var(target, ro)
         elif isinstance(value_type, types.Array) and value_type.ndim == 1:
             array = self.load_var(value)
@@ -1385,8 +1317,7 @@ extern "C" __global__ void
         elif isinstance(value_type, types.Tuple):
             # Handle Tuple with IntegerLiteral elements (e.g., for stride in (64, 32, 16, ...))
             all_literals = all(
-                isinstance(t, (types.Literal, types.IntegerLiteral))
-                for t in value_type.types
+                isinstance(t, (types.Literal, types.IntegerLiteral)) for t in value_type.types
             )
             if all_literals:
                 # Extract literal values from the type
@@ -1400,9 +1331,7 @@ extern "C" __global__ void
                 # Create memref AND store constants at entry block
                 with self.alloca_insertion_point():
                     mr_type = T.memref(value_type.count, element_type=element_type)
-                    mr = memref.alloca(
-                        memref=mr_type, dynamic_sizes=[], symbol_operands=[]
-                    )
+                    mr = memref.alloca(memref=mr_type, dynamic_sizes=[], symbol_operands=[])
                     for i, lit_val in enumerate(literal_values):
                         const = arith.constant(result=element_type, value=lit_val)
                         memref.store(value=const, memref=mr, indices=[index_of(i)])
@@ -1473,9 +1402,7 @@ extern "C" __global__ void
             case numba_ir.Var():
                 index_type = self.get_numba_type(index.name)
             case _:
-                raise NotImplementedError(
-                    f"lowering getitem {target} = {value}[{index}]"
-                )
+                raise NotImplementedError(f"lowering getitem {target} = {value}[{index}]")
         signature = target_type(value_type, index_type)
         if builder := self.get_registered_builder(operator.getitem, signature):
             builder(self, target, [value, index], [])
@@ -1491,8 +1418,10 @@ extern "C" __global__ void
         target: numba_ir.Var,
         fn: dispatcher._DispatcherBase,
         args: list[numba_ir.Var],
-        kws: list[tuple[str, numba_ir.Var]] = [],
+        kws: list[tuple[str, numba_ir.Var]] | None = None,
     ):
+        if kws is None:
+            kws = []
         target_type = self.get_numba_type(target.name)
 
         # TODO: Here named arguments are simply considered as positional arguments
@@ -1511,9 +1440,7 @@ extern "C" __global__ void
             from numba_cuda_mlir import cuda
 
             if not hasattr(fn, "_numba_cuda_mlir_device_dispatcher"):
-                fn._numba_cuda_mlir_device_dispatcher = cuda.jit(device=True)(
-                    fn.py_func
-                )
+                fn._numba_cuda_mlir_device_dispatcher = cuda.jit(device=True)(fn.py_func)
             fn = fn._numba_cuda_mlir_device_dispatcher
         elif not fn.targetoptions.get("device", False):
             # Ensure non-device dispatchers are recompiled as device functions.
@@ -1654,9 +1581,7 @@ extern "C" __global__ void
         for i in range(rank):
             sizes_i64.append(convert(md[2 + i], T.i64()))
             stride_i64 = convert(md[2 + rank + i], T.i64())
-            strides_i64.append(
-                arith.muli(stride_i64, arith.constant(T.i64(), stride_multiplier))
-            )
+            strides_i64.append(arith.muli(stride_i64, arith.constant(T.i64(), stride_multiplier)))
 
         struct_type = ir.Type.parse(
             f"!llvm.struct<(ptr, ptr, i64, array<{rank} x i64>, array<{rank} x i64>)>"
@@ -1677,9 +1602,7 @@ extern "C" __global__ void
 
         result = builtin.unrealized_conversion_cast([target_mlir_type], [desc])
         self.store_var(target, result)
-        trace(
-            "Record array field view: %s.%s stored to %s", value.name, attr, target.name
-        )
+        trace("Record array field view: %s.%s stored to %s", value.name, attr, target.name)
 
     def _make_bound_receiver_var(self, fn, fn_value, recvr_type):
         """Create a synthetic Var for a bound method's receiver (self)."""
@@ -1693,12 +1616,14 @@ extern "C" __global__ void
         target: numba_ir.Var,
         overload_disp: dispatcher.Dispatcher,
         args: list[numba_ir.Var],
-        kws: list[tuple[str, numba_ir.Var]] = [],
+        kws: list[tuple[str, numba_ir.Var]] | None = None,
     ):
         """
         Lower a call to an overloaded function by compiling its implementation
         to MLIR, linking the result, and emitting a func.call.
         """
+        if kws is None:
+            kws = []
         from numba_cuda_mlir import cuda
         from numba_cuda_mlir.lowering_utilities import link
 
@@ -1734,10 +1659,7 @@ extern "C" __global__ void
             )
 
         callee_type = get_func_type(callee)
-        call_args = [
-            convert(val, ty)
-            for val, ty in zip(self.load_vars(args), callee_type.inputs)
-        ]
+        call_args = [convert(val, ty) for val, ty in zip(self.load_vars(args), callee_type.inputs)]
         call_result = func.call(
             result=callee_type.results,
             callee=callee.name.value,
@@ -1788,7 +1710,6 @@ extern "C" __global__ void
         """
         #        if callable(fn) and fn in self.context._defns:
         if fn in self.context._defns:
-
             self._filter_out_numba_builders(fn)
             try:
                 impl = self.context.get_function(fn, signature)
@@ -1856,9 +1777,7 @@ extern "C" __global__ void
             return builder
 
         if isinstance(fn, _Intrinsic):
-            has_arrays = any(
-                isinstance(arg_ty, types.Array) for arg_ty in signature.args
-            )
+            has_arrays = any(isinstance(arg_ty, types.Array) for arg_ty in signature.args)
             if has_arrays:
                 return None
             full_sig, maybe_builder = fn._defn(self, *signature.args)
@@ -1927,9 +1846,7 @@ extern "C" __global__ void
             )
         args = self.load_vars(args)
         callee_type = get_func_type(callee)
-        args = [
-            convert(arg, arg_type) for arg, arg_type in zip(args, callee_type.inputs)
-        ]
+        args = [convert(arg, arg_type) for arg, arg_type in zip(args, callee_type.inputs)]
         # Use callee's actual type to preserve layout information
         call_result = func.call(
             result=callee_type.results,
@@ -1973,9 +1890,7 @@ extern "C" __global__ void
         for arg, ty in zip(args, arg_types):
             operands.append(convert(arg, ty))
 
-        callee = get_or_insert_function(
-            fn_value.name, external_abi_mlir_type, self.mlir_gpu_module
-        )
+        callee = get_or_insert_function(fn_value.name, external_abi_mlir_type, self.mlir_gpu_module)
         func.call(result=return_type, callee=callee.name.value, operands_=operands)
         if user_return_actual_type != types.void:
             return_type = to_mlir_type(user_return_actual_type)
@@ -1994,13 +1909,9 @@ extern "C" __global__ void
         for arg, ty in zip(args, arg_types):
             operands.append(convert(arg, ty))
 
-        callee = get_or_insert_function(
-            fn_value.name, c_mlir_type, self.mlir_gpu_module
-        )
+        callee = get_or_insert_function(fn_value.name, c_mlir_type, self.mlir_gpu_module)
         if user_sig.return_type != types.void:
-            result = func.call(
-                result=result_types, callee=callee.name.value, operands_=operands
-            )
+            result = func.call(result=result_types, callee=callee.name.value, operands_=operands)
             self.store_var(target, result)
         else:
             func.call(result=[], callee=callee.name.value, operands_=operands)
@@ -2010,9 +1921,7 @@ extern "C" __global__ void
         for arg in args:
             assert self.var_lowered(arg), f"Arg {arg} not found in varmap."
         for name, value in kws:
-            assert self.var_lowered(
-                value
-            ), f"Named arg {name}={value} not found in varmap."
+            assert self.var_lowered(value), f"Named arg {name}={value} not found in varmap."
 
         target_type = self.get_numba_type(target.name)
         kwarg_types = [self.get_numba_type(value.name) for (name, value) in kws]
@@ -2075,9 +1984,7 @@ extern "C" __global__ void
             if not hasattr(fn_value, "_numba_cuda_mlir_device_dispatcher"):
                 from numba_cuda_mlir import cuda
 
-                fn_value._numba_cuda_mlir_device_dispatcher = cuda.jit(device=True)(
-                    fn_value
-                )
+                fn_value._numba_cuda_mlir_device_dispatcher = cuda.jit(device=True)(fn_value)
             call = self.build_user_defined_function_call(
                 target, fn_value._numba_cuda_mlir_device_dispatcher, args, kws
             )
@@ -2142,18 +2049,14 @@ extern "C" __global__ void
                 self._shared_memory_base = gpu.dynamic_shared_memory(mr_type)
         return self._shared_memory_base
 
-    def _request_shared_memory(
-        self, sizes: tuple[ir.Value, ...], mr_type: ir.MemRefType
-    ):
+    def _request_shared_memory(self, sizes: tuple[ir.Value, ...], mr_type: ir.MemRefType):
         match mr_type.element_type:
             case ir.IntegerType() | ir.FloatType() as t:
                 bytes: int = t.width // 8
             case T.index:
                 bytes: int = 8
             case _:
-                raise NotImplementedError(
-                    f"NotImplemented shared memory type {mr_type}."
-                )
+                raise NotImplementedError(f"NotImplemented shared memory type {mr_type}.")
         assert self.mlir_funcOp
         with ir.InsertionPoint(self.mlir_funcOp.entry_block):
             bytes_op = arith.constant(result=T.index(), value=bytes)
@@ -2162,9 +2065,7 @@ extern "C" __global__ void
                 bytes_op = arith.muli(lhs=bytes_op, rhs=size)
             shm_base = self._get_shared_memory_base()
             if self._total_shared_memory_bytes is None:
-                self._total_shared_memory_bytes = arith.constant(
-                    result=T.index(), value=0
-                )
+                self._total_shared_memory_bytes = arith.constant(result=T.index(), value=0)
             view = memref.view(
                 result=mr_type,
                 source=shm_base,
@@ -2195,9 +2096,9 @@ extern "C" __global__ void
                 return types.int64, self.get_mlir_type(types.int64)
             return target_type.types[0], mlir_element_type
         else:
-            assert isinstance(
-                target_type, types.UniTuple
-            ), f"Does not support building Memref type from Numba's tuple type {target_type}"
+            assert isinstance(target_type, types.UniTuple), (
+                f"Does not support building Memref type from Numba's tuple type {target_type}"
+            )
             if isinstance(target_type.dtype, (types.Integer, types.IntegerLiteral)):
                 return types.int64, self.get_mlir_type(types.int64)
             return target_type.dtype, self.get_mlir_type(target_type.dtype)
@@ -2246,9 +2147,7 @@ extern "C" __global__ void
         call here.
         """
         module = getattr(cast_impl, "__module__", "")
-        return not (
-            module.startswith("numba.") or module.startswith("numba_cuda_mlir.")
-        )
+        return not (module.startswith("numba.") or module.startswith("numba_cuda_mlir."))
 
     def lower_cast(self, source_type, target_type, value):
         """Dispatch a type cast through the extension registry or fall back to MLIR conversion.
@@ -2346,9 +2245,7 @@ extern "C" __global__ void
             return
 
         # Handle record array field access: arr.field -> strided array view
-        if isinstance(value_type, types.Array) and isinstance(
-            value_type.dtype, types.Record
-        ):
+        if isinstance(value_type, types.Array) and isinstance(value_type.dtype, types.Record):
             record_type = value_type.dtype
             if attr in record_type.fields:
                 self._lower_record_array_field_view(target, value, attr)
@@ -2402,9 +2299,7 @@ extern "C" __global__ void
                 bit_offset = field_info["bit_offset"]
                 bit_width = field_info["bit_width"]
 
-                trace(
-                    f"Bitfield setattr: {attr} at bit_offset={bit_offset}, bit_width={bit_width}"
-                )
+                trace(f"Bitfield setattr: {attr} at bit_offset={bit_offset}, bit_width={bit_width}")
 
                 # Load the current struct value
                 struct_value = self.load_var(target)
@@ -2431,9 +2326,7 @@ extern "C" __global__ void
 
                 # Create field mask: (1 << bit_width) - 1
                 one = arith.constant(result=storage_mlir_type, value=1)
-                bit_width_const = arith.constant(
-                    result=storage_mlir_type, value=bit_width
-                )
+                bit_width_const = arith.constant(result=storage_mlir_type, value=bit_width)
                 field_mask = arith.shli(one, bit_width_const)
                 field_mask = arith.subi(field_mask, one)
 
@@ -2560,7 +2453,7 @@ extern "C" __global__ void
                     union_value = convert(storage_value, union_mlir_type)
                 else:
                     # Regular (non-bitfield) struct: use field_layout for everything
-                    for field_name, field_info in variant_type.field_layout.items():
+                    for field_info in variant_type.field_layout.values():
                         # Get field info from field_layout (single source of truth)
                         field_index = field_info["field_index"]
                         field_type = field_info["underlying_type"]
@@ -2579,9 +2472,7 @@ extern "C" __global__ void
 
                         # Shift to correct position
                         if bit_offset > 0:
-                            shift_amount = arith.constant(
-                                result=union_mlir_type, value=bit_offset
-                            )
+                            shift_amount = arith.constant(result=union_mlir_type, value=bit_offset)
                             shifted = arith.shli(extended, shift_amount)
                         else:
                             shifted = extended
@@ -2594,9 +2485,7 @@ extern "C" __global__ void
 
             # Store the casted value back to the union
             self.store_var(target, union_value)
-            trace(
-                "Packed value into union storage and stored in %s.%s", target.name, attr
-            )
+            trace("Packed value into union storage and stored in %s.%s", target.name, attr)
             return
 
         raise NotImplementedError(
@@ -2704,18 +2593,14 @@ extern "C" __global__ void
         if isinstance(value, ir.Value):
             return value
         if not all(isinstance(x, ir.Value) for x in value):
-            raise InternalCompilerError(
-                f"Tuple {value} contains non-MLIR values: {value=}."
-            )
+            raise InternalCompilerError(f"Tuple {value} contains non-MLIR values: {value=}.")
         dtype = value[0].type
         if _is_valid_memref_element_type(dtype):
             with self.alloca_insertion_point():
                 mr_type = T.memref(len(value), element_type=dtype)
                 mr = memref.alloca(memref=mr_type, dynamic_sizes=[], symbol_operands=[])
             for i, v in enumerate(value):
-                memref.store(
-                    value=ir.Value(v), memref=ir.Value(mr), indices=[index_of(i)]
-                )
+                memref.store(value=ir.Value(v), memref=ir.Value(mr), indices=[index_of(i)])
             return mr
         else:
             GEP_DYNAMIC = -2147483648
@@ -2739,9 +2624,7 @@ extern "C" __global__ void
         if isinstance(value, ir.Value):
             return value, False
         if not all(isinstance(x, ir.Value) for x in value):
-            raise InternalCompilerError(
-                f"Tuple {value} contains non-MLIR values: {value=}."
-            )
+            raise InternalCompilerError(f"Tuple {value} contains non-MLIR values: {value=}.")
         dtype = value[0].type
         uses_llvm = not _is_valid_memref_element_type(dtype)
         storage = self.concretize_tuple(value)
@@ -2754,11 +2637,7 @@ extern "C" __global__ void
         trace("return_inst=%s", return_inst)
         value = return_inst.value
         value_type = self.get_numba_type(value.name)
-        return_ctor = (
-            gpu.ReturnOp
-            if isinstance(self.mlir_funcOp, gpu.GPUFuncOp)
-            else func.ReturnOp
-        )
+        return_ctor = gpu.ReturnOp if isinstance(self.mlir_funcOp, gpu.GPUFuncOp) else func.ReturnOp
         if isinstance(value_type, types.NoneType):
             return_ctor([])
         else:
@@ -2813,9 +2692,7 @@ extern "C" __global__ void
             elem_types = [self.get_mlir_type(numba_type.dtype)] * numba_type.count
             if any(self._need_deferred_debug_emission(t) for t in elem_types):
                 return None
-            aggregate_type = ir.Type.parse(
-                f"!llvm.array<{numba_type.count} x {elem_types[0]}>"
-            )
+            aggregate_type = ir.Type.parse(f"!llvm.array<{numba_type.count} x {elem_types[0]}>")
         else:
             elem_types = [self.get_mlir_type(t) for t in numba_type.types]
             if any(self._need_deferred_debug_emission(t) for t in elem_types):
@@ -2947,9 +2824,7 @@ extern "C" __global__ void
         if var.name in self.var_assign_count and self.var_assign_count[var.name] > 1:
             # if variable is stack allocated (multiple assigned),
             # store the value to stack
-            assert self.var_lowered(
-                var
-            ), f"Stack allocated var {var.name} not found in varmap."
+            assert self.var_lowered(var), f"Stack allocated var {var.name} not found in varmap."
 
             slot = self.varmap[var.name]
             var_type = self.get_numba_type(var.name)
@@ -2970,9 +2845,7 @@ extern "C" __global__ void
         else:
             # the value can be safely stored in register,
             # register the value in varmap
-            assert not self.var_lowered(
-                var
-            ), f"Var {var.name} already defined in varmap."
+            assert not self.var_lowered(var), f"Var {var.name} already defined in varmap."
             numba_type = self._get_numba_type_for_dbg_var(var.name)
             if (
                 self._debug_full
@@ -2983,9 +2856,7 @@ extern "C" __global__ void
                 # has a stable pointer location after memref->LLVM lowering.
                 mlir_value = value.result if isinstance(value, ir.OpView) else value
                 memref_type = ir.MemRefType.get(shape=[1], element_type=mlir_value.type)
-                alloca_op = memref.alloca(
-                    memref=memref_type, dynamic_sizes=[], symbol_operands=[]
-                )
+                alloca_op = memref.alloca(memref=memref_type, dynamic_sizes=[], symbol_operands=[])
                 memref.store(value=mlir_value, memref=alloca_op, indices=[index_of(0)])
                 self.varmap[var.name] = alloca_op
                 self._debug_forced_alloca.add(var.name)
@@ -3009,14 +2880,10 @@ extern "C" __global__ void
 
     def incref_tuple_elements(self, tuple_type, tuple_val):
         """Incref each NRT-managed element in a Python tuple stored in the varmap."""
-        if not isinstance(tuple_val, tuple) or not isinstance(
-            tuple_type, types.BaseTuple
-        ):
+        if not isinstance(tuple_val, tuple) or not isinstance(tuple_type, types.BaseTuple):
             return
         for elem_val, elem_type in zip(tuple_val, tuple_type):
-            if isinstance(elem_val, ir.Value) and self.nrt.type_has_nrt_meminfo(
-                elem_type
-            ):
+            if isinstance(elem_val, ir.Value) and self.nrt.type_has_nrt_meminfo(elem_type):
                 self.incref(elem_type, elem_val)
 
     def get_numba_type(self, var):
@@ -3062,9 +2929,7 @@ extern "C" __global__ void
                 try:
                     return self.context.get_value_type(ty)
                 except KeyError as e:
-                    raise TypeError(
-                        f"Cannot convert type {str(ty)} to MLIR type."
-                    ) from e
+                    raise TypeError(f"Cannot convert type {str(ty)} to MLIR type.") from e
 
     def var_lowered(self, var):
         return var.name in self.varmap

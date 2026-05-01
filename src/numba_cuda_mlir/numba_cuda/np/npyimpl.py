@@ -386,9 +386,7 @@ def _prepare_argument(ctxt, bld, inp, tyinp, where="input operand"):
     ):
         return _ScalarHelper(ctxt, bld, inp, tyinp)
     else:
-        raise NotImplementedError(
-            "unsupported type for {0}: {1}".format(where, str(tyinp))
-        )
+        raise NotImplementedError("unsupported type for {0}: {1}".format(where, str(tyinp)))
 
 
 _broadcast_onto_sig = types.intp(
@@ -460,8 +458,7 @@ def _build_array(context, builder, array_ty, input_types, inputs):
     dest_ndim = make_intp_const(array_ty.ndim)
     dest_shape = cgutils.alloca_once(builder, intp_ty, array_ty.ndim, "dest_shape")
     dest_shape_addrs = tuple(
-        cgutils.gep_inbounds(builder, dest_shape, index)
-        for index in range(array_ty.ndim)
+        cgutils.gep_inbounds(builder, dest_shape, index) for index in range(array_ty.ndim)
     )
 
     # Initialize the destination shape with all ones.
@@ -497,9 +494,7 @@ def _build_array(context, builder, array_ty, input_types, inputs):
 
     real_array_ty = array_ty.as_array
 
-    dest_shape_tup = tuple(
-        builder.load(dest_shape_addr) for dest_shape_addr in dest_shape_addrs
-    )
+    dest_shape_tup = tuple(builder.load(dest_shape_addr) for dest_shape_addr in dest_shape_addrs)
     array_val = arrayobj._empty_nd_impl(context, builder, real_array_ty, dest_shape_tup)
 
     # Get the best argument to call __array_wrap__ on
@@ -576,8 +571,7 @@ def numpy_ufunc_kernel(context, builder, sig, args, ufunc, kernel_class):
     # kernel_class -  a code generating subclass of _Kernel that provides
 
     arguments = [
-        _prepare_argument(context, builder, arg, tyarg)
-        for arg, tyarg in zip(args, sig.args)
+        _prepare_argument(context, builder, arg, tyarg) for arg, tyarg in zip(args, sig.args)
     ]
 
     if len(arguments) < ufunc.nin:
@@ -608,9 +602,7 @@ def numpy_ufunc_kernel(context, builder, sig, args, ufunc, kernel_class):
     outputs = arguments[ufunc.nin :]
     assert len(outputs) == ufunc.nout
 
-    outer_sig = _ufunc_loop_sig(
-        [a.base_type for a in outputs], [a.base_type for a in inputs]
-    )
+    outer_sig = _ufunc_loop_sig([a.base_type for a in outputs], [a.base_type for a in inputs])
     kernel = kernel_class(context, builder, outer_sig)
     intpty = context.get_value_type(types.intp)
 
@@ -634,9 +626,7 @@ def numpy_ufunc_kernel(context, builder, sig, args, ufunc, kernel_class):
     else:
         order = "C"
 
-    with cgutils.loop_nest(
-        builder, loopshape, intp=intpty, order=order
-    ) as loop_indices:
+    with cgutils.loop_nest(builder, loopshape, intp=intpty, order=order) as loop_indices:
         vals_in = []
         for i, (index, arg) in enumerate(zip(indices, inputs)):
             index.update_indices(loop_indices, i)
@@ -661,9 +651,7 @@ def numpy_gufunc_kernel(context, builder, sig, args, ufunc, kernel_class):
     expected_ndims = kernel_class.dufunc.expected_ndims()
     expected_ndims = expected_ndims[0] + expected_ndims[1]
     is_input = [True] * ufunc.nin + [False] * ufunc.nout
-    for arg, ty, exp_ndim, is_inp in zip(
-        args, sig.args, expected_ndims, is_input
-    ):  # noqa: E501
+    for arg, ty, exp_ndim, is_inp in zip(args, sig.args, expected_ndims, is_input):  # noqa: E501
         if isinstance(ty, types.ArrayCompatible):
             # Create an array helper that iteration returns a subarray
             # with ndim specified by "exp_ndim"
@@ -718,9 +706,7 @@ def numpy_gufunc_kernel(context, builder, sig, args, ufunc, kernel_class):
         # For each pair of arguments, both inputs and outputs, must match their
         # inner dimensions if their signatures are the same.
         arg_a, arg_b = arguments[idx_a], arguments[idx_b]
-        if sig_a == sig_b and all(
-            isinstance(x, _ArrayGUHelper) for x in (arg_a, arg_b)
-        ):
+        if sig_a == sig_b and all(isinstance(x, _ArrayGUHelper) for x in (arg_a, arg_b)):
             arg_a, arg_b = arguments[idx_a], arguments[idx_b]
             arg_a.guard_match_core_dims(arg_b, len(sig_a))
 
@@ -728,9 +714,7 @@ def numpy_gufunc_kernel(context, builder, sig, args, ufunc, kernel_class):
         if isinstance(arg, _ArrayGUHelper):
             arg.guard_shape(loopshape)
 
-    with cgutils.loop_nest(
-        builder, loopshape, intp=intpty, order=order
-    ) as loop_indices:
+    with cgutils.loop_nest(builder, loopshape, intp=intpty, order=order) as loop_indices:
         vals_in = []
         for i, (index, arg) in enumerate(zip(indices, arguments)):
             index.update_indices(loop_indices, i)
@@ -769,17 +753,14 @@ class _Kernel:
         isig = self.inner_sig
         osig = self.outer_sig
         cast_args = [
-            self.cast(val, inty, outty)
-            for val, inty, outty in zip(args, osig.args, isig.args)
+            self.cast(val, inty, outty) for val, inty, outty in zip(args, osig.args, isig.args)
         ]
         if self.cres.objectmode:
             func_type = self.context.fndesc.call_conv.get_function_type(
                 types.pyobject, [types.pyobject] * len(isig.args)
             )
         else:
-            func_type = self.context.fndesc.call_conv.get_function_type(
-                isig.return_type, isig.args
-            )
+            func_type = self.context.fndesc.call_conv.get_function_type(isig.return_type, isig.args)
         module = self.builder.block.function.module
         entry_point = cgutils.get_or_insert_function(
             module, func_type, self.cres.fndesc.llvm_func_name
@@ -833,8 +814,7 @@ def _ufunc_db_function(ufunc):
             osig = self.outer_sig
 
             cast_args = [
-                self.cast(val, inty, outty)
-                for val, inty, outty in zip(args, osig.args, isig.args)
+                self.cast(val, inty, outty) for val, inty, outty in zip(args, osig.args, isig.args)
             ]
             with force_error_model(self.context, "numpy"):
                 res = self.fn(self.context, self.builder, isig, cast_args)
@@ -912,9 +892,7 @@ def array_positive_impl(context, builder, sig, args):
             [val] = args
             return val
 
-    return numpy_ufunc_kernel(
-        context, builder, sig, args, np.positive, _UnaryPositiveKernel
-    )
+    return numpy_ufunc_kernel(context, builder, sig, args, np.positive, _UnaryPositiveKernel)
 
 
 def register_ufuncs(ufuncs, lower):
@@ -935,9 +913,7 @@ def register_ufuncs(ufuncs, lower):
             elif ufunc.nin == 2:
                 register_binary_operator_kernel(op, ufunc, kernel, lower)
             else:
-                raise RuntimeError(
-                    "There shouldn't be any non-unary or binary operators"
-                )
+                raise RuntimeError("There shouldn't be any non-unary or binary operators")
 
     for _op_map in (npydecl.NumpyRulesInplaceArrayOperator._op_map,):
         for op, ufunc_name in _op_map.items():
@@ -948,9 +924,7 @@ def register_ufuncs(ufuncs, lower):
             elif ufunc.nin == 2:
                 register_binary_operator_kernel(op, ufunc, kernel, lower, inplace=True)
             else:
-                raise RuntimeError(
-                    "There shouldn't be any non-unary or binary operators"
-                )
+                raise RuntimeError("There shouldn't be any non-unary or binary operators")
 
 
 register_ufuncs(ufunc_db.get_ufuncs(), registry.lower)

@@ -22,24 +22,24 @@ module {
       %10 = llvm.mlir.constant(1 : index) : i64
       %11 = llvm.mlir.constant(16 : i64) : i64
       %12 = llvm.mlir.poison : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
-      %13 = llvm.insertvalue %arg7, %12[0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
-      %14 = llvm.insertvalue %arg8, %13[1] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
-      %15 = llvm.insertvalue %arg9, %14[2] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
-      %16 = llvm.insertvalue %arg10, %15[3, 0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
-      %17 = llvm.insertvalue %arg12, %16[4, 0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
-      %18 = llvm.insertvalue %arg11, %17[3, 1] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
-      %19 = llvm.insertvalue %arg14, %12[0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
-      %20 = llvm.insertvalue %arg15, %19[1] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
-      %21 = llvm.insertvalue %arg16, %20[2] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
-      %22 = llvm.insertvalue %arg17, %21[3, 0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
-      %23 = llvm.insertvalue %arg19, %22[4, 0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
-      %24 = llvm.insertvalue %arg18, %23[3, 1] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
-      %25 = llvm.insertvalue %arg0, %12[0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
-      %26 = llvm.insertvalue %arg1, %25[1] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
-      %27 = llvm.insertvalue %arg2, %26[2] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
-      %28 = llvm.insertvalue %arg3, %27[3, 0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
-      %29 = llvm.insertvalue %arg5, %28[4, 0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
-      %30 = llvm.insertvalue %arg4, %29[3, 1] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
+      %13 = llvm.insertvalue %arg7, %12[0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
+      %14 = llvm.insertvalue %arg8, %13[1] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
+      %15 = llvm.insertvalue %arg9, %14[2] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
+      %16 = llvm.insertvalue %arg10, %15[3, 0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
+      %17 = llvm.insertvalue %arg12, %16[4, 0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
+      %18 = llvm.insertvalue %arg11, %17[3, 1] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
+      %19 = llvm.insertvalue %arg14, %12[0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
+      %20 = llvm.insertvalue %arg15, %19[1] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
+      %21 = llvm.insertvalue %arg16, %20[2] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
+      %22 = llvm.insertvalue %arg17, %21[3, 0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
+      %23 = llvm.insertvalue %arg19, %22[4, 0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
+      %24 = llvm.insertvalue %arg18, %23[3, 1] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
+      %25 = llvm.insertvalue %arg0, %12[0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
+      %26 = llvm.insertvalue %arg1, %25[1] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
+      %27 = llvm.insertvalue %arg2, %26[2] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
+      %28 = llvm.insertvalue %arg3, %27[3, 0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
+      %29 = llvm.insertvalue %arg5, %28[4, 0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
+      %30 = llvm.insertvalue %arg4, %29[3, 1] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
       %31 = llvm.alloca %10 x f64 : (i64) -> !llvm.ptr
       %32 = llvm.alloca %10 x f64 : (i64) -> !llvm.ptr
       %33 = llvm.getelementptr %2[0, 0, 0] : (!llvm.ptr<3>) -> !llvm.ptr<3>, !llvm.array<16 x array<16 x f32>>
@@ -72,7 +72,7 @@ module {
       %60 = llvm.mul %58, %59 : i64
       %61 = llvm.zext %40 : i32 to i64
       %62 = llvm.add %60, %61 : i64
-      %63 = llvm.extractvalue %30[3] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
+      %63 = llvm.extractvalue %30[3] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
       %64 = llvm.alloca %10 x !llvm.array<2 x i64> : (i64) -> !llvm.ptr
       llvm.store %63, %64 : !llvm.array<2 x i64>, !llvm.ptr
       %65 = llvm.getelementptr %64[0, 1] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<2 x i64>
@@ -80,7 +80,7 @@ module {
       %67 = llvm.sitofp %66 : i64 to f64
       %68 = llvm.fdiv %67, %4 : f64
       %69 = llvm.call @__nv_ceil(%68) : (f64) -> f64
-      %70 = llvm.extractvalue %24[3] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
+      %70 = llvm.extractvalue %24[3] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
       %71 = llvm.alloca %10 x !llvm.array<2 x i64> : (i64) -> !llvm.ptr
       llvm.store %70, %71 : !llvm.array<2 x i64>, !llvm.ptr
       %72 = llvm.getelementptr %71[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<2 x i64>
@@ -165,7 +165,7 @@ module {
       llvm.store %5, %121 : f32, !llvm.ptr<3>
       llvm.br ^bb9
     ^bb9:  // 2 preds: ^bb7, ^bb8
-      %122 = llvm.extractvalue %18[3] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
+      %122 = llvm.extractvalue %18[3] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
       %123 = llvm.alloca %10 x !llvm.array<2 x i64> : (i64) -> !llvm.ptr
       llvm.store %122, %123 : !llvm.array<2 x i64>, !llvm.ptr
       %124 = llvm.getelementptr %123[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<2 x i64>

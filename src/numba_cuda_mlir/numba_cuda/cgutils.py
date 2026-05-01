@@ -105,9 +105,7 @@ class _StructProxy:
     def __init__(self, context, builder, value=None, ref=None):
         self._context = context
         self._datamodel = self._context.data_model_manager[self._fe_type]
-        if not isinstance(
-            self._datamodel, numba_cuda_mlir.numba_cuda.datamodel.StructModel
-        ):
+        if not isinstance(self._datamodel, numba_cuda_mlir.numba_cuda.datamodel.StructModel):
             raise TypeError("Not a structure model: {0}".format(self._datamodel))
         self._builder = builder
 
@@ -117,15 +115,13 @@ class _StructProxy:
         outer_ref, ref = self._make_refs(ref)
         if ref.type.pointee != self._be_type:
             raise AssertionError(
-                "bad ref type: expected %s, got %s"
-                % (self._be_type.as_pointer(), ref.type)
+                "bad ref type: expected %s, got %s" % (self._be_type.as_pointer(), ref.type)
             )
 
         if value is not None:
             if value.type != outer_ref.type.pointee:
                 raise AssertionError(
-                    "bad value type: expected %s, got %s"
-                    % (outer_ref.type.pointee, value.type)
+                    "bad value type: expected %s, got %s" % (outer_ref.type.pointee, value.type)
                 )
             self._builder.store(value, outer_ref)
 
@@ -706,9 +702,7 @@ def unpack_tuple(builder, tup, count=None):
     return vals
 
 
-def get_item_pointer(
-    context, builder, aryty, ary, inds, wraparound=False, boundscheck=False
-):
+def get_item_pointer(context, builder, aryty, ary, inds, wraparound=False, boundscheck=False):
     # Set boundscheck=True for any pointer access that should be
     # boundschecked. do_boundscheck() will handle enabling or disabling the
     # actual boundschecking based on the user config.
@@ -743,8 +737,7 @@ def do_boundscheck(context, builder, ind, dimlen, axis=None):
             else:
                 printf(
                     builder,
-                    "debug: IndexError: index %d is out of bounds "
-                    "for axis %d with size %d\n",
+                    "debug: IndexError: index %d is out of bounds for axis %d with size %d\n",
                     ind,
                     axis,
                     dimlen,

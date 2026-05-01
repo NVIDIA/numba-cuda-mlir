@@ -47,18 +47,12 @@ def nrt_meminfo_alloc(module, size, align=None):
     """Allocate a MemInfo. Uses NRT_MemInfo_alloc_aligned (the only CUDA variant)."""
     if align is None:
         align = int_of(8, T.i32())
-    callee = _get_or_declare(
-        module, "NRT_MemInfo_alloc_aligned", [llvm.ptr()], [T.i64(), T.i32()]
-    )
-    return func.call(
-        result=[llvm.ptr()], callee=callee.name.value, operands_=[size, align]
-    )
+    callee = _get_or_declare(module, "NRT_MemInfo_alloc_aligned", [llvm.ptr()], [T.i64(), T.i32()])
+    return func.call(result=[llvm.ptr()], callee=callee.name.value, operands_=[size, align])
 
 
 def nrt_meminfo_data(module, meminfo):
-    callee = _get_or_declare(
-        module, "NRT_MemInfo_data_fast", [llvm.ptr()], [llvm.ptr()]
-    )
+    callee = _get_or_declare(module, "NRT_MemInfo_data_fast", [llvm.ptr()], [llvm.ptr()])
     return func.call(result=[llvm.ptr()], callee=callee.name.value, operands_=[meminfo])
 
 
@@ -111,9 +105,7 @@ def _make_deref_lowering(bitsize):
         data = convert(data, llvm.ptr())
         idx = convert(idx, T.i64())
         int_type = ir.IntegerType.get_signless(bitsize)
-        addr = llvm.getelementptr(
-            llvm.ptr(), data, [idx], [GEP_DYNAMIC_INDEX], int_type, None
-        )
+        addr = llvm.getelementptr(llvm.ptr(), data, [idx], [GEP_DYNAMIC_INDEX], int_type, None)
         loaded = llvm.load(int_type, addr)
         result = convert(loaded, T.i32())
         builder.store_var(target, result)
@@ -131,9 +123,7 @@ def _make_set_lowering(bitsize):
         ch = convert(ch, T.i32())
         int_type = ir.IntegerType.get_signless(bitsize)
         ch = convert(ch, int_type)
-        addr = llvm.getelementptr(
-            llvm.ptr(), data, [idx], [GEP_DYNAMIC_INDEX], int_type, None
-        )
+        addr = llvm.getelementptr(llvm.ptr(), data, [idx], [GEP_DYNAMIC_INDEX], int_type, None)
         llvm.store(ch, addr)
 
     return _lower_set

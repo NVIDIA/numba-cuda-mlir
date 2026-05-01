@@ -299,11 +299,7 @@ def test_chip_forward_compat():
     current_cc = cuda.get_current_device().compute_capability
     supported_ccs = set(nvrtc.get_supported_ccs())
     target_cc = next(
-        (
-            cc
-            for cc in [(7, 5), (7, 0), (6, 0), (5, 0)]
-            if cc < current_cc and cc in supported_ccs
-        ),
+        (cc for cc in [(7, 5), (7, 0), (6, 0), (5, 0)] if cc < current_cc and cc in supported_ccs),
         None,
     )
     if target_cc is None:

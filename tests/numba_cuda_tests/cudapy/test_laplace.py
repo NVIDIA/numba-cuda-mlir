@@ -38,9 +38,7 @@ class TestCudaLaplace(NumbaCUDATestCase):
 
             err_sm[ty, tx] = 0
             if j >= 1 and j < n - 1 and i >= 1 and i < m - 1:
-                Anew[j, i] = 0.25 * (
-                    A[j, i + 1] + A[j, i - 1] + A[j - 1, i] + A[j + 1, i]
-                )
+                Anew[j, i] = 0.25 * (A[j, i + 1] + A[j, i - 1] + A[j - 1, i] + A[j + 1, i])
                 err_sm[ty, tx] = Anew[j, i] - A[j, i]
 
             cuda.syncthreads()

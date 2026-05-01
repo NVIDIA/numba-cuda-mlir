@@ -9,7 +9,7 @@ Benchmarks to compare JIT compile-time and kernel performance between Numba CUDA
 pytest tests/benchmarks/
 
 # Run performance benchmarks (requires NCU)
-NUMBA_CUDA_MLIR_SKIP_REDIRECTOR=1 pytest tests/benchmarks/ --benchmark -s 
+NUMBA_CUDA_MLIR_SKIP_REDIRECTOR=1 pytest tests/benchmarks/ --benchmark -s
 ```
 
 ## Available Benchmarks

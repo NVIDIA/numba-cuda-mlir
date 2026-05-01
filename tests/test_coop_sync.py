@@ -136,16 +136,12 @@ def test_useless_syncwarp():
     _test_useless(useless_syncwarp)
 
 
-@pytest.mark.skipif(
-    not _safe_cc_check((7, 0)), reason="Partial masks require CC 7.0 or greater"
-)
+@pytest.mark.skipif(not _safe_cc_check((7, 0)), reason="Partial masks require CC 7.0 or greater")
 def test_useless_syncwarp_with_mask():
     _test_useless(useless_syncwarp_with_mask)
 
 
-@pytest.mark.skipif(
-    not _safe_cc_check((7, 0)), reason="Partial masks require CC 7.0 or greater"
-)
+@pytest.mark.skipif(not _safe_cc_check((7, 0)), reason="Partial masks require CC 7.0 or greater")
 def test_coop_syncwarp():
     # coop_syncwarp computes the sum of all integers from 0 to 31 (496)
     # using a single warp

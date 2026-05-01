@@ -22,9 +22,7 @@ except ImportError:
         separator = "-+-".join("-" * w for w in col_widths)
         result = [header_line, separator]
         for row in data:
-            row_line = " | ".join(
-                str(cell).ljust(w) for cell, w in zip(row, col_widths)
-            )
+            row_line = " | ".join(str(cell).ljust(w) for cell, w in zip(row, col_widths))
             result.append(row_line)
         return "\n".join(result)
 
@@ -43,10 +41,7 @@ def pytest_configure(config):
 
 
 def pytest_sessionfinish(session, exitstatus):
-    if (
-        hasattr(session.config, "_benchmark_results")
-        and session.config._benchmark_results
-    ):
+    if hasattr(session.config, "_benchmark_results") and session.config._benchmark_results:
         _print_consolidated_results(session.config._benchmark_results)
 
 
@@ -120,9 +115,7 @@ def _run_ncu_profiling(script_path, mode=None):
         cmd.append(mode)
 
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=600, env=env
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
         return _parse_ncu_csv(result.stdout)
     except subprocess.TimeoutExpired:
         print("NCU profiling timed out (>10 minutes)")
@@ -239,11 +232,11 @@ def _print_consolidated_results(all_results):
         ]
         table_data.append(row)
 
-    print(f"\n{'='*100}")
+    print(f"\n{'=' * 100}")
     print("BENCHMARK RESULTS SUMMARY")
-    print(f"{'='*100}")
+    print(f"{'=' * 100}")
     print(tabulate(table_data, headers=headers, tablefmt="grid"))
-    print(f"{'='*100}\n")
+    print(f"{'=' * 100}\n")
 
 
 def verify_against_reference(reference, implementation, tolerance=1e-5, name=""):
@@ -252,12 +245,12 @@ def verify_against_reference(reference, implementation, tolerance=1e-5, name="")
     if isinstance(reference, tuple):
         for i, (ref, impl) in enumerate(zip(reference, implementation)):
             max_err = np.max(np.abs(ref - impl))
-            assert (
-                max_err < tolerance
-            ), f"{name} output {i}: max error {max_err:.2e} exceeds tolerance {tolerance:.2e}"
+            assert max_err < tolerance, (
+                f"{name} output {i}: max error {max_err:.2e} exceeds tolerance {tolerance:.2e}"
+            )
         max_err = max(np.max(np.abs(r - i)) for r, i in zip(reference, implementation))
     else:
         max_err = np.max(np.abs(reference - implementation))
-        assert (
-            max_err < tolerance
-        ), f"{name}: max error {max_err:.2e} exceeds tolerance {tolerance:.2e}"
+        assert max_err < tolerance, (
+            f"{name}: max error {max_err:.2e} exceeds tolerance {tolerance:.2e}"
+        )

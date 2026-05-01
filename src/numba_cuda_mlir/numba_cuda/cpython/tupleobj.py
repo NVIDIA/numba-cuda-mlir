@@ -150,10 +150,7 @@ def unituple_constant(context, builder, ty, pyval):  # noqa: F811
     """
     Create a heterogeneous tuple constant.
     """
-    consts = [
-        context.get_constant_generic(builder, ty.types[i], v)
-        for i, v in enumerate(pyval)
-    ]
+    consts = [context.get_constant_generic(builder, ty.types[i], v) for i, v in enumerate(pyval)]
     return impl_ret_borrowed(
         context,
         builder,
@@ -202,9 +199,7 @@ def iternext_unituple(context, builder, sig, args, result):
     result.set_valid(is_valid)
 
     with builder.if_then(is_valid):
-        getitem_sig = typing.signature(
-            tupiterty.container.dtype, tupiterty.container, types.intp
-        )
+        getitem_sig = typing.signature(tupiterty.container.dtype, tupiterty.container, types.intp)
         getitem_out = getitem_unituple(context, builder, getitem_sig, [tup, idx])
         # As a iternext_impl function, this will incref the yieled value.
         # We need to release the new reference from getitem_unituple.
@@ -299,14 +294,10 @@ def getitem_typed(context, builder, sig, args):
                 )
                 if DOCAST:
                     value_slot = builder.alloca(lrtty, name="TYPED_VALUE_SLOT%s" % i)
-                    casted = context.cast(
-                        builder, value, sig.args[0][i], sig.return_type
-                    )
+                    casted = context.cast(builder, value, sig.args[0][i], sig.return_type)
                     builder.store(casted, value_slot)
                 else:
-                    value_slot = builder.alloca(
-                        value.type, name="TYPED_VALUE_SLOT%s" % i
-                    )
+                    value_slot = builder.alloca(value.type, name="TYPED_VALUE_SLOT%s" % i)
                     builder.store(value, value_slot)
                 phinode.add_incoming(builder.bitcast(value_slot, voidptrty), bbi)
                 builder.branch(bbend)
@@ -402,9 +393,7 @@ def static_getitem_tuple(context, builder, sig, args):
 
 @lower_cast(types.BaseTuple, types.BaseTuple)
 def tuple_to_tuple(context, builder, fromty, toty, val):
-    if isinstance(fromty, types.BaseNamedTuple) or isinstance(
-        toty, types.BaseNamedTuple
-    ):
+    if isinstance(fromty, types.BaseNamedTuple) or isinstance(toty, types.BaseNamedTuple):
         # Disallowed by typing layer
         raise NotImplementedError
 

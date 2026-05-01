@@ -7,9 +7,7 @@ from numba_cuda_mlir import cuda
 
 def test_slicing():
     @cuda.jit(dump=False)
-    def slicing(
-        byte_arr: cuda.DeviceNDArray, start: int, stop: int, output: cuda.DeviceNDArray
-    ):
+    def slicing(byte_arr: cuda.DeviceNDArray, start: int, stop: int, output: cuda.DeviceNDArray):
         val = byte_arr[start:stop, start:stop]
         output[0] = val[0, 0]
 

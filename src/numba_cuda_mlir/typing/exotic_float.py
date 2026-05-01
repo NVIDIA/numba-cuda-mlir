@@ -94,9 +94,7 @@ for _ty in _EXOTIC_FLOAT_TYPES:
             key = _op
             cases = [signature(types.boolean, _ty, _ty)]
 
-        ExoticFloatComparisonTemplate.__name__ = (
-            f"ExoticFloat_{_ty.name}_{_op.__name__}"
-        )
+        ExoticFloatComparisonTemplate.__name__ = f"ExoticFloat_{_ty.name}_{_op.__name__}"
         registry.register(ExoticFloatComparisonTemplate)
         registry.register_global(_op, types.Function(ExoticFloatComparisonTemplate))
 
@@ -146,9 +144,7 @@ def register_fp8_globals():
         cases = [signature(bfloat16_raw_type, types.uint8)]
 
     registry.register(CvtE8m0ToBf16rawTemplate)
-    registry.register_global(
-        cvt_e8m0_to_bf16raw, types.Function(CvtE8m0ToBf16rawTemplate)
-    )
+    registry.register_global(cvt_e8m0_to_bf16raw, types.Function(CvtE8m0ToBf16rawTemplate))
 
     class Bfloat16RawAttrTemplate(AttributeTemplate):
         key = bfloat16_raw_type

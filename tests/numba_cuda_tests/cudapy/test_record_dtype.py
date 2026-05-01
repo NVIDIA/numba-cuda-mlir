@@ -309,9 +309,7 @@ class TestRecordDtype(NumbaCUDATestCase):
 
         expected = self.samplerec2darr.copy()
         expected["i"] = 3
-        expected["j"][:] = np.asarray(
-            [5.0, 6.0, 7.0, 8.0, 9.0, 10.0], np.float32
-        ).reshape(3, 2)
+        expected["j"][:] = np.asarray([5.0, 6.0, 7.0, 8.0, 9.0, 10.0], np.float32).reshape(3, 2)
         np.testing.assert_equal(expected, rec)
 
     def test_record_read_1d_array(self):
@@ -334,9 +332,7 @@ class TestRecordDtype(NumbaCUDATestCase):
         Test reading from a 2D array within a structured type
         """
         rec = self.samplerec2darr.copy()
-        rec["j"][:] = np.asarray([5.0, 6.0, 7.0, 8.0, 9.0, 10.0], np.float32).reshape(
-            3, 2
-        )
+        rec["j"][:] = np.asarray([5.0, 6.0, 7.0, 8.0, 9.0, 10.0], np.float32).reshape(3, 2)
 
         nbrecord = numpy_support.from_dtype(recordwith2darray)
         cfunc = self.get_cfunc(record_read_2d_array, (nbrecord,))
@@ -402,9 +398,7 @@ class TestNestedArrays(NumbaCUDATestCase):
     def test_record_read_2d_array(self):
         # Test reading from a 2D array within a structured type
         nbval = np.recarray(1, dtype=recordwith2darray)
-        nbval[0].j = np.asarray([1.5, 2.5, 3.5, 4.5, 5.5, 6.5], np.float32).reshape(
-            3, 2
-        )
+        nbval[0].j = np.asarray([1.5, 2.5, 3.5, 4.5, 5.5, 6.5], np.float32).reshape(3, 2)
         cfunc = self.get_cfunc(record_read_2d_array00, np.float32)
         res = cfunc(nbval[0])
         np.testing.assert_equal(res, nbval[0].j[0, 0])
@@ -420,13 +414,9 @@ class TestNestedArrays(NumbaCUDATestCase):
     def test_setitem(self):
         def gen():
             nbarr1 = np.recarray(1, dtype=recordwith2darray)
-            nbarr1[0] = np.array(
-                [(1, ((1, 2), (4, 5), (2, 3)))], dtype=recordwith2darray
-            )[0]
+            nbarr1[0] = np.array([(1, ((1, 2), (4, 5), (2, 3)))], dtype=recordwith2darray)[0]
             nbarr2 = np.recarray(1, dtype=recordwith2darray)
-            nbarr2[0] = np.array(
-                [(10, ((10, 20), (40, 50), (20, 30)))], dtype=recordwith2darray
-            )[0]
+            nbarr2[0] = np.array([(10, ((10, 20), (40, 50), (20, 30)))], dtype=recordwith2darray)[0]
             return nbarr1[0], nbarr2[0]
 
         pyfunc = record_setitem_array
@@ -492,13 +482,9 @@ class TestNestedArrays(NumbaCUDATestCase):
         np.testing.assert_array_equal(expected, got)
 
     def test_issue_7693(self):
-        src_dtype = np.dtype(
-            [("user", np.float64), ("array", np.int16, (3,))], align=True
-        )
+        src_dtype = np.dtype([("user", np.float64), ("array", np.int16, (3,))], align=True)
 
-        dest_dtype = np.dtype(
-            [("user1", np.float64), ("array1", np.int16, (3,))], align=True
-        )
+        dest_dtype = np.dtype([("user1", np.float64), ("array1", np.int16, (3,))], align=True)
 
         @numba_cuda_mlir.jit
         def copy(index, src, dest):

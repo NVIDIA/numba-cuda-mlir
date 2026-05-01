@@ -47,7 +47,5 @@ class ConstantIfPass(ASTTransformPass):
     def name(self) -> str:
         return "ConstantIfFolding"
 
-    def transform(
-        self, tree: ast.Module, context: TransformContext
-    ) -> tuple[ast.Module, bool]:
+    def transform(self, tree: ast.Module, context: TransformContext) -> tuple[ast.Module, bool]:
         return transform_constant_if(tree)

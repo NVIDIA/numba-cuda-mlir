@@ -85,13 +85,9 @@ class CUFunc:
         from cuda.bindings import driver
 
         if not isinstance(value, int) or value < -1 or value > 100:
-            raise ValueError(
-                f"Carveout value must be an integer in range [-1, 100], got {value}"
-            )
+            raise ValueError(f"Carveout value must be an integer in range [-1, 100], got {value}")
 
-        attr = (
-            driver.CUfunction_attribute.CU_FUNC_ATTRIBUTE_PREFERRED_SHARED_MEMORY_CARVEOUT
-        )
+        attr = driver.CUfunction_attribute.CU_FUNC_ATTRIBUTE_PREFERRED_SHARED_MEMORY_CARVEOUT
         result = driver.cuFuncSetAttribute(self._handle, attr, value)
         if result[0].value != 0:
             raise RuntimeError(f"cuFuncSetAttribute failed with error {result[0]}")
@@ -171,9 +167,7 @@ class CodeLibrary:
             return int(val)
 
         return {
-            "regs_per_thread": _get_attr(
-                driver.CUfunction_attribute.CU_FUNC_ATTRIBUTE_NUM_REGS
-            ),
+            "regs_per_thread": _get_attr(driver.CUfunction_attribute.CU_FUNC_ATTRIBUTE_NUM_REGS),
             "shared_mem_per_block": _get_attr(
                 driver.CUfunction_attribute.CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES
             ),
@@ -222,8 +216,7 @@ class CompileResult:
             return self._inspect_asm
         if attr == "inspect_llvm":
             raise NotImplementedError(
-                "inspect_llvm is not supported. "
-                "Use inspect_asm() to inspect the PTX."
+                "inspect_llvm is not supported. Use inspect_asm() to inspect the PTX."
             )
         return getattr(self.cres, attr)
 
@@ -244,9 +237,7 @@ class CompileResult:
         cufunc = self._codelibrary.get_cufunc()
         if isinstance(blockdim, tuple):
             blockdim = functools.reduce(lambda x, y: x * y, blockdim)
-        active_per_sm = ctx.get_active_blocks_per_multiprocessor(
-            cufunc, blockdim, dynsmemsize
-        )
+        active_per_sm = ctx.get_active_blocks_per_multiprocessor(cufunc, blockdim, dynsmemsize)
         sm_count = ctx.device.MULTIPROCESSOR_COUNT
         return active_per_sm * sm_count
 
@@ -302,9 +293,7 @@ def _compile(pyfunc, sig=None, targetoptions=None, optimized=True):
     if sig is None:
         sig = to_numba_type(inspect.signature(pyfunc))
 
-    abi_info = (
-        targetoptions.get("abi_info", None) if targetoptions is not None else None
-    )
+    abi_info = targetoptions.get("abi_info", None) if targetoptions is not None else None
     output = targetoptions.get("output", None) if targetoptions is not None else None
     cres = dispatcher.compile(sig, abi_info=abi_info, output=output)
     if optimized:
@@ -489,9 +478,7 @@ class ExternFunction:
         self.abi = abi
 
 
-def declare_device_function(
-    name, restype, argtypes, link, use_cooperative, abi="numba"
-):
+def declare_device_function(name, restype, argtypes, link, use_cooperative, abi="numba"):
     from numba_cuda_mlir.descriptor import mlir_target
 
     typingctx = mlir_target.typing_context
@@ -537,8 +524,6 @@ def declare_device(name, sig, link=None, use_cooperative=False, abi="numba"):
         msg = "Return type must be provided for device declarations"
         raise TypeError(msg)
 
-    template = declare_device_function(
-        name, restype, argtypes, link, use_cooperative, abi
-    )
+    template = declare_device_function(name, restype, argtypes, link, use_cooperative, abi)
 
     return template.key

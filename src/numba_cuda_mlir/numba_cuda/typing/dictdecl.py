@@ -38,8 +38,7 @@ class DictBuiltin(AbstractTemplate):
                     length = dtype.count
                     if length != 2:
                         msg = (
-                            "dictionary update sequence element has length "
-                            f"{length}; 2 is required"
+                            f"dictionary update sequence element has length {length}; 2 is required"
                         )
                         raise errors.TypingError(msg)
                     k = v = dtype.key[0]
@@ -55,9 +54,6 @@ class DictBuiltin(AbstractTemplate):
 
                 return signature(types.DictType(k, v), iterable)
             else:
-                msg = (
-                    "Non-iterable args used in dict(iterable) "
-                    f"constructor. Got 'dict({args[0]})'"
-                )
+                msg = f"Non-iterable args used in dict(iterable) constructor. Got 'dict({args[0]})'"
                 raise errors.TypingError(msg)
         return signature(types.DictType(types.undefined, types.undefined))

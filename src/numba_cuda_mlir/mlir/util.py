@@ -40,9 +40,7 @@ from numba_cuda_mlir._mlir.ir import (
 try:
     from numba_cuda_mlir._mlir.ir import TypeID
 except ImportError:
-    warnings.warn(
-        f"TypeID not supported by host bindings; value casting won't work correctly"
-    )
+    warnings.warn(f"TypeID not supported by host bindings; value casting won't work correctly")
     TypeID = object
 
 
@@ -61,9 +59,7 @@ def get_user_code_loc(user_base: Optional[Path] = None):
         user_base = Path(prev_frame.f_code.co_filename)
 
     while prev_frame.f_back and (
-        is_relative_to(
-            Path(prev_frame.f_code.co_filename), numba_cuda_mlir_mlir_root_path
-        )
+        is_relative_to(Path(prev_frame.f_code.co_filename), numba_cuda_mlir_mlir_root_path)
         or is_relative_to(Path(prev_frame.f_code.co_filename), sys.prefix)
         or is_relative_to(Path(prev_frame.f_code.co_filename), user_base)
     ):
@@ -147,9 +143,7 @@ _np_dtype_to_mlir_type_ctor = {
     np.float64: T.f64,
 }
 
-_mlir_type_ctor_to_np_dtype = lambda: {
-    v: k for k, v in _np_dtype_to_mlir_type_ctor.items()
-}
+_mlir_type_ctor_to_np_dtype = lambda: {v: k for k, v in _np_dtype_to_mlir_type_ctor.items()}
 
 
 def np_dtype_to_mlir_type(np_dtype):
@@ -221,9 +215,7 @@ def infer_mlir_type(
         else:
             return RankedTensorType.get(py_val.shape, dtype)
     else:
-        raise NotImplementedError(
-            f"Unsupported Python value {py_val=} with type {type(py_val)}"
-        )
+        raise NotImplementedError(f"Unsupported Python value {py_val=} with type {type(py_val)}")
 
 
 def memref_type_to_np_dtype(memref_type):
@@ -240,11 +232,7 @@ def memref_type_to_np_dtype(memref_type):
 
 
 def _get_previous_frame_idents(val, previous_frame):
-    return [
-        var_name
-        for var_name, var_val in previous_frame.f_locals.items()
-        if var_val is val
-    ]
+    return [var_name for var_name, var_val in previous_frame.f_locals.items() if var_val is val]
 
 
 def _update_caller_vars(previous_frame, args: Sequence, replacements: Sequence):
@@ -265,15 +253,13 @@ def _update_caller_vars(previous_frame, args: Sequence, replacements: Sequence):
     if len(args) != len(replacements):
         raise ValueError(f"updates must be 1-1: {args=} {replacements=}")
     # find the name of the iter args in the previous frame
-    var_names = [_get_previous_frame_idents(arg, previous_frame) for arg in args]
-    for i, var_names in enumerate(var_names):
+    all_var_names = [_get_previous_frame_idents(arg, previous_frame) for arg in args]
+    for i, var_names in enumerate(all_var_names):
         for var_name in var_names:
             previous_frame.f_locals[var_name] = replacements[i]
             # signal to update
             # for some reason you can only update one at a time?
-            ctypes.pythonapi.PyFrame_LocalsToFast(
-                ctypes.py_object(previous_frame), ctypes.c_int(1)
-            )
+            ctypes.pythonapi.PyFrame_LocalsToFast(ctypes.py_object(previous_frame), ctypes.c_int(1))
 
 
 def make_maybe_no_args_decorator(decorator):
@@ -330,7 +316,7 @@ def bb(*preds: Tuple[Union[Successor, OpView]]):
         if isinstance(p, OpView):
             p.operation.successors[0] = block
         elif isinstance(p, Successor):
-            for i, b in enumerate(p.block.owner.successors):
+            for i, _b in enumerate(p.block.owner.successors):
                 if i == p.pos:
                     p.op.successors[i] = block
                     p.block = block
@@ -357,7 +343,7 @@ class ModuleMeta(type):
     def __new__(cls, name, bases, classdict, **kwargs):
         ip = classdict.pop("ip")
         new = super().__new__(cls, name, bases, classdict)
-        for k, v in classdict.items():
+        for v in classdict.values():
             if callable(v):
                 v.qualname = name
         ip.__exit__(None, None, None)

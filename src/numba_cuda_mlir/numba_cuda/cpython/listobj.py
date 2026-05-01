@@ -226,9 +226,7 @@ class ListInstance(_ListPayloadMixin):
         base = self._gep(start)
         end = self._gep(stop)
         intaddr_t = self._context.get_value_type(types.intp)
-        size = builder.sub(
-            builder.ptrtoint(end, intaddr_t), builder.ptrtoint(base, intaddr_t)
-        )
+        size = builder.sub(builder.ptrtoint(end, intaddr_t), builder.ptrtoint(base, intaddr_t))
         cgutils.memset(builder, base, size, ir.IntType(8)(0))
 
     @classmethod
@@ -296,9 +294,7 @@ class ListInstance(_ListPayloadMixin):
             dtypestr = f"list_{self.dtype.dtype}"
         else:
             dtypestr = str(self.dtype)
-        fn = cgutils.get_or_insert_function(
-            mod, fnty, f"numba_cuda_dtor_list_{dtypestr}"
-        )
+        fn = cgutils.get_or_insert_function(mod, fnty, f"numba_cuda_dtor_list_{dtypestr}")
         if not fn.is_declaration:
             # End early if the dtor is already defined
             return fn
@@ -414,9 +410,7 @@ class ListInstance(_ListPayloadMixin):
 
         with builder.if_then(is_too_small, likely=False):
             # Upsize with moderate over-allocation (size + size >> 2 + 8)
-            new_allocated = builder.add(
-                eight, builder.add(new_size, builder.ashr(new_size, two))
-            )
+            new_allocated = builder.add(eight, builder.add(new_size, builder.ashr(new_size, two)))
             _payload_realloc(new_allocated)
             self.zfill(self.size, new_allocated)
 
@@ -429,9 +423,7 @@ class ListInstance(_ListPayloadMixin):
         """
         dest_ptr = self._gep(dest_idx)
         src_ptr = self._gep(src_idx)
-        cgutils.raw_memmove(
-            self._builder, dest_ptr, src_ptr, count, itemsize=self._itemsize
-        )
+        cgutils.raw_memmove(self._builder, dest_ptr, src_ptr, count, itemsize=self._itemsize)
 
         self.set_dirty(True)
 
@@ -456,9 +448,7 @@ class ListIterInstance(_ListPayloadMixin):
     @property
     def _payload(self):
         # This cannot be cached as it can be reallocated
-        return get_list_payload(
-            self._context, self._builder, self._ty.container, self._iter
-        )
+        return get_list_payload(self._context, self._builder, self._ty.container, self._iter)
 
     @property
     def value(self):
@@ -575,9 +565,10 @@ def getslice_list(context, builder, sig, args):
     result_size = slicing.get_slice_length(builder, slice)
     result = ListInstance.allocate(context, builder, sig.return_type, result_size)
     result.size = result_size
-    with cgutils.for_range_slice_generic(
-        builder, slice.start, slice.stop, slice.step
-    ) as (pos_range, neg_range):
+    with cgutils.for_range_slice_generic(builder, slice.start, slice.stop, slice.step) as (
+        pos_range,
+        neg_range,
+    ):
         with pos_range as (idx, count):
             value = inst.getitem(idx)
             result.inititem(count, value, incref=True)
@@ -637,9 +628,10 @@ def setitem_list(context, builder, sig, args):  # noqa: F811
                 msg = "cannot resize extended list slice with step != 1"
                 context.fndesc.call_conv.return_user_exc(builder, ValueError, (msg,))
 
-            with cgutils.for_range_slice_generic(
-                builder, slice.start, slice.stop, slice.step
-            ) as (pos_range, neg_range):
+            with cgutils.for_range_slice_generic(builder, slice.start, slice.stop, slice.step) as (
+                pos_range,
+                neg_range,
+            ):
                 with pos_range as (index, count):
                     value = src.getitem(count)
                     dest.setitem(index, value, incref=True)
@@ -835,9 +827,7 @@ def list_eq(context, builder, sig, args):
         with cgutils.for_range(builder, a_size) as loop:
             v = a.getitem(loop.index)
             w = b.getitem(loop.index)
-            itemres = context.generic_compare(
-                builder, operator.eq, (aty.dtype, bty.dtype), (v, w)
-            )
+            itemres = context.generic_compare(builder, operator.eq, (aty.dtype, bty.dtype), (v, w))
             with builder.if_then(builder.not_(itemres)):
                 # Exit early
                 builder.store(cgutils.false_bit, res)
@@ -1260,10 +1250,7 @@ def literal_list_setitem(lst, index, value):
 def literal_list_getitem(lst, *args):
     if not isinstance(lst, types.LiteralList):
         return
-    msg = (
-        "Cannot __getitem__ on a literal list, return type cannot be "
-        "statically determined."
-    )
+    msg = "Cannot __getitem__ on a literal list, return type cannot be statically determined."
     raise errors.TypingError(msg)
 
 

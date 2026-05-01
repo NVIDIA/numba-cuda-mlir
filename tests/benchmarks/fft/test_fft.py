@@ -171,9 +171,9 @@ def test_fft():
     tolerance = 1e-2 * math.sqrt(math.log2(n))
 
     numba_cuda_mlir_err = np.max(np.abs(numba_cuda_mlir_output - reference))
-    assert (
-        numba_cuda_mlir_err < tolerance
-    ), f"numba-cuda-mlir error {numba_cuda_mlir_err} exceeds tolerance {tolerance}"
+    assert numba_cuda_mlir_err < tolerance, (
+        f"numba-cuda-mlir error {numba_cuda_mlir_err} exceeds tolerance {tolerance}"
+    )
 
 
 def test_fft_benchmark(benchmark_runner):
@@ -181,9 +181,7 @@ def test_fft_benchmark(benchmark_runner):
 
 
 def run_benchmark_main():
-    permute_sig = types.void(
-        types.complex64[::1], types.complex64[::1], types.int64, types.int64
-    )
+    permute_sig = types.void(types.complex64[::1], types.complex64[::1], types.int64, types.int64)
     stage_sig = types.void(types.complex64[::1], types.int64, types.int64, types.int64)
 
     start = time.perf_counter()

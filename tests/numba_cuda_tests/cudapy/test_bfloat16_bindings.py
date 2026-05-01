@@ -238,9 +238,7 @@ class Bfloat16Test(NumbaCUDATestCase):
             atol=1e-2,
         )
 
-        np.testing.assert_allclose(
-            a[14:], [np.exp(x), np.exp2(x), np.power(10, x)], atol=1e2
-        )
+        np.testing.assert_allclose(a[14:], [np.exp(x), np.exp2(x), np.power(10, x)], atol=1e2)
 
     def test_check_bfloat16_type(self):
         self.skip_unsupported()

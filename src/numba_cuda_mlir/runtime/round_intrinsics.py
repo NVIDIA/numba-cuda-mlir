@@ -34,9 +34,7 @@ def round_ndigits[FTy, ITy](x: FTy, ndigits: ITy):
     with else_(result_if_op):
         with if_(ndigits >= 0, results=[FTy]) as if_digits_ge_0:
             ndigits_gt_22 = ndigits > 22
-            pow1 = arith.select(
-                ndigits_gt_22, fpowi32(c10, ndigits - 22), fpowi32(c10, ndigits)
-            )
+            pow1 = arith.select(ndigits_gt_22, fpowi32(c10, ndigits - 22), fpowi32(c10, ndigits))
             pow2 = arith.select(ndigits_gt_22, c1e22, c1)
             y = (x * pow1) * pow2
             with if_(math.isinf(y), results=[FTy]) as if_isinf_y:

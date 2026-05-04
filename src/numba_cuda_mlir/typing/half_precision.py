@@ -15,6 +15,7 @@ from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.types.ext_types import bfloat16 as bf16
 
 registry = Registry()
+_bf16_registered_globals = set()
 
 # List of bf16 intrinsic names - only unary ops exist in numba-cuda's cuda_bf16
 _BF16_UNARY_INTRINSICS = [
@@ -49,7 +50,7 @@ def register_bf16_globals():
     # Create and register templates for unary intrinsics
     for name in _BF16_UNARY_INTRINSICS:
         func = getattr(mod, name, None)
-        if func:
+        if func and func not in _bf16_registered_globals:
 
             class UnaryTemplate(ConcreteTemplate):
                 key = func
@@ -58,11 +59,12 @@ def register_bf16_globals():
             UnaryTemplate.__name__ = f"BF16_{name}_Template"
             registry.register(UnaryTemplate)
             registry.register_global(func, types.Function(UnaryTemplate))
+            _bf16_registered_globals.add(func)
 
     # Register typing for bitcast functions that also accept integer types
     # This allows passing integer bit patterns to be treated as bf16
     _bfloat16_as_short = getattr(mod, "__bfloat16_as_short", None)
-    if _bfloat16_as_short:
+    if _bfloat16_as_short and _bfloat16_as_short not in _bf16_registered_globals:
         _key = _bfloat16_as_short
 
         class BF16AsShortTemplate(ConcreteTemplate):
@@ -76,9 +78,10 @@ def register_bf16_globals():
 
         registry.register(BF16AsShortTemplate)
         registry.register_global(_bfloat16_as_short, types.Function(BF16AsShortTemplate))
+        _bf16_registered_globals.add(_bfloat16_as_short)
 
     _bfloat16_as_ushort = getattr(mod, "__bfloat16_as_ushort", None)
-    if _bfloat16_as_ushort:
+    if _bfloat16_as_ushort and _bfloat16_as_ushort not in _bf16_registered_globals:
         _key = _bfloat16_as_ushort
 
         class BF16AsUShortTemplate(ConcreteTemplate):
@@ -95,9 +98,10 @@ def register_bf16_globals():
 
         registry.register(BF16AsUShortTemplate)
         registry.register_global(_bfloat16_as_ushort, types.Function(BF16AsUShortTemplate))
+        _bf16_registered_globals.add(_bfloat16_as_ushort)
 
     _short_as_bfloat16 = getattr(mod, "__short_as_bfloat16", None)
-    if _short_as_bfloat16:
+    if _short_as_bfloat16 and _short_as_bfloat16 not in _bf16_registered_globals:
         _key = _short_as_bfloat16
 
         class ShortAsBF16Template(ConcreteTemplate):
@@ -110,9 +114,10 @@ def register_bf16_globals():
 
         registry.register(ShortAsBF16Template)
         registry.register_global(_short_as_bfloat16, types.Function(ShortAsBF16Template))
+        _bf16_registered_globals.add(_short_as_bfloat16)
 
     _ushort_as_bfloat16 = getattr(mod, "__ushort_as_bfloat16", None)
-    if _ushort_as_bfloat16:
+    if _ushort_as_bfloat16 and _ushort_as_bfloat16 not in _bf16_registered_globals:
         _key = _ushort_as_bfloat16
 
         class UShortAsBF16Template(ConcreteTemplate):
@@ -127,3 +132,4 @@ def register_bf16_globals():
 
         registry.register(UShortAsBF16Template)
         registry.register_global(_ushort_as_bfloat16, types.Function(UShortAsBF16Template))
+        _bf16_registered_globals.add(_ushort_as_bfloat16)

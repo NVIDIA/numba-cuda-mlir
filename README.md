@@ -185,42 +185,49 @@ The pinned LLVM commit is in [`ci/llvm-version.env`](ci/llvm-version.env).
 
 ## Installation
 
+> **Note:** Options 1 and 2 below use `gh run download` to fetch CI artifacts
+> from GitHub Actions. This is a temporary workaround until we set up a proper
+> mechanism for team members to access the S3 build cache directly.
+
 ### Option 1: Pre-built wheel (fastest)
 
-CI publishes wheels to the internal Artifactory PyPI repo on every MR pipeline.
+CI publishes wheels as GitHub Actions artifacts on every push to `main`.
 No LLVM, cmake, or CUDA Toolkit needed:
 
 ```shell
-pip install numba_cuda_mlir[cu13] \
-  --extra-index-url https://urm.nvidia.com/artifactory/api/pypi/sw-cuda-python-pypi-local/simple/
+# Find the latest successful CI run on main:
+RUN_ID=$(gh run list -R NVIDIA/numba-cuda-mlir -w ci.yaml -b main -s success -L1 --json databaseId -q '.[0].databaseId')
+
+# Download the wheel (pick your Python version and platform):
+gh run download "$RUN_ID" -R NVIDIA/numba-cuda-mlir -p "numba-cuda-mlir-python312-linux-64-*"
+
+# Install the downloaded wheel:
+pip install dist/numba_cuda_mlir*.whl[cu13]
 ```
 
+Replace `python312` with your Python version (e.g. `python313`, `python314`, `python314t`).
+For aarch64, replace `linux-64` with `linux-aarch64`.
 Replace `cu13` with `cu12` for CUDA 12.x environments.
 
 ### Option 2: Editable install with cached LLVM (recommended for development)
 
-CI caches pre-built LLVM tarballs on Artifactory. You can download them
-instead of building LLVM from scratch (~1 hour depending on the machine):
+CI publishes pre-built LLVM artifacts on every push to `main`.
+You can download them instead of building LLVM from scratch
+(~1 hour depending on the machine):
 
-1. Compute the cache keys and download from Artifactory (requires
-   corpnet/VPN and NVIDIA credentials):
+1. Download the LLVM artifacts from the latest CI run using the
+   GitHub CLI (`gh`):
 ```shell
-# Run in a subshell to avoid ci/llvm-cache.sh's "set -e" affecting
-# your interactive session:
-(
-  source ci/llvm-version.env
-  source ci/llvm-cache.sh
+# Find the latest successful CI run on main:
+RUN_ID=$(gh run list -R NVIDIA/numba-cuda-mlir -w ci.yaml -b main -s success -L1 --json databaseId -q '.[0].databaseId')
 
-  MODERN_KEY=$(cache_key "llvm-modern" "$LLVM_MODERN_COMMIT" ci/build-llvm-modern.sh)
-  LLVM7_KEY=$(cache_key "llvm7" "$LLVM7_TAG" ci/build-llvm7.sh)
+# Download LLVM Modern (pick your Python version: cp312, cp313, cp314, cp314t):
+gh run download "$RUN_ID" -R NVIDIA/numba-cuda-mlir -n llvm-modern-install-cp312-linux-64
 
-  ARTIF="https://artifactory.nvidia.com/artifactory/sw-cuda-python-generic-local/numba_cuda_mlir/llvm-cache"
-
-  # Use your NVIDIA password when prompted
-  wget --user "$USER" --ask-password -O- "$ARTIF/$MODERN_KEY.tar.gz" | tar xzf -
-  wget --user "$USER" --ask-password -O- "$ARTIF/$LLVM7_KEY.tar.gz" | tar xzf -
-)
+# Download LLVM 7:
+gh run download "$RUN_ID" -R NVIDIA/numba-cuda-mlir -n llvm7-install-linux-64
 ```
+For aarch64, replace `linux-64` with `linux-aarch64` in the artifact names.
 This produces `llvm-modern-install/` and `llvm7-install/` directories.
 
 2. Create a venv and install numba-cuda-mlir in editable mode

@@ -2657,8 +2657,64 @@ extern "C" __global__ void
     def _need_deferred_debug_emission(self, value_type):
         return isinstance(
             value_type,
-            (types.Array, types.Complex, ir.ComplexType, ir.MemRefType),
+            (types.Complex, ir.ComplexType, ir.MemRefType),
         )
+
+    def _array_itemsize_bytes(self, numba_type):
+        bitwidth = getattr(numba_type.dtype, "bitwidth", None)
+        if bitwidth is not None:
+            return bitwidth // 8
+        return np.dtype(str(numba_type.dtype)).itemsize
+
+    def _build_array_debug_descriptor(self, array_value, numba_type):
+        if not isinstance(array_value.type, MemRefType):
+            return None
+
+        ndim = numba_type.ndim
+        itemsize = self._array_itemsize_bytes(numba_type)
+        i64 = T.i64()
+        ptr_type = llvm.PointerType.get()
+        struct_type = ir.Type.parse(
+            f"!llvm.struct<(ptr, ptr, i64, i64, ptr, array<{ndim} x i64>, array<{ndim} x i64>)>"
+        )
+        array_type = ir.Type.parse(f"!llvm.array<{ndim} x i64>")
+
+        i64c = lambda value: arith.constant(i64, value)
+        ins = lambda container, value, *position: llvm.insertvalue(
+            container=container,
+            value=value,
+            position=ir.DenseI64ArrayAttr.get(list(position)),
+        )
+
+        md = memref.extract_strided_metadata(array_value)
+        base_ptr_idx = memref.extract_aligned_pointer_as_index(md[0])
+        base_ptr_i64 = arith.index_cast(i64, base_ptr_idx)
+        offset_i64 = convert(md[1], i64)
+        byte_offset = arith.muli(offset_i64, i64c(itemsize))
+        data_ptr_i64 = arith.addi(base_ptr_i64, byte_offset)
+        data_ptr = llvm.inttoptr(ptr_type, data_ptr_i64)
+
+        nitems = i64c(1)
+        shape = llvm.UndefOp(array_type).result
+        strides = llvm.UndefOp(array_type).result
+        for i in range(ndim):
+            extent = convert(md[2 + i], i64)
+            stride = convert(md[2 + ndim + i], i64)
+            byte_stride = arith.muli(stride, i64c(itemsize))
+            nitems = arith.muli(nitems, extent)
+            shape = ins(shape, extent, i)
+            strides = ins(strides, byte_stride, i)
+
+        null_ptr = llvm.mlir_zero(res=ptr_type)
+        desc = llvm.UndefOp(struct_type).result
+        desc = ins(desc, null_ptr, 0)
+        desc = ins(desc, null_ptr, 1)
+        desc = ins(desc, nitems, 2)
+        desc = ins(desc, i64c(itemsize), 3)
+        desc = ins(desc, data_ptr, 4)
+        desc = ins(desc, shape, 5)
+        desc = ins(desc, strides, 6)
+        return desc
 
     def _llvm_struct_type(self, elem_types):
         return ir.Type.parse(f"!llvm.struct<({', '.join(str(t) for t in elem_types)})>")
@@ -2728,17 +2784,28 @@ extern "C" __global__ void
             if aggregate is not None:
                 self._emit_dbg_declare(base_name, aggregate, var_attr)
             return
-        if isinstance(numba_type, types.Record):
-            mlir_value = self._unwrap_mlir_value(value)
-            if mlir_value is not None:
-                llvm.intr_dbg_declare(
-                    mlir_value,
-                    var_attr,
-                    location_expr=self._di_builder.di_expression,
-                )
-            return
         mlir_value = self._unwrap_mlir_value(value)
         if mlir_value is None:
+            return
+        if isinstance(numba_type, types.Record):
+            llvm.intr_dbg_declare(
+                mlir_value,
+                var_attr,
+                location_expr=self._di_builder.di_expression,
+            )
+            return
+        if isinstance(numba_type, types.Array):
+            match mlir_value.type:
+                case llvm.PointerType():
+                    llvm.intr_dbg_declare(
+                        mlir_value,
+                        var_attr,
+                        location_expr=self._di_builder.di_expression,
+                    )
+                case MemRefType():
+                    descriptor = self._build_array_debug_descriptor(mlir_value, numba_type)
+                    if descriptor is not None:
+                        self._emit_dbg_declare(base_name, descriptor, var_attr)
             return
         is_arg = base_name in self._di_builder.arg_names
         is_boolean = isinstance(numba_type, types.Boolean)

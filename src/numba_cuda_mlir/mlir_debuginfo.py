@@ -275,6 +275,67 @@ def _record_di_type(numba_type):
     )
 
 
+def _array_di_type(numba_type):
+    elem = numba_type.dtype
+    ndim = numba_type.ndim
+    layout = numba_type.layout
+
+    int64_di = _basic_di_type("int64", _INT_LITERAL_BITS, "signed")
+    i8_di = _basic_di_type("i8", _BYTE_SIZE_BITS, "unsigned")
+    i8_ptr_di = _derived_di_type(
+        "DW_TAG_pointer_type",
+        base_type=i8_di,
+        size_bits=_POINTER_BITS,
+    )
+    elem_di = _numba_type_to_di_type_str(elem) or _basic_di_type(
+        "byte", _BYTE_SIZE_BITS, "unsigned"
+    )
+    elem_ptr_di = _derived_di_type(
+        "DW_TAG_pointer_type",
+        base_type=elem_di,
+        size_bits=_POINTER_BITS,
+    )
+    tuple_di = _uni_tuple_di_type(types.UniTuple(types.int64, ndim))
+
+    # Array descriptor debug info layout
+    meminfo_offset = 0
+    parent_offset = _POINTER_BITS
+    nitems_offset = 2 * _POINTER_BITS
+    itemsize_offset = nitems_offset + _INT_LITERAL_BITS
+    data_offset = itemsize_offset + _INT_LITERAL_BITS
+    shape_offset = data_offset + _POINTER_BITS
+    strides_offset = shape_offset + ndim * _INT_LITERAL_BITS
+    total_size = strides_offset + ndim * _INT_LITERAL_BITS
+
+    member = lambda n, b, o, s: _derived_di_type(
+        "DW_TAG_member",
+        name=n,
+        base_type=b,
+        size_bits=s,
+        offset_bits=o,
+    )
+
+    members = [
+        member("meminfo", i8_ptr_di, meminfo_offset, _POINTER_BITS),
+        member("parent", i8_ptr_di, parent_offset, _POINTER_BITS),
+        member("nitems", int64_di, nitems_offset, _INT_LITERAL_BITS),
+        member("itemsize", int64_di, itemsize_offset, _INT_LITERAL_BITS),
+        member("data", elem_ptr_di, data_offset, _POINTER_BITS),
+        member("shape", tuple_di, shape_offset, ndim * _INT_LITERAL_BITS),
+        member("strides", tuple_di, strides_offset, ndim * _INT_LITERAL_BITS),
+    ]
+
+    elem_llvm = _llvm_type_str(elem) or "i8"
+    llvm_struct = f"i8*, i8*, i64, i64, {elem_llvm}*, [{ndim} x i64], [{ndim} x i64]"
+
+    return _composite_di_type(
+        "DW_TAG_structure_type",
+        name=f"array({elem}, {ndim}d, {layout}) ({{{llvm_struct}}})",
+        size_bits=total_size,
+        elements=members,
+    )
+
+
 def _numba_type_to_di_type_str(numba_type):
     """Map a Numba type to an MLIR #llvm.di_basic_type string."""
     match numba_type:
@@ -306,6 +367,8 @@ def _numba_type_to_di_type_str(numba_type):
             return _base_tuple_di_type(numba_type)
         case types.Record():
             return _record_di_type(numba_type)
+        case types.Array():
+            return _array_di_type(numba_type)
         case Bfloat16():
             return _basic_di_type("__nv_bfloat16", _BFLOAT16_BITS, "float")
         case GridGroup():

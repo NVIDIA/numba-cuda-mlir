@@ -204,8 +204,8 @@ def test_mlir_dbg_value_bool_arg():
     )
     testing.filecheck(
         """
-        CHECK-NOT: llvm.intr.dbg.declare
-        CHECK: llvm.intr.dbg.value
+        CHECK: #[[FLAG_VAR:di_local_variable[0-9]*]] = #llvm.di_local_variable<{{.*}}name = "flag"
+        CHECK: llvm.intr.dbg.value #[[FLAG_VAR]] = %{{.*}} : i1
         """,
         mlir,
     )
@@ -541,6 +541,121 @@ def test_mlir_record_type():
         CHECK: #[[RECORD_VAR:di_local_variable[0-9]*]] = #llvm.di_local_variable<{{.*}}name = "r"
         CHECK-SAME: type = #[[RECORD_TYPE]]
         CHECK: llvm.intr.dbg.declare #[[RECORD_VAR]] = %{{[0-9]+}} : !llvm.ptr
+        """,
+        mlir,
+    )
+
+
+def test_mlir_array_1d_kernel_arg_type():
+    """Array kernel args emit dbg.declare with descriptor struct DI."""
+
+    def k_array_1d(a):
+        i = cuda.threadIdx.x
+        a[i] = a[i] + 1.0
+
+    mlir = compiler.compile_mlir(
+        k_array_1d,
+        types.void(types.float32[::1]),
+        optimized=True,
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK: #[[TUPLE_TYPE:di_composite_type[0-9]*]] = #llvm.di_composite_type<tag = DW_TAG_array_type, name = "UniTuple(int64 x 1) ([1 x i64])"
+        CHECK-SAME: sizeInBits = 64
+        CHECK: #[[ITEMSIZE:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "itemsize"
+        CHECK-SAME: offsetInBits = 192
+        CHECK: #[[DATA:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "data"
+        CHECK-SAME: offsetInBits = 256
+        CHECK: #[[SHAPE:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "shape"
+        CHECK-SAME: baseType = #[[TUPLE_TYPE]]
+        CHECK-SAME: offsetInBits = 320
+        CHECK: #[[STRIDES:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "strides"
+        CHECK-SAME: baseType = #[[TUPLE_TYPE]]
+        CHECK-SAME: offsetInBits = 384
+        CHECK: #[[ARRAY_TYPE:di_composite_type[0-9]*]] = #llvm.di_composite_type<tag = DW_TAG_structure_type, name = "array(float32, 1d, C) ({i8*, i8*, i64, i64, float*, [1 x i64], [1 x i64]})"
+        CHECK-SAME: sizeInBits = 448
+        CHECK-SAME: elements = {{.*}}#[[ITEMSIZE]], #[[DATA]], #[[SHAPE]], #[[STRIDES]]
+        CHECK: #[[ARRAY_VAR:di_local_variable[0-9]*]] = #llvm.di_local_variable<{{.*}}name = "a"
+        CHECK-SAME: type = #[[ARRAY_TYPE]]
+        CHECK: llvm.intr.dbg.declare #[[ARRAY_VAR]] = %{{[0-9]+}} : !llvm.ptr
+        """,
+        mlir,
+    )
+
+
+def test_mlir_array_2d_kernel_arg_type():
+    """2d array kernel args size shape/strides by ndim."""
+
+    def k_array_2d(a):
+        i = cuda.threadIdx.x
+        a[i, 0] = a[i, 0] + 1.0
+
+    mlir = compiler.compile_mlir(
+        k_array_2d,
+        types.void(types.float32[:, ::1]),
+        optimized=True,
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK: #[[TUPLE_TYPE:di_composite_type[0-9]*]] = #llvm.di_composite_type<tag = DW_TAG_array_type, name = "UniTuple(int64 x 2) ([2 x i64])"
+        CHECK-SAME: sizeInBits = 128
+        CHECK: #[[SHAPE:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "shape"
+        CHECK-SAME: baseType = #[[TUPLE_TYPE]]
+        CHECK-SAME: sizeInBits = 128
+        CHECK-SAME: offsetInBits = 320
+        CHECK: #[[STRIDES:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "strides"
+        CHECK-SAME: baseType = #[[TUPLE_TYPE]]
+        CHECK-SAME: sizeInBits = 128
+        CHECK-SAME: offsetInBits = 448
+        CHECK: #[[ARRAY_TYPE:di_composite_type[0-9]*]] = #llvm.di_composite_type<tag = DW_TAG_structure_type, name = "array(float32, 2d, C) ({i8*, i8*, i64, i64, float*, [2 x i64], [2 x i64]})"
+        CHECK-SAME: sizeInBits = 576
+        CHECK: #[[ARRAY_VAR:di_local_variable[0-9]*]] = #llvm.di_local_variable<{{.*}}name = "a"
+        CHECK-SAME: type = #[[ARRAY_TYPE]]
+        CHECK: llvm.intr.dbg.declare #[[ARRAY_VAR]] = %{{[0-9]+}} : !llvm.ptr
+        """,
+        mlir,
+    )
+
+
+def test_mlir_local_array_type():
+    """cuda.local.array locals use descriptor struct DI over a debug descriptor slot."""
+
+    def k_local_array(out):
+        tmp = cuda.local.array((4,), types.float32)
+        i = cuda.threadIdx.x
+        tmp[0] = out[i]
+        out[i] = tmp[0]
+
+    mlir = compiler.compile_mlir(
+        k_local_array,
+        types.void(types.float32[::1]),
+        optimized=True,
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK: #[[TUPLE_TYPE:di_composite_type[0-9]*]] = #llvm.di_composite_type<tag = DW_TAG_array_type, name = "UniTuple(int64 x 1) ([1 x i64])"
+        CHECK-SAME: sizeInBits = 64
+        CHECK: #[[ITEMSIZE:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "itemsize"
+        CHECK-SAME: offsetInBits = 192
+        CHECK: #[[DATA:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "data"
+        CHECK-SAME: offsetInBits = 256
+        CHECK: #[[SHAPE:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "shape"
+        CHECK-SAME: baseType = #[[TUPLE_TYPE]]
+        CHECK-SAME: offsetInBits = 320
+        CHECK: #[[STRIDES:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "strides"
+        CHECK-SAME: baseType = #[[TUPLE_TYPE]]
+        CHECK-SAME: offsetInBits = 384
+        CHECK: #[[ARRAY_TYPE:di_composite_type[0-9]*]] = #llvm.di_composite_type<tag = DW_TAG_structure_type, name = "array(float32, 1d, C) ({i8*, i8*, i64, i64, float*, [1 x i64], [1 x i64]})"
+        CHECK-SAME: sizeInBits = 448
+        CHECK: #[[LOCAL_VAR:di_local_variable[0-9]*]] = #llvm.di_local_variable<{{.*}}name = "tmp"
+        CHECK-SAME: type = #[[ARRAY_TYPE]]
+        CHECK: llvm.intr.dbg.declare #[[LOCAL_VAR]] = %{{[0-9]+}} : !llvm.ptr
         """,
         mlir,
     )

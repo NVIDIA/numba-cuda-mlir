@@ -458,7 +458,6 @@ def convert_tuple_like(values: list[ir.Value], target_type: ir.Type) -> ir.Value
             raise NotImplementedError(f"Not implemented for type {target_type}")
 
 
-@typechecked
 def _convert_integer_to_integer(
     value: ir.Value, target_type: ir.IntegerType, *, signed: bool = False
 ) -> ir.Value:
@@ -515,6 +514,8 @@ def _convert_integer_to_integer(
 
 
 def convert(value, target_type, *, signed: bool = False):
+    if getattr(value, "type", None) == target_type:
+        return value
     return ensure_verifies(unverified_convert(value, target_type, signed=signed))
 
 
@@ -562,7 +563,6 @@ def _memory_spaces_match(lhs: ir.MemRefType, rhs: ir.MemRefType) -> bool:
             return True
 
 
-@typechecked
 @unverified_convert.register
 def unverified_basic_mlir_convert(
     value: ir.Value | int | float | bool | complex,

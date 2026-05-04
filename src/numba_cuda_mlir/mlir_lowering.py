@@ -3,7 +3,6 @@
 
 from numba_cuda_mlir.descriptor import MLIRDispatcherType
 from functools import lru_cache
-from typeguard import typechecked
 from io import StringIO
 import logging
 import operator
@@ -587,7 +586,6 @@ extern "C" __global__ void
                     self._capi_sym_name
                 )
 
-    @typechecked
     def alloca(self, ty: ir.Type, count: int = 1) -> ir.Value:
         with self.alloca_insertion_point():
             count_value = i64_of(count)
@@ -1674,7 +1672,6 @@ extern "C" __global__ void
             result = call_result
         self.store_var(target, result)
 
-    @typechecked
     def get_registered_builder(
         self,
         fn: numba_ir.Var | _Intrinsic | AnyCallable[PS],

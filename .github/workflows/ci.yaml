@@ -14,8 +14,6 @@ on:
     branches:
       - "pull-request/[0-9]+"
       - "main"
-  schedule:
-    - cron: "0 10 * * *"
   workflow_dispatch:
 
 jobs:
@@ -153,7 +151,7 @@ jobs:
 
   test-expensive-linux-64:
     name: Expensive Test linux-64
-    if: ${{ github.repository_owner == 'nvidia' && github.ref_name == 'main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ github.repository_owner == 'nvidia' && (startsWith(github.ref_name, 'pull-request/') || github.ref_name == 'main') }}
     permissions:
       contents: read  # This is required for actions/checkout
     needs:
@@ -164,7 +162,7 @@ jobs:
 
   test-expensive-linux-aarch64:
     name: Expensive Test linux-aarch64
-    if: ${{ github.repository_owner == 'nvidia' && github.ref_name == 'main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ github.repository_owner == 'nvidia' && (startsWith(github.ref_name, 'pull-request/') || github.ref_name == 'main') }}
     permissions:
       contents: read  # This is required for actions/checkout
     needs:

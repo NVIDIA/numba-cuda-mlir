@@ -4,15 +4,15 @@
 Lowering support for CUDA vector types (float32x4, int32x2, etc.)
 """
 
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
-registry = MLIRLoweringRegistry()
-lower = registry.lower
+registry = LoweringRegistry()
+_raw_lower = registry.lower
 lower_getattr = registry.lower_getattr
 from numba_cuda_mlir.mlir_lowering import MLIRLower
 from numba_cuda_mlir.lowering_utilities import convert
 from numba_cuda_mlir.lowering_utilities.type_conversions import to_mlir_type
-from numba_cuda_mlir.cuda.vector_types import _vector_type_stubs, VectorTypeStub
+from numba_cuda_mlir.cuda.vector_types import _vector_type_stubs
 from numba_cuda_mlir.type_defs.vector_types import VectorType
 from numba_cuda_mlir import types
 from numba_cuda_mlir._mlir.dialects import vector, arith
@@ -20,6 +20,23 @@ from numba_cuda_mlir._mlir import ir
 from typing import Any
 
 ATTR_INDEX = {"x": 0, "y": 1, "z": 2, "w": 3}
+_registered_signatures = set()
+
+
+def _signature_key(args):
+    try:
+        hash(args)
+        return args
+    except TypeError:
+        return tuple(repr(arg) for arg in args)
+
+
+def lower(*args):
+    key = _signature_key(args)
+    if key in _registered_signatures:
+        return lambda fn: fn
+    _registered_signatures.add(key)
+    return _raw_lower(*args)
 
 
 def _build_vector_from_scalars(scalars: list, vec_type: ir.VectorType) -> ir.Value:
@@ -234,124 +251,3 @@ lower_getattr(VectorType, "x")(_make_attr_lowering("x"))
 lower_getattr(VectorType, "y")(_make_attr_lowering("y"))
 lower_getattr(VectorType, "z")(_make_attr_lowering("z"))
 lower_getattr(VectorType, "w")(_make_attr_lowering("w"))
-
-
-# Also register lowerings for numba-cuda's stub classes
-def _register_numba_cuda_stubs():
-    """Register lowerings for numba-cuda's vector type stubs."""
-    try:
-        from numba_cuda_mlir.numba_cuda.stubs import (
-            _vector_type_stubs as numba_cuda_stubs,
-        )
-    except ImportError:
-        return
-
-    from numba_cuda_mlir.cuda.vector_types import vector_type_stubs_by_name
-
-    for nc_stub in numba_cuda_stubs:
-        name = nc_stub.__name__
-        our_stub = vector_type_stubs_by_name.get(name)
-        if our_stub is None:
-            continue
-
-        num_elements = our_stub._num_elements
-        lowering_fn = make_constructor_lowering(our_stub)
-
-        # Register for various argument patterns (same as above)
-        int_types = [
-            types.int8,
-            types.int16,
-            types.int32,
-            types.int64,
-            types.Integer,
-            types.IntegerLiteral,
-        ]
-        for int_type in int_types:
-            lower(nc_stub, *([int_type] * num_elements))(lowering_fn)
-            lower(nc_stub, int_type)(lowering_fn)
-
-        uint_types = [types.uint8, types.uint16, types.uint32, types.uint64]
-        for uint_type in uint_types:
-            lower(nc_stub, *([uint_type] * num_elements))(lowering_fn)
-            lower(nc_stub, uint_type)(lowering_fn)
-
-        float_types_list = [types.float32, types.float64, types.Float]
-        for float_type in float_types_list:
-            lower(nc_stub, *([float_type] * num_elements))(lowering_fn)
-            lower(nc_stub, float_type)(lowering_fn)
-
-        lower(nc_stub, *([types.boolean] * num_elements))(lowering_fn)
-
-        # Vector copy/conversion
-        for other_stub in _vector_type_stubs:
-            if other_stub._num_elements == num_elements:
-                other_vec_type = VectorType(
-                    getattr(types, other_stub._base_type_name),
-                    (other_stub._num_elements,),
-                )
-                lower(nc_stub, other_vec_type)(lowering_fn)
-
-        # Mixed vector+scalar patterns (same as for our stubs)
-        base_type_name = our_stub._base_type_name
-        base_type = getattr(types, base_type_name)
-        scalar_types = (
-            [base_type, types.Float] if "float" in base_type_name else [base_type, types.Integer]
-        )
-
-        def get_vec_type(n, base_ty=base_type):
-            return VectorType(base_ty, (n,))
-
-        for scalar_type in scalar_types:
-            if num_elements >= 2:
-                vec1 = get_vec_type(1)
-                lower(nc_stub, vec1, scalar_type)(lowering_fn)
-                lower(nc_stub, scalar_type, vec1)(lowering_fn)
-                lower(nc_stub, vec1, vec1)(lowering_fn)
-
-            if num_elements >= 3:
-                vec1, vec2 = get_vec_type(1), get_vec_type(2)
-                lower(nc_stub, vec2, scalar_type)(lowering_fn)
-                lower(nc_stub, scalar_type, vec2)(lowering_fn)
-                lower(nc_stub, vec1, vec2)(lowering_fn)
-                lower(nc_stub, vec2, vec1)(lowering_fn)
-                lower(nc_stub, vec1, scalar_type, scalar_type)(lowering_fn)
-                lower(nc_stub, scalar_type, vec1, scalar_type)(lowering_fn)
-                lower(nc_stub, scalar_type, scalar_type, vec1)(lowering_fn)
-                lower(nc_stub, vec1, vec1, scalar_type)(lowering_fn)
-                lower(nc_stub, vec1, scalar_type, vec1)(lowering_fn)
-                lower(nc_stub, scalar_type, vec1, vec1)(lowering_fn)
-                lower(nc_stub, vec1, vec1, vec1)(lowering_fn)
-
-            if num_elements >= 4:
-                vec1, vec2, vec3 = get_vec_type(1), get_vec_type(2), get_vec_type(3)
-                lower(nc_stub, vec3, scalar_type)(lowering_fn)
-                lower(nc_stub, scalar_type, vec3)(lowering_fn)
-                lower(nc_stub, vec2, vec2)(lowering_fn)
-                lower(nc_stub, vec2, scalar_type, scalar_type)(lowering_fn)
-                lower(nc_stub, scalar_type, vec2, scalar_type)(lowering_fn)
-                lower(nc_stub, scalar_type, scalar_type, vec2)(lowering_fn)
-                lower(nc_stub, vec1, vec3)(lowering_fn)
-                lower(nc_stub, vec3, vec1)(lowering_fn)
-                lower(nc_stub, vec2, vec1, scalar_type)(lowering_fn)
-                lower(nc_stub, vec2, scalar_type, vec1)(lowering_fn)
-                lower(nc_stub, vec1, vec2, scalar_type)(lowering_fn)
-                lower(nc_stub, vec1, scalar_type, vec2)(lowering_fn)
-                lower(nc_stub, scalar_type, vec2, vec1)(lowering_fn)
-                lower(nc_stub, scalar_type, vec1, vec2)(lowering_fn)
-                lower(nc_stub, vec1, vec1, vec2)(lowering_fn)
-                lower(nc_stub, vec1, vec2, vec1)(lowering_fn)
-                lower(nc_stub, vec2, vec1, vec1)(lowering_fn)
-                lower(nc_stub, vec1, vec1, scalar_type, scalar_type)(lowering_fn)
-                lower(nc_stub, vec1, scalar_type, vec1, scalar_type)(lowering_fn)
-                lower(nc_stub, vec1, scalar_type, scalar_type, vec1)(lowering_fn)
-                lower(nc_stub, scalar_type, vec1, vec1, scalar_type)(lowering_fn)
-                lower(nc_stub, scalar_type, vec1, scalar_type, vec1)(lowering_fn)
-                lower(nc_stub, scalar_type, scalar_type, vec1, vec1)(lowering_fn)
-                lower(nc_stub, vec1, vec1, vec1, scalar_type)(lowering_fn)
-                lower(nc_stub, vec1, vec1, scalar_type, vec1)(lowering_fn)
-                lower(nc_stub, vec1, scalar_type, vec1, vec1)(lowering_fn)
-                lower(nc_stub, scalar_type, vec1, vec1, vec1)(lowering_fn)
-                lower(nc_stub, vec1, vec1, vec1, vec1)(lowering_fn)
-
-
-_register_numba_cuda_stubs()

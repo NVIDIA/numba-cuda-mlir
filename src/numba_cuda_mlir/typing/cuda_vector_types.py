@@ -14,9 +14,6 @@ from numba_cuda_mlir import types
 from numba_cuda_mlir.type_defs.vector_types import VectorType
 from numba_cuda_mlir.cuda.vector_types import (
     _vector_type_stubs,
-    vector_type_stubs_by_name,
-    vector_type_stubs_by_alias,
-    VectorTypeStub,
 )
 
 registry = Registry()
@@ -149,86 +146,3 @@ def _make_typeof_impl(stub_class):
 
 for stub in _vector_type_stubs:
     typeof.typeof_impl.register(stub)(_make_typeof_impl(stub))
-
-
-def _make_nc_constructor_template(nc_stub, our_stub):
-    """Create a typing template for a numba-cuda vector type stub."""
-    base_type = BASE_TYPE_MAP[our_stub._base_type_name]
-    num_elements = our_stub._num_elements
-    result_type = VectorType(base_type, (num_elements,))
-
-    class NCConstructorTemplate(AbstractTemplate):
-        key = nc_stub
-
-        def generic(self, args, kws):
-            if kws:
-                return None
-            # Single argument cases (must check before multi-arg scalar case)
-            if len(args) == 1:
-                arg = args[0]
-                if isinstance(arg, VectorType) and arg.length == num_elements:
-                    return signature(result_type, arg)
-                if isinstance(arg, (types.Integer, types.Float)):
-                    return signature(result_type, arg)
-            # All scalar arguments
-            if len(args) == num_elements:
-                all_scalars = all(
-                    isinstance(arg, (types.Integer, types.Float, types.Boolean)) for arg in args
-                )
-                if all_scalars:
-                    return signature(result_type, *args)
-            # Mixed vector/scalar arguments
-            total_elements = 0
-            for arg in args:
-                if isinstance(arg, VectorType):
-                    total_elements += arg.length
-                elif isinstance(arg, (types.Integer, types.Float, types.Boolean)):
-                    total_elements += 1
-                else:
-                    return None
-            if total_elements == num_elements:
-                return signature(result_type, *args)
-            return None
-
-    NCConstructorTemplate.__name__ = f"NC{nc_stub.__name__}ConstructorTemplate"
-    return NCConstructorTemplate
-
-
-# Also register templates and typeof_impl for numba-cuda's stubs
-def _register_numba_cuda_stubs():
-    """Register typing templates and typeof_impl for numba-cuda's vector type stubs."""
-    try:
-        from numba_cuda_mlir.numba_cuda.stubs import (
-            _vector_type_stubs as numba_cuda_stubs,
-        )
-    except ImportError:
-        return
-
-    for nc_stub in numba_cuda_stubs:
-        name = nc_stub.__name__
-        our_stub = vector_type_stubs_by_name.get(name)
-        if our_stub is None:
-            continue
-
-        # Check if already cached
-        if nc_stub in _constructor_template_cache:
-            template = _constructor_template_cache[nc_stub]
-        else:
-            template = _make_nc_constructor_template(nc_stub, our_stub)
-            _constructor_template_cache[nc_stub] = template
-
-        # Register the template
-        registry.register(template)
-        registry.register_global(nc_stub, types.Function(template))
-
-        # Also register typeof_impl for closure capture support
-        def make_typeof(tmpl):
-            def typeof_numba_cuda_stub(val, c):
-                return types.Function(tmpl)
-
-            return typeof_numba_cuda_stub
-
-        typeof.typeof_impl.register(nc_stub)(make_typeof(template))
-
-
-_register_numba_cuda_stubs()

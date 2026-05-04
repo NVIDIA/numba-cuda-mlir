@@ -140,16 +140,14 @@ class TestLinker(NumbaCUDATestCase):
         )
 
         self.assertEqual(linker.variables_used, ["retained_global", "another_global"])
-        self.assertEqual(linker.variable_used, ["retained_global", "another_global"])
         self.assertEqual(
             linker._get_linker_options(ptx=False).variables_used,
             ["retained_global", "another_global"],
         )
 
-        linker.variable_used = "updated_global"
+        linker.variables_used = "updated_global"
 
         self.assertEqual(linker.variables_used, "updated_global")
-        self.assertEqual(linker.variable_used, "updated_global")
         self.assertEqual(
             linker._get_linker_options(ptx=False).variables_used,
             "updated_global",

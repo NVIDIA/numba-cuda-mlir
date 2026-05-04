@@ -2220,14 +2220,6 @@ class _Linker:
     def variables_used(self, variables_used):
         self._variables_used = variables_used
 
-    @property
-    def variable_used(self):
-        return self.variables_used
-
-    @variable_used.setter
-    def variable_used(self, variable_used):
-        self.variables_used = variable_used
-
     def add_cu_file(self, path):
         cu = cached_file_read(path, how="rb")
         self.add_cu(cu, os.path.basename(path))

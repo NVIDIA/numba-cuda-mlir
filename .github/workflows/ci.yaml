@@ -151,7 +151,7 @@ jobs:
 
   test-expensive-linux-64:
     name: Expensive Test linux-64
-    if: ${{ github.repository_owner == 'nvidia' && (startsWith(github.ref_name, 'pull-request/') || github.ref_name == 'main') }}
+    if: ${{ github.repository_owner == 'nvidia' }}
     permissions:
       contents: read  # This is required for actions/checkout
     needs:
@@ -162,7 +162,7 @@ jobs:
 
   test-expensive-linux-aarch64:
     name: Expensive Test linux-aarch64
-    if: ${{ github.repository_owner == 'nvidia' && (startsWith(github.ref_name, 'pull-request/') || github.ref_name == 'main') }}
+    if: ${{ github.repository_owner == 'nvidia' }}
     permissions:
       contents: read  # This is required for actions/checkout
     needs:
@@ -217,7 +217,6 @@ jobs:
       - test-expensive-linux-aarch64
       - pre-commit
       # - coverage-report
-      # - test-conda
       # - test-simulator
       # - build-docs
     steps:

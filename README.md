@@ -185,10 +185,6 @@ The pinned LLVM commit is in [`ci/llvm-version.env`](ci/llvm-version.env).
 
 ## Installation
 
-> **Note:** Options 1 and 2 below use `gh run download` to fetch CI artifacts
-> from GitHub Actions. This is a temporary workaround until we set up a proper
-> mechanism for team members to access the S3 build cache directly.
-
 ### Option 1: Pre-built wheel (fastest)
 
 CI publishes wheels as GitHub Actions artifacts on every push to `main`.

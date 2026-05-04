@@ -198,7 +198,7 @@ RUN_ID=$(gh run list -R NVIDIA/numba-cuda-mlir -w ci.yaml -b main -s success -L1
 gh run download "$RUN_ID" -R NVIDIA/numba-cuda-mlir -p "numba-cuda-mlir-python312-linux-64-*"
 
 # Install the downloaded wheel:
-pip install dist/numba_cuda_mlir*.whl[cu13]
+pip install numba-cuda-mlir-python312-linux-64-*/numba_cuda_mlir*.whl[cu13]
 ```
 
 Replace `python312` with your Python version (e.g. `python313`, `python314`, `python314t`).
@@ -218,10 +218,10 @@ You can download them instead of building LLVM from scratch
 RUN_ID=$(gh run list -R NVIDIA/numba-cuda-mlir -w ci.yaml -b main -s success -L1 --json databaseId -q '.[0].databaseId')
 
 # Download LLVM Modern (pick your Python version: cp312, cp313, cp314, cp314t):
-gh run download "$RUN_ID" -R NVIDIA/numba-cuda-mlir -n llvm-modern-install-cp312-linux-64
+gh run download "$RUN_ID" -R NVIDIA/numba-cuda-mlir -n llvm-modern-install-cp312-linux-64 -D llvm-modern-install
 
 # Download LLVM 7:
-gh run download "$RUN_ID" -R NVIDIA/numba-cuda-mlir -n llvm7-install-linux-64
+gh run download "$RUN_ID" -R NVIDIA/numba-cuda-mlir -n llvm7-install-linux-64 -D llvm7-install
 ```
 For aarch64, replace `linux-64` with `linux-aarch64` in the artifact names.
 This produces `llvm-modern-install/` and `llvm7-install/` directories.

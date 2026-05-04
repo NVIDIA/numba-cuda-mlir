@@ -34,9 +34,9 @@ from numba_cuda_mlir._mlir.dialects import (
     complex as complex_dialect,
 )
 from numba_cuda_mlir.mlir.dialect_exts.math import ipowi
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower = registry.lower
 lower_getattr = registry.lower_getattr
 from numba_cuda_mlir.lowering_utilities import (

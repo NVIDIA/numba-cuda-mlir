@@ -8,7 +8,7 @@ Test cases adapted from numba/tests/test_enums.py
 import numpy as np
 
 from numba_cuda_mlir.numba_cuda.types import int16, int32
-from numba_cuda_mlir.extending import register_jitable
+from numba_cuda_mlir.extending import register_jitable, typing_registry
 
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
@@ -63,7 +63,7 @@ class EnumTest(NumbaCUDATestCase):
         self.assertPreciseEqual(expected, got)
 
     def test_return_from_device_func(self):
-        @register_jitable
+        @register_jitable(typing_registry=typing_registry)
         def inner(pred):
             return Color.red if pred else Color.green
 

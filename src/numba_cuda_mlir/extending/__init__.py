@@ -17,9 +17,9 @@ from numba_cuda_mlir.numba_cuda.extending import (
     type_callable,
 )
 
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
-lowering_registry = MLIRLoweringRegistry()
+lowering_registry = LoweringRegistry()
 typing_registry = Registry()
 lower_cast = lowering_registry.lower_cast
 
@@ -32,14 +32,29 @@ __all__ = [
 _overload_default_jit_options = {"no_cpython_wrapper": True, "nopython": True}
 
 
+def _require_typing_registry(decorator_name, registry):
+    if registry is None:
+        raise ValueError(f"numba_cuda_mlir.extending.{decorator_name} requires typing_registry=")
+    return registry
+
+
+def _require_lowering_registry(decorator_name, registry):
+    if registry is None:
+        raise ValueError(f"numba_cuda_mlir.extending.{decorator_name} requires lowering_registry=")
+    return registry
+
+
 def overload(
     func,
     jit_options=MappingProxyType({}),
     strict=True,
     inline="never",
     prefer_literal=False,
+    typing_registry=None,
+    lowering_registry=None,
     **kwargs,
 ):
+    selected_typing_registry = _require_typing_registry("overload", typing_registry)
     jit_options = dict(jit_options)
     opts = _overload_default_jit_options.copy()
     opts.update(jit_options)
@@ -48,9 +63,10 @@ def overload(
         template = make_overload_template(
             func, overload_func, opts, strict, inline, prefer_literal, **kwargs
         )
-        typing_registry.register(template)
+        template._typing_registry = selected_typing_registry
+        selected_typing_registry.register(template)
         if callable(func):
-            typing_registry.register_global(func, types.Function(template))
+            selected_typing_registry.register_global(func, types.Function(template))
         return overload_func
 
     return decorate
@@ -69,8 +85,9 @@ class _NumbaCudaMlirOverloadAttributeTemplate(_OverloadAttributeTemplate):
 
         attr = cls._attr
         key = cls.key
+        selected_lowering_registry = cls._attribute_lowering_registry
 
-        @lowering_registry.lower_getattr(key, attr)
+        @selected_lowering_registry.lower_getattr(key, attr)
         def getattr_impl(context, builder, target, value):
             value_type = builder.get_numba_type(value.name)
             disp = cls._find_overload_dispatcher(context.typing_context, value_type)
@@ -111,7 +128,10 @@ class _NumbaCudaMlirOverloadMethodTemplate(_OverloadMethodTemplate):
         pass
 
 
-def overload_attribute(typ, attr, **kwargs):
+def overload_attribute(typ, attr, typing_registry=None, lowering_registry=None, **kwargs):
+    selected_typing_registry = _require_typing_registry("overload_attribute", typing_registry)
+    selected_lowering_registry = _require_lowering_registry("overload_attribute", lowering_registry)
+
     def decorate(overload_func):
         template = make_overload_attribute_template(
             typ,
@@ -120,14 +140,17 @@ def overload_attribute(typ, attr, **kwargs):
             base=_NumbaCudaMlirOverloadAttributeTemplate,
             **kwargs,
         )
-        typing_registry.register_attr(template)
-        overload(overload_func, **kwargs)(overload_func)
+        template._attribute_lowering_registry = selected_lowering_registry
+        selected_typing_registry.register_attr(template)
+        overload(overload_func, typing_registry=selected_typing_registry, **kwargs)(overload_func)
         return overload_func
 
     return decorate
 
 
-def overload_method(typ, attr, **kwargs):
+def overload_method(typ, attr, typing_registry=None, **kwargs):
+    selected_typing_registry = _require_typing_registry("overload_method", typing_registry)
+
     def decorate(overload_func):
         copied_kwargs = kwargs.copy()
         template = make_overload_attribute_template(
@@ -139,25 +162,35 @@ def overload_method(typ, attr, **kwargs):
             base=_NumbaCudaMlirOverloadMethodTemplate,
             **copied_kwargs,
         )
-        typing_registry.register_attr(template)
-        overload(overload_func, **kwargs)(overload_func)
+        selected_typing_registry.register_attr(template)
+        overload(overload_func, typing_registry=selected_typing_registry, **kwargs)(overload_func)
         return overload_func
 
     return decorate
 
 
-def register_jitable(*args, **kwargs):
-    def wrap(fn):
-        inline = kwargs.pop("inline", "never")
+def register_jitable(*args, typing_registry=None, **kwargs):
+    selected_typing_registry = _require_typing_registry("register_jitable", typing_registry)
 
-        @overload(fn, jit_options=kwargs, inline=inline, strict=False)
+    def wrap(fn):
+        copied_kwargs = kwargs.copy()
+        inline = copied_kwargs.pop("inline", "never")
+
+        @overload(
+            fn,
+            jit_options=copied_kwargs,
+            inline=inline,
+            strict=False,
+            typing_registry=selected_typing_registry,
+        )
         def ov_wrap(*args, **kwargs):
             return fn
 
         fn.__numba_cuda_mlir_jitable__ = True
         return fn
 
-    if kwargs:
+    if kwargs or not args:
         return wrap
-    else:
-        return wrap(*args)
+    if len(args) != 1:
+        raise TypeError("register_jitable accepts at most one positional argument")
+    return wrap(*args)

@@ -2,8 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 import collections
 from contextlib import contextmanager
+import sys
 from functools import cached_property, lru_cache
-from typing import override
+
+if sys.version_info >= (3, 12):
+    from typing import override
+else:
+    from typing_extensions import override
 from numba_cuda_mlir.errors import UserFacingInternalCompilerError
 from numba_cuda_mlir.logging import trace
 import inspect
@@ -428,6 +433,11 @@ class MLIRTypingContext(typing.BaseContext):
         import numba_cuda_mlir.lowering.unicode  # noqa: F401 - registers string overloads
         from numba_cuda_mlir.numba_cuda.typing import enumdecl, cffi_utils
         from numba_cuda_mlir.numba_cuda.typing.templates import builtin_registry
+        from numba_cuda_mlir.numba_cuda.target import load_cuda_target_registration_modules
+
+        load_cuda_target_registration_modules()
+        register_bf16_globals()
+        register_fp8_globals()
 
         # Install numba_cuda_mlir registries first to give them priority
         self.install_registry(ctypes_registry)
@@ -443,13 +453,10 @@ class MLIRTypingContext(typing.BaseContext):
         self.install_registry(exotic_float_typing_registry)
         self.install_registry(vector_registry)
         self.install_registry(cuda_vector_types_registry)
-        self.install_registry(extending_typing_registry)
 
         # Install numba-cuda registries after numba_cuda_mlir ones
         self.install_registry(cuda_registry)
         self.install_registry(builtin_registry)
-        register_bf16_globals()
-        register_fp8_globals()
 
         # Install numba-cuda's bf16 typing registry (includes operators)
         from numba_cuda_mlir.numba_cuda._internal.cuda_bf16 import (
@@ -460,6 +467,7 @@ class MLIRTypingContext(typing.BaseContext):
 
         self.install_registry(enumdecl.registry)
         self.install_registry(cffi_utils.registry)
+        self.install_registry(extending_typing_registry)
         if find_spec("torch") is not None:
             from numba_cuda_mlir.type_defs.torch_types import registry as torch_registry
 
@@ -654,9 +662,7 @@ class MLIRTargetContext(BaseContext):
 
     @override
     def refresh(self):
-        self.load_additional_registries()
         super().refresh()
-        self.typing_context.refresh()
 
     def get_overload_builder(self, fn, sig):
         """Return an MLIR builder for an overloaded function, or None.

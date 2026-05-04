@@ -73,7 +73,7 @@ from numba_cuda_mlir._mlir.dialects import (
 from numba_cuda_mlir._mlir.dialects import complex as complex_dialect
 
 from numba_cuda_mlir.logging import trace
-from numba_cuda_mlir import mlir_debuginfo, mlir_lowering_registry
+from numba_cuda_mlir import mlir_debuginfo
 from numba_cuda_mlir.tools import (
     get_gpu_compute_capability,
     generate_mangled_name,

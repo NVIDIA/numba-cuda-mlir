@@ -30,9 +30,9 @@ from numba_cuda_mlir.mlir_lowering import MLIRLower
 from numba_cuda_mlir._mlir.dialects import arith, func, memref, gpu, nvvm, llvm
 from numba_cuda_mlir._mlir.extras import types as T
 import numba_cuda_mlir._mlir.ir as ir
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower = registry.lower
 lower_getattr = registry.lower_getattr
 lower_getattr_generic = registry.lower_getattr_generic

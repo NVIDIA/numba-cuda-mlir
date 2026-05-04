@@ -14,9 +14,9 @@ from numba_cuda_mlir.mlir.dialect_exts.scf import (
     else_ctx_manager as else_,
 )
 from numba_cuda_mlir.mlir.dialect_exts import llvm
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower = registry.lower
 from numba_cuda_mlir.lowering_utilities import (
     get_or_insert_function,

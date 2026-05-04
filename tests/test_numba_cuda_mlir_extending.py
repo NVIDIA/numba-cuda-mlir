@@ -1,7 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir import cuda, extending, types, testing
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
+from numba_cuda_mlir.numba_cuda.typing.templates import Registry
 import numpy as np
+import pytest
 
 
 def test_extending_intrinsic():
@@ -32,6 +35,87 @@ def test_extending_intrinsic():
     testing.filecheck_with_comments(mlir)
 
 
+def test_overload_requires_typing_registry():
+    def my_func(x):
+        return x
+
+    with pytest.raises(ValueError, match="overload.*typing_registry"):
+        extending.overload(my_func)
+
+
+def test_overload_method_requires_typing_registry():
+    with pytest.raises(ValueError, match="overload_method.*typing_registry"):
+        extending.overload_method(types.Array, "missing_registry")
+
+
+def test_overload_attribute_requires_typing_registry():
+    with pytest.raises(ValueError, match="overload_attribute.*typing_registry"):
+        extending.overload_attribute(
+            types.Array,
+            "missing_typing_registry",
+            lowering_registry=extending.lowering_registry,
+        )
+
+
+def test_overload_attribute_requires_lowering_registry():
+    with pytest.raises(ValueError, match="overload_attribute.*lowering_registry"):
+        extending.overload_attribute(
+            types.Array,
+            "missing_lowering_registry",
+            typing_registry=extending.typing_registry,
+        )
+
+
+def test_register_jitable_requires_typing_registry():
+    def helper(x):
+        return x
+
+    with pytest.raises(ValueError, match="register_jitable.*typing_registry"):
+        extending.register_jitable(helper)
+
+
+def test_register_jitable_with_options_requires_typing_registry():
+    with pytest.raises(ValueError, match="register_jitable.*typing_registry"):
+        extending.register_jitable(inline="always")
+
+
+def test_overload_uses_supplied_typing_registry():
+    custom_typing_registry = Registry()
+
+    def my_func(x):
+        return x
+
+    @extending.overload(my_func, typing_registry=custom_typing_registry)
+    def my_func_overload(x):
+        def impl(x):
+            return x
+
+        return impl
+
+    assert custom_typing_registry.functions[-1]._typing_registry is custom_typing_registry
+    assert custom_typing_registry.globals[-1][0] is my_func
+
+
+def test_overload_attribute_uses_supplied_registries():
+    custom_typing_registry = Registry()
+    custom_lowering_registry = LoweringRegistry()
+
+    @extending.overload_attribute(
+        types.Array,
+        "custom_attr",
+        typing_registry=custom_typing_registry,
+        lowering_registry=custom_lowering_registry,
+    )
+    def array_custom_attr(arr):
+        def get(arr):
+            return arr.size
+
+        return get
+
+    template = custom_typing_registry.attributes[-1]
+    assert template._attribute_lowering_registry is custom_lowering_registry
+
+
 def test_extending_overload_with_lowering():
     from numba_cuda_mlir.extending import lowering_registry
 
@@ -46,7 +130,7 @@ def test_extending_overload_with_lowering():
         x, _, _ = builder.load_vars(args)
         builder.store_var(target, x)
 
-    @extending.overload(np.sum)
+    @extending.overload(np.sum, typing_registry=extending.typing_registry)
     def sum_overload(a, b, c):
         """
         Silly overload of np.sum that takes three arguments and returns the first.
@@ -71,7 +155,7 @@ def test_extending_overload_without_lowering():
 
     logging.basicConfig(level=logging.DEBUG)
 
-    @extending.overload(np.sum)
+    @extending.overload(np.sum, typing_registry=extending.typing_registry)
     def sum_overload(a, c):
         def ol(a, c):
             return a
@@ -89,7 +173,11 @@ def test_extending_overload_without_lowering():
 def test_extending_overload_method():
     """User-defined @overload_method dispatches through BoundFunction."""
 
-    @extending.overload_method(types.Array, "doubled_first")
+    @extending.overload_method(
+        types.Array,
+        "doubled_first",
+        typing_registry=extending.typing_registry,
+    )
     def array_doubled_first(arr):
         def impl(arr):
             return arr[0] * 2
@@ -109,7 +197,7 @@ def test_extending_overload_method():
 def test_register_jitable():
     """register_jitable makes a plain Python function callable from device code."""
 
-    @extending.register_jitable
+    @extending.register_jitable(typing_registry=extending.typing_registry)
     def triple(x):
         return x * 3
 
@@ -125,11 +213,11 @@ def test_register_jitable():
 def test_register_jitable_calls_register_jitable():
     """Chained register_jitable: one jitable function calls another."""
 
-    @extending.register_jitable
+    @extending.register_jitable(typing_registry=extending.typing_registry)
     def add_one(x):
         return x + 1
 
-    @extending.register_jitable
+    @extending.register_jitable(typing_registry=extending.typing_registry)
     def add_two(x):
         return add_one(add_one(x))
 
@@ -145,7 +233,12 @@ def test_register_jitable_calls_register_jitable():
 def test_overload_attribute():
     """overload_attribute exposes a read-only property on a Numba type."""
 
-    @extending.overload_attribute(types.Array, "doubled_size")
+    @extending.overload_attribute(
+        types.Array,
+        "doubled_size",
+        typing_registry=extending.typing_registry,
+        lowering_registry=extending.lowering_registry,
+    )
     def array_doubled_size(arr):
         def get(arr):
             return arr.size * 2
@@ -165,7 +258,11 @@ def test_overload_attribute():
 def test_overload_method_with_args():
     """overload_method with arguments beyond self."""
 
-    @extending.overload_method(types.Array, "elem_plus")
+    @extending.overload_method(
+        types.Array,
+        "elem_plus",
+        typing_registry=extending.typing_registry,
+    )
     def array_elem_plus(arr, idx, val):
         def impl(arr, idx, val):
             return arr[idx] + val
@@ -188,7 +285,7 @@ def test_overload_dispatches_on_type():
     def my_func(x):
         raise NotImplementedError
 
-    @extending.overload(my_func)
+    @extending.overload(my_func, typing_registry=extending.typing_registry)
     def my_func_overload(x):
         if isinstance(x, types.Integer):
 

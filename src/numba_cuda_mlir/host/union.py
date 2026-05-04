@@ -14,7 +14,6 @@ from numba_cuda_mlir.lowering.union import _lower_union_construction_impl
 from numba_cuda_mlir.descriptor import mlir_target
 from numba_cuda_mlir.numba_cuda.typing.templates import ConcreteTemplate
 from numba_cuda_mlir import typing
-from numba_cuda_mlir.lowering.union import registry as lowering_registry
 
 # Counter for generating unique union names if no name is provided
 _anon_union_counter = 0
@@ -195,6 +194,7 @@ def _register_union_constructor(wrapper: UnionTypeWrapper, union_type: UnionType
     """
 
     typingctx = mlir_target.typing_context
+    targetctx = mlir_target.target_context
     sig = typing.signature(union_type)
 
     # Create a template that makes this wrapper callable
@@ -206,7 +206,8 @@ def _register_union_constructor(wrapper: UnionTypeWrapper, union_type: UnionType
 
     typingctx.insert_user_function(wrapper, union_constructor_template)
 
-    @lowering_registry.lower(wrapper)
     def lower_union_wrapper_call(builder, target, args, kwargs):
         """Lower calls to this specific union constructor."""
         return _lower_union_construction_impl(None, builder, target, args, kwargs)
+
+    targetctx.insert_func_defn([(lower_union_wrapper_call, wrapper, ())])

@@ -8,11 +8,11 @@ import numpy as np
 from numba_cuda_mlir._mlir.dialects import arith
 
 from numba_cuda_mlir import types
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.lowering_utilities import convert
 from numba_cuda_mlir.lowering_utilities.type_conversions import to_mlir_type
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower = registry.lower
 lower_getattr = registry.lower_getattr
 lower_cast = registry.lower_cast

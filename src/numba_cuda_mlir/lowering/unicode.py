@@ -9,7 +9,7 @@ from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir.mlir.dialect_exts import llvm
 
 from numba_cuda_mlir.extending import overload_method, register_jitable
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.lowering_utilities import GEP_DYNAMIC_INDEX, true, false
 
 from numba_cuda_mlir.numba_cuda.cpython.unicode import (
@@ -21,7 +21,7 @@ from numba_cuda_mlir.numba_cuda.cpython.unicode import (
 
 import numpy as np
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower = registry.lower
 
 

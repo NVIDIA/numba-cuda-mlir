@@ -83,10 +83,10 @@ def _llvm_struct_to_complex(value, complex_type):
 # For llvm.getelementptr - dynamic offset marker
 LLVM_DYNAMIC = -2147483648
 
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.descriptor import MLIRTargetContext
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower = registry.lower
 from numba_cuda_mlir.logging import trace
 from numba_cuda_mlir.lowering_utilities import index_of, convert

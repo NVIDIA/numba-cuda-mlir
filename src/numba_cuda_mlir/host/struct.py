@@ -12,7 +12,6 @@ import ctypes
 from numba_cuda_mlir.descriptor import mlir_target
 from numba_cuda_mlir.numba_cuda.typing.templates import ConcreteTemplate
 from numba_cuda_mlir import typing
-from numba_cuda_mlir.lowering.struct import registry as lowering_registry
 from numba_cuda_mlir.lowering.struct import _lower_struct_construction_impl
 
 # Counter for generating unique anonymous struct names if no name is provided
@@ -229,7 +228,8 @@ def _register_struct_constructor(wrapper: StructTypeWrapper, struct_type: Aggreg
     # Register it in the typing context
     typingctx.insert_user_function(wrapper, struct_constructor_template)
 
-    @lowering_registry.lower(wrapper)
     def lower_struct_wrapper_call(builder, target, args, kwargs):
         """Lower calls to this specific struct constructor."""
         return _lower_struct_construction_impl(None, builder, target, args, kwargs)
+
+    targetctx.insert_func_defn([(lower_struct_wrapper_call, wrapper, ())])

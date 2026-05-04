@@ -12,6 +12,7 @@ from numba_cuda_mlir.numba_cuda.testing import (
     skip_if_nvjitlink_missing,
 )
 from numba_cuda_mlir.testing import NumbaCUDATestCase
+from numba_cuda_mlir.linker import Linker as NumbaCudaMLIRLinker
 from numba_cuda_mlir.numba_cuda.cudadrv.driver import _Linker, LinkerError
 from numba_cuda_mlir.numba_cuda import require_context
 from numba_cuda_mlir.numba_cuda import void, float64, int64, int32, float32
@@ -130,6 +131,43 @@ class TestLinker(NumbaCUDATestCase):
         """Simply go through the constructor and destructor"""
         linker = _Linker(max_registers=0, cc=(7, 5))
         del linker
+
+    def test_variables_used_linker_option(self):
+        linker = _Linker(
+            max_registers=0,
+            cc=(7, 5),
+            variables_used=["retained_global", "another_global"],
+        )
+
+        self.assertEqual(linker.variables_used, ["retained_global", "another_global"])
+        self.assertEqual(linker.variable_used, ["retained_global", "another_global"])
+        self.assertEqual(
+            linker._get_linker_options(ptx=False).variables_used,
+            ["retained_global", "another_global"],
+        )
+
+        linker.variable_used = "updated_global"
+
+        self.assertEqual(linker.variables_used, "updated_global")
+        self.assertEqual(linker.variable_used, "updated_global")
+        self.assertEqual(
+            linker._get_linker_options(ptx=False).variables_used,
+            "updated_global",
+        )
+
+    def test_public_linker_preserves_variables_used_when_recreated_with_lto(self):
+        linker = NumbaCudaMLIRLinker(
+            cc=(7, 5),
+            variables_used=["retained_global"],
+        )
+
+        recreated = linker.recreate_with_lto()
+
+        self.assertEqual(recreated.variables_used, ["retained_global"])
+        self.assertEqual(
+            recreated._get_linker_options(ptx=False).variables_used,
+            ["retained_global"],
+        )
 
     def _test_linking(self, eager):
         global bar  # must be a global; other it is recognized as a freevar

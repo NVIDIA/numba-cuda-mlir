@@ -20,6 +20,7 @@ class Linker(_Linker):
         debug: bool = False,
         lineinfo: bool = False,
         optimize_unused_variables: bool = True,
+        variables_used: str | tuple[str, ...] | list[str] | None = None,
         optimization_level: int = 3,
         ptxas_options: str | None = None,
         max_registers: int | None = None,
@@ -42,6 +43,7 @@ class Linker(_Linker):
             prec_sqrt=prec_sqrt,
             fma=fma,
             optimize_unused_variables=optimize_unused_variables,
+            variables_used=variables_used,
             optimization_level=optimization_level,
             ptxas_options=ptxas_options,
         )
@@ -65,6 +67,7 @@ class Linker(_Linker):
             debug=self._debug,
             lineinfo=self.lineinfo,
             optimize_unused_variables=self._optimize_unused_variables,
+            variables_used=self.variables_used,
             optimization_level=self._optimization_level,
             ptxas_options=self._ptxas_options,
             max_registers=self.max_registers,

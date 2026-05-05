@@ -251,7 +251,7 @@ class TestCudaMath(NumbaCUDATestCase):
         B = np.empty_like(A, dtype=nprestype)
         arytype = numpy_support.from_dtype(npdtype)[::1]
         restype = numpy_support.from_dtype(nprestype)[::1]
-        cfunc = numba_cuda_mlir.jit((arytype, restype))(func)
+        cfunc = numba_cuda_mlir.cuda.jit((arytype, restype))(func)
         cfunc[1, nelem](A, B)
 
         # When this test was originally written it used
@@ -274,7 +274,7 @@ class TestCudaMath(NumbaCUDATestCase):
             dtype=npdtype,
         )
         B = np.empty_like(A, dtype=np.int32)
-        cfunc = numba_cuda_mlir.jit((npmtype[::1], int32[::1]))(func)
+        cfunc = numba_cuda_mlir.cuda.jit((npmtype[::1], int32[::1]))(func)
 
         cfunc[1, A.size](A, B)
         np.testing.assert_array_equal(B, npfunc(A))
@@ -306,7 +306,7 @@ class TestCudaMath(NumbaCUDATestCase):
         B = np.empty(A.shape, dtype=np.int32)
         iarytype = npmtype[::1]
         oarytype = int32[::1]
-        cfunc = numba_cuda_mlir.jit((iarytype, oarytype))(func)
+        cfunc = numba_cuda_mlir.cuda.jit((iarytype, oarytype))(func)
         cfunc[1, nelem](A, B)
         np.testing.assert_allclose(npfunc(A), B)
 
@@ -328,7 +328,7 @@ class TestCudaMath(NumbaCUDATestCase):
         B = np.empty_like(A).astype(nprestype)
         arytype = numpy_support.from_dtype(npdtype)[::1]
         restype = numpy_support.from_dtype(nprestype)[::1]
-        cfunc = numba_cuda_mlir.jit((arytype, arytype, restype))(func)
+        cfunc = numba_cuda_mlir.cuda.jit((arytype, arytype, restype))(func)
         cfunc[1, nelem](A, A, B)
         np.testing.assert_allclose(npfunc(A, A), B)
 
@@ -609,7 +609,7 @@ class TestCudaMath(NumbaCUDATestCase):
         self.binary_template_uint64(math_remainder, np.remainder, start=1)
 
     def test_math_remainder_0_0(self):
-        @numba_cuda_mlir.jit(void(float64[::1], int64, int64))
+        @numba_cuda_mlir.cuda.jit(void(float64[::1], int64, int64))
         def test_0_0(r, x, y):
             r[0] = math.remainder(x, y)
 
@@ -653,7 +653,7 @@ class TestCudaMath(NumbaCUDATestCase):
         B = np.arange(nelem, dtype=np.int32)
         C = np.empty_like(A)
         arytype = numpy_support.from_dtype(npdtype)[::1]
-        cfunc = numba_cuda_mlir.jit((arytype, int32[::1], arytype))(math_pow)
+        cfunc = numba_cuda_mlir.cuda.jit((arytype, int32[::1], arytype))(math_pow)
         cfunc[1, nelem](A, B, C)
 
         # NumPy casting rules result in a float64 output always, which doesn't
@@ -729,7 +729,7 @@ class TestCudaMath(NumbaCUDATestCase):
             A = np.array([np.nan], dtype=dtype)
             B = np.zeros_like(A)
             C = np.zeros_like(A)
-            cfunc = numba_cuda_mlir.jit((arytype, arytype, arytype))(math_modf)
+            cfunc = numba_cuda_mlir.cuda.jit((arytype, arytype, arytype))(math_modf)
             cfunc[1, len(A)](A, B, C)
             self.assertTrue(np.isnan(B))
             self.assertTrue(np.isnan(C))
@@ -738,7 +738,7 @@ class TestCudaMath(NumbaCUDATestCase):
             A = A.astype(dtype)
             B = np.zeros_like(A)
             C = np.zeros_like(A)
-            cfunc = numba_cuda_mlir.jit((arytype, arytype, arytype))(math_modf)
+            cfunc = numba_cuda_mlir.cuda.jit((arytype, arytype, arytype))(math_modf)
             cfunc[1, len(A)](A, B, C)
             D, E = np.modf(A)
             self.assertTrue(np.array_equal(B, D))

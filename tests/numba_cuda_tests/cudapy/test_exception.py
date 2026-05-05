@@ -20,8 +20,8 @@ class TestException(NumbaCUDATestCase):
                 # static_getitem)
                 ary.shape[-x]
 
-        unsafe_foo = numba_cuda_mlir.jit(foo)
-        safe_foo = numba_cuda_mlir.jit(debug=True, opt=False)(foo)
+        unsafe_foo = numba_cuda_mlir.cuda.jit(foo)
+        safe_foo = numba_cuda_mlir.cuda.jit(debug=True, opt=False)(foo)
 
         unsafe_foo[1, 3](np.array([0, 1]))
 
@@ -30,7 +30,7 @@ class TestException(NumbaCUDATestCase):
         self.assertIn("tuple index out of range", str(cm.exception))
 
     def test_user_raise(self):
-        @numba_cuda_mlir.jit(debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit(debug=True, opt=False)
         def foo(do_raise):
             if do_raise:
                 raise ValueError
@@ -48,7 +48,7 @@ class TestException(NumbaCUDATestCase):
         """
         with_opt_mode = not with_debug_mode
 
-        @numba_cuda_mlir.jit(debug=with_debug_mode, opt=with_opt_mode)
+        @numba_cuda_mlir.cuda.jit(debug=with_debug_mode, opt=with_opt_mode)
         def problematic(x, y):
             tid = cuda.threadIdx.x
             ntid = cuda.blockDim.x
@@ -62,7 +62,7 @@ class TestException(NumbaCUDATestCase):
                 for i in range(ntid):
                     x[i] += x[i] // y[i]
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def oracle(x, y):
             tid = cuda.threadIdx.x
             ntid = cuda.blockDim.x
@@ -101,7 +101,7 @@ class TestException(NumbaCUDATestCase):
         # When debug is False:
         # - Division by zero raises no exception
         # - Execution proceeds after a divide by zero
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(r, x, y):
             r[0] = y[0] / x[0]
             r[1] = y[0]
@@ -120,7 +120,7 @@ class TestException(NumbaCUDATestCase):
         # When debug is True:
         # - Zero by division raises an exception
         # - Execution halts at the point of division by zero
-        @numba_cuda_mlir.jit(debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit(debug=True, opt=False)
         def f(r, x, y):
             r[0] = y[0] / x[0]
             r[1] = y[0]
@@ -149,11 +149,11 @@ class TestException(NumbaCUDATestCase):
         # https://github.com/numba/numba/issues/8036
         msg = "Device Function Error"
 
-        @numba_cuda_mlir.jit(device=True)
+        @numba_cuda_mlir.cuda.jit(device=True)
         def f():
             raise ValueError(msg)
 
-        @numba_cuda_mlir.jit(debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit(debug=True, opt=False)
         def kernel():
             f()
 

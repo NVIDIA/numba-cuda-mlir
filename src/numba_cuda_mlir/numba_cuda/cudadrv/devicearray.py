@@ -520,13 +520,13 @@ def _assign_kernel(ndim):
 
     if ndim == 0:
         # the (2, ndim) allocation below is not yet supported, so avoid it
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(lhs, rhs):
             lhs[()] = rhs[()]
 
         return kernel
 
-    @numba_cuda_mlir.jit
+    @numba_cuda_mlir.cuda.jit
     def kernel(lhs, rhs):
         location = cuda.grid(1)
 

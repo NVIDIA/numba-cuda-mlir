@@ -12,11 +12,11 @@ import pytest
 
 class TestCudaArrayArg(NumbaCUDATestCase):
     def test_array_ary(self):
-        @numba_cuda_mlir.jit("double(double[:],int64)", device=True, inline="always")
+        @numba_cuda_mlir.cuda.jit("double(double[:],int64)", device=True, inline="always")
         def device_function(a, c):
             return a[c]
 
-        @numba_cuda_mlir.jit("void(double[:],double[:])")
+        @numba_cuda_mlir.cuda.jit("void(double[:],double[:])")
         def kernel(x, y):
             i = cuda.grid(1)
             y[i] = device_function(x, i)
@@ -27,7 +27,7 @@ class TestCudaArrayArg(NumbaCUDATestCase):
         self.assertTrue(np.all(x == y))
 
     def test_unituple(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(r, x):
             r[0] = x[0]
             r[1] = x[1]
@@ -41,7 +41,7 @@ class TestCudaArrayArg(NumbaCUDATestCase):
             self.assertEqual(r[i], x[i])
 
     def test_tuple(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(r1, r2, x):
             r1[0] = x[0]
             r1[1] = x[1]
@@ -63,7 +63,7 @@ class TestCudaArrayArg(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="ICE")
     def test_namedunituple(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(r, x):
             r[0] = x.x
             r[1] = x.y
@@ -78,7 +78,7 @@ class TestCudaArrayArg(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="ICE")
     def test_namedtuple(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(r1, r2, x):
             r1[0] = x.x
             r1[1] = x.y
@@ -95,7 +95,7 @@ class TestCudaArrayArg(NumbaCUDATestCase):
         self.assertEqual(r2[0], x.r)
 
     def test_empty_tuple(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(r, x):
             r[0] = len(x)
 
@@ -107,7 +107,7 @@ class TestCudaArrayArg(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="ICE")
     def test_tuple_of_empty_tuples(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(r, x):
             r[0] = len(x)
             r[1] = len(x[0])
@@ -121,7 +121,7 @@ class TestCudaArrayArg(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="ICE")
     def test_tuple_of_tuples(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(r, x):
             r[0] = len(x)
             r[1] = len(x[0])
@@ -149,7 +149,7 @@ class TestCudaArrayArg(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="ICE")
     def test_tuple_of_tuples_and_scalars(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(r, x):
             r[0] = len(x)
             r[1] = len(x[0])
@@ -170,7 +170,7 @@ class TestCudaArrayArg(NumbaCUDATestCase):
         self.assertEqual(r[5], 7)
 
     def test_tuple_of_arrays(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(x):
             i = cuda.grid(1)
             if i < len(x[0]):
@@ -187,7 +187,7 @@ class TestCudaArrayArg(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="ICE")
     def test_tuple_of_array_scalar_tuple(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(r, x):
             r[0] = x[0][0]
             r[1] = x[0][1]

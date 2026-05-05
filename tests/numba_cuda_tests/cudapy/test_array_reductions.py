@@ -26,7 +26,7 @@ class TestArrayReductions(NumbaCUDATestCase):
             np.float64([[1.0, 1.5], [1.5, 1.0]]),
         )
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             i = 0
             for case in literal_unroll(cases):
@@ -49,7 +49,7 @@ class TestArrayReductions(NumbaCUDATestCase):
             np.float64([[0.0, -0.0], [1.5, 0.0]])[::-1],
         )
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             i = 0
             for arr in literal_unroll(cases):
@@ -74,7 +74,7 @@ class TestArrayReductions(NumbaCUDATestCase):
             np.float64([np.nan, np.nan]),
         )
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             i = 0
             for arr in literal_unroll(arrays):
@@ -99,7 +99,7 @@ class TestArrayReductions(NumbaCUDATestCase):
             np.float64([np.nan, np.nan]),
         )
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             i = 0
             for arr in literal_unroll(arrays):
@@ -124,7 +124,7 @@ class TestArrayReductions(NumbaCUDATestCase):
             np.float64([np.nan, np.nan]),
         )
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             i = 0
             for arr in literal_unroll(arrays):
@@ -150,7 +150,7 @@ class TestArrayReductions(NumbaCUDATestCase):
             np.float64([np.nan, np.nan]),
         )
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             i = 0
             for arr in literal_unroll(arrays):
@@ -175,7 +175,7 @@ class TestArrayReductions(NumbaCUDATestCase):
             np.float64([np.nan, np.nan]),
         )
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             i = 0
             for arr in literal_unroll(arrays):
@@ -200,7 +200,7 @@ class TestArrayReductions(NumbaCUDATestCase):
             np.float64([np.nan, np.nan]),
         )
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             i = 0
             for arr in literal_unroll(arrays):
@@ -226,7 +226,7 @@ class TestArrayReductions(NumbaCUDATestCase):
             np.float64([np.nan, np.nan]),
         )
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             i = 0
             for arr in literal_unroll(arrays):
@@ -252,7 +252,7 @@ class TestArrayReductions(NumbaCUDATestCase):
             np.float64([np.nan, np.nan]),
         )
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             i = 0
             for arr in literal_unroll(arrays):
@@ -275,7 +275,7 @@ class TestArrayReductions(NumbaCUDATestCase):
             np.float64([np.nan, np.nan]),
         )
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             i = 0
             for arr in literal_unroll(arrays):
@@ -300,7 +300,7 @@ class TestArrayReductions(NumbaCUDATestCase):
             np.float64([np.nan, np.nan]),
         )
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             i = 0
             for arr in literal_unroll(arrays):
@@ -325,7 +325,7 @@ class TestArrayReductions(NumbaCUDATestCase):
             np.float64([np.nan, np.nan]),
         )
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             i = 0
             for arr in literal_unroll(arrays):

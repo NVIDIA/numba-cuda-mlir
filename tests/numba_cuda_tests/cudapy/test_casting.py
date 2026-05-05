@@ -103,9 +103,9 @@ def reference_float_literal_to_float16(x):
 
 class TestCasting(NumbaCUDATestCase):
     def _create_wrapped(self, pyfunc, intype, outtype):
-        wrapped_func = numba_cuda_mlir.jit(device=True)(pyfunc)
+        wrapped_func = numba_cuda_mlir.cuda.jit(device=True)(pyfunc)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def cuda_wrapper_fn(arg, res):
             res[0] = wrapped_func(arg[0])
 

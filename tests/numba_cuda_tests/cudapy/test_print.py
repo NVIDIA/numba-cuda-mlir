@@ -12,7 +12,7 @@ cuhello_usecase = """\
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 
-@numba_cuda_mlir.jit
+@numba_cuda_mlir.cuda.jit
 def cuhello():
     i = cuda.grid(1)
     print(i, 999)
@@ -27,7 +27,7 @@ printfloat_usecase = """\
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 
-@numba_cuda_mlir.jit
+@numba_cuda_mlir.cuda.jit
 def printfloat():
     i = cuda.grid(1)
     print(i, 23, 34.75, 321)
@@ -41,7 +41,7 @@ printbool_usecase = """\
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 
-@numba_cuda_mlir.jit
+@numba_cuda_mlir.cuda.jit
 def printbool(x):
     print(True)
     print(False)
@@ -57,7 +57,7 @@ printstring_usecase = """\
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 
-@numba_cuda_mlir.jit
+@numba_cuda_mlir.cuda.jit
 def printstring():
     i = cuda.grid(1)
     print(i, "hop!", 999)
@@ -71,7 +71,7 @@ printdim3_usecase = """\
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 
-@numba_cuda_mlir.jit
+@numba_cuda_mlir.cuda.jit
 def printdim3():
     print(cuda.threadIdx)
 
@@ -84,7 +84,7 @@ printempty_usecase = """\
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 
-@numba_cuda_mlir.jit
+@numba_cuda_mlir.cuda.jit
 def printempty():
     print()
 
@@ -98,7 +98,7 @@ import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 import numpy as np
 
-@numba_cuda_mlir.jit
+@numba_cuda_mlir.cuda.jit
 def print_too_many(r):
     print(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10],
           r[11], r[12], r[13], r[14], r[15], r[16], r[17], r[18], r[19], r[20],
@@ -113,7 +113,7 @@ print_bfloat16_usecase = """\
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 
-@numba_cuda_mlir.jit
+@numba_cuda_mlir.cuda.jit
 def print_bfloat16():
     # 0.9375 is a dyadic rational, it's integer significand can expand within 7 digits.
     # printing this should not give any rounding error.
@@ -128,7 +128,7 @@ print_int64_tuple_usecase = """\
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 
-@numba_cuda_mlir.jit
+@numba_cuda_mlir.cuda.jit
 def print_tuple(tup):
     print(tup)
 
@@ -140,7 +140,7 @@ print_nested_mixed_type_tuple_usecase = """\
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 
-@numba_cuda_mlir.jit
+@numba_cuda_mlir.cuda.jit
 def print_tuple(tup):
     print(tup)
 
@@ -152,7 +152,7 @@ print_single_element_tuple_usecase = """\
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 
-@numba_cuda_mlir.jit
+@numba_cuda_mlir.cuda.jit
 def print_tuple(tup):
     print(tup)
 

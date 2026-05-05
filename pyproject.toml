@@ -5,12 +5,8 @@ build-backend = "setuptools.build_meta"
 requires = [
     "setuptools",
     "wheel",
-    "pip",
     "ninja",
     "cmake",
-    "pybind11",
-    "nanobind",
-    "numpy",
 ]
 
 [project]
@@ -26,34 +22,44 @@ license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = [
     "numpy",
-    "tabulate",
-    "typeguard",
-    "cloudpickle",
-    "pytest",
-    "pytest-xdist",
-    "pytest-rerunfailures",
-    "pytest-benchmark",
-    "filecheck",
-    "cffi",
-    "ml-dtypes",
     "llvmlite",
+    "typeguard",
+    "cuda-bindings>=12.9.1,<14.0.0",
+    "cuda-core>=0.5.1,<1.0.0",
 ]
 
 [project.optional-dependencies]
 cu12 = [
-    "cuda-cccl[cu12]",
+    "cuda-bindings>=12.9.1,<13.0.0",
+    "cuda-toolkit[cudart,nvcc,nvrtc,nvjitlink,cccl]==12.*",
+    "nvidia-nvjitlink-cu12>=12.3.0,<13.0.0",
 ]
 cu13 = [
-    "cuda-cccl[cu13]",
+    "cuda-bindings==13.*",
+    "cuda-toolkit[cudart,nvcc,nvrtc,nvjitlink,cccl]==13.*",
 ]
+
+[dependency-groups]
 dev = [
     "pre-commit",
     "ruff",
 ]
+test = [
+    "pytest>=8,<9",
+    "pytest-xdist",
+    "pytest-benchmark",
+    "pytest-rerunfailures",
+    "pytest-subtests",
+    "filecheck",
+    "cffi",
+    "ml-dtypes",
+]
+test-cu12 = [{include-group = "test"}]
+test-cu13 = [{include-group = "test"}]
 
 [project.urls]
-Homepage = "https://gitlab-master.nvidia.com/cuda-python/numba-cuda-mlir"
-Repository = "https://gitlab-master.nvidia.com/cuda-python/numba-cuda-mlir"
+Homepage = "https://github.com/NVIDIA/numba-cuda-mlir"
+Repository = "https://github.com/NVIDIA/numba-cuda-mlir"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -112,9 +118,7 @@ ignore = [
     "S603",   # subprocess calls are internal tooling
     "S607",   # partial executable paths in subprocess (same as S603)
     # TODO: fix violations and remove these suppressions
-    "S108",   # insecure /tmp paths (4 hits in scripts/ci/)
     "S307",   # eval() usage (2 hits in compiler)
-    "S314",   # xml.parse without defusedxml (4 hits in scripts/ci/)
 ]
 select = ["B"]
 extend-select = ["PERF", "S"]
@@ -142,6 +146,18 @@ exclude = [
 "**/test*.py" = ["PERF", "B007", "B018", "B023"]
 "src/numba_cuda_mlir/__init__.py" = ["F401", "F403", "F405", "E402"]
 "src/cuda/**/__init__.py" = ["F401", "F403"]
+
+[tool.uv]
+conflicts = [
+    [
+        {extra = "cu12"},
+        {extra = "cu13"},
+    ],
+    [
+        {group = "test-cu12"},
+        {group = "test-cu13"},
+    ],
+]
 
 [tool.pytest.ini_options]
 testpaths = [ "tests" ]

@@ -31,7 +31,7 @@ test_data_dir = pathlib.Path(__file__).parent.parent / "data"
 
 class TestDeviceFunc(NumbaCUDATestCase):
     def test_use_add2f(self):
-        @numba_cuda_mlir.jit("float32(float32, float32)", device=True)
+        @numba_cuda_mlir.cuda.jit("float32(float32, float32)", device=True)
         def add2f(a, b):
             return a + b
 
@@ -39,7 +39,7 @@ class TestDeviceFunc(NumbaCUDATestCase):
             i = cuda.grid(1)
             ary[i] = add2f(ary[i], ary[i])
 
-        compiled = numba_cuda_mlir.jit("void(float32[:])")(use_add2f)
+        compiled = numba_cuda_mlir.cuda.jit("void(float32[:])")(use_add2f)
 
         nelem = 10
         ary = np.arange(nelem, dtype=np.float32)
@@ -49,11 +49,11 @@ class TestDeviceFunc(NumbaCUDATestCase):
         self.assertTrue(np.all(ary == exp), (ary, exp))
 
     def test_indirect_add2f(self):
-        @numba_cuda_mlir.jit("float32(float32, float32)", device=True)
+        @numba_cuda_mlir.cuda.jit("float32(float32, float32)", device=True)
         def add2f(a, b):
             return a + b
 
-        @numba_cuda_mlir.jit("float32(float32, float32)", device=True)
+        @numba_cuda_mlir.cuda.jit("float32(float32, float32)", device=True)
         def indirect(a, b):
             return add2f(a, b)
 
@@ -61,7 +61,7 @@ class TestDeviceFunc(NumbaCUDATestCase):
             i = cuda.grid(1)
             ary[i] = indirect(ary[i], ary[i])
 
-        compiled = numba_cuda_mlir.jit("void(float32[:])")(indirect_add2f)
+        compiled = numba_cuda_mlir.cuda.jit("void(float32[:])")(indirect_add2f)
 
         nelem = 10
         ary = np.arange(nelem, dtype=np.float32)
@@ -71,7 +71,7 @@ class TestDeviceFunc(NumbaCUDATestCase):
         self.assertTrue(np.all(ary == exp), (ary, exp))
 
     def _check_cpu_dispatcher(self, add):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def add_kernel(ary):
             i = cuda.grid(1)
             ary[i] = add(ary[i], 1)
@@ -119,7 +119,7 @@ class TestDeviceFunc(NumbaCUDATestCase):
         mymod.add = add
         del add
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def add_kernel(ary):
             i = cuda.grid(1)
             ary[i] = mymod.add(ary[i], 1)
@@ -131,7 +131,7 @@ class TestDeviceFunc(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Regex doesn't match")
     def test_inspect_asm(self):
-        @numba_cuda_mlir.jit(device=True)
+        @numba_cuda_mlir.cuda.jit(device=True)
         def foo(x, y):
             return x + y
 
@@ -147,7 +147,7 @@ class TestDeviceFunc(NumbaCUDATestCase):
         self.assertIn(fname, ptx)
 
     def test_inspect_sass_disallowed(self):
-        @numba_cuda_mlir.jit(device=True)
+        @numba_cuda_mlir.cuda.jit(device=True)
         def foo(x, y):
             return x + y
 
@@ -165,11 +165,11 @@ class TestDeviceFunc(NumbaCUDATestCase):
         #   shouldn't
         # - We insert a cast when calling rgba, as opposed to failing to type.
 
-        @numba_cuda_mlir.jit("int32(int32, int32, int32, int32)", device=True)
+        @numba_cuda_mlir.cuda.jit("int32(int32, int32, int32, int32)", device=True)
         def rgba(r, g, b, a):
             return ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | ((b & 0xFF) << 0) | ((a & 0xFF) << 24)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def rgba_caller(x, channels):
             x[0] = rgba(channels[0], channels[1], channels[2], channels[3])
 
@@ -279,7 +279,7 @@ class TestDeclareDevice(NumbaCUDATestCase):
     def test_link_cu_source(self):
         times2 = cuda.declare_device("times2", "int32(int32)", link=times2_cu)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(r, x):
             i = cuda.grid(1)
             if i < len(r):
@@ -296,7 +296,7 @@ class TestDeclareDevice(NumbaCUDATestCase):
         link = link_type([times2_cu, times4_cu])
         times4 = cuda.declare_device("times4", "int32(int32)", link=link)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(r, x):
             i = cuda.grid(1)
             if i < len(r):
@@ -326,7 +326,7 @@ class TestDeclareDevice(NumbaCUDATestCase):
 
         ffi = cffi.FFI()
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x):
             ptr = ffi.from_buffer(x)
             ext_fn(ptr)
@@ -343,7 +343,7 @@ class TestDeclareDevice(NumbaCUDATestCase):
         link = [rng_cu]
         random_number = cuda.declare_device("random_number", sig, link=link)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x, seed):
             x[0] = random_number(seed)
 
@@ -354,11 +354,11 @@ class TestDeclareDevice(NumbaCUDATestCase):
     def test_declared_in_called_function(self):
         times2 = cuda.declare_device("times2", "int32(int32)", link=times2_cu)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def device_func(x):
             return times2(x)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(r, x):
             i = cuda.grid(1)
             if i < len(r):
@@ -374,15 +374,15 @@ class TestDeclareDevice(NumbaCUDATestCase):
     def test_declared_in_called_function_twice(self):
         times2 = cuda.declare_device("times2", "int32(int32)", link=times2_cu)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def device_func_1(x):
             return times2(x)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def device_func_2(x):
             return device_func_1(x)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(r, x):
             i = cuda.grid(1)
             if i < len(r):
@@ -398,11 +398,11 @@ class TestDeclareDevice(NumbaCUDATestCase):
     def test_declared_in_called_function_two_calls(self):
         times2 = cuda.declare_device("times2", "int32(int32)", link=times2_cu)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def device_func(x):
             return times2(x)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(r, x):
             i = cuda.grid(1)
             if i < len(r):
@@ -420,7 +420,7 @@ class TestDeclareDevice(NumbaCUDATestCase):
     def test_call_declared_function_twice(self):
         times2 = cuda.declare_device("times2", "int32(int32)", link=times2_cu)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(r, x):
             i = cuda.grid(1)
             if i < len(r):
@@ -438,11 +438,11 @@ class TestDeclareDevice(NumbaCUDATestCase):
     def test_declared_in_called_function_and_parent(self):
         times2 = cuda.declare_device("times2", "int32(int32)", link=times2_cu)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def device_func(x):
             return times2(x)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(r, x):
             i = cuda.grid(1)
             if i < len(r):
@@ -459,7 +459,7 @@ class TestDeclareDevice(NumbaCUDATestCase):
         times2 = cuda.declare_device("times2", "int32(int32)", link=times2_cu)
         times3 = cuda.declare_device("times3", "int32(int32)", link=times3_cu)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(r, x):
             i = cuda.grid(1)
             if i < len(r):
@@ -530,7 +530,7 @@ class TestDeclareDeviceCABI(NumbaCUDATestCase):
     def test_declare_device_cabi_basic(self):
         times2 = cuda.declare_device("times2", "int32(int32)", link=times2_cabi_cu, abi="c")
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(r, x):
             i = cuda.grid(1)
             if i < len(r):
@@ -544,7 +544,7 @@ class TestDeclareDeviceCABI(NumbaCUDATestCase):
     def test_declare_device_cabi_zero_args(self):
         const42 = cuda.declare_device("const42", "int32()", link=const42_cabi_cu, abi="c")
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(r, x):
             i = cuda.grid(1)
             if i < len(r):
@@ -558,7 +558,7 @@ class TestDeclareDeviceCABI(NumbaCUDATestCase):
     def test_declare_device_cabi_two_args(self):
         add2 = cuda.declare_device("add2", "int32(int32, int32)", link=add2_cabi_cu, abi="c")
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(r, x):
             i = cuda.grid(1)
             if i < len(r):
@@ -572,7 +572,7 @@ class TestDeclareDeviceCABI(NumbaCUDATestCase):
     def test_declare_device_cabi_void_return(self):
         consume = cuda.declare_device("consume", "void(int32)", link=consume_cabi_cu, abi="c")
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(r, x):
             i = cuda.grid(1)
             if i < len(r):
@@ -595,7 +595,7 @@ class TestDeclareDeviceCABI(NumbaCUDATestCase):
             abi="c",
         )
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x):
             i = cuda.grid(1)
             if i < len(x):

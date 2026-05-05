@@ -20,8 +20,8 @@ def copy(inp, out):
 class TestCudaSlicing(NumbaCUDATestCase):
     def test_slice_as_arg(self):
         global cufoo
-        cufoo = numba_cuda_mlir.jit("void(int32[:], int32[:])", device=True)(foo)
-        cucopy = numba_cuda_mlir.jit("void(int32[:,:], int32[:,:])")(copy)
+        cufoo = numba_cuda_mlir.cuda.jit("void(int32[:], int32[:])", device=True)(foo)
+        cucopy = numba_cuda_mlir.cuda.jit("void(int32[:,:], int32[:,:])")(copy)
 
         inp = np.arange(100, dtype=np.int32).reshape(10, 10)
         out = np.zeros_like(inp)

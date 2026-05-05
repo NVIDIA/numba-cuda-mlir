@@ -94,7 +94,7 @@ class TestCudaConstantMemory(NumbaCUDATestCase):
     @pytest.mark.xfail(True, reason="Regex doesn't match")
     def test_const_array(self):
         sig = (float64[:],)
-        jcuconst = numba_cuda_mlir.jit(sig)(cuconst)
+        jcuconst = numba_cuda_mlir.cuda.jit(sig)(cuconst)
         A = np.zeros_like(CONST1D)
         jcuconst[2, 5](A)
         self.assertTrue(np.all(A == CONST1D + 1))
@@ -106,13 +106,13 @@ class TestCudaConstantMemory(NumbaCUDATestCase):
         )
 
     def test_const_empty(self):
-        jcuconstEmpty = numba_cuda_mlir.jit("void(int64[:])")(cuconstEmpty)
+        jcuconstEmpty = numba_cuda_mlir.cuda.jit("void(int64[:])")(cuconstEmpty)
         A = np.full(1, fill_value=-1, dtype=np.int64)
         jcuconstEmpty[1, 1](A)
         self.assertTrue(np.all(A == 0))
 
     def test_const_align(self):
-        jcuconstAlign = numba_cuda_mlir.jit("void(float64[:])")(cuconstAlign)
+        jcuconstAlign = numba_cuda_mlir.cuda.jit("void(float64[:])")(cuconstAlign)
         A = np.full(3, fill_value=np.nan, dtype=float)
         jcuconstAlign[1, 3](A)
         self.assertTrue(np.all(A == (CONST3BYTES + CONST1D[:3])))
@@ -120,7 +120,7 @@ class TestCudaConstantMemory(NumbaCUDATestCase):
     @pytest.mark.xfail(True, reason="Regex doesn't match")
     def test_const_array_2d(self):
         sig = (int32[:, :],)
-        jcuconst2d = numba_cuda_mlir.jit(sig)(cuconst2d)
+        jcuconst2d = numba_cuda_mlir.cuda.jit(sig)(cuconst2d)
         A = np.zeros_like(CONST2D, order="C")
         jcuconst2d[(2, 2), (5, 5)](A)
         self.assertTrue(np.all(A == CONST2D))
@@ -134,7 +134,7 @@ class TestCudaConstantMemory(NumbaCUDATestCase):
     @pytest.mark.xfail(True, reason="Regex doesn't match")
     def test_const_array_3d(self):
         sig = (complex64[:, :, :],)
-        jcuconst3d = numba_cuda_mlir.jit(sig)(cuconst3d)
+        jcuconst3d = numba_cuda_mlir.cuda.jit(sig)(cuconst3d)
         A = np.zeros_like(CONST3D, order="F")
         jcuconst3d[1, (5, 5, 5)](A)
         self.assertTrue(np.all(A == CONST3D))
@@ -146,7 +146,7 @@ class TestCudaConstantMemory(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Typing error")
     def test_const_record_empty(self):
-        jcuconstRecEmpty = numba_cuda_mlir.jit("void(int64[:])")(cuconstRecEmpty)
+        jcuconstRecEmpty = numba_cuda_mlir.cuda.jit("void(int64[:])")(cuconstRecEmpty)
         A = np.full(1, fill_value=-1, dtype=np.int64)
         jcuconstRecEmpty[1, 1](A)
         self.assertTrue(np.all(A == 0))
@@ -155,7 +155,7 @@ class TestCudaConstantMemory(NumbaCUDATestCase):
     def test_const_record(self):
         A = np.zeros(2, dtype=float)
         B = np.zeros(2, dtype=int)
-        jcuconst = numba_cuda_mlir.jit(cuconstRec).specialize(A, B)
+        jcuconst = numba_cuda_mlir.cuda.jit(cuconstRec).specialize(A, B)
 
         jcuconst[2, 1](A, B)
         np.testing.assert_allclose(A, CONST_RECORD["x"])
@@ -168,7 +168,7 @@ class TestCudaConstantMemory(NumbaCUDATestCase):
         C = np.zeros(2, dtype=np.float64)
         D = np.zeros(2, dtype=np.float64)
         E = np.zeros(2, dtype=np.float64)
-        jcuconst = numba_cuda_mlir.jit(cuconstRecAlign).specialize(A, B, C, D, E)
+        jcuconst = numba_cuda_mlir.cuda.jit(cuconstRecAlign).specialize(A, B, C, D, E)
 
         jcuconst[2, 1](A, B, C, D, E)
         np.testing.assert_allclose(A, CONST_RECORD_ALIGN["a"])

@@ -82,7 +82,7 @@ class TestBlackScholes(NumbaCUDATestCase):
                 VOLATILITY,
             )
 
-        @numba_cuda_mlir.jit(double(double), device=True, inline="always")
+        @numba_cuda_mlir.cuda.jit(double(double), device=True, inline="always")
         def cnd_cuda(d):
             K = 1.0 / (1.0 + 0.2316419 * math.fabs(d))
             ret_val = (
@@ -94,7 +94,7 @@ class TestBlackScholes(NumbaCUDATestCase):
                 ret_val = 1.0 - ret_val
             return ret_val
 
-        @numba_cuda_mlir.jit(
+        @numba_cuda_mlir.cuda.jit(
             void(
                 double[:],
                 double[:],

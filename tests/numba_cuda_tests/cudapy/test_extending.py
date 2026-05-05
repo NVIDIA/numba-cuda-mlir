@@ -7,7 +7,6 @@ from llvmlite import ir
 import numpy as np
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
-from numba_cuda_mlir import jit
 
 from numba_cuda_mlir.numba_cuda import types
 
@@ -182,7 +181,7 @@ def call_func1_unary(x, res):
 @pytest.mark.xfail(True, reason="Extension API not supported")
 class TestExtending(NumbaCUDATestCase):
     def test_attributes(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(r, x):
             iv = Interval(x[0], x[1])
             r[0] = iv.lo
@@ -196,7 +195,7 @@ class TestExtending(NumbaCUDATestCase):
         np.testing.assert_equal(r, x)
 
     def test_property(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(r, x):
             iv = Interval(x[0], x[1])
             r[0] = iv.width
@@ -209,7 +208,7 @@ class TestExtending(NumbaCUDATestCase):
         np.testing.assert_allclose(r[0], x[1] - x[0])
 
     def test_extension_type_as_arg(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(r, x):
             iv = Interval(x[0], x[1])
             r[0] = interval_width(iv)
@@ -222,7 +221,7 @@ class TestExtending(NumbaCUDATestCase):
         np.testing.assert_allclose(r[0], x[1] - x[0])
 
     def test_extension_type_as_retvalue(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(r, x):
             iv1 = Interval(x[0], x[1])
             iv2 = Interval(x[2], x[3])
@@ -283,7 +282,7 @@ class TestExtendingLinkage(NumbaCUDATestCase):
                 fn = cgutils.get_or_insert_function(builder.module, fnty, "add_cabi")
                 return builder.call(fn, args)
 
-            @numba_cuda_mlir.jit(lto=lto)
+            @numba_cuda_mlir.cuda.jit(lto=lto)
             def use_external_add(r, x, y):
                 r[0] = external_add(x[0], y[0])
 
@@ -295,11 +294,11 @@ class TestExtendingLinkage(NumbaCUDATestCase):
 
             np.testing.assert_equal(r[0], 3)
 
-            @numba_cuda_mlir.jit(lto=lto)
+            @numba_cuda_mlir.cuda.jit(lto=lto)
             def use_external_add_device(x, y):
                 return external_add(x, y)
 
-            @numba_cuda_mlir.jit(lto=lto)
+            @numba_cuda_mlir.cuda.jit(lto=lto)
             def use_external_add_kernel(r, x, y):
                 r[0] = use_external_add_device(x[0], y[0])
 
@@ -333,7 +332,7 @@ class TestExtendingLinkage(NumbaCUDATestCase):
         def ol_bar_call(a):
             return lambda a: bar(a)
 
-        @numba_cuda_mlir.jit("void(int32[::1], int32[::1])")
+        @numba_cuda_mlir.cuda.jit("void(int32[::1], int32[::1])")
         def foo(r, x):
             i = cuda.grid(1)
             if i < len(r):
@@ -352,18 +351,18 @@ class TestLowLevelExtending(NumbaCUDATestCase):
     Test the low-level two-tier extension API.
     """
 
-    # Check with `@jit` from within the test process and also in a new test
+    # Check with `@cuda.jit` from within the test process and also in a new test
     # process so as to check the registration mechanism.
 
     @pytest.mark.xfail(True, reason="ICE")
     def test_func1(self):
         pyfunc = call_func1_nullary
-        cfunc = jit(pyfunc)
+        cfunc = cuda.jit(pyfunc)
         res = np.zeros(1)
         cfunc[1, 1](res)
         self.assertPreciseEqual(res[0], 42.0)
         pyfunc = call_func1_unary
-        cfunc = jit(pyfunc)
+        cfunc = cuda.jit(pyfunc)
         self.assertPreciseEqual(res[0], 42.0)
         cfunc[1, 1](18.0, res)
         self.assertPreciseEqual(res[0], 6.0)
@@ -392,7 +391,7 @@ class TestHighLevelExtending(NumbaCUDATestCase):
             def _myoverload_impl(a, b, c, kw=None):
                 return impl
 
-            @jit
+            @cuda.jit
             def foo(a, b, c, d):
                 myoverload(a, b, c, kw=d)
 
@@ -537,7 +536,7 @@ class TestHighLevelExtending(NumbaCUDATestCase):
 
         overload(myoverload)(var_positional_impl)
 
-        @jit
+        @cuda.jit
         def foo(a, b):
             myoverload(a, b, 9, kw=11)
 
@@ -559,7 +558,7 @@ class TestHighLevelExtending(NumbaCUDATestCase):
 
             overload(myoverload, strict=strict)(impl)
 
-            @jit
+            @cuda.jit
             def foo(a, b):
                 myoverload(a, kw=11)
 
@@ -602,7 +601,7 @@ class TestHighLevelExtending(NumbaCUDATestCase):
 
             return impl
 
-        @jit
+        @cuda.jit
         def bar(A, res):
             res[0] = A.foo()
             res[1] = A.foo(20)
@@ -629,7 +628,7 @@ class TestHighLevelExtending(NumbaCUDATestCase):
 
                     return impl
 
-        @jit
+        @cuda.jit
         def bar(A, res):
             res[0] = A.litfoo(0xCAFE)
 
@@ -675,11 +674,11 @@ class TestIntrinsic(NumbaCUDATestCase):
 
             return sig, codegen
 
-        @jit
+        @cuda.jit
         def call_void_func():
             void_func(1)
 
-        @jit
+        @cuda.jit
         def call_non_void_func():
             non_void_func(1)
 
@@ -705,8 +704,8 @@ class TestIntrinsic(NumbaCUDATestCase):
             sig = x(x)
             return sig, codegen
 
-        # use in a jit function
-        @jit
+        # use in a cuda.jit function
+        @cuda.jit
         def foo(x):
             identity(x)
 
@@ -811,7 +810,7 @@ class TestRegisterJitable(NumbaCUDATestCase):
             foo(x, y)
             x[0] += x[0]
 
-        cbar = jit(bar)
+        cbar = cuda.jit(bar)
 
         x = np.array([1, 2])
         bar(x, 2)
@@ -850,7 +849,7 @@ class TestOverloadPreferLiteral(NumbaCUDATestCase):
         overload(prefer_lit, prefer_literal=True)(ov)
         overload(non_lit)(ov)
 
-        @jit
+        @cuda.jit
         def check_prefer_lit(x, res):
             res[0] = prefer_lit(1)
             res[1] = prefer_lit(2)
@@ -863,7 +862,7 @@ class TestOverloadPreferLiteral(NumbaCUDATestCase):
         self.assertEqual(b, 200)
         self.assertEqual(c, 300)
 
-        @jit
+        @cuda.jit
         def check_non_lit(x, res):
             res[0] = non_lit(1)
             res[1] = non_lit(2)
@@ -887,7 +886,7 @@ def test_overload_array_return():
 
         return impl
 
-    @numba_cuda_mlir.jit
+    @numba_cuda_mlir.cuda.jit
     def add(a):
         s = slice_a(a)
         s[0] += 1.0

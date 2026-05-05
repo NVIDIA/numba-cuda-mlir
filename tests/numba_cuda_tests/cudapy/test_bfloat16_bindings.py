@@ -56,7 +56,7 @@ class Bfloat16Test(NumbaCUDATestCase):
     def test_ctor(self):
         self.skip_unsupported()
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def simple_kernel():
             a = nv_bfloat16(float64(1.0))  # noqa: F841
             b = nv_bfloat16(float32(2.0))  # noqa: F841
@@ -73,7 +73,7 @@ class Bfloat16Test(NumbaCUDATestCase):
     def test_casts(self):
         self.skip_unsupported()
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def simple_kernel(b, c, d, e, f, g, h):
             a = nv_bfloat16(3.14)
 
@@ -107,7 +107,7 @@ class Bfloat16Test(NumbaCUDATestCase):
         self.skip_unsupported()
         for dtype in dtypes:
 
-            @numba_cuda_mlir.jit
+            @numba_cuda_mlir.cuda.jit
             def simple_kernel(a):
                 a[0] = dtype(nv_bfloat16(dtype(3.14)))
 
@@ -122,7 +122,7 @@ class Bfloat16Test(NumbaCUDATestCase):
     def test_arithmetic(self):
         self.skip_unsupported()
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def simple_kernel(arith, logic):
             # Binary Arithmetic Operators
             a = nv_bfloat16(1.0)
@@ -191,7 +191,7 @@ class Bfloat16Test(NumbaCUDATestCase):
     def test_math_func(self):
         self.skip_unsupported()
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def simple_kernel(a):
             x = nv_bfloat16(3.14)
 
@@ -243,7 +243,7 @@ class Bfloat16Test(NumbaCUDATestCase):
     def test_check_bfloat16_type(self):
         self.skip_unsupported()
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(arr):
             x = nv_bfloat16(3.14)
             if isinstance(x, nv_bfloat16):
@@ -259,11 +259,11 @@ class Bfloat16Test(NumbaCUDATestCase):
     def test_use_within_device_func(self):
         self.skip_unsupported()
 
-        @numba_cuda_mlir.jit(device=True)
+        @numba_cuda_mlir.cuda.jit(device=True)
         def add_bf16(a, b):
             return a + b
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(arr):
             a = nv_bfloat16(3.14)
             b = nv_bfloat16(5)
@@ -277,13 +277,13 @@ class Bfloat16Test(NumbaCUDATestCase):
     def test_use_binding_inside_dfunc(self):
         self.skip_unsupported()
 
-        @numba_cuda_mlir.jit(device=True)
+        @numba_cuda_mlir.cuda.jit(device=True)
         def f(arr):
             pi = nv_bfloat16(3.14)
             three = htrunc(pi)
             arr[0] = float32(three)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(arr):
             f(arr)
 
@@ -348,7 +348,7 @@ class Bfloat16Test(NumbaCUDATestCase):
 
         for op, ptx_op in operations:
 
-            @numba_cuda_mlir.jit(lto=True)
+            @numba_cuda_mlir.cuda.jit(lto=True)
             def kernel(arr):
                 a = nv_bfloat16(3.14)
                 b = nv_bfloat16(5)

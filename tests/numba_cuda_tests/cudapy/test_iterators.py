@@ -10,7 +10,7 @@ import numpy as np
 class TestIterators(NumbaCUDATestCase):
     @pytest.mark.xfail(True, reason="Typing error")
     def test_enumerate(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def enumerator(x, error):
             count = 0
 
@@ -41,7 +41,7 @@ class TestIterators(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Typing error")
     def test_zip(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def zipper(x, y, error):
             i = 0
 
@@ -60,7 +60,7 @@ class TestIterators(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Typing error")
     def test_enumerate_zip(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def enumerator_zipper(x, y, error):
             count = 0
 
@@ -81,7 +81,7 @@ class TestIterators(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Typing error")
     def test_zip_enumerate(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def zipper_enumerator(x, y, error):
             count = 0
 

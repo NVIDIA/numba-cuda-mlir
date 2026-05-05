@@ -9,7 +9,7 @@ from numba_cuda_mlir.testing import NumbaCUDATestCase
 
 class TestCudaComplex(NumbaCUDATestCase):
     def test_cuda_complex_arg(self):
-        @numba_cuda_mlir.jit("void(complex128[:], complex128)")
+        @numba_cuda_mlir.cuda.jit("void(complex128[:], complex128)")
         def foo(a, b):
             i = cuda.grid(1)
             a[i] += b

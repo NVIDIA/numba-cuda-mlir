@@ -63,7 +63,6 @@ cext/mviewbuf/**
 tests/benchmarks/llm.py/llm.py
 tests/benchmarks/llm.py/prepro_tinyshakespeare.py
 tests/benchmarks/llm.py/train_gpt2.py
-scripts/generate-test-checks.py
 
 # Build artifacts / caches / binaries
 build/*

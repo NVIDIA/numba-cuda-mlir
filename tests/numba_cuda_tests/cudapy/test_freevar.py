@@ -18,7 +18,7 @@ class TestFreeVar(NumbaCUDATestCase):
         size = 1024
         nbtype = float32
 
-        @numba_cuda_mlir.jit("(float32[::1], intp)")
+        @numba_cuda_mlir.cuda.jit("(float32[::1], intp)")
         def foo(A, i):
             "Dummy function"
             sdata = cuda.shared.array(

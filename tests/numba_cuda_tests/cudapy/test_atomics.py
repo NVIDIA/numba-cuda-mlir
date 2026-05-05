@@ -11,22 +11,22 @@ from numba_cuda_mlir.testing import NumbaCUDATestCase
 import pytest
 
 
-@numba_cuda_mlir.jit(device=True)
+@numba_cuda_mlir.cuda.jit(device=True)
 def atomic_cast_to_uint64(num):
     return uint64(num)
 
 
-@numba_cuda_mlir.jit(device=True)
+@numba_cuda_mlir.cuda.jit(device=True)
 def atomic_cast_to_int(num):
     return int(num)
 
 
-@numba_cuda_mlir.jit(device=True)
+@numba_cuda_mlir.cuda.jit(device=True)
 def atomic_cast_none(num):
     return num
 
 
-@numba_cuda_mlir.jit(device=True)
+@numba_cuda_mlir.cuda.jit(device=True)
 def atomic_binary_1dim_shared(
     ary,
     idx,
@@ -50,7 +50,7 @@ def atomic_binary_1dim_shared(
     ary[tid] = sm[tid]
 
 
-@numba_cuda_mlir.jit(device=True)
+@numba_cuda_mlir.cuda.jit(device=True)
 def atomic_binary_1dim_shared2(ary, idx, op2, ary_dtype, ary_nelements, binop_func, cast_func):
     tid = cuda.threadIdx.x
     sm = cuda.shared.array(ary_nelements, ary_dtype)
@@ -62,7 +62,7 @@ def atomic_binary_1dim_shared2(ary, idx, op2, ary_dtype, ary_nelements, binop_fu
     ary[tid] = sm[tid]
 
 
-@numba_cuda_mlir.jit(device=True)
+@numba_cuda_mlir.cuda.jit(device=True)
 def atomic_binary_2dim_shared(ary, op2, ary_dtype, ary_shape, binop_func, y_cast_func, neg_idx):
     tx = cuda.threadIdx.x
     ty = cuda.threadIdx.y
@@ -77,7 +77,7 @@ def atomic_binary_2dim_shared(ary, op2, ary_dtype, ary_shape, binop_func, y_cast
     ary[tx, ty] = sm[tx, ty]
 
 
-@numba_cuda_mlir.jit(device=True)
+@numba_cuda_mlir.cuda.jit(device=True)
 def atomic_binary_2dim_global(ary, op2, binop_func, y_cast_func, neg_idx):
     tx = cuda.threadIdx.x
     ty = cuda.threadIdx.y
@@ -87,7 +87,7 @@ def atomic_binary_2dim_global(ary, op2, binop_func, y_cast_func, neg_idx):
     binop_func(ary, bin, op2)
 
 
-@numba_cuda_mlir.jit(device=True)
+@numba_cuda_mlir.cuda.jit(device=True)
 def atomic_binary_1dim_global(ary, idx, ary_nelements, op2, binop_func, neg_idx):
     tid = cuda.threadIdx.x
     bin = int(idx[tid] % ary_nelements)
@@ -529,10 +529,10 @@ class TestCudaAtomics(NumbaCUDATestCase):
         ary_wrap = ary.copy()
         orig = ary.copy()
 
-        cuda_atomic_add = numba_cuda_mlir.jit("void(uint32[:])")(atomic_add)
+        cuda_atomic_add = numba_cuda_mlir.cuda.jit("void(uint32[:])")(atomic_add)
         cuda_atomic_add[1, 32](ary)
 
-        cuda_atomic_add_wrap = numba_cuda_mlir.jit("void(uint32[:])")(atomic_add_wrap)
+        cuda_atomic_add_wrap = numba_cuda_mlir.cuda.jit("void(uint32[:])")(atomic_add_wrap)
         cuda_atomic_add_wrap[1, 32](ary_wrap)
 
         gold = np.zeros(32, dtype=np.uint32)
@@ -547,10 +547,10 @@ class TestCudaAtomics(NumbaCUDATestCase):
         ary_wrap = ary.copy()
         orig = ary.copy()
 
-        cuda_atomic_add2 = numba_cuda_mlir.jit("void(uint32[:,:])")(atomic_add2)
+        cuda_atomic_add2 = numba_cuda_mlir.cuda.jit("void(uint32[:,:])")(atomic_add2)
         cuda_atomic_add2[1, (4, 8)](ary)
 
-        cuda_atomic_add2_wrap = numba_cuda_mlir.jit("void(uint32[:,:])")(atomic_add2_wrap)
+        cuda_atomic_add2_wrap = numba_cuda_mlir.cuda.jit("void(uint32[:,:])")(atomic_add2_wrap)
         cuda_atomic_add2_wrap[1, (4, 8)](ary_wrap)
 
         self.assertTrue(np.all(ary == orig + 1))
@@ -559,7 +559,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def test_atomic_add3(self):
         ary = np.random.randint(0, 32, size=32).astype(np.uint32).reshape(4, 8)
         orig = ary.copy()
-        cuda_atomic_add3 = numba_cuda_mlir.jit("void(uint32[:,:])")(atomic_add3)
+        cuda_atomic_add3 = numba_cuda_mlir.cuda.jit("void(uint32[:,:])")(atomic_add3)
         cuda_atomic_add3[1, (4, 8)](ary)
 
         self.assertTrue(np.all(ary == orig + 1))
@@ -569,10 +569,10 @@ class TestCudaAtomics(NumbaCUDATestCase):
         ary_wrap = ary.copy()
         orig = ary.copy().astype(np.intp)
 
-        cuda_atomic_add_float = numba_cuda_mlir.jit("void(float32[:])")(atomic_add_float)
+        cuda_atomic_add_float = numba_cuda_mlir.cuda.jit("void(float32[:])")(atomic_add_float)
         cuda_atomic_add_float[1, 32](ary)
 
-        add_float_wrap = numba_cuda_mlir.jit("void(float32[:])")(atomic_add_float_wrap)
+        add_float_wrap = numba_cuda_mlir.cuda.jit("void(float32[:])")(atomic_add_float_wrap)
         add_float_wrap[1, 32](ary_wrap)
 
         gold = np.zeros(32, dtype=np.uint32)
@@ -587,10 +587,10 @@ class TestCudaAtomics(NumbaCUDATestCase):
         ary_wrap = ary.copy()
         orig = ary.copy()
 
-        cuda_atomic_add2 = numba_cuda_mlir.jit("void(float32[:,:])")(atomic_add_float_2)
+        cuda_atomic_add2 = numba_cuda_mlir.cuda.jit("void(float32[:,:])")(atomic_add_float_2)
         cuda_atomic_add2[1, (4, 8)](ary)
 
-        cuda_func_wrap = numba_cuda_mlir.jit("void(float32[:,:])")(atomic_add_float_2_wrap)
+        cuda_func_wrap = numba_cuda_mlir.cuda.jit("void(float32[:,:])")(atomic_add_float_2_wrap)
         cuda_func_wrap[1, (4, 8)](ary_wrap)
 
         self.assertTrue(np.all(ary == orig + 1))
@@ -599,7 +599,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def test_atomic_add_float_3(self):
         ary = np.random.randint(0, 32, size=32).astype(np.float32).reshape(4, 8)
         orig = ary.copy()
-        cuda_atomic_add3 = numba_cuda_mlir.jit("void(float32[:,:])")(atomic_add_float_3)
+        cuda_atomic_add3 = numba_cuda_mlir.cuda.jit("void(float32[:,:])")(atomic_add_float_3)
         cuda_atomic_add3[1, (4, 8)](ary)
 
         self.assertTrue(np.all(ary == orig + 1))
@@ -619,10 +619,10 @@ class TestCudaAtomics(NumbaCUDATestCase):
         ary = np.zeros(32, np.float64)
         ary_wrap = ary.copy()
 
-        cuda_fn = numba_cuda_mlir.jit("void(int64[:], float64[:])")(atomic_add_double)
+        cuda_fn = numba_cuda_mlir.cuda.jit("void(int64[:], float64[:])")(atomic_add_double)
         cuda_fn[1, 32](idx, ary)
 
-        wrap_fn = numba_cuda_mlir.jit("void(int64[:], float64[:])")(atomic_add_double_wrap)
+        wrap_fn = numba_cuda_mlir.cuda.jit("void(int64[:], float64[:])")(atomic_add_double_wrap)
         wrap_fn[1, 32](idx, ary_wrap)
 
         gold = np.zeros(32, dtype=np.uint32)
@@ -639,10 +639,10 @@ class TestCudaAtomics(NumbaCUDATestCase):
         ary_wrap = ary.copy()
         orig = ary.copy()
 
-        cuda_fn = numba_cuda_mlir.jit("void(float64[:,:])")(atomic_add_double_2)
+        cuda_fn = numba_cuda_mlir.cuda.jit("void(float64[:,:])")(atomic_add_double_2)
         cuda_fn[1, (4, 8)](ary)
 
-        cuda_fn_wrap = numba_cuda_mlir.jit("void(float64[:,:])")(atomic_add_double_2_wrap)
+        cuda_fn_wrap = numba_cuda_mlir.cuda.jit("void(float64[:,:])")(atomic_add_double_2_wrap)
         cuda_fn_wrap[1, (4, 8)](ary_wrap)
 
         np.testing.assert_equal(ary, orig + 1)
@@ -653,7 +653,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def test_atomic_add_double_3(self):
         ary = np.random.randint(0, 32, size=32).astype(np.float64).reshape(4, 8)
         orig = ary.copy()
-        cuda_func = numba_cuda_mlir.jit("void(float64[:,:])")(atomic_add_double_3)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(float64[:,:])")(atomic_add_double_3)
         cuda_func[1, (4, 8)](ary)
 
         np.testing.assert_equal(ary, orig + 1)
@@ -666,8 +666,8 @@ class TestCudaAtomics(NumbaCUDATestCase):
         ary_wrap = ary.copy()
 
         sig = "void(int64[:], float64[:])"
-        cuda_func = numba_cuda_mlir.jit(sig)(atomic_add_double_global)
-        wrap_cuda_func = numba_cuda_mlir.jit(sig)(atomic_add_double_global_wrap)
+        cuda_func = numba_cuda_mlir.cuda.jit(sig)(atomic_add_double_global)
+        wrap_cuda_func = numba_cuda_mlir.cuda.jit(sig)(atomic_add_double_global_wrap)
 
         cuda_func[1, 32](idx, ary)
         wrap_cuda_func[1, 32](idx, ary_wrap)
@@ -688,8 +688,8 @@ class TestCudaAtomics(NumbaCUDATestCase):
         orig = ary.copy()
 
         sig = "void(float64[:,:])"
-        cuda_func = numba_cuda_mlir.jit(sig)(atomic_add_double_global_2)
-        wrap_cuda_func = numba_cuda_mlir.jit(sig)(atomic_add_double_global_2_wrap)
+        cuda_func = numba_cuda_mlir.cuda.jit(sig)(atomic_add_double_global_2)
+        wrap_cuda_func = numba_cuda_mlir.cuda.jit(sig)(atomic_add_double_global_2_wrap)
 
         cuda_func[1, (4, 8)](ary)
         wrap_cuda_func[1, (4, 8)](ary_wrap)
@@ -703,7 +703,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def test_atomic_add_double_global_3(self):
         ary = np.random.randint(0, 32, size=32).astype(np.float64).reshape(4, 8)
         orig = ary.copy()
-        cuda_func = numba_cuda_mlir.jit("void(float64[:,:])")(atomic_add_double_global_3)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(float64[:,:])")(atomic_add_double_global_3)
         cuda_func[1, (4, 8)](ary)
 
         np.testing.assert_equal(ary, orig + 1)
@@ -712,7 +712,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def test_atomic_sub(self):
         ary = np.random.randint(0, 32, size=32, dtype=np.int32)
         orig = ary.copy()
-        cuda_atomic_sub = numba_cuda_mlir.jit("void(int32[:])")(atomic_sub)
+        cuda_atomic_sub = numba_cuda_mlir.cuda.jit("void(int32[:])")(atomic_sub)
         cuda_atomic_sub[1, 32](ary)
 
         gold = np.zeros(32, dtype=np.int32)
@@ -724,7 +724,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def test_atomic_sub2(self):
         ary = np.random.randint(0, 32, size=(4, 8), dtype=np.int32)
         orig = ary.copy()
-        cuda_atomic_sub2 = numba_cuda_mlir.jit("void(int32[:,:])")(atomic_sub2)
+        cuda_atomic_sub2 = numba_cuda_mlir.cuda.jit("void(int32[:,:])")(atomic_sub2)
         cuda_atomic_sub2[1, (4, 8)](ary)
         self.assertTrue(np.all(ary == orig - 1))
 
@@ -732,14 +732,14 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def test_atomic_sub3(self):
         ary = np.random.randint(0, 32, size=(4, 8), dtype=np.uint32)
         orig = ary.copy()
-        cuda_atomic_sub3 = numba_cuda_mlir.jit("void(int32[:,:])")(atomic_sub3)
+        cuda_atomic_sub3 = numba_cuda_mlir.cuda.jit("void(int32[:,:])")(atomic_sub3)
         cuda_atomic_sub3[1, (4, 8)](ary)
         self.assertTrue(np.all(ary == orig - 1))
 
     def test_atomic_sub_float(self):
         ary = np.random.randint(0, 32, size=32).astype(np.float32)
         orig = ary.copy().astype(np.intp)
-        cuda_atomic_sub_float = numba_cuda_mlir.jit("void(float32[:])")(atomic_sub_float)
+        cuda_atomic_sub_float = numba_cuda_mlir.cuda.jit("void(float32[:])")(atomic_sub_float)
         cuda_atomic_sub_float[1, 32](ary)
 
         gold = np.zeros(32, dtype=np.float32)
@@ -751,21 +751,21 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def test_atomic_sub_float_2(self):
         ary = np.random.randint(0, 32, size=32).astype(np.float32).reshape(4, 8)
         orig = ary.copy()
-        cuda_atomic_sub2 = numba_cuda_mlir.jit("void(float32[:,:])")(atomic_sub_float_2)
+        cuda_atomic_sub2 = numba_cuda_mlir.cuda.jit("void(float32[:,:])")(atomic_sub_float_2)
         cuda_atomic_sub2[1, (4, 8)](ary)
         self.assertTrue(np.all(ary == orig - 1))
 
     def test_atomic_sub_float_3(self):
         ary = np.random.randint(0, 32, size=32).astype(np.float32).reshape(4, 8)
         orig = ary.copy()
-        cuda_atomic_sub3 = numba_cuda_mlir.jit("void(float32[:,:])")(atomic_sub_float_3)
+        cuda_atomic_sub3 = numba_cuda_mlir.cuda.jit("void(float32[:,:])")(atomic_sub_float_3)
         cuda_atomic_sub3[1, (4, 8)](ary)
         self.assertTrue(np.all(ary == orig - 1))
 
     def test_atomic_sub_double(self):
         idx = np.random.randint(0, 32, size=32, dtype=np.int64)
         ary = np.zeros(32, np.float64)
-        cuda_func = numba_cuda_mlir.jit("void(int64[:], float64[:])")(atomic_sub_double)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(int64[:], float64[:])")(atomic_sub_double)
         cuda_func[1, 32](idx, ary)
 
         gold = np.zeros(32, dtype=np.float64)
@@ -777,14 +777,14 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def test_atomic_sub_double_2(self):
         ary = np.random.randint(0, 32, size=32).astype(np.float64).reshape(4, 8)
         orig = ary.copy()
-        cuda_func = numba_cuda_mlir.jit("void(float64[:,:])")(atomic_sub_double_2)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(float64[:,:])")(atomic_sub_double_2)
         cuda_func[1, (4, 8)](ary)
         np.testing.assert_equal(ary, orig - 1)
 
     def test_atomic_sub_double_3(self):
         ary = np.random.randint(0, 32, size=32).astype(np.float64).reshape(4, 8)
         orig = ary.copy()
-        cuda_func = numba_cuda_mlir.jit("void(float64[:,:])")(atomic_sub_double_3)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(float64[:,:])")(atomic_sub_double_3)
         cuda_func[1, (4, 8)](ary)
         np.testing.assert_equal(ary, orig - 1)
 
@@ -792,7 +792,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         idx = np.random.randint(0, 32, size=32, dtype=np.int64)
         ary = np.zeros(32, np.float64)
         sig = "void(int64[:], float64[:])"
-        cuda_func = numba_cuda_mlir.jit(sig)(atomic_sub_double_global)
+        cuda_func = numba_cuda_mlir.cuda.jit(sig)(atomic_sub_double_global)
         cuda_func[1, 32](idx, ary)
 
         gold = np.zeros(32, dtype=np.float64)
@@ -804,14 +804,14 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def test_atomic_sub_double_global_2(self):
         ary = np.random.randint(0, 32, size=32).astype(np.float64).reshape(4, 8)
         orig = ary.copy()
-        cuda_func = numba_cuda_mlir.jit("void(float64[:,:])")(atomic_sub_double_global_2)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(float64[:,:])")(atomic_sub_double_global_2)
         cuda_func[1, (4, 8)](ary)
         np.testing.assert_equal(ary, orig - 1)
 
     def test_atomic_sub_double_global_3(self):
         ary = np.random.randint(0, 32, size=32).astype(np.float64).reshape(4, 8)
         orig = ary.copy()
-        cuda_func = numba_cuda_mlir.jit("void(float64[:,:])")(atomic_sub_double_global_3)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(float64[:,:])")(atomic_sub_double_global_3)
         cuda_func[1, (4, 8)](ary)
         np.testing.assert_equal(ary, orig - 1)
 
@@ -819,7 +819,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         rand_const = np.random.randint(500)
         ary = np.random.randint(0, 32, size=32).astype(np.uint32)
         orig = ary.copy()
-        cuda_func = numba_cuda_mlir.jit("void(uint32[:], uint32)")(atomic_and)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(uint32[:], uint32)")(atomic_and)
         cuda_func[1, 32](ary, rand_const)
 
         gold = ary.copy()
@@ -832,7 +832,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         rand_const = np.random.randint(500)
         ary = np.random.randint(0, 32, size=32).astype(np.uint32).reshape(4, 8)
         orig = ary.copy()
-        cuda_atomic_and2 = numba_cuda_mlir.jit("void(uint32[:,:], uint32)")(atomic_and2)
+        cuda_atomic_and2 = numba_cuda_mlir.cuda.jit("void(uint32[:,:], uint32)")(atomic_and2)
         cuda_atomic_and2[1, (4, 8)](ary, rand_const)
         self.assertTrue(np.all(ary == orig & rand_const))
 
@@ -840,7 +840,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         rand_const = np.random.randint(500)
         ary = np.random.randint(0, 32, size=32).astype(np.uint32).reshape(4, 8)
         orig = ary.copy()
-        cuda_atomic_and3 = numba_cuda_mlir.jit("void(uint32[:,:], uint32)")(atomic_and3)
+        cuda_atomic_and3 = numba_cuda_mlir.cuda.jit("void(uint32[:,:], uint32)")(atomic_and3)
         cuda_atomic_and3[1, (4, 8)](ary, rand_const)
         self.assertTrue(np.all(ary == orig & rand_const))
 
@@ -849,7 +849,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         idx = np.random.randint(0, 32, size=32, dtype=np.int32)
         ary = np.random.randint(0, 32, size=32, dtype=np.int32)
         sig = "void(int32[:], int32[:], int32)"
-        cuda_func = numba_cuda_mlir.jit(sig)(atomic_and_global)
+        cuda_func = numba_cuda_mlir.cuda.jit(sig)(atomic_and_global)
         cuda_func[1, 32](idx, ary, rand_const)
 
         gold = ary.copy()
@@ -862,7 +862,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         rand_const = np.random.randint(500)
         ary = np.random.randint(0, 32, size=32).astype(np.uint32).reshape(4, 8)
         orig = ary.copy()
-        cuda_func = numba_cuda_mlir.jit("void(uint32[:,:], uint32)")(atomic_and_global_2)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(uint32[:,:], uint32)")(atomic_and_global_2)
         cuda_func[1, (4, 8)](ary, rand_const)
         np.testing.assert_equal(ary, orig & rand_const)
 
@@ -870,7 +870,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         rand_const = np.random.randint(500)
         ary = np.random.randint(0, 32, size=32).astype(np.uint32)
         orig = ary.copy()
-        cuda_func = numba_cuda_mlir.jit("void(uint32[:], uint32)")(atomic_or)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(uint32[:], uint32)")(atomic_or)
         cuda_func[1, 32](ary, rand_const)
 
         gold = np.zeros(32, dtype=np.uint32)
@@ -883,7 +883,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         rand_const = np.random.randint(500)
         ary = np.random.randint(0, 32, size=32).astype(np.uint32).reshape(4, 8)
         orig = ary.copy()
-        cuda_atomic_and2 = numba_cuda_mlir.jit("void(uint32[:,:], uint32)")(atomic_or2)
+        cuda_atomic_and2 = numba_cuda_mlir.cuda.jit("void(uint32[:,:], uint32)")(atomic_or2)
         cuda_atomic_and2[1, (4, 8)](ary, rand_const)
         self.assertTrue(np.all(ary == orig | rand_const))
 
@@ -891,7 +891,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         rand_const = np.random.randint(500)
         ary = np.random.randint(0, 32, size=32).astype(np.uint32).reshape(4, 8)
         orig = ary.copy()
-        cuda_atomic_and3 = numba_cuda_mlir.jit("void(uint32[:,:], uint32)")(atomic_or3)
+        cuda_atomic_and3 = numba_cuda_mlir.cuda.jit("void(uint32[:,:], uint32)")(atomic_or3)
         cuda_atomic_and3[1, (4, 8)](ary, rand_const)
         self.assertTrue(np.all(ary == orig | rand_const))
 
@@ -900,7 +900,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         idx = np.random.randint(0, 32, size=32, dtype=np.int32)
         ary = np.random.randint(0, 32, size=32, dtype=np.int32)
         sig = "void(int32[:], int32[:], int32)"
-        cuda_func = numba_cuda_mlir.jit(sig)(atomic_or_global)
+        cuda_func = numba_cuda_mlir.cuda.jit(sig)(atomic_or_global)
         cuda_func[1, 32](idx, ary, rand_const)
 
         gold = ary.copy()
@@ -913,7 +913,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         rand_const = np.random.randint(500)
         ary = np.random.randint(0, 32, size=32).astype(np.uint32).reshape(4, 8)
         orig = ary.copy()
-        cuda_func = numba_cuda_mlir.jit("void(uint32[:,:], uint32)")(atomic_or_global_2)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(uint32[:,:], uint32)")(atomic_or_global_2)
         cuda_func[1, (4, 8)](ary, rand_const)
         np.testing.assert_equal(ary, orig | rand_const)
 
@@ -921,7 +921,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         rand_const = np.random.randint(500)
         ary = np.random.randint(0, 32, size=32).astype(np.uint32)
         orig = ary.copy()
-        cuda_func = numba_cuda_mlir.jit("void(uint32[:], uint32)")(atomic_xor)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(uint32[:], uint32)")(atomic_xor)
         cuda_func[1, 32](ary, rand_const)
 
         gold = np.zeros(32, dtype=np.uint32)
@@ -934,7 +934,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         rand_const = np.random.randint(500)
         ary = np.random.randint(0, 32, size=32).astype(np.uint32).reshape(4, 8)
         orig = ary.copy()
-        cuda_atomic_xor2 = numba_cuda_mlir.jit("void(uint32[:,:], uint32)")(atomic_xor2)
+        cuda_atomic_xor2 = numba_cuda_mlir.cuda.jit("void(uint32[:,:], uint32)")(atomic_xor2)
         cuda_atomic_xor2[1, (4, 8)](ary, rand_const)
         self.assertTrue(np.all(ary == orig ^ rand_const))
 
@@ -942,7 +942,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         rand_const = np.random.randint(500)
         ary = np.random.randint(0, 32, size=32).astype(np.uint32).reshape(4, 8)
         orig = ary.copy()
-        cuda_atomic_xor3 = numba_cuda_mlir.jit("void(uint32[:,:], uint32)")(atomic_xor3)
+        cuda_atomic_xor3 = numba_cuda_mlir.cuda.jit("void(uint32[:,:], uint32)")(atomic_xor3)
         cuda_atomic_xor3[1, (4, 8)](ary, rand_const)
         self.assertTrue(np.all(ary == orig ^ rand_const))
 
@@ -952,7 +952,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         ary = np.random.randint(0, 32, size=32, dtype=np.int32)
         gold = ary.copy()
         sig = "void(int32[:], int32[:], int32)"
-        cuda_func = numba_cuda_mlir.jit(sig)(atomic_xor_global)
+        cuda_func = numba_cuda_mlir.cuda.jit(sig)(atomic_xor_global)
         cuda_func[1, 32](idx, ary, rand_const)
 
         for i in range(idx.size):
@@ -964,7 +964,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         rand_const = np.random.randint(500)
         ary = np.random.randint(0, 32, size=32).astype(np.uint32).reshape(4, 8)
         orig = ary.copy()
-        cuda_func = numba_cuda_mlir.jit("void(uint32[:,:], uint32)")(atomic_xor_global_2)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(uint32[:,:], uint32)")(atomic_xor_global_2)
         cuda_func[1, (4, 8)](ary, rand_const)
         np.testing.assert_equal(ary, orig ^ rand_const)
 
@@ -981,19 +981,19 @@ class TestCudaAtomics(NumbaCUDATestCase):
 
     def check_inc_index(self, ary, idx, rconst, sig, nblocks, blksize, func):
         orig = ary.copy()
-        cuda_func = numba_cuda_mlir.jit(sig)(func)
+        cuda_func = numba_cuda_mlir.cuda.jit(sig)(func)
         cuda_func[nblocks, blksize](ary, idx, rconst)
         np.testing.assert_equal(ary, np.where(orig >= rconst, 0, orig + 1))
 
     def check_inc_index2(self, ary, idx, rconst, sig, nblocks, blksize, func):
         orig = ary.copy()
-        cuda_func = numba_cuda_mlir.jit(sig)(func)
+        cuda_func = numba_cuda_mlir.cuda.jit(sig)(func)
         cuda_func[nblocks, blksize](idx, ary, rconst)
         np.testing.assert_equal(ary, np.where(orig >= rconst, 0, orig + 1))
 
     def check_inc(self, ary, rconst, sig, nblocks, blksize, func):
         orig = ary.copy()
-        cuda_func = numba_cuda_mlir.jit(sig)(func)
+        cuda_func = numba_cuda_mlir.cuda.jit(sig)(func)
         cuda_func[nblocks, blksize](ary, rconst)
         np.testing.assert_equal(ary, np.where(orig >= rconst, 0, orig + 1))
 
@@ -1044,7 +1044,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
 
     def check_dec_index(self, ary, idx, rconst, sig, nblocks, blksize, func):
         orig = ary.copy()
-        cuda_func = numba_cuda_mlir.jit(sig)(func)
+        cuda_func = numba_cuda_mlir.cuda.jit(sig)(func)
         cuda_func[nblocks, blksize](ary, idx, rconst)
         np.testing.assert_equal(
             ary,
@@ -1053,7 +1053,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
 
     def check_dec_index2(self, ary, idx, rconst, sig, nblocks, blksize, func):
         orig = ary.copy()
-        cuda_func = numba_cuda_mlir.jit(sig)(func)
+        cuda_func = numba_cuda_mlir.cuda.jit(sig)(func)
         cuda_func[nblocks, blksize](idx, ary, rconst)
         np.testing.assert_equal(
             ary,
@@ -1062,7 +1062,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
 
     def check_dec(self, ary, rconst, sig, nblocks, blksize, func):
         orig = ary.copy()
-        cuda_func = numba_cuda_mlir.jit(sig)(func)
+        cuda_func = numba_cuda_mlir.cuda.jit(sig)(func)
         cuda_func[nblocks, blksize](ary, rconst)
         np.testing.assert_equal(
             ary,
@@ -1119,7 +1119,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         ary = np.random.randint(0, 32, size=32).astype(np.uint32)
         idx = np.arange(32, dtype=np.uint32)
 
-        cuda_func = numba_cuda_mlir.jit("void(uint32[:], uint32[:], uint32)")(atomic_exch)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(uint32[:], uint32[:], uint32)")(atomic_exch)
         cuda_func[1, 32](ary, idx, rand_const)
 
         np.testing.assert_equal(ary, rand_const)
@@ -1128,7 +1128,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         rand_const = np.random.randint(50, 100, dtype=np.uint32)
         ary = np.random.randint(0, 32, size=32).astype(np.uint32).reshape(4, 8)
 
-        cuda_func = numba_cuda_mlir.jit("void(uint32[:,:], uint32)")(atomic_exch2)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(uint32[:,:], uint32)")(atomic_exch2)
         cuda_func[1, (4, 8)](ary, rand_const)
         np.testing.assert_equal(ary, rand_const)
 
@@ -1136,7 +1136,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         rand_const = np.random.randint(50, 100, dtype=np.uint64)
         ary = np.random.randint(0, 32, size=32).astype(np.uint64).reshape(4, 8)
 
-        cuda_func = numba_cuda_mlir.jit("void(uint64[:,:], uint64)")(atomic_exch3)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(uint64[:,:], uint64)")(atomic_exch3)
         cuda_func[1, (4, 8)](ary, rand_const)
         np.testing.assert_equal(ary, rand_const)
 
@@ -1146,14 +1146,14 @@ class TestCudaAtomics(NumbaCUDATestCase):
         ary = np.random.randint(0, 32, size=32, dtype=np.uint32)
 
         sig = "void(uint32[:], uint32[:], uint32)"
-        cuda_func = numba_cuda_mlir.jit(sig)(atomic_exch_global)
+        cuda_func = numba_cuda_mlir.cuda.jit(sig)(atomic_exch_global)
         cuda_func[1, 32](idx, ary, rand_const)
         np.testing.assert_equal(ary, rand_const)
 
     def check_atomic_max(self, dtype, lo, hi):
         vals = np.random.randint(lo, hi, size=(32, 32)).astype(dtype)
         res = np.zeros(1, dtype=vals.dtype)
-        cuda_func = numba_cuda_mlir.jit(atomic_max)
+        cuda_func = numba_cuda_mlir.cuda.jit(atomic_max)
         cuda_func[32, 32](res, vals)
         gold = np.max(vals)
         np.testing.assert_equal(res, gold)
@@ -1179,7 +1179,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def test_atomic_max_double_normalizedindex(self):
         vals = np.random.randint(0, 65535, size=(32, 32)).astype(np.float64)
         res = np.zeros(1, np.float64)
-        cuda_func = numba_cuda_mlir.jit("void(float64[:], float64[:,:])")(
+        cuda_func = numba_cuda_mlir.cuda.jit("void(float64[:], float64[:,:])")(
             atomic_max_double_normalizedindex
         )
         cuda_func[32, 32](res, vals)
@@ -1190,7 +1190,9 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def test_atomic_max_double_oneindex(self):
         vals = np.random.randint(0, 128, size=32).astype(np.float64)
         res = np.zeros(1, np.float64)
-        cuda_func = numba_cuda_mlir.jit("void(float64[:], float64[:])")(atomic_max_double_oneindex)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(float64[:], float64[:])")(
+            atomic_max_double_oneindex
+        )
         cuda_func[1, 32](res, vals)
 
         gold = np.max(vals)
@@ -1199,7 +1201,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def check_atomic_min(self, dtype, lo, hi):
         vals = np.random.randint(lo, hi, size=(32, 32)).astype(dtype)
         res = np.array([65535], dtype=vals.dtype)
-        cuda_func = numba_cuda_mlir.jit(atomic_min)
+        cuda_func = numba_cuda_mlir.cuda.jit(atomic_min)
         cuda_func[32, 32](res, vals)
 
         gold = np.min(vals)
@@ -1226,7 +1228,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def test_atomic_min_double_normalizedindex(self):
         vals = np.random.randint(0, 65535, size=(32, 32)).astype(np.float64)
         res = np.ones(1, np.float64) * 65535
-        cuda_func = numba_cuda_mlir.jit("void(float64[:], float64[:,:])")(
+        cuda_func = numba_cuda_mlir.cuda.jit("void(float64[:], float64[:,:])")(
             atomic_min_double_normalizedindex
         )
         cuda_func[32, 32](res, vals)
@@ -1237,7 +1239,9 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def test_atomic_min_double_oneindex(self):
         vals = np.random.randint(0, 128, size=32).astype(np.float64)
         res = np.ones(1, np.float64) * 128
-        cuda_func = numba_cuda_mlir.jit("void(float64[:], float64[:])")(atomic_min_double_oneindex)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(float64[:], float64[:])")(
+            atomic_min_double_oneindex
+        )
         cuda_func[1, 32](res, vals)
 
         gold = np.min(vals)
@@ -1248,7 +1252,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
     # missing data, so the non-NaN operand always wins.
 
     def _test_atomic_minmax_nan_location(self, func):
-        cuda_func = numba_cuda_mlir.jit("void(float64[:], float64[:,:])")(func)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(float64[:], float64[:,:])")(func)
 
         vals = np.random.randint(0, 128, size=(1, 1)).astype(np.float64)
         res = np.zeros(1, np.float64) + np.nan
@@ -1256,7 +1260,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         np.testing.assert_equal(res, vals.ravel())
 
     def _test_atomic_minmax_nan_val(self, func):
-        cuda_func = numba_cuda_mlir.jit("void(float64[:], float64[:,:])")(func)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(float64[:], float64[:,:])")(func)
 
         res = np.random.randint(0, 128, size=1).astype(np.float64)
         gold = res.copy()
@@ -1281,7 +1285,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         vals = np.random.randint(0, 32, size=32).astype(np.float64)
         res = np.zeros(1, np.float64)
         sig = "void(float64[:], float64[:])"
-        cuda_func = numba_cuda_mlir.jit(sig)(atomic_max_double_shared)
+        cuda_func = numba_cuda_mlir.cuda.jit(sig)(atomic_max_double_shared)
         cuda_func[1, 32](res, vals)
 
         gold = np.max(vals)
@@ -1291,7 +1295,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         vals = np.random.randint(0, 32, size=32).astype(np.float64)
         res = np.ones(1, np.float64) * 32
         sig = "void(float64[:], float64[:])"
-        cuda_func = numba_cuda_mlir.jit(sig)(atomic_min_double_shared)
+        cuda_func = numba_cuda_mlir.cuda.jit(sig)(atomic_min_double_shared)
         cuda_func[1, 32](res, vals)
 
         gold = np.min(vals)
@@ -1315,7 +1319,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
 
         expect_out = res.copy()
 
-        cuda_func = numba_cuda_mlir.jit(cas_func)
+        cuda_func = numba_cuda_mlir.cuda.jit(cas_func)
         if ndim == 1:
             cuda_func[10, 10](res, out, ary, fill)
         else:
@@ -1451,63 +1455,63 @@ class TestCudaAtomics(NumbaCUDATestCase):
             self.assertEqual(x[1], initial)
 
     def test_atomic_add_returns_old(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x):
             x[1] = cuda.atomic.add(x, 0, 1)
 
         self._test_atomic_returns_old(kernel, 10)
 
     def test_atomic_max_returns_no_replace(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x):
             x[1] = cuda.atomic.max(x, 0, 1)
 
         self._test_atomic_returns_old(kernel, 10)
 
     def test_atomic_max_returns_old_replace(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x):
             x[1] = cuda.atomic.max(x, 0, 10)
 
         self._test_atomic_returns_old(kernel, 1)
 
     def test_atomic_max_returns_old_nan_in_array(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x):
             x[1] = cuda.atomic.max(x, 0, 1)
 
         self._test_atomic_returns_old(kernel, np.nan)
 
     def test_atomic_max_returns_old_nan_val(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x):
             x[1] = cuda.atomic.max(x, 0, np.nan)
 
         self._test_atomic_returns_old(kernel, 10)
 
     def test_atomic_min_returns_old_no_replace(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x):
             x[1] = cuda.atomic.min(x, 0, 11)
 
         self._test_atomic_returns_old(kernel, 10)
 
     def test_atomic_min_returns_old_replace(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x):
             x[1] = cuda.atomic.min(x, 0, 10)
 
         self._test_atomic_returns_old(kernel, 11)
 
     def test_atomic_min_returns_old_nan_in_array(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x):
             x[1] = cuda.atomic.min(x, 0, 11)
 
         self._test_atomic_returns_old(kernel, np.nan)
 
     def test_atomic_min_returns_old_nan_val(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x):
             x[1] = cuda.atomic.min(x, 0, np.nan)
 
@@ -1520,7 +1524,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         vals = np.random.randint(lo, hi, size=(32, 32)).astype(dtype)
         vals[1::2] = init_val
         res = np.zeros(1, dtype=vals.dtype)
-        cuda_func = numba_cuda_mlir.jit(atomic_nanmax)
+        cuda_func = numba_cuda_mlir.cuda.jit(atomic_nanmax)
         cuda_func[32, 32](res, vals)
         gold = np.nanmax(vals)
         np.testing.assert_equal(res, gold)
@@ -1548,7 +1552,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         vals[1::2] = np.nan
         res = np.array([0], dtype=vals.dtype)
         sig = "void(float64[:], float64[:])"
-        cuda_func = numba_cuda_mlir.jit(sig)(atomic_nanmax_double_shared)
+        cuda_func = numba_cuda_mlir.cuda.jit(sig)(atomic_nanmax_double_shared)
         cuda_func[1, 32](res, vals)
 
         gold = np.nanmax(vals)
@@ -1558,7 +1562,9 @@ class TestCudaAtomics(NumbaCUDATestCase):
         vals = np.random.randint(0, 128, size=32).astype(np.float64)
         vals[1::2] = np.nan
         res = np.zeros(1, np.float64)
-        cuda_func = numba_cuda_mlir.jit("void(float64[:], float64[:])")(atomic_max_double_oneindex)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(float64[:], float64[:])")(
+            atomic_max_double_oneindex
+        )
         cuda_func[1, 32](res, vals)
 
         gold = np.nanmax(vals)
@@ -1569,7 +1575,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         vals = np.random.randint(lo, hi, size=(32, 32)).astype(dtype)
         vals[1::2] = init_val
         res = np.array([65535], dtype=vals.dtype)
-        cuda_func = numba_cuda_mlir.jit(atomic_nanmin)
+        cuda_func = numba_cuda_mlir.cuda.jit(atomic_nanmin)
         cuda_func[32, 32](res, vals)
 
         gold = np.nanmin(vals)
@@ -1598,7 +1604,7 @@ class TestCudaAtomics(NumbaCUDATestCase):
         vals[1::2] = np.nan
         res = np.array([32], dtype=vals.dtype)
         sig = "void(float64[:], float64[:])"
-        cuda_func = numba_cuda_mlir.jit(sig)(atomic_nanmin_double_shared)
+        cuda_func = numba_cuda_mlir.cuda.jit(sig)(atomic_nanmin_double_shared)
         cuda_func[1, 32](res, vals)
 
         gold = np.nanmin(vals)
@@ -1608,7 +1614,9 @@ class TestCudaAtomics(NumbaCUDATestCase):
         vals = np.random.randint(0, 128, size=32).astype(np.float64)
         vals[1::2] = np.nan
         res = np.array([128], np.float64)
-        cuda_func = numba_cuda_mlir.jit("void(float64[:], float64[:])")(atomic_min_double_oneindex)
+        cuda_func = numba_cuda_mlir.cuda.jit("void(float64[:], float64[:])")(
+            atomic_min_double_oneindex
+        )
         cuda_func[1, 32](res, vals)
 
         gold = np.nanmin(vals)
@@ -1628,56 +1636,56 @@ class TestCudaAtomics(NumbaCUDATestCase):
             self.assertEqual(x[1], initial)
 
     def test_atomic_nanmax_returns_old_no_replace(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x):
             x[1] = cuda.atomic.nanmax(x, 0, 1)
 
         self._test_atomic_nan_returns_old(kernel, 10)
 
     def test_atomic_nanmax_returns_old_replace(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x):
             x[1] = cuda.atomic.nanmax(x, 0, 10)
 
         self._test_atomic_nan_returns_old(kernel, 1)
 
     def test_atomic_nanmax_returns_old_nan_in_array(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x):
             x[1] = cuda.atomic.nanmax(x, 0, 1)
 
         self._test_atomic_nan_returns_old(kernel, np.nan)
 
     def test_atomic_nanmax_returns_old_nan_val(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x):
             x[1] = cuda.atomic.nanmax(x, 0, np.nan)
 
         self._test_atomic_nan_returns_old(kernel, 10)
 
     def test_atomic_nanmin_returns_old_no_replace(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x):
             x[1] = cuda.atomic.nanmin(x, 0, 11)
 
         self._test_atomic_nan_returns_old(kernel, 10)
 
     def test_atomic_nanmin_returns_old_replace(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x):
             x[1] = cuda.atomic.nanmin(x, 0, 10)
 
         self._test_atomic_nan_returns_old(kernel, 11)
 
     def test_atomic_nanmin_returns_old_nan_in_array(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x):
             x[1] = cuda.atomic.nanmin(x, 0, 11)
 
         self._test_atomic_nan_returns_old(kernel, np.nan)
 
     def test_atomic_nanmin_returns_old_nan_val(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(x):
             x[1] = cuda.atomic.nanmin(x, 0, np.nan)
 

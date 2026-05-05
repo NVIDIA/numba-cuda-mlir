@@ -47,7 +47,7 @@ def compile_scalar_func(pyfunc, argtypes, restype):
     # First compile a scalar device function
     assert not any(isinstance(tp, types.Array) for tp in argtypes)
     assert not isinstance(restype, types.Array)
-    device_func = numba_cuda_mlir.jit(restype(*argtypes), device=True)(pyfunc)
+    device_func = numba_cuda_mlir.cuda.jit(restype(*argtypes), device=True)(pyfunc)
 
     kernel_types = [types.Array(tp, 1, "C") for tp in [restype] + list(argtypes)]
 
@@ -68,7 +68,7 @@ def compile_scalar_func(pyfunc, argtypes, restype):
     else:
         assert 0
 
-    kernel = numba_cuda_mlir.jit(tuple(kernel_types))(kernel_func)
+    kernel = numba_cuda_mlir.cuda.jit(tuple(kernel_types))(kernel_func)
 
     def kernel_wrapper(values):
         n = len(values)
@@ -337,7 +337,7 @@ class TestAtomicOnComplexComponents(NumbaCUDATestCase):
     # See https://github.com/numba/numba/issues/8309
 
     def test_atomic_on_real(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def atomic_add_one(values):
             i = cuda.grid(1)
             cuda.atomic.add(values.real, i, 1)
@@ -349,7 +349,7 @@ class TestAtomicOnComplexComponents(NumbaCUDATestCase):
         np.testing.assert_equal(arr1 + 1, arr2)
 
     def test_atomic_on_imag(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def atomic_add_one_j(values):
             i = cuda.grid(1)
             cuda.atomic.add(values.imag, i, 1)

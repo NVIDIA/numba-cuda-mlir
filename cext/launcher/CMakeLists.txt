@@ -14,7 +14,7 @@ add_library(_cext MODULE
 target_compile_options(_cext PUBLIC -fno-exceptions -fno-rtti)
 
 target_include_directories(_cext PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}/../../3rdparty/dlpack"
+    ${dlpack_INCLUDE_DIR}
     ${Python_INCLUDE_DIRS}
     ${CUDAToolkit_INCLUDE_DIRS}
     )

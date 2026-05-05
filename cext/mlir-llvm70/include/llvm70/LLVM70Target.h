@@ -158,7 +158,6 @@ private:
                                   bool isZeroPoison);
   llvm::Error translateNVVMOp(mlir::Operation *op);
   llvm::Error translateSregOp(mlir::Operation *op);
-  llvm::Error translateBarrier0Op(mlir::Operation *op);
   llvm::Error translateFmaOp(mlir::Operation *op);
   llvm::Error translateElectSyncOp(mlir::Operation *op);
   llvm::Error translateMatchSyncOp(mlir::Operation *op);

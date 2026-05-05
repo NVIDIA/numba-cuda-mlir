@@ -57,7 +57,7 @@ def random_complex(N):
 
 class TestCudaPowi(NumbaCUDATestCase):
     def test_powi(self):
-        dec = numba_cuda_mlir.jit(void(float64[:, :], int8, float64[:, :]))
+        dec = numba_cuda_mlir.cuda.jit(void(float64[:, :], int8, float64[:, :]))
         kernel = dec(cu_mat_power)
 
         power = 2
@@ -67,7 +67,7 @@ class TestCudaPowi(NumbaCUDATestCase):
         self.assertTrue(np.allclose(Aout, A**power))
 
     def test_powi_binop(self):
-        dec = numba_cuda_mlir.jit(void(float64[:, :], int8, float64[:, :]))
+        dec = numba_cuda_mlir.cuda.jit(void(float64[:, :], int8, float64[:, :]))
         kernel = dec(cu_mat_power_binop)
 
         power = 2
@@ -84,7 +84,7 @@ class TestCudaPowi(NumbaCUDATestCase):
         y = random_complex(N).astype(dtype)
         r = np.zeros_like(x)
 
-        cfunc = numba_cuda_mlir.jit(func)
+        cfunc = numba_cuda_mlir.cuda.jit(func)
         cfunc[1, N](r, x, y)
         np.testing.assert_allclose(r, x**y, rtol=rtol)
 
@@ -114,7 +114,7 @@ class TestCudaPowi(NumbaCUDATestCase):
         y = random_complex(N).astype(dtype)
         r = x**y
 
-        cfunc = numba_cuda_mlir.jit(vec_pow_inplace_binop)
+        cfunc = numba_cuda_mlir.cuda.jit(vec_pow_inplace_binop)
         cfunc[1, N](x, y)
         np.testing.assert_allclose(x, r, rtol=rtol)
 

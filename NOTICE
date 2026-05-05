@@ -100,7 +100,6 @@ For the full license text, see the "MIT License (appdirs)" section of
 
 Locations in this repository:
   - src/numba_cuda_mlir/mlir/** modulo {dialect_exts/math.py, dialect_exts/llvm.py}
-  - scripts/generate-test-checks.py
   - cext/mlir-llvm70/**
 
 Original copyright notices (verbatim from the upstream LICENSE file):
@@ -121,24 +120,7 @@ For the full license text, see the "Apache License 2.0 WITH LLVM-exception
 (LLVM)" section of `THIRD-PARTY-LICENSES` at the root of the repository.
 
 --------------------------------------------------------------------------------
-5. DLPack (Apache License 2.0)
---------------------------------------------------------------------------------
-
-Locations in this repository:
-  - 3rdparty/dlpack/dlpack.h
-
-Original copyright notices (verbatim from the upstream LICENSE file):
-
-  Copyright 2017 by Contributors
-
-License:        Apache License 2.0
-Original URL:   https://github.com/dmlc/dlpack
-
-For the full license text, see the "Apache License 2.0 (DLPack)" section of
-`THIRD-PARTY-LICENSES` at the root of the repository.
-
---------------------------------------------------------------------------------
-6. llm.py / llm.c (MIT License)
+5. llm.py / llm.c (MIT License)
 --------------------------------------------------------------------------------
 
 Locations in this repository:

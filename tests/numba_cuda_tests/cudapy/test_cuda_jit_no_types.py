@@ -14,7 +14,7 @@ class TestCudaJitNoTypes(NumbaCUDATestCase):
     """
 
     def test_device_array(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def foo(x, y):
             i = cuda.grid(1)
             y[i] = x[i]
@@ -32,16 +32,16 @@ class TestCudaJitNoTypes(NumbaCUDATestCase):
         self.assertTrue(np.all(x == y))
 
     def test_device_jit(self):
-        @numba_cuda_mlir.jit(device=True)
+        @numba_cuda_mlir.cuda.jit(device=True)
         def mapper(args):
             a, b, c = args
             return a + b + c
 
-        @numba_cuda_mlir.jit(device=True)
+        @numba_cuda_mlir.cuda.jit(device=True)
         def reducer(a, b):
             return a + b
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def driver(A, B):
             i = cuda.grid(1)
             if i < B.size:
@@ -59,11 +59,11 @@ class TestCudaJitNoTypes(NumbaCUDATestCase):
         np.testing.assert_allclose(Acopy + Acopy + Bcopy + Bcopy + 1, B)
 
     def test_device_jit_2(self):
-        @numba_cuda_mlir.jit(device=True)
+        @numba_cuda_mlir.cuda.jit(device=True)
         def inner(arg):
             return arg + 1
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def outer(argin, argout):
             argout[0] = inner(argin[0]) + inner(2)
 

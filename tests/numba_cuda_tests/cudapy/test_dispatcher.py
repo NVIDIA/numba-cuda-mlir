@@ -46,7 +46,7 @@ class TestDispatcherSpecialization(NumbaCUDATestCase):
     def test_no_double_specialize_sig_same_types(self):
         # Attempting to specialize a kernel jitted with a signature is illegal,
         # even for the same types the kernel is already specialized for.
-        @numba_cuda_mlir.jit("void(float32[::1])")
+        @numba_cuda_mlir.cuda.jit("void(float32[::1])")
         def f(x):
             pass
 
@@ -55,7 +55,7 @@ class TestDispatcherSpecialization(NumbaCUDATestCase):
     def test_no_double_specialize_no_sig_same_types(self):
         # Attempting to specialize an already-specialized kernel is illegal,
         # even for the same types the kernel is already specialized for.
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(x):
             pass
 
@@ -64,7 +64,7 @@ class TestDispatcherSpecialization(NumbaCUDATestCase):
 
     def test_no_double_specialize_sig_diff_types(self):
         # Attempting to specialize a kernel jitted with a signature is illegal.
-        @numba_cuda_mlir.jit("void(int32[::1])")
+        @numba_cuda_mlir.cuda.jit("void(int32[::1])")
         def f(x):
             pass
 
@@ -72,7 +72,7 @@ class TestDispatcherSpecialization(NumbaCUDATestCase):
 
     def test_no_double_specialize_no_sig_diff_types(self):
         # Attempting to specialize an already-specialized kernel is illegal.
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(x):
             pass
 
@@ -83,7 +83,7 @@ class TestDispatcherSpecialization(NumbaCUDATestCase):
         # Ensure that the same dispatcher is returned for the same argument
         # types, and that different dispatchers are returned for different
         # argument types.
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(x):
             pass
 
@@ -105,7 +105,7 @@ class TestDispatcherSpecialization(NumbaCUDATestCase):
         # types, and that different dispatchers are returned for different
         # argument types, taking into account array ordering and multiple
         # arguments.
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(x, y):
             pass
 
@@ -132,7 +132,7 @@ class TestDispatcher(NumbaCUDATestCase):
     def test_coerce_input_types(self):
         # Do not allow unsafe conversions if we can still compile other
         # specializations.
-        c_add = numba_cuda_mlir.jit(add_kernel)
+        c_add = numba_cuda_mlir.cuda.jit(add_kernel)
 
         # Using a complex128 allows us to represent any result produced by the
         # test
@@ -151,7 +151,7 @@ class TestDispatcher(NumbaCUDATestCase):
         self.assertEqual(r[0], add(12300000000, 456))
 
         # Now force compilation of only a single specialization
-        c_add = numba_cuda_mlir.jit("(i4[::1], i4, i4)")(add_kernel)
+        c_add = numba_cuda_mlir.cuda.jit("(i4[::1], i4, i4)")(add_kernel)
         r = np.zeros(1, dtype=np.int32)
 
         c_add[1, 1](r, 123, 456)
@@ -167,7 +167,7 @@ class TestDispatcher(NumbaCUDATestCase):
         #
         # This test is marked as xfail until future changes enable this
         # behavior.
-        c_add = numba_cuda_mlir.jit("(i4[::1], i4, i4)")(add_kernel)
+        c_add = numba_cuda_mlir.cuda.jit("(i4[::1], i4, i4)")(add_kernel)
         r = np.zeros(1, dtype=np.int32)
 
         c_add[1, 1](r, 12.3, 45.6)
@@ -175,7 +175,7 @@ class TestDispatcher(NumbaCUDATestCase):
 
     def test_coerce_input_types_unsafe_complex(self):
         # Implicit conversion of complex to int disallowed
-        c_add = numba_cuda_mlir.jit("(i4[::1], i4, i4)")(add_kernel)
+        c_add = numba_cuda_mlir.cuda.jit("(i4[::1], i4, i4)")(add_kernel)
         r = np.zeros(1, dtype=np.int32)
 
         with self.assertRaises(TypeError):
@@ -183,7 +183,7 @@ class TestDispatcher(NumbaCUDATestCase):
 
     def test_ambiguous_new_version(self):
         """Test compiling new version in an ambiguous case"""
-        c_add = numba_cuda_mlir.jit(add_kernel)
+        c_add = numba_cuda_mlir.cuda.jit(add_kernel)
 
         r = np.zeros(1, dtype=np.float64)
         INT = 1
@@ -216,7 +216,7 @@ class TestDispatcher(NumbaCUDATestCase):
         """
         errors = []
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def foo(r, x):
             r[0] = x + 1
 
@@ -236,7 +236,7 @@ class TestDispatcher(NumbaCUDATestCase):
         self.assertFalse(errors)
 
     def _test_explicit_signatures(self, sigs):
-        f = numba_cuda_mlir.jit(sigs)(add_kernel)
+        f = numba_cuda_mlir.cuda.jit(sigs)(add_kernel)
 
         # Exact signature matches
         r = np.zeros(1, dtype=np.int64)
@@ -307,7 +307,7 @@ class TestDispatcher(NumbaCUDATestCase):
             "(float64[::1], float32, float32)",
             "(float64[::1], float64, float64)",
         ]
-        f = numba_cuda_mlir.jit(sigs)(add_kernel)
+        f = numba_cuda_mlir.cuda.jit(sigs)(add_kernel)
 
         r = np.zeros(1, dtype=np.float64)
         f[1, 1](r, np.float32(1), np.float32(2**-25))
@@ -320,7 +320,7 @@ class TestDispatcher(NumbaCUDATestCase):
     def test_explicit_signatures_ambiguous_resolution(self):
         # Fail to resolve ambiguity between the two best overloads
         # (Also deliberate float64[::1] for the first argument in all cases)
-        f = numba_cuda_mlir.jit(
+        f = numba_cuda_mlir.cuda.jit(
             [
                 "(float64[::1], float32, float64)",
                 "(float64[::1], float64, float32)",
@@ -351,7 +351,7 @@ class TestDispatcher(NumbaCUDATestCase):
         # These tests are from test_explicit_signatures, but have to be xfail
         # at present because _prepare_args in the CUDA target cannot handle
         # unsafe conversions of arguments.
-        f = numba_cuda_mlir.jit("(int64[::1], int64, int64)")(add_kernel)
+        f = numba_cuda_mlir.cuda.jit("(int64[::1], int64, int64)")(add_kernel)
         r = np.zeros(1, dtype=np.int64)
 
         # Approximate match (unsafe conversion)
@@ -363,7 +363,7 @@ class TestDispatcher(NumbaCUDATestCase):
             "(int64[::1], int64, int64)",
             "(float64[::1], float64, float64)",
         ]
-        f = numba_cuda_mlir.jit(sigs)(add_kernel)
+        f = numba_cuda_mlir.cuda.jit(sigs)(add_kernel)
         r = np.zeros(1, dtype=np.float64)
         # Approximate match (int32 -> float64 is a safe conversion)
         f[1, 1](r, np.int32(1), 2.5)
@@ -372,9 +372,9 @@ class TestDispatcher(NumbaCUDATestCase):
     def add_device_usecase(self, sigs):
         # Generate a kernel that calls the add device function compiled with a
         # given set of signatures
-        add_device = numba_cuda_mlir.jit(sigs, device=True)(add)
+        add_device = numba_cuda_mlir.cuda.jit(sigs, device=True)(add)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(r, x, y):
             r[0] = add_device(x, y)
 
@@ -463,11 +463,11 @@ class TestDispatcher(NumbaCUDATestCase):
         # Ensure that CUDA-jitting a function preserves its docstring. See
         # Issue #5902: https://github.com/numba/numba/issues/5902
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def add_kernel(a, b):
             """Add two integers, kernel version"""
 
-        @numba_cuda_mlir.jit(device=True)
+        @numba_cuda_mlir.cuda.jit(device=True)
         def add_device(a, b):
             """Add two integers, device version"""
 
@@ -478,7 +478,7 @@ class TestDispatcher(NumbaCUDATestCase):
         ptr = types.CPointer(types.int32)
         sig = void(ptr, int32, ptr, ptr, uint32)
 
-        @numba_cuda_mlir.jit(sig)
+        @numba_cuda_mlir.cuda.jit(sig)
         def axpy(r, a, x, y, n):
             i = cuda.grid(1)
             if i < n:
@@ -507,7 +507,7 @@ class TestDispatcherKernelProperties(NumbaCUDATestCase):
     def test_get_regs_per_thread_unspecialized(self):
         # A kernel where the register usage per thread is likely to differ
         # between different specializations
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def pi_sin_array(x, n):
             i = cuda.grid(1)
             if i < n:
@@ -550,7 +550,7 @@ class TestDispatcherKernelProperties(NumbaCUDATestCase):
             cuda.detect()
 
     def test_get_regs_per_thread_specialized(self):
-        @numba_cuda_mlir.jit(void(float32[::1], int64))
+        @numba_cuda_mlir.cuda.jit(void(float32[::1], int64))
         def pi_sin_array(x, n):
             i = cuda.grid(1)
             if i < n:
@@ -563,7 +563,7 @@ class TestDispatcherKernelProperties(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Incorrect result")
     def test_get_const_mem_unspecialized(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def const_fmt_string(val, to_print):
             # We guard the print with a conditional to prevent noise from the
             # test suite
@@ -602,7 +602,7 @@ class TestDispatcherKernelProperties(NumbaCUDATestCase):
         arr = np.arange(32, dtype=np.int64)
         sig = void(int64[::1])
 
-        @numba_cuda_mlir.jit(sig)
+        @numba_cuda_mlir.cuda.jit(sig)
         def const_array_use(x):
             C = cuda.const.array_like(arr)
             i = cuda.grid(1)
@@ -617,7 +617,7 @@ class TestDispatcherKernelProperties(NumbaCUDATestCase):
 
         # A kernel where the shared memory per block is likely to differ
         # between different specializations
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def simple_smem(ary):
             sm = cuda.shared.array(N, dtype=ary.dtype)
             for j in range(N):
@@ -654,7 +654,7 @@ class TestDispatcherKernelProperties(NumbaCUDATestCase):
         self.assertEqual(sh_mem_f64_all[sig_f64.args], sh_mem_f64)
 
     def test_get_shared_mem_per_block_specialized(self):
-        @numba_cuda_mlir.jit(void(float32[::1]))
+        @numba_cuda_mlir.cuda.jit(void(float32[::1]))
         def simple_smem(ary):
             sm = cuda.shared.array(100, dtype=float32)
             i = cuda.grid(1)
@@ -671,7 +671,7 @@ class TestDispatcherKernelProperties(NumbaCUDATestCase):
     def test_get_max_threads_per_block_unspecialized(self):
         N = 10
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def simple_maxthreads(ary):
             i = cuda.grid(1)
             ary[i] = i
@@ -694,7 +694,7 @@ class TestDispatcherKernelProperties(NumbaCUDATestCase):
         # cuda.local.array and use local registers instead
         N = 1000
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def simple_lmem(ary):
             lm = cuda.local.array(N, dtype=ary.dtype)
             for j in range(N):
@@ -734,7 +734,7 @@ class TestDispatcherKernelProperties(NumbaCUDATestCase):
         # cuda.local.array and use local registers instead
         N = 1000
 
-        @numba_cuda_mlir.jit(void(float32[::1]))
+        @numba_cuda_mlir.cuda.jit(void(float32[::1]))
         def simple_lmem(ary):
             lm = cuda.local.array(N, dtype=ary.dtype)
             for j in range(N):
@@ -763,7 +763,7 @@ _xfail_max_cluster_rank = pytest.mark.xfail(
 
 class TestLaunchBounds(NumbaCUDATestCase):
     def _test_launch_bounds_common(self, launch_bounds):
-        @numba_cuda_mlir.jit(launch_bounds=launch_bounds)
+        @numba_cuda_mlir.cuda.jit(launch_bounds=launch_bounds)
         def f():
             pass
 
@@ -819,7 +819,7 @@ class TestLaunchBounds(NumbaCUDATestCase):
     def test_too_many_launch_bounds(self):
         launch_bounds = (128, 2, 4, 8)
         with self.assertRaisesRegex(ValueError, "Got 4 launch bounds:"):
-            numba_cuda_mlir.jit("void()", launch_bounds=launch_bounds)(lambda: None)
+            numba_cuda_mlir.cuda.jit("void()", launch_bounds=launch_bounds)(lambda: None)
 
 
 class TestSharedMemoryCarveout(NumbaCUDATestCase):
@@ -836,7 +836,7 @@ class TestSharedMemoryCarveout(NumbaCUDATestCase):
             # without signature
             with self.assertRaisesRegex(exc_type, msg_pattern):
 
-                @numba_cuda_mlir.jit(shared_memory_carveout=carveout)
+                @numba_cuda_mlir.cuda.jit(shared_memory_carveout=carveout)
                 def add_one(x):
                     i = cuda.grid(1)
                     if i < len(x):
@@ -845,7 +845,7 @@ class TestSharedMemoryCarveout(NumbaCUDATestCase):
             # with signature
             with self.assertRaisesRegex(exc_type, msg_pattern):
 
-                @numba_cuda_mlir.jit("void(int32[:])", shared_memory_carveout=carveout)
+                @numba_cuda_mlir.cuda.jit("void(int32[:])", shared_memory_carveout=carveout)
                 def add_one_sig(x):
                     i = cuda.grid(1)
                     if i < len(x):
@@ -859,7 +859,7 @@ class TestSharedMemoryCarveout(NumbaCUDATestCase):
 
         for carveout in carveout_values:
             # without signature
-            @numba_cuda_mlir.jit(shared_memory_carveout=carveout)
+            @numba_cuda_mlir.cuda.jit(shared_memory_carveout=carveout)
             def add_one(x):
                 i = cuda.grid(1)
                 if i < x.size:
@@ -870,7 +870,7 @@ class TestSharedMemoryCarveout(NumbaCUDATestCase):
             np.testing.assert_array_equal(d_x.copy_to_host(), expected)
 
             # with signature
-            @numba_cuda_mlir.jit("void(int32[:])", shared_memory_carveout=carveout)
+            @numba_cuda_mlir.cuda.jit("void(int32[:])", shared_memory_carveout=carveout)
             def add_one_sig(x):
                 i = cuda.grid(1)
                 if i < x.size:

@@ -27,7 +27,7 @@ class TestCupyBfloat16Interop(NumbaCUDATestCase):
         arr_2_d = cp.arange(5)
         arr_out_d = cp.empty(arr_d.size, dtype=ml_dtypes.bfloat16)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def my_ker(arr_in, arr_in2, arr_out):
             tid = cuda.grid(1)
             if tid < arr_in.size:

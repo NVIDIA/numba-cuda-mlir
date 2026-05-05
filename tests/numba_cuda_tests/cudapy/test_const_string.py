@@ -13,7 +13,7 @@ import pytest
 # Inspired by the reproducer from Issue #7041.
 class TestConstString(NumbaCUDATestCase):
     def test_assign_const_unicode_string(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def str_assign(arr):
             i = cuda.grid(1)
             if i < len(arr):
@@ -32,7 +32,7 @@ class TestConstString(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="ICE")
     def test_assign_const_byte_string(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def bytes_assign(arr):
             i = cuda.grid(1)
             if i < len(arr):
@@ -51,7 +51,7 @@ class TestConstString(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="ICE")
     def test_assign_const_string_in_record(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(a):
             a[0]["x"] = 1
             a[0]["y"] = "ABC"
@@ -68,7 +68,7 @@ class TestConstString(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="ICE")
     def test_assign_const_bytes_in_record(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(a):
             a[0]["x"] = 1
             a[0]["y"] = b"ABC"

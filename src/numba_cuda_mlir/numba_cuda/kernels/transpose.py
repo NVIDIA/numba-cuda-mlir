@@ -40,7 +40,7 @@ def transpose(a, b=None):
 
     tile_shape = (tile_height, tile_width + 1)
 
-    @numba_cuda_mlir.jit
+    @numba_cuda_mlir.cuda.jit
     def kernel(input, output):
         tile = cuda.shared.array(shape=tile_shape, dtype=dt)
 

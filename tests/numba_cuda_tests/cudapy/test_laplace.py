@@ -15,14 +15,14 @@ SM_SIZE = tpb, tpb
 
 class TestCudaLaplace(NumbaCUDATestCase):
     def test_laplace_small(self):
-        @numba_cuda_mlir.jit(float64(float64, float64), device=True, inline="always")
+        @numba_cuda_mlir.cuda.jit(float64(float64, float64), device=True, inline="always")
         def get_max(a, b):
             if a > b:
                 return a
             else:
                 return b
 
-        @numba_cuda_mlir.jit(void(float64[:, :], float64[:, :], float64[:, :]))
+        @numba_cuda_mlir.cuda.jit(void(float64[:, :], float64[:, :], float64[:, :]))
         def jocabi_relax_core(A, Anew, error):
             err_sm = cuda.shared.array(SM_SIZE, dtype=float64)
 

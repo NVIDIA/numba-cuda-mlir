@@ -11,7 +11,7 @@ Some functions are compiled at import time, hence a separate module.
 import numba_cuda_mlir
 
 
-@numba_cuda_mlir.jit("i8(i8)", device=True)
+@numba_cuda_mlir.cuda.jit("i8(i8)", device=True)
 def fib1(n):
     if n < 2:
         return n
@@ -21,7 +21,7 @@ def fib1(n):
 
 
 def make_fib2():
-    @numba_cuda_mlir.jit("i8(i8)", device=True)
+    @numba_cuda_mlir.cuda.jit("i8(i8)", device=True)
     def fib2(n):
         if n < 2:
             return n
@@ -33,7 +33,7 @@ def make_fib2():
 fib2 = make_fib2()
 
 
-@numba_cuda_mlir.jit
+@numba_cuda_mlir.cuda.jit
 def type_change_self(x, y):
     if x > 1 and y > 0:
         return x + type_change_self(x - y, y)
@@ -42,7 +42,7 @@ def type_change_self(x, y):
 
 
 # Implicit signature
-@numba_cuda_mlir.jit(device=True)
+@numba_cuda_mlir.cuda.jit(device=True)
 def fib3(n):
     if n < 2:
         return n
@@ -51,12 +51,12 @@ def fib3(n):
 
 
 # Run-away self recursion
-@numba_cuda_mlir.jit(device=True)
+@numba_cuda_mlir.cuda.jit(device=True)
 def runaway_self(x):
     return runaway_self(x)
 
 
-@numba_cuda_mlir.jit(device=True)
+@numba_cuda_mlir.cuda.jit(device=True)
 def raise_self(x):
     if x == 1:
         raise ValueError("raise_self")
@@ -66,7 +66,7 @@ def raise_self(x):
         return 1
 
 
-@numba_cuda_mlir.jit(debug=True, opt=False)
+@numba_cuda_mlir.cuda.jit(debug=True, opt=False)
 def raise_self_kernel(x):
     raise_self(x)
 

@@ -46,12 +46,12 @@ class CUDAUseCase(UseCase):
         self._func[1, 1](ret, *args)
 
 
-@numba_cuda_mlir.jit(cache=True)
+@numba_cuda_mlir.cuda.jit(cache=True)
 def add_usecase_kernel(r, x, y):
     r[()] = x[()] + y[()] + Z
 
 
-@numba_cuda_mlir.jit(cache=False)
+@numba_cuda_mlir.cuda.jit(cache=False)
 def add_nocache_usecase_kernel(r, x, y):
     r[()] = x[()] + y[()] + Z
 
@@ -65,17 +65,17 @@ Z = 1
 # Inner / outer cached / uncached cases
 
 
-@numba_cuda_mlir.jit(cache=True)
+@numba_cuda_mlir.cuda.jit(cache=True)
 def inner(x, y):
     return x + y + Z
 
 
-@numba_cuda_mlir.jit(cache=True)
+@numba_cuda_mlir.cuda.jit(cache=True)
 def outer_kernel(r, x, y):
     r[()] = inner(-y[()], x[()])
 
 
-@numba_cuda_mlir.jit(cache=False)
+@numba_cuda_mlir.cuda.jit(cache=False)
 def outer_uncached_kernel(r, x, y):
     r[()] = inner(-y[()], x[()])
 
@@ -98,7 +98,7 @@ for i in range(packed_arr.size):
 aligned_arr = np.array(packed_arr, dtype=aligned_record_type)
 
 
-@numba_cuda_mlir.jit(cache=True)
+@numba_cuda_mlir.cuda.jit(cache=True)
 def record_return(r, ary, i):
     r[()] = ary[i]
 
@@ -111,7 +111,7 @@ record_return_aligned = CUDAUseCase(record_return, retty=aligned_record_type)
 
 
 def make_closure(x):
-    @numba_cuda_mlir.jit(cache=True)
+    @numba_cuda_mlir.cuda.jit(cache=True)
     def closure(r, y):
         r[()] = x + y[()]
 
@@ -127,7 +127,7 @@ closure4 = make_closure(9)
 # Ambiguous / renamed functions
 
 
-@numba_cuda_mlir.jit(cache=True)
+@numba_cuda_mlir.cuda.jit(cache=True)
 def ambiguous_function(r, x):
     r[()] = x[()] + 2
 
@@ -135,7 +135,7 @@ def ambiguous_function(r, x):
 renamed_function1 = CUDAUseCase(ambiguous_function)
 
 
-@numba_cuda_mlir.jit(cache=True)
+@numba_cuda_mlir.cuda.jit(cache=True)
 def ambiguous_function(r, x):
     r[()] = x[()] + 6
 
@@ -143,7 +143,7 @@ def ambiguous_function(r, x):
 renamed_function2 = CUDAUseCase(ambiguous_function)
 
 
-@numba_cuda_mlir.jit(cache=True)
+@numba_cuda_mlir.cuda.jit(cache=True)
 def many_locals():
     aa = cuda.local.array((1, 1), np.float64)
     ab = cuda.local.array((1, 1), np.float64)
@@ -199,7 +199,7 @@ def many_locals():
 # Simple use case for multiprocessing test
 
 
-@numba_cuda_mlir.jit(cache=True)
+@numba_cuda_mlir.cuda.jit(cache=True)
 def simple_usecase_kernel(r, x):
     r[()] = x[()]
 

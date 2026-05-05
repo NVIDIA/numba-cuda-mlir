@@ -35,7 +35,7 @@ class TestAnnotationsAsSignatures:
     """Tests for annotations_as_signatures option."""
 
     def test_default_is_true(self):
-        """numba_cuda_mlir.jit has annotations_as_signatures=True by default."""
+        """cuda.jit has annotations_as_signatures=True by default."""
 
         @cuda.jit
         def kernel(result: types.Array(types.int32, 1, "A"), x: types.int32):

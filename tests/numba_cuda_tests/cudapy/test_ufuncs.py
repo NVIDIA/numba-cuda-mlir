@@ -354,7 +354,7 @@ class CUDAUFuncTestBase(BasicUFuncTest, NumbaCUDATestCase):
     def _compile(self, pyfunc, args):
         # We return an already-configured kernel so that basic_ufunc_test can
         # call it just like it does for a CPU function
-        return numba_cuda_mlir.jit(args)(pyfunc)[1, 1]
+        return numba_cuda_mlir.cuda.jit(args)(pyfunc)[1, 1]
 
     def basic_int_ufunc_test(self, name=None):
         skip_inputs = [

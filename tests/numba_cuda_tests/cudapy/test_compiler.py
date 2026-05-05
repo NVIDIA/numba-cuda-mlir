@@ -533,7 +533,7 @@ class TestCompile(NumbaCUDATestCase):
         # 'locals'"
         cond = None
 
-        @numba_cuda_mlir.jit("void(float32[::1])")
+        @numba_cuda_mlir.cuda.jit("void(float32[::1])")
         def f(b_arg):
             b_smem = cuda.shared.array(shape=(1,), dtype=float32)
 
@@ -635,7 +635,7 @@ class TestCompile(NumbaCUDATestCase):
             """Create a wrapper that takes void* input and output pointers."""
 
             # Make foo a device function
-            foo_device = numba_cuda_mlir.jit(device=True)(foo)
+            foo_device = numba_cuda_mlir.cuda.jit(device=True)(foo)
 
             # The inner signature: int32 -> int32
             inner_sig = types.int32(types.int32)
@@ -689,7 +689,7 @@ class TestCompile(NumbaCUDATestCase):
             else:
                 return
 
-        maybe_none_device = numba_cuda_mlir.jit(device=True)(maybe_none)
+        maybe_none_device = numba_cuda_mlir.cuda.jit(device=True)(maybe_none)
 
         def wrapper_func(x):
             return maybe_none_device(x)

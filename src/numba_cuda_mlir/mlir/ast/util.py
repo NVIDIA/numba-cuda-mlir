@@ -7,7 +7,7 @@ import io
 import types
 from typing import Dict
 
-from cloudpickle import cloudpickle
+from numba_cuda_mlir.numba_cuda.cloudpickle import cloudpickle
 
 from numba_cuda_mlir._mlir.ir import Type
 

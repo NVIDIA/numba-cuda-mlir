@@ -77,7 +77,7 @@ class TestCudaLineInfo(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Uses inspect_llvm")
     def test_no_lineinfo_in_asm(self):
-        @numba_cuda_mlir.jit(lineinfo=False)
+        @numba_cuda_mlir.cuda.jit(lineinfo=False)
         def foo(x):
             x[0] = 1
 
@@ -85,7 +85,7 @@ class TestCudaLineInfo(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Uses inspect_llvm")
     def test_lineinfo_in_asm(self):
-        @numba_cuda_mlir.jit(lineinfo=True)
+        @numba_cuda_mlir.cuda.jit(lineinfo=True)
         def foo(x):
             x[0] = 1
 
@@ -95,7 +95,7 @@ class TestCudaLineInfo(NumbaCUDATestCase):
     def test_lineinfo_maintains_error_model(self):
         sig = (float32[::1], float32[::1])
 
-        @numba_cuda_mlir.jit(sig, lineinfo=True)
+        @numba_cuda_mlir.cuda.jit(sig, lineinfo=True)
         def divide_kernel(x, y):
             x[0] /= y[0]
 
@@ -110,11 +110,11 @@ class TestCudaLineInfo(NumbaCUDATestCase):
     @pytest.mark.xfail(True, reason="Uses inspect_llvm")
     def test_no_lineinfo_in_device_function(self):
         # Ensure that no lineinfo is generated in device functions by default.
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def callee(x):
             x[0] += 1
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def caller(x):
             x[0] = 1
             callee(x)
@@ -127,11 +127,11 @@ class TestCudaLineInfo(NumbaCUDATestCase):
         # First we define a device function / kernel pair and run the usual
         # checks on the generated LLVM and PTX.
 
-        @numba_cuda_mlir.jit(lineinfo=True)
+        @numba_cuda_mlir.cuda.jit(lineinfo=True)
         def callee(x):
             x[0] += 1
 
-        @numba_cuda_mlir.jit(lineinfo=True)
+        @numba_cuda_mlir.cuda.jit(lineinfo=True)
         def caller(x):
             x[0] = 1
             callee(x)
@@ -195,7 +195,7 @@ class TestCudaLineInfo(NumbaCUDATestCase):
         ):
             # We pass opt=False to prevent the warning about opt and debug
             # occurring as well
-            @numba_cuda_mlir.jit(debug=True, lineinfo=True, opt=False)
+            @numba_cuda_mlir.cuda.jit(debug=True, lineinfo=True, opt=False)
             def f():
                 pass
 
@@ -204,7 +204,7 @@ class TestCudaLineInfo(NumbaCUDATestCase):
         # enable full debug info generation. See Numba-CUDA Issue #271,
         # https://github.com/NVIDIA/numba-cuda/issues/271
 
-        @numba_cuda_mlir.jit("void(complex128[::1], complex128[::1])", lineinfo=True)
+        @numba_cuda_mlir.cuda.jit("void(complex128[::1], complex128[::1])", lineinfo=True)
         def complex_abs_use(r, x):
             r[0] = abs(x[0])
 

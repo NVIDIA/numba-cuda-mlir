@@ -122,18 +122,6 @@ def inline_ptx(format_string: str, *args) -> None:
     """
 
 
-def struct(*args, **kwargs):
-    from numba_cuda_mlir.host import struct
-
-    return struct(*args, **kwargs)
-
-
-def union(*args, **kwargs):
-    from numba_cuda_mlir.host import union
-
-    return union(*args, **kwargs)
-
-
 def clz(x):
     """Count leading zeros. For a 32-bit value, returns 0-32. For 64-bit, returns 0-64."""
     pass

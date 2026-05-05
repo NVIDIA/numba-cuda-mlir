@@ -47,11 +47,11 @@ class TestDeviceArrayCapture(NumbaCUDATestCase):
             host_data = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32)
             global_array = make_array(host_data)
 
-            @numba_cuda_mlir.jit(device=True)
+            @numba_cuda_mlir.cuda.jit(device=True)
             def read_global(idx):
                 return global_array[idx]
 
-            @numba_cuda_mlir.jit
+            @numba_cuda_mlir.cuda.jit
             def kernel(output):
                 i = cuda.grid(1)
                 if i < output.size:
@@ -70,11 +70,11 @@ class TestDeviceArrayCapture(NumbaCUDATestCase):
             host_data = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32)
             global_array = make_array(host_data)
 
-            @numba_cuda_mlir.jit(device=True)
+            @numba_cuda_mlir.cuda.jit(device=True)
             def double_global_value(idx):
                 return global_array[idx] * 2.0
 
-            @numba_cuda_mlir.jit
+            @numba_cuda_mlir.cuda.jit
             def kernel(output):
                 i = cuda.grid(1)
                 if i < output.size:
@@ -94,7 +94,7 @@ class TestDeviceArrayCapture(NumbaCUDATestCase):
             host_data = np.zeros(5, dtype=np.float32)
             mutable_array = make_array(host_data)
 
-            @numba_cuda_mlir.jit
+            @numba_cuda_mlir.cuda.jit
             def write_kernel():
                 i = cuda.grid(1)
                 if i < 5:
@@ -114,11 +114,11 @@ class TestDeviceArrayCapture(NumbaCUDATestCase):
             arr_a = make_array(host_a)
             arr_b = make_array(host_b)
 
-            @numba_cuda_mlir.jit(device=True)
+            @numba_cuda_mlir.cuda.jit(device=True)
             def add_globals(idx):
                 return arr_a[idx] + arr_b[idx]
 
-            @numba_cuda_mlir.jit
+            @numba_cuda_mlir.cuda.jit
             def kernel(output):
                 i = cuda.grid(1)
                 if i < output.size:
@@ -137,11 +137,11 @@ class TestDeviceArrayCapture(NumbaCUDATestCase):
             host_2d = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], dtype=np.float32)
             arr_2d = make_array(host_2d)
 
-            @numba_cuda_mlir.jit(device=True)
+            @numba_cuda_mlir.cuda.jit(device=True)
             def read_2d(row, col):
                 return arr_2d[row, col]
 
-            @numba_cuda_mlir.jit
+            @numba_cuda_mlir.cuda.jit
             def kernel(output):
                 i = cuda.grid(1)
                 if i < 6:
@@ -168,11 +168,11 @@ class TestDeviceArrayCapture(NumbaCUDATestCase):
                 host_data = np.array(values, dtype=dtype)
                 global_arr = make_array(host_data)
 
-                @numba_cuda_mlir.jit(device=True)
+                @numba_cuda_mlir.cuda.jit(device=True)
                 def read_arr(idx):
                     return global_arr[idx]
 
-                @numba_cuda_mlir.jit
+                @numba_cuda_mlir.cuda.jit
                 def kernel(output):
                     i = cuda.grid(1)
                     if i < output.size:
@@ -188,7 +188,7 @@ class TestDeviceArrayCapture(NumbaCUDATestCase):
             host_data = np.array([7.0, 8.0, 9.0], dtype=np.float32)
             global_direct = make_array(host_data)
 
-            @numba_cuda_mlir.jit
+            @numba_cuda_mlir.cuda.jit
             def direct_access_kernel(output):
                 i = cuda.grid(1)
                 if i < output.size:
@@ -207,7 +207,7 @@ class TestDeviceArrayCapture(NumbaCUDATestCase):
             host_0d = np.array(42.0, dtype=np.float32)
             global_0d = make_array(host_0d)
 
-            @numba_cuda_mlir.jit
+            @numba_cuda_mlir.cuda.jit
             def kernel_0d(output):
                 output[()] = global_0d[()] * 2.0
 

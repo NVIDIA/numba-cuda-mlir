@@ -34,14 +34,14 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         assertfn(match, msg=asm)
 
     def test_no_debuginfo_in_asm(self):
-        @numba_cuda_mlir.jit(debug=False, opt=False)
+        @numba_cuda_mlir.cuda.jit(debug=False, opt=False)
         def foo(x):
             x[0] = 1
 
         self._check(foo, sig=(types.int32[:],), expect=False)
 
     def test_debuginfo_in_asm(self):
-        @numba_cuda_mlir.jit(debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit(debug=True, opt=False)
         def foo(x):
             x[0] = 1
 
@@ -51,7 +51,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         # Invalid debug metadata would segfault NVVM when any function was
         # compiled with debug turned on and optimization off. This eager
         # compilation should not crash anything.
-        @numba_cuda_mlir.jit((types.int32[::1],), debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit((types.int32[::1],), debug=True, opt=False)
         def f(x):
             x[0] = 0
 
@@ -61,7 +61,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         # See Numba Issue #9888 https://github.com/numba/numba/pull/9888
         sig = (types.boolean,)
 
-        @numba_cuda_mlir.jit(sig, debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit(sig, debug=True, opt=False)
         def f(cond):
             if cond:
                 x = 1  # noqa: F841
@@ -78,7 +78,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
     def test_bool_type(self):
         sig = (types.int32, types.int32)
 
-        @numba_cuda_mlir.jit("void(int32, int32)", debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit("void(int32, int32)", debug=True, opt=False)
         def f(x, y):
             z = x == y  # noqa: F841
 
@@ -99,7 +99,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
     def test_grid_group_type(self):
         sig = (types.int32,)
 
-        @numba_cuda_mlir.jit(sig, debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit(sig, debug=True, opt=False)
         def f(x):
             grid = cuda.cg.this_grid()  # noqa: F841
 
@@ -123,7 +123,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         # This is condensed from this reproducer in Issue 5311:
         # https://github.com/numba/numba/issues/5311#issuecomment-674206587
 
-        @numba_cuda_mlir.jit((types.int32[:], types.int32[:]), debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit((types.int32[:], types.int32[:]), debug=True, opt=False)
         def f(inp, outp):
             outp[0] = 1 if inp[0] in (2, 3) else 3
 
@@ -133,26 +133,26 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         # with NVVM - one for the caller and one for the callee. This checks
         # that we don't cause an NVVM error in this case.
 
-        @numba_cuda_mlir.jit(device=True, debug=True, opt=0)
+        @numba_cuda_mlir.cuda.jit(device=True, debug=True, opt=0)
         def threadid():
             return cuda.blockDim.x * cuda.blockIdx.x + cuda.threadIdx.x
 
-        @numba_cuda_mlir.jit((types.int32[:],), debug=True, opt=0)
+        @numba_cuda_mlir.cuda.jit((types.int32[:],), debug=True, opt=0)
         def kernel(arr):
             i = cuda.grid(1)
             if i < len(arr):
                 arr[i] = threadid()
 
     def _test_chained_device_function(self, kernel_debug, f1_debug, f2_debug):
-        @numba_cuda_mlir.jit(device=True, debug=f2_debug, opt=False)
+        @numba_cuda_mlir.cuda.jit(device=True, debug=f2_debug, opt=False)
         def f2(x):
             return x + 1
 
-        @numba_cuda_mlir.jit(device=True, debug=f1_debug, opt=False)
+        @numba_cuda_mlir.cuda.jit(device=True, debug=f1_debug, opt=False)
         def f1(x, y):
             return x - f2(y)
 
-        @numba_cuda_mlir.jit((types.int32, types.int32), debug=kernel_debug, opt=False)
+        @numba_cuda_mlir.cuda.jit((types.int32, types.int32), debug=kernel_debug, opt=False)
         def kernel(x, y):
             f1(x, y)
 
@@ -169,15 +169,15 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
             self._test_chained_device_function(kernel_debug, f1_debug, f2_debug)
 
     def _test_chained_device_function_two_calls(self, kernel_debug, f1_debug, f2_debug):
-        @numba_cuda_mlir.jit(device=True, debug=f2_debug, opt=False)
+        @numba_cuda_mlir.cuda.jit(device=True, debug=f2_debug, opt=False)
         def f2(x):
             return x + 1
 
-        @numba_cuda_mlir.jit(device=True, debug=f1_debug, opt=False)
+        @numba_cuda_mlir.cuda.jit(device=True, debug=f1_debug, opt=False)
         def f1(x, y):
             return x - f2(y)
 
-        @numba_cuda_mlir.jit(debug=kernel_debug, opt=False)
+        @numba_cuda_mlir.cuda.jit(debug=kernel_debug, opt=False)
         def kernel(x, y):
             f1(x, y)
             f2(x)
@@ -200,19 +200,19 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         # to ensure that the recursion visits all the way down the call tree
         # when fixing linkage of functions for debug.
         def three_device_fns(kernel_debug, leaf_debug):
-            @numba_cuda_mlir.jit(device=True, debug=leaf_debug, opt=False)
+            @numba_cuda_mlir.cuda.jit(device=True, debug=leaf_debug, opt=False)
             def f3(x):
                 return x * x
 
-            @numba_cuda_mlir.jit(device=True)
+            @numba_cuda_mlir.cuda.jit(device=True)
             def f2(x):
                 return f3(x) + 1
 
-            @numba_cuda_mlir.jit(device=True)
+            @numba_cuda_mlir.cuda.jit(device=True)
             def f1(x, y):
                 return x - f2(y)
 
-            @numba_cuda_mlir.jit(debug=kernel_debug, opt=False)
+            @numba_cuda_mlir.cuda.jit(debug=kernel_debug, opt=False)
             def kernel(x, y):
                 f1(x, y)
 
@@ -227,7 +227,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
     def _test_kernel_args_types(self):
         sig = (types.int32, types.int32)
 
-        @numba_cuda_mlir.jit("void(int32, int32)", debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit("void(int32, int32)", debug=True, opt=False)
         def f(x, y):
             z = x + y  # noqa: F841
 
@@ -263,7 +263,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
     def test_kernel_args_names(self):
         sig = (types.int32,)
 
-        @numba_cuda_mlir.jit("void(int32)", debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit("void(int32)", debug=True, opt=False)
         def f(x):
             z = x  # noqa: F841
 
@@ -281,7 +281,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
     def test_llvm_dbg_value(self):
         sig = (types.int32, types.int32)
 
-        @numba_cuda_mlir.jit("void(int32, int32)", debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit("void(int32, int32)", debug=True, opt=False)
         def f(x, y):
             z1 = x  # noqa: F841
             z2 = 100  # noqa: F841
@@ -301,7 +301,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
     def test_llvm_dbg_value_range(self):
         sig = (types.int64,)
 
-        @numba_cuda_mlir.jit("void(int64,)", debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit("void(int64,)", debug=True, opt=False)
         def foo(x):
             """
             CHECK: store i1 true, i1* %"second.1"
@@ -330,7 +330,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
     def test_no_user_var_alias(self):
         sig = (types.int32, types.int32)
 
-        @numba_cuda_mlir.jit("void(int32, int32)", debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit("void(int32, int32)", debug=True, opt=False)
         def f(x, y):
             z = x  # noqa: F841
             z = y  # noqa: F841
@@ -344,7 +344,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
     def test_no_literal_type(self):
         sig = (types.int32,)
 
-        @numba_cuda_mlir.jit("void(int32)", debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit("void(int32)", debug=True, opt=False)
         def f(x):
             z = x  # noqa: F841
             z = 100  # noqa: F841
@@ -357,7 +357,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="debuginfo issues")
     def test_union_debug(self):
-        @numba_cuda_mlir.jit("void(u8, int64[::1])", debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit("void(u8, int64[::1])", debug=True, opt=False)
         def a_union_use_case(arg, results):
             foo = 1
             foo = arg
@@ -388,7 +388,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         else:
             extradata_pattern = "{{![0-9]+}}"
 
-        @numba_cuda_mlir.jit("void()", debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit("void()", debug=True, opt=False)
         def f():
             foo = 100  # noqa: F841
             foo = 3.14  # noqa: F841
@@ -416,7 +416,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="debuginfo issues")
     def test_DW_LANG(self):
-        @numba_cuda_mlir.jit(debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit(debug=True, opt=False)
         def foo():
             """
             CHECK: distinct !DICompileUnit
@@ -456,7 +456,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         """
         sig = (types.float64,)
 
-        @numba_cuda_mlir.jit(sig, debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit(sig, debug=True, opt=False)
         def foo(a):
             """
             CHECK-LABEL: define void @{{.+}}foo
@@ -521,7 +521,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         """
         l = dict()
         exec(dedent(strsrc), {}, l)
-        foo = numba_cuda_mlir.jit(debug=True, opt=False)(l["foo"])
+        foo = numba_cuda_mlir.cuda.jit(debug=True, opt=False)(l["foo"])
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always", NumbaDebugInfoWarning)
@@ -549,7 +549,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         # Source with a multi-line decorator
         strsrc = dedent(
             """
-        @numba_cuda_mlir.jit(
+        @numba_cuda_mlir.cuda.jit(
             "void(int32[:])",
             debug=True,
             opt=False
@@ -598,7 +598,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="debuginfo issues")
     def test_no_if_op_bools_declared(self):
-        @numba_cuda_mlir.jit(
+        @numba_cuda_mlir.cuda.jit(
             "int64(boolean, boolean)",
             debug=True,
             opt=False,
@@ -627,7 +627,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         """Tests that DILocation information for versions of variables matches
         up to their definition site."""
 
-        @numba_cuda_mlir.jit(debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit(debug=True, opt=False)
         def foo(dest, n):
             """
             CHECK: define void @{{.+}}foo
@@ -741,7 +741,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         def foo():
             pass
 
-        foo_debug = numba_cuda_mlir.jit(debug=True, opt=False)(foo)
+        foo_debug = numba_cuda_mlir.cuda.jit(debug=True, opt=False)(foo)
         foo_debug[1, 1]()
         asm = foo_debug.inspect_asm()[foo_debug.signatures[0]]
         self.assertFileCheckMatches(
@@ -751,7 +751,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         """,
         )
 
-        foo_nodebug = numba_cuda_mlir.jit(debug=False)(foo)
+        foo_nodebug = numba_cuda_mlir.cuda.jit(debug=False)(foo)
         foo_nodebug[1, 1]()
         asm = foo_nodebug.inspect_asm()[foo_nodebug.signatures[0]]
         self.assertFileCheckMatches(
@@ -792,7 +792,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         """
         sig = (numpy_support.from_dtype(dtype),)
 
-        @numba_cuda_mlir.jit(sig, debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit(sig, debug=True, opt=False)
         def kernel_with_shared(data):
             shared_arr = cuda.shared.array(32, dtype=dtype)
             local_arr = cuda.local.array(32, dtype=dtype)
@@ -836,7 +836,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         )
         sig = (numpy_support.from_dtype(dtype),)
 
-        @numba_cuda_mlir.jit(sig, debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit(sig, debug=True, opt=False)
         def kernel_with_shared(data):
             shared_arr = cuda.shared.array(32, dtype=dtype)
             local_arr = cuda.local.array(32, dtype=dtype)
@@ -868,12 +868,12 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         sig = (types.int32[:],)
 
         # Single line decorator without comment between def and first statement
-        @numba_cuda_mlir.jit("void(int32[:])", debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit("void(int32[:])", debug=True, opt=False)
         def kernel_single_line_decorator_without_comment(x):
             x[0] = 1
 
         # Single line decorator with multi-line comment between def and first statement
-        @numba_cuda_mlir.jit("void(int32[:])", debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit("void(int32[:])", debug=True, opt=False)
         def kernel_single_line_decorator_with_multiline_comment(x):
             # This comment is between def and first statement
             # and spans multiple lines
@@ -882,7 +882,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
 
         # fmt: off
         # Multi-line decorator without comment between def and first statement
-        @numba_cuda_mlir.jit(
+        @numba_cuda_mlir.cuda.jit(
             "void(int32[:])",
             debug=True,
             opt=False
@@ -891,7 +891,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
             x[0] = 1
 
         # Multi-line decorator with multi-line comment between def and first statement
-        @numba_cuda_mlir.jit(
+        @numba_cuda_mlir.cuda.jit(
             "void(int32[:])",
             debug=True,
             opt=False
@@ -937,7 +937,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         """
         sig = (types.int32[:],)
 
-        @numba_cuda_mlir.jit("void(int32[:])", debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit("void(int32[:])", debug=True, opt=False)
         def foo(x):
             x[0] = 1
 
@@ -975,7 +975,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         """
         sig = (types.boolean, types.boolean)
 
-        @numba_cuda_mlir.jit(sig, debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit(sig, debug=True, opt=False)
         def foo(flag1, flag2):
             result = flag1 and flag2  # noqa: F841
 
@@ -1000,7 +1000,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         """
         sig = (types.int64[:],)
 
-        @numba_cuda_mlir.jit(debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit(debug=True, opt=False)
         def foo(output):
             bar = 0
             for i in range(10):
@@ -1041,7 +1041,7 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         """
         sig = (types.float32[:], types.int64)
 
-        @numba_cuda_mlir.jit("void(float32[:], int64)", debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit("void(float32[:], int64)", debug=True, opt=False)
         def foo(arr, n):
             for j in range(n):
                 arr[0] += j

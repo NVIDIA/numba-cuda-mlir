@@ -293,7 +293,6 @@ def kernel(arr, x):
 
 def test_chip_forward_compat():
     """Test targeting a lower chip than the current device."""
-    import numba_cuda_mlir
     from numba_cuda_mlir.numba_cuda.cudadrv import nvrtc
 
     current_cc = cuda.get_current_device().compute_capability
@@ -309,7 +308,7 @@ def test_chip_forward_compat():
             f"supported targets: {supported}"
         )
 
-    @numba_cuda_mlir.jit(chip=f"sm_{target_cc[0]}{target_cc[1]}")
+    @cuda.jit(chip=f"sm_{target_cc[0]}{target_cc[1]}")
     def kernel(arr):
         arr[0] = 42
 

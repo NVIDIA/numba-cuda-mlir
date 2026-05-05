@@ -17,7 +17,7 @@ regex_pattern = r'In function [\'"]test_exc[\'"], file [\:\.\/\\\-a-zA-Z_0-9]+, 
 class TestUserExc(NumbaCUDATestCase):
     @pytest.mark.xfail(True, reason="ICE")
     def test_user_exception(self):
-        @numba_cuda_mlir.jit("void(int32)", debug=True, opt=False)
+        @numba_cuda_mlir.cuda.jit("void(int32)", debug=True, opt=False)
         def test_exc(x):
             if x == 1:
                 raise MyError

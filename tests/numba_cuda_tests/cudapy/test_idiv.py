@@ -10,7 +10,7 @@ from numba_cuda_mlir.testing import NumbaCUDATestCase
 
 class TestCudaIDiv(NumbaCUDATestCase):
     def test_inplace_div(self):
-        @numba_cuda_mlir.jit(void(float32[:, :], int32, int32))
+        @numba_cuda_mlir.cuda.jit(void(float32[:, :], int32, int32))
         def div(grid, l_x, l_y):
             for x in range(l_x):
                 for y in range(l_y):
@@ -23,7 +23,7 @@ class TestCudaIDiv(NumbaCUDATestCase):
         self.assertTrue(np.all(y == 0.5))
 
     def test_inplace_div_double(self):
-        @numba_cuda_mlir.jit(void(float64[:, :], int32, int32))
+        @numba_cuda_mlir.cuda.jit(void(float64[:, :], int32, int32))
         def div_double(grid, l_x, l_y):
             for x in range(l_x):
                 for y in range(l_y):

@@ -35,7 +35,7 @@ class TestInspect(NumbaCUDATestCase):
     def test_monotyped(self):
         sig = (float32, int32)
 
-        @numba_cuda_mlir.jit(sig)
+        @numba_cuda_mlir.cuda.jit(sig)
         def foo(x, y):
             """
             // LLVM: define void
@@ -64,7 +64,7 @@ class TestInspect(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Uses inspect_llvm")
     def test_polytyped(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def foo(x, y):
             """
             // LLVM: define void
@@ -156,7 +156,7 @@ class TestInspect(NumbaCUDATestCase):
             link=ext,
         )
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def k(arr):
             local_arr = cuda.local.array(shape=1, dtype=np.float16)
             local_arr2 = cuda.local.array(shape=1, dtype=np.float16)
@@ -198,7 +198,7 @@ class TestInspect(NumbaCUDATestCase):
 
         sig = (float32[::1], int32[::1])
 
-        @numba_cuda_mlir.jit(sig, lineinfo=True)
+        @numba_cuda_mlir.cuda.jit(sig, lineinfo=True)
         def add(x, y):
             i = cuda.grid(1)
             if i < len(x):
@@ -210,7 +210,7 @@ class TestInspect(NumbaCUDATestCase):
     def test_inspect_sass_lazy(self):
         self.skip_on_cuda_version_issues()
 
-        @numba_cuda_mlir.jit(lineinfo=True)
+        @numba_cuda_mlir.cuda.jit(lineinfo=True)
         def add(x, y):
             i = cuda.grid(1)
             if i < len(x):
@@ -225,7 +225,7 @@ class TestInspect(NumbaCUDATestCase):
 
     @skip_with_nvdisasm("Missing nvdisasm exception only generated when it is not present")
     def test_inspect_sass_nvdisasm_missing(self):
-        @numba_cuda_mlir.jit((float32[::1],))
+        @numba_cuda_mlir.cuda.jit((float32[::1],))
         def f(x):
             x[0] = 0
 
@@ -240,7 +240,7 @@ class TestInspect(NumbaCUDATestCase):
 
         sig = (float32[::1], int32[::1])
 
-        @numba_cuda_mlir.jit(sig)
+        @numba_cuda_mlir.cuda.jit(sig)
         def add(x, y):
             i = cuda.grid(1)
             if i < len(x):

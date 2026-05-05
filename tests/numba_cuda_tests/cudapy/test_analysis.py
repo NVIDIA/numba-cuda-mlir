@@ -8,7 +8,7 @@ import types as pytypes
 import numpy as np
 from numba_cuda_mlir.numba_cuda.compiler import run_frontend
 from numba_cuda_mlir.numba_cuda.core.compiler import StateDict
-from numba_cuda_mlir import jit
+from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core import errors
 from numba_cuda_mlir.numba_cuda.core import ir
@@ -139,7 +139,7 @@ class TestBranchPruneBase(NumbaCUDATestCase):
             self.run_func(func, args)
 
     def run_func(self, impl, args):
-        cres = jit(impl)
+        cres = cuda.jit(impl)
         dargs = args
         out = np.zeros(1)
         cout = np.zeros(1)
@@ -1021,7 +1021,7 @@ class TestBranchPrunePredicates(TestBranchPruneBase):
                 self.assert_prune(func, (types.NoneType("none"),), [prune], None)
 
     def test_issue_5618(self):
-        @jit
+        @cuda.jit
         def foo(res):
             tmp = 666
             if tmp:
@@ -1081,7 +1081,7 @@ class TestBranchPrunePostSemanticConstRewrites(TestBranchPruneBase):
         # This produces an `ir.Expr` call node for `float.as_integer_ratio`,
         # which is a getattr() on `float`.
 
-        @jit
+        @cuda.jit
         def test():
             float.as_integer_ratio(1.23)
 

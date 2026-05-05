@@ -32,8 +32,8 @@ class FastMathCriterion:
 class TestFastMathOption(NumbaCUDATestCase):
     def _test_fast_math_common(self, pyfunc, sig, device, criterion):
         # Test jit code path
-        fastver = numba_cuda_mlir.jit(sig, device=device, fastmath=True)(pyfunc)
-        precver = numba_cuda_mlir.jit(sig, device=device)(pyfunc)
+        fastver = numba_cuda_mlir.cuda.jit(sig, device=device, fastmath=True)(pyfunc)
+        precver = numba_cuda_mlir.cuda.jit(sig, device=device)(pyfunc)
 
         criterion.check(self, fastver.inspect_asm(sig), precver.inspect_asm(sig))
 
@@ -206,8 +206,8 @@ class TestFastMathOption(NumbaCUDATestCase):
             r[0] = x / y
 
         sig = (float32[::1], float32, float32)
-        fastver = numba_cuda_mlir.jit(sig, fastmath=True, debug=True, opt=False)(f10)
-        precver = numba_cuda_mlir.jit(sig, debug=True, opt=False)(f10)
+        fastver = numba_cuda_mlir.cuda.jit(sig, fastmath=True, debug=True, opt=False)(f10)
+        precver = numba_cuda_mlir.cuda.jit(sig, debug=True, opt=False)(f10)
         nelem = 10
         ary = np.empty(nelem, dtype=np.float32)
         with self.assertRaises(ZeroDivisionError):
@@ -223,7 +223,7 @@ class TestFastMathOption(NumbaCUDATestCase):
         # The fastmath option doesn't presently propagate to device functions
         # from their callees - arguably it should do, so this test is presently
         # an xfail.
-        @numba_cuda_mlir.jit("float32(float32, float32)", device=True)
+        @numba_cuda_mlir.cuda.jit("float32(float32, float32)", device=True)
         def foo(a, b):
             return a / b
 
@@ -233,8 +233,8 @@ class TestFastMathOption(NumbaCUDATestCase):
                 arr[i] = foo(i, val)
 
         sig = (float32[::1], float32)
-        fastver = numba_cuda_mlir.jit(sig, fastmath=True)(bar)
-        precver = numba_cuda_mlir.jit(sig)(bar)
+        fastver = numba_cuda_mlir.cuda.jit(sig, fastmath=True)(bar)
+        precver = numba_cuda_mlir.cuda.jit(sig)(bar)
 
         # Variants of the div instruction are further documented at:
         # https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#floating-point-instructions-div

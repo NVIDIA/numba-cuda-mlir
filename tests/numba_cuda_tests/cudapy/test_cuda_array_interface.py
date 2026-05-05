@@ -70,7 +70,7 @@ class TestCudaArrayInterface(NumbaCUDATestCase):
         my_arr = ForeignArray(d_arr)
         wrapped = cuda.as_cuda_array(my_arr)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def mutate(arr, val):
             i = cuda.grid(1)
             if i >= len(arr):
@@ -86,7 +86,7 @@ class TestCudaArrayInterface(NumbaCUDATestCase):
     def test_fortran_contiguous(self):
         cp = pytest.importorskip("cupy")
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def copy(arr, out):
             for i in range(arr.shape[0]):
                 for j in range(arr.shape[1]):
@@ -246,7 +246,7 @@ class TestCudaArrayInterface(NumbaCUDATestCase):
         c_arr = cuda.device_array(0)
         self.assertEqual(c_arr.__cuda_array_interface__["data"][0], 0)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def add_one(arr):
             x = cuda.grid(1)
             N = arr.shape[0]
@@ -350,7 +350,7 @@ class TestCudaArrayInterface(NumbaCUDATestCase):
         # Create a foreign array with no stream
         f_arr = ForeignArray(cuda.device_array(10))
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(x):
             pass
 
@@ -367,7 +367,7 @@ class TestCudaArrayInterface(NumbaCUDATestCase):
         s = cuda.stream()
         f_arr = ForeignArray(cuda.device_array(10, stream=s))
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(x):
             pass
 
@@ -386,7 +386,7 @@ class TestCudaArrayInterface(NumbaCUDATestCase):
         f_arr1 = ForeignArray(cuda.device_array(10, stream=s1))
         f_arr2 = ForeignArray(cuda.device_array(10, stream=s2))
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(x, y):
             pass
 
@@ -402,11 +402,11 @@ class TestCudaArrayInterface(NumbaCUDATestCase):
         f16x2 = np.dtype([("x", np.float16), ("y", np.float16)])
         f16x2_aligned = np.dtype([("x", np.float16), ("y", np.float16)], align=True)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f1(input, output):
             pass
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f2(input, output):
             pass
 

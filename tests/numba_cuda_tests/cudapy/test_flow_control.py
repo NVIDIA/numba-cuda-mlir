@@ -5,7 +5,7 @@ import pytest
 import itertools
 
 import unittest
-from numba_cuda_mlir import jit
+from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda.core.controlflow import CFGraph, ControlFlowAnalysis
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core.bytecode import (
@@ -222,7 +222,7 @@ class TestFlowControl(NumbaCUDATestCase):
         res1_operands,
         res2_operands,
     ):
-        cfunc = jit((types.intp, types.intp, types.intp, types.intp))(pyfunc)
+        cfunc = cuda.jit((types.intp, types.intp, types.intp, types.intp))(pyfunc)
         for x, y, res1, res2 in itertools.product(
             x_operands, y_operands, res1_operands, res2_operands
         ):

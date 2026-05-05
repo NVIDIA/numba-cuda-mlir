@@ -9,7 +9,7 @@ import pytest
 def test_local_array_from_transform():
     """Test that local_array_from is transformed to local_array + loop."""
 
-    @numba_cuda_mlir.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
     def kernel(out, indices):
         arr = numba_cuda_mlir.cuda.local_array_from((i + 1 for i in indices), dtype=np.int64)
         out[0] = arr[0]
@@ -27,7 +27,7 @@ def test_local_array_from_transform():
 def test_local_array_from_runs_correctly():
     """Test that local_array_from produces correct runtime behavior."""
 
-    @numba_cuda_mlir.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
     def kernel(out, indices):
         arr = numba_cuda_mlir.cuda.local_array_from((i + 1 for i in indices), dtype=np.int64)
         out[0] = arr[0]
@@ -44,7 +44,7 @@ def test_local_array_from_runs_correctly():
 def test_local_array_from_expression():
     """Test local_array_from with a more complex expression."""
 
-    @numba_cuda_mlir.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
     def kernel(out, values):
         arr = numba_cuda_mlir.cuda.local_array_from((v * 2 + 1 for v in values), dtype=np.float32)
         for i in range(3):
@@ -61,7 +61,7 @@ def test_local_array_from_expression():
 def test_local_array_from_dtypes(dtype):
     """Test local_array_from with various dtypes."""
 
-    @numba_cuda_mlir.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
     def kernel(out, indices):
         arr = numba_cuda_mlir.cuda.local_array_from((i for i in indices), dtype=dtype)
         out[0] = arr[0]

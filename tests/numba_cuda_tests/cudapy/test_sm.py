@@ -21,11 +21,11 @@ recordwith2darray = np.dtype([("i", np.int32), ("j", np.float32, (3, 2))])
 
 class TestSharedMemoryIssue(NumbaCUDATestCase):
     def test_issue_953_sm_linkage_conflict(self):
-        @numba_cuda_mlir.jit(device=True)
+        @numba_cuda_mlir.cuda.jit(device=True)
         def inner():
             inner_arr = cuda.shared.array(1, dtype=int32)  # noqa: F841
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def outer():
             outer_arr = cuda.shared.array(1, dtype=int32)  # noqa: F841
             inner()
@@ -33,7 +33,7 @@ class TestSharedMemoryIssue(NumbaCUDATestCase):
         outer[1, 1]()
 
     def _check_shared_array_size(self, shape, expected):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def s(a):
             arr = cuda.shared.array(shape, dtype=int32)
             a[0] = arr.size
@@ -52,7 +52,7 @@ class TestSharedMemoryIssue(NumbaCUDATestCase):
         self._check_shared_array_size((2, 3, 4), 24)
 
     def _check_shared_array_size_fp16(self, shape, expected, ty):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def s(a):
             arr = cuda.shared.array(shape, dtype=ty)
             a[0] = arr.size
@@ -75,7 +75,7 @@ class TestSharedMemoryIssue(NumbaCUDATestCase):
         examples_per_block = 4
         threads_per_block = 1
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def costs_func(d_block_costs):
             s_features = cuda.shared.array((examples_per_block, num_weights), float64)
             s_initialcost = cuda.shared.array(7, float64)  # Bug
@@ -108,7 +108,7 @@ class TestSharedMemory(NumbaCUDATestCase):
         nblocks = int(nelem / nthreads)
         dt = nps.from_dtype(arr.dtype)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def use_sm_chunk_copy(x, y):
             sm = cuda.shared.array(nthreads, dtype=dt)
 
@@ -158,7 +158,7 @@ class TestSharedMemory(NumbaCUDATestCase):
 
     def test_dynshared_slice_write(self):
         # Test writing values into disjoint slices of dynamic shared memory
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def slice_write(x):
             dynsmem = cuda.shared.array(0, dtype=int32)
             sm1 = dynsmem[0:1]
@@ -175,7 +175,7 @@ class TestSharedMemory(NumbaCUDATestCase):
 
     def test_dynshared_slice_read(self):
         # Test reading values from disjoint slices of dynamic shared memory
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def slice_read(x):
             dynsmem = cuda.shared.array(0, dtype=int32)
             sm1 = dynsmem[0:1]
@@ -193,7 +193,7 @@ class TestSharedMemory(NumbaCUDATestCase):
     def test_dynshared_slice_diff_sizes(self):
         # Test reading values from disjoint slices of dynamic shared memory
         # with different sizes
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def slice_diff_sizes(x):
             dynsmem = cuda.shared.array(0, dtype=int32)
             sm1 = dynsmem[0:1]
@@ -212,7 +212,7 @@ class TestSharedMemory(NumbaCUDATestCase):
 
     def test_dynshared_slice_overlap(self):
         # Test reading values from overlapping slices of dynamic shared memory
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def slice_overlap(x):
             dynsmem = cuda.shared.array(0, dtype=int32)
             sm1 = dynsmem[0:2]
@@ -239,7 +239,7 @@ class TestSharedMemory(NumbaCUDATestCase):
     def test_dynshared_slice_gaps(self):
         # Test writing values to slices of dynamic shared memory doesn't write
         # outside the slice
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def slice_gaps(x):
             dynsmem = cuda.shared.array(0, dtype=int32)
             sm1 = dynsmem[1:3]
@@ -275,7 +275,7 @@ class TestSharedMemory(NumbaCUDATestCase):
     def test_dynshared_slice_write_backwards(self):
         # Test writing values into disjoint slices of dynamic shared memory
         # with negative steps
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def slice_write_backwards(x):
             dynsmem = cuda.shared.array(0, dtype=int32)
             sm1 = dynsmem[1::-1]
@@ -298,7 +298,7 @@ class TestSharedMemory(NumbaCUDATestCase):
     def test_dynshared_slice_nonunit_stride(self):
         # Test writing values into slice of dynamic shared memory with
         # non-unit stride
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def slice_nonunit_stride(x):
             dynsmem = cuda.shared.array(0, dtype=int32)
             sm1 = dynsmem[::2]
@@ -330,7 +330,7 @@ class TestSharedMemory(NumbaCUDATestCase):
     def test_dynshared_slice_nonunit_reverse_stride(self):
         # Test writing values into slice of dynamic shared memory with
         # reverse non-unit stride
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def slice_nonunit_reverse_stride(x):
             dynsmem = cuda.shared.array(0, dtype=int32)
             sm1 = dynsmem[-1::-2]
@@ -373,7 +373,7 @@ class TestSharedMemory(NumbaCUDATestCase):
         nshared = nthreads * arr.dtype.itemsize
         chunksize = int(nthreads / 2)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def sm_slice_copy(x, y, chunksize):
             dynsmem = cuda.shared.array(0, dtype=dt)
             sm1 = dynsmem[0:chunksize]
@@ -411,7 +411,7 @@ class TestSharedMemory(NumbaCUDATestCase):
             arr = cuda.shared.array(10, dtype=np.dtype("O"))  # noqa: F841
 
         with self.assertRaisesRegex(TypingError, rgx):
-            numba_cuda_mlir.jit(void())(unsupported_type)
+            numba_cuda_mlir.cuda.jit(void())(unsupported_type)
 
         rgx = ".*Invalid NumPy dtype specified: 'int33'.*"
 
@@ -419,12 +419,12 @@ class TestSharedMemory(NumbaCUDATestCase):
             arr = cuda.shared.array(10, dtype="int33")  # noqa: F841
 
         with self.assertRaisesRegex(TypingError, rgx):
-            numba_cuda_mlir.jit(void())(invalid_string_type)
+            numba_cuda_mlir.cuda.jit(void())(invalid_string_type)
 
     def struct_model_type_static(self):
         nthreads = 64
 
-        @numba_cuda_mlir.jit(void(int32[::1], int32[::1]))
+        @numba_cuda_mlir.cuda.jit(void(int32[::1], int32[::1]))
         def write_then_reverse_read_static(outx, outy):
             # Test creation
             arr = cuda.shared.array(nthreads, dtype=struct_model_type)

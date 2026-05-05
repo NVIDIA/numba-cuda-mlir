@@ -23,7 +23,7 @@ class TestCFFI(NumbaCUDATestCase):
         sig = types.void(types.CPointer(types.int32))
         array_mutator = cuda.declare_device("array_mutator", sig)
 
-        @numba_cuda_mlir.jit(link=[link])
+        @numba_cuda_mlir.cuda.jit(link=[link])
         def mutate_array(x):
             x_ptr = ffi.from_buffer(x)
             array_mutator(x_ptr)

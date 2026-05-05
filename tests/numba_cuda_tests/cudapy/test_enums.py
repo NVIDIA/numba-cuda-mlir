@@ -41,7 +41,7 @@ class EnumTest(NumbaCUDATestCase):
             out[2] = a is b
             out[3] = a is not b
 
-        cuda_f = numba_cuda_mlir.jit(f)
+        cuda_f = numba_cuda_mlir.cuda.jit(f)
         for a, b in self.pairs:
             got = np.zeros((4,), dtype=np.bool_)
             expected = got.copy()
@@ -55,7 +55,7 @@ class EnumTest(NumbaCUDATestCase):
             out[0] = Color.red == Color.green
             out[1] = Color["red"] == Color["green"]
 
-        cuda_f = numba_cuda_mlir.jit(f)
+        cuda_f = numba_cuda_mlir.cuda.jit(f)
         got = np.zeros((2,), dtype=np.bool_)
         expected = got.copy()
         cuda_f[1, 1](got)
@@ -71,7 +71,7 @@ class EnumTest(NumbaCUDATestCase):
             out[0] = inner(pred) == Color.red
             out[1] = inner(not pred) == Color.green
 
-        cuda_f = numba_cuda_mlir.jit(f)
+        cuda_f = numba_cuda_mlir.cuda.jit(f)
         got = np.zeros((2,), dtype=np.bool_)
         expected = got.copy()
         f(True, expected)
@@ -86,7 +86,7 @@ class EnumTest(NumbaCUDATestCase):
             else:
                 out[0] = x + Shape.circle
 
-        cuda_f = numba_cuda_mlir.jit(f)
+        cuda_f = numba_cuda_mlir.cuda.jit(f)
         for x in [300, 450, 550]:
             got = np.zeros((1,), dtype=np.int32)
             expected = got.copy()
@@ -103,7 +103,7 @@ class EnumTest(NumbaCUDATestCase):
             else:
                 out[0] = x + int16(Shape.circle)
 
-        cuda_f = numba_cuda_mlir.jit(f)
+        cuda_f = numba_cuda_mlir.cuda.jit(f)
         for x in [300, 450, 550]:
             got = np.zeros((1,), dtype=np.int32)
             expected = got.copy()

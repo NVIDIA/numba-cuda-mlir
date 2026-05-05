@@ -12,7 +12,7 @@ import pytest
 @pytest.mark.xfail(True, reason="Vectorize not supported")
 class TestCudaVectorizeDeviceCall(NumbaCUDATestCase):
     def test_cuda_vectorize_device_call(self):
-        @numba_cuda_mlir.jit(float32(float32, float32, float32), device=True)
+        @numba_cuda_mlir.cuda.jit(float32(float32, float32, float32), device=True)
         def cu_device_fn(x, y, z):
             return x**y / z
 

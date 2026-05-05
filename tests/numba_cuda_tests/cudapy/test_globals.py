@@ -36,7 +36,7 @@ def coop_smem2d(ary):
 class TestCudaTestGlobal(NumbaCUDATestCase):
     def test_global_int_const(self):
         """Test simple_smem"""
-        compiled = numba_cuda_mlir.jit("void(int32[:])")(simple_smem)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:])")(simple_smem)
 
         nelem = 100
         ary = np.empty(nelem, dtype=np.int32)
@@ -47,7 +47,7 @@ class TestCudaTestGlobal(NumbaCUDATestCase):
     @pytest.mark.skip(reason="unknown")
     def test_global_tuple_const(self):
         """Test coop_smem2d"""
-        compiled = numba_cuda_mlir.jit("void(float32[:,:])")(coop_smem2d)
+        compiled = numba_cuda_mlir.cuda.jit("void(float32[:,:])")(coop_smem2d)
 
         shape = 10, 20
         ary = np.empty(shape, dtype=np.float32)

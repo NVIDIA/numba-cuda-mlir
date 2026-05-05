@@ -43,7 +43,7 @@ class TestCacheHints(NumbaCUDATestCase):
     def test_loads(self):
         for operator, modifier in load_operators:
 
-            @numba_cuda_mlir.jit
+            @numba_cuda_mlir.cuda.jit
             def f(r, x):
                 for i in range(len(r)):
                     r[i] = operator(x, i)
@@ -79,7 +79,7 @@ class TestCacheHints(NumbaCUDATestCase):
     def test_loads_2d(self):
         for operator, modifier in load_operators:
 
-            @numba_cuda_mlir.jit
+            @numba_cuda_mlir.cuda.jit
             def f(r, x):
                 for i in range(x.shape[0]):
                     for j in range(x.shape[1]):
@@ -102,7 +102,7 @@ class TestCacheHints(NumbaCUDATestCase):
     def test_stores(self):
         for operator, modifier in store_operators:
 
-            @numba_cuda_mlir.jit
+            @numba_cuda_mlir.cuda.jit
             def f(r, x):
                 for i in range(len(r)):
                     operator(r, i, x[i])
@@ -138,7 +138,7 @@ class TestCacheHints(NumbaCUDATestCase):
     def test_stores_2d(self):
         for operator, modifier in store_operators:
 
-            @numba_cuda_mlir.jit
+            @numba_cuda_mlir.cuda.jit
             def f(r, x):
                 for i in range(x.shape[0]):
                     for j in range(x.shape[1]):

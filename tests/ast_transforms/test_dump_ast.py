@@ -9,7 +9,7 @@ from numba_cuda_mlir.testing import filecheck_with_comments
 def test_consteval_loop_unroll():
     """Test that consteval loop unrolling produces correct transformed source."""
 
-    @numba_cuda_mlir.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
     def k(arr):
         for i in numba_cuda_mlir.consteval(range(3)):
             arr[i] = float(i)
@@ -29,7 +29,7 @@ def test_consteval_if_folding():
     """Test that consteval if statements are folded correctly."""
     config = {"debug": True}
 
-    @numba_cuda_mlir.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
     def k(arr):
         if numba_cuda_mlir.consteval(config["debug"]):
             arr[0] = 1.0
@@ -52,7 +52,7 @@ def test_consteval_function_call():
     def get_size():
         return 4
 
-    @numba_cuda_mlir.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
     def k(arr):
         n = numba_cuda_mlir.consteval(get_size())
         arr[0] = float(n)
@@ -70,7 +70,7 @@ def test_consteval_function_call():
 def test_no_transforms_returns_none():
     """Test that inspect_transformed_source returns None when no transforms applied."""
 
-    @numba_cuda_mlir.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
     def k(arr):
         i = cuda.threadIdx.x
         arr[i] = float(i)
@@ -85,7 +85,7 @@ def test_no_transforms_returns_none():
 def test_transformed_kernel_runs():
     """Test that a transformed kernel compiles and runs correctly."""
 
-    @numba_cuda_mlir.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
     def k(arr):
         for i in numba_cuda_mlir.consteval(range(3)):
             arr[i] = float(i) * 2.0

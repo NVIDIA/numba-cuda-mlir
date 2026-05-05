@@ -15,7 +15,7 @@ has_mp_get_context = hasattr(multiprocessing, "get_context")
 
 
 def check_concurrent_compiling():
-    @numba_cuda_mlir.jit
+    @numba_cuda_mlir.cuda.jit
     def foo(x):
         x[0] += 1
 

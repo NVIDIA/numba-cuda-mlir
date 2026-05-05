@@ -102,14 +102,14 @@ def use_independent_scheduling(arr):
 
 class TestCudaWarpOperations(NumbaCUDATestCase):
     def test_useful_syncwarp(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:])")(useful_syncwarp)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:])")(useful_syncwarp)
         nelem = 32
         ary = np.empty(nelem, dtype=np.int32)
         compiled[1, nelem](ary)
         self.assertTrue(np.all(ary == 42))
 
     def test_shfl_sync_idx(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], int32)")(use_shfl_sync_idx)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], int32)")(use_shfl_sync_idx)
         nelem = 32
         idx = 4
         ary = np.empty(nelem, dtype=np.int32)
@@ -117,7 +117,7 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
         self.assertTrue(np.all(ary == idx))
 
     def test_shfl_sync_up(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], int32)")(use_shfl_sync_up)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], int32)")(use_shfl_sync_up)
         nelem = 32
         delta = 4
         ary = np.empty(nelem, dtype=np.int32)
@@ -127,7 +127,7 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
         self.assertTrue(np.all(ary == exp))
 
     def test_shfl_sync_down(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], int32)")(use_shfl_sync_down)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], int32)")(use_shfl_sync_down)
         nelem = 32
         delta = 4
         ary = np.empty(nelem, dtype=np.int32)
@@ -137,7 +137,7 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
         self.assertTrue(np.all(ary == exp))
 
     def test_shfl_sync_xor(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], int32)")(use_shfl_sync_xor)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], int32)")(use_shfl_sync_xor)
         nelem = 32
         xor = 16
         ary = np.empty(nelem, dtype=np.int32)
@@ -160,7 +160,7 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
         m = re.compile(args_re)
 
         for func, value in subtest:
-            compiled = numba_cuda_mlir.jit("void(int32[:], int32)")(func)
+            compiled = numba_cuda_mlir.cuda.jit("void(int32[:], int32)")(func)
             nelem = 32
             ary = np.empty(nelem, dtype=np.int32)
             compiled[1, nelem](ary, value)
@@ -195,7 +195,7 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
             np.float64(np.pi),
         )
         for typ, val in zip(types, values):
-            compiled = numba_cuda_mlir.jit((typ[:], typ))(use_shfl_sync_with_val)
+            compiled = numba_cuda_mlir.cuda.jit((typ[:], typ))(use_shfl_sync_with_val)
             nelem = 32
             ary = np.empty(nelem, dtype=val.dtype)
             compiled[1, nelem](ary, val)
@@ -218,7 +218,7 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
         m = re.compile(args_re)
 
         for func, sig, input in subtest:
-            compiled = numba_cuda_mlir.jit(sig)(func)
+            compiled = numba_cuda_mlir.cuda.jit(sig)(func)
             compiled[1, nelem](*input)
             irs = next(iter(compiled.inspect_llvm().values()))
 
@@ -274,7 +274,7 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
 
         for sig, expected_msg in invalid_cases:
             with self.assertRaisesRegex(errors.TypingError, expected_msg):
-                numba_cuda_mlir.jit(sig)(use_vote_sync_all_with_mask)
+                numba_cuda_mlir.cuda.jit(sig)(use_vote_sync_all_with_mask)
 
         valid_cases = [
             # mask: unsigned/signed integer
@@ -289,14 +289,14 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
 
         for sig, mask_dtype, pred_dtype in valid_cases:
             mask_val = (~np.array(0, dtype=mask_dtype)).item()
-            compiled = numba_cuda_mlir.jit(sig)(use_vote_sync_all_with_mask)
+            compiled = numba_cuda_mlir.cuda.jit(sig)(use_vote_sync_all_with_mask)
             ary_mask = np.full(nelem, mask_val, dtype=mask_dtype)
             ary_pred = np.ones(nelem, dtype=pred_dtype)
             ary_result = np.empty(nelem, dtype=np.int32)
             compiled[1, nelem](ary_mask, ary_pred, ary_result)
 
         # literals
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def use_vote_sync_all_with_literal(result):
             i = cuda.grid(1)
             if i < result.shape[0]:
@@ -305,7 +305,7 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
         ary_result = np.empty(nelem, dtype=np.int32)
         use_vote_sync_all_with_literal[1, nelem](ary_result)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def use_vote_sync_all_with_predicate_literal(mask, result):
             i = cuda.grid(1)
             if i < mask.shape[0]:
@@ -316,7 +316,7 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
         use_vote_sync_all_with_predicate_literal[1, nelem](ary_mask, ary_result)
 
     def test_vote_sync_all(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], int32[:])")(use_vote_sync_all)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], int32[:])")(use_vote_sync_all)
         nelem = 32
         ary_in = np.ones(nelem, dtype=np.int32)
         ary_out = np.empty(nelem, dtype=np.int32)
@@ -327,7 +327,7 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
         self.assertTrue(np.all(ary_out == 0))
 
     def test_vote_sync_any(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], int32[:])")(use_vote_sync_any)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], int32[:])")(use_vote_sync_any)
         nelem = 32
         ary_in = np.zeros(nelem, dtype=np.int32)
         ary_out = np.empty(nelem, dtype=np.int32)
@@ -339,7 +339,7 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
         self.assertTrue(np.all(ary_out == 1))
 
     def test_vote_sync_eq(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], int32[:])")(use_vote_sync_eq)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], int32[:])")(use_vote_sync_eq)
         nelem = 32
         ary_in = np.zeros(nelem, dtype=np.int32)
         ary_out = np.empty(nelem, dtype=np.int32)
@@ -353,14 +353,14 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
         self.assertTrue(np.all(ary_out == 1))
 
     def test_vote_sync_ballot(self):
-        compiled = numba_cuda_mlir.jit("void(uint32[:])")(use_vote_sync_ballot)
+        compiled = numba_cuda_mlir.cuda.jit("void(uint32[:])")(use_vote_sync_ballot)
         nelem = 32
         ary = np.empty(nelem, dtype=np.uint32)
         compiled[1, nelem](ary)
         self.assertTrue(np.all(ary == np.uint32(0xFFFFFFFF)))
 
     def test_match_any_sync(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], int32[:])")(use_match_any_sync)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], int32[:])")(use_match_any_sync)
         nelem = 10
         ary_in = np.arange(nelem, dtype=np.int32) % 2
         ary_out = np.empty(nelem, dtype=np.int32)
@@ -369,7 +369,7 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
         self.assertTrue(np.all(ary_out == exp))
 
     def test_match_all_sync(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], int32[:])")(use_match_all_sync)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], int32[:])")(use_match_all_sync)
         nelem = 10
         ary_in = np.zeros(nelem, dtype=np.int32)
         ary_out = np.empty(nelem, dtype=np.int32)
@@ -380,7 +380,7 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
         self.assertTrue(np.all(ary_out == 0))
 
     def test_independent_scheduling(self):
-        compiled = numba_cuda_mlir.jit("void(uint32[:])")(use_independent_scheduling)
+        compiled = numba_cuda_mlir.cuda.jit("void(uint32[:])")(use_independent_scheduling)
         arr = np.empty(32, dtype=np.uint32)
         exp = np.tile((0x11111111, 0x22222222, 0x44444444, 0x88888888), 8)
         compiled[1, 32](arr)
@@ -388,7 +388,7 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Assertion error")
     def test_activemask(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def use_activemask(x):
             i = cuda.grid(1)
             if (i % 2) == 0:
@@ -410,7 +410,7 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Lanemask not implemented")
     def test_lanemask_lt(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def use_lanemask_lt(x):
             i = cuda.grid(1)
             x[i] = cuda.lanemask_lt()

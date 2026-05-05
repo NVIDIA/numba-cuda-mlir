@@ -116,7 +116,7 @@ def use_syncthreads_or(ary_in, ary_out):
 
 class TestCudaSync(NumbaCUDATestCase):
     def _test_useless(self, kernel):
-        compiled = numba_cuda_mlir.jit("void(int32[::1])")(kernel)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[::1])")(kernel)
         nelem = 10
         ary = np.empty(nelem, dtype=np.int32)
         exp = np.arange(nelem, dtype=np.int32)
@@ -139,20 +139,20 @@ class TestCudaSync(NumbaCUDATestCase):
         nthreads = 32
         nblocks = 1
 
-        compiled = numba_cuda_mlir.jit("void(int32[::1])")(coop_syncwarp)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[::1])")(coop_syncwarp)
         res = np.zeros(1, dtype=np.int32)
         compiled[nblocks, nthreads](res)
         np.testing.assert_equal(expected, res[0])
 
     def test_simple_smem(self):
-        compiled = numba_cuda_mlir.jit("void(int32[::1])")(simple_smem)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[::1])")(simple_smem)
         nelem = 100
         ary = np.empty(nelem, dtype=np.int32)
         compiled[1, nelem](ary)
         self.assertTrue(np.all(ary == np.arange(nelem, dtype=np.int32)))
 
     def test_coop_smem2d(self):
-        compiled = numba_cuda_mlir.jit("void(float32[:,::1])")(coop_smem2d)
+        compiled = numba_cuda_mlir.cuda.jit("void(float32[:,::1])")(coop_smem2d)
         shape = 10, 20
         ary = np.empty(shape, dtype=np.float32)
         compiled[1, shape](ary)
@@ -163,7 +163,7 @@ class TestCudaSync(NumbaCUDATestCase):
         self.assertTrue(np.allclose(ary, exp))
 
     def test_dyn_shared_memory(self):
-        compiled = numba_cuda_mlir.jit("void(float32[::1])")(dyn_shared_memory)
+        compiled = numba_cuda_mlir.cuda.jit("void(float32[::1])")(dyn_shared_memory)
         shape = 50
         ary = np.empty(shape, dtype=np.float32)
         compiled[1, shape, 0, ary.size * 4](ary)
@@ -173,7 +173,7 @@ class TestCudaSync(NumbaCUDATestCase):
     def test_threadfence_codegen(self):
         # Does not test runtime behavior, just the code generation.
         sig = (int32[:],)
-        compiled = numba_cuda_mlir.jit(sig)(use_threadfence)
+        compiled = numba_cuda_mlir.cuda.jit(sig)(use_threadfence)
         ary = np.zeros(10, dtype=np.int32)
         compiled[1, 1](ary)
         self.assertEqual(123 + 321, ary[0])
@@ -183,7 +183,7 @@ class TestCudaSync(NumbaCUDATestCase):
     def test_threadfence_block_codegen(self):
         # Does not test runtime behavior, just the code generation.
         sig = (int32[:],)
-        compiled = numba_cuda_mlir.jit(sig)(use_threadfence_block)
+        compiled = numba_cuda_mlir.cuda.jit(sig)(use_threadfence_block)
         ary = np.zeros(10, dtype=np.int32)
         compiled[1, 1](ary)
         self.assertEqual(123 + 321, ary[0])
@@ -193,14 +193,14 @@ class TestCudaSync(NumbaCUDATestCase):
     def test_threadfence_system_codegen(self):
         # Does not test runtime behavior, just the code generation.
         sig = (int32[:],)
-        compiled = numba_cuda_mlir.jit(sig)(use_threadfence_system)
+        compiled = numba_cuda_mlir.cuda.jit(sig)(use_threadfence_system)
         ary = np.zeros(10, dtype=np.int32)
         compiled[1, 1](ary)
         self.assertEqual(123 + 321, ary[0])
         self.assertIn("membar.sys;", compiled.inspect_asm(sig))
 
     def _test_syncthreads_count(self, in_dtype):
-        compiled = numba_cuda_mlir.jit(use_syncthreads_count)
+        compiled = numba_cuda_mlir.cuda.jit(use_syncthreads_count)
         ary_in = np.ones(72, dtype=in_dtype)
         ary_out = np.zeros(72, dtype=np.int32)
         ary_in[31] = 0
@@ -218,7 +218,7 @@ class TestCudaSync(NumbaCUDATestCase):
         self._test_syncthreads_count(np.int64)
 
     def _test_syncthreads_and(self, in_dtype):
-        compiled = numba_cuda_mlir.jit(use_syncthreads_and)
+        compiled = numba_cuda_mlir.cuda.jit(use_syncthreads_and)
         nelem = 100
         ary_in = np.ones(nelem, dtype=in_dtype)
         ary_out = np.zeros(nelem, dtype=np.int32)
@@ -238,7 +238,7 @@ class TestCudaSync(NumbaCUDATestCase):
         self._test_syncthreads_and(np.int64)
 
     def _test_syncthreads_or(self, in_dtype):
-        compiled = numba_cuda_mlir.jit(use_syncthreads_or)
+        compiled = numba_cuda_mlir.cuda.jit(use_syncthreads_or)
         nelem = 100
         ary_in = np.zeros(nelem, dtype=in_dtype)
         ary_out = np.zeros(nelem, dtype=np.int32)

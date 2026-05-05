@@ -4,7 +4,6 @@ from typing import Any, Callable
 from collections.abc import Callable as CallableABC
 from numba_cuda_mlir import typing
 from io import StringIO
-from tabulate import tabulate
 from numba_cuda_mlir.numba_cuda.core import sigutils
 from numba_cuda_mlir.numba_cuda import types as numba_types
 from numba_cuda_mlir.numba_cuda.core.typeinfer import register_dispatcher
@@ -400,15 +399,21 @@ def _target_options_help(why: str | None = None):
     prelude = dedent(
         f"""
     {why}
-    The available keyword options for numba_cuda_mlir.jit are:
+    The available keyword options for numba_cuda_mlir.cuda.jit are:
 
     """
     )
-    formatted_options = filter(None, map(_format_option, _get_schema()))
-    return prelude + tabulate(
-        headers=["Name", "Types", "Default Value", "Help"],
-        tabular_data=formatted_options,
+    formatted_options = list(filter(None, map(_format_option, _get_schema())))
+    headers = ["Name", "Types", "Default Value", "Help"]
+    all_rows = [headers] + list(formatted_options)
+    col_widths = [max(len(str(row[i])) for row in all_rows) for i in range(len(headers))]
+    header_line = "  ".join(h.ljust(w) for h, w in zip(headers, col_widths))
+    separator = "  ".join("-" * w for w in col_widths)
+    lines = [header_line, separator]
+    lines.extend(
+        "  ".join(str(v).ljust(w) for v, w in zip(row, col_widths)) for row in formatted_options
     )
+    return prelude + "\n".join(lines)
 
 
 def _extract_signature_from_annotations(func):

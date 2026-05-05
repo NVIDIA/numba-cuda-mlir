@@ -195,7 +195,7 @@ class TestRecordDtype(NumbaCUDATestCase):
             ary[i]["d"] = "%d" % x
 
     def get_cfunc(self, pyfunc, argspec):
-        return numba_cuda_mlir.jit()(pyfunc)
+        return numba_cuda_mlir.cuda.jit()(pyfunc)
 
     def _test_set_equal(self, pyfunc, value, valuetype):
         rec = numpy_support.from_dtype(recordtype)
@@ -369,9 +369,9 @@ class TestNestedArrays(NumbaCUDATestCase):
     def get_cfunc(self, pyfunc, retty):
         # Create a host-callable function for testing CUDA device functions
         # that get a value from a record array
-        inner = numba_cuda_mlir.jit(device=True)(pyfunc)
+        inner = numba_cuda_mlir.cuda.jit(device=True)(pyfunc)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def outer(arg0, res):
             res[0] = inner(arg0)
 
@@ -423,7 +423,7 @@ class TestNestedArrays(NumbaCUDATestCase):
         pyargs = gen()
         pyfunc(*pyargs)
 
-        cfunc = numba_cuda_mlir.jit(pyfunc)
+        cfunc = numba_cuda_mlir.cuda.jit(pyfunc)
         cuargs = gen()
         cfunc[1, 1](*cuargs)
         np.testing.assert_equal(pyargs, cuargs)
@@ -451,7 +451,7 @@ class TestNestedArrays(NumbaCUDATestCase):
         arr = np.zeros(2, dtype=recordwith2darray).view(np.recarray)
         pyfunc = recarray_set_record
         pyfunc(arr, rec)
-        kernel = numba_cuda_mlir.jit(pyfunc)
+        kernel = numba_cuda_mlir.cuda.jit(pyfunc)
         kernel[1, 1](nbarr, rec)
         np.testing.assert_equal(nbarr, arr)
 
@@ -461,7 +461,7 @@ class TestNestedArrays(NumbaCUDATestCase):
         expected = np.zeros(2, dtype=nested_array1_dtype)
 
         pyfunc = assign_array_to_nested
-        kernel = numba_cuda_mlir.jit(pyfunc)
+        kernel = numba_cuda_mlir.cuda.jit(pyfunc)
 
         kernel[1, 1](got[0], src)
         pyfunc(expected[0], src)
@@ -474,7 +474,7 @@ class TestNestedArrays(NumbaCUDATestCase):
         expected = np.zeros(2, dtype=nested_array2_dtype)
 
         pyfunc = assign_array_to_nested_2d
-        kernel = numba_cuda_mlir.jit(pyfunc)
+        kernel = numba_cuda_mlir.cuda.jit(pyfunc)
 
         kernel[1, 1](got[0], src)
         pyfunc(expected[0], src)
@@ -486,7 +486,7 @@ class TestNestedArrays(NumbaCUDATestCase):
 
         dest_dtype = np.dtype([("user1", np.float64), ("array1", np.int16, (3,))], align=True)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def copy(index, src, dest):
             dest["user1"] = src[index]["user"]
             dest["array1"] = src[index]["array"]
@@ -573,7 +573,7 @@ class TestNestedArrays(NumbaCUDATestCase):
         nbrec = nbarr[0]
         for pyfunc in (record_write_full_array, record_write_full_array_alt):
             pyfunc(rec)
-            kernel = numba_cuda_mlir.jit(pyfunc)
+            kernel = numba_cuda_mlir.cuda.jit(pyfunc)
             kernel[1, 1](nbrec)
             np.testing.assert_equal(nbarr, arr)
 

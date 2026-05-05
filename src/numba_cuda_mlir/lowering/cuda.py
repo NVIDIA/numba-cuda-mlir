@@ -91,13 +91,13 @@ def cuda_selp(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str,
 
 def _lower_warpsize(context, lower: MLIRLower, target, cuda_mod):
     # Warp size is always 32 on NVIDIA GPUs, but use the NVVM intrinsic for correctness
-    result = nvvm.read_ptx_sreg_warpsize(T.i32())
+    result = nvvm.read_ptx_sreg_warpsize()
     lower.store_var(target, result)
 
 
 def _lower_laneid(context, lower: MLIRLower, target, cuda_mod):
     # Lane ID is 0-31 within a warp
-    result = nvvm.read_ptx_sreg_laneid(T.i32())
+    result = nvvm.read_ptx_sreg_laneid()
     lower.store_var(target, result)
 
 

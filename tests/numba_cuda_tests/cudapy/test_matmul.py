@@ -14,7 +14,7 @@ SM_SIZE = (tpb, tpb)
 
 @pytest.mark.xfail(True, reason="Typing error")
 def test_cuda_matmul():
-    @numba_cuda_mlir.jit(void(float32[:, ::1], float32[:, ::1], float32[:, ::1]))
+    @numba_cuda_mlir.cuda.jit(void(float32[:, ::1], float32[:, ::1], float32[:, ::1]))
     def cu_square_matrix_mul(A, B, C):
         sA = cuda.shared.array(shape=SM_SIZE, dtype=float32)
         sB = cuda.shared.array(shape=(tpb, tpb), dtype=float32)

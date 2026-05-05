@@ -8,7 +8,7 @@ used in a presentation.
 """
 
 import numpy as np
-from numba_cuda_mlir import jit
+from numba_cuda_mlir import cuda
 from numba_cuda_mlir.cuda import literal_unroll
 from numba_cuda_mlir.testing import filecheck
 
@@ -23,9 +23,9 @@ def test_metaprogramming_examples():
             for i in literal_unroll(range(N)):
                 loop_body(a, i)
 
-        return jit(kernel_body)
+        return cuda.jit(kernel_body)
 
-    @jit
+    @cuda.jit
     def baz(x, i):
         """
         Assign value to index in array.
@@ -34,7 +34,7 @@ def test_metaprogramming_examples():
         """
         x[i] = 777
 
-    @jit
+    @cuda.jit
     def fiz(x, i):
         """Same as the above device function"""
         x[i] = 999

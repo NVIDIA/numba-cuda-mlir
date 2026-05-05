@@ -19,20 +19,20 @@ import pytest
 ffi = cffi.FFI()
 
 
-@numba_cuda_mlir.jit
+@numba_cuda_mlir.cuda.jit
 def this_grid(A):
     cuda.cg.this_grid()
     A[0] = 1.0
 
 
-@numba_cuda_mlir.jit
+@numba_cuda_mlir.cuda.jit
 def sync_group(A):
     g = cuda.cg.this_grid()
     g.sync()
     A[0] = 1.0
 
 
-@numba_cuda_mlir.jit
+@numba_cuda_mlir.cuda.jit
 def no_sync(A):
     A[0] = cuda.grid(1)
 
@@ -109,7 +109,7 @@ class TestCudaCooperativeGroups(NumbaCUDATestCase):
         griddim = A.shape[1] // blockdim
 
         sig = (int32[:, ::1],)
-        c_sequential_rows = numba_cuda_mlir.jit(sig)(sequential_rows)
+        c_sequential_rows = numba_cuda_mlir.cuda.jit(sig)(sequential_rows)
 
         overload = c_sequential_rows.overloads[sig]
         mb = overload.max_cooperative_grid_blocks(blockdim)
@@ -128,7 +128,7 @@ class TestCudaCooperativeGroups(NumbaCUDATestCase):
         # whilst keeping the total number of threads constant doesn't change
         # the maximum to validate some of the logic.
         sig = (int32[:, ::1],)
-        c_sequential_rows = numba_cuda_mlir.jit(sig)(sequential_rows)
+        c_sequential_rows = numba_cuda_mlir.cuda.jit(sig)(sequential_rows)
         overload = c_sequential_rows.overloads[sig]
         blocks1d = overload.max_cooperative_grid_blocks(256)
         blocks2d = overload.max_cooperative_grid_blocks((16, 16))
@@ -147,7 +147,7 @@ class TestCudaCooperativeGroups(NumbaCUDATestCase):
         )
         cta_barrier = cuda.declare_device("cta_barrier", sig=sig, link=[src], use_cooperative=True)
 
-        @numba_cuda_mlir.jit("void()")
+        @numba_cuda_mlir.cuda.jit("void()")
         def kernel():
             cta_barrier()
 

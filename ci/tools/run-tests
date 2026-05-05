@@ -30,11 +30,11 @@ if [[ "${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}" == "12.2" ]]; then
 fi
 
 if [[ "${LOCAL_CTK}" == 1 ]]; then
-  pip install "${wheel}" \
+  pip install "${wheel}" --group "test-cu${TEST_CUDA_MAJOR}" \
     "${CUDA_BINDINGS_SPEC}" "cuda-core[cu${TEST_CUDA_MAJOR}]" \
     "${coverage_packages[@]}"
 else
-  pip install "${wheel}[cu${TEST_CUDA_MAJOR}]" \
+  pip install "${wheel}[cu${TEST_CUDA_MAJOR}]" --group "test-cu${TEST_CUDA_MAJOR}" \
     "${CUDA_BINDINGS_SPEC}" "cuda-core[cu${TEST_CUDA_MAJOR}]" \
     "cuda-toolkit[cccl,cudart]==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*" \
     "${coverage_packages[@]}"

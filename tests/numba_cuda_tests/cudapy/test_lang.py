@@ -19,7 +19,7 @@ class TestLang(NumbaCUDATestCase):
     def test_enumerate(self):
         tup = (1.0, 2.5, 3.0)
 
-        @numba_cuda_mlir.jit("void(float64[:])")
+        @numba_cuda_mlir.cuda.jit("void(float64[:])")
         def foo(a):
             for i, v in enumerate(tup):
                 a[i] = v
@@ -33,7 +33,7 @@ class TestLang(NumbaCUDATestCase):
         t1 = (1, 2, 3)
         t2 = (4.5, 5.6, 6.7)
 
-        @numba_cuda_mlir.jit("void(float64[:])")
+        @numba_cuda_mlir.cuda.jit("void(float64[:])")
         def foo(a):
             c = 0
             for i, j in zip(t1, t2):
@@ -54,7 +54,7 @@ class TestLang(NumbaCUDATestCase):
         replaced by a "proper" implementation of all kernel API functions.
         """
 
-        @numba_cuda_mlir.jit("void(float64[:,:])")
+        @numba_cuda_mlir.cuda.jit("void(float64[:,:])")
         def cuda_kernel_api_in_multiple_blocks(ary):
             for i in range(2):
                 tx = cuda.threadIdx.x

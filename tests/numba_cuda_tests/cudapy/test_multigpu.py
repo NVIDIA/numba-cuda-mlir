@@ -12,7 +12,7 @@ import pytest
 class TestMultiGPUContext(NumbaCUDATestCase):
     @pytest.mark.skipif(len(cuda.gpus) < 2, reason="need more than 1 gpus")
     def test_multigpu_context(self):
-        @numba_cuda_mlir.jit("void(float64[:], float64[:])")
+        @numba_cuda_mlir.cuda.jit("void(float64[:], float64[:])")
         def copy_plus_1(inp, out):
             i = cuda.grid(1)
             if i < out.size:
@@ -85,7 +85,7 @@ class TestMultiGPUContext(NumbaCUDATestCase):
 
     @pytest.mark.skipif(len(cuda.gpus) < 2, reason="need more than 1 gpus")
     def test_with_context(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def vector_add_scalar(arr, val):
             i = cuda.grid(1)
             if i < arr.size:

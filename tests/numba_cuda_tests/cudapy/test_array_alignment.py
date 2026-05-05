@@ -104,7 +104,7 @@ class TestArrayAddressAlignment(NumbaCUDATestCase):
 
         for (which, array_type), shape, dtype, alignment in items:
 
-            @numba_cuda_mlir.jit
+            @numba_cuda_mlir.cuda.jit
             def f(loc, shrd, which):
                 i = cuda.grid(1)
                 if which == 0:
@@ -160,7 +160,7 @@ class TestArrayAddressAlignment(NumbaCUDATestCase):
                 self.assertEqual(int(address % alignment), 0)
 
     def test_default_alignment_local(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(dest):
             local_array = cuda.local.array(shape=16, dtype=np.uint8)
             i = cuda.grid(1)
@@ -172,7 +172,7 @@ class TestArrayAddressAlignment(NumbaCUDATestCase):
         self.assertEqual(int(dest[0] % 8), 0)
 
     def test_default_alignment_shared(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(dest):
             shared_array = cuda.shared.array(shape=16, dtype=np.uint8)
             i = cuda.grid(1)
@@ -202,7 +202,7 @@ class TestArrayAddressAlignment(NumbaCUDATestCase):
         for (which, array_type), shape, dtype, alignment in items:
             if which == 0:
 
-                @numba_cuda_mlir.jit
+                @numba_cuda_mlir.cuda.jit
                 def f(dest_array):
                     i = cuda.grid(1)
                     local_array = cuda.local.array(
@@ -215,7 +215,7 @@ class TestArrayAddressAlignment(NumbaCUDATestCase):
 
             else:
 
-                @numba_cuda_mlir.jit
+                @numba_cuda_mlir.cuda.jit
                 def f(dest_array):
                     i = cuda.grid(1)
                     shared_array = cuda.shared.array(

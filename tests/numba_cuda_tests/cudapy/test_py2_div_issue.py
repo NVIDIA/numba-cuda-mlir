@@ -10,7 +10,7 @@ from numba_cuda_mlir.testing import NumbaCUDATestCase
 
 class TestCudaPy2Div(NumbaCUDATestCase):
     def test_py2_div_issue(self):
-        @numba_cuda_mlir.jit(void(float32[:], float32[:], float32[:], int32))
+        @numba_cuda_mlir.cuda.jit(void(float32[:], float32[:], float32[:], int32))
         def preCalc(y, yA, yB, numDataPoints):
             i = cuda.grid(1)
             # k is unused, but may be part of the trigger for the bug this

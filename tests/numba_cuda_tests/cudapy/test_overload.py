@@ -225,7 +225,7 @@ def ol_default_values_and_kwargs(out, x, y=5, z=6):
 class TestOverload(NumbaCUDATestCase):
     def check_overload(self, kernel, expected):
         x = np.ones(1, dtype=np.int32)
-        numba_cuda_mlir.jit(kernel)[1, 1](x)
+        numba_cuda_mlir.cuda.jit(kernel)[1, 1](x)
         self.assertEqual(x[0], expected)
 
     def test_generic(self):
@@ -329,7 +329,7 @@ class TestOverload(NumbaCUDATestCase):
         Test default values and kwargs.
         """
 
-        @numba_cuda_mlir.jit()
+        @numba_cuda_mlir.cuda.jit()
         def kernel(a, b, out):
             default_values_and_kwargs(out, a, z=b)
 

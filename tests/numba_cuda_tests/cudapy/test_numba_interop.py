@@ -22,7 +22,7 @@ class TestNumbaInterop(NumbaCUDATestCase):
 
             return impl
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(a):
             a[0] = get_42()
 

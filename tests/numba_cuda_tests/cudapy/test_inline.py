@@ -12,16 +12,16 @@ import pytest
 
 class TestCudaInline(NumbaCUDATestCase):
     def _test_call_inline(self, inline, inline_expected):
-        """Test @numba_cuda_mlir.jit(inline=...)"""
+        """Test @numba_cuda_mlir.cuda.jit(inline=...)"""
         a = np.ones(2, dtype=np.int32)
 
         sig = (types.int32[::1],)
 
-        @numba_cuda_mlir.jit(inline=inline)
+        @numba_cuda_mlir.cuda.jit(inline=inline)
         def set_zero(a):
             a[0] = 0
 
-        @numba_cuda_mlir.jit(sig)
+        @numba_cuda_mlir.cuda.jit(sig)
         def call_set_zero(a):
             set_zero(a)
 
@@ -75,16 +75,16 @@ class TestCudaInline(NumbaCUDATestCase):
         self._test_call_inline(cost_model, True)
 
     def _test_call_forceinline(self, forceinline):
-        """Test @numba_cuda_mlir.jit(forceinline=...)"""
+        """Test @numba_cuda_mlir.cuda.jit(forceinline=...)"""
         a = np.ones(2, dtype=np.int32)
 
         sig = (types.int32[::1],)
 
-        @numba_cuda_mlir.jit(forceinline=forceinline)
+        @numba_cuda_mlir.cuda.jit(forceinline=forceinline)
         def set_zero(a):
             a[0] = 0
 
-        @numba_cuda_mlir.jit(sig)
+        @numba_cuda_mlir.cuda.jit(sig)
         def call_set_zero(a):
             set_zero(a)
 

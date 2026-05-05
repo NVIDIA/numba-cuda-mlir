@@ -19,7 +19,7 @@ class TestSelfRecursion(NumbaCUDATestCase):
         super().setUp()
 
     def check_fib(self, cfunc):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(r, x):
             r[0] = cfunc(x[0])
 
@@ -44,7 +44,7 @@ class TestSelfRecursion(NumbaCUDATestCase):
         with self.assertRaises(TypingError) as raises:
             cfunc = self.mod.runaway_self
 
-            @numba_cuda_mlir.jit("void()")
+            @numba_cuda_mlir.cuda.jit("void()")
             def kernel():
                 cfunc(1)
 
@@ -55,7 +55,7 @@ class TestSelfRecursion(NumbaCUDATestCase):
         pfunc = self.mod.type_change_self.py_func
         cfunc = self.mod.type_change_self
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(r, x, y):
             r[0] = cfunc(x[0], y[0])
 
@@ -84,9 +84,9 @@ class TestSelfRecursion(NumbaCUDATestCase):
     @unittest.skip("Needs insert_unresolved_ref support in target")
     def test_optional_return(self):
         pfunc = self.mod.make_optional_return_case()
-        cfunc = self.mod.make_optional_return_case(numba_cuda_mlir.jit)
+        cfunc = self.mod.make_optional_return_case(numba_cuda_mlir.cuda.jit)
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(r, x):
             res = cfunc(x[0])
             if res is None:
@@ -110,11 +110,11 @@ class TestSelfRecursion(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Typing error")
     def test_growing_return_tuple(self):
-        cfunc = self.mod.make_growing_tuple_case(numba_cuda_mlir.jit)
+        cfunc = self.mod.make_growing_tuple_case(numba_cuda_mlir.cuda.jit)
 
         with self.assertRaises(TypingError) as raises:
 
-            @numba_cuda_mlir.jit("void()")
+            @numba_cuda_mlir.cuda.jit("void()")
             def kernel():
                 cfunc(100)
 

@@ -13,7 +13,6 @@ import numpy as np
 from numba_cuda_mlir.numba_cuda import types
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
-from numba_cuda_mlir import jit
 from numba_cuda_mlir.numba_cuda.core import errors
 
 from numba_cuda_mlir.extending import overload
@@ -59,7 +58,7 @@ class TestSSA(SSABaseTest):
     """
 
     def test_argument_name_reused(self):
-        @jit
+        @cuda.jit
         def foo(result, x):
             x += 1
             result[0] = x
@@ -67,7 +66,7 @@ class TestSSA(SSABaseTest):
         self.check_func(foo, np.array([124.0]), 123)
 
     def test_if_else_redefine(self):
-        @jit
+        @cuda.jit
         def foo(result, x, y):
             z = x * y
             if x < y:
@@ -80,7 +79,7 @@ class TestSSA(SSABaseTest):
         self.check_func(foo, np.array([2.0]), 2, 3)
 
     def test_sum_loop(self):
-        @jit
+        @cuda.jit
         def foo(result, n):
             c = 0
             for i in range(n):
@@ -91,7 +90,7 @@ class TestSSA(SSABaseTest):
         self.check_func(foo, np.array([45.0]), 10)
 
     def test_sum_loop_2vars(self):
-        @jit
+        @cuda.jit
         def foo(result, n):
             c = 0
             d = n
@@ -105,7 +104,7 @@ class TestSSA(SSABaseTest):
         self.check_func(foo, np.array([45.0, 110.0]), 10)
 
     def test_sum_2d_loop(self):
-        @jit
+        @cuda.jit
         def foo(result, n):
             c = 0
             for i in range(n):
@@ -118,7 +117,7 @@ class TestSSA(SSABaseTest):
         self.check_func(foo, np.array([495.0]), 10)
 
     def check_undefined_var(self, should_warn):
-        @jit
+        @cuda.jit
         def foo(result, n):
             if n:
                 if n > 0:
@@ -142,7 +141,7 @@ class TestSSA(SSABaseTest):
             foo.py_func(result, 0)
 
     def test_phi_propagation(self):
-        @jit
+        @cuda.jit
         def foo(result, actions):
             n = 1
 
@@ -170,7 +169,7 @@ class TestSSA(SSABaseTest):
 
     @pytest.mark.xfail(True, reason="Typing error")
     def test_unhandled_undefined(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def function1(arg1, arg2, arg3, arg4, arg5):
             # This function is auto-generated.
             if arg1:
@@ -217,7 +216,7 @@ class TestSSA(SSABaseTest):
 
         NONE_SENTINEL = 99
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def function1_caller(result, arg1, arg2, arg3, arg4, arg5):
             retval = function1(arg1, arg2, arg3, arg4, arg5)
             if retval is None:
@@ -242,7 +241,7 @@ class TestReportedSSAIssues(SSABaseTest):
     # https://github.com/numba/numba/issues?q=is%3Aopen+is%3Aissue+label%3ASSA
 
     def test_issue2194(self):
-        @jit
+        @cuda.jit
         def foo(result, V):
             s = np.uint32(1)
 
@@ -256,7 +255,7 @@ class TestReportedSSAIssues(SSABaseTest):
         self.check_func(foo, np.array([1.0]), V)
 
     def test_issue3094(self):
-        @jit
+        @cuda.jit
         def foo(result, pred):
             if pred:
                 x = 1
@@ -268,7 +267,7 @@ class TestReportedSSAIssues(SSABaseTest):
 
     @pytest.mark.xfail(True, reason="Typing error")
     def test_issue3931(self):
-        @jit
+        @cuda.jit
         def foo(result, arr):
             for i in range(1):
                 arr = arr.reshape(3 * 2)
@@ -286,7 +285,7 @@ class TestReportedSSAIssues(SSABaseTest):
         def overload_this(a):
             return 42
 
-        @jit
+        @cuda.jit
         def foo(result, a):
             if a:
                 s = 5
@@ -303,7 +302,7 @@ class TestReportedSSAIssues(SSABaseTest):
         self.check_func(foo, np.array([42]), True)
 
     def test_issue3979(self):
-        @jit
+        @cuda.jit
         def foo(result, A, B):
             x = A[0]
             y = B[0]
@@ -334,14 +333,14 @@ class TestReportedSSAIssues(SSABaseTest):
 
             return impl
 
-        @jit
+        @cuda.jit
         def test_tuple(result, a, b):
             result[0] = overload_this(a, b)
 
         self.check_func(test_tuple, np.array([2]), 1, (2,))
 
     def test_issue5223(self):
-        @jit
+        @cuda.jit
         def bar(result, x):
             if len(x) == 5:
                 for i in range(len(x)):
@@ -357,7 +356,7 @@ class TestReportedSSAIssues(SSABaseTest):
         self.check_func(bar, expected, a)
 
     def test_issue5243(self):
-        @jit
+        @cuda.jit
         def foo(result, q, lin):
             stencil_val = 0.0  # noqa: F841
             stencil_val = q[0, 0]  # noqa: F841
@@ -369,7 +368,7 @@ class TestReportedSSAIssues(SSABaseTest):
     def test_issue5482_missing_variable_init(self):
         # Test error that lowering fails because variable is missing
         # a definition before use.
-        @jit
+        @cuda.jit
         def foo(result, x, v, n):
             for i in range(n):
                 if i == 0:
@@ -393,7 +392,7 @@ class TestReportedSSAIssues(SSABaseTest):
         A = np.ones(1)
         B = np.ones(1)
 
-        @jit
+        @cuda.jit
         def foo(res, m, n, data):
             if len(data) == 1:
                 v0 = data[0]
@@ -437,7 +436,7 @@ class TestReportedSSAIssues(SSABaseTest):
         nb = np.array([0, 666])
 
         # Convert to CUDA kernel
-        foo_cuda = jit(foo)
+        foo_cuda = cuda.jit(foo)
         foo_cuda[1, 1](True, nb)
 
         expect = np.array([1, 1])

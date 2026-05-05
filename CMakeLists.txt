@@ -22,6 +22,21 @@ add_custom_target(devinstall
     COMMAND ln -fs "${CMAKE_BINARY_DIR}/cext/launcher/lib_cext.so"
             ${CMAKE_SOURCE_DIR}/src/numba_cuda_mlir/_cext.so)
 
+if (DLPACK_PATH)
+    set(dlpack_INCLUDE_DIR "${DLPACK_PATH}/include/dlpack")
+    message(STATUS "Using local dlpack, include path: ${dlpack_INCLUDE_DIR}")
+else()
+    include(FetchContent)
+    FetchContent_Declare(
+        dlpack
+        GIT_REPOSITORY https://github.com/dmlc/dlpack.git
+        GIT_TAG v1.1
+    )
+    FetchContent_Populate(dlpack)
+    set(dlpack_INCLUDE_DIR "${dlpack_SOURCE_DIR}/include/dlpack")
+    message(STATUS "Fetched dlpack headers from ${dlpack_SOURCE_DIR}")
+endif()
+
 add_subdirectory(cext)
 
 option(BUILD_LLVM70 "Build mlir-llvm70 (requires MLIR_DIR)" OFF)

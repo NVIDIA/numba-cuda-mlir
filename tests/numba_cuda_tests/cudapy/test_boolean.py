@@ -16,7 +16,7 @@ def boolean_func(A, vertial):
 
 class TestCudaBoolean(NumbaCUDATestCase):
     def test_boolean(self):
-        func = numba_cuda_mlir.jit("void(float64[:], bool_)")(boolean_func)
+        func = numba_cuda_mlir.cuda.jit("void(float64[:], bool_)")(boolean_func)
         A = np.array([0], dtype="float64")
         func[1, 1](A, True)
         self.assertTrue(A[0] == 123)

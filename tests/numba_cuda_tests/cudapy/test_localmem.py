@@ -41,7 +41,7 @@ def culocal1tuple(A, B):
 class TestCudaLocalMem(NumbaCUDATestCase):
     def test_local_array(self):
         sig = (int32[:], int32[:])
-        jculocal = numba_cuda_mlir.jit(sig)(culocal)
+        jculocal = numba_cuda_mlir.cuda.jit(sig)(culocal)
         self.assertTrue(".local" in jculocal.inspect_asm(sig))
         A = np.arange(1000, dtype="int32")
         B = np.zeros_like(A)
@@ -50,7 +50,7 @@ class TestCudaLocalMem(NumbaCUDATestCase):
 
     def test_local_array_1_tuple(self):
         """Ensure that local arrays can be constructed with 1-tuple shape"""
-        jculocal = numba_cuda_mlir.jit("void(int32[:], int32[:])")(culocal1tuple)
+        jculocal = numba_cuda_mlir.cuda.jit("void(int32[:], int32[:])")(culocal1tuple)
         # Don't check if .local is in the ptx because the optimizer
         # may reduce it to registers.
         A = np.arange(5, dtype="int32")
@@ -60,7 +60,7 @@ class TestCudaLocalMem(NumbaCUDATestCase):
 
     def test_local_array_complex(self):
         sig = "void(complex128[:], complex128[:])"
-        jculocalcomplex = numba_cuda_mlir.jit(sig)(culocalcomplex)
+        jculocalcomplex = numba_cuda_mlir.cuda.jit(sig)(culocalcomplex)
         A = (np.arange(100, dtype="complex128") - 1) / 2j
         B = np.zeros_like(A)
         jculocalcomplex[1, 1](A, B)
@@ -75,7 +75,7 @@ class TestCudaLocalMem(NumbaCUDATestCase):
 
     def test_numba_dtype(self):
         # Check that Numba types can be used as the dtype of a local array
-        @numba_cuda_mlir.jit(void(int32[::1]))
+        @numba_cuda_mlir.cuda.jit(void(int32[::1]))
         def f(x):
             l = cuda.local.array(10, dtype=int32)
             l[0] = x[0]
@@ -85,7 +85,7 @@ class TestCudaLocalMem(NumbaCUDATestCase):
 
     def test_numpy_dtype(self):
         # Check that NumPy types can be used as the dtype of a local array
-        @numba_cuda_mlir.jit(void(int32[::1]))
+        @numba_cuda_mlir.cuda.jit(void(int32[::1]))
         def f(x):
             l = cuda.local.array(10, dtype=np.int32)
             l[0] = x[0]
@@ -95,7 +95,7 @@ class TestCudaLocalMem(NumbaCUDATestCase):
 
     def test_string_dtype(self):
         # Check that strings can be used to specify the dtype of a local array
-        @numba_cuda_mlir.jit(void(int32[::1]))
+        @numba_cuda_mlir.cuda.jit(void(int32[::1]))
         def f(x):
             l = cuda.local.array(10, dtype="int32")
             l[0] = x[0]
@@ -108,7 +108,7 @@ class TestCudaLocalMem(NumbaCUDATestCase):
         re = ".*Invalid NumPy dtype specified: 'int33'.*"
         with self.assertRaisesRegex(TypingError, re):
 
-            @numba_cuda_mlir.jit(void(int32[::1]))
+            @numba_cuda_mlir.cuda.jit(void(int32[::1]))
             def f(x):
                 l = cuda.local.array(10, dtype="int33")
                 l[0] = x[0]
@@ -116,7 +116,7 @@ class TestCudaLocalMem(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Typing error")
     def test_type_with_struct_data_model(self):
-        @numba_cuda_mlir.jit(void(struct_model_type[::1]))
+        @numba_cuda_mlir.cuda.jit(void(struct_model_type[::1]))
         def f(x):
             l = cuda.local.array(10, dtype=struct_model_type)
             l[0] = x[0]
@@ -126,7 +126,7 @@ class TestCudaLocalMem(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="ICE")
     def test_struct_model_type_arr(self):
-        @numba_cuda_mlir.jit(void(int32[::1], int32[::1]))
+        @numba_cuda_mlir.cuda.jit(void(int32[::1], int32[::1]))
         def f(outx, outy):
             # Test creation
             arr = cuda.local.array(10, dtype=struct_model_type)
@@ -150,7 +150,7 @@ class TestCudaLocalMem(NumbaCUDATestCase):
             self.assertEqual(y, i * 2)
 
     def _check_local_array_size_fp16(self, shape, expected, ty):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def s(a):
             arr = cuda.local.array(shape, dtype=ty)
             a[0] = arr.size

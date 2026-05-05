@@ -2121,15 +2121,6 @@ llvm::Error MLIRToLLVM70::translateSregOp(Operation *op) {
                                  op->getName().getStringRef().str().c_str());
 }
 
-llvm::Error MLIRToLLVM70::translateBarrier0Op(Operation *op) {
-  LLVMTypeRef voidFnTy = b.funcTy(b.voidTy(), nullptr, 0, false);
-  LLVMValueRef fn = b.getNamedFunction("llvm.nvvm.barrier0");
-  if (!fn)
-    fn = b.addFunction("llvm.nvvm.barrier0", voidFnTy);
-  b.buildCall(fn, nullptr, 0, "");
-  return llvm::Error::success();
-}
-
 llvm::Error MLIRToLLVM70::translateFmaOp(Operation *op) {
   auto fmaOp = cast<NVVM::FmaOp>(op);
   Type valTy = fmaOp.getA().getType();
@@ -2404,7 +2395,6 @@ llvm::Error MLIRToLLVM70::translateNVVMOp(Operation *op) {
             NVVM::ClusterDimBlocksXOp, NVVM::ClusterDimBlocksYOp,
             NVVM::ClusterDimBlocksZOp>(
           [&](auto) { return translateSregOp(op); })
-      .Case<NVVM::Barrier0Op>([&](auto) { return translateBarrier0Op(op); })
       .Case<NVVM::ElectSyncOp>([&](auto) { return translateElectSyncOp(op); })
       .Case<NVVM::FmaOp>([&](auto) { return translateFmaOp(op); })
       .Case<NVVM::MatchSyncOp>([&](auto) { return translateMatchSyncOp(op); })

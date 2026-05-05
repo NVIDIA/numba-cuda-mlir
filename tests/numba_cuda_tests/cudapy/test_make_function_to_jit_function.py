@@ -10,20 +10,20 @@ import numpy as np
 import pytest
 
 
-@numba_cuda_mlir.jit
+@numba_cuda_mlir.cuda.jit
 def consumer(func, *args):
     return func(*args)
 
 
-@numba_cuda_mlir.jit
+@numba_cuda_mlir.cuda.jit
 def consumer2arg(func1, func2):
     return func2(func1)
 
 
 def wrap_with_kernel_noarg(func):
-    jitted_func = numba_cuda_mlir.jit(func)
+    jitted_func = numba_cuda_mlir.cuda.jit(func)
 
-    @numba_cuda_mlir.jit
+    @numba_cuda_mlir.cuda.jit
     def kernel(out):
         out[0] = jitted_func()
 
@@ -36,9 +36,9 @@ def wrap_with_kernel_noarg(func):
 
 
 def wrap_with_kernel_one_arg(func):
-    jitted_func = numba_cuda_mlir.jit(func)
+    jitted_func = numba_cuda_mlir.cuda.jit(func)
 
-    @numba_cuda_mlir.jit
+    @numba_cuda_mlir.cuda.jit
     def kernel(out, in1):
         out[0] = jitted_func(in1)
 
@@ -51,9 +51,9 @@ def wrap_with_kernel_one_arg(func):
 
 
 def wrap_with_kernel_two_args(func):
-    jitted_func = numba_cuda_mlir.jit(func)
+    jitted_func = numba_cuda_mlir.cuda.jit(func)
 
-    @numba_cuda_mlir.jit
+    @numba_cuda_mlir.cuda.jit
     def kernel(out, in1, in2):
         out[0] = jitted_func(in1, in2)
 
@@ -66,9 +66,9 @@ def wrap_with_kernel_two_args(func):
 
 
 def wrap_with_kernel_noarg_tuple_return(func):
-    jitted_func = numba_cuda_mlir.jit(func)
+    jitted_func = numba_cuda_mlir.cuda.jit(func)
 
-    @numba_cuda_mlir.jit
+    @numba_cuda_mlir.cuda.jit
     def kernel(out):
         out[0], out[1], out[2], out[3] = jitted_func()
 
@@ -276,7 +276,7 @@ class TestMakeFunctionToJITFunction(NumbaCUDATestCase):
             return r
 
         with self.assertRaises(errors.TypingError) as e:
-            numba_cuda_mlir.jit("void(int64)")(impl)
+            numba_cuda_mlir.cuda.jit("void(int64)")(impl)
 
         self.assertIn("Cannot capture a constant value for variable", str(e.exception))
 
@@ -290,7 +290,7 @@ class TestMakeFunctionToJITFunction(NumbaCUDATestCase):
             return consumer(inner, x)
 
         with self.assertRaises(errors.TypingError) as e:
-            numba_cuda_mlir.jit("void(int64)")(impl)
+            numba_cuda_mlir.cuda.jit("void(int64)")(impl)
 
         self.assertIn("Cannot capture the non-constant value associated", str(e.exception))
 
@@ -327,7 +327,7 @@ class TestMakeFunctionToJITFunction(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="ICE")
     def test_escape_with_kwargs_override_kwargs(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def specialised_consumer(func, *args):
             x, y, z = args  # unpack to avoid `CALL_FUNCTION_EX`
             a = func(x, y, z, mydefault1=1000)

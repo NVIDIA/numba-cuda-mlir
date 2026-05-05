@@ -1,13 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from numba_cuda_mlir import jit
+from numba_cuda_mlir import cuda
 
 
 def test_help_message():
     HELP_PREFIX = "Printing the options because: help was specified"
     try:
 
-        @jit(help=True)
+        @cuda.jit(help=True)
         def test_kernel():
             pass
 
@@ -21,7 +21,7 @@ def test_help_message_because_bad_argument():
     HELP_PREFIX = "Printing the options because: Got invalid options: foo."
     try:
 
-        @jit(foo="bar")
+        @cuda.jit(foo="bar")
         def test_kernel():
             pass
 
@@ -37,7 +37,7 @@ def test_help_message_because_bad_type():
     )
     try:
 
-        @jit(opt_level="foo")
+        @cuda.jit(opt_level="foo")
         def test_kernel():
             pass
 

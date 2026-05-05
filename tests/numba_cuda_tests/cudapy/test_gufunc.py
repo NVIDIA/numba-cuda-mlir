@@ -181,7 +181,7 @@ class TestCUDAGufunc(NumbaCUDATestCase):
             for i in range(A.shape[0]):
                 b[i] = A[i]
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def cuda_jit(A, b):
             return gufunc_copy(A, b)
 

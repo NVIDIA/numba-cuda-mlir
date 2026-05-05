@@ -59,7 +59,7 @@ class TestCudaArray:
         np.testing.assert_equal(shape2, null_shape)
 
     def test_gpu_array_strided(self):
-        @numba_cuda_mlir.jit("void(double[:])")
+        @numba_cuda_mlir.cuda.jit("void(double[:])")
         def kernel(x):
             i = cuda.grid(1)
             if i < x.shape[0]:
@@ -72,7 +72,7 @@ class TestCudaArray:
         np.testing.assert_allclose(z, list(range(9)))
 
     def test_gpu_array_interleaved(self):
-        @numba_cuda_mlir.jit("void(double[:], double[:])")
+        @numba_cuda_mlir.cuda.jit("void(double[:], double[:])")
         def copykernel(x, y):
             i = cuda.grid(1)
             if i < x.shape[0]:
@@ -212,7 +212,7 @@ class TestCudaArray:
         # resolution of this issue, the order of the device array is also 'C',
         # so after the kernel launches there should only be one overload of
         # the function.
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def func(A, out):
             i = cuda.grid(1)
             out[i] = A[i] * 2
@@ -230,14 +230,14 @@ class TestCudaArray:
     @pytest.mark.xfail(True, reason="ICE")
     def test_array_reshape(self):
         def check(pyfunc, kernelfunc, arr, shape):
-            kernel = numba_cuda_mlir.jit(kernelfunc)
+            kernel = numba_cuda_mlir.cuda.jit(kernelfunc)
             expected = pyfunc(arr, shape)
             got = np.zeros(expected.shape, dtype=arr.dtype)
             kernel[1, 1](arr, shape, got)
             np.testing.assert_equal(got, expected)
 
         def check_only_shape(kernelfunc, arr, shape, expected_shape):
-            kernel = numba_cuda_mlir.jit(kernelfunc)
+            kernel = numba_cuda_mlir.cuda.jit(kernelfunc)
             got = np.zeros(expected_shape, dtype=arr.dtype)
             kernel[1, 1](arr, shape, got)
             np.testing.assert_equal(got.shape, expected_shape)
@@ -274,7 +274,7 @@ class TestCudaArray:
         check_empty(arr)
 
     def _test_cfarray(self, cfarray):
-        @numba_cuda_mlir.jit(types.void(types.CPointer(types.float32)))
+        @numba_cuda_mlir.cuda.jit(types.void(types.CPointer(types.float32)))
         def add(a_ptr):
             a = cfarray(a_ptr, (1,), dtype=cuda.float32)
             a[0] += 1.2

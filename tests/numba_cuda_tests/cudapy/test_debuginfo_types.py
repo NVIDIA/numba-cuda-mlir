@@ -464,7 +464,7 @@ class TestCudaDebugInfoTypes(NumbaCUDATestCase):
 
         for numba_type, checks in scalar_types + array_types:
 
-            @numba_cuda_mlir.jit((numba_type,), debug=True, opt=False)
+            @numba_cuda_mlir.cuda.jit((numba_type,), debug=True, opt=False)
             def foo(a):
                 pass
 

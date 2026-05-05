@@ -164,12 +164,12 @@ def simple_hlt_scalar(ary, a, b):
     ary[0] = cuda.fp16.hlt(a, b)
 
 
-@numba_cuda_mlir.jit(device=True)
+@numba_cuda_mlir.cuda.jit(device=True)
 def hlt_func_1(x, y):
     return cuda.fp16.hlt(x, y)
 
 
-@numba_cuda_mlir.jit(device=True)
+@numba_cuda_mlir.cuda.jit(device=True)
 def hlt_func_2(x, y):
     return cuda.fp16.hlt(x, y)
 
@@ -375,13 +375,13 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         np.random.seed(0)
 
     def test_simple_threadidx(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:])")(simple_threadidx)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:])")(simple_threadidx)
         ary = np.ones(1, dtype=np.int32)
         compiled[1, 1](ary)
         self.assertTrue(ary[0] == 0)
 
     def test_fill_threadidx(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:])")(fill_threadidx)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:])")(fill_threadidx)
         N = 10
         ary = np.ones(N, dtype=np.int32)
         exp = np.arange(N, dtype=np.int32)
@@ -392,13 +392,13 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         X, Y, Z = 4, 5, 6
 
         def c_contigous():
-            compiled = numba_cuda_mlir.jit("void(int32[:,:,::1])")(fill3d_threadidx)
+            compiled = numba_cuda_mlir.cuda.jit("void(int32[:,:,::1])")(fill3d_threadidx)
             ary = np.zeros((X, Y, Z), dtype=np.int32)
             compiled[1, (X, Y, Z)](ary)
             return ary
 
         def f_contigous():
-            compiled = numba_cuda_mlir.jit("void(int32[::1,:,:])")(fill3d_threadidx)
+            compiled = numba_cuda_mlir.cuda.jit("void(int32[::1,:,:])")(fill3d_threadidx)
             ary = np.asfortranarray(np.zeros((X, Y, Z), dtype=np.int32))
             compiled[1, (X, Y, Z)](ary)
             return ary
@@ -410,15 +410,15 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
     @pytest.mark.xfail(True, reason="ICE")
     def test_nonliteral_grid_error(self):
         with self.assertRaisesRegex(TypingError, "RequireLiteralValue"):
-            numba_cuda_mlir.jit("void(int32)")(nonliteral_grid)
+            numba_cuda_mlir.cuda.jit("void(int32)")(nonliteral_grid)
 
     @pytest.mark.xfail(True, reason="ICE")
     def test_nonliteral_gridsize_error(self):
         with self.assertRaisesRegex(TypingError, "RequireLiteralValue"):
-            numba_cuda_mlir.jit("void(int32)")(nonliteral_gridsize)
+            numba_cuda_mlir.cuda.jit("void(int32)")(nonliteral_gridsize)
 
     def test_simple_grid1d(self):
-        compiled = numba_cuda_mlir.jit("void(int32[::1])")(simple_grid1d)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[::1])")(simple_grid1d)
         ntid, nctaid = 3, 7
         nelem = ntid * nctaid
         ary = np.empty(nelem, dtype=np.int32)
@@ -426,7 +426,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         self.assertTrue(np.all(ary == np.arange(nelem)))
 
     def test_simple_grid2d(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:,::1])")(simple_grid2d)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:,::1])")(simple_grid2d)
         ntid = (4, 3)
         nctaid = (5, 6)
         shape = (ntid[0] * nctaid[0], ntid[1] * nctaid[1])
@@ -441,7 +441,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         self.assertTrue(np.all(ary == exp))
 
     def test_simple_gridsize1d(self):
-        compiled = numba_cuda_mlir.jit("void(int32[::1])")(simple_gridsize1d)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[::1])")(simple_gridsize1d)
         ntid, nctaid = 3, 7
         ary = np.zeros(1, dtype=np.int32)
         compiled[nctaid, ntid](ary)
@@ -451,7 +451,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
     def test_issue_9229(self):
         # Ensure that grid and grid size are correct - #9229 showed that they
         # overflowed an int32.
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def f(grid_error, gridsize_error):
             i1 = cuda.grid(1)
             i2 = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
@@ -474,8 +474,8 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
 
     def test_selp(self):
         sig = (int64[:], int64, int64[:])
-        cu_branching_with_ifs = numba_cuda_mlir.jit(sig)(branching_with_ifs)
-        cu_branching_with_selps = numba_cuda_mlir.jit(sig)(branching_with_selps)
+        cu_branching_with_ifs = numba_cuda_mlir.cuda.jit(sig)(branching_with_ifs)
+        cu_branching_with_selps = numba_cuda_mlir.cuda.jit(sig)(branching_with_selps)
 
         n = 32
         b = 6
@@ -497,7 +497,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         np.testing.assert_array_equal(a, expected, err_msg="selp")
 
     def test_simple_gridsize2d(self):
-        compiled = numba_cuda_mlir.jit("void(int32[::1])")(simple_gridsize2d)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[::1])")(simple_gridsize2d)
         ntid = (4, 3)
         nctaid = (5, 6)
         ary = np.zeros(2, dtype=np.int32)
@@ -507,7 +507,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         self.assertEqual(ary[1], nctaid[1] * ntid[1])
 
     def test_intrinsic_forloop_step(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:,::1])")(intrinsic_forloop_step)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:,::1])")(intrinsic_forloop_step)
         ntid = (4, 3)
         nctaid = (5, 6)
         shape = (ntid[0] * nctaid[0], ntid[1] * nctaid[1])
@@ -524,7 +524,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
                     self.assertTrue(ary[y, x] == x + y, (ary[y, x], x + y))
 
     def test_3dgrid(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def foo(out):
             x, y, z = cuda.grid(3)
             a, b, c = cuda.gridsize(3)
@@ -536,7 +536,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         np.testing.assert_equal(arr, 9**3)
 
     def test_3dgrid_2(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def foo(out):
             x, y, z = cuda.grid(3)
             a, b, c = cuda.gridsize(3)
@@ -559,67 +559,67 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         self.assertTrue(np.all(arr))
 
     def test_popc_u1(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], uint8)")(simple_popc)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], uint8)")(simple_popc)
         ary = np.zeros(1, dtype=np.int32)
         compiled[1, 1](ary, np.uint8(0xFF))
         self.assertEqual(ary[0], 8)
 
     def test_popc_u2(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], uint16)")(simple_popc)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], uint16)")(simple_popc)
         ary = np.zeros(1, dtype=np.int32)
         compiled[1, 1](ary, np.uint16(0xFFFF))
         self.assertEqual(ary[0], 16)
 
     def test_popc_u4(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], uint32)")(simple_popc)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], uint32)")(simple_popc)
         ary = np.zeros(1, dtype=np.int32)
         compiled[1, 1](ary, np.uint32(0xFFFFFFFF))
         self.assertEqual(ary[0], 32)
 
     def test_popc_u8(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], uint64)")(simple_popc)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], uint64)")(simple_popc)
         ary = np.zeros(1, dtype=np.int32)
         compiled[1, 1](ary, np.uint64(0xFFFFFFFFFFFFFFFF))
         self.assertEqual(ary[0], 64)
 
     def test_bit_count_u1(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], uint8)")(simple_bit_count)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], uint8)")(simple_bit_count)
         ary = np.zeros(1, dtype=np.int32)
         compiled[1, 1](ary, np.uint8(0xFF))
         self.assertEqual(ary[0], 8)
 
     def test_bit_count_u2(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], uint16)")(simple_bit_count)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], uint16)")(simple_bit_count)
         ary = np.zeros(1, dtype=np.int32)
         compiled[1, 1](ary, np.uint16(0xFFFF))
         self.assertEqual(ary[0], 16)
 
     def test_bit_count_u4(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], uint32)")(simple_bit_count)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], uint32)")(simple_bit_count)
         ary = np.zeros(1, dtype=np.int32)
         compiled[1, 1](ary, np.uint32(0xFFFFFFFF))
         self.assertEqual(ary[0], 32)
 
     def test_bit_count_u8(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], uint64)")(simple_bit_count)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], uint64)")(simple_bit_count)
         ary = np.zeros(1, dtype=np.int32)
         compiled[1, 1](ary, np.uint64(0xFFFFFFFFFFFFFFFF))
         self.assertEqual(ary[0], 64)
 
     def test_fma_f4(self):
-        compiled = numba_cuda_mlir.jit("void(f4[:], f4, f4, f4)")(simple_fma)
+        compiled = numba_cuda_mlir.cuda.jit("void(f4[:], f4, f4, f4)")(simple_fma)
         ary = np.zeros(1, dtype=np.float32)
         compiled[1, 1](ary, 2.0, 3.0, 4.0)
         np.testing.assert_allclose(ary[0], 2 * 3 + 4)
 
     def test_fma_f8(self):
-        compiled = numba_cuda_mlir.jit("void(f8[:], f8, f8, f8)")(simple_fma)
+        compiled = numba_cuda_mlir.cuda.jit("void(f8[:], f8, f8, f8)")(simple_fma)
         ary = np.zeros(1, dtype=np.float64)
         compiled[1, 1](ary, 2.0, 3.0, 4.0)
         np.testing.assert_allclose(ary[0], 2 * 3 + 4)
 
     def test_hadd(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2[:], f2[:])")(simple_hadd)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2[:], f2[:])")(simple_hadd)
         ary = np.zeros(1, dtype=np.float16)
         arg1 = np.array([3.0], dtype=np.float16)
         arg2 = np.array([4.0], dtype=np.float16)
@@ -627,7 +627,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         np.testing.assert_allclose(ary[0], arg1 + arg2, rtol=self.FLOAT16_RTOL)
 
     def test_hadd_scalar(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2, f2)")(simple_hadd_scalar)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2, f2)")(simple_hadd_scalar)
         ary = np.zeros(1, dtype=np.float16)
         arg1 = np.float16(3.1415926)
         arg2 = np.float16(3.0)
@@ -636,13 +636,13 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         np.testing.assert_allclose(ary[0], ref, rtol=self.FLOAT16_RTOL)
 
     def test_hadd_ptx(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2, f2)", lto=True)(simple_hadd_scalar)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2, f2)", lto=True)(simple_hadd_scalar)
         args = (f2[:], f2, f2)
         ptx = compiled.inspect_lto_ptx(args)
         self.assertIn("add.f16", ptx)
 
     def test_hfma(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2[:], f2[:], f2[:])")(simple_hfma)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2[:], f2[:], f2[:])")(simple_hfma)
         ary = np.zeros(1, dtype=np.float16)
         arg1 = np.array([2.0], dtype=np.float16)
         arg2 = np.array([3.0], dtype=np.float16)
@@ -651,7 +651,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         np.testing.assert_allclose(ary[0], arg1 * arg2 + arg3, rtol=self.FLOAT16_RTOL)
 
     def test_hfma_scalar(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2, f2, f2)")(simple_hfma_scalar)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2, f2, f2)")(simple_hfma_scalar)
         ary = np.zeros(1, dtype=np.float16)
         arg1 = np.float16(2.0)
         arg2 = np.float16(3.0)
@@ -662,13 +662,13 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Bitcode parsing error")
     def test_hfma_ptx(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2, f2, f2)", lto=True)(simple_hfma_scalar)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2, f2, f2)", lto=True)(simple_hfma_scalar)
         args = (f2[:], f2, f2, f2)
         ptx = compiled.inspect_lto_ptx(args)
         self.assertIn("fma.rn.f16", ptx)
 
     def test_hsub(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2[:], f2[:])")(simple_hsub)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2[:], f2[:])")(simple_hsub)
         ary = np.zeros(1, dtype=np.float16)
         arg1 = np.array([3.0], dtype=np.float16)
         arg2 = np.array([4.0], dtype=np.float16)
@@ -676,7 +676,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         np.testing.assert_allclose(ary[0], arg1 - arg2, rtol=self.FLOAT16_RTOL)
 
     def test_hsub_scalar(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2, f2)")(simple_hsub_scalar)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2, f2)")(simple_hsub_scalar)
         ary = np.zeros(1, dtype=np.float16)
         arg1 = np.float16(3.1415926)
         arg2 = np.float16(1.57)
@@ -685,13 +685,13 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         np.testing.assert_allclose(ary[0], ref, rtol=self.FLOAT16_RTOL)
 
     def test_hsub_ptx(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2, f2)", lto=True)(simple_hsub_scalar)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2, f2)", lto=True)(simple_hsub_scalar)
         args = (f2[:], f2, f2)
         ptx = compiled.inspect_lto_ptx(args)
         self.assertIn("sub.f16", ptx)
 
     def test_hmul(self):
-        compiled = numba_cuda_mlir.jit(simple_hmul)
+        compiled = numba_cuda_mlir.cuda.jit(simple_hmul)
         ary = np.zeros(1, dtype=np.float16)
         arg1 = np.array([3.0], dtype=np.float16)
         arg2 = np.array([4.0], dtype=np.float16)
@@ -699,7 +699,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         np.testing.assert_allclose(ary[0], arg1 * arg2, rtol=self.FLOAT16_RTOL)
 
     def test_hmul_scalar(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2, f2)")(simple_hmul_scalar)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2, f2)")(simple_hmul_scalar)
         ary = np.zeros(1, dtype=np.float16)
         arg1 = np.float16(3.1415926)
         arg2 = np.float16(1.57)
@@ -708,13 +708,13 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         np.testing.assert_allclose(ary[0], ref, rtol=self.FLOAT16_RTOL)
 
     def test_hmul_ptx(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2, f2)", lto=True)(simple_hmul_scalar)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2, f2)", lto=True)(simple_hmul_scalar)
         args = (f2[:], f2, f2)
         ptx = compiled.inspect_lto_ptx(args)
         self.assertIn("mul.f16", ptx)
 
     def test_hdiv_scalar(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2, f2)")(simple_hdiv_scalar)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2, f2)")(simple_hdiv_scalar)
         ary = np.zeros(1, dtype=np.float16)
         arg1 = np.float16(3.1415926)
         arg2 = np.float16(1.57)
@@ -724,7 +724,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         np.testing.assert_allclose(ary[0], ref, rtol=self.FLOAT16_RTOL)
 
     def test_hdiv(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2[:], f2[:])")(simple_hdiv_kernel)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2[:], f2[:])")(simple_hdiv_kernel)
         arry1 = np.random.randint(-65504, 65505, size=500).astype(np.float16)
         arry2 = np.random.randint(-65504, 65505, size=500).astype(np.float16)
         ary = np.zeros_like(arry1, dtype=np.float16)
@@ -734,14 +734,14 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         np.testing.assert_allclose(ary, ref, rtol=self.FLOAT16_RTOL)
 
     def test_hneg(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2[:])")(simple_hneg)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2[:])")(simple_hneg)
         ary = np.zeros(1, dtype=np.float16)
         arg1 = np.array([3.0], dtype=np.float16)
         compiled[1, 1](ary, arg1)
         np.testing.assert_allclose(ary[0], -arg1, rtol=self.FLOAT16_RTOL)
 
     def test_hneg_scalar(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2)")(simple_hneg_scalar)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2)")(simple_hneg_scalar)
         ary = np.zeros(1, dtype=np.float16)
         arg1 = np.float16(3.1415926)
         compiled[1, 1](ary, arg1)
@@ -750,20 +750,20 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="NVVM verify failed")
     def test_hneg_ptx(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2)", lto=True)(simple_hneg_scalar)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2)", lto=True)(simple_hneg_scalar)
         args = (f2[:], f2)
         ptx = compiled.inspect_lto_ptx(args)
         self.assertIn("neg.f16", ptx)
 
     def test_habs(self):
-        compiled = numba_cuda_mlir.jit(simple_habs)
+        compiled = numba_cuda_mlir.cuda.jit(simple_habs)
         ary = np.zeros(1, dtype=np.float16)
         arg1 = np.array([-3.0], dtype=np.float16)
         compiled[1, 1](ary, arg1)
         np.testing.assert_allclose(ary[0], abs(arg1), rtol=self.FLOAT16_RTOL)
 
     def test_habs_scalar(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2)")(simple_habs_scalar)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2)")(simple_habs_scalar)
         ary = np.zeros(1, dtype=np.float16)
         arg1 = np.float16(-3.1415926)
         compiled[1, 1](ary, arg1)
@@ -772,7 +772,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Bitcode parsime error")
     def test_habs_ptx(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2)", lto=True)(simple_habs_scalar)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2)", lto=True)(simple_habs_scalar)
         args = (f2[:], f2)
         ptx = compiled.inspect_lto_ptx(args)
         self.assertIn("abs.f16", ptx)
@@ -815,21 +815,21 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         x = np.random.randint(1, 65505, size=N).astype(np.float16)
         r = np.zeros_like(x)
         for kernel, fn in zip(kernels, expected_functions):
-            kernel = numba_cuda_mlir.jit("void(f2[:], f2[:])")(kernel)
+            kernel = numba_cuda_mlir.cuda.jit("void(f2[:], f2[:])")(kernel)
             kernel[1, N](r, x)
             expected = fn(x, dtype=np.float16)
             np.testing.assert_allclose(r, expected, rtol=self.FLOAT16_RTOL)
 
         x2 = np.random.randint(1, 10, size=N).astype(np.float16)
         for kernel, fn in zip(exp_kernels, expected_exp_functions):
-            kernel = numba_cuda_mlir.jit("void(f2[:], f2[:])")(kernel)
+            kernel = numba_cuda_mlir.cuda.jit("void(f2[:], f2[:])")(kernel)
             kernel[1, N](r, x2)
             expected = fn(x2, dtype=np.float16)
             np.testing.assert_allclose(r, expected, rtol=self.FLOAT16_RTOL)
 
     @pytest.mark.xfail(True, reason="Assertion failed")
     def test_hexp10(self):
-        @numba_cuda_mlir.jit()
+        @numba_cuda_mlir.cuda.jit()
         def hexp10_vectors(r, x):
             i = cuda.grid(1)
 
@@ -865,7 +865,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         )
 
         for fn, op in zip(fns, ops):
-            kernel = numba_cuda_mlir.jit("void(b1[:], f2, f2)")(fn)
+            kernel = numba_cuda_mlir.cuda.jit("void(b1[:], f2, f2)")(fn)
 
             expected = np.zeros(1, dtype=np.bool_)
             got = np.zeros(1, dtype=np.bool_)
@@ -897,7 +897,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
             multiple_hcmp_5,
         )
         for fn in functions:
-            compiled = numba_cuda_mlir.jit("void(b1[:], f2, f2, f2)")(fn)
+            compiled = numba_cuda_mlir.cuda.jit("void(b1[:], f2, f2, f2)")(fn)
             ary = np.zeros(1, dtype=np.bool_)
             arg1 = np.float16(2.0)
             arg2 = np.float16(3.0)
@@ -906,7 +906,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
             self.assertTrue(ary[0])
 
     def test_hmax(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2, f2)")(simple_hmax_scalar)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2, f2)")(simple_hmax_scalar)
         ary = np.zeros(1, dtype=np.float16)
         arg1 = np.float16(3.0)
         arg2 = np.float16(4.0)
@@ -917,7 +917,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         np.testing.assert_allclose(ary[0], arg1, rtol=self.FLOAT16_RTOL)
 
     def test_hmin(self):
-        compiled = numba_cuda_mlir.jit("void(f2[:], f2, f2)")(simple_hmin_scalar)
+        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2, f2)")(simple_hmin_scalar)
         ary = np.zeros(1, dtype=np.float16)
         arg1 = np.float16(3.0)
         arg2 = np.float16(4.0)
@@ -928,33 +928,33 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         np.testing.assert_allclose(ary[0], arg2, rtol=self.FLOAT16_RTOL)
 
     def test_cbrt_f32(self):
-        compiled = numba_cuda_mlir.jit("void(float32[:], float32)")(simple_cbrt)
+        compiled = numba_cuda_mlir.cuda.jit("void(float32[:], float32)")(simple_cbrt)
         ary = np.zeros(1, dtype=np.float32)
         cbrt_arg = 2.0
         compiled[1, 1](ary, cbrt_arg)
         np.testing.assert_allclose(ary[0], cbrt_arg ** (1 / 3))
 
     def test_cbrt_f64(self):
-        compiled = numba_cuda_mlir.jit("void(float64[:], float64)")(simple_cbrt)
+        compiled = numba_cuda_mlir.cuda.jit("void(float64[:], float64)")(simple_cbrt)
         ary = np.zeros(1, dtype=np.float64)
         cbrt_arg = 6.0
         compiled[1, 1](ary, cbrt_arg)
         np.testing.assert_allclose(ary[0], cbrt_arg ** (1 / 3))
 
     def test_brev_u4(self):
-        compiled = numba_cuda_mlir.jit("void(uint32[:], uint32)")(simple_brev)
+        compiled = numba_cuda_mlir.cuda.jit("void(uint32[:], uint32)")(simple_brev)
         ary = np.zeros(1, dtype=np.uint32)
         compiled[1, 1](ary, 0x000030F0)
         self.assertEqual(ary[0], 0x0F0C0000)
 
     def test_brev_u8(self):
-        compiled = numba_cuda_mlir.jit("void(uint64[:], uint64)")(simple_brev)
+        compiled = numba_cuda_mlir.cuda.jit("void(uint64[:], uint64)")(simple_brev)
         ary = np.zeros(1, dtype=np.uint64)
         compiled[1, 1](ary, 0x000030F0000030F0)
         self.assertEqual(ary[0], 0x0F0C00000F0C0000)
 
     def test_clz_i4(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], int32)")(simple_clz)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], int32)")(simple_clz)
         ary = np.zeros(1, dtype=np.int32)
         compiled[1, 1](ary, 0x00100000)
         self.assertEqual(ary[0], 11)
@@ -968,31 +968,31 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         unsigned integers, just unsigned operations on integers).
         http://docs.nvidia.com/cuda/nvvm-ir-spec/index.html#bit-manipulations-intrinics
         """
-        compiled = numba_cuda_mlir.jit("void(int32[:], uint32)")(simple_clz)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], uint32)")(simple_clz)
         ary = np.zeros(1, dtype=np.int32)
         compiled[1, 1](ary, 0x00100000)
         self.assertEqual(ary[0], 11)
 
     def test_clz_i4_1s(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], int32)")(simple_clz)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], int32)")(simple_clz)
         ary = np.zeros(1, dtype=np.int32)
         compiled[1, 1](ary, 0xFFFFFFFF)
         self.assertEqual(ary[0], 0)
 
     def test_clz_i4_0s(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], int32)")(simple_clz)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], int32)")(simple_clz)
         ary = np.zeros(1, dtype=np.int32)
         compiled[1, 1](ary, 0x0)
         self.assertEqual(ary[0], 32, "CUDA semantics")
 
     def test_clz_i8(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], int64)")(simple_clz)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], int64)")(simple_clz)
         ary = np.zeros(1, dtype=np.int32)
         compiled[1, 1](ary, 0x000000000010000)
         self.assertEqual(ary[0], 47)
 
     def test_ffs_i4(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], int32)")(simple_ffs)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], int32)")(simple_ffs)
         ary = np.zeros(1, dtype=np.int32)
         compiled[1, 1](ary, 0x00100000)
         self.assertEqual(ary[0], 21)
@@ -1000,7 +1000,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         self.assertEqual(ary[0], 32)
 
     def test_ffs_u4(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], uint32)")(simple_ffs)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], uint32)")(simple_ffs)
         ary = np.zeros(1, dtype=np.int32)
         compiled[1, 1](ary, 0x00100000)
         self.assertEqual(ary[0], 21)
@@ -1008,19 +1008,19 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         self.assertEqual(ary[0], 32)
 
     def test_ffs_i4_1s(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], int32)")(simple_ffs)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], int32)")(simple_ffs)
         ary = np.zeros(1, dtype=np.int32)
         compiled[1, 1](ary, 0xFFFFFFFF)
         self.assertEqual(ary[0], 1)
 
     def test_ffs_i4_0s(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], int32)")(simple_ffs)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], int32)")(simple_ffs)
         ary = np.zeros(1, dtype=np.int32)
         compiled[1, 1](ary, 0x0)
         self.assertEqual(ary[0], 0)
 
     def test_ffs_i8(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:], int64)")(simple_ffs)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:], int64)")(simple_ffs)
         ary = np.zeros(1, dtype=np.int32)
         compiled[1, 1](ary, 0x000000000010000)
         self.assertEqual(ary[0], 17)
@@ -1028,7 +1028,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         self.assertEqual(ary[0], 33)
 
     def test_simple_laneid(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:])")(simple_laneid)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:])")(simple_laneid)
         count = 2
         ary = np.zeros(count * 32, dtype=np.int32)
         exp = np.tile(np.arange(32, dtype=np.int32), count)
@@ -1036,14 +1036,14 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         self.assertTrue(np.all(ary == exp))
 
     def test_simple_warpsize(self):
-        compiled = numba_cuda_mlir.jit("void(int32[:])")(simple_warpsize)
+        compiled = numba_cuda_mlir.cuda.jit("void(int32[:])")(simple_warpsize)
         ary = np.zeros(1, dtype=np.int32)
         compiled[1, 1](ary)
         self.assertEqual(ary[0], 32, "CUDA semantics")
 
     @pytest.mark.xfail(True, reason="Incorrect result")
     def test_round_f4(self):
-        compiled = numba_cuda_mlir.jit("void(int64[:], float32)")(simple_round)
+        compiled = numba_cuda_mlir.cuda.jit("void(int64[:], float32)")(simple_round)
         ary = np.zeros(1, dtype=np.int64)
 
         for i in [-3.0, -2.5, -2.25, -1.5, 1.5, 2.25, 2.5, 2.75]:
@@ -1052,7 +1052,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Incorrect result")
     def test_round_f8(self):
-        compiled = numba_cuda_mlir.jit("void(int64[:], float64)")(simple_round)
+        compiled = numba_cuda_mlir.cuda.jit("void(int64[:], float64)")(simple_round)
         ary = np.zeros(1, dtype=np.int64)
 
         for i in [-3.0, -2.5, -2.25, -1.5, 1.5, 2.25, 2.5, 2.75]:
@@ -1060,7 +1060,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
             self.assertEqual(ary[0], round(i))
 
     def test_round_to_f4(self):
-        compiled = numba_cuda_mlir.jit("void(float32[:], float32, int32)")(simple_round_to)
+        compiled = numba_cuda_mlir.cuda.jit("void(float32[:], float32, int32)")(simple_round_to)
         ary = np.zeros(1, dtype=np.float32)
         np.random.seed(123)
         vals = np.random.random(32).astype(np.float32)
@@ -1091,7 +1091,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
     def test_round_to_f4_overflow(self):
         # Test that the input value is returned when y in round_ndigits
         # overflows.
-        compiled = numba_cuda_mlir.jit("void(float32[:], float32, int32)")(simple_round_to)
+        compiled = numba_cuda_mlir.cuda.jit("void(float32[:], float32, int32)")(simple_round_to)
         ary = np.zeros(1, dtype=np.float32)
         val = np.finfo(np.float32).max
         # An unusually large number of digits is required to hit the "y
@@ -1103,7 +1103,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Incorrect result")
     def test_round_to_f4_halfway(self):
-        compiled = numba_cuda_mlir.jit("void(float32[:], float32, int32)")(simple_round_to)
+        compiled = numba_cuda_mlir.cuda.jit("void(float32[:], float32, int32)")(simple_round_to)
         ary = np.zeros(1, dtype=np.float32)
         # Value chosen to trigger the "round to even" branch of the
         # implementation
@@ -1113,7 +1113,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         self.assertPreciseEqual(ary[0], round(val, ndigits), prec="single")
 
     def test_round_to_f8(self):
-        compiled = numba_cuda_mlir.jit("void(float64[:], float64, int32)")(simple_round_to)
+        compiled = numba_cuda_mlir.cuda.jit("void(float64[:], float64, int32)")(simple_round_to)
         ary = np.zeros(1, dtype=np.float64)
         np.random.seed(123)
         vals = np.random.random(32)
@@ -1133,7 +1133,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
     def test_round_to_f8_overflow(self):
         # Test that the input value is returned when y in round_ndigits
         # overflows.
-        compiled = numba_cuda_mlir.jit("void(float64[:], float64, int32)")(simple_round_to)
+        compiled = numba_cuda_mlir.cuda.jit("void(float64[:], float64, int32)")(simple_round_to)
         ary = np.zeros(1, dtype=np.float64)
         val = np.finfo(np.float64).max
         # Unlike test_round_to_f4_overflow, a reasonable number of digits can
@@ -1143,7 +1143,7 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         self.assertEqual(ary[0], val)
 
     def test_round_to_f8_halfway(self):
-        compiled = numba_cuda_mlir.jit("void(float64[:], float64, int32)")(simple_round_to)
+        compiled = numba_cuda_mlir.cuda.jit("void(float64[:], float64, int32)")(simple_round_to)
         ary = np.zeros(1, dtype=np.float64)
         # Value chosen to trigger the "round to even" branch of the
         # implementation, with a value that is not exactly representable with a

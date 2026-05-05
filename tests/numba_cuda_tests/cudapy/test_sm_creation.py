@@ -66,16 +66,16 @@ class TestSharedMemoryCreation(NumbaCUDATestCase):
         return self.getarg().reshape(1, 1)
 
     def test_global_constants(self):
-        udt = numba_cuda_mlir.jit((float32[:],))(udt_global_constants)
+        udt = numba_cuda_mlir.cuda.jit((float32[:],))(udt_global_constants)
         udt[1, 1](self.getarg())
 
     def test_global_build_tuple(self):
-        udt = numba_cuda_mlir.jit((float32[:, :],))(udt_global_build_tuple)
+        udt = numba_cuda_mlir.cuda.jit((float32[:, :],))(udt_global_build_tuple)
         udt[1, 1](self.getarg2())
 
     def test_global_build_list(self):
         with self.assertRaises(TypingError) as raises:
-            numba_cuda_mlir.jit((float32[:, :],))(udt_global_build_list)
+            numba_cuda_mlir.cuda.jit((float32[:, :],))(udt_global_build_list)
 
         self.assertIn(
             "No implementation of function Function(<function array",
@@ -89,13 +89,13 @@ class TestSharedMemoryCreation(NumbaCUDATestCase):
         )
 
     def test_global_constant_tuple(self):
-        udt = numba_cuda_mlir.jit((float32[:, :],))(udt_global_constant_tuple)
+        udt = numba_cuda_mlir.cuda.jit((float32[:, :],))(udt_global_constant_tuple)
         udt[1, 1](self.getarg2())
 
     def test_invalid_1(self):
         # Scalar shape cannot be a floating point value
         with self.assertRaises(TypingError) as raises:
-            numba_cuda_mlir.jit((float32[:],))(udt_invalid_1)
+            numba_cuda_mlir.cuda.jit((float32[:],))(udt_invalid_1)
 
         self.assertIn(
             "No implementation of function Function(<function array",
@@ -110,7 +110,7 @@ class TestSharedMemoryCreation(NumbaCUDATestCase):
     def test_invalid_2(self):
         # Tuple shape cannot contain a floating point value
         with self.assertRaises(TypingError) as raises:
-            numba_cuda_mlir.jit((float32[:, :],))(udt_invalid_2)
+            numba_cuda_mlir.cuda.jit((float32[:, :],))(udt_invalid_2)
 
         self.assertIn(
             "No implementation of function Function(<function array",
@@ -127,7 +127,7 @@ class TestSharedMemoryCreation(NumbaCUDATestCase):
     def test_invalid_3(self):
         # Scalar shape must be literal
         with self.assertRaises(TypingError) as raises:
-            numba_cuda_mlir.jit((int32[:],))(udt_invalid_1)
+            numba_cuda_mlir.cuda.jit((int32[:],))(udt_invalid_1)
 
         self.assertIn(
             "No implementation of function Function(<function array",
@@ -142,7 +142,7 @@ class TestSharedMemoryCreation(NumbaCUDATestCase):
     def test_invalid_4(self):
         # Tuple shape must contain only literals
         with self.assertRaises(TypingError) as raises:
-            numba_cuda_mlir.jit((int32[:],))(udt_invalid_3)
+            numba_cuda_mlir.cuda.jit((int32[:],))(udt_invalid_3)
 
         self.assertIn(
             "No implementation of function Function(<function array",
@@ -164,7 +164,7 @@ class TestSharedMemoryCreation(NumbaCUDATestCase):
 
     def test_numba_dtype(self):
         # Check that Numba types can be used as the dtype of a shared array
-        @numba_cuda_mlir.jit(void(int32[::1]))
+        @numba_cuda_mlir.cuda.jit(void(int32[::1]))
         def f(x):
             s = cuda.shared.array(10, dtype=int32)
             s[0] = x[0]
@@ -174,7 +174,7 @@ class TestSharedMemoryCreation(NumbaCUDATestCase):
 
     def test_numpy_dtype(self):
         # Check that NumPy types can be used as the dtype of a shared array
-        @numba_cuda_mlir.jit(void(int32[::1]))
+        @numba_cuda_mlir.cuda.jit(void(int32[::1]))
         def f(x):
             s = cuda.shared.array(10, dtype=np.int32)
             s[0] = x[0]
@@ -184,7 +184,7 @@ class TestSharedMemoryCreation(NumbaCUDATestCase):
 
     def test_string_dtype(self):
         # Check that strings can be used to specify the dtype of a shared array
-        @numba_cuda_mlir.jit(void(int32[::1]))
+        @numba_cuda_mlir.cuda.jit(void(int32[::1]))
         def f(x):
             s = cuda.shared.array(10, dtype="int32")
             s[0] = x[0]
@@ -197,7 +197,7 @@ class TestSharedMemoryCreation(NumbaCUDATestCase):
         re = ".*Invalid NumPy dtype specified: 'int33'.*"
         with self.assertRaisesRegex(TypingError, re):
 
-            @numba_cuda_mlir.jit(void(int32[::1]))
+            @numba_cuda_mlir.cuda.jit(void(int32[::1]))
             def f(x):
                 s = cuda.shared.array(10, dtype="int33")
                 s[0] = x[0]
@@ -205,7 +205,7 @@ class TestSharedMemoryCreation(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Typing error")
     def test_type_with_struct_data_model(self):
-        @numba_cuda_mlir.jit(void(struct_model_type[::1]))
+        @numba_cuda_mlir.cuda.jit(void(struct_model_type[::1]))
         def f(x):
             s = cuda.shared.array(10, dtype=struct_model_type)
             s[0] = x[0]

@@ -12,7 +12,7 @@ from .cache_usecases import CUDAUseCase
 # Usecase with cooperative groups
 
 
-@numba_cuda_mlir.jit(cache=True)
+@numba_cuda_mlir.cuda.jit(cache=True)
 def cg_usecase_kernel(r, x):
     grid = cuda.cg.this_grid()
     grid.sync()

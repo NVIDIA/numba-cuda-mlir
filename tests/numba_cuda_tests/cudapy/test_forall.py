@@ -9,7 +9,7 @@ from numba_cuda_mlir.testing import NumbaCUDATestCase
 import pytest
 
 
-@numba_cuda_mlir.jit
+@numba_cuda_mlir.cuda.jit
 def foo(x):
     i = cuda.grid(1)
     if i < x.size:
@@ -26,7 +26,7 @@ class TestForAll(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Typing error")
     def test_forall_2(self):
-        @numba_cuda_mlir.jit("void(float32, float32[:], float32[:])")
+        @numba_cuda_mlir.cuda.jit("void(float32, float32[:], float32[:])")
         def bar(a, x, y):
             i = cuda.grid(1)
             if i < x.size:

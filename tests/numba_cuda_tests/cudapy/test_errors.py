@@ -18,7 +18,7 @@ class TestJitErrors(NumbaCUDATestCase):
     """
 
     def test_too_many_dims(self):
-        kernfunc = numba_cuda_mlir.jit(noop)
+        kernfunc = numba_cuda_mlir.cuda.jit(noop)
 
         with self.assertRaises(ValueError) as raises:
             kernfunc[(1, 2, 3, 4), (5, 6)]
@@ -41,7 +41,7 @@ class TestJitErrors(NumbaCUDATestCase):
         )
 
     def test_non_integral_dims(self):
-        kernfunc = numba_cuda_mlir.jit(noop)
+        kernfunc = numba_cuda_mlir.cuda.jit(noop)
 
         with self.assertRaises(TypeError) as raises:
             kernfunc[2.0, 3]
@@ -63,11 +63,11 @@ class TestJitErrors(NumbaCUDATestCase):
         self.assertIn("launch configuration was not specified", str(raises.exception))
 
     def test_unconfigured_typed_cudakernel(self):
-        kernfunc = numba_cuda_mlir.jit("void(int32)")(noop)
+        kernfunc = numba_cuda_mlir.cuda.jit("void(int32)")(noop)
         self._test_unconfigured(kernfunc)
 
     def test_unconfigured_untyped_cudakernel(self):
-        kernfunc = numba_cuda_mlir.jit(noop)
+        kernfunc = numba_cuda_mlir.cuda.jit(noop)
         self._test_unconfigured(kernfunc)
 
     @pytest.mark.xfail(True, reason="Typing error")
@@ -75,12 +75,12 @@ class TestJitErrors(NumbaCUDATestCase):
         # see #5860, this is present to catch changes to error reporting
         # accidentally breaking the CUDA target
 
-        @numba_cuda_mlir.jit(device=True)
+        @numba_cuda_mlir.cuda.jit(device=True)
         def dev_func(x):
             # floor is deliberately not imported for the purpose of this test.
             return floor(x)  # noqa: F821
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel_func():
             dev_func(1.5)
 

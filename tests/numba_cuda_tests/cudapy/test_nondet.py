@@ -20,7 +20,7 @@ class TestCudaNonDet(NumbaCUDATestCase):
         loop precondition.
         """
 
-        @numba_cuda_mlir.jit(void(float32[:, :], float32[:, :], float32[:]))
+        @numba_cuda_mlir.cuda.jit(void(float32[:, :], float32[:, :], float32[:]))
         def diagproduct(c, a, b):
             startX, startY = cuda.grid(2)
             gridX = cuda.gridDim.x * cuda.blockDim.x

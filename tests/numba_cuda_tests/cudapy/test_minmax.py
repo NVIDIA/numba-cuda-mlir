@@ -40,7 +40,7 @@ class TestCudaMinMax(NumbaCUDATestCase):
         dtype_right,
         n=5,
     ):
-        kernel = numba_cuda_mlir.jit(kernel)
+        kernel = numba_cuda_mlir.cuda.jit(kernel)
 
         c = np.zeros(n, dtype=np.float64)
         a = np.arange(n, dtype=dtype_left) + 0.5

@@ -51,7 +51,7 @@ class TestLibdevice(NumbaCUDATestCase):
         sres = np.zeros_like(arr)
         cres = np.zeros_like(arr)
 
-        cufunc = numba_cuda_mlir.jit(use_sincos)
+        cufunc = numba_cuda_mlir.cuda.jit(use_sincos)
         cufunc[4, 32](sres, cres, arr)
 
         np.testing.assert_allclose(np.cos(arr), cres)
@@ -63,7 +63,7 @@ class TestLibdevice(NumbaCUDATestCase):
         fracres = np.zeros_like(arr)
         expres = np.zeros(shape=arr.shape, dtype=np.int32)
 
-        cufunc = numba_cuda_mlir.jit(use_frexp)
+        cufunc = numba_cuda_mlir.cuda.jit(use_frexp)
         cufunc[4, 32](fracres, expres, arr)
 
         frac_expect, exp_expect = np.frexp(arr)
@@ -78,7 +78,7 @@ class TestLibdevice(NumbaCUDATestCase):
         z = np.arange(15, 115)
         r = np.zeros_like(x)
 
-        cufunc = numba_cuda_mlir.jit(use_sad)
+        cufunc = numba_cuda_mlir.cuda.jit(use_sad)
         cufunc[4, 32](r, x, y, z)
 
         np.testing.assert_array_equal(np.abs(x - y) + z, r)

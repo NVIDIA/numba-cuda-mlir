@@ -72,8 +72,7 @@ def filecheck_with_comments(module):
         out, err = map(lambda o: o.decode(), p.communicate(input=op.encode()))
         if p.returncode:
             err = err.replace(tmp.name, inspect.getfile(fun))
-            updated_checks = generate_test_checks(op)
-            raise ValueError(f"\n{err}\n\nUpdated checks:\n{updated_checks}")
+            raise ValueError(f"\n{err}")
 
 
 def filecheck(checks: str, actual: str | bytes | ir.Module):
@@ -109,50 +108,6 @@ def filecheck(checks: str, actual: str | bytes | ir.Module):
             raise ValueError(f"\n{out}\n{err}")
     finally:
         Path(tmp_name).unlink(missing_ok=True)
-
-
-def _strip_gpu_module(mlir_module_str: str):
-    """
-    gpu.module confuses the test generator, so we strip it out before generating checks.
-    """
-    lines = mlir_module_str.strip().splitlines()
-    lines = [line for line in lines if "@numba_cuda_mlir_gpu_module" not in line]
-    lines = list(reversed(lines))
-    for i, line in enumerate(lines):
-        if line.strip() == "}":
-            lines = lines[i + 1 :]
-            break
-    lines = reversed(lines)
-    return "\n".join(lines)
-
-
-def generate_test_checks(mlir_module_str: str | ir.Module, generic=True):
-    mlir_module_str = str(mlir_module_str)
-    stripped_input = _strip_gpu_module(mlir_module_str)
-
-    import numba_cuda_mlir
-
-    root = Path(numba_cuda_mlir.__path__[0]).parent.parent
-    script = root / "scripts" / "generate-test-checks.py"
-
-    result = run(
-        [sys.executable, str(script)],
-        input=stripped_input.encode(),
-        stdout=PIPE,
-        stderr=PIPE,
-    )
-
-    if result.returncode != 0:
-        raise ValueError(
-            result.stderr.decode() + "\n" + stripped_input + "\n" + result.stdout.decode()
-        )
-
-    out = indent(result.stdout.decode().replace("// ", "# "), " " * 4)
-    out = re.sub("# CHECK:", "# CHECK-NEXT:", out)
-    if generic:
-        out = re.sub(r"\[\[\S+:\.\*\]\]", "{{.*}}", out)
-        out = re.sub(r"\[\[[A-Z0-9_]+\]\]", "{{.*}}", out)
-    return out
 
 
 # From legacy Numba-CUDA testsuite

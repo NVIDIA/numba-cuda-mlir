@@ -57,7 +57,7 @@ def make_kernel(vtype):
         3: kernel_3elem,
         4: kernel_4elem,
     }[vtype.num_elements]
-    return numba_cuda_mlir.jit(host_function)
+    return numba_cuda_mlir.cuda.jit(host_function)
 
 
 def make_fancy_creation_kernel(vtype):
@@ -229,7 +229,7 @@ def make_fancy_creation_kernel(vtype):
             res[j + 3] = v.w
             j += 4
 
-    return numba_cuda_mlir.jit(kernel)
+    return numba_cuda_mlir.cuda.jit(kernel)
 
 
 class TestCudaVectorType(NumbaCUDATestCase):
@@ -240,7 +240,7 @@ class TestCudaVectorType(NumbaCUDATestCase):
         tests below tests the vector type objects programmatically.
         """
 
-        @numba_cuda_mlir.jit("void(float64[:])")
+        @numba_cuda_mlir.cuda.jit("void(float64[:])")
         def kernel(arr):
             v1 = cuda.float64x4(1.0, 3.0, 5.0, 7.0)
             v2 = cuda.short2(10, 11)

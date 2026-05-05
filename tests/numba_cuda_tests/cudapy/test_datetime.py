@@ -14,7 +14,7 @@ import pytest
 
 class TestCudaDateTime(NumbaCUDATestCase):
     def test_basic_datetime_kernel(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def foo(start, end, delta):
             for i in range(cuda.grid(1), delta.size, cuda.gridsize(1)):
                 delta[i] = end[i] - start[i]
@@ -28,7 +28,7 @@ class TestCudaDateTime(NumbaCUDATestCase):
         self.assertPreciseEqual(delta, arr2 - arr1)
 
     def test_scalar_datetime_kernel(self):
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def foo(dates, target, delta, matches, outdelta):
             for i in range(cuda.grid(1), matches.size, cuda.gridsize(1)):
                 matches[i] = dates[i] == target
@@ -69,7 +69,7 @@ class TestCudaDateTime(NumbaCUDATestCase):
         )
         datetime_t = from_dtype(cp.dtype("datetime64[D]"))
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def assign(out, arr):
             for i in range(arr.shape[0]):
                 out[i] = arr[i]

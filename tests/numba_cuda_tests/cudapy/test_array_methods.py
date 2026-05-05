@@ -21,7 +21,7 @@ class TestCudaArrayMethods(NumbaCUDATestCase):
         Reinterpret byte array as int32 in the GPU.
         """
         pyfunc = reinterpret_array_type
-        kernel = numba_cuda_mlir.jit(pyfunc)
+        kernel = numba_cuda_mlir.cuda.jit(pyfunc)
 
         byte_arr = np.arange(256, dtype=np.uint8)
         itemsize = np.dtype(np.int32).itemsize
@@ -39,7 +39,7 @@ class TestCudaArrayMethods(NumbaCUDATestCase):
     def test_array_copy(self):
         val = np.array([1, 2, 3])[::-1]
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             q = val.copy()
             for i in range(len(out)):

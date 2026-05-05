@@ -124,7 +124,7 @@ class TestBfloat16HighLevelBindings(NumbaCUDATestCase):
     def test_use_type_in_kernel(self):
         self.skip_unsupported()
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel():
             bfloat16(3.14)
 
@@ -151,7 +151,7 @@ class TestBfloat16HighLevelBindings(NumbaCUDATestCase):
 
         for f in functions:
 
-            @numba_cuda_mlir.jit
+            @numba_cuda_mlir.cuda.jit
             def kernel(arr):
                 x = bfloat16(3.14)
                 y = f(x)
@@ -168,7 +168,7 @@ class TestBfloat16HighLevelBindings(NumbaCUDATestCase):
     def test_arithmetic_intrinsics_basic(self):
         self.skip_unsupported()
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             a = bfloat16(1.25)
             b = bfloat16(-2.5)
@@ -208,7 +208,7 @@ class TestBfloat16HighLevelBindings(NumbaCUDATestCase):
     def test_arithmetic_intrinsics_saturating(self):
         self.skip_unsupported()
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             a = bfloat16(1.5)
             b = bfloat16(0.75)
@@ -234,7 +234,7 @@ class TestBfloat16HighLevelBindings(NumbaCUDATestCase):
     def test_fma_relu_intrinsic(self):
         self.skip_unsupported()
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             a = bfloat16(-1.5)
             b = bfloat16(2.0)
@@ -251,7 +251,7 @@ class TestBfloat16HighLevelBindings(NumbaCUDATestCase):
         self.skip_unsupported()
 
         def make_kernel(cmpfn):
-            @numba_cuda_mlir.jit
+            @numba_cuda_mlir.cuda.jit
             def kernel(out, a, b):
                 a_bf16 = bfloat16(a)
                 b_bf16 = bfloat16(b)
@@ -291,7 +291,7 @@ class TestBfloat16HighLevelBindings(NumbaCUDATestCase):
     def test_hmax_hmin_intrinsics(self):
         self.skip_unsupported()
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             a = bfloat16(3.0)
             b = bfloat16(4.0)
@@ -306,7 +306,7 @@ class TestBfloat16HighLevelBindings(NumbaCUDATestCase):
     def test_nan_and_inf_intrinsics(self):
         self.skip_unsupported()
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out_bool, out_int):
             nanv = bfloat16(float("nan"))
             infv = bfloat16(float("inf"))
@@ -322,7 +322,7 @@ class TestBfloat16HighLevelBindings(NumbaCUDATestCase):
     def test_hmax_nan_hmin_nan_intrinsics(self):
         self.skip_unsupported()
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             a = bfloat16(float("nan"))
             b = bfloat16(2.0)
@@ -343,7 +343,7 @@ class TestBfloat16HighLevelBindings(NumbaCUDATestCase):
     def test_bfloat16_as_bitcast(self):
         self.skip_unsupported()
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def roundtrip_kernel(test_val, i2, u2):
             i2[0] = int16_as_bfloat16(bfloat16_as_int16(test_val))
             u2[0] = uint16_as_bfloat16(bfloat16_as_uint16(test_val))
@@ -359,7 +359,7 @@ class TestBfloat16HighLevelBindings(NumbaCUDATestCase):
     def test_to_integer_conversions(self):
         self.skip_unsupported()
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(test_val, i1, i2, i3, i4, u1, u2, u3, u4):
             a = int16_as_bfloat16(test_val)
 
@@ -422,7 +422,7 @@ class TestBfloat16HighLevelBindings(NumbaCUDATestCase):
 
         test_val = 789
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             i2 = int16(test_val)
             i3 = int32(test_val)
@@ -515,7 +515,7 @@ class TestBfloat16HighLevelBindings(NumbaCUDATestCase):
     def test_to_float_conversions(self):
         self.skip_unsupported()
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             a = bfloat16(1.5)
             out[0] = bfloat16_to_float32(a)
@@ -530,7 +530,7 @@ class TestBfloat16HighLevelBindings(NumbaCUDATestCase):
 
         test_val = 1.5
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def kernel(out):
             f4 = float32(test_val)
             f8 = float64(test_val)

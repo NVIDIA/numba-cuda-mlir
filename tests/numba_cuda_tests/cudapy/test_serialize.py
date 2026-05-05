@@ -41,11 +41,11 @@ class TestPickle(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Typing error")
     def test_pickling_jit_typing(self):
-        @numba_cuda_mlir.jit(device=True)
+        @numba_cuda_mlir.cuda.jit(device=True)
         def inner(a):
             return a + 1
 
-        @numba_cuda_mlir.jit("void(intp[:])")
+        @numba_cuda_mlir.cuda.jit("void(intp[:])")
         def foo(arr):
             arr[0] = inner(arr[0])
 
@@ -53,11 +53,11 @@ class TestPickle(NumbaCUDATestCase):
 
     @pytest.mark.xfail(True, reason="Typing error")
     def test_pickling_jit(self):
-        @numba_cuda_mlir.jit(device=True)
+        @numba_cuda_mlir.cuda.jit(device=True)
         def inner(a):
             return a + 1
 
-        @numba_cuda_mlir.jit
+        @numba_cuda_mlir.cuda.jit
         def foo(arr):
             arr[0] = inner(arr[0])
 

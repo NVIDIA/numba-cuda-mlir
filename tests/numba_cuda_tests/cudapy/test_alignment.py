@@ -14,7 +14,7 @@ class TestAlignment(NumbaCUDATestCase):
         rec_dtype = np.dtype([("a", "int32"), ("b", "float64")], align=True)
         rec = from_dtype(rec_dtype)
 
-        @numba_cuda_mlir.jit((rec[:],))
+        @numba_cuda_mlir.cuda.jit((rec[:],))
         def foo(a):
             i = cuda.grid(1)
             a[i].a = a[i].b
@@ -37,7 +37,7 @@ class TestAlignment(NumbaCUDATestCase):
         msg = "type float64 is not aligned"
         with self.assertRaisesRegex(Exception, msg) as raises:
 
-            @numba_cuda_mlir.jit((rec[:],))
+            @numba_cuda_mlir.cuda.jit((rec[:],))
             def foo(a):
                 i = cuda.grid(1)
                 a[i].a = a[i].b

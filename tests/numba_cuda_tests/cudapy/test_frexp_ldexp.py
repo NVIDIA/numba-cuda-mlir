@@ -19,7 +19,7 @@ def simple_ldexp(aryx, arg, exp):
 
 class TestCudaFrexpLdexp(NumbaCUDATestCase):
     def template_test_frexp(self, nptype, nbtype):
-        compiled = numba_cuda_mlir.jit(void(nbtype[:], int32[:], nbtype))(simple_frexp)
+        compiled = numba_cuda_mlir.cuda.jit(void(nbtype[:], int32[:], nbtype))(simple_frexp)
         arg = 3.1415
         aryx = np.zeros(1, dtype=nptype)
         aryexp = np.zeros(1, dtype=np.int32)
@@ -38,7 +38,7 @@ class TestCudaFrexpLdexp(NumbaCUDATestCase):
         self.assertEqual(aryexp, 0)  # np.frexp gives -1
 
     def template_test_ldexp(self, nptype, nbtype):
-        compiled = numba_cuda_mlir.jit(void(nbtype[:], nbtype, int32))(simple_ldexp)
+        compiled = numba_cuda_mlir.cuda.jit(void(nbtype[:], nbtype, int32))(simple_ldexp)
         arg = 0.785375
         exp = 2
         aryx = np.zeros(1, dtype=nptype)

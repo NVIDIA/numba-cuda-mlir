@@ -72,18 +72,15 @@ from numba_cuda_mlir._mlir.dialects import complex as complex_dialect
 from numba_cuda_mlir.logging import trace
 from numba_cuda_mlir import mlir_debuginfo
 from numba_cuda_mlir.tools import (
-    get_gpu_compute_capability,
     generate_mangled_name,
-    parse_compute_capability,
     get_max_ptx_version,
+    resolve_gpu_target,
 )
 from numba_cuda_mlir.linker import Linker
 from numba_cuda_mlir.memory_management.nrt_mlir import emit_nrt_functions
 from numba_cuda_mlir.nrt_context import MLIRNRTContext
 from numba_cuda_mlir.type_defs.aggregate_types import AggregateType, UnionType
 from numba_cuda_mlir.types import Record
-
-DEFAULT_SM_ARCH = get_gpu_compute_capability()
 
 ERROR_CODE_GLOBAL_NAME = "__numba_cuda_mlir_error_code"
 KERNEL_ERROR_CODES = {
@@ -125,29 +122,14 @@ class MLIRLower(object):
         self.metadata = metadata
         self.flags = targetconfig.ConfigStack.top_or_none()
         self.targetoptions = self.metadata["targetoptions"]
-        if "chip" in self.targetoptions:
-            arch = self.targetoptions["chip"]
-            cc = parse_compute_capability(arch)
-            arch_suffix = arch.removeprefix(f"sm_{cc[0]}{cc[1]}")
-            arch_specific_cc = (*cc, arch_suffix) if arch_suffix in ("a", "f") else cc
-        else:
-            cc = get_gpu_compute_capability(tuple)
-            arch = get_gpu_compute_capability(str)
-            arch_specific_cc = cc
-
+        gpu_target = self.metadata.get("gpu_target") or resolve_gpu_target(self.targetoptions)
+        self.metadata["gpu_target"] = gpu_target
+        self.targetoptions["chip"] = gpu_target["chip"]
+        cc = gpu_target["cc"]
         assert isinstance(cc, tuple)
 
-        # The linker cubin arch must be >= the PTX target. For forward-compat
-        # (e.g. sm_75 PTX on sm_100 host), link for the host. Otherwise
-        # preserve the user's arch string (e.g. sm_100a) for the linker.
-        host_cc = get_gpu_compute_capability(tuple)
-        host_arch = get_gpu_compute_capability(str)
-        if cc < host_cc:
-            linker_cc = host_cc
-            linker_arch = host_arch
-        else:
-            linker_cc = arch_specific_cc
-            linker_arch = arch
+        linker_cc = gpu_target["linker_cc"]
+        linker_arch = gpu_target["linker_arch"]
 
         link_files = list(self.targetoptions.get("link", []))
         has_ltoir_files = any(
@@ -442,7 +424,7 @@ extern "C" __global__ void
         assert self.mlir_module is not None
         with ir.InsertionPoint(self.mlir_module.body) as ip:
             # Derive target attributes from user-provided targetoptions, with sensible defaults
-            chip = 'chip = "' + self.targetoptions.get("chip", DEFAULT_SM_ARCH) + '"'
+            chip = 'chip = "' + self.targetoptions["chip"] + '"'
             opt_level = int(self.targetoptions.get("opt_level", 2))
             flags = []
             if self.targetoptions.get("fastmath", False):

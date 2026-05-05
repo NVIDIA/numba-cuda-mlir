@@ -34,11 +34,11 @@ class _FakeCodegen:
 def test_cache_key_separates_lto_and_non_lto_modes():
     lto_cache = MLIRCache(
         _cached_non_lto_add_kernel,
-        {"lto": True, "output": "ltoir"},
+        {"lto": True, "output": "ltoir", "chip": "sm_80"},
     )
     non_lto_cache = MLIRCache(
         _cached_non_lto_add_kernel,
-        {"lto": False, "output": "ptx"},
+        {"lto": False, "output": "ptx", "chip": "sm_80"},
     )
 
     lto_key = lto_cache._index_key(SIG, _FakeCodegen())
@@ -47,12 +47,30 @@ def test_cache_key_separates_lto_and_non_lto_modes():
     assert lto_key != non_lto_key
 
 
+def test_cache_key_separates_effective_gpu_targets():
+    sm80_cache = MLIRCache(
+        _cached_non_lto_add_kernel,
+        {"lto": False, "output": "ptx", "chip": "sm_80"},
+    )
+    sm90_cache = MLIRCache(
+        _cached_non_lto_add_kernel,
+        {"lto": False, "output": "ptx", "chip": "sm_90"},
+    )
+
+    sm80_key = sm80_cache._index_key(SIG, _FakeCodegen())
+    sm90_key = sm90_cache._index_key(SIG, _FakeCodegen())
+
+    assert sm80_key != sm90_key
+
+
 def test_lto_inspect_asm_and_lto_ptx_are_lazy_paths():
     kernel = cuda.jit(lto=True)(_lto_add_kernel)
     kernel.compile(SIG)
     sig = kernel.signatures[0]
     cres = kernel.overloads[sig]
 
+    assert cres.metadata["targetoptions"]["chip"].startswith("sm_")
+    assert cres.metadata["gpu_target"]["chip"] == cres.metadata["targetoptions"]["chip"]
     assert cres.metadata.get("ptx") == ""
     assert "lto_ptx" not in cres.metadata
 

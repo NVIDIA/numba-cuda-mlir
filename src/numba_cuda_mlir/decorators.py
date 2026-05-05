@@ -12,7 +12,7 @@ import inspect
 import sys
 from textwrap import dedent
 from dataclasses import dataclass
-from numba_cuda_mlir.tools import get_gpu_compute_capability, format_arch
+from numba_cuda_mlir.tools import format_arch
 
 
 @dataclass
@@ -39,6 +39,8 @@ def _verify_opt_level(value: Any, targetoptions: dict[str, Any]) -> str | None:
 
 
 def _verify_chip(value: Any, targetoptions: dict[str, Any]) -> str | None:
+    if value is None:
+        return None
     if not value.startswith("sm_"):
         return f"Expected chip to start with 'sm_', got {value}"
     return None
@@ -132,8 +134,8 @@ def _get_schema() -> tuple[MLIRJITOption, ...]:
         ),
         MLIRJITOption(
             name="chip",
-            types=str,
-            default_value=get_gpu_compute_capability(),
+            types=(str, type(None)),
+            default_value=None,
             help="GPU compute capability used for compilation",
             extra_verification=_verify_chip,
         ),

@@ -1,21 +1,42 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import time
+
+E2E_START = time.perf_counter()
+
 import argparse
 import sys
 from pathlib import Path
 
 import numpy as np
 import math
-import numba.cuda as numba_cuda
-from numba_cuda_mlir import cuda
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from benchmark_utils import (
+    BACKEND_BOTH,
+    BACKEND_NUMBA_CUDA,
+    BACKEND_NUMBA_CUDA_MLIR,
+    add_backend_arg,
     add_compile_mode_arg,
     prepare_compile_measurement,
+    print_compile_times,
+    print_e2e_time,
+    selected_backend_from_argv,
+    should_run_backend,
+    skipped_backend,
     time_compile_sequence,
 )
+
+SELECTED_BACKEND = selected_backend_from_argv()
+if should_run_backend(SELECTED_BACKEND, BACKEND_NUMBA_CUDA):
+    import numba.cuda as numba_cuda
+else:
+    numba_cuda = skipped_backend()
+if should_run_backend(SELECTED_BACKEND, BACKEND_NUMBA_CUDA_MLIR):
+    from numba_cuda_mlir import cuda
+else:
+    cuda = skipped_backend()
 
 N = 512
 B = 64
@@ -299,66 +320,71 @@ def test_cholesky_blocked_benchmark(benchmark_runner):
     benchmark_runner(script=__file__)
 
 
-def run_benchmark_main(compile_mode="cold"):
+def run_benchmark_main(compile_mode="cold", backend=BACKEND_BOTH):
     panel_sig = "void(float64[::1], int64, int64, int64, int64, int32[::1])"
     trsm_sig = "void(float64[::1], int64, int64, int64, int64)"
     syrk_sig = "void(float64[::1], int64, int64, int64, int64)"
-    prepare_compile_measurement(compile_mode)
+    prepare_compile_measurement(compile_mode, backend)
 
-    numba_compile_time = time_compile_sequence(
-        (chol_panel_kernel_numba_cuda, panel_sig),
-        (trsm_right_lower_trans_rows_numba_cuda, trsm_sig),
-        (syrk_rankk_lower_numba_cuda, syrk_sig),
-    )
-    numba_cuda_mlir_compile_time = time_compile_sequence(
-        (chol_panel_kernel_numba_cuda_mlir, panel_sig),
-        (trsm_right_lower_trans_rows_numba_cuda_mlir, trsm_sig),
-        (syrk_rankk_lower_numba_cuda_mlir, syrk_sig),
-    )
+    compile_times = {}
+    if should_run_backend(backend, BACKEND_NUMBA_CUDA):
+        compile_times[BACKEND_NUMBA_CUDA] = time_compile_sequence(
+            (chol_panel_kernel_numba_cuda, panel_sig),
+            (trsm_right_lower_trans_rows_numba_cuda, trsm_sig),
+            (syrk_rankk_lower_numba_cuda, syrk_sig),
+        )
+    if should_run_backend(backend, BACKEND_NUMBA_CUDA_MLIR):
+        compile_times[BACKEND_NUMBA_CUDA_MLIR] = time_compile_sequence(
+            (chol_panel_kernel_numba_cuda_mlir, panel_sig),
+            (trsm_right_lower_trans_rows_numba_cuda_mlir, trsm_sig),
+            (syrk_rankk_lower_numba_cuda_mlir, syrk_sig),
+        )
 
-    print("\n=== COMPILE TIMES ===")
-    print(f"Numba-CUDA: {numba_compile_time:.3f} ms")
-    print(f"numba-cuda-mlir: {numba_cuda_mlir_compile_time:.3f} ms")
+    print_compile_times(compile_times)
 
     n, b = N, B
     A = get_input_matrix()
     h_info = np.zeros(1, dtype=np.int32)
-    d_info = numba_cuda.to_device(h_info)
+    if should_run_backend(backend, BACKEND_NUMBA_CUDA):
+        d_info = numba_cuda.to_device(h_info)
+        d_A = numba_cuda.to_device(A.copy())
+        for k in range(0, n, b):
+            bk = min(b, n - k)
+            rows_below = n - (k + bk)
+            numba_cuda.to_device(np.zeros(1, dtype=np.int32), to=d_info)
+            chol_panel_kernel_numba_cuda[1, 256](d_A, n, k, bk, n, d_info)
+            if rows_below > 0:
+                m = rows_below
+                grid = (m + 255) // 256
+                trsm_right_lower_trans_rows_numba_cuda[grid, 256](d_A, n, k, bk, m)
+                block = (16, 16)
+                grid = ((rows_below + 15) // 16, (rows_below + 15) // 16)
+                syrk_rankk_lower_numba_cuda[grid, block](d_A, n, k, bk, rows_below)
+        numba_cuda.synchronize()
 
-    d_A = numba_cuda.to_device(A.copy())
-    for k in range(0, n, b):
-        bk = min(b, n - k)
-        rows_below = n - (k + bk)
-        numba_cuda.to_device(np.zeros(1, dtype=np.int32), to=d_info)
-        chol_panel_kernel_numba_cuda[1, 256](d_A, n, k, bk, n, d_info)
-        if rows_below > 0:
-            m = rows_below
-            grid = (m + 255) // 256
-            trsm_right_lower_trans_rows_numba_cuda[grid, 256](d_A, n, k, bk, m)
-            block = (16, 16)
-            grid = ((rows_below + 15) // 16, (rows_below + 15) // 16)
-            syrk_rankk_lower_numba_cuda[grid, block](d_A, n, k, bk, rows_below)
-    numba_cuda.synchronize()
+    if should_run_backend(backend, BACKEND_NUMBA_CUDA_MLIR):
+        d_info = cuda.to_device(h_info)
+        d_A = cuda.to_device(A.copy())
+        for k in range(0, n, b):
+            bk = min(b, n - k)
+            rows_below = n - (k + bk)
+            cuda.to_device(np.zeros(1, dtype=np.int32), to=d_info)
+            chol_panel_kernel_numba_cuda_mlir[1, 256](d_A, n, k, bk, n, d_info)
+            if rows_below > 0:
+                m = rows_below
+                grid = (m + 255) // 256
+                trsm_right_lower_trans_rows_numba_cuda_mlir[grid, 256](d_A, n, k, bk, m)
+                block = (16, 16)
+                grid = ((rows_below + 15) // 16, (rows_below + 15) // 16)
+                syrk_rankk_lower_numba_cuda_mlir[grid, block](d_A, n, k, bk, rows_below)
+        cuda.synchronize()
 
-    d_info = cuda.to_device(h_info)
-    d_A = cuda.to_device(A.copy())
-    for k in range(0, n, b):
-        bk = min(b, n - k)
-        rows_below = n - (k + bk)
-        cuda.to_device(np.zeros(1, dtype=np.int32), to=d_info)
-        chol_panel_kernel_numba_cuda_mlir[1, 256](d_A, n, k, bk, n, d_info)
-        if rows_below > 0:
-            m = rows_below
-            grid = (m + 255) // 256
-            trsm_right_lower_trans_rows_numba_cuda_mlir[grid, 256](d_A, n, k, bk, m)
-            block = (16, 16)
-            grid = ((rows_below + 15) // 16, (rows_below + 15) // 16)
-            syrk_rankk_lower_numba_cuda_mlir[grid, block](d_A, n, k, bk, rows_below)
-    cuda.synchronize()
+    print_e2e_time(backend, E2E_START)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Blocked Cholesky benchmark")
     add_compile_mode_arg(parser)
+    add_backend_arg(parser)
     args = parser.parse_args()
-    run_benchmark_main(args.compile_mode)
+    run_benchmark_main(args.compile_mode, args.backend)

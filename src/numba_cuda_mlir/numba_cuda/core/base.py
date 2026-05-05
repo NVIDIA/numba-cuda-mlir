@@ -233,6 +233,7 @@ class BaseContext:
         self._generators = {}
         self.special_ops = {}
         self.cached_internal_func = {}
+        self._registered_builder_cache = {}
         self._pid = None
         self._codelib_stack = []
 
@@ -420,6 +421,7 @@ class BaseContext:
         self._insert_get_constant_defn(constants)
 
     def insert_func_defn(self, defns):
+        self._clear_registered_builder_cache()
         for impl, func, sig in defns:
             self._defns[func].append(impl, sig)
 
@@ -440,6 +442,7 @@ class BaseContext:
             self._get_constants.append(impl, sig)
 
     def insert_user_function(self, func, fndesc, libs=()):
+        self._clear_registered_builder_cache()
         impl = user_function(fndesc, libs)
         self._defns[func].append(impl, impl.signature)
 
@@ -453,7 +456,11 @@ class BaseContext:
         Remove user function *func*.
         KeyError is raised if the function isn't known to us.
         """
+        self._clear_registered_builder_cache()
         del self._defns[func]
+
+    def _clear_registered_builder_cache(self):
+        self._registered_builder_cache.clear()
 
     def get_external_function_type(self, fndesc):
         argtypes = [self.get_argument_type(aty) for aty in fndesc.argtypes]

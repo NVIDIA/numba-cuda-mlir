@@ -4,8 +4,6 @@
 import time
 import numpy as np
 import math
-from numba_cuda_mlir.numba_cuda import types
-
 import numba.cuda as numba_cuda
 from numba_cuda_mlir import cuda
 
@@ -292,16 +290,9 @@ def test_cholesky_blocked_benchmark(benchmark_runner):
 
 
 def run_benchmark_main():
-    panel_sig = types.void(
-        types.float64[::1],
-        types.int64,
-        types.int64,
-        types.int64,
-        types.int64,
-        types.int32[::1],
-    )
-    trsm_sig = types.void(types.float64[::1], types.int64, types.int64, types.int64, types.int64)
-    syrk_sig = types.void(types.float64[::1], types.int64, types.int64, types.int64, types.int64)
+    panel_sig = "void(float64[::1], int64, int64, int64, int64, int32[::1])"
+    trsm_sig = "void(float64[::1], int64, int64, int64, int64)"
+    syrk_sig = "void(float64[::1], int64, int64, int64, int64)"
 
     start = time.perf_counter()
     chol_panel_kernel_numba_cuda.compile(panel_sig)

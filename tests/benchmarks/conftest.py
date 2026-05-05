@@ -136,13 +136,14 @@ def _parse_compile_times(stdout):
         if in_section:
             if line.startswith("==="):
                 break
-            match = re.search(
-                r"(Numba-CUDA|numba-cuda-mlir).*?:\s*([\d.]+)\s*ms", line, re.IGNORECASE
-            )
+            match = re.search(r"^\s*([^:]+):\s*([\d.]+)\s*ms", line, re.IGNORECASE)
             if match:
-                variant = match.group(1).lower()
-                time_ms = float(match.group(2))
-                compile_times[variant] = time_ms
+                variant = {
+                    "numba-cuda": "numba-cuda",
+                    "numba-cuda-mlir": "numba_cuda_mlir",
+                }.get(match.group(1).strip().lower())
+                if variant is not None:
+                    compile_times[variant] = float(match.group(2))
 
     return compile_times
 

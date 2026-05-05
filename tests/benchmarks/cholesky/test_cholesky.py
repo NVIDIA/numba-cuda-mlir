@@ -4,8 +4,6 @@
 import time
 import numpy as np
 import math
-from numba_cuda_mlir.numba_cuda import types
-
 import numba.cuda as numba_cuda
 from numba_cuda_mlir import cuda
 
@@ -181,14 +179,8 @@ def test_cholesky_benchmark(benchmark_runner):
 
 
 def run_benchmark_main():
-    diag_sig = types.void(
-        types.float64[::1],
-        types.float64[::1],
-        types.int64,
-        types.int64,
-        types.int32[::1],
-    )
-    col_sig = types.void(types.float64[::1], types.float64[::1], types.int64, types.int64)
+    diag_sig = "void(float64[::1], float64[::1], int64, int64, int32[::1])"
+    col_sig = "void(float64[::1], float64[::1], int64, int64)"
 
     start = time.perf_counter()
     chol_compute_diag_numba_cuda.compile(diag_sig)

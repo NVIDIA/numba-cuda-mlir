@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from numba_cuda_mlir.descriptor import MLIRDispatcherType
-from functools import lru_cache
 from io import StringIO
 import logging
 import operator
@@ -1677,27 +1676,24 @@ extern "C" __global__ void
         signature: typing.Signature | tuple[types.Type, ...],
     ) -> Builder | None:
         """
-        After doing the work to find the code generator for the function
-        and signature if it exists, filter out any builders that do not
-        originate in numba_cuda_mlir.
-
-        TODO: Instead, filter _out_ builders coming from Numba by overriding
-        methods in the target
+        After doing the work to find the code generator for the function and
+        signature if it exists, return it.
         """
         trace("fn: %s, signature: %s", fn, signature)
-        if builder := self._get_registered_builder(fn, signature):
-            if self._assume_builder_is_usable_for_mlir(builder):
-                return builder
-        return None
+        cache_key = (fn, signature)
+        try:
+            hash(cache_key)
+        except TypeError:
+            builder = self._get_registered_builder(fn, signature)
+        else:
+            cache = self.context._registered_builder_cache
+            if cache_key in cache:
+                return cache[cache_key]
+            builder = self._get_registered_builder(fn, signature)
+            cache[cache_key] = builder
+            return builder
 
-    @lru_cache(maxsize=None)
-    def _filter_out_numba_builders(self, fn) -> None:
-        overload_selector = self.context._defns[fn]
-        overload_selector.versions = [
-            version
-            for version in overload_selector.versions
-            if self._assume_builder_is_usable_for_mlir(version[-1])
-        ]
+        return builder
 
     def _lookup_actual_function(self, fn, signature) -> Builder | None:
         """
@@ -1707,7 +1703,6 @@ extern "C" __global__ void
         """
         #        if callable(fn) and fn in self.context._defns:
         if fn in self.context._defns:
-            self._filter_out_numba_builders(fn)
             try:
                 impl = self.context.get_function(fn, signature)
                 return impl._callable.func
@@ -1778,8 +1773,7 @@ extern "C" __global__ void
             if has_arrays:
                 return None
             full_sig, maybe_builder = fn._defn(self, *signature.args)
-            if maybe_builder and self._assume_builder_is_usable_for_mlir(maybe_builder):
-                return maybe_builder
+            return maybe_builder
 
         if isinstance(fn, DeferredLowering):
             return fn
@@ -2121,18 +2115,6 @@ extern "C" __global__ void
             self.incref(elem_type, val)
         self.store_var(target, tuple(values))
 
-    def _assume_builder_is_usable_for_mlir(self, object):
-        module = getattr(object, "__module__", None) or ""
-        is_numba = module.startswith("numba_cuda_mlir.numba_cuda.")
-        is_cccl = module.startswith("cuda.coop")
-        trace(
-            "\n\tis object %s defined in numba?: %s, in cccl?: %s",
-            object,
-            is_numba,
-            is_cccl,
-        )
-        return not (is_numba or is_cccl)
-
     def _is_extension_cast(self, cast_impl):
         """True only for third-party extension casts (e.g. cuDF).
 
@@ -2169,8 +2151,7 @@ extern "C" __global__ void
         trace("target_type=%s, value_type=%s, attr=%s", target_type, value_type, attr)
         try:
             if builder := self.context.get_getattr(value_type, attr):
-                if self._assume_builder_is_usable_for_mlir(builder):
-                    return builder
+                return builder
         except NotImplementedError:
             # No registered builder - will be handled by explicit lowering in lower_getattr_assign
             pass

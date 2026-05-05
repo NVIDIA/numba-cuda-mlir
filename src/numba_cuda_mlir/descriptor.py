@@ -944,10 +944,15 @@ class MLIRDispatcherType(types.Dispatcher):
 class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     _fold_args = False
     targetdescr = mlir_target
+    _contexts_prewarmed = False
 
     def __init__(self, py_func, targetoptions=None):
         if targetoptions is None:
             targetoptions = {}
+        if not MLIRDispatcher._contexts_prewarmed:
+            mlir_target.typing_context.refresh()
+            mlir_target.target_context.refresh()
+            MLIRDispatcher._contexts_prewarmed = True
         # AST transforms now happen at compile time (in compile_mlir) when we
         # have the signature (argtypes) available. This allows consteval to
         # access argument types and target options.

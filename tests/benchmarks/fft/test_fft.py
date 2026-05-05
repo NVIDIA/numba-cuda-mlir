@@ -181,8 +181,8 @@ def test_fft_benchmark(benchmark_runner):
 
 
 def run_benchmark_main():
-    permute_sig = types.void(types.complex64[::1], types.complex64[::1], types.int64, types.int64)
-    stage_sig = types.void(types.complex64[::1], types.int64, types.int64, types.int64)
+    permute_sig = "void(complex64[::1], complex64[::1], int64, int64)"
+    stage_sig = "void(complex64[::1], int64, int64, int64)"
 
     start = time.perf_counter()
     bitreverse_permute_numba_cuda.compile(permute_sig)

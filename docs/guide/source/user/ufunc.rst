@@ -5,6 +5,9 @@
 CUDA Ufuncs and Generalized Ufuncs
 ==================================
 
+.. warning:: Ufuncs and Generalized Ufuncs are not yet supported in Numba CUDA
+   MLIR.
+
 This page describes the CUDA ufunc-like object.
 
 To support the programming pattern of CUDA programs, CUDA Vectorize and

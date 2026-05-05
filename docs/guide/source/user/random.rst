@@ -5,25 +5,32 @@
 
 .. _cuda-random:
 
-Random Number Generation
-========================
+Random Number Generation (Deprecated)
+=====================================
 
-Numba provides a random number generation algorithm that can be executed on
-the GPU.  Due to technical issues with how NVIDIA implemented cuRAND, however,
-Numba's GPU random number generator is not based on cuRAND.  Instead, Numba's
-GPU RNG is an implementation of the `xoroshiro128+ algorithm
+.. warning:: The ``cuda.random`` module is deprecated in Numba CUDA MLIR and is
+   only provided for backward compatibility with code written for Numba CUDA. It
+   may be removed in future.
+
+   Users are encouraged to use the nvmath-python `cuRAND device APIs
+   <https://docs.nvidia.com/cuda/nvmath-python/latest/device-apis/curand.html>`_
+   for random number generation.
+
+Numba CUDA MLIR provides a random number generation algorithm that can be
+executed on the GPU. Numba CUDA MLIR's GPU random number generator is not based
+on cuRAND. Instead, it implements the `xoroshiro128+ algorithm
 <http://xoroshiro.di.unimi.it/>`_. The xoroshiro128+ algorithm has a period of
-``2**128 - 1``, which is shorter than the period of the XORWOW algorithm
-used by default in cuRAND, but xoroshiro128+ still passes the BigCrush tests
-of random number generator quality.
+``2**128 - 1``, which is shorter than the period of the XORWOW algorithm used by
+default in cuRAND, but xoroshiro128+ still passes the BigCrush tests of random
+number generator quality.
 
 When using any RNG on the GPU, it is important to make sure that each thread
 has its own RNG state, and they have been initialized to produce non-overlapping
-sequences.  The  numba.cuda.random module provides a host function to do this,
-as well as CUDA device functions to obtain uniformly or normally distributed
-random numbers.
+sequences.  The ``numba_cuda_mlir.cuda.random`` module provides a host function
+to do this, as well as CUDA device functions to obtain uniformly or normally
+distributed random numbers.
 
-.. note:: Numba (like cuRAND) uses the
+.. note:: Numba CUDA MLIR (like cuRAND) uses the
     `Box-Muller transform <https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform>`_
     to generate normally distributed random numbers from a uniform generator.
     However, Box-Muller generates pairs of random numbers, and the current
@@ -85,9 +92,8 @@ Instead, it uses a fixed size 3D grid with a total of 2,097,152 (``(16 ** 3) *
 ``tid``, to index into the 2,097,152 RNG states.
 
 
-.. literalinclude:: ../../../numba_cuda/numba/cuda/tests/doc_examples/test_random.py
+.. literalinclude:: ../../../../tests/doc_examples/test_random.py
    :language: python
-   :caption: from ``test_ex_3d_grid`` of ``numba/cuda/tests/doc_example/test_random.py``
    :start-after: magictoken.ex_3d_grid.begin
    :end-before: magictoken.ex_3d_grid.end
    :dedent: 8

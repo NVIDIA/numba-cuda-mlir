@@ -9,8 +9,8 @@ Cooperative Groups
 Supported features
 ------------------
 
-Numba's Cooperative Groups support presently provides grid groups and grid
-synchronization, along with cooperative kernel launches.
+Numba CUDA MLIR's Cooperative Groups support presently provides grid groups and
+grid synchronization, along with cooperative kernel launches.
 
 Cooperative groups are supported on Linux, and Windows for devices in `TCC
 mode
@@ -38,9 +38,10 @@ Synchronizing the grid is done with the :meth:`sync()
 Cooperative Launches
 --------------------
 
-Unlike the CUDA C/C++ API, a cooperative launch is invoked using the same syntax
-as a normal kernel launch - Numba automatically determines whether a cooperative
-launch is required based on whether a grid group is synchronized in the kernel.
+Unlike the CUDA C++ API, a cooperative launch is invoked using the same syntax
+as a normal kernel launch - Numba CUDA MLIR automatically determines whether a
+cooperative launch is required based on whether a grid group is synchronized in
+the kernel.
 
 The grid size limit for a cooperative launch is more restrictive than for a
 normal launch - the grid must be no larger than the maximum number of active
@@ -49,7 +50,7 @@ cooperative launch of a kernel with a given block size and dynamic shared
 memory requirement, use the ``max_cooperative_grid_blocks()`` method of kernel
 overloads:
 
-.. automethod:: numba.cuda.dispatcher._Kernel.max_cooperative_grid_blocks
+.. automethod:: numba_cuda_mlir.cuda.dispatcher._Kernel.max_cooperative_grid_blocks
 
 This can be used to ensure that the kernel is launched with no more than the
 maximum number of blocks. Exceeding the maximum number of blocks for the
@@ -72,9 +73,8 @@ of threads in other blocks, or fail to see updates from their opposite thread.
 
 First we'll define our kernel:
 
-.. literalinclude:: ../../../numba_cuda/numba/cuda/tests/doc_examples/test_cg.py
+.. literalinclude:: ../../../../tests/doc_examples/test_cg.py
    :language: python
-   :caption: from ``test_grid_sync`` of ``numba/cuda/tests/doc_example/test_cg.py``
    :start-after: magictoken.ex_grid_sync_kernel.begin
    :end-before: magictoken.ex_grid_sync_kernel.end
    :dedent: 8
@@ -82,9 +82,8 @@ First we'll define our kernel:
 
 Then create some empty input data and determine the grid and block sizes:
 
-.. literalinclude:: ../../../numba_cuda/numba/cuda/tests/doc_examples/test_cg.py
+.. literalinclude:: ../../../../tests/doc_examples/test_cg.py
    :language: python
-   :caption: from ``test_grid_sync`` of ``numba/cuda/tests/doc_example/test_cg.py``
    :start-after: magictoken.ex_grid_sync_data.begin
    :end-before: magictoken.ex_grid_sync_data.end
    :dedent: 8
@@ -92,9 +91,8 @@ Then create some empty input data and determine the grid and block sizes:
 
 Finally we launch the kernel and print the result:
 
-.. literalinclude:: ../../../numba_cuda/numba/cuda/tests/doc_examples/test_cg.py
+.. literalinclude:: ../../../../tests/doc_examples/test_cg.py
    :language: python
-   :caption: from ``test_grid_sync`` of ``numba/cuda/tests/doc_example/test_cg.py``
    :start-after: magictoken.ex_grid_sync_launch.begin
    :end-before: magictoken.ex_grid_sync_launch.end
    :dedent: 8
@@ -109,4 +107,4 @@ The maximum grid size for ``sequential_rows`` can be enquired using:
    overload = sequential_rows.overloads[(int32[:,::1],)
    max_blocks = overload.max_cooperative_grid_blocks(blockdim)
    print(max_blocks)
-   # 1152 (e.g. on Quadro RTX 8000 with Numba 0.52.1 and CUDA 11.0)
+   # 1152 (e.g. on Quadro RTX 8000)

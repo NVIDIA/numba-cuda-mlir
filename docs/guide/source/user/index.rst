@@ -13,7 +13,6 @@ User guide
    installation.rst
    kernels.rst
    memory.rst
-   device-functions.rst
    globals.rst
    cudapysupported.rst
    fastmath.rst
@@ -23,16 +22,9 @@ User guide
    device-management.rst
    examples.rst
    debugging.rst
-   simulator.rst
    reduction.rst
    ufunc.rst
    ipc.rst
-   cuda_array_interface.rst
-   external-memory.rst
-   bindings.rst
    cuda_ffi.rst
    cuda_compilation.rst
    callconv.rst
-   caching.rst
-   minor_version_compatibility.rst
-   faq.rst

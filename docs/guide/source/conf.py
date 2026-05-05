@@ -9,8 +9,8 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = "Numba CUDA"
-copyright = "2012-2024 Anaconda Inc. 2024, NVIDIA Corporation."
+project = "Numba CUDA MLIR"
+copyright = "2012-2024 Anaconda Inc. 2024-2026, NVIDIA Corporation."
 author = "NVIDIA Corporation"
 
 # -- General configuration ---------------------------------------------------

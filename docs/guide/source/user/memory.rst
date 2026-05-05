@@ -2,46 +2,58 @@
    SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
    SPDX-License-Identifier: BSD-2-Clause
 
+.. _cuda-device-memory:
+
 =================
 Memory management
 =================
 
-.. _cuda-device-memory:
+Even though Numba CUDA MLIR can automatically transfer NumPy arrays to the
+device, it can only do so conservatively by always transferring device memory
+back to the host when a kernel finishes. To avoid the unnecessary transfer for
+read-only arrays, it is recommended that applications pass `PyTorch Tensors
+<https://docs.pytorch.org/tutorials/beginner/introyt/tensors_deeper_tutorial.html>`_
+or `CuPy arrays <https://docs.cupy.dev/en/stable/user_guide/basic.html>`_ to
+kernels instead.
 
-Data transfer
-=============
+Numba CUDA MLIR provides APIs for transferring data to the device and creating
+and managing arrays on the device, but these are intended for compatibility with
+existing code that was written using Numba and Numba-CUDA; they are not
+recommended for use in new code.
 
-Even though Numba can automatically transfer NumPy arrays to the device,
-it can only do so conservatively by always transferring device memory back to
-the host when a kernel finishes. To avoid the unnecessary transfer for
-read-only arrays, you can use the following APIs to manually control the
-transfer:
+Backward Compatibility APIs
+===========================
 
-.. autofunction:: numba.cuda.device_array
-   :noindex:
-.. autofunction:: numba.cuda.device_array_like
-   :noindex:
-.. autofunction:: numba.cuda.to_device
-   :noindex:
-
-In addition to the device arrays, Numba can consume any object that implements
-:ref:`cuda array interface <cuda-array-interface>`.  These objects also can be
-manually converted into a Numba device array by creating a view of the GPU
-buffer using the following APIs:
-
-.. autofunction:: numba.cuda.as_cuda_array
-  :noindex:
-.. autofunction:: numba.cuda.is_cuda_array
-  :noindex:
-
-
-Device arrays
+Data Transfer
 -------------
 
-Device array references have the following methods.  These methods are to be
-called in host code, not within CUDA-jitted functions.
+The following APIs to manually control transfer of host arrays to the device:
 
-.. autoclass:: numba.cuda.cudadrv.devicearray.DeviceNDArray
+.. autofunction:: numba_cuda_mlir.cuda.device_array
+   :noindex:
+.. autofunction:: numba_cuda_mlir.cuda.device_array_like
+   :noindex:
+.. autofunction:: numba_cuda_mlir.cuda.to_device
+   :noindex:
+
+In addition to the device arrays, Numba CUDA MLIR can consume any object that
+implements the :ref:`CUDA Array Interface <cuda-array-interface>`. These objects
+also can be manually converted into a Numba device array by creating a view of
+the GPU buffer using the following APIs:
+
+.. autofunction:: numba_cuda_mlir.cuda.as_cuda_array
+  :noindex:
+.. autofunction:: numba_cuda_mlir.cuda.is_cuda_array
+  :noindex:
+
+
+Device Arrays
+-------------
+
+Numba CUDA MLIR Device Arrays have the following methods. These methods are to be
+called in host code, not within kernels.
+
+.. autoclass:: numba_cuda_mlir.numba_cuda.cudadrv.devicearray.DeviceNDArray
     :members: copy_to_host, is_c_contiguous, is_f_contiguous, ravel, reshape
     :noindex:
 
@@ -49,34 +61,34 @@ called in host code, not within CUDA-jitted functions.
 .. note:: DeviceNDArray defines the :ref:`cuda array interface <cuda-array-interface>`.
 
 
-Pinned memory
-=============
+Pinned Memory
+-------------
 
-.. autofunction:: numba.cuda.pinned
+.. autofunction:: numba_cuda_mlir.cuda.pinned
    :noindex:
-.. autofunction:: numba.cuda.pinned_array
+.. autofunction:: numba_cuda_mlir.cuda.pinned_array
    :noindex:
-.. autofunction:: numba.cuda.pinned_array_like
+.. autofunction:: numba_cuda_mlir.cuda.pinned_array_like
    :noindex:
 
 
-Mapped memory
-=============
+Mapped Memory
+-------------
 
-.. autofunction:: numba.cuda.mapped
+.. autofunction:: numba_cuda_mlir.cuda.mapped
    :noindex:
-.. autofunction:: numba.cuda.mapped_array
+.. autofunction:: numba_cuda_mlir.cuda.mapped_array
    :noindex:
-.. autofunction:: numba.cuda.mapped_array_like
+.. autofunction:: numba_cuda_mlir.cuda.mapped_array_like
    :noindex:
 
 
 .. _cuda-managed-memory:
 
-Managed memory
-==============
+Managed Memory
+--------------
 
-.. autofunction:: numba.cuda.managed_array
+.. autofunction:: numba_cuda_mlir.cuda.managed_array
    :noindex:
 
 
@@ -85,26 +97,32 @@ Streams
 
 Streams can be passed to functions that accept them (e.g. copies between the
 host and device) and into kernel launch configurations so that the operations
-are executed asynchronously.
+are executed asynchronously. Use of `cuda.core streams
+<https://nvidia.github.io/cuda-python/cuda-core/latest/generated/cuda.core.Stream.html>`_
+is recommended; stream constructors provided by Numba CUDA MLIR are for backward
+compatibility with code written for Numba and Numba-CUDA.
 
-.. autofunction:: numba.cuda.stream
+Backward Compatibility Constructors
+-----------------------------------
+
+.. autofunction:: numba_cuda_mlir.cuda.stream
    :noindex:
 
-.. autofunction:: numba.cuda.default_stream
+.. autofunction:: numba_cuda_mlir.cuda.default_stream
    :noindex:
 
-.. autofunction:: numba.cuda.legacy_default_stream
+.. autofunction:: numba_cuda_mlir.cuda.legacy_default_stream
    :noindex:
 
-.. autofunction:: numba.cuda.per_thread_default_stream
+.. autofunction:: numba_cuda_mlir.cuda.per_thread_default_stream
    :noindex:
 
-.. autofunction:: numba.cuda.external_stream
+.. autofunction:: numba_cuda_mlir.cuda.external_stream
    :noindex:
 
 CUDA streams have the following methods:
 
-.. autoclass:: numba.cuda.cudadrv.driver.Stream
+.. autoclass:: numba_cuda_mlir.numba_cuda.cudadrv.driver.Stream
     :members: synchronize, auto_synchronize
     :noindex:
 
@@ -123,7 +141,7 @@ manually-managed data cache.
 The memory is allocated once for the duration of the kernel, unlike
 traditional dynamic memory management.
 
-.. function:: numba.cuda.shared.array(shape, type)
+.. function:: numba_cuda_mlir.cuda.shared.array(shape, type)
    :noindex:
 
    Allocate a shared array of the given *shape* and *type* on the device.
@@ -149,7 +167,7 @@ traditional dynamic memory management.
    shared array and then wait for all threads to finish using :func:`.syncthreads`.
 
 
-.. function:: numba.cuda.syncthreads()
+.. function:: numba_cuda_mlir.cuda.syncthreads()
    :noindex:
 
    Synchronize all threads in the same thread block.  This function
@@ -192,7 +210,7 @@ For example, consider:
 
 .. code-block:: python
 
-   from numba import cuda
+   from numba_cuda_mlir import cuda
    import numpy as np
 
    @cuda.jit
@@ -224,7 +242,7 @@ If we take disjoint views of the dynamic shared memory:
 
 .. code-block:: python
 
-   from numba import cuda
+   from numba_cuda_mlir import cuda
    import numpy as np
 
    @cuda.jit
@@ -259,7 +277,7 @@ memory helps allocate some scratchpad area when scalar local variables
 are not enough.  The memory is allocated once for the duration of the kernel,
 unlike traditional dynamic memory management.
 
-.. function:: numba.cuda.local.array(shape, type)
+.. function:: numba_cuda_mlir.cuda.local.array(shape, type)
    :noindex:
 
    Allocate a local array of the given *shape* and *type* on the device.
@@ -281,9 +299,7 @@ unlike traditional dynamic memory management.
    the current thread. An array-like object is returned which can be read and
    written to like any standard array (e.g. through indexing).
 
-   .. seealso:: The Local Memory section of `Device Memory Accesses
-      <https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#device-memory-accesses>`_
-      in the CUDA programming guide.
+   .. seealso:: The `Local Memory Section <https://docs.nvidia.com/cuda/cuda-programming-guide/02-basics/writing-cuda-kernels.html#local-memory>`_ in the CUDA Programming Guide.
 
 Constant memory
 ===============
@@ -292,7 +308,7 @@ Constant memory is an area of memory that is read only, cached and off-chip, it
 is accessible by all threads and is host allocated. A method of
 creating an array in constant memory is through the use of:
 
-.. function:: numba.cuda.const.array_like(arr)
+.. function:: numba_cuda_mlir.cuda.const.array_like(arr)
    :noindex:
 
    Allocate and make accessible an array in constant memory based on array-like
@@ -304,10 +320,11 @@ creating an array in constant memory is through the use of:
 Deallocation Behavior
 =====================
 
-This section describes the deallocation behaviour of Numba's internal memory
-management. If an External Memory Management Plugin is in use (see
-:ref:`cuda-emm-plugin`), then deallocation behaviour may differ; you may refer to the
-documentation for the EMM Plugin to understand its deallocation behaviour.
+This section describes the deallocation behaviour of Numba CUDA MLIR's internal
+memory management. If an External Memory Management Plugin is in use (see
+:ref:`cuda-emm-plugin`), then deallocation behaviour may differ; you may refer
+to the documentation for the EMM Plugin to understand its deallocation
+behaviour.
 
 Deallocation of all CUDA resources are tracked on a per-context basis.
 When the last reference to a device memory is dropped, the underlying memory
@@ -347,4 +364,4 @@ Sometimes, it is desired to defer resource deallocation until a code section
 ends.  Most often, users want to avoid any implicit synchronization due to
 deallocation.  This can be done by using the following context manager:
 
-.. autofunction:: numba.cuda.defer_cleanup
+.. autofunction:: numba_cuda_mlir.cuda.defer_cleanup

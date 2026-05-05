@@ -2,9 +2,14 @@
    SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
    SPDX-License-Identifier: BSD-2-Clause
 
-===================
-Sharing CUDA Memory
-===================
+========================
+IPC Support (Deprecated)
+========================
+
+.. warning:: IPC support is deprecated and only provided for backwards
+   compatibility with code written for Numba-CUDA. Users are encouraged to use
+   the IPC facilities of another library that provides CUDA arrays, such as
+   CuPy, PyTorch, etc.
 
 .. _cuda-ipc-memory:
 
@@ -24,10 +29,10 @@ array to get a ``IpcArrayHandle`` object, which can be transferred to another
 process.
 
 
-.. automethod:: numba.cuda.cudadrv.devicearray.DeviceNDArray.get_ipc_handle
+.. automethod:: numba_cuda_mlir.numba_cuda.cudadrv.devicearray.DeviceNDArray.get_ipc_handle
     :noindex:
 
-.. autoclass:: numba.cuda.cudadrv.devicearray.IpcArrayHandle
+.. autoclass:: numba_cuda_mlir.numba_cuda.cudadrv.devicearray.IpcArrayHandle
     :members: open, close
 
 
@@ -37,4 +42,4 @@ Import IPC memory from another process
 The following function is used to open IPC handle from another process
 as a device array.
 
-.. automethod:: numba.cuda.open_ipc_array
+.. autofunction:: numba_cuda_mlir.cuda.open_ipc_array

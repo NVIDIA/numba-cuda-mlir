@@ -8,30 +8,24 @@
 CUDA device call conventions
 ============================
 
-Numba-CUDA supports two ABIs for device functions:
+Numba CUDA MLIR supports two ABIs for device functions:
 
-- The **Numba ABI**, used internally by Numba for most compiled device code.
-- The **C ABI**, intended for interoperability with CUDA C/C++ style calls.
-
-.. important::
-
-   This is a major deviation from upstream Numba behavior: Numba-CUDA supports
-   arbitrary nesting between these ABIs. A Numba-ABI function can call a
-   C-ABI function, which can call a Numba-ABI function, and so on.
+- The **Numba CUDA MLIR ABI**, used internally for most compiled device code.
+- The **C ABI**, intended for interoperability with CUDA C++ style calls.
 
 
 ABI overview
 ------------
 
-Numba ABI
-~~~~~~~~~
+Numba CUDA MLIR ABI
+~~~~~~~~~~~~~~~~~~~
 
-The Numba ABI is described in :ref:`device-function-abi` (without the
+The Numba CUDA MLIR ABI is described in :ref:`device-function-abi` (without the
 ``extern "C"`` modifier):
 
 - The function has a **status return code**.
 - The Python return value is passed via a **pointer in the first argument**.
-- Function names are mangled using Numba's mangling rules.
+- Function names are mangled using Numba CUDA MLIR's mangling rules.
 - Optional returns and exception status can be represented via the status
   channel.
 
@@ -59,18 +53,19 @@ The table below summarizes what happens at each call edge:
    :widths: 22 39 39
 
    * - Caller / Callee
-     - Numba ABI callee
+     - Numba CUDA MLIR ABI callee
      - C ABI callee
-   * - Numba ABI caller
-     - Numba-to-Numba call. Uses Numba ABI marshalling (status + return
+   * - Numba CUDA MLIR ABI caller
+     - NCM-to-NCM call. Uses Numba CUDA MLIR ABI marshalling (status + return
        pointer), and propagates lower-frame error status.
      - Mixed call. Arguments / return are marshalled using the callee's C ABI
        signature. No callee status channel exists to propagate Python-exception
        status from the callee.
    * - C ABI caller
-     - Mixed call. The call is marshalled using the callee's Numba ABI. The
-       Numba callee can still produce status, but the C ABI caller has no
-       outward status channel and does not propagate lower-frame status.
+     - Mixed call. The call is marshalled using the callee's Numba CUDA MLIR
+       ABI. The Numba CUDA MLIR callee can still produce status, but the C ABI
+       caller has no outward status channel and does not propagate lower-frame
+       status.
      - C-to-C call. Conventional C-style argument / return passing with no
        status channel.
 
@@ -83,13 +78,13 @@ for the whole call chain. This allows patterns like:
 
 .. code:: text
 
-   Numba ABI caller -> C ABI callee -> Numba ABI callee -> C ABI callee
+   Numba CUDA MLIR ABI caller -> C ABI callee -> Numba CUDA MLIR ABI callee -> C ABI callee
 
 to compile as expected.
 
 In practice, this means mixed boundaries can appear at any depth in a call
 graph, including calls to functions declared with
-:func:`numba.cuda.declare_device` and calls to Numba-compiled device
+:func:`numba_cuda_mlir.cuda.declare_device` and calls to Numba-compiled device
 subroutines.
 
 
@@ -97,11 +92,11 @@ Behavioral caveats
 ------------------
 
 - The C ABI has no status channel for Python exception propagation.
-- When a C ABI caller invokes a Numba ABI callee returning ``Optional[T]``,
-  the optional is flattened to ``T`` at the C ABI boundary. A ``None`` result
-  is represented as the default-initialized value of ``T``.
+- When a C ABI caller invokes a Numba CUDA MLIR ABI callee returning
+  ``Optional[T]``, the optional is flattened to ``T`` at the C ABI boundary. A
+  ``None`` result is represented as the default-initialized value of ``T``.
 - Kernels must still use the Numba ABI entry model; compiling kernels with
   ``abi="c"`` is unsupported.
-- For foreign CUDA C/C++ functions, use ``abi="c"`` with
-  :func:`numba.cuda.declare_device` and follow pointer-signature guidance in
-  :ref:`cuda_ffi`.
+- For foreign CUDA C++ functions, use ``abi="c"`` with
+  :func:`numba_cuda_mlir.cuda.declare_device` and follow pointer-signature
+  guidance in :ref:`cuda_ffi`.

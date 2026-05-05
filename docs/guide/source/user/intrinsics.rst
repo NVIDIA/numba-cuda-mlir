@@ -9,18 +9,18 @@ Supported Atomic Operations
 Numba provides access to some of the atomic operations supported in CUDA. Those
 that are presently implemented are as follows:
 
-.. automodule:: numba.cuda
-    :members: atomic
+.. autoclass:: numba_cuda_mlir.cuda.atomic
+    :members: add, and_, cas, compare_and_swap, dec, exch, inc, max, min, nanmax, nanmin, or_, sub, xor
     :noindex:
 
 Example
 '''''''
 
-The following code demonstrates the use of :class:`numba.cuda.atomic.max` to
+The following code demonstrates the use of :class:`numba_cuda_mlir.cuda.atomic.max` to
 find the maximum value in an array. Note that this is not the most efficient way
 of finding a maximum in this case, but that it serves as an example::
 
-    from numba import cuda
+    from numba_cuda_mlir import cuda
     import numpy as np
 
     @cuda.jit

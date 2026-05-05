@@ -8,7 +8,7 @@
 Writing CUDA Kernels
 ====================
 
-Numba-CUDA supports programming NVIDIA CUDA GPUs by directly compiling a
+Numba CUDA MLIR supports programming NVIDIA CUDA GPUs by directly compiling a
 restricted subset of Python code into CUDA kernels and device functions
 following the CUDA execution model.
 
@@ -21,17 +21,15 @@ for programming CPUs.  In CUDA, the code you write will be executed by
 multiple threads at once (often hundreds or thousands).  Your solution will
 be modeled by defining a thread hierarchy of *grid*, *blocks* and *threads*.
 
-Numba's CUDA support exposes facilities to declare and manage this
-hierarchy of threads.  The facilities are largely similar to those
-exposed by NVidia's CUDA C language.
+Numba CUDA MLIR exposes facilities to declare and manage this hierarchy of
+threads. The facilities are largely similar to those exposed in CUDA C++.
 
-Numba also exposes three kinds of GPU memory: global :ref:`device memory
-<cuda-device-memory>` (the large, relatively slow
-off-chip memory that's connected to the GPU itself), on-chip
-:ref:`shared memory <cuda-shared-memory>` and :ref:`local memory <cuda-local-memory>`.
-For all but the simplest algorithms, it is important that you carefully
-consider how to use and access memory in order to minimize bandwidth
-requirements and contention.
+Three kinds of GPU memory are exposed: global :ref:`device memory
+<cuda-device-memory>` (the large off-chip memory visible across all threads),
+on-chip :ref:`shared memory <cuda-shared-memory>` and :ref:`local memory
+<cuda-local-memory>`. For all but the simplest algorithms, it is important that
+you carefully consider how to use and access memory in order to minimize
+bandwidth requirements and contention.
 
 
 Terminology
@@ -51,28 +49,28 @@ Several important terms in the topic of CUDA programming are listed here:
 Programming model
 =================
 
-Most CUDA programming facilities exposed by Numba map directly to the CUDA
-C language offered by NVIDIA. Therefore, it is recommended you read the
-official `CUDA C programming guide <http://docs.nvidia.com/cuda/cuda-c-programming-guide>`_.
+Most CUDA programming facilities exposed by Numba CUDA MLIR map directly to
+CUDA C++ equivalents. Therefore, it is recommended you read the official `CUDA
+Programming Guide <https://docs.nvidia.com/cuda/cuda-programming-guide/>`_.
 
 
 Kernel declaration
 ==================
 
-A *kernel function* is a GPU function that is meant to be called from CPU
-code (*).  It gives it two fundamental characteristics:
+A *kernel function* is a GPU function that is called from CPU code. It has two
+fundamental characteristics:
 
-* kernels cannot explicitly return a value; all result data must be written
+* Kernels cannot explicitly return a value; all result data must be written
   to an array passed to the function (if computing a scalar, you will
   probably pass a one-element array);
 
-* kernels explicitly declare their thread hierarchy when called: i.e.
+* Kernels explicitly declare their thread hierarchy when called: i.e.
   the number of thread blocks and the number of threads per block
   (note that while a kernel is compiled once, it can be called multiple
   times with different block sizes or grid sizes).
 
-At first sight, writing a CUDA kernel with Numba looks very much like
-writing a :term:`JIT function` for the CPU::
+At first sight, writing a CUDA kernel with Numba CUDA MLIR looks very much like
+writing a :term:`JIT function` for the CPU with Numba::
 
     @cuda.jit
     def increment_by_one(an_array):
@@ -80,9 +78,6 @@ writing a :term:`JIT function` for the CPU::
         Increment all array elements by one.
         """
         # code elided here; read further for different implementations
-
-(*) Note: newer CUDA devices support device-side kernel launching; this feature
-is called *dynamic parallelism* but Numba does not support it currently)
 
 
 .. _cuda-kernel-invocation:
@@ -127,7 +122,7 @@ threads per block) is often crucial:
 
 * On the hardware side, the block size must be large enough for full
   occupation of execution units; recommendations can be found in the
-  `CUDA C Programming Guide`_.
+  `CUDA Programming Guide`_.
 
 Multi-dimensional blocks and grids
 ----------------------------------
@@ -169,39 +164,39 @@ and manually compute the corresponding array position::
    of your array size, you **must** check boundaries as shown above.
 
 :attr:`.threadIdx`, :attr:`.blockIdx`, :attr:`.blockDim` and :attr:`.gridDim`
-are special objects provided by the CUDA backend for the sole purpose of
-knowing the geometry of the thread hierarchy and the position of the
-current thread within that geometry.
+are special objects provided for the sole purpose of knowing the geometry of
+the thread hierarchy and the position of the current thread within that
+geometry.
 
 These objects can be 1D, 2D or 3D, depending on how the kernel was
 :ref:`invoked <cuda-kernel-invocation>`.  To access the value at each
 dimension, use the ``x``, ``y`` and ``z`` attributes of these objects,
 respectively.
 
-.. attribute:: numba.cuda.threadIdx
+.. attribute:: cuda.threadIdx
    :noindex:
 
    The thread indices in the current thread block.  For 1D blocks, the index
    (given by the ``x`` attribute) is an integer spanning the range from 0
-   inclusive to :attr:`numba.cuda.blockDim` exclusive.  A similar rule
-   exists for each dimension when more than one dimension is used.
+   inclusive to :attr:`cuda.blockDim` exclusive.  A similar rule exists for
+   each dimension when more than one dimension is used.
 
-.. attribute:: numba.cuda.blockDim
+.. attribute:: cuda.blockDim
    :noindex:
 
    The shape of the block of threads, as declared when instantiating the
    kernel.  This value is the same for all threads in a given kernel, even
    if they belong to different blocks (i.e. each block is "full").
 
-.. attribute:: numba.cuda.blockIdx
+.. attribute:: cuda.blockIdx
    :noindex:
 
    The block indices in the grid of threads launched a kernel.  For a 1D grid,
    the index (given by the ``x`` attribute) is an integer spanning the range
-   from 0 inclusive to :attr:`numba.cuda.gridDim` exclusive.  A similar rule
-   exists for each dimension when more than one dimension is used.
+   from 0 inclusive to :attr:`cuda.gridDim` exclusive.  A similar rule exists
+   for each dimension when more than one dimension is used.
 
-.. attribute:: numba.cuda.gridDim
+.. attribute:: cuda.gridDim
    :noindex:
 
    The shape of the grid of blocks, i.e. the total number of blocks launched
@@ -211,10 +206,10 @@ Absolute positions
 ------------------
 
 Simple algorithms will tend to always use thread indices in the
-same way as shown in the example above.  Numba provides additional facilities
-to automate such calculations:
+same way as shown in the example above. Numba CUDA MLIR provides additional
+facilities to automate such calculations:
 
-.. function:: numba.cuda.grid(ndim)
+.. function:: cuda.grid(ndim)
    :noindex:
 
    Return the absolute position of the current thread in the entire
@@ -223,7 +218,7 @@ to automate such calculations:
    is returned.  If *ndim* is 2 or 3, a tuple of the given number of
    integers is returned.
 
-.. function:: numba.cuda.gridsize(ndim)
+.. function:: cuda.gridsize(ndim)
    :noindex:
 
    Return the absolute size (or shape) in threads of the entire grid of
@@ -255,11 +250,27 @@ done manually, for example::
     increment_a_2D_array[blockspergrid, threadsperblock](an_array)
 
 
+Writing Device Functions
+========================
+
+CUDA device functions can only be invoked from within the device (by a kernel
+or another device function).  To define a device function::
+
+    from numba_cuda_mlir import cuda
+
+    @cuda.jit(device=True)
+    def a_device_function(a, b):
+        return a + b
+
+Unlike a kernel function, a device function can return a value like normal
+functions.
+
+
 Further Reading
 ----------------
 
-Please refer to the the `CUDA C Programming Guide`_ for a detailed discussion
+Please refer to the the `CUDA Programming Guide`_ for a detailed discussion
 of CUDA programming.
 
 
-.. _CUDA C Programming Guide: http://docs.nvidia.com/cuda/cuda-c-programming-guide
+.. _CUDA Programming Guide: http://docs.nvidia.com/cuda/cuda-programming-guide

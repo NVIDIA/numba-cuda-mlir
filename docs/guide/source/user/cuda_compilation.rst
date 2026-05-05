@@ -8,21 +8,27 @@
 Compiling Python functions for use with other languages
 =======================================================
 
-Numba can compile Python code to PTX or LTO-IR so that Python functions can be
-incorporated into CUDA code written in other languages (e.g. C/C++).  It is
-commonly used to support User-Defined Functions written in Python within the
-context of a library or application.
+Numba CUDA MLIR can compile Python code to PTX or LTO-IR so that Python
+functions can be incorporated into CUDA code written in other languages (e.g.
+C/C++).  It is commonly used to support User-Defined Functions written in
+Python within the context of a library or application.
 
 The compilation API can be used without a GPU present, as it uses no driver
 functions and avoids initializing CUDA in the process. It is invoked through
 the following function:
+
+..
+   FIXME: Need to add the docstrings for these to the source so we can update
+   the references in Sphinx. Leaving the original references for now so the API
+   remains documented.
 
 .. autofunction:: numba.cuda.compile
    :noindex:
 
 If a device is available and compiled code for the compute capability of the
 current device is required (for example when building a JIT compilation
-workflow using Numba), the ``compile_for_current_device`` function can be used:
+workflow using Numba CUDA MLIR), the ``compile_for_current_device`` function
+can be used:
 
 .. autofunction:: numba.cuda.compile_for_current_device
    :noindex:
@@ -43,18 +49,18 @@ provided:
 Using the C ABI
 ---------------
 
-Numba internally uses its own ABI - this is as described in
+Numba CUDA MLIR internally uses its own ABI - this is as described in
 :ref:`device-function-abi`, without the ``extern "C"`` modifier. Calling Numba
-ABI device functions requires three issues to be addressed:
+CUDA MLIR ABI device functions requires three issues to be addressed:
 
-- The name of the function will be mangled according to Numba's ABI rules -
-  these are based on the Itanium C++ ABI rules, but are extended beyond its
-  specifications.
+- The name of the function will be mangled according to Numba CUDA MLIR's ABI
+  rules - these are based on the Itanium C++ ABI rules, but are extended beyond
+  its specifications.
 - The Python return value is expected to be stored into a pointer value passed
   in the first argument.
 - The return value of the compiled function will contain a status code, instead
-  of the return value of the function. For use of Numba-compiled functions
-  outside of Numba, this can generally be ignored.
+  of the return value of the function. For use of Numba CUDA MLIR-compiled
+  functions outside of Numba CUDA MLIR, this can generally be ignored.
 
 A simple way to address all these issues is to compile device functions with
 the C ABI instead. This results in the following:
@@ -74,12 +80,12 @@ by passing the name in the ``abi_info`` dict, under the key ``'abi_name'``.
 
 Compilation with the C ABI is the default when using the :func:`compile` and
 :func:`compile_for_current_device` functions. The :func:`compile_ptx` and
-:func:`compile_ptx_for_current_device` functions default to the Numba ABI in
-order to maintain compatibility with existing use cases.
+:func:`compile_ptx_for_current_device` functions default to the Numba CUDA MLIR
+ABI in order to maintain compatibility with existing use cases.
 
 
-C and Numba ABI examples
-------------------------
+C and Numba CUDA MLIR ABI examples
+----------------------------------
 
 The following function:
 
@@ -106,7 +112,7 @@ results in PTX where the function prototype is:
 
 Note that there are three parameters, for the pointer to the return value,
 ``x``, and ``y``. The name is mangled in a way that is hard to predict outside
-of Numba internals.
+of Numba CUDA MLIR internals.
 
 Compiling for the C ABI with:
 

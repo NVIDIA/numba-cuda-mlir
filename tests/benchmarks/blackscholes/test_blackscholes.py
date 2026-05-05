@@ -4,8 +4,6 @@
 import time
 import numpy as np
 import math
-from numba_cuda_mlir.numba_cuda import types
-
 import numba.cuda as numba_cuda
 from numba_cuda_mlir import cuda
 
@@ -143,15 +141,7 @@ def test_blackscholes_benchmark(benchmark_runner):
 
 
 def run_benchmark_main():
-    sig = types.void(
-        types.float64[::1],
-        types.float64[::1],
-        types.float64[::1],
-        types.float64[::1],
-        types.float64[::1],
-        types.float64,
-        types.float64,
-    )
+    sig = "void(float64[::1], float64[::1], float64[::1], float64[::1], float64[::1], float64, float64)"
 
     start = time.perf_counter()
     black_scholes_numba_cuda.compile(sig)

@@ -9,7 +9,7 @@ Benchmarks to compare JIT compile-time and kernel performance between Numba CUDA
 pytest tests/benchmarks/
 
 # Run performance benchmarks (requires NCU)
-NUMBA_CUDA_MLIR_SKIP_REDIRECTOR=1 pytest tests/benchmarks/ --benchmark -s
+pytest tests/benchmarks/ --benchmark -s
 ```
 
 ## Available Benchmarks
@@ -29,7 +29,7 @@ NUMBA_CUDA_MLIR_SKIP_REDIRECTOR=1 pytest tests/benchmarks/ --benchmark -s
 ### Three ways to run benchmarks:
 
 1. **Correctness only**: `pytest tests/benchmarks/vector_add/`
-2. **With profiling scripts**: `NUMBA_CUDA_MLIR_SKIP_REDIRECTOR=1 pytest tests/benchmarks/vector_add/ --benchmark -s`
+2. **With profiling scripts**: `pytest tests/benchmarks/vector_add/ --benchmark -s`
 3. **Direct execution**: `python tests/benchmarks/vector_add/test_vector_addition.py scalar`
 
 ## Output

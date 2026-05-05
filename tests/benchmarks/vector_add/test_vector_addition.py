@@ -4,8 +4,6 @@
 import argparse
 import time
 import numpy as np
-from numba_cuda_mlir.numba_cuda import types
-
 import numba.cuda as numba_cuda
 from numba_cuda_mlir import cuda
 
@@ -114,7 +112,7 @@ def test_vector_addition_vectorized_benchmark(benchmark_runner):
 
 
 def run_benchmark_scalar():
-    sig = types.void(types.float32[::1], types.float32[::1], types.float32[::1], types.int64)
+    sig = "void(float32[::1], float32[::1], float32[::1], int64)"
 
     start = time.perf_counter()
     numba_cuda_vector_add.compile(sig)
@@ -147,7 +145,7 @@ def run_benchmark_scalar():
 
 
 def run_benchmark_vectorized():
-    sig = types.void(types.float32[::1], types.float32[::1], types.float32[::1], types.int64)
+    sig = "void(float32[::1], float32[::1], float32[::1], int64)"
 
     start = time.perf_counter()
     numba_cuda_vector_add_vectorized.compile(sig)

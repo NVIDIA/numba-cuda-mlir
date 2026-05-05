@@ -4,8 +4,6 @@
 import time
 import numpy as np
 import math
-from numba_cuda_mlir.numba_cuda import types
-
 import numba.cuda as numba_cuda
 from numba_cuda_mlir import cuda
 
@@ -129,11 +127,7 @@ def test_matmul_smem_benchmark(benchmark_runner):
 
 
 def run_benchmark_main():
-    sig = types.void(
-        types.float32[:, ::1],
-        types.float32[:, ::1],
-        types.float32[:, ::1],
-    )
+    sig = "void(float32[:, ::1], float32[:, ::1], float32[:, ::1])"
 
     start = time.perf_counter()
     numba_cuda_matmul_smem.compile(sig)

@@ -4,8 +4,6 @@
 import time
 import numpy as np
 import math
-from numba_cuda_mlir.numba_cuda import types
-
 import numba.cuda as numba_cuda
 from numba_cuda_mlir import cuda
 
@@ -117,7 +115,7 @@ def test_attention_benchmark(benchmark_runner):
 
 
 def run_benchmark_main():
-    sig = types.void(types.float32[::1], types.float32[::1], types.int64, types.int64)
+    sig = "void(float32[::1], float32[::1], int64, int64)"
 
     start = time.perf_counter()
     numba_cuda_simple_attention.compile(sig)

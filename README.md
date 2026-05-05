@@ -176,7 +176,6 @@ original license:
 2. [cloudpickle](https://github.com/cloudpipe/cloudpickle) — [BSD 3-Clause License](THIRD-PARTY-LICENSES)
 3. [appdirs](https://github.com/ActiveState/appdirs) — [MIT License](THIRD-PARTY-LICENSES)
 4. [LLVM Project / EUDSL](https://github.com/llvm/llvm-project) — [Apache License 2.0 WITH LLVM-exception](THIRD-PARTY-LICENSES)
-5. [llm.py / llm.c](https://github.com/aterrel/llm.py) — [MIT License](THIRD-PARTY-LICENSES)
 
 See [`NOTICE`](NOTICE) for the full attribution map and per-component locations
 in this repository, and [`THIRD-PARTY-LICENSES`](THIRD-PARTY-LICENSES) for the

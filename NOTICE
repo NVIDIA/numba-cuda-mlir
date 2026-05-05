@@ -118,28 +118,3 @@ Original URL:   https://github.com/llvm/llvm-project
 
 For the full license text, see the "Apache License 2.0 WITH LLVM-exception
 (LLVM)" section of `THIRD-PARTY-LICENSES` at the root of the repository.
-
---------------------------------------------------------------------------------
-5. llm.py / llm.c (MIT License)
---------------------------------------------------------------------------------
-
-Locations in this repository:
-  - tests/benchmarks/llm.py/llm.py
-  - tests/benchmarks/llm.py/prepro_tinyshakespeare.py
-  - tests/benchmarks/llm.py/train_gpt2.py
-
-The vendored Python sources are drawn verbatim (or with minimal adaptation)
-from aterrel/llm.py, which is itself a Python port of karpathy/llm.c. Both
-upstream projects are distributed under the MIT License and retain the
-original Andrej Karpathy copyright line unchanged.
-
-Original copyright notices (verbatim from the upstream LICENSE file):
-
-  Copyright (c) 2024 Andrej Karpathy
-
-License:        MIT License
-Original URL:   https://github.com/aterrel/llm.py
-                (Python port of https://github.com/karpathy/llm.c)
-
-For the full license text, see the "MIT License (llm.py / llm.c)" section of
-`THIRD-PARTY-LICENSES` at the root of the repository.

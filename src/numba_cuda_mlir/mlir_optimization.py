@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import copy
 import ctypes
 import os
 from io import StringIO
@@ -471,7 +470,7 @@ def optimize(cres):
         if target_options.get("dump_ptx", False):
             print(f"=============== PTX ===============\n\n{cres.metadata['ptx']}\n\n")
 
-        linker = copy.deepcopy(cres.metadata["linker"])
+        linker = cres.metadata["linker"].recreate_with_lto()
 
         if is_lto:
             if use_llvm70:

@@ -1,22 +1,45 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import time
+
+E2E_START = time.perf_counter()
+
 import argparse
 import sys
 from pathlib import Path
 
 import math
 import numpy as np
-from numba import cuda as numba_cuda, types as nty
-from numba_cuda_mlir import cuda
-from numba_cuda_mlir.numba_cuda import types as cty
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from benchmark_utils import (
+    BACKEND_BOTH,
+    BACKEND_NUMBA_CUDA,
+    BACKEND_NUMBA_CUDA_MLIR,
+    add_backend_arg,
     add_compile_mode_arg,
     prepare_compile_measurement,
+    print_compile_times,
+    print_e2e_time,
+    selected_backend_from_argv,
+    should_run_backend,
+    skipped_backend,
     time_compile_sequence,
 )
+
+SELECTED_BACKEND = selected_backend_from_argv()
+if should_run_backend(SELECTED_BACKEND, BACKEND_NUMBA_CUDA):
+    from numba import cuda as numba_cuda, types as nty
+else:
+    numba_cuda = skipped_backend()
+    nty = skipped_backend()
+if should_run_backend(SELECTED_BACKEND, BACKEND_NUMBA_CUDA_MLIR):
+    from numba_cuda_mlir import cuda
+    from numba_cuda_mlir.numba_cuda import types as cty
+else:
+    cuda = skipped_backend()
+    cty = skipped_backend()
 
 
 DEFAULT_SIZE = 8192
@@ -190,55 +213,61 @@ def test_fft_benchmark(benchmark_runner):
     benchmark_runner(script=__file__)
 
 
-def run_benchmark_main(compile_mode="cold"):
+def run_benchmark_main(compile_mode="cold", backend=BACKEND_BOTH):
     permute_sig = "void(complex64[::1], complex64[::1], int64, int64)"
     stage_sig = "void(complex64[::1], int64, int64, int64)"
-    prepare_compile_measurement(compile_mode)
+    prepare_compile_measurement(compile_mode, backend)
 
-    numba_compile_time = time_compile_sequence(
-        (bitreverse_permute_numba_cuda, permute_sig),
-        (fft_stage_inplace_numba_cuda, stage_sig),
-    )
-    numba_cuda_mlir_compile_time = time_compile_sequence(
-        (bitreverse_permute_numba_cuda_mlir, permute_sig),
-        (fft_stage_inplace_numba_cuda_mlir, stage_sig),
-    )
+    compile_times = {}
+    if should_run_backend(backend, BACKEND_NUMBA_CUDA):
+        compile_times[BACKEND_NUMBA_CUDA] = time_compile_sequence(
+            (bitreverse_permute_numba_cuda, permute_sig),
+            (fft_stage_inplace_numba_cuda, stage_sig),
+        )
+    if should_run_backend(backend, BACKEND_NUMBA_CUDA_MLIR):
+        compile_times[BACKEND_NUMBA_CUDA_MLIR] = time_compile_sequence(
+            (bitreverse_permute_numba_cuda_mlir, permute_sig),
+            (fft_stage_inplace_numba_cuda_mlir, stage_sig),
+        )
 
-    print("\n=== COMPILE TIMES ===")
-    print(f"Numba-CUDA: {numba_compile_time:.3f} ms")
-    print(f"numba-cuda-mlir: {numba_cuda_mlir_compile_time:.3f} ms")
+    print_compile_times(compile_times)
 
     n = DEFAULT_SIZE
     logn = count_bits(n)
     input_array = get_input_data()
 
-    d_input = numba_cuda.to_device(input_array)
-    d_output = numba_cuda.device_array(n, dtype=np.complex64)
-    blocks = ceil_div(n, BLOCK_SIZE)
-    bitreverse_permute_numba_cuda[blocks, BLOCK_SIZE](d_input, d_output, n, logn)
-    for s in range(logn):
-        m = 1 << (s + 1)
-        half = m >> 1
-        butterflies = (n // m) * half
-        blocks = ceil_div(butterflies, BLOCK_SIZE)
-        fft_stage_inplace_numba_cuda[blocks, BLOCK_SIZE](d_output, n, s, 0)
-    numba_cuda.synchronize()
+    if should_run_backend(backend, BACKEND_NUMBA_CUDA):
+        d_input = numba_cuda.to_device(input_array)
+        d_output = numba_cuda.device_array(n, dtype=np.complex64)
+        blocks = ceil_div(n, BLOCK_SIZE)
+        bitreverse_permute_numba_cuda[blocks, BLOCK_SIZE](d_input, d_output, n, logn)
+        for s in range(logn):
+            m = 1 << (s + 1)
+            half = m >> 1
+            butterflies = (n // m) * half
+            blocks = ceil_div(butterflies, BLOCK_SIZE)
+            fft_stage_inplace_numba_cuda[blocks, BLOCK_SIZE](d_output, n, s, 0)
+        numba_cuda.synchronize()
 
-    d_input = cuda.to_device(input_array)
-    d_output = cuda.device_array(n, dtype=np.complex64)
-    blocks = ceil_div(n, BLOCK_SIZE)
-    bitreverse_permute_numba_cuda_mlir[blocks, BLOCK_SIZE](d_input, d_output, n, logn)
-    for s in range(logn):
-        m = 1 << (s + 1)
-        half = m >> 1
-        butterflies = (n // m) * half
-        blocks = ceil_div(butterflies, BLOCK_SIZE)
-        fft_stage_inplace_numba_cuda_mlir[blocks, BLOCK_SIZE](d_output, n, s, 0)
-    cuda.synchronize()
+    if should_run_backend(backend, BACKEND_NUMBA_CUDA_MLIR):
+        d_input = cuda.to_device(input_array)
+        d_output = cuda.device_array(n, dtype=np.complex64)
+        blocks = ceil_div(n, BLOCK_SIZE)
+        bitreverse_permute_numba_cuda_mlir[blocks, BLOCK_SIZE](d_input, d_output, n, logn)
+        for s in range(logn):
+            m = 1 << (s + 1)
+            half = m >> 1
+            butterflies = (n // m) * half
+            blocks = ceil_div(butterflies, BLOCK_SIZE)
+            fft_stage_inplace_numba_cuda_mlir[blocks, BLOCK_SIZE](d_output, n, s, 0)
+        cuda.synchronize()
+
+    print_e2e_time(backend, E2E_START)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="FFT benchmark")
     add_compile_mode_arg(parser)
+    add_backend_arg(parser)
     args = parser.parse_args()
-    run_benchmark_main(args.compile_mode)
+    run_benchmark_main(args.compile_mode, args.backend)

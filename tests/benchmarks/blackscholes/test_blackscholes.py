@@ -1,17 +1,42 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import time
+
+E2E_START = time.perf_counter()
+
 import argparse
 import sys
 from pathlib import Path
 
 import numpy as np
 import math
-import numba.cuda as numba_cuda
-from numba_cuda_mlir import cuda
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from benchmark_utils import add_compile_mode_arg, prepare_compile_measurement, time_compile
+from benchmark_utils import (
+    BACKEND_BOTH,
+    BACKEND_NUMBA_CUDA,
+    BACKEND_NUMBA_CUDA_MLIR,
+    add_backend_arg,
+    add_compile_mode_arg,
+    prepare_compile_measurement,
+    print_compile_times,
+    print_e2e_time,
+    selected_backend_from_argv,
+    should_run_backend,
+    skipped_backend,
+    time_compile,
+)
+
+SELECTED_BACKEND = selected_backend_from_argv()
+if should_run_backend(SELECTED_BACKEND, BACKEND_NUMBA_CUDA):
+    import numba.cuda as numba_cuda
+else:
+    numba_cuda = skipped_backend()
+if should_run_backend(SELECTED_BACKEND, BACKEND_NUMBA_CUDA_MLIR):
+    from numba_cuda_mlir import cuda
+else:
+    cuda = skipped_backend()
 
 RISKFREE = 0.02
 VOLATILITY = 0.30
@@ -146,44 +171,52 @@ def test_blackscholes_benchmark(benchmark_runner):
     benchmark_runner(script=__file__)
 
 
-def run_benchmark_main(compile_mode="cold"):
+def run_benchmark_main(compile_mode="cold", backend=BACKEND_BOTH):
     sig = "void(float64[::1], float64[::1], float64[::1], float64[::1], float64[::1], float64, float64)"
-    prepare_compile_measurement(compile_mode)
+    prepare_compile_measurement(compile_mode, backend)
 
-    numba_compile_time = time_compile(black_scholes_numba_cuda.compile, sig)
-    numba_cuda_mlir_compile_time = time_compile(black_scholes_numba_cuda_mlir.compile, sig)
+    compile_times = {}
+    if should_run_backend(backend, BACKEND_NUMBA_CUDA):
+        compile_times[BACKEND_NUMBA_CUDA] = time_compile(black_scholes_numba_cuda.compile, sig)
+    if should_run_backend(backend, BACKEND_NUMBA_CUDA_MLIR):
+        compile_times[BACKEND_NUMBA_CUDA_MLIR] = time_compile(
+            black_scholes_numba_cuda_mlir.compile, sig
+        )
 
-    print("\n=== COMPILE TIMES ===")
-    print(f"Numba-CUDA: {numba_compile_time:.3f} ms")
-    print(f"numba-cuda-mlir: {numba_cuda_mlir_compile_time:.3f} ms")
+    print_compile_times(compile_times)
 
     n = DEFAULT_N
     stockPrice, optionStrike, optionYears = get_input_data(n)
     blocks = (n + THREADS_PER_BLOCK - 1) // THREADS_PER_BLOCK
 
-    d_S = numba_cuda.to_device(stockPrice)
-    d_X = numba_cuda.to_device(optionStrike)
-    d_T = numba_cuda.to_device(optionYears)
-    d_call = numba_cuda.device_array(n, dtype=np.float64)
-    d_put = numba_cuda.device_array(n, dtype=np.float64)
-    black_scholes_numba_cuda[blocks, THREADS_PER_BLOCK](
-        d_call, d_put, d_S, d_X, d_T, RISKFREE, VOLATILITY
-    )
-    numba_cuda.synchronize()
+    if should_run_backend(backend, BACKEND_NUMBA_CUDA):
+        d_S = numba_cuda.to_device(stockPrice)
+        d_X = numba_cuda.to_device(optionStrike)
+        d_T = numba_cuda.to_device(optionYears)
+        d_call = numba_cuda.device_array(n, dtype=np.float64)
+        d_put = numba_cuda.device_array(n, dtype=np.float64)
+        black_scholes_numba_cuda[blocks, THREADS_PER_BLOCK](
+            d_call, d_put, d_S, d_X, d_T, RISKFREE, VOLATILITY
+        )
+        numba_cuda.synchronize()
 
-    d_S = cuda.to_device(stockPrice)
-    d_X = cuda.to_device(optionStrike)
-    d_T = cuda.to_device(optionYears)
-    d_call = cuda.device_array(n, dtype=np.float64)
-    d_put = cuda.device_array(n, dtype=np.float64)
-    black_scholes_numba_cuda_mlir[blocks, THREADS_PER_BLOCK](
-        d_call, d_put, d_S, d_X, d_T, RISKFREE, VOLATILITY
-    )
-    cuda.synchronize()
+    if should_run_backend(backend, BACKEND_NUMBA_CUDA_MLIR):
+        d_S = cuda.to_device(stockPrice)
+        d_X = cuda.to_device(optionStrike)
+        d_T = cuda.to_device(optionYears)
+        d_call = cuda.device_array(n, dtype=np.float64)
+        d_put = cuda.device_array(n, dtype=np.float64)
+        black_scholes_numba_cuda_mlir[blocks, THREADS_PER_BLOCK](
+            d_call, d_put, d_S, d_X, d_T, RISKFREE, VOLATILITY
+        )
+        cuda.synchronize()
+
+    print_e2e_time(backend, E2E_START)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Black-Scholes benchmark")
     add_compile_mode_arg(parser)
+    add_backend_arg(parser)
     args = parser.parse_args()
-    run_benchmark_main(args.compile_mode)
+    run_benchmark_main(args.compile_mode, args.backend)

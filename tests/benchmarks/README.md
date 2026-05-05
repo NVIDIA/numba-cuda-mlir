@@ -1,6 +1,6 @@
 # numba-cuda-mlir Benchmarks
 
-Benchmarks to compare JIT compile-time and kernel performance between Numba CUDA and numba-cuda-mlir implementations. Uses NVIDIA Nsight Compute (NCU) to profile kernel execution times.
+Benchmarks to compare JIT compile-time, isolated end-to-end time, and kernel performance between Numba CUDA and numba-cuda-mlir implementations. Uses NVIDIA Nsight Compute (NCU) to profile kernel execution times.
 
 ## Quick Start
 
@@ -40,6 +40,17 @@ Standalone benchmark scripts accept `--compile-mode {cold,warm}`:
 - `warm` first compiles a trivial kernel through both backends, then times the benchmark kernel compilation. This removes one-time initialization costs from the measured compile time.
 
 The pytest benchmark runner invokes each script once per compile mode and reports both results in the consolidated table.
+
+### Isolated end-to-end timing
+
+The pytest benchmark runner also invokes each benchmark in fresh child processes with `--backend numba-cuda` and `--backend numba-cuda-mlir`. These runs measure from benchmark script import through synchronized workload completion for only the selected backend, excluding Python interpreter startup.
+
+Standalone benchmark scripts accept `--backend {both,numba-cuda,numba-cuda-mlir}`:
+
+```bash
+python tests/benchmarks/vector_add/test_vector_addition.py scalar --compile-mode cold --backend numba-cuda
+python tests/benchmarks/vector_add/test_vector_addition.py scalar --compile-mode cold --backend numba-cuda-mlir
+```
 
 ## Output
 

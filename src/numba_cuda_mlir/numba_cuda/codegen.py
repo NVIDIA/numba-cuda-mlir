@@ -9,8 +9,6 @@ from .cudadrv import devices, driver, nvvm, runtime, nvrtc
 from numba_cuda_mlir.numba_cuda.core.codegen import Codegen, CodeLibrary
 from numba_cuda_mlir.numba_cuda.cudadrv.libs import get_cudalib
 from numba_cuda_mlir.numba_cuda.cudadrv.linkable_code import LinkableCode
-from numba_cuda_mlir.numba_cuda.memory_management.nrt import NRT_LIBRARY
-
 import os
 import pickle
 import subprocess
@@ -465,11 +463,8 @@ class CUDACodeLibrary(serialize.ReduceMixin, CodeLibrary):
 
         nrt = False
         if self._linking_files:
-            if len(self._linking_files) == 1 and NRT_LIBRARY in self._linking_files:
-                nrt = True
-            else:
-                msg = "Cannot pickle CUDACodeLibrary with linking files"
-                raise RuntimeError(msg)
+            msg = "Cannot pickle CUDACodeLibrary with linking files"
+            raise RuntimeError(msg)
 
         if not self._finalized:
             raise RuntimeError("Cannot pickle unfinalized CUDACodeLibrary")
@@ -522,8 +517,6 @@ class CUDACodeLibrary(serialize.ReduceMixin, CodeLibrary):
         instance.use_cooperative = use_cooperative
 
         instance._finalized = True
-        if nrt:
-            instance._linking_files = {NRT_LIBRARY}
 
         instance._lto = lto
         return instance

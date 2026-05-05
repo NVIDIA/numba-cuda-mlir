@@ -21,28 +21,7 @@ from numba_cuda_mlir.lowering.numba_compat.llvm_utils import (
     translate_to_llvmir,
     dump_llvmir,
 )
-from numba_cuda_mlir.numba_cuda.core.errors import UnsupportedError
-
 from numba_cuda_mlir.memory_management.rtsys import rtsys
-
-
-def _maybe_link_nrt(linker) -> None:
-    """Link NRT object code unconditionally.
-
-    The caller gates this on cres.metadata["needs_nrt"], so once we get here
-    NRT linking is required.
-    """
-    cc = linker.cc
-    if linker.lto:
-        from numba_cuda_mlir.memory_management import compile_nrt_ltoir
-
-        if linker._ltoirs:
-            raise UnsupportedError("Using LTOIR linking is not supported with NRT enabled.")
-        linker.add_ltoir(compile_nrt_ltoir(cc))
-    else:
-        from numba_cuda_mlir.memory_management.nrt import compile_nrt_object
-
-        linker.add_ptx(compile_nrt_object(cc))
 
 
 def _nrt_memsys_setup_callback(loaded_module):
@@ -487,8 +466,6 @@ def optimize(cres):
         else:
             linker.add_ptx(ptx)
 
-        if cres.metadata.get("needs_nrt") and not cres.metadata.get("nrt_inline"):
-            _maybe_link_nrt(linker)
         code = linker.complete()
         cres.metadata["cubin"] = code.code
 

@@ -19,8 +19,7 @@ from numba_cuda_mlir.numba_cuda.cudadrv.driver import (
 from cuda.core import LaunchConfig, launch
 from numba_cuda_mlir.numba_cuda.cudadrv import devices
 from numba_cuda_mlir.numba_cuda.api import get_current_device
-from numba_cuda_mlir.numba_cuda.utils import _readenv, cached_file_read
-from numba_cuda_mlir.numba_cuda.cudadrv.linkable_code import CUSource
+from numba_cuda_mlir.numba_cuda.utils import _readenv
 from numba_cuda_mlir.numba_cuda.typing.templates import signature
 
 from numba_cuda_mlir.numba_cuda.extending import intrinsic, overload_classmethod
@@ -358,9 +357,3 @@ class _Runtime:
 
 # Create an instance of the runtime
 rtsys = _Runtime()
-
-
-basedir = os.path.dirname(os.path.abspath(__file__))
-nrt_path = os.path.join(basedir, "nrt.cu")
-nrt_src = cached_file_read(nrt_path)
-NRT_LIBRARY = CUSource(nrt_src, name="nrt.cu", nrt=True)

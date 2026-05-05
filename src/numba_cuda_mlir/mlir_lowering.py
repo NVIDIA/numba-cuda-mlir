@@ -1780,9 +1780,19 @@ extern "C" __global__ void
             return
         self._linked_external_items.add(key)
 
-        if hasattr(link_item, "setup_callback") and link_item.setup_callback:
+        has_setup_callback = hasattr(link_item, "setup_callback") and link_item.setup_callback
+        has_teardown_callback = hasattr(link_item, "teardown_callback") and link_item.teardown_callback
+        if (has_setup_callback or has_teardown_callback) and not self.targetoptions.get(
+            "_lto_explicit", False
+        ):
+            self.targetoptions["lto"] = False
+            self.targetoptions["output"] = "ptx"
+            self._linker_config["lto"] = False
+            self.linker = self._create_linker()
+
+        if has_setup_callback:
             self._setup_callbacks.append(link_item.setup_callback)
-        if hasattr(link_item, "teardown_callback") and link_item.teardown_callback:
+        if has_teardown_callback:
             self._teardown_callbacks.append(link_item.teardown_callback)
         self.linker.add_file_guess_ext(link_item)
 

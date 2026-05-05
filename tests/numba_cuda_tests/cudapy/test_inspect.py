@@ -135,7 +135,6 @@ class TestInspect(NumbaCUDATestCase):
         self.assertIn("BRA", sass)  # Branch
         self.assertIn("EXIT", sass)  # Exit program
 
-    @pytest.mark.xfail(True, reason="Regex doesn't match")
     def test_inspect_lto_asm(self):
         ffi = cffi.FFI()
 

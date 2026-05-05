@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from numba_cuda_mlir import cuda
+from numba_cuda_mlir import compiler, cuda
 from numba_cuda_mlir.caching import MLIRCache
 
 
@@ -81,6 +81,15 @@ def test_lto_inspect_asm_and_lto_ptx_are_lazy_paths():
     assert lto_ptx
     assert cres.metadata["ptx"] == ptx
     assert cres.metadata["lto_ptx"] == lto_ptx
+
+
+def test_lto_compile_result_ptx_attribute_is_lazy_path():
+    kernel = cuda.jit(lto=True)(_lto_add_kernel)
+    cres = compiler.compile_result(kernel, SIG)
+
+    assert cres.metadata.get("ptx") == ""
+    assert cres.ptx
+    assert cres.metadata["ptx"] == cres.ptx
 
 
 def test_cached_lto_compile_preserves_lazy_inspection():

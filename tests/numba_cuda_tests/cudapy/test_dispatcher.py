@@ -799,7 +799,6 @@ class TestLaunchBounds(NumbaCUDATestCase):
         self.assertNotIn(".minnctapersm", ptx)
         self.assertNotIn(".maxclusterrank", ptx)
 
-    @_xfail_launch_bounds
     def test_launch_bounds_with_min_cta(self):
         launch_bounds = (128, 2)
         ptx = self._test_launch_bounds_common(launch_bounds)

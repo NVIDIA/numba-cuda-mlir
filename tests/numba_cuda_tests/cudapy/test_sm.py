@@ -232,10 +232,6 @@ class TestSharedMemory(NumbaCUDATestCase):
         expected = np.array([1, 2, 2, 3, 4], dtype=np.int32)
         self._test_dynshared_slice(slice_overlap, arr, expected)
 
-    @pytest.mark.xfail(
-        cc_X_or_above(10, 0),
-        reason="Dynamic shared memory slices not yet supported on sm_100",
-    )
     def test_dynshared_slice_gaps(self):
         # Test writing values to slices of dynamic shared memory doesn't write
         # outside the slice

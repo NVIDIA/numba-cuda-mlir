@@ -476,6 +476,14 @@ def _get_signatures(func_or_sig):
         raise ValueError(_target_options_help(f"Invalid function or signature: {func_or_sig}."))
 
 
+def _link_items_have_callbacks(link_items) -> bool:
+    return any(
+        bool(getattr(link_item, "setup_callback", None))
+        or bool(getattr(link_item, "teardown_callback", None))
+        for link_item in link_items
+    )
+
+
 def verify_target_options(kws: dict[str, Any]) -> dict[str, Any]:
     targetoptions = kws.copy()
 
@@ -531,10 +539,19 @@ def verify_target_options(kws: dict[str, Any]) -> dict[str, Any]:
         if isinstance(cc, tuple):
             targetoptions["chip"] = format_arch(cc)
 
-    if targetoptions.get("lto") is None:
+    lto_was_explicit = "lto" in kws
+    output_was_explicit = "output" in kws
+    if targetoptions.get("lto") is None and output_was_explicit:
+        targetoptions["lto"] = targetoptions["output"] == "ltoir"
+    elif targetoptions.get("lto") is None and (
+        targetoptions.get("lineinfo") or _link_items_have_callbacks(targetoptions.get("link", []))
+    ):
+        targetoptions["lto"] = False
+    elif targetoptions.get("lto") is None:
         from numba_cuda_mlir.numba_cuda.cudadrv.driver import _have_nvjitlink
 
         targetoptions["lto"] = _have_nvjitlink() and not targetoptions.get("debug")
+    targetoptions["_lto_explicit"] = lto_was_explicit
 
     # When LTO is enabled, output LTOIR instead of PTX
     if targetoptions.get("lto", False):
@@ -581,7 +598,8 @@ def mlir_jit(func_or_sig=None, **kws):
 
     resolved_kws = kws.copy()
     resolved_kws.setdefault("debug", debug)
-    resolved_kws.setdefault("opt", opt)
+    if "opt_level" not in resolved_kws:
+        resolved_kws.setdefault("opt", opt)
     targetoptions = verify_target_options(resolved_kws)
     annotations_as_signatures = targetoptions.get("annotations_as_signatures", True)
 

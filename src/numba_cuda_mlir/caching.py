@@ -57,7 +57,12 @@ class MLIRCacheImpl(CacheImpl):
             "signature_return_type": cres.signature.return_type,
             "cubin": cres.metadata.get("cubin"),
             "ptx": cres.metadata.get("ptx"),
+            "ltoir": cres.metadata.get("ltoir"),
+            "lto_ptx": cres.metadata.get("lto_ptx"),
             "func_name": cres.metadata.get("func_name"),
+            "mlir_module_optimized": cres.metadata.get("mlir_module_optimized"),
+            "needs_nrt": cres.metadata.get("needs_nrt"),
+            "nrt_inline": cres.metadata.get("nrt_inline"),
             "targetoptions": cres.metadata.get("targetoptions", {}),
         }
 
@@ -67,7 +72,12 @@ class MLIRCacheImpl(CacheImpl):
         signature_return_type = payload["signature_return_type"]
         cubin = payload["cubin"]
         ptx = payload["ptx"]
+        ltoir = payload.get("ltoir")
+        lto_ptx = payload.get("lto_ptx")
         func_name = payload["func_name"]
+        mlir_module_optimized = payload.get("mlir_module_optimized")
+        needs_nrt = payload.get("needs_nrt")
+        nrt_inline = payload.get("nrt_inline")
         targetoptions = payload.get("targetoptions", {})
 
         signature = typing.signature(signature_return_type, *signature_args)
@@ -77,7 +87,12 @@ class MLIRCacheImpl(CacheImpl):
             metadata={
                 "cubin": cubin,
                 "ptx": ptx,
+                "ltoir": ltoir,
+                "lto_ptx": lto_ptx,
                 "func_name": func_name,
+                "mlir_module_optimized": mlir_module_optimized,
+                "needs_nrt": needs_nrt,
+                "nrt_inline": nrt_inline,
                 "targetoptions": targetoptions,
             },
         )
@@ -100,6 +115,20 @@ class MLIRCache(Cache):
     """
 
     _impl_class = MLIRCacheImpl
+
+    def __init__(self, py_func, targetoptions=None):
+        self._targetoptions = targetoptions if targetoptions is not None else {}
+        super().__init__(py_func)
+
+    def _index_key(self, sig, codegen):
+        key = super()._index_key(sig, codegen)
+        targetoptions = self._targetoptions
+        option_key = (
+            "mlir-target-options-v1",
+            ("lto", targetoptions.get("lto")),
+            ("output", targetoptions.get("output", "ptx")),
+        )
+        return (*key, option_key)
 
 
 # Re-export NullCache for convenience

@@ -2,10 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
-import time
+import sys
+from pathlib import Path
+
 import numpy as np
 import numba.cuda as numba_cuda
 from numba_cuda_mlir import cuda
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from benchmark_utils import add_compile_mode_arg, prepare_compile_measurement, time_compile
 
 N = 0x1 << 24
 TEST_N = 1000000
@@ -111,16 +116,12 @@ def test_vector_addition_vectorized_benchmark(benchmark_runner):
     benchmark_runner(script=__file__, mode="vectorized")
 
 
-def run_benchmark_scalar():
+def run_benchmark_scalar(compile_mode="cold"):
     sig = "void(float32[::1], float32[::1], float32[::1], int64)"
+    prepare_compile_measurement(compile_mode)
 
-    start = time.perf_counter()
-    numba_cuda_vector_add.compile(sig)
-    numba_compile_time = (time.perf_counter() - start) * 1000
-
-    start = time.perf_counter()
-    numba_cuda_mlir_vector_add.compile(sig)
-    numba_cuda_mlir_compile_time = (time.perf_counter() - start) * 1000
+    numba_compile_time = time_compile(numba_cuda_vector_add.compile, sig)
+    numba_cuda_mlir_compile_time = time_compile(numba_cuda_mlir_vector_add.compile, sig)
 
     print("\n=== COMPILE TIMES ===")
     print(f"Numba-CUDA: {numba_compile_time:.3f} ms")
@@ -144,16 +145,14 @@ def run_benchmark_scalar():
     cuda.synchronize()
 
 
-def run_benchmark_vectorized():
+def run_benchmark_vectorized(compile_mode="cold"):
     sig = "void(float32[::1], float32[::1], float32[::1], int64)"
+    prepare_compile_measurement(compile_mode)
 
-    start = time.perf_counter()
-    numba_cuda_vector_add_vectorized.compile(sig)
-    numba_compile_time = (time.perf_counter() - start) * 1000
-
-    start = time.perf_counter()
-    numba_cuda_mlir_vector_add_vectorized.compile(sig)
-    numba_cuda_mlir_compile_time = (time.perf_counter() - start) * 1000
+    numba_compile_time = time_compile(numba_cuda_vector_add_vectorized.compile, sig)
+    numba_cuda_mlir_compile_time = time_compile(
+        numba_cuda_mlir_vector_add_vectorized.compile, sig
+    )
 
     print("\n=== COMPILE TIMES ===")
     print(f"Numba-CUDA: {numba_compile_time:.3f} ms")
@@ -188,9 +187,10 @@ if __name__ == "__main__":
         choices=["scalar", "vectorized"],
         help="Benchmark mode: scalar or vectorized (default: scalar)",
     )
+    add_compile_mode_arg(parser)
     args = parser.parse_args()
 
     if args.mode == "vectorized":
-        run_benchmark_vectorized()
+        run_benchmark_vectorized(args.compile_mode)
     else:
-        run_benchmark_scalar()
+        run_benchmark_scalar(args.compile_mode)

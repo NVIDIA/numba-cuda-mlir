@@ -229,8 +229,8 @@ def _get_schema() -> tuple[MLIRJITOption, ...]:
         ),
         MLIRJITOption(
             name="lto",
-            types=bool,
-            default_value=False,
+            types=(bool, type(None)),
+            default_value=None,
             help="Enable link time optimization",
         ),
         MLIRJITOption(
@@ -529,6 +529,11 @@ def verify_target_options(kws: dict[str, Any]) -> dict[str, Any]:
         if isinstance(cc, tuple):
             targetoptions["chip"] = format_arch(cc)
 
+    if targetoptions.get("lto") is None:
+        from numba_cuda_mlir.numba_cuda.cudadrv.driver import _have_nvjitlink
+
+        targetoptions["lto"] = _have_nvjitlink() and not targetoptions.get("debug")
+
     # When LTO is enabled, output LTOIR instead of PTX
     if targetoptions.get("lto", False):
         targetoptions["output"] = "ltoir"
@@ -572,7 +577,10 @@ def mlir_jit(func_or_sig=None, **kws):
 
     signatures = _get_signatures(func_or_sig)
 
-    targetoptions = verify_target_options(kws)
+    resolved_kws = kws.copy()
+    resolved_kws.setdefault("debug", debug)
+    resolved_kws.setdefault("opt", opt)
+    targetoptions = verify_target_options(resolved_kws)
     annotations_as_signatures = targetoptions.get("annotations_as_signatures", True)
 
     def _jit_with_signatures(func):

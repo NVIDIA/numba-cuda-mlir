@@ -191,6 +191,16 @@ class CompileResult:
     def __getattr__(self, attr):
         if hasattr(self.cres, attr):
             return getattr(self.cres, attr)
+        if attr == "ptx":
+            ptx = self.cres.metadata.get("ptx", "")
+            if ptx:
+                return ptx
+            if self.cres.metadata.get("ltoir"):
+                from numba_cuda_mlir.mlir_optimization import get_ptx
+
+                ptx = get_ptx(self.cres)
+                self.cres.metadata["ptx"] = ptx
+                return ptx
         if attr in self.cres.metadata.keys():
             return self.cres.metadata[attr]
         # Provide compatibility attributes
@@ -305,7 +315,7 @@ def compile_for(func, *args):
     from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 
     sig = typing.signature(types.none, *[typeof(arg) for arg in args])
-    cres = _compile_and_optimize(func, sig)
+    cres = _compile_and_optimize(func, sig, {"output": "ptx"})
     return cres
 
 
@@ -390,8 +400,7 @@ def compile(
         targetoptions["inline"] = "always"
     if launch_bounds is not None:
         targetoptions["launch_bounds"] = launch_bounds
-    if output != "ptx":
-        targetoptions["output"] = output
+    targetoptions["output"] = output
 
     optimized = _compile_and_optimize(pyfunc, sig, targetoptions)
 

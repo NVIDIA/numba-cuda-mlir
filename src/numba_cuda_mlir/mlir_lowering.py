@@ -161,6 +161,7 @@ class MLIRLower(object):
         self._seen_mlir_libraries = set()
         self._cloned_device_funcs: set[str] = set()
         self._linked_external_items = set()
+        self._linked_external_link_items = []
         self.linker = self._create_linker()
 
         # Collect module callbacks from LinkableCode objects (e.g. CUSource)
@@ -1787,11 +1788,27 @@ extern "C" __global__ void
             return
         self._linked_external_items.add(key)
 
-        if hasattr(link_item, "setup_callback") and link_item.setup_callback:
+        has_setup_callback = hasattr(link_item, "setup_callback") and link_item.setup_callback
+        has_teardown_callback = (
+            hasattr(link_item, "teardown_callback") and link_item.teardown_callback
+        )
+        if (has_setup_callback or has_teardown_callback) and not self.targetoptions.get(
+            "_lto_explicit", False
+        ):
+            self.targetoptions["lto"] = False
+            self.targetoptions["output"] = "ptx"
+            if self._linker_config["lto"]:
+                self._linker_config["lto"] = False
+                self.linker = self._create_linker()
+                for prior_link_item in self._linked_external_link_items:
+                    self.linker.add_file_guess_ext(prior_link_item)
+
+        if has_setup_callback:
             self._setup_callbacks.append(link_item.setup_callback)
-        if hasattr(link_item, "teardown_callback") and link_item.teardown_callback:
+        if has_teardown_callback:
             self._teardown_callbacks.append(link_item.teardown_callback)
         self.linker.add_file_guess_ext(link_item)
+        self._linked_external_link_items.append(link_item)
 
     @staticmethod
     def _external_link_item_key(link_item):

@@ -61,7 +61,7 @@ from cuda.core import (
     Stream as ExperimentalStream,
     Device as ExperimentalDevice,
 )
-from numba_cuda_mlir.numba_cuda._compat import CUDA_CORE_GT_0_6
+from numba_cuda_mlir.numba_cuda._compat import CUDA_CORE_GT_0_6, CUDA_CORE_GE_1_0
 from cuda.bindings.utils import get_cuda_native_handle
 
 
@@ -1110,10 +1110,13 @@ class Context:
         :param blocksizelimit: maximum block size the kernel is designed to
                                handle
         """
-        return (
-            binding.CUresult.CUDA_SUCCESS,
-            func.kernel.attributes.max_threads_per_block(),
-        )
+        attrs = func.kernel.attributes
+        if CUDA_CORE_GE_1_0:
+            max_threads_per_block = attrs.max_threads_per_block
+        else:
+            max_threads_per_block = attrs.max_threads_per_block()
+
+        return binding.CUresult.CUDA_SUCCESS, max_threads_per_block
 
     def prepare_for_use(self):
         """Initialize the context for use.
@@ -2122,13 +2125,22 @@ class CudaPythonFunction:
             self.handle = kernel._handle
         self.name = name
         attrs = self.kernel.attributes
-        self.attrs = FuncAttr(
-            regs=attrs.num_regs(),
-            const=attrs.const_size_bytes(),
-            local=attrs.local_size_bytes(),
-            shared=attrs.shared_size_bytes(),
-            maxthreads=attrs.max_threads_per_block(),
-        )
+        if CUDA_CORE_GE_1_0:
+            self.attrs = FuncAttr(
+                regs=attrs.num_regs,
+                const=attrs.const_size_bytes,
+                local=attrs.local_size_bytes,
+                shared=attrs.shared_size_bytes,
+                maxthreads=attrs.max_threads_per_block,
+            )
+        else:
+            self.attrs = FuncAttr(
+                regs=attrs.num_regs(),
+                const=attrs.const_size_bytes(),
+                local=attrs.local_size_bytes(),
+                shared=attrs.shared_size_bytes(),
+                maxthreads=attrs.max_threads_per_block(),
+            )
 
     def __repr__(self):
         return "<CUDA function %s>" % self.name

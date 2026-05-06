@@ -56,7 +56,7 @@ def benchmark_runner(request):
         if mode:
             benchmark_name = f"{benchmark_name} ({mode})"
 
-        compile_times = _run_compile_time_measurement(script_path, mode)
+        compile_times = _run_compile_time_measurements(script_path, mode)
         ncu_kernel_times = _run_ncu_profiling(script_path, mode)
 
         request.config._benchmark_results.append(
@@ -72,11 +72,19 @@ def benchmark_runner(request):
     return run_benchmark
 
 
-def _run_compile_time_measurement(script_path, mode=None):
+def _run_compile_time_measurements(script_path, mode=None):
+    return {
+        "cold": _run_compile_time_measurement(script_path, mode, "cold"),
+        "warm": _run_compile_time_measurement(script_path, mode, "warm"),
+    }
+
+
+def _run_compile_time_measurement(script_path, mode=None, compile_mode="cold"):
     env = os.environ.copy()
     cmd = [sys.executable, str(script_path)]
     if mode:
         cmd.append(mode)
+    cmd.extend(["--compile-mode", compile_mode])
 
     try:
         result = subprocess.run(
@@ -193,9 +201,12 @@ def _parse_ncu_csv(csv_text):
 def _print_consolidated_results(all_results):
     headers = [
         "Benchmark",
-        "Numba-CUDA Compile (ms)",
-        "numba-cuda-mlir Compile (ms)",
-        "Compile Speedup",
+        "Numba-CUDA Cold Compile (ms)",
+        "numba-cuda-mlir Cold Compile (ms)",
+        "Cold Compile Speedup",
+        "Numba-CUDA Warm Compile (ms)",
+        "numba-cuda-mlir Warm Compile (ms)",
+        "Warm Compile Speedup",
         "Numba-CUDA Kernel (ms)",
         "numba-cuda-mlir Kernel (ms)",
         "Kernel Speedup",
@@ -207,15 +218,24 @@ def _print_consolidated_results(all_results):
         compile_times = result["compile_times"]
         ncu_times = result["ncu_times"]
 
-        numba_cuda_compile = compile_times.get("numba-cuda")
-        numba_cuda_mlir_compile = compile_times.get("numba_cuda_mlir")
+        cold_compile_times = compile_times.get("cold", {})
+        warm_compile_times = compile_times.get("warm", {})
+        numba_cuda_cold_compile = cold_compile_times.get("numba-cuda")
+        numba_cuda_mlir_cold_compile = cold_compile_times.get("numba_cuda_mlir")
+        numba_cuda_warm_compile = warm_compile_times.get("numba-cuda")
+        numba_cuda_mlir_warm_compile = warm_compile_times.get("numba_cuda_mlir")
         numba_cuda_kernel = ncu_times.get("numba-cuda")
         numba_cuda_mlir_kernel = ncu_times.get("numba_cuda_mlir")
 
-        if numba_cuda_compile and numba_cuda_mlir_compile:
-            compile_speedup = f"{numba_cuda_compile / numba_cuda_mlir_compile:.2f}x"
+        if numba_cuda_cold_compile and numba_cuda_mlir_cold_compile:
+            cold_compile_speedup = f"{numba_cuda_cold_compile / numba_cuda_mlir_cold_compile:.2f}x"
         else:
-            compile_speedup = "N/A"
+            cold_compile_speedup = "N/A"
+
+        if numba_cuda_warm_compile and numba_cuda_mlir_warm_compile:
+            warm_compile_speedup = f"{numba_cuda_warm_compile / numba_cuda_mlir_warm_compile:.2f}x"
+        else:
+            warm_compile_speedup = "N/A"
 
         if numba_cuda_kernel and numba_cuda_mlir_kernel:
             kernel_speedup = f"{numba_cuda_kernel / numba_cuda_mlir_kernel:.2f}x"
@@ -224,9 +244,12 @@ def _print_consolidated_results(all_results):
 
         row = [
             benchmark_name,
-            f"{numba_cuda_compile:.2f}" if numba_cuda_compile else "N/A",
-            f"{numba_cuda_mlir_compile:.2f}" if numba_cuda_mlir_compile else "N/A",
-            compile_speedup,
+            f"{numba_cuda_cold_compile:.2f}" if numba_cuda_cold_compile else "N/A",
+            (f"{numba_cuda_mlir_cold_compile:.2f}" if numba_cuda_mlir_cold_compile else "N/A"),
+            cold_compile_speedup,
+            f"{numba_cuda_warm_compile:.2f}" if numba_cuda_warm_compile else "N/A",
+            (f"{numba_cuda_mlir_warm_compile:.2f}" if numba_cuda_mlir_warm_compile else "N/A"),
+            warm_compile_speedup,
             f"{numba_cuda_kernel:.4f}" if numba_cuda_kernel else "N/A",
             f"{numba_cuda_mlir_kernel:.4f}" if numba_cuda_mlir_kernel else "N/A",
             kernel_speedup,

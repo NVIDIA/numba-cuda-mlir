@@ -1,11 +1,21 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import time
+import argparse
+import sys
+from pathlib import Path
+
 import numpy as np
 import math
 import numba.cuda as numba_cuda
 from numba_cuda_mlir import cuda
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from benchmark_utils import (
+    add_compile_mode_arg,
+    prepare_compile_measurement,
+    time_compile_sequence,
+)
 
 N = 512
 SEED = 42
@@ -178,19 +188,19 @@ def test_cholesky_benchmark(benchmark_runner):
     benchmark_runner(script=__file__)
 
 
-def run_benchmark_main():
+def run_benchmark_main(compile_mode="cold"):
     diag_sig = "void(float64[::1], float64[::1], int64, int64, int32[::1])"
     col_sig = "void(float64[::1], float64[::1], int64, int64)"
+    prepare_compile_measurement(compile_mode)
 
-    start = time.perf_counter()
-    chol_compute_diag_numba_cuda.compile(diag_sig)
-    chol_compute_column_numba_cuda.compile(col_sig)
-    numba_compile_time = (time.perf_counter() - start) * 1000
-
-    start = time.perf_counter()
-    chol_compute_diag_numba_cuda_mlir.compile(diag_sig)
-    chol_compute_column_numba_cuda_mlir.compile(col_sig)
-    numba_cuda_mlir_compile_time = (time.perf_counter() - start) * 1000
+    numba_compile_time = time_compile_sequence(
+        (chol_compute_diag_numba_cuda, diag_sig),
+        (chol_compute_column_numba_cuda, col_sig),
+    )
+    numba_cuda_mlir_compile_time = time_compile_sequence(
+        (chol_compute_diag_numba_cuda_mlir, diag_sig),
+        (chol_compute_column_numba_cuda_mlir, col_sig),
+    )
 
     print("\n=== COMPILE TIMES ===")
     print(f"Numba-CUDA: {numba_compile_time:.3f} ms")
@@ -227,4 +237,7 @@ def run_benchmark_main():
 
 
 if __name__ == "__main__":
-    run_benchmark_main()
+    parser = argparse.ArgumentParser(description="Cholesky benchmark")
+    add_compile_mode_arg(parser)
+    args = parser.parse_args()
+    run_benchmark_main(args.compile_mode)

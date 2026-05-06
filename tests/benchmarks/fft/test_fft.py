@@ -1,12 +1,22 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import time
+import argparse
+import sys
+from pathlib import Path
+
 import math
 import numpy as np
 from numba import cuda as numba_cuda, types as nty
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda import types as cty
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from benchmark_utils import (
+    add_compile_mode_arg,
+    prepare_compile_measurement,
+    time_compile_sequence,
+)
 
 
 DEFAULT_SIZE = 8192
@@ -180,19 +190,19 @@ def test_fft_benchmark(benchmark_runner):
     benchmark_runner(script=__file__)
 
 
-def run_benchmark_main():
+def run_benchmark_main(compile_mode="cold"):
     permute_sig = "void(complex64[::1], complex64[::1], int64, int64)"
     stage_sig = "void(complex64[::1], int64, int64, int64)"
+    prepare_compile_measurement(compile_mode)
 
-    start = time.perf_counter()
-    bitreverse_permute_numba_cuda.compile(permute_sig)
-    fft_stage_inplace_numba_cuda.compile(stage_sig)
-    numba_compile_time = (time.perf_counter() - start) * 1000
-
-    start = time.perf_counter()
-    bitreverse_permute_numba_cuda_mlir.compile(permute_sig)
-    fft_stage_inplace_numba_cuda_mlir.compile(stage_sig)
-    numba_cuda_mlir_compile_time = (time.perf_counter() - start) * 1000
+    numba_compile_time = time_compile_sequence(
+        (bitreverse_permute_numba_cuda, permute_sig),
+        (fft_stage_inplace_numba_cuda, stage_sig),
+    )
+    numba_cuda_mlir_compile_time = time_compile_sequence(
+        (bitreverse_permute_numba_cuda_mlir, permute_sig),
+        (fft_stage_inplace_numba_cuda_mlir, stage_sig),
+    )
 
     print("\n=== COMPILE TIMES ===")
     print(f"Numba-CUDA: {numba_compile_time:.3f} ms")
@@ -228,4 +238,7 @@ def run_benchmark_main():
 
 
 if __name__ == "__main__":
-    run_benchmark_main()
+    parser = argparse.ArgumentParser(description="FFT benchmark")
+    add_compile_mode_arg(parser)
+    args = parser.parse_args()
+    run_benchmark_main(args.compile_mode)

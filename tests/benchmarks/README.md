@@ -30,7 +30,16 @@ pytest tests/benchmarks/ --benchmark -s
 
 1. **Correctness only**: `pytest tests/benchmarks/vector_add/`
 2. **With profiling scripts**: `pytest tests/benchmarks/vector_add/ --benchmark -s`
-3. **Direct execution**: `python tests/benchmarks/vector_add/test_vector_addition.py scalar`
+3. **Direct execution**: `python tests/benchmarks/vector_add/test_vector_addition.py scalar --compile-mode warm`
+
+### Compile modes
+
+Standalone benchmark scripts accept `--compile-mode {cold,warm}`:
+
+- `cold` measures compilation in a fresh subprocess without benchmark-side warmup.
+- `warm` first compiles a trivial kernel through both backends, then times the benchmark kernel compilation. This removes one-time initialization costs from the measured compile time.
+
+The pytest benchmark runner invokes each script once per compile mode and reports both results in the consolidated table.
 
 ## Output
 

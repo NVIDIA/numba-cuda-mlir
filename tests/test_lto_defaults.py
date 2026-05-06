@@ -1,0 +1,65 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+import pytest
+
+import numba_cuda_mlir.decorators as decorators
+from numba_cuda_mlir.decorators import mlir_jit, verify_target_options
+from numba_cuda_mlir.numba_cuda.core import config
+from numba_cuda_mlir.numba_cuda.cudadrv import driver
+
+
+@pytest.fixture(autouse=True)
+def _mock_compute_capability(monkeypatch):
+    monkeypatch.setattr(decorators, "get_gpu_compute_capability", lambda *args: "sm_80")
+
+
+def test_lto_defaults_to_ltoir_when_nvjitlink_is_available(monkeypatch):
+    monkeypatch.setattr(driver, "_have_nvjitlink", lambda: True)
+
+    targetoptions = verify_target_options({})
+
+    assert targetoptions["lto"] is True
+    assert targetoptions["output"] == "ltoir"
+
+
+def test_lto_defaults_to_ptx_when_nvjitlink_is_unavailable(monkeypatch):
+    monkeypatch.setattr(driver, "_have_nvjitlink", lambda: False)
+
+    targetoptions = verify_target_options({})
+
+    assert targetoptions["lto"] is False
+    assert targetoptions["output"] == "ptx"
+
+
+def test_lto_false_keeps_ptx_output_when_nvjitlink_is_available(monkeypatch):
+    monkeypatch.setattr(driver, "_have_nvjitlink", lambda: True)
+
+    targetoptions = verify_target_options({"lto": False})
+
+    assert targetoptions["lto"] is False
+    assert targetoptions["output"] == "ptx"
+
+
+def test_lto_default_is_disabled_for_debug_builds(monkeypatch):
+    monkeypatch.setattr(driver, "_have_nvjitlink", lambda: True)
+
+    targetoptions = verify_target_options({"debug": True, "opt": False})
+
+    assert targetoptions["lto"] is False
+    assert targetoptions["output"] == "ptx"
+
+
+def test_lto_default_uses_resolved_debug_config(monkeypatch):
+    monkeypatch.setattr(driver, "_have_nvjitlink", lambda: True)
+    monkeypatch.setattr(config, "CUDA_DEBUGINFO_DEFAULT", 1)
+    monkeypatch.setattr(config, "OPT", 0)
+
+    def kernel(a):
+        return None
+
+    dispatcher = mlir_jit(kernel)
+
+    assert dispatcher.targetoptions["debug"] is True
+    assert dispatcher.targetoptions["lto"] is False
+    assert dispatcher.targetoptions["output"] == "ptx"

@@ -11,6 +11,8 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
     AttributeTemplate,
     Registry,
 )
+from numba_cuda_mlir.numba_cuda.typing.typeof import typeof_impl
+from numba_cuda_mlir.numba_cuda.core.imputils import lower_builtin
 from pathlib import Path
 from numba_cuda_mlir.mlir_optimization import optimize
 from numba_cuda_mlir.numba_cuda.codegen import ExternalCodeLibrary
@@ -476,6 +478,26 @@ class ExternFunction:
         self.use_cooperative = use_cooperative
         self.link = link
         self.abi = abi
+
+
+@typeof_impl.register(ExternFunction)
+def typeof_extern_function(val, c):
+    class device_function_template(ConcreteTemplate):
+        key = val
+        cases = [val.sig]
+
+        def get_impl_key(self, sig):
+            return ExternFunction
+
+    return types.Function(device_function_template)
+
+
+@lower_builtin(ExternFunction, types.VarArg(types.Any))
+def extern_function_dummy_lowering(context, builder, sig, args):
+    return context.get_dummy_value()
+
+
+extern_function_dummy_lowering.__module__ = "numba_cuda_mlir.numba_cuda.compiler"
 
 
 def declare_device_function(name, restype, argtypes, link, use_cooperative, abi="numba"):

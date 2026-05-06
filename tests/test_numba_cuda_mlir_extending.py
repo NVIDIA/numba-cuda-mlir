@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir import cuda, extending, types, testing
+from numba_cuda_mlir.models import PrimitiveModel, register_model
+from numba_cuda_mlir.numba_cuda.extending import overload as numba_cuda_overload
+from numba_cuda_mlir.numba_cuda.extending import typeof_impl
+from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 import numpy as np
+import pytest
 
 
 def test_extending_intrinsic():
@@ -104,6 +109,85 @@ def test_extending_overload_method():
     out = np.zeros(1, dtype=np.float64)
     kernel[1, 1](arr, out)
     assert out[0] == 42.0
+
+
+def test_extern_function_typeof():
+    from numba_cuda_mlir.descriptor import mlir_target
+
+    sig = types.void(types.int64)
+    device_func = cuda.declare_device("my_device_func", sig)
+
+    function_type = typeof(device_func)
+
+    assert isinstance(function_type, types.Function)
+    assert function_type.get_call_type(mlir_target.typing_context, sig.args, {}) == sig
+
+
+def test_numba_cuda_overload_captures_extern_function():
+    sig = types.void(types.int64)
+    device_func = cuda.declare_device("my_device_func", sig)
+
+    def my_func(val):
+        pass
+
+    @numba_cuda_overload(my_func)
+    def ol_my_func(val):
+        def impl(val):
+            device_func(val)
+
+        return impl
+
+    @cuda.jit
+    def kernel(val):
+        my_func(val)
+
+    with pytest.raises(Exception, match="Undefined reference to 'my_device_func'"):
+        kernel[1, 1](1)
+
+
+def test_overload_method_custom_type_uses_mlir_model_only():
+    class MyObj:
+        pass
+
+    class MyObjType(types.Type):
+        def __init__(self, obj):
+            self.obj = obj
+            super().__init__(name="MyObjType")
+
+    @typeof_impl.register(MyObj)
+    def typeof_myobj(val, c):
+        return MyObjType(val)
+
+    from numba_cuda_mlir.lowering_utilities import constant, unverified_convert
+
+    @unverified_convert.register(MyObj)
+    def convert_myobj(_val, target_type, **_kwargs):
+        return constant(0, target_type)
+
+    @register_model(MyObjType)
+    class MyObjMlirModel(PrimitiveModel):
+        def __init__(self, dmm, fe_type):
+            from numba_cuda_mlir._mlir.extras import types as T
+
+            super().__init__(dmm, fe_type, T.i8())
+
+    @extending.overload_method(MyObjType, "execute")
+    def ol_execute(obj, val):
+        def impl(obj, val):
+            pass
+
+        return impl
+
+    obj = MyObj()
+
+    @cuda.jit
+    def kernel(out, val):
+        obj.execute(val)
+        out[0] = val
+
+    out = np.zeros(1, dtype=np.int64)
+    kernel[1, 1](out, 7)
+    assert out[0] == 7
 
 
 def test_register_jitable():

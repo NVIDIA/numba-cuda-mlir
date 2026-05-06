@@ -892,6 +892,7 @@ def make_overload_template(
     strict,
     inline,
     prefer_literal=False,
+    base=_OverloadFunctionTemplate,
     **kwargs,
 ):
     """
@@ -900,7 +901,6 @@ def make_overload_template(
     """
     func_name = getattr(func, "__name__", str(func))
     name = "OverloadTemplate_%s" % (func_name,)
-    base = _OverloadFunctionTemplate
     dct = dict(
         key=func,
         _overload_func=staticmethod(overload_func),

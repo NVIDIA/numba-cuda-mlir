@@ -704,3 +704,53 @@ def test_mlir_local_array_type():
         """,
         mlir,
     )
+
+
+def test_mlir_poly_scalar_var():
+    """Polymorphic scalar locals use discriminated-union DI and dbg.declare."""
+
+    def k_poly_scalar_var(out, flag1, flag2):
+        x = 1
+        if flag1:
+            x = 2.5
+        elif flag2:
+            x = np.uint32(3)
+        else:
+            x = True
+        out[0] = x
+
+    mlir = compiler.compile_mlir(
+        k_poly_scalar_var,
+        types.void(types.float64[:], types.boolean, types.boolean),
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK-DAG: #[[DISCRIM:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "discriminator-bool.float64.int64.uint32"
+        CHECK-SAME: flags = Artificial
+        CHECK-DAG: #[[BOOL_MEMBER:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "_bool"
+        CHECK-SAME: sizeInBits = 8
+        CHECK-SAME: extraData = 0 : i8
+        CHECK-DAG: #[[FLOAT_MEMBER:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "_float64"
+        CHECK-SAME: sizeInBits = 64
+        CHECK-SAME: extraData = 1 : i8
+        CHECK-DAG: #[[INT_MEMBER:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "_int64"
+        CHECK-SAME: sizeInBits = 64
+        CHECK-SAME: extraData = 2 : i8
+        CHECK-DAG: #[[UINT_MEMBER:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "_uint32"
+        CHECK-SAME: sizeInBits = 32
+        CHECK-SAME: extraData = 3 : i8
+        CHECK-DAG: #[[VARIANT_PART:di_composite_type[0-9]*]] = #llvm.di_composite_type<tag = DW_TAG_variant_part, name = "variant_part"
+        CHECK-SAME: discriminator = #[[DISCRIM]]
+        CHECK-SAME: elements = #[[BOOL_MEMBER]], #[[FLOAT_MEMBER]], #[[INT_MEMBER]], #[[UINT_MEMBER]]
+        CHECK-DAG: #[[WRAPPER_TYPE:di_composite_type[0-9]*]] = #llvm.di_composite_type<tag = DW_TAG_structure_type, name = "variant_wrapper_struct"
+        CHECK-SAME: elements = #[[DISCRIM]], #[[VARIANT_PART]]
+        CHECK: di_local_variable<{{.*}}name = "x"
+        CHECK-SAME: type = #[[WRAPPER_TYPE]]
+        CHECK: %[[POLY_SLOT:[0-9]+]] = llvm.alloca
+        CHECK-SAME: !llvm.array<2 x i64>
+        CHECK: llvm.intr.dbg.declare {{.*}} = %[[POLY_SLOT]] : !llvm.ptr
+        """,
+        mlir,
+    )

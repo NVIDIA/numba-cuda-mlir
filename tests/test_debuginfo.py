@@ -754,3 +754,35 @@ def test_mlir_poly_scalar_var():
         """,
         mlir,
     )
+
+
+def test_mlir_poly_scalar_var_runtime_debug():
+    """Polymorphic scalar locals preserve runtime values under debug=True."""
+
+    def k_poly_scalar_var_runtime(out, use_float, use_uint, use_bool):
+        x = 1
+        if use_float:
+            x = 2.5
+        elif use_uint:
+            x = np.uint32(3)
+        elif use_bool:
+            x = True
+        else:
+            x = x + 10
+        out[0] = x
+
+    kernel = cuda.jit(
+        types.void(types.float64[:], types.boolean, types.boolean, types.boolean),
+        debug=True,
+        opt=False,
+    )(k_poly_scalar_var_runtime)
+
+    for flags, expected in [
+        ((False, False, False), 11.0),
+        ((True, False, False), 2.5),
+        ((False, True, False), 3.0),
+        ((False, False, True), 1.0),
+    ]:
+        out = cuda.device_array(1, dtype=np.float64)
+        kernel[1, 1](out, *flags)
+        assert out.copy_to_host()[0] == expected

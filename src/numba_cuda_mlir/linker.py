@@ -49,13 +49,13 @@ class Linker(_Linker):
         self._numba_cuda_mlir_temp_ptx_files: list[str] = []
         self._ltoirs: dict[int, bytes] = {}
 
-    def recreate_with_lto(self) -> Self:
-        """Recreate the linker with LTO enabled, copying over existing object codes."""
+    def recreate_with_lto(self, lto: bool = True) -> Self:
+        """Recreate the linker, re-adding all object codes from raw bytes."""
         existing = list(getattr(self, "_object_codes", []))
         new_linker = Linker(
             cc=self.cc,
             additional_flags=self.additional_flags,
-            lto=True,
+            lto=lto,
             arch=self.arch,
             verbose=self._verbose,
             ftz=self._ftz,
@@ -70,13 +70,13 @@ class Linker(_Linker):
             max_registers=self.max_registers,
         )
         for obj in existing:
-            code_type = getattr(obj, "_code_type", None)
+            code_type = getattr(obj, "code_type", None)
             if code_type == "ptx":
-                new_linker.add_ptx(obj._module)
+                new_linker.add_ptx(obj.code)
             elif code_type == "cubin":
-                new_linker.add_cubin(obj._module)
+                new_linker.add_cubin(obj.code)
             elif code_type == "ltoir":
-                new_linker.add_ltoir(obj._module)
+                new_linker.add_ltoir(obj.code)
             else:
                 new_linker._object_codes.append(obj)
         new_linker._ltoirs = dict(self._ltoirs)

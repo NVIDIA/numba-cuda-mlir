@@ -2,7 +2,8 @@ The following people have contributed to this project prior to public release:
 
 Jay Azurin <jazurin@nvidia.com>
 Zino Benaissa <zbenaissa@nvidia.com>
-Leo Feng <leof@nvidia.com>
+Valentin Clement <vclement@nvidia.com>
+Leo Fang <leof@nvidia.com>
 Yevhenii Havrylko <yhavrylko@nvidia.com>
 Vijay Kandiah <vkandiah@nvidia.com>
 Jie Li <jiel@nvidia.com>

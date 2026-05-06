@@ -8,7 +8,7 @@ from typing import NamedTuple
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir.lowering_utilities import context as numba_cuda_mlir_context
-from numba_cuda_mlir.numba_cuda import types
+from numba_cuda_mlir.numba_cuda.datamodel.models import ArrayModel
 from numba_cuda_mlir.numba_cuda.types.ext_types import Bfloat16, GridGroup
 
 
@@ -275,6 +275,58 @@ def _record_di_type(numba_type):
     )
 
 
+def _array_di_type(numba_type):
+    elem = numba_type.dtype
+    ndim = numba_type.ndim
+    layout = numba_type.layout
+
+    i8_di = _basic_di_type("i8", _BYTE_SIZE_BITS, "unsigned")
+    i8_ptr_di = _derived_di_type(
+        "DW_TAG_pointer_type",
+        base_type=i8_di,
+        size_bits=_POINTER_BITS,
+    )
+
+    member = lambda n, b, o, s: _derived_di_type(
+        "DW_TAG_member",
+        name=n,
+        base_type=b,
+        size_bits=s,
+        offset_bits=o,
+    )
+
+    def field_debug_info(field_type):
+        if isinstance(field_type, (types.MemInfoPointer, types.PyObject)):
+            return i8_ptr_di, _POINTER_BITS, "i8*"
+        if isinstance(field_type, types.CPointer):
+            field_di = _cpointer_di_type(field_type)
+            pointee_llvm = _llvm_type_str(field_type.dtype) or "i8"
+            return field_di, _POINTER_BITS, f"{pointee_llvm}*"
+        field_di = _numba_type_to_di_type_str(field_type)
+        field_size = _type_size_bits(field_type)
+        field_llvm = _llvm_type_str(field_type)
+        return field_di, field_size, field_llvm
+
+    members = []
+    total_size = 0
+    llvm_members = []
+    for field_name, field_type in ArrayModel.get_members(numba_type):
+        field_di, field_size, field_llvm = field_debug_info(field_type)
+        if field_di is None or field_size is None or field_llvm is None:
+            return None
+        members.append(member(field_name, field_di, total_size, field_size))
+        total_size += field_size
+        llvm_members.append(field_llvm)
+    llvm_struct = ", ".join(llvm_members)
+
+    return _composite_di_type(
+        "DW_TAG_structure_type",
+        name=f"array({elem}, {ndim}d, {layout}) ({{{llvm_struct}}})",
+        size_bits=total_size,
+        elements=members,
+    )
+
+
 def _numba_type_to_di_type_str(numba_type):
     """Map a Numba type to an MLIR #llvm.di_basic_type string."""
     match numba_type:
@@ -306,6 +358,8 @@ def _numba_type_to_di_type_str(numba_type):
             return _base_tuple_di_type(numba_type)
         case types.Record():
             return _record_di_type(numba_type)
+        case types.Array():
+            return _array_di_type(numba_type)
         case Bfloat16():
             return _basic_di_type("__nv_bfloat16", _BFLOAT16_BITS, "float")
         case GridGroup():

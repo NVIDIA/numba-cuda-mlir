@@ -178,9 +178,7 @@ markers = [
 addopts = [
     "--reruns=3",
     "--only-rerun=Call to cuMemAlloc results in CUDA_ERROR_ILLEGAL_ADDRESS",
-    "--ignore=tests/benchmarks/experimental",
-    "--ignore=tests/benchmarks/llm.py",
-    "--ignore=tests/experimental",
+    "--ignore=tests/doc_examples",
 ]
 
 [project.scripts]

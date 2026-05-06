@@ -1020,7 +1020,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
 
     def enable_caching(self):
         """Enable on-disk caching for this dispatcher."""
-        self._cache = MLIRCache(self.py_func)
+        self._cache = MLIRCache(self.py_func, self.targetoptions)
 
     @property
     def stats(self):
@@ -1088,7 +1088,17 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         if signature is None:
             return {sig: self.inspect_asm(sig) for sig in self.overloads}
         cres = self._find_overload(signature)
-        return cres.metadata["ptx"]
+        ptx = cres.metadata.get("ptx")
+        if ptx:
+            return ptx
+        if not cres.metadata.get("ltoir"):
+            return cres.metadata["ptx"]
+
+        from numba_cuda_mlir.mlir_optimization import get_ptx
+
+        ptx = get_ptx(cres)
+        cres.metadata["ptx"] = ptx
+        return ptx
 
     def inspect_mlir(self, sig=None):
         if sig is None:
@@ -1121,8 +1131,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     def inspect_ptx(self, sig=None):
         if sig is None:
             return {sig: self.inspect_ptx(sig) for sig in self.overloads}
-        cres = self._find_overload(sig)
-        return cres.metadata["ptx"]
+        return self.inspect_asm(sig)
 
     @staticmethod
     def _can_reuse_overload(sig_arg, runtime_type):
@@ -1425,7 +1434,20 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         return self.compile(sig)
 
     def inspect_lto_ptx(self, args=None):
-        return self.inspect_ptx(args)
+        if args is None:
+            return {sig: self.inspect_lto_ptx(sig) for sig in self.overloads}
+        cres = self._find_overload(args)
+        ptx = cres.metadata.get("lto_ptx")
+        if ptx:
+            return ptx
+        if not cres.metadata.get("ltoir"):
+            return self.inspect_ptx(args)
+
+        from numba_cuda_mlir.mlir_optimization import get_lto_ptx
+
+        ptx = get_lto_ptx(cres)
+        cres.metadata["lto_ptx"] = ptx
+        return ptx
 
     def forall(self, ntasks, tpb=0, stream=0, sharedmem=0):
         if ntasks < 0:

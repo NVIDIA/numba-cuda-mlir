@@ -295,6 +295,46 @@ def _compile_to_ptx(llvm_ir: bytes, cc: str, libdevice, nvvm_opts=None) -> bytes
     return cu.compile()
 
 
+def _compile_to_ltoir(llvm_ir: bytes, libdevice, nvvm_opts: dict) -> bytes:
+    cu = CompilationUnit({**nvvm_opts, "gen-lto": None})
+    cu.add_module(llvm_ir)
+    cu.verify()
+    cu.lazy_add_module(libdevice.get())
+    return cu.compile()
+
+
+def get_ptx(cres, target_options=None) -> str:
+    """Return regular PTX lazily for inspection without doing it during LTO compilation."""
+    ptx = cres.metadata.get("ptx")
+    if ptx:
+        return ptx
+    if target_options is None:
+        target_options = cres.metadata["targetoptions"]
+
+    with context.get_context():
+        module = ir.Module.parse(cres.metadata["mlir_module_optimized"])
+        run_pre_codegen_patterns(module)
+
+        chip = target_options.get("chip")
+        if not chip:
+            from numba_cuda_mlir.tools import get_gpu_compute_capability
+
+            chip = get_gpu_compute_capability()
+        cc = chip.replace("sm_", "")
+
+        if _needs_llvm70_path(cc):
+            ptx = _call_llvm70_capi(module, target_options)
+        else:
+            llvm_ir = _prepare_llvm_ir(module, dump=target_options.get("dump_llvmir", False))
+            from numba_cuda_mlir.numba_cuda.cudadrv.nvvm import LibDevice
+
+            libdevice = LibDevice()
+            nvvm_opts = _nvvm_options(cc, target_options)
+            ptx = _compile_to_ptx(llvm_ir, cc, libdevice, nvvm_opts)
+
+    return ptx.decode()
+
+
 def _dump_module(mod, header):
     print(header, end="\n\n")
     # Include loc and #llvm.di_* when present (e.g. debug/lineinfo).
@@ -384,23 +424,61 @@ def _emit_deferred_dbg_declares(module):
     return bool(tagged_vars)
 
 
-def _dump_lto_assembly(cres, linker, target_options):
-    """Diagnostic LTO-to-PTX link to dump post-LTO assembly and warn about
-    non-LTO linkables, mirroring CUDACodeLibrary.get_cubin() / get_lto_ptx()."""
-    from numba_cuda_mlir.numba_cuda.cudadrv.driver import _Linker
+def get_lto_ptx(cres, linker=None, target_options=None) -> str:
+    """Return PTX after LTO without requiring it during normal compilation."""
+    ptx = cres.metadata.get("lto_ptx")
+    if ptx:
+        return ptx
+    if target_options is None:
+        target_options = cres.metadata["targetoptions"]
+    if linker is None:
+        linker = cres.metadata.get("linker")
+    from_cache = linker is None
+    if linker is None:
+        from numba_cuda_mlir.linker import Linker
+        from numba_cuda_mlir.tools import get_gpu_compute_capability, parse_compute_capability
 
-    diag_linker = _Linker(
-        max_registers=linker.max_registers,
-        cc=linker.cc,
-        additional_flags=["-ptx"],
-        lto=True,
-    )
+        chip = target_options.get("chip")
+        if chip:
+            cc = parse_compute_capability(chip)
+            arch = chip
+        else:
+            cc = get_gpu_compute_capability(tuple)
+            arch = get_gpu_compute_capability(str)
+
+        linker = Linker(
+            cc=cc,
+            arch=arch,
+            verbose=target_options.get("dump", False),
+            debug=target_options.get("debug", False),
+            lineinfo=target_options.get("lineinfo", False),
+            lto=True,
+            ftz=target_options.get("fastmath") or None,
+            prec_div=False if target_options.get("fastmath") else None,
+            prec_sqrt=False if target_options.get("fastmath") else None,
+            fma=target_options.get("fastmath") or None,
+            optimization_level=int(target_options.get("opt_level", 3)),
+            ptxas_options=target_options.get("ptxas_options", None),
+            max_registers=target_options.get("max_registers", None),
+        )
+
+    diag_linker = linker.recreate_with_lto(lto=True)
+    diag_linker.additional_flags = ["-ptx"]
     ltoir = cres.metadata.get("ltoir")
     if ltoir:
         diag_linker.add_ltoir(ltoir)
-    for link_file in target_options.get("link", []):
-        diag_linker.add_file_guess_ext(link_file, ignore_nonlto=True)
-    ptx_after_lto = diag_linker.get_linked_ptx().decode("utf-8")
+    if from_cache:
+        for link_file in target_options.get("link", []):
+            diag_linker.add_file_guess_ext(link_file, ignore_nonlto=True)
+    if cres.metadata.get("needs_nrt") and not cres.metadata.get("nrt_inline"):
+        _maybe_link_nrt(diag_linker)
+    return diag_linker.get_linked_ptx().decode("utf-8")
+
+
+def _dump_lto_assembly(cres, linker, target_options):
+    """Diagnostic LTO-to-PTX link to dump post-LTO assembly and warn about
+    non-LTO linkables, mirroring CUDACodeLibrary.get_cubin() / get_lto_ptx()."""
+    ptx_after_lto = get_lto_ptx(cres, linker, target_options)
     name = cres.fndesc.qualname
     print(("ASSEMBLY (AFTER LTO) %s" % name).center(80, "-"))
     print(ptx_after_lto)
@@ -454,21 +532,12 @@ def optimize(cres):
 
         use_llvm70 = _needs_llvm70_path(cc)
 
+        libdevice = LibDevice()
+        nvvm_opts = _nvvm_options(cc, target_options)
         if use_llvm70:
-            ptx = _call_llvm70_capi(module, target_options)
             llvm_ir = None
         else:
             llvm_ir = _prepare_llvm_ir(module, dump=target_options.get("dump_llvmir", False))
-
-            libdevice = LibDevice()
-            nvvm_opts = _nvvm_options(cc, target_options)
-
-            ptx = _compile_to_ptx(llvm_ir, cc, libdevice, nvvm_opts)
-
-        cres.metadata["ptx"] = ptx.decode()
-
-        if target_options.get("dump_ptx", False):
-            print(f"=============== PTX ===============\n\n{cres.metadata['ptx']}\n\n")
 
         linker = cres.metadata["linker"].recreate_with_lto()
 
@@ -476,15 +545,21 @@ def optimize(cres):
             if use_llvm70:
                 ltoir = _call_llvm70_capi(module, target_options, gen_lto=True)
             else:
-                nvvm_opts = _nvvm_options(cc, target_options)
-                cu_lto = CompilationUnit({**nvvm_opts, "gen-lto": None})
-                cu_lto.add_module(llvm_ir)
-                cu_lto.verify()
-                cu_lto.lazy_add_module(LibDevice().get())
-                ltoir = cu_lto.compile()
+                ltoir = _compile_to_ltoir(llvm_ir, libdevice, nvvm_opts)
             cres.metadata["ltoir"] = ltoir
+            cres.metadata["ptx"] = ""
             linker.add_ltoir(ltoir)
+            if target_options.get("dump_ptx", False):
+                cres.metadata["lto_ptx"] = get_lto_ptx(cres, linker, target_options)
+                print(f"=============== PTX ===============\n\n{cres.metadata['lto_ptx']}\n\n")
         else:
+            if use_llvm70:
+                ptx = _call_llvm70_capi(module, target_options)
+            else:
+                ptx = _compile_to_ptx(llvm_ir, cc, libdevice, nvvm_opts)
+            cres.metadata["ptx"] = ptx.decode()
+            if target_options.get("dump_ptx", False):
+                print(f"=============== PTX ===============\n\n{cres.metadata['ptx']}\n\n")
             linker.add_ptx(ptx)
 
         if cres.metadata.get("needs_nrt") and not cres.metadata.get("nrt_inline"):

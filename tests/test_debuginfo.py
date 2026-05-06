@@ -27,6 +27,11 @@ def k_bool_kernel(out, flag):
         out[0] = 0
 
 
+def k_array_2d(a):
+    i = cuda.threadIdx.x
+    a[0, i] = a[0, i] + 1.0
+
+
 def test_mlir_emission_kind_full():
     """debug=True must set emissionKind = Full (not LineTablesOnly)."""
     mlir = compiler.compile_mlir(
@@ -585,12 +590,8 @@ def test_mlir_array_1d_kernel_arg_type():
     )
 
 
-def test_mlir_array_2d_kernel_arg_type():
-    """2d array kernel args size shape/strides by ndim."""
-
-    def k_array_2d(a):
-        i = cuda.threadIdx.x
-        a[i, 0] = a[i, 0] + 1.0
+def test_mlir_array_2d_c_order_kernel_arg_type():
+    """C-order 2d array kernel args size shape/strides by ndim."""
 
     mlir = compiler.compile_mlir(
         k_array_2d,
@@ -615,6 +616,50 @@ def test_mlir_array_2d_kernel_arg_type():
         CHECK-SAME: sizeInBits = 576
         CHECK: #[[ARRAY_VAR:di_local_variable[0-9]*]] = #llvm.di_local_variable<{{.*}}name = "a"
         CHECK-SAME: type = #[[ARRAY_TYPE]]
+        CHECK: %[[ITEMSIZE:[0-9]+]] = llvm.mlir.constant(4 : i64) : i64
+        CHECK: %[[STRIDE0_BYTES:[0-9]+]] = llvm.mul %arg5, %[[ITEMSIZE]] : i64
+        CHECK: %[[STRIDES0:[0-9]+]] = llvm.insertvalue %[[STRIDE0_BYTES]], %{{[0-9]+}}[0] : !llvm.array<2 x i64>
+        CHECK: %[[STRIDE1_BYTES:[0-9]+]] = llvm.mul %arg6, %[[ITEMSIZE]] : i64
+        CHECK: %[[STRIDES:[0-9]+]] = llvm.insertvalue %[[STRIDE1_BYTES]], %[[STRIDES0]][1] : !llvm.array<2 x i64>
+        CHECK: %[[DESC:[0-9]+]] = llvm.insertvalue %[[STRIDES]], %{{[0-9]+}}[6] : !llvm.struct<(ptr, ptr, i64, i64, ptr, array<2 x i64>, array<2 x i64>)>
+        CHECK: llvm.intr.dbg.declare #[[ARRAY_VAR]] = %{{[0-9]+}} : !llvm.ptr
+        """,
+        mlir,
+    )
+
+
+def test_mlir_array_2d_f_order_kernel_arg_type():
+    """F-order 2d array kernel args size shape/strides by ndim."""
+
+    mlir = compiler.compile_mlir(
+        k_array_2d,
+        types.void(types.float32[::1, :]),
+        optimized=True,
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK: #[[TUPLE_TYPE:di_composite_type[0-9]*]] = #llvm.di_composite_type<tag = DW_TAG_array_type, name = "UniTuple(int64 x 2) ([2 x i64])"
+        CHECK-SAME: sizeInBits = 128
+        CHECK: #[[SHAPE:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "shape"
+        CHECK-SAME: baseType = #[[TUPLE_TYPE]]
+        CHECK-SAME: sizeInBits = 128
+        CHECK-SAME: offsetInBits = 320
+        CHECK: #[[STRIDES:di_derived_type[0-9]*]] = #llvm.di_derived_type<tag = DW_TAG_member, name = "strides"
+        CHECK-SAME: baseType = #[[TUPLE_TYPE]]
+        CHECK-SAME: sizeInBits = 128
+        CHECK-SAME: offsetInBits = 448
+        CHECK: #[[ARRAY_TYPE:di_composite_type[0-9]*]] = #llvm.di_composite_type<tag = DW_TAG_structure_type, name = "array(float32, 2d, F) ({i8*, i8*, i64, i64, float*, [2 x i64], [2 x i64]})"
+        CHECK-SAME: sizeInBits = 576
+        CHECK: #[[ARRAY_VAR:di_local_variable[0-9]*]] = #llvm.di_local_variable<{{.*}}name = "a"
+        CHECK-SAME: type = #[[ARRAY_TYPE]]
+        CHECK: %[[ITEMSIZE:[0-9]+]] = llvm.mlir.constant(4 : i64) : i64
+        CHECK: %[[STRIDE0_BYTES:[0-9]+]] = llvm.mul %arg5, %[[ITEMSIZE]] : i64
+        CHECK: %[[STRIDES0:[0-9]+]] = llvm.insertvalue %[[STRIDE0_BYTES]], %{{[0-9]+}}[0] : !llvm.array<2 x i64>
+        CHECK: %[[STRIDE1_BYTES:[0-9]+]] = llvm.mul %arg6, %[[ITEMSIZE]] : i64
+        CHECK: %[[STRIDES:[0-9]+]] = llvm.insertvalue %[[STRIDE1_BYTES]], %[[STRIDES0]][1] : !llvm.array<2 x i64>
+        CHECK: %[[DESC:[0-9]+]] = llvm.insertvalue %[[STRIDES]], %{{[0-9]+}}[6] : !llvm.struct<(ptr, ptr, i64, i64, ptr, array<2 x i64>, array<2 x i64>)>
         CHECK: llvm.intr.dbg.declare #[[ARRAY_VAR]] = %{{[0-9]+}} : !llvm.ptr
         """,
         mlir,

@@ -869,9 +869,10 @@ class SetIterModel(StructModel):
 @register_default(types.MemoryView)
 @register_default(types.PyArray)
 class ArrayModel(StructModel):
-    def __init__(self, dmm, fe_type):
+    @staticmethod
+    def get_members(fe_type):
         ndim = fe_type.ndim
-        members = [
+        return [
             ("meminfo", types.MemInfoPointer(fe_type.dtype)),
             ("parent", types.pyobject),
             ("nitems", types.intp),
@@ -880,7 +881,9 @@ class ArrayModel(StructModel):
             ("shape", types.UniTuple(types.intp, ndim)),
             ("strides", types.UniTuple(types.intp, ndim)),
         ]
-        super().__init__(dmm, fe_type, members)
+
+    def __init__(self, dmm, fe_type):
+        super().__init__(dmm, fe_type, self.get_members(fe_type))
 
 
 @register_default(types.ArrayFlags)

@@ -18,6 +18,7 @@ from numba_cuda_mlir.numba_cuda.extending import _Intrinsic
 
 from numba_cuda_mlir.numba_cuda.core.environment import Environment
 from numba_cuda_mlir.numba_cuda import types
+from numba_cuda_mlir.numba_cuda.datamodel.models import ArrayModel
 from numba_cuda_mlir.annotations import Builder, AnyCallable, PS
 from numba_cuda_mlir.errors import InternalCompilerError, ensure_verifies
 from numba_cuda_mlir.lowering_utilities.type_conversions import (
@@ -2674,9 +2675,22 @@ extern "C" __global__ void
         itemsize = self._array_itemsize_bytes(numba_type)
         i64 = T.i64()
         ptr_type = llvm.PointerType.get()
-        struct_type = ir.Type.parse(
-            f"!llvm.struct<(ptr, ptr, i64, i64, ptr, array<{ndim} x i64>, array<{ndim} x i64>)>"
-        )
+        array_fields = ArrayModel.get_members(numba_type)
+
+        def descriptor_field_type(field_type):
+            if isinstance(field_type, (types.MemInfoPointer, types.PyObject, types.CPointer)):
+                return "ptr"
+            if isinstance(field_type, types.Integer):
+                return "i64"
+            if isinstance(field_type, types.UniTuple):
+                return f"array<{field_type.count} x i64>"
+            return None
+
+        struct_members = [descriptor_field_type(field_type) for _, field_type in array_fields]
+        if any(field_type is None for field_type in struct_members):
+            return None
+        struct_members = ", ".join(struct_members)
+        struct_type = ir.Type.parse(f"!llvm.struct<({struct_members})>")
         array_type = ir.Type.parse(f"!llvm.array<{ndim} x i64>")
 
         i64c = lambda value: arith.constant(i64, value)
@@ -2707,13 +2721,20 @@ extern "C" __global__ void
 
         null_ptr = llvm.mlir_zero(res=ptr_type)
         desc = llvm.UndefOp(struct_type).result
-        desc = ins(desc, null_ptr, 0)
-        desc = ins(desc, null_ptr, 1)
-        desc = ins(desc, nitems, 2)
-        desc = ins(desc, i64c(itemsize), 3)
-        desc = ins(desc, data_ptr, 4)
-        desc = ins(desc, shape, 5)
-        desc = ins(desc, strides, 6)
+        field_values = {
+            "meminfo": null_ptr,
+            "parent": null_ptr,
+            "nitems": nitems,
+            "itemsize": i64c(itemsize),
+            "data": data_ptr,
+            "shape": shape,
+            "strides": strides,
+        }
+        for i, (field_name, _) in enumerate(array_fields):
+            field_value = field_values.get(field_name)
+            if field_value is None:
+                return None
+            desc = ins(desc, field_value, i)
         return desc
 
     def _llvm_struct_type(self, elem_types):

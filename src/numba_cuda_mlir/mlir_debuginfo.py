@@ -8,7 +8,7 @@ from typing import NamedTuple
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir.lowering_utilities import context as numba_cuda_mlir_context
-from numba_cuda_mlir.numba_cuda import types
+from numba_cuda_mlir.numba_cuda.datamodel.models import ArrayModel
 from numba_cuda_mlir.numba_cuda.types.ext_types import Bfloat16, GridGroup
 
 
@@ -280,32 +280,12 @@ def _array_di_type(numba_type):
     ndim = numba_type.ndim
     layout = numba_type.layout
 
-    int64_di = _basic_di_type("int64", _INT_LITERAL_BITS, "signed")
     i8_di = _basic_di_type("i8", _BYTE_SIZE_BITS, "unsigned")
     i8_ptr_di = _derived_di_type(
         "DW_TAG_pointer_type",
         base_type=i8_di,
         size_bits=_POINTER_BITS,
     )
-    elem_di = _numba_type_to_di_type_str(elem) or _basic_di_type(
-        "byte", _BYTE_SIZE_BITS, "unsigned"
-    )
-    elem_ptr_di = _derived_di_type(
-        "DW_TAG_pointer_type",
-        base_type=elem_di,
-        size_bits=_POINTER_BITS,
-    )
-    tuple_di = _uni_tuple_di_type(types.UniTuple(types.int64, ndim))
-
-    # Array descriptor debug info layout
-    meminfo_offset = 0
-    parent_offset = _POINTER_BITS
-    nitems_offset = 2 * _POINTER_BITS
-    itemsize_offset = nitems_offset + _INT_LITERAL_BITS
-    data_offset = itemsize_offset + _INT_LITERAL_BITS
-    shape_offset = data_offset + _POINTER_BITS
-    strides_offset = shape_offset + ndim * _INT_LITERAL_BITS
-    total_size = strides_offset + ndim * _INT_LITERAL_BITS
 
     member = lambda n, b, o, s: _derived_di_type(
         "DW_TAG_member",
@@ -315,18 +295,29 @@ def _array_di_type(numba_type):
         offset_bits=o,
     )
 
-    members = [
-        member("meminfo", i8_ptr_di, meminfo_offset, _POINTER_BITS),
-        member("parent", i8_ptr_di, parent_offset, _POINTER_BITS),
-        member("nitems", int64_di, nitems_offset, _INT_LITERAL_BITS),
-        member("itemsize", int64_di, itemsize_offset, _INT_LITERAL_BITS),
-        member("data", elem_ptr_di, data_offset, _POINTER_BITS),
-        member("shape", tuple_di, shape_offset, ndim * _INT_LITERAL_BITS),
-        member("strides", tuple_di, strides_offset, ndim * _INT_LITERAL_BITS),
-    ]
+    def field_debug_info(field_type):
+        if isinstance(field_type, (types.MemInfoPointer, types.PyObject)):
+            return i8_ptr_di, _POINTER_BITS, "i8*"
+        if isinstance(field_type, types.CPointer):
+            field_di = _cpointer_di_type(field_type)
+            pointee_llvm = _llvm_type_str(field_type.dtype) or "i8"
+            return field_di, _POINTER_BITS, f"{pointee_llvm}*"
+        field_di = _numba_type_to_di_type_str(field_type)
+        field_size = _type_size_bits(field_type)
+        field_llvm = _llvm_type_str(field_type)
+        return field_di, field_size, field_llvm
 
-    elem_llvm = _llvm_type_str(elem) or "i8"
-    llvm_struct = f"i8*, i8*, i64, i64, {elem_llvm}*, [{ndim} x i64], [{ndim} x i64]"
+    members = []
+    total_size = 0
+    llvm_members = []
+    for field_name, field_type in ArrayModel.get_members(numba_type):
+        field_di, field_size, field_llvm = field_debug_info(field_type)
+        if field_di is None or field_size is None or field_llvm is None:
+            return None
+        members.append(member(field_name, field_di, total_size, field_size))
+        total_size += field_size
+        llvm_members.append(field_llvm)
+    llvm_struct = ", ".join(llvm_members)
 
     return _composite_di_type(
         "DW_TAG_structure_type",

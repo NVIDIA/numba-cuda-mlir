@@ -264,6 +264,7 @@ def _geomean(values):
     if not vals:
         return None
     import math
+
     return math.exp(sum(math.log(v) for v in vals) / len(vals))
 
 
@@ -299,10 +300,18 @@ def _geomean_row(all_results):
 
     return [
         "GEOMEAN",
-        _fmt(g_cold_nc), _fmt(g_cold_mlir), _speedup(g_cold_nc, g_cold_mlir),
-        _fmt(g_warm_nc), _fmt(g_warm_mlir), _speedup(g_warm_nc, g_warm_mlir),
-        _fmt(g_kern_nc, 4), _fmt(g_kern_mlir, 4), _speedup(g_kern_nc, g_kern_mlir),
-        _fmt(g_e2e_nc), _fmt(g_e2e_mlir), _speedup(g_e2e_nc, g_e2e_mlir),
+        _fmt(g_cold_nc),
+        _fmt(g_cold_mlir),
+        _speedup(g_cold_nc, g_cold_mlir),
+        _fmt(g_warm_nc),
+        _fmt(g_warm_mlir),
+        _speedup(g_warm_nc, g_warm_mlir),
+        _fmt(g_kern_nc, 4),
+        _fmt(g_kern_mlir, 4),
+        _speedup(g_kern_nc, g_kern_mlir),
+        _fmt(g_e2e_nc),
+        _fmt(g_e2e_mlir),
+        _speedup(g_e2e_nc, g_e2e_mlir),
     ]
 
 

@@ -3,6 +3,7 @@
 import collections
 from contextlib import contextmanager
 import sys
+import os
 from functools import cached_property, lru_cache
 
 if sys.version_info >= (3, 12):
@@ -27,6 +28,7 @@ from numba_cuda_mlir.numba_cuda.cudadecl import registry as cuda_registry
 from numba_cuda_mlir.numba_cuda import serialize, typing
 from numba_cuda_mlir.numba_cuda.core.base import BaseContext
 from numba_cuda_mlir.numba_cuda.core.callconv import MinimalCallConv
+from numba_cuda_mlir.numba_cuda.cudadrv.devicearray import DeviceNDArrayBase
 from numba_cuda_mlir.numba_cuda.core.descriptors import TargetDescriptor
 from numba_cuda_mlir.numba_cuda.core.compiler_lock import global_compiler_lock
 from numba_cuda_mlir.numba_cuda.dispatcher import Dispatcher
@@ -119,29 +121,13 @@ def _run_teardown_callback(cb, object_code):
         logging.exception("teardown callback %r failed for %r", cb, object_code)
 
 
-def _append_typeof_or_none(original_types, arg):
-    try:
-        original_types.append(typeof(arg))
-    except (ValueError, TypeError):
-        original_types.append(None)
-
-
-def _flatten_arg(arg):
-    """Recursively flatten a tuple/list argument."""
+def _flatten_arg(arg, out):
+    """Recursively flatten a tuple/list argument into *out*."""
     if isinstance(arg, (tuple, list)):
-        result = []
         for elem in arg:
-            result.extend(_flatten_arg(elem))
-        return result
-    return [arg]
-
-
-def _flatten_args(args):
-    """Flatten all tuple/list arguments in args."""
-    result = []
-    for arg in args:
-        result.extend(_flatten_arg(arg))
-    return result
+            _flatten_arg(elem, out)
+    else:
+        out.append(arg)
 
 
 def _raise_as_cuda_error(e):
@@ -175,8 +161,13 @@ class _ArgMarshaller:
         self._callbacks = []
         self._extensions = extensions or []
         self._dispatcher = dispatcher
+        self._sig_cache = {}  # {type_key: (argtypes, fast_ok)}
+        self._array_sig_cache = {}  # {type_key: (argtypes, ((idx, dtype_num, ndim), ...))}
 
     def _maybe_copy_to_device_item(self, arg):
+        if isinstance(arg, DeviceNDArrayBase):
+            return arg
+
         from numba_cuda_mlir import cuda
 
         match arg:
@@ -224,12 +215,6 @@ class _ArgMarshaller:
             case _ if hasattr(arg, "__cuda_array_interface__") and not isinstance(arg, np.ndarray):
                 # Third-party objects implementing __cuda_array_interface__.
                 # Convert to DeviceNDArray so typeof() works.
-                from numba_cuda_mlir.numba_cuda.cudadrv.devicearray import (
-                    DeviceNDArrayBase,
-                )
-
-                if isinstance(arg, DeviceNDArrayBase):
-                    return arg
                 from numba_cuda_mlir.numba_cuda.api import from_cuda_array_interface
 
                 return from_cuda_array_interface(arg.__cuda_array_interface__, owner=arg)
@@ -258,27 +243,6 @@ class _ArgMarshaller:
                 return _strided_memory_view_to_device_array(arg)
             case _:
                 return arg
-
-    def _maybe_copy_to_device(self, args):
-        return list(map(self._maybe_copy_to_device_item, args))
-
-    def _apply_extensions(self, args):
-        if not self._extensions:
-            return list(args)
-
-        transformed_vals = []
-        for arg in args:
-            try:
-                ty = typeof(arg)
-            except (ValueError, TypeError) as e:
-                raise ExtensionError(
-                    f"Could not get type of argument: {arg}. Please register a typeof_impl for this type."
-                ) from e
-            val = arg
-            for extension in reversed(self._extensions):
-                ty, val = extension.prepare_args(ty, val, stream=None, retr=self._callbacks)
-            transformed_vals.append(val)
-        return transformed_vals
 
     def _coerce_to_overload(self, device_args, argtypes):
         """Coerce scalar arguments to match a pre-compiled overload signature."""
@@ -320,25 +284,12 @@ class _ArgMarshaller:
                 coerced_types.append(runtime_type)
         return coerced_args, coerced_types
 
-    def __call__(self, *args):
-        original_types = []
-        for arg in args:
-            _append_typeof_or_none(original_types, arg)
-
-        args = self._apply_extensions(args)
-
-        device_args = self._maybe_copy_to_device(args)
-        # Store original types for _compile to use (before flattening)
-        argtypes = [typeof(arg) for arg in device_args]
-        device_args, argtypes = self._coerce_to_overload(device_args, argtypes)
+    def _launch(self, argtypes, launch_args):
+        """Set compile arg types and invoke the C++ launcher with error handling."""
         _compile_arg_types.types = argtypes
         try:
-            # Flatten tuple/list arguments for C++ kernel launcher
-            flat_args = _flatten_args(device_args)
-            result = self._launcher(*flat_args)
+            return self._launcher(*launch_args)
         except UserFacingInternalCompilerError as e:
-            import os
-
             if os.environ.get("NUMBA_CUDA_MLIR_ICE_FULL_TB", "0").strip() == "1":
                 raise
             raise e.with_traceback(None) from None
@@ -346,9 +297,101 @@ class _ArgMarshaller:
             _raise_as_cuda_error(e)
         finally:
             _compile_arg_types.types = None
-        for callback in self._callbacks:
+
+    def __call__(self, *args):
+        nargs = len(args)
+
+        # --- Fast path: repeated call with same Python type signature ---
+        type_key = tuple(type(a) for a in args)
+        cached = self._sig_cache.get(type_key)
+        if cached is not None:
+            cached_argtypes, fast_ok = cached
+            if fast_ok:
+                return self._launch(cached_argtypes, args)
+
+            # --- Array path: skip typeof/coercion, verify dtype/ndim ---
+            array_entry = self._array_sig_cache.get(type_key)
+            if array_entry is not None:
+                cached_argtypes, array_checks = array_entry
+                ok = True
+                for idx, dtype_num, ndim in array_checks:
+                    a = args[idx]
+                    if a.dtype.num != dtype_num or a.ndim != ndim:
+                        ok = False
+                        break
+                if ok:
+                    return self._launch(cached_argtypes, args)
+
+        # --- Slow path: full processing ---
+        has_ext = bool(self._extensions)
+        reversed_ext = self._extensions[::-1] if has_ext else None
+        copy_item = self._maybe_copy_to_device_item
+        callbacks = self._callbacks
+
+        device_args = [None] * nargs
+        argtypes = [None] * nargs
+        all_pass_through = True
+
+        for i in range(nargs):
+            val = args[i]
+
+            try:
+                ty = typeof(val)
+            except (ValueError, TypeError):
+                ty = None
+
+            if has_ext:
+                if ty is None:
+                    raise ExtensionError(
+                        f"Could not get type of argument: {val}. "
+                        "Please register a typeof_impl for this type."
+                    )
+                for ext in reversed_ext:
+                    ty, val = ext.prepare_args(ty, val, stream=None, retr=callbacks)
+                if val is not args[i]:
+                    all_pass_through = False
+
+            dev = copy_item(val)
+            if dev is not val:
+                all_pass_through = False
+                try:
+                    ty = typeof(dev)
+                except (ValueError, TypeError):
+                    ty = None
+
+            device_args[i] = dev
+            argtypes[i] = ty
+
+        coerced_args, coerced_types = self._coerce_to_overload(device_args, argtypes)
+        if coerced_args is not device_args:
+            all_pass_through = False
+
+        flat_args = []
+        for arg in coerced_args:
+            _flatten_arg(arg, flat_args)
+        result = self._launch(coerced_types, flat_args)
+
+        for callback in callbacks:
             callback()
-        self._callbacks.clear()  # Clear callbacks to prevent accumulation
+        callbacks.clear()
+
+        # Cache for future fast-path use
+        has_arrays = any(isinstance(ct, types.Array) for ct in coerced_types)
+        if all_pass_through and len(flat_args) == nargs and not has_arrays:
+            self._sig_cache[type_key] = (list(coerced_types), True)
+        else:
+            if type_key not in self._sig_cache:
+                self._sig_cache[type_key] = (list(coerced_types), False)
+
+            # Populate array path cache: all array args must be
+            # DeviceNDArrayBase (already on device, no host-to-device copy)
+            if has_arrays and all_pass_through and type_key not in self._array_sig_cache:
+                array_checks = []
+                for i, ct in enumerate(coerced_types):
+                    if isinstance(ct, types.Array):
+                        array_checks.append((i, args[i].dtype.num, args[i].ndim))
+                self._array_sig_cache[type_key] = (list(coerced_types), tuple(array_checks))
+
         return result
 
 

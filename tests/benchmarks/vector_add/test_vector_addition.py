@@ -206,9 +206,7 @@ def run_benchmark_vectorized(compile_mode="cold", backend=BACKEND_BOTH):
         a_device = cuda.to_device(a)
         b_device = cuda.to_device(b)
         c_device = cuda.device_array(n, dtype=np.float32)
-        numba_cuda_mlir_vector_add_vectorized[blocks, threads](
-            a_device, b_device, c_device, n
-        )
+        numba_cuda_mlir_vector_add_vectorized[blocks, threads](a_device, b_device, c_device, n)
         cuda.synchronize()
 
     print_e2e_time(backend, E2E_START)

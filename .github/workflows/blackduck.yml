@@ -1,0 +1,101 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: "Static Analysis: Black Duck SCA Scan"
+
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+      - "main"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    if: github.repository_owner == 'NVIDIA'
+    name: Black Duck SCA (${{ matrix.dependency_set.name }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        dependency_set:
+          - name: base
+            export_args: "--group dev --group test"
+          - name: cu12
+            export_args: "--extra cu12 --group dev --group test"
+          - name: cu13
+            export_args: "--extra cu13 --group dev --group test"
+
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
+        with:
+          enable-cache: false
+
+      - name: Export Python dependencies
+        run: |
+          uv export \
+            --quiet \
+            --format requirements.txt \
+            --output-file requirements.txt \
+            ${{ matrix.dependency_set.export_args }} \
+            --no-emit-local \
+            --no-hashes
+          rm -f uv.lock
+
+      - name: Black Duck SCA Scan
+        id: black-duck-sca-scan
+        uses: blackduck-inc/black-duck-security-scan@659a0742e793a093377fab3117b0d90f23b04bfa  # v2
+
+        ### Configure DETECT environment variables
+        env:
+          DETECT_PROJECT_NAME: ${{ github.event.repository.name }}
+          DETECT_PROJECT_VERSION_NAME: ${{ github.ref_name }}-${{ matrix.dependency_set.name }}
+          BRIDGE_BLACKDUCK_DOWNLOAD_URL: "https://repo.blackduck.com/bds-integrations-release/com/blackduck/integration/detect/11.0.0/detect-11.0.0.jar"
+
+        with:
+          ### SCANNING: Required fields
+          blackducksca_url: ${{ vars.BLACKDUCK_URL }}
+          blackducksca_token: ${{ secrets.BLACKDUCK_TOKEN }}
+          include_diagnostics: true
+          bridgecli_download_version: "3.9.0"
+          detect_args: --detect.project.group.name='github-first-group' --detect.excluded.detector.types='SETUPTOOLS,PIP,CONAN' --detect.detector.search.depth=5 --detect.blackduck.scan.mode='RAPID'
+
+          ### SCANNING: Optional fields
+          # blackducksca_scan_failure_severities: 'BLOCKER,CRITICAL'
+
+          ### FIX PULL REQUEST CREATION: Uncomment below to enable
+          # blackducksca_fixpr_enabled: true
+          # github_token: ${{ secrets.GITHUB_TOKEN }} # Required when Fix PRs is enabled
+
+          ### PULL REQUEST COMMENTS: Uncomment below to enable
+          # blackducksca_prcomment_enabled: true
+          # github_token: ${{ secrets.GITHUB_TOKEN }} # Required when PR comments is enabled
+
+          ### SARIF report generation and upload to GitHub Advanced Security: Uncomment below to enable
+          # blackducksca_reports_sarif_create: true # Create Black Duck SCA SARIF report and upload it as artifact
+          # blackducksca_upload_sarif_report: true  # Upload Black Duck SCA SARIF report in GitHub Advanced Security tab
+          # github_token: ${{ secrets.GITHUB_TOKEN }} # Required when blackducksca_upload_sarif_report is set as true
+
+          ### Mark build status if policy violating issues are found
+          # mark_build_status: 'success'
+
+          ### To enable self-signed certificates.
+          #network_ssl_trustAll: true
+          #network_ssl_cert_file: '/Users/Config/cert.pem'
+
+          ### Uncomment below configuration to add custom logic based on return status
+          # - name: cmdLine
+          #   id: cmdLine
+          #   run: |
+          #     EXIT_CODE=${{ steps.black-duck-sca-scan.outputs.status }}
+          #     echo "Black Duck Security Scan exit status - $EXIT_CODE"

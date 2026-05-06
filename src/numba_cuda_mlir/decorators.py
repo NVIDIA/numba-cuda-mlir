@@ -511,6 +511,14 @@ def verify_target_options(kws: dict[str, Any]) -> dict[str, Any]:
                 if error:
                     raise ValueError(_target_options_help(f"{option.name}: {error}"))
 
+    # When cuda.experimental has been imported and the user did not explicitly
+    # set experimental_ast_transforms, default it to True.
+    if "experimental_ast_transforms" not in kws:
+        import numba_cuda_mlir.cuda as _cuda
+
+        if _cuda._EXPERIMENTAL_IMPORTED:
+            targetoptions["experimental_ast_transforms"] = True
+
     # Normalize inline booleans to strings (numba's InlineOptions only accepts
     # "always", "never", or callables -- not True/False).
     if "inline" in kws and isinstance(kws["inline"], bool):

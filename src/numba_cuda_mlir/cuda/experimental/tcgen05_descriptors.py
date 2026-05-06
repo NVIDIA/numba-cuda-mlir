@@ -11,7 +11,8 @@ reused across different kernels.
 
 import ctypes  # Import at module level for use in device functions
 from numba_cuda_mlir.numba_cuda import types
-from numba_cuda_mlir.host import struct, union
+from numba_cuda_mlir.cuda.experimental.struct import struct
+from numba_cuda_mlir.cuda.experimental.union import union
 
 # ============================================================================
 # Instruction Descriptor

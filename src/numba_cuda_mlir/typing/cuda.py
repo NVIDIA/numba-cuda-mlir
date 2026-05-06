@@ -541,8 +541,10 @@ class Cuda_stub_resolver(cudadecl.CudaModuleTemplate, AttributeTemplate):
     def resolve_local_array(self, mod):
         return types.Function(LocalArrayTemplate)
 
-    def resolve_inline_ptx(self, mod):
-        return types.Function(InlinePTXFunctionTemplate)
+    def resolve_experimental(self, mod):
+        import numba_cuda_mlir.cuda.experimental as experimental
+
+        return types.Module(experimental)
 
     def resolve_intrin(self, mod):
         import numba_cuda_mlir.cuda.intrin as intrin
@@ -676,6 +678,21 @@ class RealNumbaCudaModuleTemplate(Cuda_stub_resolver):
     import numba_cuda_mlir.numba_cuda as numba_cuda_module
 
     key = types.Module(numba_cuda_module)
+
+
+@registry.register_attr
+class CudaExperimentalModuleTemplate(AttributeTemplate):
+    import numba_cuda_mlir.cuda.experimental as experimental
+
+    key = types.Module(experimental)
+
+    def resolve_inline_ptx(self, mod):
+        return types.Function(InlinePTXFunctionTemplate)
+
+    def resolve_intrin(self, mod):
+        import numba_cuda_mlir.cuda.intrin as intrin
+
+        return types.Module(intrin)
 
 
 @registry.register_attr

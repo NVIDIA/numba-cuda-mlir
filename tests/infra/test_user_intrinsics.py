@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir.cuda.experimental import intrin
 from numba_cuda_mlir import types, compiler
 from numba_cuda_mlir.errors import MultipleIntrinsicFunctionsError
 from numba_cuda_mlir._mlir.dialects import llvm
@@ -11,7 +12,7 @@ import pytest
 
 
 def test_intrinsic_from_source():
-    add_42 = cuda.intrin.define(
+    add_42 = intrin.define(
         """
         func.func private @add_42(%x: i32) -> i32 attributes {always_inline} {
             %c42 = arith.constant 42 : i32
@@ -38,7 +39,7 @@ def test_intrinsic_from_source():
 def test_intrinsic_void_return_with_llvm():
     llvm_kDynamic = -2147483648
 
-    @cuda.intrin.define
+    @intrin.define
     def store_magic(ptr: llvm.PointerType.get, idx: types.int64):
         magic = arith.constant(0xCAFE, T.i64())
         offset_ptr = llvm.getelementptr(
@@ -59,7 +60,7 @@ def test_intrinsic_void_return_with_llvm():
 
 def test_intrinsic_multiple_functions_error():
     with pytest.raises(MultipleIntrinsicFunctionsError) as excinfo:
-        cuda.intrin.define(
+        intrin.define(
             """
             func.func private @func_a(%x: i32) -> i32 attributes {always_inline} {
                 return %x : i32
@@ -76,7 +77,7 @@ def test_intrinsic_multiple_functions_error():
 
 def test_intrinsic_no_functions_error():
     with pytest.raises(ValueError) as excinfo:
-        cuda.intrin.define(
+        intrin.define(
             """
             // Empty module with no functions
         """
@@ -86,7 +87,7 @@ def test_intrinsic_no_functions_error():
 
 
 def test_intrinsic():
-    @cuda.intrin.define
+    @intrin.define
     def mul_by_2(x: types.int32) -> types.int32:
         c2 = arith.constant(2, T.i32())
         return arith.muli(x, c2)
@@ -106,7 +107,7 @@ def test_intrinsic():
 
 
 def test_intrinsic_callable_type():
-    @cuda.intrin.define
+    @intrin.define
     def halve(x: T.f32) -> T.f32:
         c2 = arith.constant(2.0, T.f32())
         return arith.divf(x, c2)
@@ -126,7 +127,7 @@ def test_intrinsic_callable_type():
 
 
 def test_intrinsic_multiple_ops():
-    @cuda.intrin.define
+    @intrin.define
     def fma(a: types.int32, b: types.int32, c: types.int32) -> types.int32:
         prod = arith.muli(a, b)
         return arith.addi(prod, c)
@@ -146,7 +147,7 @@ def test_intrinsic_multiple_ops():
 
 
 def test_intrinsic_mixed_annotations():
-    @cuda.intrin.define
+    @intrin.define
     def scale_and_add(x: types.int32, scale: T.i32, offset: types.int32) -> T.i32:
         scaled = arith.muli(x, scale)
         return arith.addi(scaled, offset)
@@ -182,7 +183,7 @@ def test_cross_file_import():
 
 
 def test_intrinsic_from_source_inlines():
-    inline_double = cuda.intrin.define(
+    inline_double = intrin.define(
         """
         func.func private @inline_double(%x: i32) -> i32 attributes {always_inline} {
             %c2 = arith.constant 2 : i32
@@ -203,7 +204,7 @@ def test_intrinsic_from_source_inlines():
 
 
 def test_intrinsic_tuple_return():
-    @cuda.intrin.define
+    @intrin.define
     def divmod_i32(a: types.int32, b: types.int32) -> tuple[types.int32, types.int32]:
         quot = arith.divsi(a, b)
         rem = arith.remsi(a, b)

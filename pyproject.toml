@@ -3,7 +3,7 @@
 [build-system]
 build-backend = "setuptools.build_meta"
 requires = [
-    "setuptools",
+    "setuptools>=64",
     "wheel",
     "ninja",
     "cmake",
@@ -80,6 +80,7 @@ include-package-data = true
     "**/*.cu",
     "**/*.cuh",
     "**/*.pyi",
+    "py.typed",
     "VERSION",
     "_mlir/**/*.so",
     "_mlir/**/*.py",

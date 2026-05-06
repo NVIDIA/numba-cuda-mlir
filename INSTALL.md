@@ -102,12 +102,15 @@ This produces `llvm-modern-install/` and `llvm7-install/` directories.
 
 Then, create a virtualenv and install Numba-CUDA-MLIR in editable mode:
 
+> **Note for VS Code / Pyright users:**
+> By default, `pip install -e .` on modern `setuptools` uses dynamic import hooks that static analysis tools like Pyright cannot resolve. To ensure jump-to-definition works correctly in your IDE, use `--config-settings editable_mode=compat`. See [Pyright Import Resolution: Editable Installs](https://microsoft.github.io/pyright/#/import-resolution?id=editable-installs) for more details.
+
 ```shell
 python3 -m venv numba-cuda-mlir-env && source numba-cuda-mlir-env/bin/activate
 
 MLIR_DIR=$PWD/llvm-modern-install/lib/cmake/mlir \
 LIBLLVM7=$PWD/llvm7-install/lib/libLLVM-7.so \
-  pip install -e '.[cu13,dev]'
+  pip install -e '.[cu13,dev]' --config-settings editable_mode=compat
 ```
 
 ### Option 3: Build LLVM from source
@@ -127,7 +130,7 @@ ci/build-llvm7.sh          # produces llvm7-install/
 # Then install numba-cuda-mlir as in Option 2:
 MLIR_DIR=$PWD/llvm-modern-install/lib/cmake/mlir \
 LIBLLVM7=$PWD/llvm7-install/lib/libLLVM-7.so \
-  pip install -e '.[cu13,dev]'
+  pip install -e '.[cu13,dev]' --config-settings editable_mode=compat
 ```
 
 ## Testing

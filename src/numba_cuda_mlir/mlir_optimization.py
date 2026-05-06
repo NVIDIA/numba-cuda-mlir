@@ -433,7 +433,6 @@ def get_lto_ptx(cres, linker=None, target_options=None) -> str:
         target_options = cres.metadata["targetoptions"]
     if linker is None:
         linker = cres.metadata.get("linker")
-    from_cache = linker is None
     if linker is None:
         from numba_cuda_mlir.linker import Linker
         from numba_cuda_mlir.tools import get_gpu_compute_capability, parse_compute_capability
@@ -462,14 +461,13 @@ def get_lto_ptx(cres, linker=None, target_options=None) -> str:
             max_registers=target_options.get("max_registers", None),
         )
 
-    diag_linker = linker.recreate_with_lto(lto=True)
+    diag_linker = linker.recreate_with_lto(lto=True, ltoir_only=True)
     diag_linker.additional_flags = ["-ptx"]
     ltoir = cres.metadata.get("ltoir")
     if ltoir:
         diag_linker.add_ltoir(ltoir)
-    if from_cache:
-        for link_file in target_options.get("link", []):
-            diag_linker.add_file_guess_ext(link_file, ignore_nonlto=True)
+    for link_file in target_options.get("link", []):
+        diag_linker.add_file_guess_ext(link_file, ignore_nonlto=True)
     if cres.metadata.get("needs_nrt") and not cres.metadata.get("nrt_inline"):
         _maybe_link_nrt(diag_linker)
     return diag_linker.get_linked_ptx().decode("utf-8")

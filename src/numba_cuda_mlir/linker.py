@@ -70,13 +70,13 @@ class Linker(_Linker):
             max_registers=self.max_registers,
         )
         for obj in existing:
-            code_type = getattr(obj, "_code_type", None)
+            code_type = getattr(obj, "code_type", None)
             if code_type == "ptx":
-                new_linker.add_ptx(obj._module)
+                new_linker.add_ptx(obj.code)
             elif code_type == "cubin":
-                new_linker.add_cubin(obj._module)
+                new_linker.add_cubin(obj.code)
             elif code_type == "ltoir":
-                new_linker.add_ltoir(obj._module)
+                new_linker.add_ltoir(obj.code)
             else:
                 new_linker._object_codes.append(obj)
         new_linker._ltoirs = dict(self._ltoirs)

@@ -57,21 +57,18 @@ def benchmark_runner(request):
             benchmark_name = f"{benchmark_name} ({mode})"
 
         compile_times = _run_compile_time_measurements(script_path, mode)
-        e2e_times = _run_e2e_measurements(script_path, mode)
         ncu_kernel_times = _run_ncu_profiling(script_path, mode)
 
         request.config._benchmark_results.append(
             {
                 "name": benchmark_name,
                 "compile_times": compile_times,
-                "e2e_times": e2e_times,
                 "ncu_times": ncu_kernel_times,
             }
         )
 
         return {
             "compile_times": compile_times,
-            "e2e_times": e2e_times,
             "ncu_times": ncu_kernel_times,
         }
 
@@ -140,50 +137,6 @@ def _run_compile_time_measurement(script_path, mode=None, compile_mode="cold"):
     return results
 
 
-def _run_e2e_measurements(script_path, mode=None):
-    return {
-        "numba-cuda": _run_e2e_measurement(script_path, mode, "numba-cuda"),
-        "numba_cuda_mlir": _run_e2e_measurement(script_path, mode, "numba-cuda-mlir"),
-    }
-
-
-def _run_e2e_measurement(script_path, mode=None, backend="numba-cuda"):
-    """Measure E2E time in an isolated subprocess.
-
-    Runs _NUM_SAMPLES + 1 iterations (first is a discarded warmup) and
-    returns the median of the remaining samples.
-    """
-    env = os.environ.copy()
-    samples = []
-
-    for i in range(_NUM_SAMPLES + 1):
-        cmd = [sys.executable, str(script_path)]
-        if mode:
-            cmd.append(mode)
-        cmd.extend(["--compile-mode", "cold", "--backend", backend])
-
-        try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, check=True, env=env, timeout=300
-            )
-            val = _parse_e2e_times(result.stdout).get(
-                "numba_cuda_mlir" if backend == "numba-cuda-mlir" else backend
-            )
-            if val is not None:
-                if i > 0:
-                    samples.append(val)
-        except subprocess.CalledProcessError as e:
-            print(f"End-to-end measurement failed for {backend}:")
-            print(f"  stdout: {e.stdout}")
-            print(f"  stderr: {e.stderr}")
-            raise
-        except subprocess.TimeoutExpired:
-            print(f"End-to-end measurement timed out for {backend} (>5 minutes)")
-            raise
-
-    return _median(samples) if samples else None
-
-
 def _run_ncu_profiling(script_path, mode=None):
     try:
         subprocess.run(["ncu", "--version"], capture_output=True, check=True)
@@ -237,29 +190,6 @@ def _parse_compile_times(stdout):
                     compile_times[variant] = float(match.group(2))
 
     return compile_times
-
-
-def _parse_e2e_times(stdout):
-    e2e_times = {}
-    in_section = False
-
-    for line in stdout.split("\n"):
-        if "=== END TO END TIMES ===" in line:
-            in_section = True
-            continue
-        if in_section:
-            if line.startswith("==="):
-                break
-            match = re.search(r"^\s*([^:]+):\s*([\d.]+)\s*ms", line, re.IGNORECASE)
-            if match:
-                variant = {
-                    "numba-cuda": "numba-cuda",
-                    "numba-cuda-mlir": "numba_cuda_mlir",
-                }.get(match.group(1).strip().lower())
-                if variant is not None:
-                    e2e_times[variant] = float(match.group(2))
-
-    return e2e_times
 
 
 def _parse_ncu_csv(csv_text):
@@ -319,7 +249,6 @@ def _geomean_row(all_results):
     cold_nc, cold_mlir = [], []
     warm_nc, warm_mlir = [], []
     kern_nc, kern_mlir = [], []
-    e2e_nc, e2e_mlir = [], []
 
     for r in all_results:
         cold = r["compile_times"].get("cold", {})
@@ -330,8 +259,6 @@ def _geomean_row(all_results):
         warm_mlir.append(warm.get("numba_cuda_mlir"))
         kern_nc.append(r["ncu_times"].get("numba-cuda"))
         kern_mlir.append(r["ncu_times"].get("numba_cuda_mlir"))
-        e2e_nc.append(r["e2e_times"].get("numba-cuda"))
-        e2e_mlir.append(r["e2e_times"].get("numba_cuda_mlir"))
 
     def _fmt(val, precision=2):
         return f"{val:.{precision}f}" if val else "N/A"
@@ -342,7 +269,6 @@ def _geomean_row(all_results):
     g_cold_nc, g_cold_mlir = _geomean(cold_nc), _geomean(cold_mlir)
     g_warm_nc, g_warm_mlir = _geomean(warm_nc), _geomean(warm_mlir)
     g_kern_nc, g_kern_mlir = _geomean(kern_nc), _geomean(kern_mlir)
-    g_e2e_nc, g_e2e_mlir = _geomean(e2e_nc), _geomean(e2e_mlir)
 
     return [
         "GEOMEAN",
@@ -355,9 +281,6 @@ def _geomean_row(all_results):
         _fmt(g_kern_nc, 4),
         _fmt(g_kern_mlir, 4),
         _speedup(g_kern_nc, g_kern_mlir),
-        _fmt(g_e2e_nc),
-        _fmt(g_e2e_mlir),
-        _speedup(g_e2e_nc, g_e2e_mlir),
     ]
 
 
@@ -373,16 +296,12 @@ def _print_consolidated_results(all_results):
         "Numba-CUDA Kernel (ms)",
         "numba-cuda-mlir Kernel (ms)",
         "Kernel Speedup",
-        "Numba-CUDA E2E (ms)",
-        "numba-cuda-mlir E2E (ms)",
-        "E2E Speedup",
     ]
     table_data = []
 
     for result in all_results:
         benchmark_name = result["name"]
         compile_times = result["compile_times"]
-        e2e_times = result["e2e_times"]
         ncu_times = result["ncu_times"]
 
         cold_compile_times = compile_times.get("cold", {})
@@ -393,8 +312,6 @@ def _print_consolidated_results(all_results):
         numba_cuda_mlir_warm_compile = warm_compile_times.get("numba_cuda_mlir")
         numba_cuda_kernel = ncu_times.get("numba-cuda")
         numba_cuda_mlir_kernel = ncu_times.get("numba_cuda_mlir")
-        numba_cuda_e2e = e2e_times.get("numba-cuda")
-        numba_cuda_mlir_e2e = e2e_times.get("numba_cuda_mlir")
 
         if numba_cuda_cold_compile and numba_cuda_mlir_cold_compile:
             cold_compile_speedup = f"{numba_cuda_cold_compile / numba_cuda_mlir_cold_compile:.2f}x"
@@ -411,11 +328,6 @@ def _print_consolidated_results(all_results):
         else:
             kernel_speedup = "N/A"
 
-        if numba_cuda_e2e and numba_cuda_mlir_e2e:
-            e2e_speedup = f"{numba_cuda_e2e / numba_cuda_mlir_e2e:.2f}x"
-        else:
-            e2e_speedup = "N/A"
-
         row = [
             benchmark_name,
             f"{numba_cuda_cold_compile:.2f}" if numba_cuda_cold_compile else "N/A",
@@ -427,9 +339,6 @@ def _print_consolidated_results(all_results):
             f"{numba_cuda_kernel:.4f}" if numba_cuda_kernel else "N/A",
             f"{numba_cuda_mlir_kernel:.4f}" if numba_cuda_mlir_kernel else "N/A",
             kernel_speedup,
-            f"{numba_cuda_e2e:.2f}" if numba_cuda_e2e else "N/A",
-            f"{numba_cuda_mlir_e2e:.2f}" if numba_cuda_mlir_e2e else "N/A",
-            e2e_speedup,
         ]
         table_data.append(row)
 

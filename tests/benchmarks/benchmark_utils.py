@@ -130,14 +130,6 @@ def print_compile_times(backend_times):
             print(f"{backend_display_name(backend)}: {compile_time:.3f} ms")
 
 
-def print_e2e_time(backend, start_time):
-    if backend == BACKEND_BOTH:
-        return
-    elapsed_ms = (time.perf_counter() - start_time) * 1000
-    print("\n=== END TO END TIMES ===")
-    print(f"{backend_display_name(backend)}: {elapsed_ms:.3f} ms")
-
-
 def time_compile(compile_func, *sigs):
     start = time.perf_counter()
     for sig in sigs:

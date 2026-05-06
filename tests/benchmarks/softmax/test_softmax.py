@@ -1,10 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import time
-
-E2E_START = time.perf_counter()
-
 import argparse
 import sys
 from pathlib import Path
@@ -21,7 +17,6 @@ from benchmark_utils import (
     add_compile_mode_arg,
     prepare_compile_measurement,
     print_compile_times,
-    print_e2e_time,
     selected_backend_from_argv,
     should_run_backend,
     time_compile,
@@ -190,7 +185,6 @@ def run_benchmark_main(compile_mode="cold", backend=BACKEND_BOTH):
         softmax_kernel_numba_cuda_mlir[1, 256](d_input, d_output, INPUT_SIZE)
         cuda.synchronize()
 
-    print_e2e_time(backend, E2E_START)
 
 
 if __name__ == "__main__":

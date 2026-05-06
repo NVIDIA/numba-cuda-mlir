@@ -17,20 +17,10 @@ concurrency:
 jobs:
   analyze:
     if: github.repository_owner == 'NVIDIA'
-    name: Black Duck SCA (${{ matrix.dependency_set.name }})
+    name: Black Duck SCA
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        dependency_set:
-          - name: base
-            export_args: "--group dev --group test"
-          - name: cu12
-            export_args: "--extra cu12 --group dev --group test"
-          - name: cu13
-            export_args: "--extra cu13 --group dev --group test"
 
     steps:
       - name: Checkout Source
@@ -41,15 +31,16 @@ jobs:
         with:
           enable-cache: false
 
-      - name: Export Python dependencies
+      - name: Export Python SBOM
         run: |
           uv export \
             --quiet \
-            --format requirements.txt \
-            --output-file requirements.txt \
-            ${{ matrix.dependency_set.export_args }} \
+            --format cyclonedx1.5 \
+            --output-file sbom.json \
+            --all-extras \
+            --all-groups \
             --no-emit-local \
-            --no-hashes
+            --preview-features sbom-export
           rm -f uv.lock
 
       - name: Black Duck SCA Scan
@@ -59,7 +50,6 @@ jobs:
         ### Configure DETECT environment variables
         env:
           DETECT_PROJECT_NAME: ${{ github.event.repository.name }}
-          DETECT_PROJECT_VERSION_NAME: ${{ github.ref_name }}-${{ matrix.dependency_set.name }}
           BRIDGE_BLACKDUCK_DOWNLOAD_URL: "https://repo.blackduck.com/bds-integrations-release/com/blackduck/integration/detect/11.0.0/detect-11.0.0.jar"
 
         with:

@@ -78,6 +78,18 @@ def benchmark_runner(request):
     return run_benchmark
 
 
+_NUM_SAMPLES = int(os.environ.get("BENCH_SAMPLES", "3"))
+
+
+def _median(values):
+    """Return the median of a list of numbers."""
+    s = sorted(values)
+    n = len(s)
+    if n % 2 == 1:
+        return s[n // 2]
+    return (s[n // 2 - 1] + s[n // 2]) / 2
+
+
 def _run_compile_time_measurements(script_path, mode=None):
     return {
         "cold": _run_compile_time_measurement(script_path, mode, "cold"),
@@ -86,25 +98,46 @@ def _run_compile_time_measurements(script_path, mode=None):
 
 
 def _run_compile_time_measurement(script_path, mode=None, compile_mode="cold"):
-    env = os.environ.copy()
-    cmd = [sys.executable, str(script_path)]
-    if mode:
-        cmd.append(mode)
-    cmd.extend(["--compile-mode", compile_mode])
+    """Measure compile time for each backend in its own isolated subprocess.
 
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, check=True, env=env, timeout=300
-        )
-        return _parse_compile_times(result.stdout)
-    except subprocess.CalledProcessError as e:
-        print(f"Compile time measurement failed:")
-        print(f"  stdout: {e.stdout}")
-        print(f"  stderr: {e.stderr}")
-        raise
-    except subprocess.TimeoutExpired:
-        print("Compile time measurement timed out (>5 minutes)")
-        raise
+    Runs _NUM_SAMPLES iterations per backend and returns the median.
+    The first iteration is a discarded warmup (OS page-cache priming).
+    """
+    env = os.environ.copy()
+    results = {}
+
+    for backend in ("numba-cuda", "numba-cuda-mlir"):
+        samples = []
+        for i in range(_NUM_SAMPLES + 1):
+            cmd = [sys.executable, str(script_path)]
+            if mode:
+                cmd.append(mode)
+            cmd.extend(["--compile-mode", compile_mode, "--backend", backend])
+
+            try:
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, check=True, env=env, timeout=300
+                )
+                times = _parse_compile_times(result.stdout)
+                key = "numba_cuda_mlir" if backend == "numba-cuda-mlir" else "numba-cuda"
+                val = times.get(key)
+                if val is not None:
+                    if i > 0:
+                        samples.append(val)
+            except subprocess.CalledProcessError as e:
+                print(f"Compile time measurement failed for {backend}:")
+                print(f"  stdout: {e.stdout}")
+                print(f"  stderr: {e.stderr}")
+                raise
+            except subprocess.TimeoutExpired:
+                print(f"Compile time measurement timed out for {backend} (>5 minutes)")
+                raise
+
+        key = "numba_cuda_mlir" if backend == "numba-cuda-mlir" else "numba-cuda"
+        if samples:
+            results[key] = _median(samples)
+
+    return results
 
 
 def _run_e2e_measurements(script_path, mode=None):
@@ -115,27 +148,40 @@ def _run_e2e_measurements(script_path, mode=None):
 
 
 def _run_e2e_measurement(script_path, mode=None, backend="numba-cuda"):
-    env = os.environ.copy()
-    cmd = [sys.executable, str(script_path)]
-    if mode:
-        cmd.append(mode)
-    cmd.extend(["--compile-mode", "cold", "--backend", backend])
+    """Measure E2E time in an isolated subprocess.
 
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, check=True, env=env, timeout=300
-        )
-        return _parse_e2e_times(result.stdout).get(
-            "numba_cuda_mlir" if backend == "numba-cuda-mlir" else backend
-        )
-    except subprocess.CalledProcessError as e:
-        print(f"End-to-end measurement failed for {backend}:")
-        print(f"  stdout: {e.stdout}")
-        print(f"  stderr: {e.stderr}")
-        raise
-    except subprocess.TimeoutExpired:
-        print(f"End-to-end measurement timed out for {backend} (>5 minutes)")
-        raise
+    Runs _NUM_SAMPLES + 1 iterations (first is a discarded warmup) and
+    returns the median of the remaining samples.
+    """
+    env = os.environ.copy()
+    samples = []
+
+    for i in range(_NUM_SAMPLES + 1):
+        cmd = [sys.executable, str(script_path)]
+        if mode:
+            cmd.append(mode)
+        cmd.extend(["--compile-mode", "cold", "--backend", backend])
+
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, check=True, env=env, timeout=300
+            )
+            val = _parse_e2e_times(result.stdout).get(
+                "numba_cuda_mlir" if backend == "numba-cuda-mlir" else backend
+            )
+            if val is not None:
+                if i > 0:
+                    samples.append(val)
+        except subprocess.CalledProcessError as e:
+            print(f"End-to-end measurement failed for {backend}:")
+            print(f"  stdout: {e.stdout}")
+            print(f"  stderr: {e.stderr}")
+            raise
+        except subprocess.TimeoutExpired:
+            print(f"End-to-end measurement timed out for {backend} (>5 minutes)")
+            raise
+
+    return _median(samples) if samples else None
 
 
 def _run_ncu_profiling(script_path, mode=None):

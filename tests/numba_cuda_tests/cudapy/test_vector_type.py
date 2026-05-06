@@ -267,7 +267,6 @@ class TestCudaVectorType(NumbaCUDATestCase):
             kernel[1, 1](arr)
             np.testing.assert_almost_equal(arr, np.array(range(vty._num_elements)))
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_fancy_creation_readout(self):
         for vty in _vector_type_stubs:
             kernel = make_fancy_creation_kernel(vty)

@@ -63,6 +63,7 @@ class MLIRCacheImpl(CacheImpl):
             "needs_nrt": cres.metadata.get("needs_nrt"),
             "nrt_inline": cres.metadata.get("nrt_inline"),
             "targetoptions": cres.metadata.get("targetoptions", {}),
+            "gpu_target": cres.metadata.get("gpu_target"),
         }
 
     def rebuild(self, target_context, payload):
@@ -77,6 +78,7 @@ class MLIRCacheImpl(CacheImpl):
         needs_nrt = payload.get("needs_nrt")
         nrt_inline = payload.get("nrt_inline")
         targetoptions = payload.get("targetoptions", {})
+        gpu_target = payload.get("gpu_target")
 
         signature = typing.signature(signature_return_type, *signature_args)
 
@@ -91,6 +93,7 @@ class MLIRCacheImpl(CacheImpl):
                 "needs_nrt": needs_nrt,
                 "nrt_inline": nrt_inline,
                 "targetoptions": targetoptions,
+                "gpu_target": gpu_target,
             },
         )
 
@@ -120,9 +123,13 @@ class MLIRCache(Cache):
     def _index_key(self, sig, codegen):
         key = super()._index_key(sig, codegen)
         targetoptions = self._targetoptions
+        from numba_cuda_mlir.tools import resolve_gpu_target
+
+        gpu_target = resolve_gpu_target(targetoptions)
         option_key = (
             ("lto", targetoptions.get("lto")),
             ("output", targetoptions.get("output", "ptx")),
+            ("chip", gpu_target["chip"]),
         )
         return (*key, option_key)
 

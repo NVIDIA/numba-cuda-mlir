@@ -1022,6 +1022,11 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         """Enable on-disk caching for this dispatcher."""
         self._cache = MLIRCache(self.py_func, self.targetoptions)
 
+    def _resolve_target_options(self):
+        from numba_cuda_mlir.tools import resolve_target_options
+
+        resolve_target_options(self.targetoptions)
+
     @property
     def stats(self):
         """Return cache statistics."""
@@ -1321,6 +1326,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             cres = self.overloads[best[0]]
             return _result(cres)
 
+        self._resolve_target_options()
+
         # Try to load from disk cache
         sig = typing.signature(types.none, *argtypes)
         cres = self._cache.load_overload(sig, mlir_target.target_context)
@@ -1368,6 +1375,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         # Check in-memory overloads first
         if argtypes in self.overloads:
             return self.overloads[argtypes]
+
+        self._resolve_target_options()
 
         # Try to load from disk cache
         cres = self._cache.load_overload(sig, mlir_target.target_context)

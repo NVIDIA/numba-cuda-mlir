@@ -292,8 +292,11 @@ def _get_compiler_class(targetoptions: Dict[str, Any]):
 @global_compiler_lock
 def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
     from numba_cuda_mlir.install_registry import register_lowering
+    from numba_cuda_mlir.tools import resolve_gpu_target
 
     register_lowering()
+    gpu_target = resolve_gpu_target(targetoptions)
+    targetoptions["chip"] = gpu_target["chip"]
 
     # Apply AST transforms at compile time with argtypes available
     # This allows consteval to access argument types and target options
@@ -360,6 +363,7 @@ def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
         )
 
     cres.metadata["targetoptions"] = targetoptions
+    cres.metadata["gpu_target"] = gpu_target
     cres.metadata["transformed_source"] = transformed_source
 
     return cres

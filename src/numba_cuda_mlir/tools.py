@@ -25,6 +25,47 @@ def format_arch(cc: tuple[int, int]) -> str:
     return f"sm_{cc[0]}{cc[1]}"
 
 
+def resolve_gpu_target(targetoptions: dict | None = None) -> dict[str, object]:
+    if targetoptions is None:
+        targetoptions = {}
+
+    chip = targetoptions.get("chip")
+    if chip:
+        arch = chip
+        cc = parse_compute_capability(arch)
+        arch_suffix = arch.removeprefix(f"sm_{cc[0]}{cc[1]}")
+        arch_specific_cc = (*cc, arch_suffix) if arch_suffix in ("a", "f") else cc
+    else:
+        cc = get_gpu_compute_capability(tuple)
+        arch = format_arch(cc)
+        arch_specific_cc = cc
+
+    host_cc = get_gpu_compute_capability(tuple)
+    host_arch = format_arch(host_cc)
+    if cc < host_cc:
+        linker_cc = host_cc
+        linker_arch = host_arch
+    else:
+        linker_cc = arch_specific_cc
+        linker_arch = arch
+
+    return {
+        "chip": arch,
+        "cc": cc,
+        "arch_specific_cc": arch_specific_cc,
+        "host_cc": host_cc,
+        "host_arch": host_arch,
+        "linker_cc": linker_cc,
+        "linker_arch": linker_arch,
+    }
+
+
+def resolve_target_options(targetoptions: dict[str, object]) -> dict[str, object]:
+    target = resolve_gpu_target(targetoptions)
+    targetoptions["chip"] = target["chip"]
+    return targetoptions
+
+
 @lru_cache(maxsize=1)
 def get_cuda_toolkit_path() -> str | None:
     """Get CUDA toolkit root path from env vars, numba-cuda discovery, or system."""

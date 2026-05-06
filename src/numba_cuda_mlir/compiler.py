@@ -3,7 +3,7 @@
 from numba_cuda_mlir.descriptor import MLIRDispatcher
 from numba_cuda_mlir.lowering_utilities.type_conversions import to_numba_type
 import inspect
-from typing import Callable, Any
+from typing import Callable, Any, TypeVar
 from numba_cuda_mlir import types, typing
 from functools import lru_cache
 from numba_cuda_mlir.numba_cuda.typing.templates import (
@@ -22,6 +22,8 @@ from numba_cuda_mlir.typing.externals import (
     ExternMLIRLibrary,
     ExternMLIRLibraryFunction,
 )
+
+T = TypeVar("T")
 
 
 class CUFunc:
@@ -427,7 +429,7 @@ def compile_cubin(pyfunc, sig, **targetoptions):
 
 
 @lru_cache(maxsize=None)
-def _get_typing_key_for_callable[T](callable: T, sig: typing.Signature) -> T:
+def _get_typing_key_for_callable(callable: T, sig: typing.Signature) -> T:
     from numba_cuda_mlir.descriptor import mlir_target
 
     typingctx = mlir_target.typing_context

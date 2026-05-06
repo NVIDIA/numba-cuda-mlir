@@ -35,7 +35,7 @@ vector_add[blocks, threads_per_block](a, b, out)
 
 ## Prerequisites
 
-- Python >= 3.12
+- Python >= 3.11
 - NVIDIA GPU with a compatible driver (CUDA 12.2+ or 13.x)
     - CUDA Toolkit is **not** required at build time (numba-cuda-mlir uses a driver API
       shim header).
@@ -57,13 +57,13 @@ No LLVM, cmake, or CUDA Toolkit needed:
 RUN_ID=$(gh run list -R NVIDIA/numba-cuda-mlir -w ci.yaml -b main -s success -L1 --json databaseId -q '.[0].databaseId')
 
 # Download the wheel (pick your Python version and platform):
-gh run download "$RUN_ID" -R NVIDIA/numba-cuda-mlir -p "numba-cuda-mlir-python312-linux-64-*"
+gh run download "$RUN_ID" -R NVIDIA/numba-cuda-mlir -p "numba-cuda-mlir-python311-linux-64-*"
 
 # Install the downloaded wheel:
-pip install numba-cuda-mlir-python312-linux-64-*/numba_cuda_mlir*.whl[cu13]
+pip install numba-cuda-mlir-python311-linux-64-*/numba_cuda_mlir*.whl[cu13]
 ```
 
-Replace `python312` with your Python version (e.g. `python313`, `python314`, `python314t`).
+Replace `python311` with your Python version (e.g. `python312`, `python313`, `python314`, `python314t`).
 For aarch64, replace `linux-64` with `linux-aarch64`.
 Replace `cu13` with `cu12` for CUDA 12.x environments.
 
@@ -79,8 +79,8 @@ You can download them instead of building LLVM from scratch
 # Find the latest successful CI run on main:
 RUN_ID=$(gh run list -R NVIDIA/numba-cuda-mlir -w ci.yaml -b main -s success -L1 --json databaseId -q '.[0].databaseId')
 
-# Download LLVM Modern (pick your Python version: cp312, cp313, cp314, cp314t):
-gh run download "$RUN_ID" -R NVIDIA/numba-cuda-mlir -n llvm-modern-install-cp312-linux-64 -D llvm-modern-install
+# Download LLVM Modern (pick your Python version: cp311, cp312, cp313, cp314, cp314t):
+gh run download "$RUN_ID" -R NVIDIA/numba-cuda-mlir -n llvm-modern-install-cp311-linux-64 -D llvm-modern-install
 
 # Download LLVM 7:
 gh run download "$RUN_ID" -R NVIDIA/numba-cuda-mlir -n llvm7-install-linux-64 -D llvm7-install

@@ -424,14 +424,11 @@ def _extract_signature_from_annotations(func):
     Returns a Numba signature if all parameters have valid type annotations,
     or None if any parameter lacks an annotation (template/lazy mode).
     """
-    from numba_cuda_mlir.lowering_utilities.type_conversions import to_numba_type
-
     sig = inspect.signature(func)
     argtypes = []
     has_unannotated = False
+    to_numba_type = None
 
-    # A function with no parameters cannot have parameter annotations, so
-    # there is no annotation-derived signature to return.
     if not sig.parameters:
         return None
 
@@ -443,23 +440,24 @@ def _extract_signature_from_annotations(func):
         elif isinstance(ann, numba_types.Type):
             argtypes.append(ann)
         else:
+            if to_numba_type is None:
+                from numba_cuda_mlir.lowering_utilities.type_conversions import to_numba_type
             try:
                 argtypes.append(to_numba_type(ann))
             except (TypeError, NotImplementedError):
-                # Unrecognized annotation type - treat as template
                 has_unannotated = True
                 argtypes.append(None)
 
-    # If any parameter is unannotated/unrecognized, use lazy compilation
     if has_unannotated:
         return None
 
-    # Get return type if annotated
     ret_ann = sig.return_annotation
     if ret_ann != inspect.Signature.empty:
         if isinstance(ret_ann, numba_types.Type):
             return_type = ret_ann
         else:
+            if to_numba_type is None:
+                from numba_cuda_mlir.lowering_utilities.type_conversions import to_numba_type
             try:
                 return_type = to_numba_type(ret_ann)
             except (TypeError, NotImplementedError):

@@ -144,7 +144,8 @@ def get_gpu_compute_capability(as_type: type = str) -> str | tuple[int, int]:
     """
     Query the compute capability of the current CUDA device.
 
-    Uses ``cuda.core.Device`` so that ``CUDA_VISIBLE_DEVICES`` is respected.
+    Uses the numba-cuda driver layer so the primary context is shared with
+    ``to_device()`` and other device operations.
     """
     global _cached_cc
     assert as_type in (str, tuple), "as_type must be str or tuple"
@@ -154,9 +155,10 @@ def get_gpu_compute_capability(as_type: type = str) -> str | tuple[int, int]:
             return _cached_cc
         return f"sm_{_cached_cc[0]}{_cached_cc[1]}"
 
-    from cuda.core import Device
+    from numba_cuda_mlir.numba_cuda.cudadrv.devices import get_context
 
-    cc = tuple(Device().compute_capability)
+    ctx = get_context()
+    cc = ctx.device.compute_capability
     _cached_cc = cc
     if as_type is tuple:
         return cc

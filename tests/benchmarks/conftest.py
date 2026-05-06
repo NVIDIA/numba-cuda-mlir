@@ -258,6 +258,54 @@ def _parse_ncu_csv(csv_text):
     return result
 
 
+def _geomean(values):
+    """Compute geometric mean of positive values, ignoring None/zero."""
+    vals = [v for v in values if v and v > 0]
+    if not vals:
+        return None
+    import math
+    return math.exp(sum(math.log(v) for v in vals) / len(vals))
+
+
+def _geomean_row(all_results):
+    """Build a 'Geomean' summary row matching the column layout of _print_consolidated_results."""
+    cold_nc, cold_mlir = [], []
+    warm_nc, warm_mlir = [], []
+    kern_nc, kern_mlir = [], []
+    e2e_nc, e2e_mlir = [], []
+
+    for r in all_results:
+        cold = r["compile_times"].get("cold", {})
+        warm = r["compile_times"].get("warm", {})
+        cold_nc.append(cold.get("numba-cuda"))
+        cold_mlir.append(cold.get("numba_cuda_mlir"))
+        warm_nc.append(warm.get("numba-cuda"))
+        warm_mlir.append(warm.get("numba_cuda_mlir"))
+        kern_nc.append(r["ncu_times"].get("numba-cuda"))
+        kern_mlir.append(r["ncu_times"].get("numba_cuda_mlir"))
+        e2e_nc.append(r["e2e_times"].get("numba-cuda"))
+        e2e_mlir.append(r["e2e_times"].get("numba_cuda_mlir"))
+
+    def _fmt(val, precision=2):
+        return f"{val:.{precision}f}" if val else "N/A"
+
+    def _speedup(a, b):
+        return f"{a / b:.2f}x" if a and b else "N/A"
+
+    g_cold_nc, g_cold_mlir = _geomean(cold_nc), _geomean(cold_mlir)
+    g_warm_nc, g_warm_mlir = _geomean(warm_nc), _geomean(warm_mlir)
+    g_kern_nc, g_kern_mlir = _geomean(kern_nc), _geomean(kern_mlir)
+    g_e2e_nc, g_e2e_mlir = _geomean(e2e_nc), _geomean(e2e_mlir)
+
+    return [
+        "GEOMEAN",
+        _fmt(g_cold_nc), _fmt(g_cold_mlir), _speedup(g_cold_nc, g_cold_mlir),
+        _fmt(g_warm_nc), _fmt(g_warm_mlir), _speedup(g_warm_nc, g_warm_mlir),
+        _fmt(g_kern_nc, 4), _fmt(g_kern_mlir, 4), _speedup(g_kern_nc, g_kern_mlir),
+        _fmt(g_e2e_nc), _fmt(g_e2e_mlir), _speedup(g_e2e_nc, g_e2e_mlir),
+    ]
+
+
 def _print_consolidated_results(all_results):
     headers = [
         "Benchmark",
@@ -329,6 +377,9 @@ def _print_consolidated_results(all_results):
             e2e_speedup,
         ]
         table_data.append(row)
+
+    if len(table_data) > 1:
+        table_data.append(_geomean_row(all_results))
 
     print(f"\n{'=' * 100}")
     print("BENCHMARK RESULTS SUMMARY")

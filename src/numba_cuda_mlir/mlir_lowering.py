@@ -57,19 +57,14 @@ from numba_cuda_mlir._mlir.dialects import (
     llvm,
     arith,
     builtin,
-    bufferization,
     cf,
     func,
-    linalg,
     math,
     memref,
     scf,
     nvvm,
     gpu,
-    tensor,
-    shape,
 )
-from numba_cuda_mlir._mlir.dialects import complex as complex_dialect
 
 from numba_cuda_mlir.logging import trace
 from numba_cuda_mlir import mlir_debuginfo
@@ -1073,6 +1068,7 @@ extern "C" __global__ void
                     self.store_var(target, value_op)
 
     def lower_array_literal(self, value: np.ndarray) -> ir.Value:
+        from numba_cuda_mlir._mlir.dialects import tensor
         from numba_cuda_mlir.lowering_utilities import tensor_to_memref
 
         with self.alloca_insertion_point():

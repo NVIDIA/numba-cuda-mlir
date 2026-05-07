@@ -72,7 +72,6 @@ def overload(
     inline="never",
     prefer_literal=False,
     typing_registry=None,
-    lowering_registry=None,
     **kwargs,
 ):
     selected_typing_registry = _require_typing_registry("overload", typing_registry)

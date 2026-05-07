@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir.numba_cuda.core.errors import ForceLiteralArg, TypingError
 from numba_cuda_mlir._mlir.ir import Operation, Value, Block
+from typing import TypeVar
 import inspect
 from pathlib import Path
+
+T = TypeVar("T")
 
 
 class MultipleIntrinsicFunctionsError(Exception):

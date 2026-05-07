@@ -4,6 +4,7 @@
 Complex math intrinsics with IEEE 754 special case handling.
 """
 
+from typing import TypeVar
 from numba_cuda_mlir._mlir.dialects import math as math_dialect
 from numba_cuda_mlir.mlir.dialect_exts import func, scf, arith
 from numba_cuda_mlir.mlir.context import mlir_mod_ctx
@@ -13,6 +14,8 @@ from numba_cuda_mlir.mlir.dialect_exts.scf import (
     else_ctx_manager as else_,
 )
 from numba_cuda_mlir._mlir.ir import UnitAttr
+
+FTy = TypeVar("FTy")
 
 
 def _nan(fty):
@@ -35,8 +38,8 @@ def _neg_zero(fty):
     return arith.constant(-0.0, fty)
 
 
-@func.func(sym_visibility="private")
-def cmath_exp[FTy](z_real: FTy, z_imag: FTy):
+@func.func(sym_visibility="private", generics=[FTy])
+def cmath_exp(z_real: FTy, z_imag: FTy):
     c0 = _zero(FTy)
     nan = _nan(FTy)
     neg_inf = _neg_inf(FTy)
@@ -95,8 +98,8 @@ def cmath_exp[FTy](z_real: FTy, z_imag: FTy):
     return result.results[0], result.results[1]
 
 
-@func.func(sym_visibility="private")
-def cmath_sinh[FTy](z_real: FTy, z_imag: FTy):
+@func.func(sym_visibility="private", generics=[FTy])
+def cmath_sinh(z_real: FTy, z_imag: FTy):
     c0 = _zero(FTy)
     nan = _nan(FTy)
 
@@ -139,8 +142,8 @@ def cmath_sinh[FTy](z_real: FTy, z_imag: FTy):
     return result.results[0], result.results[1]
 
 
-@func.func(sym_visibility="private")
-def cmath_cosh[FTy](z_real: FTy, z_imag: FTy):
+@func.func(sym_visibility="private", generics=[FTy])
+def cmath_cosh(z_real: FTy, z_imag: FTy):
     c0 = _zero(FTy)
     nan = _nan(FTy)
 
@@ -192,8 +195,8 @@ def cmath_cosh[FTy](z_real: FTy, z_imag: FTy):
     return result.results[0], result.results[1]
 
 
-@func.func(sym_visibility="private")
-def cmath_sin[FTy](z_real: FTy, z_imag: FTy):
+@func.func(sym_visibility="private", generics=[FTy])
+def cmath_sin(z_real: FTy, z_imag: FTy):
     c0 = _zero(FTy)
     nan = _nan(FTy)
     inf = _inf(FTy)
@@ -249,8 +252,8 @@ def cmath_sin[FTy](z_real: FTy, z_imag: FTy):
     return result.results[0], result.results[1]
 
 
-@func.func(sym_visibility="private")
-def cmath_cos[FTy](z_real: FTy, z_imag: FTy):
+@func.func(sym_visibility="private", generics=[FTy])
+def cmath_cos(z_real: FTy, z_imag: FTy):
     c0 = _zero(FTy)
     nan = _nan(FTy)
 
@@ -308,8 +311,8 @@ def cmath_cos[FTy](z_real: FTy, z_imag: FTy):
     return result.results[0], result.results[1]
 
 
-@func.func(sym_visibility="private")
-def cmath_rect[FTy](r: FTy, phi: FTy):
+@func.func(sym_visibility="private", generics=[FTy])
+def cmath_rect(r: FTy, phi: FTy):
     c0 = _zero(FTy)
     nan = _nan(FTy)
 
@@ -355,8 +358,8 @@ def cmath_rect[FTy](r: FTy, phi: FTy):
     return result.results[0], result.results[1]
 
 
-@func.func(sym_visibility="private")
-def cmath_sqrt[FTy](z_real: FTy, z_imag: FTy):
+@func.func(sym_visibility="private", generics=[FTy])
+def cmath_sqrt(z_real: FTy, z_imag: FTy):
     c0 = _zero(FTy)
     nan = _nan(FTy)
     inf = _inf(FTy)
@@ -426,8 +429,8 @@ def cmath_sqrt[FTy](z_real: FTy, z_imag: FTy):
     return result.results[0], result.results[1]
 
 
-@func.func(sym_visibility="private")
-def cmath_acos[FTy](z_real: FTy, z_imag: FTy):
+@func.func(sym_visibility="private", generics=[FTy])
+def cmath_acos(z_real: FTy, z_imag: FTy):
     c0 = _zero(FTy)
     c1 = arith.constant(1.0, FTy)
     nan = _nan(FTy)
@@ -509,8 +512,8 @@ def cmath_acos[FTy](z_real: FTy, z_imag: FTy):
     return result.results[0], result.results[1]
 
 
-@func.func(sym_visibility="private")
-def cmath_acosh[FTy](z_real: FTy, z_imag: FTy):
+@func.func(sym_visibility="private", generics=[FTy])
+def cmath_acosh(z_real: FTy, z_imag: FTy):
     c0 = _zero(FTy)
     c1 = arith.constant(1.0, FTy)
     nan = _nan(FTy)
@@ -590,8 +593,8 @@ def cmath_acosh[FTy](z_real: FTy, z_imag: FTy):
     return result.results[0], result.results[1]
 
 
-@func.func(sym_visibility="private")
-def cmath_atan[FTy](z_real: FTy, z_imag: FTy):
+@func.func(sym_visibility="private", generics=[FTy])
+def cmath_atan(z_real: FTy, z_imag: FTy):
     c0 = _zero(FTy)
     c1 = arith.constant(1.0, FTy)
     nan = _nan(FTy)
@@ -703,8 +706,8 @@ def cmath_atan[FTy](z_real: FTy, z_imag: FTy):
     return result.results[0], result.results[1]
 
 
-@func.func(sym_visibility="private")
-def cmath_asin[FTy](z_real: FTy, z_imag: FTy):
+@func.func(sym_visibility="private", generics=[FTy])
+def cmath_asin(z_real: FTy, z_imag: FTy):
     """asin(z) using Kahan's algorithm with real arithmetic (matches CPython).
 
     Uses: s = hypot(1+|x|, |y|), t = hypot(1-|x|, |y|), a = (s+t)/2
@@ -788,8 +791,8 @@ def cmath_asin[FTy](z_real: FTy, z_imag: FTy):
     return result.results[0], result.results[1]
 
 
-@func.func(sym_visibility="private")
-def cmath_asinh[FTy](z_real: FTy, z_imag: FTy):
+@func.func(sym_visibility="private", generics=[FTy])
+def cmath_asinh(z_real: FTy, z_imag: FTy):
     """asinh(z) using Kahan's algorithm: asinh(x+iy) via asin(-y+ix) rotated.
 
     Uses same real-arithmetic Kahan formula as asin, applied to iz=(-y,x),

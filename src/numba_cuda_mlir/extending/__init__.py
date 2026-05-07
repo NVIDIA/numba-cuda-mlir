@@ -6,6 +6,7 @@ from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.typing.templates import (
     Registry,
     _OverloadAttributeTemplate,
+    _OverloadFunctionTemplate,
     _OverloadMethodTemplate,
     make_overload_template,
     make_overload_attribute_template,
@@ -43,6 +44,25 @@ def _require_lowering_registry(decorator_name, registry):
         raise ValueError(f"numba_cuda_mlir.extending.{decorator_name} requires lowering_registry=")
     return registry
 
+class _NumbaCudaMlirOverloadFunctionTemplate(_OverloadFunctionTemplate):
+    def _get_jit_decorator(self):
+        from numba_cuda_mlir import cuda
+        from numba_cuda_mlir.mlir_compiler import _get_compiler_class
+
+        def jit_with_mlir_pipeline(**jit_options):
+            jit_decorator = cuda.jit(**jit_options)
+
+            def decorate(pyfunc):
+                disp = jit_decorator(pyfunc)
+                fcomp = getattr(disp, "_compiler", None)
+                if fcomp is not None and getattr(fcomp, "pipeline_class", None) is None:
+                    fcomp.pipeline_class = _get_compiler_class(disp.targetoptions)
+                return disp
+
+            return decorate
+
+        return jit_with_mlir_pipeline
+
 
 def overload(
     func,
@@ -61,7 +81,14 @@ def overload(
 
     def decorate(overload_func):
         template = make_overload_template(
-            func, overload_func, opts, strict, inline, prefer_literal, **kwargs
+            func,
+            overload_func,
+            opts,
+            strict,
+            inline,
+            prefer_literal,
+            base=_NumbaCudaMlirOverloadFunctionTemplate,
+            **kwargs,
         )
         template._typing_registry = selected_typing_registry
         selected_typing_registry.register(template)

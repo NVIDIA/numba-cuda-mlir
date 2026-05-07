@@ -19,10 +19,11 @@ authors = [
 ]
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "numpy",
     "llvmlite",
+    "typing-extensions; python_version < '3.12'",
     "cuda-bindings>=12.9.1,<14.0.0",
     "cuda-core>=0.5.1,<1.0.0",
 ]
@@ -86,8 +87,7 @@ include-package-data = true
 
 [tool.ruff]
 line-length = 100
-# TODO: update requires-python to >=3.12 (code uses PEP 695 type params)
-target-version = "py312"
+target-version = "py311"
 
 [tool.ruff.format]
 docstring-code-format = true

@@ -387,11 +387,14 @@ class MLIRLower(object):
             from textwrap import dedent
 
             names = self.func_ir.arg_names
+            capi_args = ",\n    ".join(
+                [f"{argtype} {name}" for argtype, name in zip(capi_type.args, names)]
+            )
             self.metadata["capi"] = dedent(
                 f"""
 extern "C" __global__ void
 {self._capi_sym_name}(
-    {",\n    ".join([f"{argtype} {name}" for argtype, name in zip(capi_type.args, names)])}
+    {capi_args}
 )
 """.replace("none*", "void*")
             )

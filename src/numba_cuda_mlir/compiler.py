@@ -3,7 +3,7 @@
 from numba_cuda_mlir.descriptor import MLIRDispatcher
 from numba_cuda_mlir.lowering_utilities.type_conversions import to_numba_type
 import inspect
-from typing import Callable, Any
+from typing import Callable, Any, TypeVar
 from numba_cuda_mlir import types, typing
 from functools import lru_cache
 from numba_cuda_mlir.numba_cuda.typing.templates import (
@@ -11,6 +11,8 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
     AttributeTemplate,
     Registry,
 )
+from numba_cuda_mlir.numba_cuda.typing.typeof import typeof_impl
+from numba_cuda_mlir.numba_cuda.core.imputils import lower_builtin
 from pathlib import Path
 from numba_cuda_mlir.mlir_optimization import optimize
 from numba_cuda_mlir.numba_cuda.codegen import ExternalCodeLibrary
@@ -22,6 +24,8 @@ from numba_cuda_mlir.typing.externals import (
     ExternMLIRLibrary,
     ExternMLIRLibraryFunction,
 )
+
+T = TypeVar("T")
 
 
 class CUFunc:
@@ -436,7 +440,7 @@ def compile_cubin(pyfunc, sig, **targetoptions):
 
 
 @lru_cache(maxsize=None)
-def _get_typing_key_for_callable[T](callable: T, sig: typing.Signature) -> T:
+def _get_typing_key_for_callable(callable: T, sig: typing.Signature) -> T:
     from numba_cuda_mlir.descriptor import mlir_target
 
     typingctx = mlir_target.typing_context
@@ -485,6 +489,26 @@ class ExternFunction:
         self.use_cooperative = use_cooperative
         self.link = link
         self.abi = abi
+
+
+@typeof_impl.register(ExternFunction)
+def typeof_extern_function(val, c):
+    class device_function_template(ConcreteTemplate):
+        key = val
+        cases = [val.sig]
+
+        def get_impl_key(self, sig):
+            return ExternFunction
+
+    return types.Function(device_function_template)
+
+
+@lower_builtin(ExternFunction, types.VarArg(types.Any))
+def extern_function_dummy_lowering(context, builder, sig, args):
+    return context.get_dummy_value()
+
+
+extern_function_dummy_lowering.__module__ = "numba_cuda_mlir.numba_cuda.compiler"
 
 
 def declare_device_function(name, restype, argtypes, link, use_cooperative, abi="numba"):

@@ -50,7 +50,6 @@ from numba_cuda_mlir._cext import LaunchConfiguration
 import threading
 import cProfile
 import pstats
-import sys
 
 # Thread-local storage for passing original tuple arg types to _compile
 _compile_arg_types = threading.local()

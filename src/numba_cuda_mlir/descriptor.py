@@ -1605,17 +1605,20 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     def compile_device(self, sig):
         """Compile as a device function, injecting device=True if needed
         so that the function is not treated as a kernel."""
-        if not self.targetoptions.get("device", False):
-            if not hasattr(self, "_device_dispatcher"):
-                opts = self.targetoptions.copy()
-                opts["device"] = True
-                self._device_dispatcher = MLIRDispatcher(self.py_func, targetoptions=opts)
-            cres = self._device_dispatcher.compile(sig)
-            argtypes, _ = sigutils.normalize_signature(sig)
-            if argtypes not in self.overloads:
-                self.overloads[argtypes] = cres
-            return cres
-        return self.compile(sig)
+        opts = self.targetoptions.copy()
+        opts["device"] = True
+        opts["lto"] = False
+        opts["output"] = "ptx"
+        if self.targetoptions.get("device", False):
+            self.targetoptions.update(opts)
+            return self.compile(sig)
+        if not hasattr(self, "_device_dispatcher") or self._device_dispatcher.targetoptions != opts:
+            self._device_dispatcher = MLIRDispatcher(self.py_func, targetoptions=opts)
+        cres = self._device_dispatcher.compile(sig)
+        argtypes, _ = sigutils.normalize_signature(sig)
+        if argtypes not in self.overloads:
+            self.overloads[argtypes] = cres
+        return cres
 
     def get_call_template(self, args, kws):
         """Resolve return type when this dispatcher is called from another

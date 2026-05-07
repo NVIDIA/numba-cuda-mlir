@@ -319,7 +319,8 @@ def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
 
     flags.auto_parallel = ParallelOptions(targetoptions.get("parallel", False))
     flags.nvvm_options = {}
-    if targetoptions.get("output", "ptx") == "ltoir":
+    is_lto = targetoptions.get("lto", False) or targetoptions.get("output", "ptx") == "ltoir"
+    if is_lto:
         flags.nvvm_options["gen-lto"] = None
 
     # Both debug and lineinfo turn on debug information in the compiled code,
@@ -348,7 +349,7 @@ def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
     # Run compilation pipeline
     from numba_cuda_mlir.numba_cuda.core.target_extension import target_override
 
-    flags.lto = targetoptions.get("output", "ptx") == "ltoir"
+    flags.lto = is_lto
 
     with target_override("numba_cuda_mlir"):
         cres = compiler.compile_extra(

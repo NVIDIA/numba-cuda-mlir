@@ -303,6 +303,8 @@ def _compile(pyfunc, sig=None, targetoptions=None, optimized=True):
         dispatcher = jit(dispatcher, **kws)
     else:
         pyfunc = dispatcher.py_func
+        if targetoptions is not None:
+            dispatcher.targetoptions.update(targetoptions)
 
     if sig is None:
         sig = to_numba_type(inspect.signature(pyfunc))
@@ -319,7 +321,7 @@ def compile_for(func, *args):
     from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 
     sig = typing.signature(types.none, *[typeof(arg) for arg in args])
-    cres = _compile_and_optimize(func, sig, {"output": "ptx"})
+    cres = _compile_and_optimize(func, sig, {"lto": False, "output": "ptx"})
     return cres
 
 

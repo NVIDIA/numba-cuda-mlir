@@ -531,7 +531,7 @@ def optimize(cres):
 
             chip = get_gpu_compute_capability()
         cc = chip.replace("sm_", "")
-        is_lto = target_options.get("output", "ptx") == "ltoir"
+        is_lto = target_options.get("lto", False) or target_options.get("output", "ptx") == "ltoir"
 
         from numba_cuda_mlir.numba_cuda.cudadrv.nvvm import LibDevice
 

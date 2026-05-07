@@ -62,13 +62,16 @@ llvm::Expected<std::string> LibNVVMCompiler::compile(
 
   for (auto [i, mod] : llvm::enumerate(modules)) {
     std::string modName = "module_" + std::to_string(i);
-    rc = fnAddModuleToProgram(prog, mod.first, mod.second, modName.c_str());
+    auto addModule = i == 0 ? fnAddModuleToProgram : fnLazyAddModuleToProgram;
+    rc = addModule(prog, mod.first, mod.second, modName.c_str());
     if (rc != NVVM_SUCCESS) {
       std::string log = getLog(prog);
       fnDestroyProgram(&prog);
       return llvm::createStringError(
           llvm::inconvertibleErrorCode(),
-          "nvvmAddModuleToProgram failed (%d): %s", (int)rc, log.c_str());
+          "%s failed (%d): %s",
+          i == 0 ? "nvvmAddModuleToProgram" : "nvvmLazyAddModuleToProgram",
+          (int)rc, log.c_str());
     }
   }
 
@@ -104,7 +107,7 @@ llvm::Expected<std::string> LibNVVMCompiler::compile(
                                    "nvvmGetCompiledResult failed (%d)",
                                    (int)rc);
   }
-  if (ptxSize > 0 && ptx.back() == '\0')
+  if (!genLTO && ptxSize > 0 && ptx.back() == '\0')
     ptx.pop_back();
 
   fnDestroyProgram(&prog);

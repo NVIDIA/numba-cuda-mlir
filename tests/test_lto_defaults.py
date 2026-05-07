@@ -26,13 +26,13 @@ def test_explicit_cc_maps_to_chip():
     assert targetoptions["chip"] == "sm_80"
 
 
-def test_lto_defaults_to_ltoir_when_nvjitlink_is_available(monkeypatch):
+def test_lto_defaults_to_lto_when_nvjitlink_is_available(monkeypatch):
     monkeypatch.setattr(driver, "_have_nvjitlink", lambda: True)
 
     targetoptions = verify_target_options({})
 
     assert targetoptions["lto"] is True
-    assert targetoptions["output"] == "ltoir"
+    assert targetoptions["output"] == "ptx"
 
 
 def test_lto_defaults_to_ptx_when_nvjitlink_is_unavailable(monkeypatch):
@@ -75,3 +75,12 @@ def test_lto_default_uses_resolved_debug_config(monkeypatch):
     assert dispatcher.targetoptions["debug"] is True
     assert dispatcher.targetoptions["lto"] is False
     assert dispatcher.targetoptions["output"] == "ptx"
+
+
+def test_explicit_output_ltoir_enables_lto(monkeypatch):
+    monkeypatch.setattr(driver, "_have_nvjitlink", lambda: True)
+
+    targetoptions = verify_target_options({"output": "ltoir"})
+
+    assert targetoptions["lto"] is True
+    assert targetoptions["output"] == "ltoir"

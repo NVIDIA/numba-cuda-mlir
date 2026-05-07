@@ -556,10 +556,6 @@ def verify_target_options(kws: dict[str, Any]) -> dict[str, Any]:
         targetoptions["lto"] = _have_nvjitlink() and not targetoptions.get("debug")
     targetoptions["_lto_explicit"] = lto_was_explicit
 
-    # When LTO is enabled, output LTOIR instead of PTX
-    if targetoptions.get("lto", False):
-        targetoptions["output"] = "ltoir"
-
     return targetoptions
 
 
@@ -634,7 +630,10 @@ def mlir_jit(func_or_sig=None, **kws):
         with register_dispatcher(disp):
             for sig in signatures:
                 argtypes, restype = sigutils.normalize_signature(sig)
-                disp.compile(argtypes)
+                if targetoptions.get("device", False):
+                    disp.compile_device(argtypes)
+                else:
+                    disp.compile(argtypes)
 
         disp.disable_compile()
         disp._specialized = True
@@ -654,7 +653,10 @@ def mlir_jit(func_or_sig=None, **kws):
             # Annotations present - pre-compile with annotated signature
             argtypes, restype = sigutils.normalize_signature(sig)
             with register_dispatcher(disp):
-                disp.compile(argtypes)
+                if targetoptions.get("device", False):
+                    disp.compile_device(argtypes)
+                else:
+                    disp.compile(argtypes)
             disp.disable_compile()
             disp._specialized = True
 

@@ -45,6 +45,8 @@ The pytest benchmark runner invokes each script once per compile mode and report
 
 Running benchmarks using pytest with `--benchmark -s` produces:
 
+Machine: AMD EYPC 9334 | NVIDIA GB100 | CUDA driver 580.65 | Python 3.12 | Ubuntu 22.04 | CUDA Toolkit 13.0
+
 ```
 ====================================================================================================
 BENCHMARK RESULTS SUMMARY

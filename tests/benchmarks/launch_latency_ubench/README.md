@@ -22,7 +22,7 @@ python tests/benchmarks/launch_latency_ubench/launch_latency_ubench.py
 
 ## Output
 
-Machine: AMD Ryzen 9 9950X | NVIDIA RTX PRO 6000 Blackwell | CUDA driver 580.95 | Python 3.12 | Ubuntu 24.04
+Machine: AMD Ryzen 9 9950X | NVIDIA RTX PRO 6000 Blackwell | CUDA driver 580.95 | Python 3.12 | Ubuntu 24.04 | CUDA Toolkit 13.0
 
 ```
 --------------------------------------------------------------------------------------

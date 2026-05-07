@@ -20,6 +20,7 @@
 #include <vector>
 #include <algorithm>
 #include <optional>
+#include <string>
 #include <utility>
 
 namespace {
@@ -205,6 +206,7 @@ Status check_kernel_error_code(const CudaLibrary& lib) {
 enum class ConstantArgType {
     INT64,
     FLOAT64,
+    STRING,
 };
 
 struct ConstantArg {
@@ -213,10 +215,12 @@ struct ConstantArg {
         int64_t i64;
         double f64;
     } value;
+    std::string str;
 
     template <typename T>
     ConstantArg(T val) :
-        type(std::is_floating_point_v<T> ? ConstantArgType::FLOAT64 : ConstantArgType::INT64)
+        type(std::is_floating_point_v<T> ? ConstantArgType::FLOAT64 : ConstantArgType::INT64),
+        value{}
     {
         if constexpr (std::is_floating_point_v<T>) {
             value.f64 = static_cast<double>(val);
@@ -224,6 +228,12 @@ struct ConstantArg {
             value.i64 = static_cast<int64_t>(val);
         }
     }
+
+    explicit ConstantArg(std::string val) :
+        type(ConstantArgType::STRING),
+        value{},
+        str(std::move(val))
+    {}
 
     bool operator==(const ConstantArg& other) const {
         if (type != other.type) return false;
@@ -236,6 +246,8 @@ struct ConstantArg {
             std::memcpy(&this_float_bits, &value.f64, sizeof(value.f64));
             std::memcpy(&other_float_bits, &other.value.f64, sizeof(other.value.f64));
             return this_float_bits == other_float_bits;
+        case ConstantArgType::STRING:
+            return str == other.str;
         default:
             return false;
         }
@@ -655,6 +667,42 @@ Result<DLDataType> parse_typestr(PyObject* typestr) {
 }
 
 
+Result<std::string> array_dtype_identity_constant(PyObject* pyobj, PyObject* typestr) {
+    Py_ssize_t len;
+    const char* str = PyUnicode_AsUTF8AndSize(typestr, &len);
+    if (!str) return ErrorRaised;
+
+    if (len < 2) return std::string();
+
+    // DLDataType loses schema/unit information for opaque records and
+    // datetime-like arrays, so include the Python dtype in the kernel key.
+    switch (str[1]) {
+    case 'V':
+    case 'S':
+    case 'U':
+    case 'M':
+    case 'm':
+        break;
+    default:
+        return std::string();
+    }
+
+    PyPtr dtype = steal(PyObject_GetAttrString(pyobj, "dtype"));
+    if (dtype) {
+        PyPtr repr = steal(PyObject_Repr(dtype.get()));
+        if (!repr) return ErrorRaised;
+
+        Py_ssize_t repr_len;
+        const char* repr_str = PyUnicode_AsUTF8AndSize(repr.get(), &repr_len);
+        if (!repr_str) return ErrorRaised;
+        return std::string(repr_str, repr_len);
+    }
+
+    PyErr_Clear();
+    return std::string(str, len);
+}
+
+
 Status compute_compact_row_major_strides(const std::vector<int64_t>& shapes,
                                           std::vector<int64_t>& strides) {
     size_t ndim = shapes.size();
@@ -780,6 +828,10 @@ Status extract_cuda_array(PyObject* pyobj, LaunchHelper& helper) {
 
     helper.arg_metadata.push_back({ArgMetadata::Kind::Array, start_idx, static_cast<size_t>(ndim)});
     helper.constants.push_back(ConstantArg(pack_dtype_and_ndim(*dtype, ndim)));
+    Result<std::string> dtype_identity = array_dtype_identity_constant(pyobj, typestr);
+    if (!dtype_identity.is_ok()) return ErrorRaised;
+    if (!dtype_identity->empty())
+        helper.constants.push_back(ConstantArg(std::move(*dtype_identity)));
     return OK;
 }
 
@@ -2162,6 +2214,8 @@ struct hash<ConstantArg> {
             uint64_t float_bits;
             std::memcpy(&float_bits, &arg.value.f64, sizeof(arg.value.f64));
             return std::hash<uint64_t>{}(float_bits);
+        case ConstantArgType::STRING:
+            return std::hash<std::string>{}(arg.str);
         }
         // unreachable code
         assert(false && "Unsupported constant arg type");

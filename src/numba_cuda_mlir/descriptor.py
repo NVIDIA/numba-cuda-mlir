@@ -299,30 +299,33 @@ class _ArgMarshaller:
 
     def __call__(self, *args):
         nargs = len(args)
+        has_ext = bool(self._extensions)
 
-        # --- Fast path: repeated call with same Python type signature ---
-        type_key = tuple(type(a) for a in args)
-        cached = self._sig_cache.get(type_key)
-        if cached is not None:
-            cached_argtypes, fast_ok = cached
-            if fast_ok:
-                return self._launch(cached_argtypes, args)
-
-            # --- Array path: skip typeof/coercion, verify dtype/ndim ---
-            array_entry = self._array_sig_cache.get(type_key)
-            if array_entry is not None:
-                cached_argtypes, array_checks = array_entry
-                ok = True
-                for idx, dtype_num, ndim in array_checks:
-                    a = args[idx]
-                    if a.dtype.num != dtype_num or a.ndim != ndim:
-                        ok = False
-                        break
-                if ok:
+        # Fast caches are only valid when no extension can transform values or
+        # register per-launch callbacks through prepare_args().
+        type_key = None
+        if not has_ext:
+            type_key = tuple(type(a) for a in args)
+            cached = self._sig_cache.get(type_key)
+            if cached is not None:
+                cached_argtypes, fast_ok = cached
+                if fast_ok:
                     return self._launch(cached_argtypes, args)
 
-        # --- Slow path: full processing ---
-        has_ext = bool(self._extensions)
+                # Array values keep the same Python class across many dtypes.
+                # Reuse cached argtypes only when the Numba array type is stable.
+                array_entry = self._array_sig_cache.get(type_key)
+                if array_entry is not None:
+                    cached_argtypes, array_checks = array_entry
+                    ok = True
+                    for idx, dtype, ndim in array_checks:
+                        a = args[idx]
+                        if a.dtype != dtype or a.ndim != ndim:
+                            ok = False
+                            break
+                    if ok:
+                        return self._launch(cached_argtypes, args)
+
         reversed_ext = self._extensions[::-1] if has_ext else None
         copy_item = self._maybe_copy_to_device_item
         callbacks = self._callbacks
@@ -365,6 +368,8 @@ class _ArgMarshaller:
         if coerced_args is not device_args:
             all_pass_through = False
 
+        # _compile_arg_types carries top-level Numba types for compilation;
+        # the C++ launcher receives flattened tuple/list leaves for the ABI.
         flat_args = []
         for arg in coerced_args:
             _flatten_arg(arg, flat_args)
@@ -372,24 +377,24 @@ class _ArgMarshaller:
 
         for callback in callbacks:
             callback()
-        callbacks.clear()
+        callbacks.clear()  # Clear callbacks to prevent accumulation.
 
-        # Cache for future fast-path use
-        has_arrays = any(isinstance(ct, types.Array) for ct in coerced_types)
-        if all_pass_through and len(flat_args) == nargs and not has_arrays:
-            self._sig_cache[type_key] = (list(coerced_types), True)
-        else:
-            if type_key not in self._sig_cache:
-                self._sig_cache[type_key] = (list(coerced_types), False)
+        if not has_ext:
+            has_arrays = any(isinstance(ct, types.Array) for ct in coerced_types)
+            if all_pass_through and len(flat_args) == nargs and not has_arrays:
+                self._sig_cache[type_key] = (list(coerced_types), True)
+            else:
+                if type_key not in self._sig_cache:
+                    self._sig_cache[type_key] = (list(coerced_types), False)
 
-            # Populate array path cache: all array args must be
-            # DeviceNDArrayBase (already on device, no host-to-device copy)
-            if has_arrays and all_pass_through and type_key not in self._array_sig_cache:
-                array_checks = []
-                for i, ct in enumerate(coerced_types):
-                    if isinstance(ct, types.Array):
-                        array_checks.append((i, args[i].dtype.num, args[i].ndim))
-                self._array_sig_cache[type_key] = (list(coerced_types), tuple(array_checks))
+                # Only cache already-device array launches. Host arrays and
+                # wrappers need per-launch copy/copyback setup.
+                if has_arrays and all_pass_through and type_key not in self._array_sig_cache:
+                    array_checks = []
+                    for i, ct in enumerate(coerced_types):
+                        if isinstance(ct, types.Array):
+                            array_checks.append((i, args[i].dtype, args[i].ndim))
+                    self._array_sig_cache[type_key] = (list(coerced_types), tuple(array_checks))
 
         return result
 

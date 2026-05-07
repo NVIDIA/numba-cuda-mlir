@@ -18,11 +18,18 @@ from numba_cuda_mlir import cuda
 from numba_cuda_mlir import types
 
 from numba_cuda_mlir.cuda.vector_types import _vector_type_stubs
-import pytest
 
 
-def _base_type(vtype):
-    return getattr(types, vtype._base_type_name)
+class _VectorTypeTestInfo:
+    def __init__(self, stub):
+        self.name = stub.__name__
+        self.base_type = getattr(types, stub._base_type_name)
+        self.num_elements = stub._num_elements
+        self.user_facing_object = stub
+
+
+def _vector_types():
+    return [_VectorTypeTestInfo(stub) for stub in _vector_type_stubs]
 
 
 def make_kernel(vtype):
@@ -31,8 +38,8 @@ def make_kernel(vtype):
     the given type, using the exact number of primitive types to
     construct the vector type.
     """
-    vobj = vtype
-    base_type = _base_type(vtype)
+    vobj = vtype.user_facing_object
+    base_type = vtype.base_type
 
     def kernel_1elem(res):
         v = vobj(base_type(0))
@@ -61,7 +68,7 @@ def make_kernel(vtype):
         2: kernel_2elem,
         3: kernel_3elem,
         4: kernel_4elem,
-    }[vtype._num_elements]
+    }[vtype.num_elements]
     return numba_cuda_mlir.cuda.jit(host_function)
 
 
@@ -72,11 +79,11 @@ def make_fancy_creation_kernel(vtype):
     types and vector types, as long as the total element of the construction
     is the same as the number of elements of the vector type.
     """
-    base_type = _base_type(vtype)
-    v1 = getattr(cuda, f"{vtype.__name__[:-1]}1")
-    v2 = getattr(cuda, f"{vtype.__name__[:-1]}2")
-    v3 = getattr(cuda, f"{vtype.__name__[:-1]}3")
-    v4 = getattr(cuda, f"{vtype.__name__[:-1]}4")
+    base_type = vtype.base_type
+    v1 = getattr(cuda, f"{vtype.name[:-1]}1")
+    v2 = getattr(cuda, f"{vtype.name[:-1]}2")
+    v3 = getattr(cuda, f"{vtype.name[:-1]}3")
+    v4 = getattr(cuda, f"{vtype.name[:-1]}4")
 
     def kernel(res):
         one = base_type(1.0)
@@ -261,14 +268,14 @@ class TestCudaVectorType(NumbaCUDATestCase):
         self.assertTrue(np.allclose(res, [1.0, 3.0, 5.0, 7.0, 10, 11]))
 
     def test_creation_readout(self):
-        for vty in _vector_type_stubs:
-            arr = np.zeros((vty._num_elements,))
+        for vty in _vector_types():
+            arr = np.zeros((vty.num_elements,))
             kernel = make_kernel(vty)
             kernel[1, 1](arr)
-            np.testing.assert_almost_equal(arr, np.array(range(vty._num_elements)))
+            np.testing.assert_almost_equal(arr, np.array(range(vty.num_elements)))
 
     def test_fancy_creation_readout(self):
-        for vty in _vector_type_stubs:
+        for vty in _vector_types():
             kernel = make_fancy_creation_kernel(vty)
 
             expected = np.array(
@@ -478,6 +485,6 @@ class TestCudaVectorType(NumbaCUDATestCase):
         with its name. This test makes sure that construction with
         objects imported with alias should work the same.
         """
-        for vty in _vector_type_stubs:
-            for alias in vty.aliases:
-                self.assertEqual(id(getattr(cuda, vty.__name__)), id(getattr(cuda, alias)))
+        for vty in _vector_types():
+            for alias in vty.user_facing_object.aliases:
+                self.assertEqual(id(getattr(cuda, vty.name)), id(getattr(cuda, alias)))

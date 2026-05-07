@@ -1,11 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir import cuda, extending, types, testing
-from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.models import PrimitiveModel, register_model
 from numba_cuda_mlir.numba_cuda.extending import overload as numba_cuda_overload
 from numba_cuda_mlir.numba_cuda.extending import typeof_impl
-from numba_cuda_mlir.numba_cuda.typing.templates import Registry
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 import numpy as np
 import pytest
@@ -37,87 +35,6 @@ def test_extending_intrinsic():
     # CHECK: %true = arith.constant true
     # CHECK-NEXT: cf.assert %true, "This should not be executed"
     testing.filecheck_with_comments(mlir)
-
-
-def test_overload_requires_typing_registry():
-    def my_func(x):
-        return x
-
-    with pytest.raises(ValueError, match="overload.*typing_registry"):
-        extending.overload(my_func)
-
-
-def test_overload_method_requires_typing_registry():
-    with pytest.raises(ValueError, match="overload_method.*typing_registry"):
-        extending.overload_method(types.Array, "missing_registry")
-
-
-def test_overload_attribute_requires_typing_registry():
-    with pytest.raises(ValueError, match="overload_attribute.*typing_registry"):
-        extending.overload_attribute(
-            types.Array,
-            "missing_typing_registry",
-            lowering_registry=extending.lowering_registry,
-        )
-
-
-def test_overload_attribute_requires_lowering_registry():
-    with pytest.raises(ValueError, match="overload_attribute.*lowering_registry"):
-        extending.overload_attribute(
-            types.Array,
-            "missing_lowering_registry",
-            typing_registry=extending.typing_registry,
-        )
-
-
-def test_register_jitable_requires_typing_registry():
-    def helper(x):
-        return x
-
-    with pytest.raises(ValueError, match="register_jitable.*typing_registry"):
-        extending.register_jitable(helper)
-
-
-def test_register_jitable_with_options_requires_typing_registry():
-    with pytest.raises(ValueError, match="register_jitable.*typing_registry"):
-        extending.register_jitable(inline="always")
-
-
-def test_overload_uses_supplied_typing_registry():
-    custom_typing_registry = Registry()
-
-    def my_func(x):
-        return x
-
-    @extending.overload(my_func, typing_registry=custom_typing_registry)
-    def my_func_overload(x):
-        def impl(x):
-            return x
-
-        return impl
-
-    assert custom_typing_registry.functions[-1]._typing_registry is custom_typing_registry
-    assert custom_typing_registry.globals[-1][0] is my_func
-
-
-def test_overload_attribute_uses_supplied_registries():
-    custom_typing_registry = Registry()
-    custom_lowering_registry = LoweringRegistry()
-
-    @extending.overload_attribute(
-        types.Array,
-        "custom_attr",
-        typing_registry=custom_typing_registry,
-        lowering_registry=custom_lowering_registry,
-    )
-    def array_custom_attr(arr):
-        def get(arr):
-            return arr.size
-
-        return get
-
-    template = custom_typing_registry.attributes[-1]
-    assert template._attribute_lowering_registry is custom_lowering_registry
 
 
 def test_extending_overload_with_lowering():

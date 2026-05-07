@@ -429,6 +429,8 @@ def _extract_signature_from_annotations(func):
     has_unannotated = False
     to_numba_type = None
 
+    # A function with no parameters cannot have parameter annotations, so
+    # there is no annotation-derived signature to return.
     if not sig.parameters:
         return None
 
@@ -445,12 +447,15 @@ def _extract_signature_from_annotations(func):
             try:
                 argtypes.append(to_numba_type(ann))
             except (TypeError, NotImplementedError):
+                # Unrecognized annotation type - treat as template
                 has_unannotated = True
                 argtypes.append(None)
 
+    # If any parameter is unannotated/unrecognized, use lazy compilation
     if has_unannotated:
         return None
 
+    # Get return type if annotated
     ret_ann = sig.return_annotation
     if ret_ann != inspect.Signature.empty:
         if isinstance(ret_ann, numba_types.Type):

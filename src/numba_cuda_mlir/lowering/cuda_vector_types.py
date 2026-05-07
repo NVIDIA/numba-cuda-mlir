@@ -4,6 +4,9 @@
 Lowering support for CUDA vector types (float32x4, int32x2, etc.)
 """
 
+import itertools
+from typing import Any
+
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
 registry = LoweringRegistry()
@@ -17,25 +20,41 @@ from numba_cuda_mlir.type_defs.vector_types import VectorType
 from numba_cuda_mlir import types
 from numba_cuda_mlir._mlir.dialects import vector, arith
 from numba_cuda_mlir._mlir import ir
-from typing import Any
 
 ATTR_INDEX = {"x": 0, "y": 1, "z": 2, "w": 3}
+
+
+def _num_vector_elements(vec_type: ir.VectorType) -> int:
+    num_elements = 1
+    for dim in vec_type.shape:
+        num_elements *= dim
+    return num_elements
 
 
 def _build_vector_from_scalars(scalars: list, vec_type: ir.VectorType) -> ir.Value:
     """Build an MLIR vector from a list of scalar values."""
     elem_type = vec_type.element_type
+    num_elements = _num_vector_elements(vec_type)
+
+    if len(scalars) != num_elements:
+        raise ValueError(
+            f"Expected {num_elements} scalar elements for {vec_type}, got {len(scalars)}"
+        )
+
+    # Convert all scalars to the target element type before building the vector.
     converted = [convert(s, elem_type) for s in scalars]
+
+    # Use vector.from_elements to build the vector.
     return vector.from_elements(vec_type, converted)
 
 
 def _extract_vector_elements(vec: ir.Value) -> list:
     """Extract all elements from an MLIR vector."""
     vec_type = vec.type
-    num_elements = vec_type.shape[0]
     elements = []
-    for i in range(num_elements):
-        elem = vector.extract(vec, [], [i])
+    for indices in itertools.product(*(range(dim) for dim in vec_type.shape)):
+        # Use static positions for extraction (empty dynamic_position list).
+        elem = vector.extract(vec, [], list(indices))
         elements.append(elem)
     return elements
 
@@ -49,7 +68,7 @@ def _constructor_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs)
     """
     target_type = lower_ctx.get_numba_type(target.name)
     vec_type = to_mlir_type(target_type)
-    num_elements = vec_type.shape[0]
+    num_elements = _num_vector_elements(vec_type)
 
     scalars = []
     for arg in args:

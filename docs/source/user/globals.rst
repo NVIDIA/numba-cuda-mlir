@@ -25,7 +25,7 @@ The following example demonstrates this behavior. Both ``TAX_RATE`` and
 embedded as constants, **modifications to these variables after compilation
 have no effect**—the second kernel call still uses the original values:
 
-.. literalinclude:: ../../../../tests/doc_examples/test_globals.py
+.. literalinclude:: ../../../tests/doc_examples/test_globals.py
    :language: python
    :caption: Demonstrating constant capture of global variables
    :start-after: magictoken.ex_globals_constant_capture.begin
@@ -61,7 +61,7 @@ The following example demonstrates this behavior. The global ``PRICES`` device
 array is mutated after the first kernel call, and the second kernel call sees
 the updated values:
 
-.. literalinclude:: ../../../../tests/doc_examples/test_globals.py
+.. literalinclude:: ../../../tests/doc_examples/test_globals.py
    :language: python
    :caption: Demonstrating device array capture by pointer
    :start-after: magictoken.ex_globals_device_array_capture.begin

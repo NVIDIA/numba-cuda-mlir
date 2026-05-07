@@ -41,17 +41,16 @@ class LocalArrayFromTransformer(ast.NodeTransformer):
         return False
 
     def _get_local_array_func(self, original_func: ast.expr) -> ast.expr:
-        """Convert local_array_from func reference to local_array."""
-        if isinstance(original_func, ast.Name):
-            return ast.Name(id="local_array", ctx=ast.Load())
-        elif isinstance(original_func, ast.Attribute):
-            # cuda.local_array_from -> cuda.local_array
-            return ast.Attribute(
-                value=original_func.value,
-                attr="local_array",
-                ctx=ast.Load(),
-            )
-        return original_func
+        """Convert local_array_from to cuda.local_array.
+
+        Always produces ``cuda.local_array`` so callers can reference
+        ``local_array_from`` from ``cuda.experimental``.
+        """
+        return ast.Attribute(
+            value=ast.Name(id="cuda", ctx=ast.Load()),
+            attr="local_array",
+            ctx=ast.Load(),
+        )
 
     def visit_Assign(self, node: ast.Assign) -> ast.AST | list[ast.stmt]:
         node = self.generic_visit(node)

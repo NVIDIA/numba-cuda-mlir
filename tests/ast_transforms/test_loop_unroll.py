@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import numba_cuda_mlir
-from numba_cuda_mlir.cuda import consteval
+from numba_cuda_mlir.cuda.experimental import consteval
 from numba_cuda_mlir.ast_transforms import ConstevalError
 from numba_cuda_mlir import cuda
 import numpy as np
@@ -11,7 +11,7 @@ import pytest
 def test_unroll_range():
     """Test basic loop unrolling with range()."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         for j in consteval(range(3)):
@@ -31,7 +31,7 @@ def test_unroll_range():
 def test_unroll_range_runs():
     """Test that unrolled range loop executes correctly."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         for j in consteval(range(4)):
@@ -56,7 +56,7 @@ def test_unroll_tuple():
     """Test loop unrolling with a tuple."""
     SIZES = (8, 16, 32)
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         total = 0.0
@@ -76,7 +76,7 @@ def test_unroll_tuple_runs():
     """Test that unrolled tuple loop executes correctly."""
     VALUES = (1, 2, 4, 8)
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         total = 0.0
@@ -97,7 +97,7 @@ def test_unroll_list():
     """Test loop unrolling with a list."""
     ITEMS = [10, 20, 30]
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         offset = 0
@@ -116,7 +116,7 @@ def test_unroll_with_consteval_count():
     """Test loop unrolling where count comes from consteval."""
     N = 4
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         count = consteval(N)
@@ -136,7 +136,7 @@ def test_unroll_nested_consteval():
     """Test loop unrolling with consteval inside the loop body."""
     MULTIPLIERS = (2, 3, 5)
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         for m in consteval(MULTIPLIERS):
@@ -155,7 +155,7 @@ def test_unroll_conditional_inside():
     """Test loop unrolling with conditional inside based on loop var."""
     FLAGS = (True, False, True)
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         offset = 0
@@ -186,7 +186,7 @@ def test_unroll_string_items():
     """Test loop unrolling with string items (for compile-time selection)."""
     TYPES = ("float", "int")
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         for t in consteval(TYPES):
@@ -207,7 +207,7 @@ def test_unroll_computed_range():
     BASE = 2
     MULT = 3
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         for j in consteval(range(BASE * MULT)):
@@ -223,7 +223,7 @@ def test_unroll_computed_range():
 def test_unroll_empty_range():
     """Test loop unrolling with empty range."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         arr[i] = 0.0
@@ -242,7 +242,7 @@ def test_unroll_empty_range():
 def test_unroll_non_iterable_raises():
     """Test that consteval with non-iterable raises error."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         for j in consteval(42):
@@ -258,7 +258,7 @@ def test_unroll_nested_loops():
     OUTER = (0, 1)
     INNER = (0, 1, 2)
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         for a in consteval(OUTER):
@@ -280,7 +280,7 @@ def test_unroll_nested_loops():
 def test_unroll_nested_loops_runs():
     """Test that nested unrolled loops execute correctly."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         if i == 0:

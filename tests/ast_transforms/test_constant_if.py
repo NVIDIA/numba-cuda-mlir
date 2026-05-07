@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import numba_cuda_mlir
-from numba_cuda_mlir.cuda import consteval
+from numba_cuda_mlir.cuda.experimental import consteval
 from numba_cuda_mlir import cuda
 import numpy as np
 
@@ -9,7 +9,7 @@ import numpy as np
 def test_constant_if_true_branch():
     """Test that if True: ... else: ... is folded to the true branch."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         if consteval(True):
@@ -29,7 +29,7 @@ def test_constant_if_true_branch():
 def test_constant_if_false_branch():
     """Test that if False: ... else: ... is folded to the else branch."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         if consteval(False):
@@ -47,7 +47,7 @@ def test_constant_if_false_branch():
 def test_constant_if_no_else():
     """Test that if False: ... with no else is removed entirely."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         arr[i] = 0.0
@@ -65,7 +65,7 @@ def test_constant_if_expression():
     """Test constant if with consteval expression."""
     USE_FAST_PATH = True
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         if consteval(USE_FAST_PATH):
@@ -83,7 +83,7 @@ def test_constant_if_expression():
 def test_constant_if_runs_correctly():
     """Test that constant if folding produces correct runtime behavior."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         if consteval(True):
@@ -104,7 +104,7 @@ def test_nested_constant_if():
     OUTER = True
     INNER = False
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         if consteval(OUTER):

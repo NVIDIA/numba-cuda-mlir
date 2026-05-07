@@ -14,7 +14,7 @@ from numba_cuda_mlir.optimization import run_pre_codegen_patterns
 from numba_cuda_mlir.numba_cuda.cudadrv.nvvm import CompilationUnit
 from numba_cuda_mlir.logging import trace
 from numba_cuda_mlir.mlir.util import find_ops
-from numba_cuda_mlir.lowering.numba_compat.llvm_utils import (
+from numba_cuda_mlir.lowering_utilities.llvm_utils import (
     MLIR_CAPI_LIB_PATH,
     NVPTX64_DATALAYOUT,
     NVPTX64_TRIPLE,

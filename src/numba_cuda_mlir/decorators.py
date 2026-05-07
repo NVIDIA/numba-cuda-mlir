@@ -601,10 +601,37 @@ def mlir_jit(func_or_sig=None, **kws):
         resolved_kws.setdefault("opt", opt)
     targetoptions = verify_target_options(resolved_kws)
     annotations_as_signatures = targetoptions.get("annotations_as_signatures", True)
+    _user_set_ast = "experimental_ast_transforms" in kws
+
+    def _maybe_enable_experimental(func):
+        """Auto-enable AST transforms if func's module imported cuda.experimental."""
+        if _user_set_ast:
+            return
+        g = getattr(func, "__globals__", None)
+        if g is None:
+            return
+        exp = sys.modules.get("numba_cuda_mlir.cuda.experimental")
+        if exp is None:
+            return
+        sentinel_ids = {id(exp), id(exp.consteval), id(exp.local_array_from)}
+        if any(id(v) in sentinel_ids for v in g.values()):
+            targetoptions["experimental_ast_transforms"] = True
+            return
+        # Also check closure cells (covers local imports like
+        # `from cuda.experimental import consteval` inside a function).
+        if func.__closure__:
+            for cell in func.__closure__:
+                try:
+                    if id(cell.cell_contents) in sentinel_ids:
+                        targetoptions["experimental_ast_transforms"] = True
+                        return
+                except ValueError:
+                    pass
 
     def _jit_with_signatures(func):
         """JIT when explicit signatures are provided."""
         nonlocal signatures
+        _maybe_enable_experimental(func)
 
         # Check for conflicting signature sources
         if annotations_as_signatures:
@@ -642,6 +669,7 @@ def mlir_jit(func_or_sig=None, **kws):
 
     def _jit_with_annotations(func):
         """JIT using type annotations as the signature if available."""
+        _maybe_enable_experimental(func)
         sig = _extract_signature_from_annotations(func)
 
         disp = MLIRDispatcher(func, targetoptions=targetoptions)
@@ -665,6 +693,7 @@ def mlir_jit(func_or_sig=None, **kws):
 
     def _jit_lazy(func):
         """JIT with lazy compilation (non-binding mode)."""
+        _maybe_enable_experimental(func)
         disp = MLIRDispatcher(func, targetoptions=targetoptions)
         if targetoptions.get("cache", False):
             disp.enable_caching()

@@ -22,10 +22,14 @@ def get_function_context(func: Callable) -> dict:
     """Build a context dict from a function's globals and closure variables."""
     context = func.__globals__.copy()
 
-    # Add closure variables
+    # Add closure variables (skip cells that are not yet assigned, e.g.
+    # recursive self-references at decoration time).
     if func.__closure__ is not None:
         for name, cell in zip(func.__code__.co_freevars, func.__closure__):
-            context[name] = cell.cell_contents
+            try:
+                context[name] = cell.cell_contents
+            except ValueError:
+                pass
 
     return context
 
@@ -62,10 +66,14 @@ def recompile_function(func: Callable, tree: ast.Module, stored_values: dict = N
     new_globals = func.__globals__.copy()
 
     # Add closure variables to globals - the recompiled code may treat them as globals
-    # since it was compiled from source without the original closure context
+    # since it was compiled from source without the original closure context.
+    # Skip empty cells (e.g. recursive self-references at decoration time).
     if func.__closure__ is not None:
         for name, cell in zip(func.__code__.co_freevars, func.__closure__):
-            new_globals[name] = cell.cell_contents
+            try:
+                new_globals[name] = cell.cell_contents
+            except ValueError:
+                pass
 
     if stored_values:
         new_globals.update(stored_values)

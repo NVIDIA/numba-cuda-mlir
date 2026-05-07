@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir.cuda import experimental
 from numba_cuda_mlir import compiler, testing
 import numpy as np
 from numba_cuda_mlir.numba_cuda.types import float32
@@ -25,8 +26,8 @@ def test_inline_ptx_manual():
     def kernel(a, b):
         brk()
         nanosleep(50)
-        cuda.inline_ptx("brkpt;")
-        res = cuda.inline_ptx(
+        experimental.inline_ptx("brkpt;")
+        res = experimental.inline_ptx(
             """.reg .u32 t1;
                 mul.lo.u32 t1, %1, %1;
                 mul.lo.u32 %0, t1, %1;
@@ -38,7 +39,7 @@ def test_inline_ptx_manual():
         )
 
         # Test multiple return values from inline_ptx
-        res1, res2 = cuda.inline_ptx(
+        res1, res2 = experimental.inline_ptx(
             """add.u32 %0, %2, %3;
                 sub.u32 %1, %2, %3;
                 """,

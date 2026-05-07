@@ -2,8 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 import collections
 from contextlib import contextmanager
+import sys
 from functools import cached_property, lru_cache
-from typing import override
+
+if sys.version_info >= (3, 12):
+    from typing import override
+else:
+    from typing_extensions import override
 from numba_cuda_mlir.errors import UserFacingInternalCompilerError
 from numba_cuda_mlir.logging import trace
 import inspect
@@ -43,7 +48,6 @@ from numba_cuda_mlir._cext import LaunchConfiguration
 import threading
 import cProfile
 import pstats
-import sys
 
 # Thread-local storage for passing original tuple arg types to _compile
 _compile_arg_types = threading.local()

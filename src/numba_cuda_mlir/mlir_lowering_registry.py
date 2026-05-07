@@ -1,7 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from functools import lru_cache
-from typing import Callable, override
+import sys
+from typing import Callable
+
+if sys.version_info >= (3, 12):
+    from typing import override
+else:
+    from typing_extensions import override
 from numba_cuda_mlir.numba_cuda.core.imputils import Registry
 from numba_cuda_mlir.numba_cuda import types
 import functools

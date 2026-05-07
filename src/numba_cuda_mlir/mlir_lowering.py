@@ -96,6 +96,8 @@ KERNEL_ERROR_CODES = {
     RuntimeError: 4,
     ZeroDivisionError: 5,
 }
+# MLIR LLVM dialect dynamic GEP sentinel, LLVM::GEPOp::kDynamicIndex / INT32_MIN.
+_GEP_DYNAMIC_INDEX = -2147483648
 
 
 def _is_omitted_arg(argty):
@@ -207,6 +209,7 @@ class MLIRLower(object):
         )
         self._di_subprogram = None
         self._di_builder = None
+        self._poly_dbg_types = self._collect_poly_dbg_types() if self._debug_full else {}
         if self._debug_full or self._line_only:
             ctx = numba_cuda_mlir_context.get_context()
             opt_level = int(self.targetoptions.get("opt_level", 3))
@@ -244,6 +247,7 @@ class MLIRLower(object):
         self._total_shared_memory_bytes: ir.Value | None = None
         self._deferred_dbg_declare_vars: set[str] = set()
         self._debug_forced_alloca: set[str] = set()
+        self._poly_dbg_alloca: dict[str, ir.Value] = {}
 
         self.nrt = MLIRNRTContext(context.data_model_manager)
 
@@ -257,6 +261,45 @@ class MLIRLower(object):
             **self._linker_config,
             optimize_unused_variables=True,
         )
+
+    def _collect_poly_dbg_types(self):
+        """Scan function body to collect polymorphic debug types."""
+        poly_map = {}
+        for block in self.blocks.values():
+            for inst in block.body:
+                if not isinstance(inst, numba_ir.Assign) or inst.target.name.startswith("$"):
+                    continue
+                base_name = self._canonical_dbg_var_name(inst.target.name)
+                if base_name in poly_map:
+                    continue
+                names = inst.target.all_names
+                if len(names) <= 1:
+                    continue
+                for name in names:
+                    numba_type = self.get_numba_type(name)
+                    if isinstance(numba_type, types.NoneType):
+                        continue
+                    poly_map.setdefault(base_name, set()).add(
+                        mlir_debuginfo._strip_literal_type(numba_type)
+                    )
+
+        poly_types = {}
+        for name, type_set in poly_map.items():
+            if len(type_set) <= 1:
+                continue
+            if not all(self._is_poly_dbg_variant_type(t) for t in type_set):
+                continue
+            # UnionType is used here as a DI/tag container only;
+            # the lowered value is stored in a shared canonical slot.
+            poly_types[name] = types.UnionType(type_set)
+        return poly_types
+
+    @staticmethod
+    def _is_poly_dbg_variant_type(numba_type):
+        numba_type = mlir_debuginfo._strip_literal_type(numba_type)
+        if not isinstance(numba_type, (types.Boolean, types.Integer, types.Float)):
+            return False
+        return True
 
     def _collect_debug_variables(self):
         """Scan fndesc.args and fndesc.typemap to add debug variables to the DIBuilder."""
@@ -279,6 +322,7 @@ class MLIRLower(object):
                 continue
             seen.add(var_name)
             var_loc = self._find_var_def_line(var_name)
+            numba_type = self._poly_dbg_types.get(var_name, numba_type)
             self._di_builder.add_local_variable(var_name, var_loc, numba_type)
 
     def _find_var_def_line(self, var_name):
@@ -410,11 +454,14 @@ class MLIRLower(object):
             from textwrap import dedent
 
             names = self.func_ir.arg_names
+            capi_args = ",\n    ".join(
+                [f"{argtype} {name}" for argtype, name in zip(capi_type.args, names)]
+            )
             self.metadata["capi"] = dedent(
                 f"""
 extern "C" __global__ void
 {self._capi_sym_name}(
-    {",\n    ".join([f"{argtype} {name}" for argtype, name in zip(capi_type.args, names)])}
+    {capi_args}
 )
 """.replace("none*", "void*")
             )
@@ -695,6 +742,37 @@ extern "C" __global__ void
                         memref=memref_type, dynamic_sizes=[], symbol_operands=[]
                     )
                     self._tag_alloca_for_deferred_dbg_declare(var_name, self.varmap[var_name])
+        if self._debug_full and self._di_builder is not None and self._di_builder.valid:
+            self._allocate_poly_dbg_slots()
+
+    def _poly_dbg_data_bits(self, union_type):
+        variant_sizes = [mlir_debuginfo._type_size_bits(t) for t in union_type.types]
+        if not variant_sizes or any(size is None for size in variant_sizes):
+            return None
+        return max(variant_sizes)
+
+    def _poly_dbg_storage_type(self, union_type):
+        data_bits = self._poly_dbg_data_bits(union_type)
+        if data_bits is None:
+            return None
+        data_type = ir.IntegerType.get_signless(data_bits)
+        # Element 0 holds the i8 discriminator; element 1 holds the active payload.
+        return ir.Type.parse(f"!llvm.array<2 x {data_type}>")
+
+    def _allocate_poly_dbg_slots(self):
+        """Allocate canonical storage for polymorphic variables."""
+        for base_name, union_type in self._poly_dbg_types.items():
+            var_attr = self._di_builder.di_local_vars.get(base_name)
+            storage_type = self._poly_dbg_storage_type(union_type)
+            if var_attr is None or storage_type is None:
+                continue
+            alloca_ptr = self.alloca(storage_type, count=1)
+            self._poly_dbg_alloca[base_name] = alloca_ptr
+            llvm.intr_dbg_declare(
+                alloca_ptr,
+                var_attr,
+                location_expr=self._di_builder.di_expression,
+            )
 
     @staticmethod
     def _canonical_dbg_var_name(var_name: str) -> str:
@@ -2794,6 +2872,8 @@ extern "C" __global__ void
             return
         # Numba SSA renames: foo.1, foo.2, etc. Map back to the user name.
         base_name = self._canonical_dbg_var_name(var_name)
+        if base_name in self._poly_dbg_types:
+            return
         var_attr = self._di_builder.di_local_vars.get(base_name)
         if var_attr is None:
             return
@@ -2879,6 +2959,9 @@ extern "C" __global__ void
 
         assert self.var_lowered(var), f"Var {var.name} not found in varmap."
 
+        if self._is_poly_debug_var(var.name):
+            return self._load_poly_debug_var(var.name)
+
         if var.name in self.var_assign_count and self.var_assign_count[var.name] > 1:
             # if variable is stack allocated (multiple assigned),
             # load the variable from stack
@@ -2904,11 +2987,61 @@ extern "C" __global__ void
             # load the value from varmap
             return self.varmap[var.name]
 
+    def _is_poly_debug_var(self, var_name):
+        base_name = self._canonical_dbg_var_name(var_name)
+        return base_name in self._poly_dbg_alloca
+
+    def _poly_dbg_byte_ptr(self, slot, offset_bytes):
+        """Return a byte pointer at a dynamic offset within a polymorphic slot."""
+        return llvm.getelementptr(
+            llvm.PointerType.get(),
+            slot,
+            [i64_of(offset_bytes)],
+            [_GEP_DYNAMIC_INDEX],
+            T.i8(),
+            None,
+        )
+
+    def _poly_dbg_payload_offset_bytes(self, numba_type):
+        size_bits = mlir_debuginfo._type_size_bits(numba_type)
+        return size_bits // mlir_debuginfo._BYTE_SIZE_BITS
+
+    def _load_poly_debug_var(self, var_name):
+        base_name = self._canonical_dbg_var_name(var_name)
+        slot = self._poly_dbg_alloca[base_name]
+        numba_type = self._get_numba_type_for_dbg_var(var_name)
+        offset_bytes = self._poly_dbg_payload_offset_bytes(numba_type)
+        return llvm.load(
+            res=self.get_mlir_type(numba_type),
+            addr=self._poly_dbg_byte_ptr(slot, offset_bytes),
+        )
+
+    def _store_poly_dbg_var(self, var_name, value):
+        base_name = self._canonical_dbg_var_name(var_name)
+        union_type = self._poly_dbg_types[base_name]
+        slot = self._poly_dbg_alloca[base_name]
+        numba_type = mlir_debuginfo._strip_literal_type(self._get_numba_type_for_dbg_var(var_name))
+        tag = union_type.get_type_tag(numba_type)
+        offset_bytes = self._poly_dbg_payload_offset_bytes(numba_type)
+        mlir_value = self._unwrap_mlir_value(value)
+        target_type = self.get_mlir_type(numba_type)
+        if mlir_value.type != target_type:
+            mlir_value = self.mlir_convert(mlir_value, target_type)
+        # Store the active variant tag first, then the variant's value at its
+        # size-based payload offset in the shared canonical slot.
+        llvm.store(value=arith.constant(T.i8(), tag), addr=self._poly_dbg_byte_ptr(slot, 0))
+        llvm.store(value=mlir_value, addr=self._poly_dbg_byte_ptr(slot, offset_bytes))
+
     def store_var(self, var, value):
         """
         Store the value (MLIR Op) into the given variable.
         """
         trace("var=%s value=%s", var, value)
+        if self._debug_full:
+            base_name = self._canonical_dbg_var_name(var.name)
+            if self._poly_dbg_alloca.get(base_name) is not None:
+                self._store_poly_dbg_var(var.name, value)
+                return
         if var.name in self.var_assign_count and self.var_assign_count[var.name] > 1:
             # if variable is stack allocated (multiple assigned),
             # store the value to stack
@@ -3020,7 +3153,8 @@ extern "C" __global__ void
                     raise TypeError(f"Cannot convert type {str(ty)} to MLIR type.") from e
 
     def var_lowered(self, var):
-        return var.name in self.varmap
+        # Polymorphic var is considered lowered if a canonical shared slot is allocated.
+        return var.name in self.varmap or self._is_poly_debug_var(var.name)
 
     def _count_flat_elements(self, numba_type) -> int:
         """Count how many flat MLIR arguments a type expands to."""

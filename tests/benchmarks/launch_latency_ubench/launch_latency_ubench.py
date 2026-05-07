@@ -91,8 +91,9 @@ def measure(cuda, configured_kernel, args):
     t0 = time.perf_counter()
     for _ in range(ITERATIONS):
         configured_kernel(*args)
+    elapsed = time.perf_counter() - t0
     cuda.synchronize()
-    return (time.perf_counter() - t0) / ITERATIONS * 1e9
+    return elapsed / ITERATIONS * 1e9
 
 
 def bench(label, cuda):

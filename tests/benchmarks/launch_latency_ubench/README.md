@@ -22,14 +22,16 @@ python tests/benchmarks/launch_latency_ubench/launch_latency_ubench.py
 
 ## Output
 
+Machine: AMD Ryzen 9 9950X | NVIDIA RTX PRO 6000 Blackwell | CUDA driver 580.95 | Python 3.12 | Ubuntu 24.04
+
 ```
 --------------------------------------------------------------------------------------
 Benchmark                |  numba_cuda (ns) |  numba_cuda_mlir (ns) |    Speedup
 --------------------------------------------------------------------------------------
-launch_empty             |           4101.9 |                3871.2 |      1.06x
-launch_1_array_arg       |           5839.0 |                2962.3 |      1.97x
-launch_16_scalar_args    |          15204.4 |                4306.9 |      3.53x
-launch_16_array_args     |          29780.4 |               12370.7 |      2.41x
-launch_256_scalar_args   |         177007.1 |               10108.6 |     17.51x
+launch_empty             |           4089.4 |                3862.4 |      1.06x
+launch_1_array_arg       |           5865.4 |                2983.8 |      1.97x
+launch_16_scalar_args    |          15489.9 |                4355.2 |      3.56x
+launch_16_array_args     |          30487.5 |               12508.1 |      2.44x
+launch_256_scalar_args   |         179437.1 |               10162.5 |     17.66x
 --------------------------------------------------------------------------------------
 ```

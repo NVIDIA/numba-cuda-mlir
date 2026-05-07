@@ -6,6 +6,8 @@
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
+import os
+
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
@@ -40,3 +42,24 @@ html_theme = "nvidia_sphinx_theme"
 html_static_path = ["_static"]
 html_favicon = "_static/numba-green-icon-rgb.svg"
 html_show_sphinx = False
+
+
+release = os.environ.get("SPHINX_NUMBA_CUDA_MLIR_VER", "0.0.0")
+
+# Wires up the version switcher from versions.json
+html_theme_options = {
+    "switcher": {
+        "json_url": "https://nvidia.github.io/numba-cuda-mlir/versions.json",
+        "version_match": release,
+    },
+    "navbar_center": [
+        "version-switcher",
+        "navbar-nav",
+    ],
+}
+
+# Add warning to docs built from main
+if int(os.environ.get("BUILD_LATEST", 0)):
+    html_theme_options["announcement"] = (
+        "Warning: This documentation is built from the development branch\!"
+    )

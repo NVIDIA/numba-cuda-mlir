@@ -375,7 +375,6 @@ def run_benchmark_main(compile_mode="cold", backend=BACKEND_BOTH):
         cuda.synchronize()
 
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Blocked Cholesky benchmark")
     add_compile_mode_arg(parser)

@@ -44,6 +44,7 @@ def _require_lowering_registry(decorator_name, registry):
         raise ValueError(f"numba_cuda_mlir.extending.{decorator_name} requires lowering_registry=")
     return registry
 
+
 class _NumbaCudaMlirOverloadFunctionTemplate(_OverloadFunctionTemplate):
     def _get_jit_decorator(self):
         from numba_cuda_mlir import cuda

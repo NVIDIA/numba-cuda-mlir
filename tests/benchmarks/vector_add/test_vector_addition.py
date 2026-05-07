@@ -166,7 +166,6 @@ def run_benchmark_scalar(compile_mode="cold", backend=BACKEND_BOTH):
         cuda.synchronize()
 
 
-
 def run_benchmark_vectorized(compile_mode="cold", backend=BACKEND_BOTH):
     sig = "void(float32[::1], float32[::1], float32[::1], int64)"
     prepare_compile_measurement(compile_mode, backend)
@@ -202,7 +201,6 @@ def run_benchmark_vectorized(compile_mode="cold", backend=BACKEND_BOTH):
         c_device = cuda.device_array(n, dtype=np.float32)
         numba_cuda_mlir_vector_add_vectorized[blocks, threads](a_device, b_device, c_device, n)
         cuda.synchronize()
-
 
 
 if __name__ == "__main__":

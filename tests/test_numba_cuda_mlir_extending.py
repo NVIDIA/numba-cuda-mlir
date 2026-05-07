@@ -1,9 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir import cuda, extending, types, testing
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.models import PrimitiveModel, register_model
 from numba_cuda_mlir.numba_cuda.extending import overload as numba_cuda_overload
 from numba_cuda_mlir.numba_cuda.extending import typeof_impl
+from numba_cuda_mlir.numba_cuda.typing.templates import Registry
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 import numpy as np
 import pytest
@@ -226,7 +228,9 @@ def test_numba_cuda_overload_captures_extern_function():
     def kernel(val):
         my_func(val)
 
-    with pytest.raises(Exception, match="Undefined reference to 'my_device_func'"):
+    with pytest.raises(
+        Exception, match=r"(Undefined reference to|Unresolved extern function) 'my_device_func'"
+    ):
         kernel[1, 1](1)
 
 
@@ -256,7 +260,11 @@ def test_overload_method_custom_type_uses_mlir_model_only():
 
             super().__init__(dmm, fe_type, T.i8())
 
-    @extending.overload_method(MyObjType, "execute")
+    @extending.overload_method(
+        MyObjType,
+        "execute",
+        typing_registry=extending.typing_registry,
+    )
     def ol_execute(obj, val):
         def impl(obj, val):
             pass

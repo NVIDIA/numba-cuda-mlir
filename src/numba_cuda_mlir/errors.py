@@ -105,7 +105,7 @@ class ExtensionError(Exception):
         super().__init__(prefix + message, *args, **kwargs)
 
 
-def ensure_verifies[T](op: T) -> T:
+def ensure_verifies(op: T) -> T:
     if not isinstance(op, (Operation, Value, Block)):
         return op
     owner = op if isinstance(op, Operation) else op.owner

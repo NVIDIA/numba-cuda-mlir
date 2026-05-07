@@ -344,8 +344,10 @@ def _dump_module(mod, header):
 
 def _find_dbg_var_name(loc):
     """Extract dbg variable name from nested locations."""
-    if isinstance(loc, ir.NameLoc) and loc.name_str.startswith("dbg_var:"):
-        return loc.name_str[len("dbg_var:") :]
+    if isinstance(loc, ir.NameLoc):
+        if loc.name_str.startswith("dbg_var:"):
+            return loc.name_str[len("dbg_var:") :]
+        return _find_dbg_var_name(loc.child_loc)
     if isinstance(loc, ir.FusedLoc):
         for nested_loc in loc.locations:
             name = _find_dbg_var_name(nested_loc)
@@ -356,8 +358,13 @@ def _find_dbg_var_name(loc):
 
 def _strip_dbg_var_nameloc(loc):
     """Strip dbg_var: NameLoc entries from a location tree."""
-    if isinstance(loc, ir.NameLoc) and loc.name_str.startswith("dbg_var:"):
-        return None
+    if isinstance(loc, ir.NameLoc):
+        if loc.name_str.startswith("dbg_var:"):
+            return None
+        child_loc = _strip_dbg_var_nameloc(loc.child_loc)
+        if child_loc is None:
+            return ir.Location.name(loc.name_str)
+        return ir.Location.name(loc.name_str, child_loc)
     if not isinstance(loc, ir.FusedLoc):
         return loc
     stripped = []

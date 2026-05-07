@@ -19,7 +19,6 @@ from numba_cuda_mlir.numba_cuda.misc.special import literal_unroll  # noqa: F401
 from numba_cuda_mlir.cuda.lazy_api import *
 
 HAS_NUMBA = False
-_EXPERIMENTAL_IMPORTED = False
 
 
 # Submodules (must be modules, not class stubs) so that `numba.cuda.shared` and

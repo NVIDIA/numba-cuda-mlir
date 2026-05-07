@@ -3,16 +3,12 @@
 """
 Experimental Numba-CUDA-MLIR features.
 
-Importing this module auto-enables ``experimental_ast_transforms=True`` for all
-subsequent ``@cuda.jit`` calls (unless the user explicitly passes
-``experimental_ast_transforms=False``).
+When a kernel's defining module has imported from this package, ``@cuda.jit``
+auto-enables ``experimental_ast_transforms=True`` for that kernel (unless the
+user explicitly passes ``experimental_ast_transforms=False``).
 """
 
 import importlib as _importlib
-
-import numba_cuda_mlir.cuda as _cuda
-
-_cuda._EXPERIMENTAL_IMPORTED = True
 
 from numba_cuda_mlir.cuda import inline_ptx  # noqa: F401
 from numba_cuda_mlir.cuda.experimental.struct import struct  # noqa: F401

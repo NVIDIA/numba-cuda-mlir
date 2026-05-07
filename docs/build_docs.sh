@@ -14,28 +14,30 @@ else
     exit 1
 fi
 
-# SPHINX_CUDA_PYTHON_VER is used to create a subdir under build/html
-# (the Makefile file for sphinx-build also honors it if defined).
-# If there's a post release (ex: .post1) we don't want it to show up in the
-# version selector or directory structure.
-if [[ -z "${NUMBA_CUDA_MLIR_VER}" ]]; then
-    export NUMBA_CUDA_MLIR_VER=$(python -c "from importlib.metadata import version; \
-                                            ver = '.'.join(str(version('numba_cuda_mlir')).split('.')[:3]); \
-                                            print(ver)" \
-                                 | awk -F'+' '{print $1}')
+# SPHINX_NUMBA_CUDA_MLIR_VER is used to create a subdir under build/html
+# and is also read by conf.py to drive the version switcher's version_match.
+# For latest-only (dev) builds we pin it to "latest" so the switcher highlights
+# the "latest" entry in versions.json. For full builds we use the wheel
+# version (stripping any post-release / local suffixes).
+if [[ "${LATEST_ONLY}" == "1" ]]; then
+    export SPHINX_NUMBA_CUDA_MLIR_VER="latest"
+elif [[ -z "${SPHINX_NUMBA_CUDA_MLIR_VER}" ]]; then
+    export SPHINX_NUMBA_CUDA_MLIR_VER=$(python -c "from importlib.metadata import version; \
+                                                   ver = '.'.join(str(version('numba_cuda_mlir')).split('.')[:3]); \
+                                                   print(ver)" \
+                                        | awk -F'+' '{print $1}')
 fi
 
-sphinx-build -b html source build/html/$NUMBA_CUDA_MLIR_VER
+sphinx-build -b html source build/html/$SPHINX_NUMBA_CUDA_MLIR_VER
 
 cp versions.json build/html
 echo "<meta http-equiv=\"refresh\" content=\"0; url=latest/\" />" > build/html/index.html
 
 # ensure that the latest docs is the one we built
-if [[ $LATEST_ONLY == "0" ]]; then
-    cp -r build/html/${NUMBA_CUDA_MLIR_VER} build/html/latest
-else
-    mv build/html/${NUMBA_CUDA_MLIR_VER} build/html/latest
+if [[ "${LATEST_ONLY}" == "0" ]]; then
+    cp -r build/html/${SPHINX_NUMBA_CUDA_MLIR_VER} build/html/latest
 fi
+# else: SPHINX_NUMBA_CUDA_MLIR_VER == "latest", so the build already landed in build/html/latest
 
 # ensure that the Sphinx reference uses the latest docs
 cp build/html/latest/objects.inv build/html

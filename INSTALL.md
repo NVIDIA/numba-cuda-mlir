@@ -42,9 +42,14 @@ where `<options>` can include:
 
 - `cu12`: Install CUDA toolkit dependencies matching CUDA 12 versions.
 - `cu13`: Install CUDA toolkit dependencies matching CUDA 13 versions.
-- `dev`: Includes pre-commit tools and linters.
-- `test`: Includes pytest and required plugins, and other packages used in the
-  test suite.
+
+Development and test dependencies are defined as
+[dependency groups](https://peps.python.org/pep-0735/) (requires pip >= 25.1):
+
+```shell
+pip install --group dev   # pre-commit tools and linters
+pip install --group test  # pytest and required plugins
+```
 
 Or, install with conda:
 
@@ -110,7 +115,7 @@ python3 -m venv numba-cuda-mlir-env && source numba-cuda-mlir-env/bin/activate
 
 MLIR_DIR=$PWD/llvm-modern-install/lib/cmake/mlir \
 LIBLLVM7=$PWD/llvm7-install/lib/libLLVM-7.so \
-  pip install -e '.[cu13,dev]' --config-settings editable_mode=compat
+  pip install -e '.[cu13]' --group dev --config-settings editable_mode=compat
 ```
 
 ### Option 3: Build LLVM from source
@@ -130,14 +135,15 @@ ci/build-llvm7.sh          # produces llvm7-install/
 # Then install numba-cuda-mlir as in Option 2:
 MLIR_DIR=$PWD/llvm-modern-install/lib/cmake/mlir \
 LIBLLVM7=$PWD/llvm7-install/lib/libLLVM-7.so \
-  pip install -e '.[cu13,dev]' --config-settings editable_mode=compat
+  pip install -e '.[cu13]' --group dev --config-settings editable_mode=compat
 ```
 
 ## Testing
 
 The Numba-CUDA-MLIR testsuite is in the `tests` directory. Use `pytest` from
-the project's root directory to run tests. `pytest-xdist` is installed with the
-`test` dependencies, so they may be run in parallel with:
+the project's root directory to run tests. Install the `test` dependency group
+first (`pip install --group test`), which includes `pytest-xdist` for parallel
+execution:
 
 ```
 pytest -n 4

@@ -28,3 +28,4 @@ User guide
    cuda_ffi.rst
    cuda_compilation.rst
    callconv.rst
+   profiling.rst

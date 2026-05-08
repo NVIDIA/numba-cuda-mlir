@@ -8,10 +8,10 @@ CUDA Kernel API
 Kernel declaration
 ------------------
 
-The ``@cuda.jit`` decorator is used to create a CUDA dispatcher object that can
-be configured and launched:
+The ``@cuda.jit`` decorator is used to create a dispatcher object that can be
+configured and launched:
 
-.. autofunction:: numba.cuda.jit
+.. autofunction:: numba_cuda_mlir.cuda.jit
 
 
 Dispatcher objects

@@ -5,11 +5,11 @@
 Compilation API
 ===============
 
-Numba provides an entry point for compiling a Python function without invoking
-any of the driver API. This can be useful for:
+Numba CUDA MLIR provides an entry point for compiling a Python function without
+invoking any of the driver API. This can be useful for:
 
 - Generating PTX that is to be inlined into other PTX code (e.g. from outside
-  the Numba / Python ecosystem).
+  the Numba CUDA MLIR / Python ecosystem).
 - Generating PTX or LTO-IR to link with objects from non-Python translation
   units.
 - Generating code when there is no device present.
@@ -20,9 +20,9 @@ any of the driver API. This can be useful for:
    argument can provide a solution to most issues that may arise - see
    :ref:`cuda-using-the-c-abi`.
 
-.. autofunction:: numba.cuda.compile
+.. autofunction:: numba_cuda_mlir.cuda.compile
 
-.. autofunction:: numba.cuda.compile_all
+.. autofunction:: numba_cuda_mlir.cuda.compile_all
 
 
 The environment variable ``NUMBA_CUDA_DEFAULT_PTX_CC`` can be set to control
@@ -31,12 +31,12 @@ the default compute capability targeted by ``compile`` - see
 current device is required, the ``compile_for_current_device`` function can
 be used:
 
-.. autofunction:: numba.cuda.compile_for_current_device
+.. autofunction:: numba_cuda_mlir.cuda.compile_for_current_device
 
 
-Numba also provides two functions that may be used in legacy code that
-specifically compile to PTX only:
+Numba CUDA MLIR also provides two functions that may be used in legacy code
+that specifically compile to PTX only:
 
-.. autofunction:: numba.cuda.compile_ptx
+.. autofunction:: numba_cuda_mlir.cuda.compile_ptx
 
-.. autofunction:: numba.cuda.compile_ptx_for_current_device
+.. autofunction:: numba_cuda_mlir.cuda.compile_ptx_for_current_device

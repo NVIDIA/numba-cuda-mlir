@@ -11,7 +11,7 @@ Reference documentation
    kernel.rst
    cache_hints.rst
    types.rst
-   memory.rst
    libdevice.rst
    envvars.rst
    host.rst
+   memory.rst

@@ -2,8 +2,8 @@
    SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
    SPDX-License-Identifier: BSD-2-Clause
 
-Memory Management
-=================
+Memory Management (Deprecated)
+==============================
 
 .. warning:: The Memory API functions are not recommended for use in new code,
    and are provided for backwards compatibility with code written for

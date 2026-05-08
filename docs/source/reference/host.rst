@@ -2,11 +2,21 @@
    SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
    SPDX-License-Identifier: BSD-2-Clause
 
-CUDA Host API
-=============
+CUDA Host API (Deprecated)
+==========================
+
+.. warning:: The host API functions are not recommended for use in new code,
+   and are provided for backwards compatibility with code written for
+   Numba-CUDA. It is recommended that the `cuda.core
+   <https://nvidia.github.io/cuda-python/cuda-core/latest/>`_ equivalents are
+   used for new code.
 
 Device Management
 -----------------
+
+.. note:: See `Devices and execution
+   <https://nvidia.github.io/cuda-python/cuda-core/latest/api.html#devices-and-execution>`_
+   in the cuda.core documentation for recommended replacement APIs.
 
 Device detection and enquiry
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -130,6 +140,10 @@ profiling, see the `NVidia Profiler User's Guide
 Events
 ~~~~~~
 
+.. note:: See the `Event class
+   <https://nvidia.github.io/cuda-python/cuda-core/latest/generated/cuda.core.Event.html>`_
+   in the cuda.core documentation for recommended replacement APIs.
+
 Events can be used to monitor the progress of execution and to record the
 timestamps of specific points being reached. Event creation returns immediately,
 and the created event can be queried to determine if it has been reached. For
@@ -152,6 +166,10 @@ Events are instances of the :class:`numba.cuda.cudadrv.driver.Event` class:
 
 Stream Management
 -----------------
+
+.. note:: See the `Stream class
+   <https://nvidia.github.io/cuda-python/cuda-core/latest/generated/cuda.core.Stream.html>`_
+   in the cuda.core documentation for recommended replacement APIs.
 
 Streams allow concurrency of execution on a single device within a given
 context. Queued work items in the same stream execute sequentially, but work

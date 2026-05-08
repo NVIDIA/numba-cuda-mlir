@@ -7,13 +7,21 @@
 Profiling
 =========
 
-The NVidia Visual Profiler can be used directly on executing CUDA Python code -
-it is not a requirement to insert calls to these functions into user code.
-However, these functions can be used to allow profiling to be performed
-selectively on specific portions of the code. For further information on
-profiling, see the `NVidia Profiler User's Guide
-<https://docs.nvidia.com/cuda/profiler-users-guide/>`_.
+`NSight Compute <https://developer.nvidia.com/nsight-compute>`_ can be used to
+profile Python kernels. The workflow is similar to working with a CUDA C++
+application. To use NSight Compute with kernels in a Python application,
+configure the target platform as follows:
 
-.. autofunction:: numba.cuda.profile_start
-.. autofunction:: numba.cuda.profile_stop
-.. autofunction:: numba.cuda.profiling
+- **Application Executable** should be the Python interpreter in the environment
+  used to run the application.
+- **Working directory** is usually the directory containing the Python file to
+  run.
+- **Command Line Arguments** should be the name of the Python file to run, plus
+  any other arguments that would normally be given at the command line.
+
+Once the target is configured, NSight Compute can be used as normal. The same
+metrics will be collected as for a CUDA C++ application, including correlation
+with the Python kernel source lines. For example:
+
+.. image:: ../_static/lineinfo.png
+   :alt: A screenshot of NSight Compute showing metrics for Python source lines.

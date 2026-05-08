@@ -976,7 +976,7 @@ def float2int_rd(in_: float32) -> int32:
     """
     See https://docs.nvidia.com/cuda/libdevice-users-guide/__nv_float2int_rd.html
 
-    CAPI: int32 __nv_float2int_rd(float32 in_);
+    CAPI: int32 __nv_float2int_rd(float32 in);
     """
 
 
@@ -984,7 +984,7 @@ def float2int_rn(in_: float32) -> int32:
     """
     See https://docs.nvidia.com/cuda/libdevice-users-guide/__nv_float2int_rn.html
 
-    CAPI: int32 __nv_float2int_rn(float32 in_);
+    CAPI: int32 __nv_float2int_rn(float32 in);
     """
 
 
@@ -992,7 +992,7 @@ def float2int_ru(in_: float32) -> int32:
     """
     See https://docs.nvidia.com/cuda/libdevice-users-guide/__nv_float2int_ru.html
 
-    CAPI: int32 __nv_float2int_ru(float32 in_);
+    CAPI: int32 __nv_float2int_ru(float32 in);
     """
 
 
@@ -1000,7 +1000,7 @@ def float2int_rz(in_: float32) -> int32:
     """
     See https://docs.nvidia.com/cuda/libdevice-users-guide/__nv_float2int_rz.html
 
-    CAPI: int32 __nv_float2int_rz(float32 in_);
+    CAPI: int32 __nv_float2int_rz(float32 in);
     """
 
 
@@ -1040,7 +1040,7 @@ def float2uint_rd(in_: float32) -> int32:
     """
     See https://docs.nvidia.com/cuda/libdevice-users-guide/__nv_float2uint_rd.html
 
-    CAPI: int32 __nv_float2uint_rd(float32 in_);
+    CAPI: int32 __nv_float2uint_rd(float32 in);
     """
 
 
@@ -1048,7 +1048,7 @@ def float2uint_rn(in_: float32) -> int32:
     """
     See https://docs.nvidia.com/cuda/libdevice-users-guide/__nv_float2uint_rn.html
 
-    CAPI: int32 __nv_float2uint_rn(float32 in_);
+    CAPI: int32 __nv_float2uint_rn(float32 in);
     """
 
 
@@ -1056,7 +1056,7 @@ def float2uint_ru(in_: float32) -> int32:
     """
     See https://docs.nvidia.com/cuda/libdevice-users-guide/__nv_float2uint_ru.html
 
-    CAPI: int32 __nv_float2uint_ru(float32 in_);
+    CAPI: int32 __nv_float2uint_ru(float32 in);
     """
 
 
@@ -1064,7 +1064,7 @@ def float2uint_rz(in_: float32) -> int32:
     """
     See https://docs.nvidia.com/cuda/libdevice-users-guide/__nv_float2uint_rz.html
 
-    CAPI: int32 __nv_float2uint_rz(float32 in_);
+    CAPI: int32 __nv_float2uint_rz(float32 in);
     """
 
 
@@ -1472,7 +1472,7 @@ def int2float_rd(in_: int32) -> float32:
     """
     See https://docs.nvidia.com/cuda/libdevice-users-guide/__nv_int2float_rd.html
 
-    CAPI: float32 __nv_int2float_rd(int32 in_);
+    CAPI: float32 __nv_int2float_rd(int32 in);
     """
 
 
@@ -1480,7 +1480,7 @@ def int2float_rn(in_: int32) -> float32:
     """
     See https://docs.nvidia.com/cuda/libdevice-users-guide/__nv_int2float_rn.html
 
-    CAPI: float32 __nv_int2float_rn(int32 in_);
+    CAPI: float32 __nv_int2float_rn(int32 in);
     """
 
 
@@ -1488,7 +1488,7 @@ def int2float_ru(in_: int32) -> float32:
     """
     See https://docs.nvidia.com/cuda/libdevice-users-guide/__nv_int2float_ru.html
 
-    CAPI: float32 __nv_int2float_ru(int32 in_);
+    CAPI: float32 __nv_int2float_ru(int32 in);
     """
 
 
@@ -1496,7 +1496,7 @@ def int2float_rz(in_: int32) -> float32:
     """
     See https://docs.nvidia.com/cuda/libdevice-users-guide/__nv_int2float_rz.html
 
-    CAPI: float32 __nv_int2float_rz(int32 in_);
+    CAPI: float32 __nv_int2float_rz(int32 in);
     """
 
 
@@ -2336,7 +2336,7 @@ def uint2float_rd(in_: int32) -> float32:
     """
     See https://docs.nvidia.com/cuda/libdevice-users-guide/__nv_uint2float_rd.html
 
-    CAPI: float32 __nv_uint2float_rd(int32 in_);
+    CAPI: float32 __nv_uint2float_rd(int32 in);
     """
 
 
@@ -2344,7 +2344,7 @@ def uint2float_rn(in_: int32) -> float32:
     """
     See https://docs.nvidia.com/cuda/libdevice-users-guide/__nv_uint2float_rn.html
 
-    CAPI: float32 __nv_uint2float_rn(int32 in_);
+    CAPI: float32 __nv_uint2float_rn(int32 in);
     """
 
 
@@ -2352,7 +2352,7 @@ def uint2float_ru(in_: int32) -> float32:
     """
     See https://docs.nvidia.com/cuda/libdevice-users-guide/__nv_uint2float_ru.html
 
-    CAPI: float32 __nv_uint2float_ru(int32 in_);
+    CAPI: float32 __nv_uint2float_ru(int32 in);
     """
 
 
@@ -2360,7 +2360,7 @@ def uint2float_rz(in_: int32) -> float32:
     """
     See https://docs.nvidia.com/cuda/libdevice-users-guide/__nv_uint2float_rz.html
 
-    CAPI: float32 __nv_uint2float_rz(int32 in_);
+    CAPI: float32 __nv_uint2float_rz(int32 in);
     """
 
 

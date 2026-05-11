@@ -19,14 +19,22 @@ from numba_cuda_mlir.numba_cuda.extending import (
 )
 
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
+from numba_cuda_mlir.extending.argument_handler import ArgumentHandler
 
 lowering_registry = LoweringRegistry()
 typing_registry = Registry()
 lower_cast = lowering_registry.lower_cast
 
 __all__ = [
-    "lowering_registry",
+    "ArgumentHandler",
+    "intrinsic",
     "lower_cast",
+    "lowering_registry",
+    "overload",
+    "overload_attribute",
+    "overload_method",
+    "register_jitable",
+    "type_callable",
     "typing_registry",
 ]
 
@@ -74,6 +82,28 @@ def overload(
     typing_registry=None,
     **kwargs,
 ):
+    """Register an implementation for ``func``.
+
+    The decorated function is a *typer*: it is called at compile time with the
+    Numba types of the arguments and must return a Python function (the
+    implementation), or ``None`` to decline the overload. The implementation
+    is compiled by Numba-CUDA-MLIR's MLIR pipeline.
+
+    Parameters
+    ----------
+    func
+        The Python callable being overloaded.
+    jit_options : Mapping
+        Options forwarded to ``cuda.jit`` when compiling the implementation.
+    strict : bool
+        If ``True``, raise when the implementation cannot be compiled. If
+        ``False``, the failure is silenced (used by :func:`register_jitable`).
+    inline : str
+        Inlining policy: ``"never"``, ``"always"``, or a cost-model callable.
+    prefer_literal : bool
+        If ``True``, prefer literal-typed arguments when resolving the
+        overload.
+    """
     selected_typing_registry = _require_typing_registry("overload", typing_registry)
     jit_options = dict(jit_options)
     opts = _overload_default_jit_options.copy()
@@ -156,6 +186,21 @@ class _NumbaCudaMlirOverloadMethodTemplate(_OverloadMethodTemplate):
 
 
 def overload_attribute(typ, attr, typing_registry=None, lowering_registry=None, **kwargs):
+    """Register an implementation for a read-only attribute on a Numba type.
+
+    The decorated function is a typer with the same contract as
+    :func:`overload`. Its only parameter is the receiver, and the returned
+    implementation is a function of the receiver that produces the attribute
+    value.
+
+    Parameters
+    ----------
+    typ
+        The Numba type on which the attribute is being defined.
+    attr : str
+        The name of the attribute being defined.
+    """
+
     selected_typing_registry = _require_typing_registry("overload_attribute", typing_registry)
     selected_lowering_registry = _require_lowering_registry("overload_attribute", lowering_registry)
 
@@ -176,6 +221,20 @@ def overload_attribute(typ, attr, typing_registry=None, lowering_registry=None, 
 
 
 def overload_method(typ, attr, typing_registry=None, **kwargs):
+    """Register an implementation for a method on a Numba type.
+
+    The decorated function is a typer with the same contract as
+    :func:`overload`. Its first parameter is the receiver (``self``); any
+    additional parameters become method arguments.
+
+    Parameters
+    ----------
+    typ
+        The Numba type on which the method is being defined.
+    attr : str
+        The name of the method being defined.
+    """
+
     selected_typing_registry = _require_typing_registry("overload_method", typing_registry)
 
     def decorate(overload_func):
@@ -197,6 +256,25 @@ def overload_method(typ, attr, typing_registry=None, **kwargs):
 
 
 def register_jitable(*args, typing_registry=None, **kwargs):
+    """Mark a plain Python function as compilable from device code.
+
+    The function is registered as a non-strict overload of itself, so calls
+    to it from inside a kernel or device function dispatch to the original
+    Python source compiled by Numba-CUDA-MLIR. ``@register_jitable`` functions
+    may call other ``@register_jitable`` functions, ``@cuda.jit`` device
+    functions, and any built-in or overloaded operation the compiler
+    understands.
+
+    May be used with or without parentheses::
+
+        @register_jitable
+        def f(x): ...
+
+
+        @register_jitable(inline="always")
+        def g(x): ...
+    """
+
     selected_typing_registry = _require_typing_registry("register_jitable", typing_registry)
 
     def wrap(fn):

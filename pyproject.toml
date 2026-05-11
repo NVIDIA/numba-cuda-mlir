@@ -25,7 +25,7 @@ dependencies = [
     "llvmlite",
     "typeguard",
     "cuda-bindings>=12.9.1,<14.0.0",
-    "cuda-core>=0.5.1,<1.0.0",
+    "cuda-core>=0.5.1,<2.0.0",
 ]
 
 [project.optional-dependencies]

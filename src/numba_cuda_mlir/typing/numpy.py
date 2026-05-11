@@ -15,6 +15,8 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
 from numba_cuda_mlir import types
 from numba_cuda_mlir.numba_cuda.typing import npydecl
 from numba_cuda_mlir.numba_cuda.np.unsafe.ndarray import to_fixed_tuple
+from numba_cuda_mlir.cuda.vector_types import VectorTypeStub
+from numba_cuda_mlir.typing.cuda_vector_types import get_vector_type_for_stub
 
 registry = npydecl.registry
 
@@ -990,8 +992,24 @@ class NumpyArrayViewMethodTemplate(AbstractTemplate):
         if len(args) == 1:
             arr = self.this
             dtype = args[0]
+
+            parsed_dtype = npydecl.parse_dtype(dtype)
+            if parsed_dtype is None:
+                if isinstance(dtype, types.Function):
+                    if isinstance(dtype.typing_key, type) and issubclass(
+                        dtype.typing_key, VectorTypeStub
+                    ):
+                        parsed_dtype = get_vector_type_for_stub(dtype.typing_key)
+            if parsed_dtype is None:
+                if hasattr(dtype, "dtype") and isinstance(dtype.dtype, types.Type):
+                    parsed_dtype = dtype.dtype
+                elif isinstance(dtype, types.Type):
+                    parsed_dtype = dtype
+                else:
+                    return None
+            retty = arr.copy(dtype=parsed_dtype)
             # Return array with potentially different dtype
-            return signature(arr, dtype, recvr=self.this)
+            return signature(retty, dtype, recvr=self.this)
         return None
 
 

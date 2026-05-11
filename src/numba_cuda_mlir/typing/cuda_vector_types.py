@@ -28,6 +28,7 @@ BASE_TYPE_MAP = {
     "uint16": types.uint16,
     "uint32": types.uint32,
     "uint64": types.uint64,
+    "float16": types.float16,
     "float32": types.float32,
     "float64": types.float64,
 }

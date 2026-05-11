@@ -284,6 +284,10 @@ def test_cuda_vector_closure_capture():
 @pytest.mark.parametrize(
     "vec_type,num_elements,dtype",
     [
+        (cuda.float16x1, 1, np.float16),
+        (cuda.float16x2, 2, np.float16),
+        (cuda.float16x3, 3, np.float16),
+        (cuda.float16x4, 4, np.float16),
         (cuda.float32x1, 1, np.float32),
         (cuda.float32x2, 2, np.float32),
         (cuda.float32x3, 3, np.float32),

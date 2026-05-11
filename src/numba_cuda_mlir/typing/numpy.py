@@ -990,8 +990,12 @@ class NumpyArrayViewMethodTemplate(AbstractTemplate):
         if len(args) == 1:
             arr = self.this
             dtype = args[0]
-            # Return array with potentially different dtype
-            return signature(arr, dtype, recvr=self.this)
+            element_type = (
+                dtype.dtype if isinstance(dtype, (types.DTypeSpec, types.NumberClass)) else dtype
+            )
+            restype = types.Array(dtype=element_type, ndim=arr.ndim, layout=arr.layout)
+            return signature(restype, dtype, recvr=self.this)
+
         return None
 
 

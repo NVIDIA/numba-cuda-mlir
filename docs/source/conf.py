@@ -61,5 +61,5 @@ html_theme_options = {
 # Add warning to docs built from main
 if int(os.environ.get("BUILD_LATEST", 0)):
     html_theme_options["announcement"] = (
-        "Warning: This documentation is built from the development branch\!"
+        "Warning: This documentation is built from the development branch!"
     )

@@ -106,9 +106,7 @@ build_llvm7() {
     -DLLVM_INCLUDE_DOCS=OFF \
     -DLLVM_ENABLE_TERMINFO=OFF \
     -DLLVM_ENABLE_ZLIB=OFF \
-    -DLLVM_ENABLE_ZSTD=OFF \
-    -DCMAKE_C_FLAGS="/FS" \
-    -DCMAKE_CXX_FLAGS="/FS"
+    -DLLVM_ENABLE_ZSTD=OFF
   cmake --build "$(cmake_path "${LLVM7_BUILD}")" --target install -j "${PARALLEL}"
 }
 
@@ -143,10 +141,9 @@ build_modern_llvm() {
     -DLLVM_INCLUDE_DOCS=OFF \
     -DLLVM_ENABLE_ZLIB=OFF \
     -DLLVM_ENABLE_ZSTD=OFF \
-    -DLLVM_ENABLE_PDB=ON \
+    -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded \
     -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
-    -DCMAKE_C_FLAGS="/FS" \
-    -DCMAKE_CXX_FLAGS="/FS -DMLIR_PYTHON_PACKAGE_PREFIX=numba_cuda_mlir._mlir." \
+    -DCMAKE_CXX_FLAGS="-DMLIR_PYTHON_PACKAGE_PREFIX=numba_cuda_mlir._mlir." \
     -DMLIR_BINDINGS_PYTHON_INSTALL_PREFIX="python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir" \
     -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=numba_cuda_mlir \
     -DPython3_EXECUTABLE="$("${PYTHON}" -c 'import sys; print(sys.executable)')"

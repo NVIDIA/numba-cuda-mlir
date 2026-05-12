@@ -1756,6 +1756,18 @@ llvm::Error MLIRToLLVM70::translateBarrierOp(Operation *op) {
   return llvm::Error::success();
 }
 
+llvm::Error MLIRToLLVM70::translateBarrier0Op(Operation *op) {
+  // NVVM::Barrier0Op takes no operands and is equivalent to bar.sync 0.
+  // Lower it to the LLVM 7 intrinsic llvm.nvvm.barrier0() : void.
+  const char *intrName = "llvm.nvvm.barrier0";
+  LLVMTypeRef fnTy = b.funcTy(b.voidTy(), nullptr, 0, false);
+  LLVMValueRef fn = b.getNamedFunction(intrName);
+  if (!fn)
+    fn = b.addFunction(intrName, fnTy);
+  b.buildCall(fn, nullptr, 0, "");
+  return llvm::Error::success();
+}
+
 llvm::Error MLIRToLLVM70::translateCttzCtlzOp(Operation *op,
                                               llvm::StringRef intrBase,
                                               Value in, Value res,
@@ -2412,6 +2424,8 @@ llvm::Error MLIRToLLVM70::translateNVVMOp(Operation *op) {
           [&](auto) { return this->translateClusterWaitOp(op); })
       .Case<NVVM::BarrierOp>(
           [&](auto) { return this->translateBarrierOp(op); })
+      .Case<NVVM::Barrier0Op>(
+          [&](auto) { return this->translateBarrier0Op(op); })
       .Case<NVVM::Breakpoint>([&](auto) {
         LLVMTypeRef fnTy = b.funcTy(b.voidTy(), nullptr, 0, false);
         LLVMValueRef asmVal =

@@ -9,7 +9,6 @@ vector types. They map to numba_cuda_mlir's VectorType internally.
 
 import itertools
 import numpy as np
-from collections import defaultdict
 
 from numba_cuda_mlir.type_defs.vector_types import VectorType
 from numba_cuda_mlir import types
@@ -31,7 +30,7 @@ BASE_TYPE_MAP = {
 
 def make_vector_types():
     """Create instances for all CUDA vector types."""
-    vector_types = []
+    vector_types_by_name = {}
     vector_type_prefix = (
         "int8",
         "int16",
@@ -50,16 +49,12 @@ def make_vector_types():
     for prefix, nelem in itertools.product(vector_type_prefix, vector_type_element_counts):
         base_type = BASE_TYPE_MAP[prefix]
         vec_type = VectorType(base_type, nelem)
-        vec_type._base_type_name = prefix  # Keep for alias mapping
-        vec_type._num_elements = nelem
-        vec_type.__name__ = f"{prefix}x{nelem}"
-        vec_type.aliases = []
-        vector_types.append(vec_type)
+        vector_types_by_name[vec_type.name] = vec_type
 
-    return vector_types
+    return vector_types_by_name
 
 
-def map_vector_types_to_alias(vector_types):
+def make_vector_type_aliases(vector_types_by_name):
     """Create C-compatible aliases for vector types (e.g., float4 -> float32x4)."""
     base_type_to_alias = {
         "char": f"int{np.dtype(np.byte).itemsize * 8}",
@@ -77,33 +72,29 @@ def map_vector_types_to_alias(vector_types):
         "double": f"float{np.dtype(np.double).itemsize * 8}",
     }
 
-    base_type_to_vector_type = defaultdict(list)
-    for vec_type in vector_types:
-        base_type_to_vector_type[vec_type._base_type_name].append(vec_type)
+    vector_types_by_alias = {}
+    for alias_prefix, base_type_prefix in base_type_to_alias.items():
+        for nelem in (1, 2, 3, 4):
+            alias_name = f"{alias_prefix}{nelem}"
+            target_name = f"{base_type_prefix}x{nelem}"
+            if target_name in vector_types_by_name:
+                vector_types_by_alias[alias_name] = vector_types_by_name[target_name]
 
-    for alias, base_type in base_type_to_alias.items():
-        types_for_base = base_type_to_vector_type[base_type]
-        for vec_type in types_for_base:
-            nelem = vec_type._num_elements
-            vec_type.aliases.append(f"{alias}{nelem}")
+    return vector_types_by_alias
 
-
-# Create all vector types
-_vector_types = make_vector_types()
-map_vector_types_to_alias(_vector_types)
 
 # Build lookup dictionaries
-vector_types_by_name = {vec_type.__name__: vec_type for vec_type in _vector_types}
-vector_types_by_alias = {}
-for vec_type in _vector_types:
-    for alias in vec_type.aliases:
-        vector_types_by_alias[alias] = vec_type
+vector_types_by_name = make_vector_types()
+vector_types_by_alias = make_vector_type_aliases(vector_types_by_name)
+
+# List of all unique vector types
+_vector_types = list(vector_types_by_name.values())
 
 # Export all types as module-level attributes
-for vec_type in _vector_types:
-    globals()[vec_type.__name__] = vec_type
-    for alias in vec_type.aliases:
-        globals()[alias] = vec_type
+for name, vec_type in vector_types_by_name.items():
+    globals()[name] = vec_type
+for alias, vec_type in vector_types_by_alias.items():
+    globals()[alias] = vec_type
 
 # List of all exported names
 __all__ = list(vector_types_by_name.keys()) + list(vector_types_by_alias.keys())

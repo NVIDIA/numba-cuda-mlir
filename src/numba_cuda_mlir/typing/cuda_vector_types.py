@@ -42,9 +42,11 @@ class VectorTypeClass(Callable, DTypeSpec):
         return self._template(context).apply(args, kws)
 
     def get_call_signatures(self):
-        return (), True
+        sigs = getattr(self._template, "cases", [])
+        is_param = hasattr(self._template, "generic")
+        return sigs, is_param
 
-    def get_impl_key(self):
+    def get_impl_key(self, sig):
         return self.typing_key
 
 
@@ -108,7 +110,7 @@ def make_constructor_template(vec_type):
 
             return None
 
-    ConstructorTemplate.__name__ = f"{vec_type.__name__}ConstructorTemplate"
+    ConstructorTemplate.__name__ = f"{vec_type.name}ConstructorTemplate"
     _constructor_template_cache[vec_type] = ConstructorTemplate
     return ConstructorTemplate
 

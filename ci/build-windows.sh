@@ -62,9 +62,7 @@ check_prereqs() {
   require_tool ninja
   require_tool git
   require_tool cl
-  require_tool sccache
   "${PYTHON}" -c "import sys; print(sys.executable)"
-  sccache --version
 }
 
 clone_llvm7() {
@@ -85,8 +83,6 @@ PY
 
 build_llvm7() {
   mkdir -p "${LLVM7_BUILD}" "${LLVM7_INSTALL}"
-  export CMAKE_C_COMPILER_LAUNCHER=sccache
-  export CMAKE_CXX_COMPILER_LAUNCHER=sccache
   cmake -G Ninja \
     -S "$(cmake_path "${LLVM7_SRC}/llvm")" \
     -B "$(cmake_path "${LLVM7_BUILD}")" \
@@ -121,8 +117,6 @@ clone_modern_llvm() {
 
 build_modern_llvm() {
   mkdir -p "${LLVM_MODERN_BUILD}" "${LLVM_MODERN_INSTALL}"
-  export CMAKE_C_COMPILER_LAUNCHER=sccache
-  export CMAKE_CXX_COMPILER_LAUNCHER=sccache
   cmake -G Ninja \
     -S "$(cmake_path "${LLVM_MODERN_SRC}/llvm")" \
     -B "$(cmake_path "${LLVM_MODERN_BUILD}")" \
@@ -163,5 +157,4 @@ if [[ "${MODE}" == "all" || "${MODE}" == "modern" ]]; then
   step "Build modern LLVM+MLIR static install" build_modern_llvm
 fi
 
-echo "[$(timestamp)] === sccache stats ==="
-sccache --show-stats
+echo "[$(timestamp)] === Build complete ==="

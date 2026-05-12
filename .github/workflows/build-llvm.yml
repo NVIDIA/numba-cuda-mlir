@@ -163,20 +163,6 @@ jobs:
           python -m pip install pybind11 nanobind numpy ninja cmake awscli "typing-extensions; python_version < '3.12'"
           chmod +x ci/*.sh
 
-      - name: Install sccache
-        if: steps.gha-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -fsSL https://github.com/mozilla/sccache/releases/download/v0.10.0/sccache-v0.10.0-x86_64-pc-windows-msvc.tar.gz -o sccache.tar.gz
-          mkdir -p sccache-bin
-          tar -xzf sccache.tar.gz -C sccache-bin --strip-components=1
-          echo "$(pwd)/sccache-bin" >> "$GITHUB_PATH"
-          export PATH="$(pwd)/sccache-bin:$PATH"
-          sccache --version
-
-      - name: Set up sccache S3 credentials
-        if: steps.gha-cache.outputs.cache-hit != 'true'
-        run: ci/setup-sccache.sh
-
       - name: Build modern LLVM with MLIR
         if: steps.gha-cache.outputs.cache-hit != 'true'
         env:
@@ -314,20 +300,6 @@ jobs:
         run: |
           python -m pip install ninja cmake awscli
           chmod +x ci/*.sh
-
-      - name: Install sccache
-        if: steps.gha-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -fsSL https://github.com/mozilla/sccache/releases/download/v0.10.0/sccache-v0.10.0-x86_64-pc-windows-msvc.tar.gz -o sccache.tar.gz
-          mkdir -p sccache-bin
-          tar -xzf sccache.tar.gz -C sccache-bin --strip-components=1
-          echo "$(pwd)/sccache-bin" >> "$GITHUB_PATH"
-          export PATH="$(pwd)/sccache-bin:$PATH"
-          sccache --version
-
-      - name: Set up sccache S3 credentials
-        if: steps.gha-cache.outputs.cache-hit != 'true'
-        run: ci/setup-sccache.sh
 
       - name: Build LLVM 7
         if: steps.gha-cache.outputs.cache-hit != 'true'

@@ -1,0 +1,2483 @@
+
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="./" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Index &#8212; Numba CUDA MLIR</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=55c26ed414f5f8a31ebb" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=55c26ed414f5f8a31ebb" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/nvidia-sphinx-theme.css?v=933278ad" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="_static/scripts/fontawesome.js?digest=55c26ed414f5f8a31ebb"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=55c26ed414f5f8a31ebb" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=55c26ed414f5f8a31ebb" />
+
+
+
+    <script src="_static/documentation_options.js?v=e259d695"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'genindex';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.17.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://nvidia.github.io/numba-cuda-mlir/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.3.0';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+
+    <link rel="icon" href="_static/numba-green-icon-rgb.svg"/>
+
+    <link rel="index" title="Index" href="#" />
+    <link rel="search" title="Search" href="search.html" />
+
+
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="_static/searchtools.js"></script>
+    <script src="_static/language_data.js"></script>
+    <script src="searchindex.js"></script>
+  
+
+
+  </head>
+
+  <body data-default-mode="">
+
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="_static/nvidia-logo-horiz-rgb-blk-for-screen.svg" class="logo__image only-light" alt="Numba CUDA MLIR - Home"/>
+    <img src="_static/nvidia-logo-horiz-rgb-wht-for-screen.svg" class="logo__image only-dark pst-js-only" alt="Numba CUDA MLIR - Home"/>
+  
+  
+    <p class="title logo__title">Numba CUDA MLIR</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+
+
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="user/index.html">
+    User guide
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="reference/index.html">
+    Reference documentation
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="_static/nvidia-logo-horiz-rgb-blk-for-screen.svg" class="logo__image only-light" alt="Numba CUDA MLIR - Home"/>
+    <img src="_static/nvidia-logo-horiz-rgb-wht-for-screen.svg" class="logo__image only-dark pst-js-only" alt="Numba CUDA MLIR - Home"/>
+  
+  
+    <p class="title logo__title">Numba CUDA MLIR</p>
+  
+</a>
+
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+
+
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+          
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="user/index.html">
+    User guide
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="reference/index.html">
+    Reference documentation
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+
+
+<nav class="bd-docs-nav bd-links"
+     aria-label="Table of Contents">
+  <p class="bd-links__title" role="heading" aria-level="1">Table of Contents</p>
+  <div class="bd-toc-item navbar-nav"><ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="user/index.html">User guide</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="user/installation.html">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/kernels.html">Writing CUDA Kernels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/memory.html">Memory management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/globals.html">Global Variables and Captured Values</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/cudapysupported.html">Supported Python features in CUDA Python</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/fastmath.html">CUDA Fast Math</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/intrinsics.html">Supported Atomic Operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/cooperative_groups.html">Cooperative Groups</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/random.html">Random Number Generation (Deprecated)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/device-management.html">Device management</a></li>
+
+
+<li class="toctree-l2"><a class="reference internal" href="user/examples.html">Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/debugging.html">Debugging Numba CUDA Programs with Visual Studio Code and CUDA GDB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/reduction.html">GPU Reduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/ufunc.html">CUDA Ufuncs and Generalized Ufuncs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/ipc.html">IPC Support (Deprecated)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/cuda_ffi.html">Calling foreign functions from Python kernels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/cuda_compilation.html">Compiling Python functions for use with other languages</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/callconv.html">CUDA device call conventions</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="reference/index.html">Reference documentation</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="reference/host.html">CUDA Host API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reference/kernel.html">CUDA Kernel API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reference/cache_hints.html">Cache Hints for Memory Operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reference/types.html">CUDA-Specific Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reference/memory.html">Memory Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reference/libdevice.html">Libdevice functions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reference/envvars.html">Environment Variables</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none"></div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+
+<h1 id="index">Index</h1>
+
+<div class="genindex-jumpbox">
+ <a href="#B"><strong>B</strong></a>
+ | <a href="#C"><strong>C</strong></a>
+ | <a href="#E"><strong>E</strong></a>
+ | <a href="#G"><strong>G</strong></a>
+ | <a href="#I"><strong>I</strong></a>
+ | <a href="#L"><strong>L</strong></a>
+ | <a href="#N"><strong>N</strong></a>
+ | <a href="#R"><strong>R</strong></a>
+ | <a href="#S"><strong>S</strong></a>
+ | <a href="#T"><strong>T</strong></a>
+ | <a href="#U"><strong>U</strong></a>
+ | <a href="#W"><strong>W</strong></a>
+ 
+</div>
+<h2 id="B">B</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference/kernel.html#numba.cuda.blockDim">blockDim (numba.cuda attribute)</a>
+</li>
+      <li><a href="reference/kernel.html#numba.cuda.blockIdx">blockIdx (numba.cuda attribute)</a>
+</li>
+      <li>
+    built-in function
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.activemask">numba.cuda.activemask()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.all_sync">numba.cuda.all_sync()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.any_sync">numba.cuda.any_sync()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.add">numba.cuda.atomic.add()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.and_">numba.cuda.atomic.and_()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.cas">numba.cuda.atomic.cas()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.dec">numba.cuda.atomic.dec()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.exch">numba.cuda.atomic.exch()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.inc">numba.cuda.atomic.inc()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.max">numba.cuda.atomic.max()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.or_">numba.cuda.atomic.or_()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.sub">numba.cuda.atomic.sub()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.xor">numba.cuda.atomic.xor()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.ballot_sync">numba.cuda.ballot_sync()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_as_int16">numba.cuda.bf16.bfloat16_as_int16()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_as_uint16">numba.cuda.bf16.bfloat16_as_uint16()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_float32">numba.cuda.bf16.bfloat16_to_float32()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int16_rd">numba.cuda.bf16.bfloat16_to_int16_rd()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int16_rn">numba.cuda.bf16.bfloat16_to_int16_rn()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int16_ru">numba.cuda.bf16.bfloat16_to_int16_ru()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int16_rz">numba.cuda.bf16.bfloat16_to_int16_rz()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int32_rd">numba.cuda.bf16.bfloat16_to_int32_rd()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int32_rn">numba.cuda.bf16.bfloat16_to_int32_rn()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int32_ru">numba.cuda.bf16.bfloat16_to_int32_ru()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int32_rz">numba.cuda.bf16.bfloat16_to_int32_rz()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int64_rd">numba.cuda.bf16.bfloat16_to_int64_rd()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int64_rn">numba.cuda.bf16.bfloat16_to_int64_rn()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int64_ru">numba.cuda.bf16.bfloat16_to_int64_ru()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int64_rz">numba.cuda.bf16.bfloat16_to_int64_rz()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int8_rz">numba.cuda.bf16.bfloat16_to_int8_rz()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint16_rd">numba.cuda.bf16.bfloat16_to_uint16_rd()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint16_rn">numba.cuda.bf16.bfloat16_to_uint16_rn()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint16_ru">numba.cuda.bf16.bfloat16_to_uint16_ru()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint16_rz">numba.cuda.bf16.bfloat16_to_uint16_rz()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint32_rd">numba.cuda.bf16.bfloat16_to_uint32_rd()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint32_rn">numba.cuda.bf16.bfloat16_to_uint32_rn()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint32_ru">numba.cuda.bf16.bfloat16_to_uint32_ru()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint32_rz">numba.cuda.bf16.bfloat16_to_uint32_rz()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint64_rd">numba.cuda.bf16.bfloat16_to_uint64_rd()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint64_rn">numba.cuda.bf16.bfloat16_to_uint64_rn()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint64_ru">numba.cuda.bf16.bfloat16_to_uint64_ru()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint64_rz">numba.cuda.bf16.bfloat16_to_uint64_rz()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint8_rz">numba.cuda.bf16.bfloat16_to_uint8_rz()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.float32_to_bfloat16">numba.cuda.bf16.float32_to_bfloat16()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.float32_to_bfloat16_rd">numba.cuda.bf16.float32_to_bfloat16_rd()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.float32_to_bfloat16_rn">numba.cuda.bf16.float32_to_bfloat16_rn()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.float32_to_bfloat16_ru">numba.cuda.bf16.float32_to_bfloat16_ru()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.float32_to_bfloat16_rz">numba.cuda.bf16.float32_to_bfloat16_rz()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.float64_to_bfloat16">numba.cuda.bf16.float64_to_bfloat16()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.habs">numba.cuda.bf16.habs()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hadd">numba.cuda.bf16.hadd()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hadd_rn">numba.cuda.bf16.hadd_rn()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hadd_sat">numba.cuda.bf16.hadd_sat()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hceil">numba.cuda.bf16.hceil()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hcos">numba.cuda.bf16.hcos()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hdiv">numba.cuda.bf16.hdiv()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.heq">numba.cuda.bf16.heq()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hequ">numba.cuda.bf16.hequ()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hexp">numba.cuda.bf16.hexp()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hexp10">numba.cuda.bf16.hexp10()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hexp2">numba.cuda.bf16.hexp2()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hfloor">numba.cuda.bf16.hfloor()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hfma">numba.cuda.bf16.hfma()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hfma_relu">numba.cuda.bf16.hfma_relu()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hfma_sat">numba.cuda.bf16.hfma_sat()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hge">numba.cuda.bf16.hge()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hgeu">numba.cuda.bf16.hgeu()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hgt">numba.cuda.bf16.hgt()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hgtu">numba.cuda.bf16.hgtu()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hisinf">numba.cuda.bf16.hisinf()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hisnan">numba.cuda.bf16.hisnan()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hle">numba.cuda.bf16.hle()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hleu">numba.cuda.bf16.hleu()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hlog">numba.cuda.bf16.hlog()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hlog10">numba.cuda.bf16.hlog10()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hlog2">numba.cuda.bf16.hlog2()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hlt">numba.cuda.bf16.hlt()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hltu">numba.cuda.bf16.hltu()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hmax">numba.cuda.bf16.hmax()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hmax_nan">numba.cuda.bf16.hmax_nan()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hmin">numba.cuda.bf16.hmin()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hmin_nan">numba.cuda.bf16.hmin_nan()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hmul">numba.cuda.bf16.hmul()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hmul_rn">numba.cuda.bf16.hmul_rn()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hmul_sat">numba.cuda.bf16.hmul_sat()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hne">numba.cuda.bf16.hne()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hneg">numba.cuda.bf16.hneg()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hneu">numba.cuda.bf16.hneu()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hrcp">numba.cuda.bf16.hrcp()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hrint">numba.cuda.bf16.hrint()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hrsqrt">numba.cuda.bf16.hrsqrt()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hsin">numba.cuda.bf16.hsin()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hsqrt">numba.cuda.bf16.hsqrt()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hsub">numba.cuda.bf16.hsub()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hsub_rn">numba.cuda.bf16.hsub_rn()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.hsub_sat">numba.cuda.bf16.hsub_sat()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.htanh">numba.cuda.bf16.htanh()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.htanh_approx">numba.cuda.bf16.htanh_approx()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.htrunc">numba.cuda.bf16.htrunc()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.int16_as_bfloat16">numba.cuda.bf16.int16_as_bfloat16()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.int16_to_bfloat16_rd">numba.cuda.bf16.int16_to_bfloat16_rd()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.int16_to_bfloat16_rn">numba.cuda.bf16.int16_to_bfloat16_rn()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.int16_to_bfloat16_ru">numba.cuda.bf16.int16_to_bfloat16_ru()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.int16_to_bfloat16_rz">numba.cuda.bf16.int16_to_bfloat16_rz()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.int32_to_bfloat16_rd">numba.cuda.bf16.int32_to_bfloat16_rd()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.int32_to_bfloat16_rn">numba.cuda.bf16.int32_to_bfloat16_rn()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.int32_to_bfloat16_ru">numba.cuda.bf16.int32_to_bfloat16_ru()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.int32_to_bfloat16_rz">numba.cuda.bf16.int32_to_bfloat16_rz()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.int64_to_bfloat16_rd">numba.cuda.bf16.int64_to_bfloat16_rd()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.int64_to_bfloat16_rn">numba.cuda.bf16.int64_to_bfloat16_rn()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.int64_to_bfloat16_ru">numba.cuda.bf16.int64_to_bfloat16_ru()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.int64_to_bfloat16_rz">numba.cuda.bf16.int64_to_bfloat16_rz()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint16_as_bfloat16">numba.cuda.bf16.uint16_as_bfloat16()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint16_to_bfloat16_rd">numba.cuda.bf16.uint16_to_bfloat16_rd()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint16_to_bfloat16_rn">numba.cuda.bf16.uint16_to_bfloat16_rn()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint16_to_bfloat16_ru">numba.cuda.bf16.uint16_to_bfloat16_ru()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint16_to_bfloat16_rz">numba.cuda.bf16.uint16_to_bfloat16_rz()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint32_to_bfloat16_rd">numba.cuda.bf16.uint32_to_bfloat16_rd()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint32_to_bfloat16_rn">numba.cuda.bf16.uint32_to_bfloat16_rn()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint32_to_bfloat16_ru">numba.cuda.bf16.uint32_to_bfloat16_ru()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint32_to_bfloat16_rz">numba.cuda.bf16.uint32_to_bfloat16_rz()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint64_to_bfloat16_rd">numba.cuda.bf16.uint64_to_bfloat16_rd()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint64_to_bfloat16_rn">numba.cuda.bf16.uint64_to_bfloat16_rn()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint64_to_bfloat16_ru">numba.cuda.bf16.uint64_to_bfloat16_ru()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint64_to_bfloat16_rz">numba.cuda.bf16.uint64_to_bfloat16_rz()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.brev">numba.cuda.brev()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.cbrt">numba.cuda.cbrt()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.cg.this_grid">numba.cuda.cg.this_grid()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.clz">numba.cuda.clz()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.const.array_like">numba.cuda.const.array_like()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.eq_sync">numba.cuda.eq_sync()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.ffs">numba.cuda.ffs()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fma">numba.cuda.fma()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.habs">numba.cuda.fp16.habs()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hadd">numba.cuda.fp16.hadd()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hceil">numba.cuda.fp16.hceil()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hcos">numba.cuda.fp16.hcos()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hdiv">numba.cuda.fp16.hdiv()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.heq">numba.cuda.fp16.heq()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hexp">numba.cuda.fp16.hexp()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hexp10">numba.cuda.fp16.hexp10()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hexp2">numba.cuda.fp16.hexp2()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hfloor">numba.cuda.fp16.hfloor()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hfma">numba.cuda.fp16.hfma()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hge">numba.cuda.fp16.hge()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hgt">numba.cuda.fp16.hgt()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hle">numba.cuda.fp16.hle()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hlog">numba.cuda.fp16.hlog()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hlog10">numba.cuda.fp16.hlog10()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hlog2">numba.cuda.fp16.hlog2()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hlt">numba.cuda.fp16.hlt()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hmax">numba.cuda.fp16.hmax()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hmin">numba.cuda.fp16.hmin()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hmul">numba.cuda.fp16.hmul()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hne">numba.cuda.fp16.hne()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hneg">numba.cuda.fp16.hneg()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hrcp">numba.cuda.fp16.hrcp()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hrint">numba.cuda.fp16.hrint()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hrsqrt">numba.cuda.fp16.hrsqrt()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hsin">numba.cuda.fp16.hsin()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hsqrt">numba.cuda.fp16.hsqrt()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hsub">numba.cuda.fp16.hsub()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.htrunc">numba.cuda.fp16.htrunc()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.grid">numba.cuda.grid()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.gridsize">numba.cuda.gridsize()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.is_bfloat16_supported">numba.cuda.is_bfloat16_supported()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.is_float16_supported">numba.cuda.is_float16_supported()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.lanemask_lt">numba.cuda.lanemask_lt()</a>
+</li>
+        <li><a href="reference/cache_hints.html#numba.cuda.ldca">numba.cuda.ldca()</a>
+</li>
+        <li><a href="reference/cache_hints.html#numba.cuda.ldcg">numba.cuda.ldcg()</a>
+</li>
+        <li><a href="reference/cache_hints.html#numba.cuda.ldcs">numba.cuda.ldcs()</a>
+</li>
+        <li><a href="reference/cache_hints.html#numba.cuda.ldcv">numba.cuda.ldcv()</a>
+</li>
+        <li><a href="reference/cache_hints.html#numba.cuda.ldlu">numba.cuda.ldlu()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.local.array">numba.cuda.local.array()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.match_all_sync">numba.cuda.match_all_sync()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.match_any_sync">numba.cuda.match_any_sync()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.nanosleep">numba.cuda.nanosleep()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.popc">numba.cuda.popc()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.selp">numba.cuda.selp()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.shared.array">numba.cuda.shared.array()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.shfl_down_sync">numba.cuda.shfl_down_sync()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.shfl_sync">numba.cuda.shfl_sync()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.shfl_up_sync">numba.cuda.shfl_up_sync()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.shfl_xor_sync">numba.cuda.shfl_xor_sync()</a>
+</li>
+        <li><a href="reference/cache_hints.html#numba.cuda.stcg">numba.cuda.stcg()</a>
+</li>
+        <li><a href="reference/cache_hints.html#numba.cuda.stcs">numba.cuda.stcs()</a>
+</li>
+        <li><a href="reference/cache_hints.html#numba.cuda.stwb">numba.cuda.stwb()</a>
+</li>
+        <li><a href="reference/cache_hints.html#numba.cuda.stwt">numba.cuda.stwt()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.syncthreads">numba.cuda.syncthreads()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.syncthreads_and">numba.cuda.syncthreads_and()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.syncthreads_count">numba.cuda.syncthreads_count()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.syncthreads_or">numba.cuda.syncthreads_or()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.syncwarp">numba.cuda.syncwarp()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.threadfence">numba.cuda.threadfence()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.threadfence_block">numba.cuda.threadfence_block()</a>
+</li>
+        <li><a href="reference/kernel.html#numba.cuda.threadfence_system">numba.cuda.threadfence_system()</a>
+</li>
+        <li><a href="reference/types.html#numba.cuda.types.bfloat16">numba.cuda.types.bfloat16()</a>
+</li>
+      </ul></li>
+  </ul></td>
+</tr></table>
+
+<h2 id="C">C</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference/host.html#numba.cuda.cudadrv.driver.Device.compute_capability">compute_capability (numba.cuda.cudadrv.driver.Device attribute)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference/host.html#numba.cuda.gpus.current">current (numba.cuda.gpus attribute)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="E">E</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li>
+    environment variable
+
+      <ul>
+        <li><a href="reference/envvars.html#envvar-NUMBA_CUDA_ARRAY_INTERFACE_SYNC">NUMBA_CUDA_ARRAY_INTERFACE_SYNC</a>
+</li>
+        <li><a href="reference/envvars.html#envvar-NUMBA_CUDA_DEFAULT_PTX_CC">NUMBA_CUDA_DEFAULT_PTX_CC</a>
+</li>
+        <li><a href="reference/envvars.html#envvar-NUMBA_CUDA_INCLUDE_PATH">NUMBA_CUDA_INCLUDE_PATH</a>, <a href="user/cuda_ffi.html#index-0">[1]</a>
+</li>
+        <li><a href="reference/envvars.html#envvar-NUMBA_CUDA_LOG_API_ARGS">NUMBA_CUDA_LOG_API_ARGS</a>
+</li>
+        <li><a href="reference/envvars.html#envvar-NUMBA_CUDA_LOG_LEVEL">NUMBA_CUDA_LOG_LEVEL</a>
+</li>
+        <li><a href="reference/envvars.html#envvar-NUMBA_CUDA_LOG_SIZE">NUMBA_CUDA_LOG_SIZE</a>
+</li>
+        <li><a href="reference/envvars.html#envvar-NUMBA_CUDA_LOW_OCCUPANCY_WARNINGS">NUMBA_CUDA_LOW_OCCUPANCY_WARNINGS</a>
+</li>
+        <li><a href="reference/envvars.html#envvar-NUMBA_CUDA_NVRTC_EXTRA_SEARCH_PATHS">NUMBA_CUDA_NVRTC_EXTRA_SEARCH_PATHS</a>, <a href="user/cuda_ffi.html#index-1">[1]</a>
+</li>
+        <li><a href="reference/envvars.html#envvar-NUMBA_CUDA_PER_THREAD_DEFAULT_STREAM">NUMBA_CUDA_PER_THREAD_DEFAULT_STREAM</a>
+</li>
+        <li><a href="reference/envvars.html#envvar-NUMBA_CUDA_VERBOSE_JIT_LOG">NUMBA_CUDA_VERBOSE_JIT_LOG</a>
+</li>
+        <li><a href="reference/envvars.html#envvar-NUMBA_CUDA_WARN_ON_IMPLICIT_COPY">NUMBA_CUDA_WARN_ON_IMPLICIT_COPY</a>
+</li>
+        <li><a href="reference/envvars.html#envvar-NUMBA_DISABLE_CUDA">NUMBA_DISABLE_CUDA</a>
+</li>
+        <li><a href="reference/envvars.html#envvar-NUMBA_ENABLE_CUDASIM">NUMBA_ENABLE_CUDASIM</a>
+</li>
+        <li><a href="reference/envvars.html#envvar-NUMBA_FORCE_CUDA_CC">NUMBA_FORCE_CUDA_CC</a>
+</li>
+      </ul></li>
+  </ul></td>
+</tr></table>
+
+<h2 id="G">G</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference/host.html#numba.cuda.gpus">gpus (numba.cuda attribute)</a>
+
+      <ul>
+        <li><a href="user/device-management.html#numba_cuda_mlir.numba_cuda.cudadrv.devices.gpus">(numba_cuda_mlir.numba_cuda.cudadrv.devices attribute)</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference/kernel.html#numba.cuda.gridDim">gridDim (numba.cuda attribute)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="I">I</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference/host.html#numba.cuda.cudadrv.driver.Device.id">id (numba.cuda.cudadrv.driver.Device attribute)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="L">L</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference/kernel.html#numba.cuda.laneid">laneid (numba.cuda attribute)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="N">N</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference/host.html#numba.cuda.cudadrv.driver.Device.name">name (numba.cuda.cudadrv.driver.Device attribute)</a>
+</li>
+      <li>
+    numba.cuda.activemask()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.activemask">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.all_sync()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.all_sync">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.any_sync()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.any_sync">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.atomic.add()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.add">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.atomic.and_()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.and_">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.atomic.cas()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.cas">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.atomic.dec()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.dec">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.atomic.exch()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.exch">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.atomic.inc()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.inc">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.atomic.max()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.max">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.atomic.or_()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.or_">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.atomic.sub()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.sub">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.atomic.xor()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.atomic.xor">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.ballot_sync()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.ballot_sync">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_as_int16()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_as_int16">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_as_uint16()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_as_uint16">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_float32()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_float32">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_int16_rd()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int16_rd">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_int16_rn()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int16_rn">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_int16_ru()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int16_ru">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_int16_rz()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int16_rz">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_int32_rd()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int32_rd">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_int32_rn()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int32_rn">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_int32_ru()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int32_ru">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_int32_rz()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int32_rz">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_int64_rd()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int64_rd">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_int64_rn()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int64_rn">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_int64_ru()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int64_ru">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_int64_rz()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int64_rz">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_int8_rz()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_int8_rz">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_uint16_rd()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint16_rd">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_uint16_rn()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint16_rn">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_uint16_ru()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint16_ru">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_uint16_rz()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint16_rz">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_uint32_rd()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint32_rd">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_uint32_rn()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint32_rn">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_uint32_ru()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint32_ru">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_uint32_rz()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint32_rz">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_uint64_rd()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint64_rd">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_uint64_rn()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint64_rn">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_uint64_ru()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint64_ru">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_uint64_rz()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint64_rz">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.bfloat16_to_uint8_rz()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.bfloat16_to_uint8_rz">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.float32_to_bfloat16()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.float32_to_bfloat16">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.float32_to_bfloat16_rd()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.float32_to_bfloat16_rd">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.float32_to_bfloat16_rn()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.float32_to_bfloat16_rn">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.float32_to_bfloat16_ru()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.float32_to_bfloat16_ru">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.float32_to_bfloat16_rz()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.float32_to_bfloat16_rz">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.float64_to_bfloat16()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.float64_to_bfloat16">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.habs()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.habs">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hadd()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hadd">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hadd_rn()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hadd_rn">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hadd_sat()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hadd_sat">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hceil()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hceil">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hcos()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hcos">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hdiv()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hdiv">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.heq()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.heq">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hequ()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hequ">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hexp()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hexp">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hexp10()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hexp10">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hexp2()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hexp2">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hfloor()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hfloor">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hfma()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hfma">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hfma_relu()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hfma_relu">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hfma_sat()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hfma_sat">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hge()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hge">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hgeu()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hgeu">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hgt()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hgt">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hgtu()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hgtu">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hisinf()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hisinf">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hisnan()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hisnan">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hle()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hle">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hleu()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hleu">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hlog()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hlog">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hlog10()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hlog10">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hlog2()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hlog2">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hlt()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hlt">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hltu()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hltu">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hmax()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hmax">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hmax_nan()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hmax_nan">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hmin()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hmin">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hmin_nan()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hmin_nan">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hmul()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hmul">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hmul_rn()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hmul_rn">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hmul_sat()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hmul_sat">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hne()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hne">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hneg()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hneg">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hneu()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hneu">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hrcp()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hrcp">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hrint()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hrint">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hrsqrt()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hrsqrt">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hsin()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hsin">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hsqrt()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hsqrt">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hsub()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hsub">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hsub_rn()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hsub_rn">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.hsub_sat()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.hsub_sat">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.htanh()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.htanh">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.htanh_approx()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.htanh_approx">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.htrunc()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.htrunc">built-in function</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li>
+    numba.cuda.bf16.int16_as_bfloat16()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.int16_as_bfloat16">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.int16_to_bfloat16_rd()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.int16_to_bfloat16_rd">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.int16_to_bfloat16_rn()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.int16_to_bfloat16_rn">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.int16_to_bfloat16_ru()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.int16_to_bfloat16_ru">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.int16_to_bfloat16_rz()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.int16_to_bfloat16_rz">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.int32_to_bfloat16_rd()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.int32_to_bfloat16_rd">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.int32_to_bfloat16_rn()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.int32_to_bfloat16_rn">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.int32_to_bfloat16_ru()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.int32_to_bfloat16_ru">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.int32_to_bfloat16_rz()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.int32_to_bfloat16_rz">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.int64_to_bfloat16_rd()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.int64_to_bfloat16_rd">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.int64_to_bfloat16_rn()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.int64_to_bfloat16_rn">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.int64_to_bfloat16_ru()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.int64_to_bfloat16_ru">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.int64_to_bfloat16_rz()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.int64_to_bfloat16_rz">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.uint16_as_bfloat16()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint16_as_bfloat16">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.uint16_to_bfloat16_rd()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint16_to_bfloat16_rd">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.uint16_to_bfloat16_rn()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint16_to_bfloat16_rn">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.uint16_to_bfloat16_ru()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint16_to_bfloat16_ru">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.uint16_to_bfloat16_rz()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint16_to_bfloat16_rz">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.uint32_to_bfloat16_rd()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint32_to_bfloat16_rd">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.uint32_to_bfloat16_rn()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint32_to_bfloat16_rn">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.uint32_to_bfloat16_ru()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint32_to_bfloat16_ru">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.uint32_to_bfloat16_rz()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint32_to_bfloat16_rz">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.uint64_to_bfloat16_rd()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint64_to_bfloat16_rd">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.uint64_to_bfloat16_rn()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint64_to_bfloat16_rn">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.uint64_to_bfloat16_ru()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint64_to_bfloat16_ru">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.bf16.uint64_to_bfloat16_rz()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.bf16.uint64_to_bfloat16_rz">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.brev()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.brev">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.cbrt()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.cbrt">built-in function</a>
+</li>
+      </ul></li>
+      <li><a href="reference/kernel.html#numba.cuda.cg.GridGroup">numba.cuda.cg.GridGroup (built-in class)</a>
+</li>
+      <li>
+    numba.cuda.cg.this_grid()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.cg.this_grid">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.clz()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.clz">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.const.array_like()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.const.array_like">built-in function</a>
+</li>
+      </ul></li>
+      <li><a href="reference/host.html#numba.cuda.cudadrv.driver.Device">numba.cuda.cudadrv.driver.Device (built-in class)</a>
+</li>
+      <li>
+    numba.cuda.eq_sync()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.eq_sync">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.ffs()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.ffs">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fma()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fma">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.habs()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.habs">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hadd()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hadd">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hceil()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hceil">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hcos()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hcos">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hdiv()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hdiv">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.heq()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.heq">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hexp()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hexp">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hexp10()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hexp10">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hexp2()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hexp2">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hfloor()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hfloor">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hfma()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hfma">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hge()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hge">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hgt()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hgt">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hle()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hle">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hlog()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hlog">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hlog10()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hlog10">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hlog2()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hlog2">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hlt()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hlt">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hmax()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hmax">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hmin()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hmin">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hmul()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hmul">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hne()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hne">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hneg()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hneg">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hrcp()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hrcp">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hrint()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hrint">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hrsqrt()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hrsqrt">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hsin()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hsin">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hsqrt()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hsqrt">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.hsub()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.hsub">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.fp16.htrunc()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.fp16.htrunc">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.grid()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.grid">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.gridsize()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.gridsize">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.is_bfloat16_supported()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.is_bfloat16_supported">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.is_float16_supported()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.is_float16_supported">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.lanemask_lt()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.lanemask_lt">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.ldca()
+
+      <ul>
+        <li><a href="reference/cache_hints.html#numba.cuda.ldca">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.ldcg()
+
+      <ul>
+        <li><a href="reference/cache_hints.html#numba.cuda.ldcg">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.ldcs()
+
+      <ul>
+        <li><a href="reference/cache_hints.html#numba.cuda.ldcs">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.ldcv()
+
+      <ul>
+        <li><a href="reference/cache_hints.html#numba.cuda.ldcv">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.ldlu()
+
+      <ul>
+        <li><a href="reference/cache_hints.html#numba.cuda.ldlu">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.local.array()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.local.array">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.match_all_sync()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.match_all_sync">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.match_any_sync()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.match_any_sync">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.nanosleep()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.nanosleep">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.popc()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.popc">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.selp()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.selp">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.shared.array()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.shared.array">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.shfl_down_sync()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.shfl_down_sync">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.shfl_sync()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.shfl_sync">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.shfl_up_sync()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.shfl_up_sync">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.shfl_xor_sync()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.shfl_xor_sync">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.stcg()
+
+      <ul>
+        <li><a href="reference/cache_hints.html#numba.cuda.stcg">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.stcs()
+
+      <ul>
+        <li><a href="reference/cache_hints.html#numba.cuda.stcs">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.stwb()
+
+      <ul>
+        <li><a href="reference/cache_hints.html#numba.cuda.stwb">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.stwt()
+
+      <ul>
+        <li><a href="reference/cache_hints.html#numba.cuda.stwt">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.syncthreads()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.syncthreads">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.syncthreads_and()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.syncthreads_and">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.syncthreads_count()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.syncthreads_count">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.syncthreads_or()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.syncthreads_or">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.syncwarp()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.syncwarp">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.threadfence()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.threadfence">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.threadfence_block()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.threadfence_block">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.threadfence_system()
+
+      <ul>
+        <li><a href="reference/kernel.html#numba.cuda.threadfence_system">built-in function</a>
+</li>
+      </ul></li>
+      <li>
+    numba.cuda.types.bfloat16()
+
+      <ul>
+        <li><a href="reference/types.html#numba.cuda.types.bfloat16">built-in function</a>
+</li>
+      </ul></li>
+      <li><a href="user/cuda_ffi.html#index-0">NUMBA_CUDA_INCLUDE_PATH</a>
+</li>
+      <li><a href="user/cuda_ffi.html#index-1">NUMBA_CUDA_NVRTC_EXTRA_SEARCH_PATHS</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="R">R</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference/host.html#numba.cuda.cudadrv.driver.Device.reset">reset() (numba.cuda.cudadrv.driver.Device method)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="S">S</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference/host.html#numba.cuda.cudadrv.driver.Device.supports_float16">supports_float16 (numba.cuda.cudadrv.driver.Device attribute)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference/kernel.html#numba.cuda.cg.GridGroup.sync">sync() (numba.cuda.cg.GridGroup method)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="T">T</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference/kernel.html#numba.cuda.threadIdx">threadIdx (numba.cuda attribute)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="U">U</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference/host.html#numba.cuda.cudadrv.driver.Device.uuid">uuid (numba.cuda.cudadrv.driver.Device attribute)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="W">W</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference/kernel.html#numba.cuda.warpsize">warpsize (numba.cuda attribute)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+
+<div class="bd-sidebar-secondary"></div>
+
+
+              
+            
+
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="_static/scripts/bootstrap.js?digest=55c26ed414f5f8a31ebb"></script>
+<script defer src="_static/scripts/pydata-sphinx-theme.js?digest=55c26ed414f5f8a31ebb"></script>
+
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+<a class="footer-brand logo" href="https://www.nvidia.com">
+  <img src="_static/nvidia-logo-horiz-rgb-1c-blk-for-screen.svg" class="logo__image only-light" alt="NVIDIA"/>
+  <img src="_static/nvidia-logo-horiz-rgb-1c-wht-for-screen.svg" class="logo__image only-dark" alt="NVIDIA"/>
+</a></div>
+      
+        <div class="footer-item">
+
+<div class="footer-links">
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/privacy-policy/">Privacy Policy</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/privacy-center/">Your Privacy Choices</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/terms-of-service/">Terms of Service</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/accessibility/">Accessibility</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/company-policies/">Corporate Policies</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/product-security/">Product Security</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/contact/">Contact</a>
+  
+  
+  
+</div>
+</div>
+      
+        <div class="footer-item">
+
+
+
+
+  <p class="copyright">
+    
+      Copyright © 2012-2024 Anaconda Inc. 2024-2026, NVIDIA Corporation..
+      <br/>
+    
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+  </body>
+</html>

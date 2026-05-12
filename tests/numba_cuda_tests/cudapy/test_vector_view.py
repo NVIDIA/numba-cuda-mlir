@@ -21,6 +21,7 @@ vector_types_to_test = [
     (cuda.int64x4, np.int64, 4),
 ]
 
+
 @pytest.mark.parametrize("vec_type, scalar_type, vec_len", vector_types_to_test)
 def test_scalar_to_vector_view(vec_type, scalar_type, vec_len):
     @cuda.jit
@@ -38,6 +39,7 @@ def test_scalar_to_vector_view(vec_type, scalar_type, vec_len):
     out = np.zeros(vec_len, dtype=scalar_type)
     kernel[1, 1](arr, out)
     np.testing.assert_allclose(out, arr)
+
 
 @pytest.mark.parametrize("vec_type, scalar_type, vec_len", vector_types_to_test)
 def test_vector_to_scalar_view(vec_type, scalar_type, vec_len):

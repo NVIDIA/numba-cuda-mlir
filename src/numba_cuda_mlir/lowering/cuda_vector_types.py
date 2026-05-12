@@ -15,10 +15,10 @@ lower_getattr = registry.lower_getattr
 from numba_cuda_mlir.mlir_lowering import MLIRLower
 from numba_cuda_mlir.lowering_utilities import convert
 from numba_cuda_mlir.lowering_utilities.type_conversions import to_mlir_type
-from numba_cuda_mlir.cuda.vector_types import _vector_type_stubs
+from numba_cuda_mlir.cuda.vector_types import _vector_types
 from numba_cuda_mlir.type_defs.vector_types import VectorType
 from numba_cuda_mlir import types
-from numba_cuda_mlir._mlir.dialects import vector, arith
+from numba_cuda_mlir._mlir.dialects import vector
 from numba_cuda_mlir._mlir import ir
 
 ATTR_INDEX = {"x": 0, "y": 1, "z": 2, "w": 3}
@@ -87,10 +87,10 @@ def _constructor_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs)
     lower_ctx.store_var(target, result)
 
 
-# One generic registration per vector-type stub instead of enumerating
+# One generic registration per vector-type instead of enumerating
 # every permutation of scalar/vector argument types.
-for stub in _vector_type_stubs:
-    _raw_lower(stub, types.VarArg(types.Any))(_constructor_lowering)
+for vec_type in _vector_types:
+    _raw_lower(vec_type, types.VarArg(types.Any))(_constructor_lowering)
 
 
 # Register attribute access lowerings

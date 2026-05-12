@@ -17,7 +17,7 @@ import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir import types
 
-from numba_cuda_mlir.cuda.vector_types import _vector_type_stubs
+from numba_cuda_mlir.cuda.vector_types import _vector_types as _cuda_vector_types
 
 
 class _VectorTypeTestInfo:
@@ -29,7 +29,7 @@ class _VectorTypeTestInfo:
 
 
 def _vector_types():
-    return [_VectorTypeTestInfo(stub) for stub in _vector_type_stubs]
+    return [_VectorTypeTestInfo(stub) for stub in _cuda_vector_types]
 
 
 def make_kernel(vtype):

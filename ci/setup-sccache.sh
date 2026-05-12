@@ -25,10 +25,6 @@ cat <<EOF > ~/.config/sccache/config
 bucket = "rapids-sccache-devs"
 region = "us-east-2"
 key_prefix = "numba_cuda_mlir"
-
-[cache.s3.preprocessor_cache_mode]
-use_preprocessor_cache_mode = true
-key_prefix = "numba_cuda_mlir/preprocessor"
 EOF
 
 # --- Start sccache daemon ---

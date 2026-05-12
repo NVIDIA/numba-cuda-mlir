@@ -25,6 +25,47 @@ def format_arch(cc: tuple[int, int]) -> str:
     return f"sm_{cc[0]}{cc[1]}"
 
 
+def resolve_gpu_target(targetoptions: dict | None = None) -> dict[str, object]:
+    if targetoptions is None:
+        targetoptions = {}
+
+    chip = targetoptions.get("chip")
+    if chip:
+        arch = chip
+        cc = parse_compute_capability(arch)
+        arch_suffix = arch.removeprefix(f"sm_{cc[0]}{cc[1]}")
+        arch_specific_cc = (*cc, arch_suffix) if arch_suffix in ("a", "f") else cc
+    else:
+        cc = get_gpu_compute_capability(tuple)
+        arch = format_arch(cc)
+        arch_specific_cc = cc
+
+    host_cc = get_gpu_compute_capability(tuple)
+    host_arch = format_arch(host_cc)
+    if cc < host_cc:
+        linker_cc = host_cc
+        linker_arch = host_arch
+    else:
+        linker_cc = arch_specific_cc
+        linker_arch = arch
+
+    return {
+        "chip": arch,
+        "cc": cc,
+        "arch_specific_cc": arch_specific_cc,
+        "host_cc": host_cc,
+        "host_arch": host_arch,
+        "linker_cc": linker_cc,
+        "linker_arch": linker_arch,
+    }
+
+
+def resolve_target_options(targetoptions: dict[str, object]) -> dict[str, object]:
+    target = resolve_gpu_target(targetoptions)
+    targetoptions["chip"] = target["chip"]
+    return targetoptions
+
+
 @lru_cache(maxsize=1)
 def get_cuda_toolkit_path() -> str | None:
     """Get CUDA toolkit root path from env vars, numba-cuda discovery, or system."""
@@ -103,7 +144,8 @@ def get_gpu_compute_capability(as_type: type = str) -> str | tuple[int, int]:
     """
     Query the compute capability of the current CUDA device.
 
-    Uses ``cuda.core.Device`` so that ``CUDA_VISIBLE_DEVICES`` is respected.
+    Uses the numba-cuda driver layer so the primary context is shared with
+    ``to_device()`` and other device operations.
     """
     global _cached_cc
     assert as_type in (str, tuple), "as_type must be str or tuple"
@@ -113,9 +155,10 @@ def get_gpu_compute_capability(as_type: type = str) -> str | tuple[int, int]:
             return _cached_cc
         return f"sm_{_cached_cc[0]}{_cached_cc[1]}"
 
-    from cuda.core import Device
+    from numba_cuda_mlir.numba_cuda.cudadrv.devices import get_context
 
-    cc = tuple(Device().compute_capability)
+    ctx = get_context()
+    cc = ctx.device.compute_capability
     _cached_cc = cc
     if as_type is tuple:
         return cc

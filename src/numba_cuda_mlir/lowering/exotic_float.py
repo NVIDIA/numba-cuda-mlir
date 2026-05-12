@@ -10,7 +10,7 @@ import operator
 from numba_cuda_mlir import types
 from numba_cuda_mlir.lowering_utilities import convert
 from numba_cuda_mlir.lowering_utilities.type_conversions import to_mlir_type
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.types import (
     bfloat16_raw_type,
     cvt_e8m0_to_bf16raw,
@@ -23,7 +23,7 @@ from numba_cuda_mlir._mlir.dialects import arith, llvm
 from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir.numba_cuda.types.ext_types import bfloat16 as bf16
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower = registry.lower
 
 _EXOTIC_FLOAT_TYPES = [

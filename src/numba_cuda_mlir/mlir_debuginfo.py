@@ -77,7 +77,16 @@ def _complex_di_type(name, float_bits):
     )
 
 
-def _derived_di_type(tag, *, name=None, base_type=None, size_bits=None, offset_bits=None):
+def _derived_di_type(
+    tag,
+    *,
+    name=None,
+    base_type=None,
+    size_bits=None,
+    offset_bits=None,
+    flags=None,
+    extra_data=None,
+):
     params = [f"tag = {tag}"]
     if name is not None:
         params.append(f'name = "{name}"')
@@ -87,10 +96,23 @@ def _derived_di_type(tag, *, name=None, base_type=None, size_bits=None, offset_b
         params.append(f"sizeInBits = {size_bits}")
     if offset_bits is not None:
         params.append(f"offsetInBits = {offset_bits}")
+    if flags is not None:
+        params.append(f"flags = {flags}")
+    if extra_data is not None:
+        params.append(f"extraData = {extra_data} : i8")
     return f"#llvm.di_derived_type<{', '.join(params)}>"
 
 
-def _composite_di_type(tag, *, name=None, base_type=None, size_bits=None, elements=None):
+def _composite_di_type(
+    tag,
+    *,
+    name=None,
+    base_type=None,
+    size_bits=None,
+    elements=None,
+    identifier=None,
+    discriminator=None,
+):
     params = [f"tag = {tag}"]
     if name is not None:
         params.append(f'name = "{name}"')
@@ -98,6 +120,10 @@ def _composite_di_type(tag, *, name=None, base_type=None, size_bits=None, elemen
         params.append(f"baseType = {base_type}")
     if size_bits is not None:
         params.append(f"sizeInBits = {size_bits}")
+    if identifier is not None:
+        params.append(f'identifier = "{identifier}"')
+    if discriminator is not None:
+        params.append(f"discriminator = {discriminator}")
     if elements:
         params.append(f"elements = {', '.join(elements)}")
     return f"#llvm.di_composite_type<{', '.join(params)}>"
@@ -108,13 +134,12 @@ def _subrange_di_type(count):
 
 
 def _llvm_type_str(numba_type):
+    numba_type = _strip_literal_type(numba_type)
     match numba_type:
-        case types.Boolean() | types.BooleanLiteral():
+        case types.Boolean():
             return "i8"
         case types.Integer(bitwidth=bw):
             return f"i{bw}"
-        case types.IntegerLiteral():
-            return "i64"
         case types.Float(bitwidth=16):
             return "half"
         case types.Float(bitwidth=32):
@@ -142,13 +167,12 @@ def _align_to_bits(offset_bits, alignment_bits):
 
 
 def _type_alignment_bits(numba_type):
+    numba_type = _strip_literal_type(numba_type)
     match numba_type:
-        case types.Boolean() | types.BooleanLiteral():
+        case types.Boolean():
             return _BYTE_SIZE_BITS
         case types.Integer(bitwidth=bw) | types.Float(bitwidth=bw):
             return bw
-        case types.IntegerLiteral():
-            return _INT_LITERAL_BITS
         case types.UniTuple(dtype=dtype):
             return _type_alignment_bits(dtype)
         case types.BaseTuple():
@@ -177,13 +201,12 @@ def _llvm_struct_layout_bits(field_types):
 
 
 def _type_size_bits(numba_type):
+    numba_type = _strip_literal_type(numba_type)
     match numba_type:
-        case types.Boolean() | types.BooleanLiteral():
+        case types.Boolean():
             return _BYTE_SIZE_BITS
         case types.Integer(bitwidth=bw) | types.Float(bitwidth=bw):
             return bw
-        case types.IntegerLiteral():
-            return _INT_LITERAL_BITS
         case types.UniTuple(dtype=dtype, count=count):
             elem_bits = _type_size_bits(dtype)
             return None if elem_bits is None else elem_bits * count
@@ -194,6 +217,10 @@ def _type_size_bits(numba_type):
             return numba_type.size * _BYTE_SIZE_BITS
         case _:
             return None
+
+
+def _strip_literal_type(numba_type):
+    return getattr(numba_type, "literal_type", numba_type)
 
 
 def _uni_tuple_di_type(numba_type):
@@ -327,10 +354,59 @@ def _array_di_type(numba_type):
     )
 
 
+def _union_di_type(numba_type):
+    variants = numba_type.types
+    variant_sizes = [_type_size_bits(t) for t in variants]
+    if not variant_sizes or any(bits is None for bits in variant_sizes):
+        return None
+    size_bits = max(variant_sizes)
+
+    variant_members = []
+    for tag, (variant_type, variant_bits) in enumerate(zip(variants, variant_sizes, strict=True)):
+        variant_di = _numba_type_to_di_type_str(variant_type)
+        if variant_di is None or variant_bits is None:
+            return None
+        variant_members.append(
+            _derived_di_type(
+                "DW_TAG_member",
+                name=f"_{variant_type}",
+                base_type=variant_di,
+                size_bits=variant_bits,
+                offset_bits=variant_bits,
+                extra_data=tag,
+            )
+        )
+
+    variant_key = ".".join(str(t) for t in variants)
+    discriminator = _derived_di_type(
+        "DW_TAG_member",
+        name=f"discriminator-{variant_key}",
+        base_type=_basic_di_type("uint8", _BYTE_SIZE_BITS, "unsigned"),
+        size_bits=_BYTE_SIZE_BITS,
+        flags="Artificial",
+    )
+    variant_part = _composite_di_type(
+        "DW_TAG_variant_part",
+        name="variant_part",
+        size_bits=size_bits,
+        elements=variant_members,
+        identifier=f"variant-{variant_key}",
+        discriminator=discriminator,
+    )
+    return _composite_di_type(
+        "DW_TAG_structure_type",
+        name="variant_wrapper_struct",
+        size_bits=2 * size_bits,
+        elements=[discriminator, variant_part],
+        identifier=f"variant-wrapper-{variant_key}",
+    )
+
+
 def _numba_type_to_di_type_str(numba_type):
     """Map a Numba type to an MLIR #llvm.di_basic_type string."""
+    numba_type = _strip_literal_type(numba_type)
     match numba_type:
-        case types.Boolean() | types.BooleanLiteral():
+        case types.Boolean():
             return _basic_di_type("bool", _BYTE_SIZE_BITS, "boolean")
         case types.Float(bitwidth=bw):
             return _basic_di_type(f"float{bw}", bw, "float")
@@ -338,8 +414,6 @@ def _numba_type_to_di_type_str(numba_type):
             return _basic_di_type(f"int{bw}", bw, "signed")
         case types.Integer(signed=False, bitwidth=bw):
             return _basic_di_type(f"uint{bw}", bw, "unsigned")
-        case types.IntegerLiteral():
-            return _basic_di_type("int64", _INT_LITERAL_BITS, "signed")
         case types.CPointer():
             return _cpointer_di_type(numba_type)
         case types.EnumMember():
@@ -360,6 +434,8 @@ def _numba_type_to_di_type_str(numba_type):
             return _record_di_type(numba_type)
         case types.Array():
             return _array_di_type(numba_type)
+        case types.UnionType():
+            return _union_di_type(numba_type)
         case Bfloat16():
             return _basic_di_type("__nv_bfloat16", _BFLOAT16_BITS, "float")
         case GridGroup():

@@ -34,14 +34,16 @@ def test_tuple_builtin_hetero_tuple():
     ],
 )
 def test_tuple_concat(x, y):
+    from numba_cuda_mlir.cuda.experimental import consteval
+
     expected = x + y
     n = len(expected)
     r = np.zeros(n, dtype=np.float64)
 
-    @cuda.jit(experimental_ast_transforms=True)
+    @cuda.jit
     def k(r, x, y):
         t = x + y
-        for i in cuda.consteval(range(n)):
+        for i in consteval(range(n)):
             r[i] = t[i]
 
     k[1, 1](r, x, y)

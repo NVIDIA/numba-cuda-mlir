@@ -6,7 +6,7 @@ import numpy as np
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.testing import NumbaCUDATestCase
-from numba_cuda_mlir.extending import overload
+from numba_cuda_mlir.extending import overload, typing_registry
 
 
 class TestNumbaInterop(NumbaCUDATestCase):
@@ -15,7 +15,12 @@ class TestNumbaInterop(NumbaCUDATestCase):
         def get_42():
             raise NotImplementedError()
 
-        @overload(get_42, target="cuda", inline="always")
+        @overload(
+            get_42,
+            target="cuda",
+            inline="always",
+            typing_registry=typing_registry,
+        )
         def ol_blas_get_accumulator():
             def impl():
                 return 42

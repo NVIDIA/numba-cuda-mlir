@@ -1,6 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from itertools import batched
+import sys
+
+if sys.version_info >= (3, 12):
+    from itertools import batched
+else:
+    from itertools import islice
+
+    def batched(iterable, n):
+        it = iter(iterable)
+        while batch := tuple(islice(it, n)):
+            yield batch
+
+
 from numba_cuda_mlir._mlir.extras.meta import region_op
 import operator
 from numba_cuda_mlir.cuda.misc.special import literal_unroll, literally
@@ -30,9 +42,9 @@ from numba_cuda_mlir.mlir_lowering import MLIRLower
 from numba_cuda_mlir._mlir.dialects import arith, func, memref, gpu, nvvm, llvm
 from numba_cuda_mlir._mlir.extras import types as T
 import numba_cuda_mlir._mlir.ir as ir
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower = registry.lower
 lower_getattr = registry.lower_getattr
 lower_getattr_generic = registry.lower_getattr_generic

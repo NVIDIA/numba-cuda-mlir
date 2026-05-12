@@ -12,9 +12,9 @@ from numba_cuda_mlir.numba_cuda import typing as typing
 from numba_cuda_mlir.logging import trace
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir._mlir.dialects import func, llvm, tensor, memref
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower = registry.lower
 from numba_cuda_mlir.numba_cuda.extending import overload, intrinsic
 import numba_cuda_mlir.cuda.libdevice as libdevice

@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from dataclasses import dataclass
-from typeguard import typechecked
 import functools
 import operator
 from numba_cuda_mlir import lowering_utilities
@@ -22,9 +21,9 @@ from numba_cuda_mlir._mlir.dialects import (
 )
 from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower = registry.lower
 lower_getattr = registry.lower_getattr
 lower_getattr_generic = registry.lower_getattr_generic
@@ -907,7 +906,6 @@ class MemRefSlices:
         return memref.subview(mr, **kws, result_type=mrt)
 
 
-@typechecked
 def slice_memref(mr: ir.Value, mrs: MemRefSlices) -> ir.Value:
     value = mrs.subview(mr)
     return value

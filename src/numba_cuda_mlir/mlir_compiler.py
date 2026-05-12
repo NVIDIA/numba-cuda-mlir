@@ -292,8 +292,11 @@ def _get_compiler_class(targetoptions: Dict[str, Any]):
 @global_compiler_lock
 def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
     from numba_cuda_mlir.install_registry import register_lowering
+    from numba_cuda_mlir.tools import resolve_gpu_target
 
     register_lowering()
+    gpu_target = resolve_gpu_target(targetoptions)
+    targetoptions["chip"] = gpu_target["chip"]
 
     # Apply AST transforms at compile time with argtypes available
     # This allows consteval to access argument types and target options
@@ -316,7 +319,8 @@ def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
 
     flags.auto_parallel = ParallelOptions(targetoptions.get("parallel", False))
     flags.nvvm_options = {}
-    if targetoptions.get("output", "ptx") == "ltoir":
+    is_lto = targetoptions.get("lto", False) or targetoptions.get("output", "ptx") == "ltoir"
+    if is_lto:
         flags.nvvm_options["gen-lto"] = None
 
     # Both debug and lineinfo turn on debug information in the compiled code,
@@ -345,7 +349,7 @@ def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
     # Run compilation pipeline
     from numba_cuda_mlir.numba_cuda.core.target_extension import target_override
 
-    flags.lto = targetoptions.get("output", "ptx") == "ltoir"
+    flags.lto = is_lto
 
     with target_override("numba_cuda_mlir"):
         cres = compiler.compile_extra(
@@ -360,6 +364,7 @@ def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
         )
 
     cres.metadata["targetoptions"] = targetoptions
+    cres.metadata["gpu_target"] = gpu_target
     cres.metadata["transformed_source"] = transformed_source
 
     return cres

@@ -56,7 +56,7 @@ def benchmark_runner(request):
         if mode:
             benchmark_name = f"{benchmark_name} ({mode})"
 
-        compile_times = _run_compile_time_measurement(script_path, mode)
+        compile_times = _run_compile_time_measurements(script_path, mode)
         ncu_kernel_times = _run_ncu_profiling(script_path, mode)
 
         request.config._benchmark_results.append(
@@ -67,30 +67,74 @@ def benchmark_runner(request):
             }
         )
 
-        return {"compile_times": compile_times, "ncu_times": ncu_kernel_times}
+        return {
+            "compile_times": compile_times,
+            "ncu_times": ncu_kernel_times,
+        }
 
     return run_benchmark
 
 
-def _run_compile_time_measurement(script_path, mode=None):
-    env = os.environ.copy()
-    cmd = [sys.executable, str(script_path)]
-    if mode:
-        cmd.append(mode)
+_NUM_SAMPLES = int(os.environ.get("BENCH_SAMPLES", "3"))
 
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, check=True, env=env, timeout=300
-        )
-        return _parse_compile_times(result.stdout)
-    except subprocess.CalledProcessError as e:
-        print(f"Compile time measurement failed:")
-        print(f"  stdout: {e.stdout}")
-        print(f"  stderr: {e.stderr}")
-        raise
-    except subprocess.TimeoutExpired:
-        print("Compile time measurement timed out (>5 minutes)")
-        raise
+
+def _median(values):
+    """Return the median of a list of numbers."""
+    s = sorted(values)
+    n = len(s)
+    if n % 2 == 1:
+        return s[n // 2]
+    return (s[n // 2 - 1] + s[n // 2]) / 2
+
+
+def _run_compile_time_measurements(script_path, mode=None):
+    return {
+        "cold": _run_compile_time_measurement(script_path, mode, "cold"),
+        "warm": _run_compile_time_measurement(script_path, mode, "warm"),
+    }
+
+
+def _run_compile_time_measurement(script_path, mode=None, compile_mode="cold"):
+    """Measure compile time for each backend in its own isolated subprocess.
+
+    Runs _NUM_SAMPLES iterations per backend and returns the median.
+    The first iteration is a discarded warmup (OS page-cache priming).
+    """
+    env = os.environ.copy()
+    results = {}
+
+    for backend in ("numba-cuda", "numba-cuda-mlir"):
+        samples = []
+        for i in range(_NUM_SAMPLES + 1):
+            cmd = [sys.executable, str(script_path)]
+            if mode:
+                cmd.append(mode)
+            cmd.extend(["--compile-mode", compile_mode, "--backend", backend])
+
+            try:
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, check=True, env=env, timeout=300
+                )
+                times = _parse_compile_times(result.stdout)
+                key = "numba_cuda_mlir" if backend == "numba-cuda-mlir" else "numba-cuda"
+                val = times.get(key)
+                if val is not None:
+                    if i > 0:
+                        samples.append(val)
+            except subprocess.CalledProcessError as e:
+                print(f"Compile time measurement failed for {backend}:")
+                print(f"  stdout: {e.stdout}")
+                print(f"  stderr: {e.stderr}")
+                raise
+            except subprocess.TimeoutExpired:
+                print(f"Compile time measurement timed out for {backend} (>5 minutes)")
+                raise
+
+        key = "numba_cuda_mlir" if backend == "numba-cuda-mlir" else "numba-cuda"
+        if samples:
+            results[key] = _median(samples)
+
+    return results
 
 
 def _run_ncu_profiling(script_path, mode=None):
@@ -136,13 +180,14 @@ def _parse_compile_times(stdout):
         if in_section:
             if line.startswith("==="):
                 break
-            match = re.search(
-                r"(Numba-CUDA|numba-cuda-mlir).*?:\s*([\d.]+)\s*ms", line, re.IGNORECASE
-            )
+            match = re.search(r"^\s*([^:]+):\s*([\d.]+)\s*ms", line, re.IGNORECASE)
             if match:
-                variant = match.group(1).lower()
-                time_ms = float(match.group(2))
-                compile_times[variant] = time_ms
+                variant = {
+                    "numba-cuda": "numba-cuda",
+                    "numba-cuda-mlir": "numba_cuda_mlir",
+                }.get(match.group(1).strip().lower())
+                if variant is not None:
+                    compile_times[variant] = float(match.group(2))
 
     return compile_times
 
@@ -189,12 +234,65 @@ def _parse_ncu_csv(csv_text):
     return result
 
 
+def _geomean(values):
+    """Compute geometric mean of positive values, ignoring None/zero."""
+    vals = [v for v in values if v and v > 0]
+    if not vals:
+        return None
+    import math
+
+    return math.exp(sum(math.log(v) for v in vals) / len(vals))
+
+
+def _geomean_row(all_results):
+    """Build a 'Geomean' summary row matching the column layout of _print_consolidated_results."""
+    cold_nc, cold_mlir = [], []
+    warm_nc, warm_mlir = [], []
+    kern_nc, kern_mlir = [], []
+
+    for r in all_results:
+        cold = r["compile_times"].get("cold", {})
+        warm = r["compile_times"].get("warm", {})
+        cold_nc.append(cold.get("numba-cuda"))
+        cold_mlir.append(cold.get("numba_cuda_mlir"))
+        warm_nc.append(warm.get("numba-cuda"))
+        warm_mlir.append(warm.get("numba_cuda_mlir"))
+        kern_nc.append(r["ncu_times"].get("numba-cuda"))
+        kern_mlir.append(r["ncu_times"].get("numba_cuda_mlir"))
+
+    def _fmt(val, precision=2):
+        return f"{val:.{precision}f}" if val else "N/A"
+
+    def _speedup(a, b):
+        return f"{a / b:.2f}x" if a and b else "N/A"
+
+    g_cold_nc, g_cold_mlir = _geomean(cold_nc), _geomean(cold_mlir)
+    g_warm_nc, g_warm_mlir = _geomean(warm_nc), _geomean(warm_mlir)
+    g_kern_nc, g_kern_mlir = _geomean(kern_nc), _geomean(kern_mlir)
+
+    return [
+        "GEOMEAN",
+        _fmt(g_cold_nc),
+        _fmt(g_cold_mlir),
+        _speedup(g_cold_nc, g_cold_mlir),
+        _fmt(g_warm_nc),
+        _fmt(g_warm_mlir),
+        _speedup(g_warm_nc, g_warm_mlir),
+        _fmt(g_kern_nc, 4),
+        _fmt(g_kern_mlir, 4),
+        _speedup(g_kern_nc, g_kern_mlir),
+    ]
+
+
 def _print_consolidated_results(all_results):
     headers = [
         "Benchmark",
-        "Numba-CUDA Compile (ms)",
-        "numba-cuda-mlir Compile (ms)",
-        "Compile Speedup",
+        "Numba-CUDA Cold Compile (ms)",
+        "numba-cuda-mlir Cold Compile (ms)",
+        "Cold Compile Speedup",
+        "Numba-CUDA Warm Compile (ms)",
+        "numba-cuda-mlir Warm Compile (ms)",
+        "Warm Compile Speedup",
         "Numba-CUDA Kernel (ms)",
         "numba-cuda-mlir Kernel (ms)",
         "Kernel Speedup",
@@ -206,15 +304,24 @@ def _print_consolidated_results(all_results):
         compile_times = result["compile_times"]
         ncu_times = result["ncu_times"]
 
-        numba_cuda_compile = compile_times.get("numba-cuda")
-        numba_cuda_mlir_compile = compile_times.get("numba_cuda_mlir")
+        cold_compile_times = compile_times.get("cold", {})
+        warm_compile_times = compile_times.get("warm", {})
+        numba_cuda_cold_compile = cold_compile_times.get("numba-cuda")
+        numba_cuda_mlir_cold_compile = cold_compile_times.get("numba_cuda_mlir")
+        numba_cuda_warm_compile = warm_compile_times.get("numba-cuda")
+        numba_cuda_mlir_warm_compile = warm_compile_times.get("numba_cuda_mlir")
         numba_cuda_kernel = ncu_times.get("numba-cuda")
         numba_cuda_mlir_kernel = ncu_times.get("numba_cuda_mlir")
 
-        if numba_cuda_compile and numba_cuda_mlir_compile:
-            compile_speedup = f"{numba_cuda_compile / numba_cuda_mlir_compile:.2f}x"
+        if numba_cuda_cold_compile and numba_cuda_mlir_cold_compile:
+            cold_compile_speedup = f"{numba_cuda_cold_compile / numba_cuda_mlir_cold_compile:.2f}x"
         else:
-            compile_speedup = "N/A"
+            cold_compile_speedup = "N/A"
+
+        if numba_cuda_warm_compile and numba_cuda_mlir_warm_compile:
+            warm_compile_speedup = f"{numba_cuda_warm_compile / numba_cuda_mlir_warm_compile:.2f}x"
+        else:
+            warm_compile_speedup = "N/A"
 
         if numba_cuda_kernel and numba_cuda_mlir_kernel:
             kernel_speedup = f"{numba_cuda_kernel / numba_cuda_mlir_kernel:.2f}x"
@@ -223,14 +330,20 @@ def _print_consolidated_results(all_results):
 
         row = [
             benchmark_name,
-            f"{numba_cuda_compile:.2f}" if numba_cuda_compile else "N/A",
-            f"{numba_cuda_mlir_compile:.2f}" if numba_cuda_mlir_compile else "N/A",
-            compile_speedup,
+            f"{numba_cuda_cold_compile:.2f}" if numba_cuda_cold_compile else "N/A",
+            (f"{numba_cuda_mlir_cold_compile:.2f}" if numba_cuda_mlir_cold_compile else "N/A"),
+            cold_compile_speedup,
+            f"{numba_cuda_warm_compile:.2f}" if numba_cuda_warm_compile else "N/A",
+            (f"{numba_cuda_mlir_warm_compile:.2f}" if numba_cuda_mlir_warm_compile else "N/A"),
+            warm_compile_speedup,
             f"{numba_cuda_kernel:.4f}" if numba_cuda_kernel else "N/A",
             f"{numba_cuda_mlir_kernel:.4f}" if numba_cuda_mlir_kernel else "N/A",
             kernel_speedup,
         ]
         table_data.append(row)
+
+    if len(table_data) > 1:
+        table_data.append(_geomean_row(all_results))
 
     print(f"\n{'=' * 100}")
     print("BENCHMARK RESULTS SUMMARY")

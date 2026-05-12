@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir._mlir.extras import types as T
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.extending import (
     intrinsic,
@@ -11,7 +11,7 @@ from numba_cuda_mlir.numba_cuda.extending import (
 )
 from numba_cuda_mlir.descriptor import MLIRTypingContext
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower = registry.lower
 
 

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-import numba_cuda_mlir
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir.cuda.experimental import local_array_from
 import numpy as np
 import pytest
 
@@ -9,9 +9,9 @@ import pytest
 def test_local_array_from_transform():
     """Test that local_array_from is transformed to local_array + loop."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @cuda.jit
     def kernel(out, indices):
-        arr = numba_cuda_mlir.cuda.local_array_from((i + 1 for i in indices), dtype=np.int64)
+        arr = local_array_from((i + 1 for i in indices), dtype=np.int64)
         out[0] = arr[0]
         out[1] = arr[1]
         out[2] = arr[2]
@@ -20,16 +20,16 @@ def test_local_array_from_transform():
     source = cres.metadata["transformed_source"]
     assert source is not None
     assert "local_array_from" not in source
-    assert "local_array(len(indices)" in source
+    assert "cuda.local_array(len(indices)" in source
     assert "for __laf_i_0 in range(len(indices))" in source
 
 
 def test_local_array_from_runs_correctly():
     """Test that local_array_from produces correct runtime behavior."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @cuda.jit
     def kernel(out, indices):
-        arr = numba_cuda_mlir.cuda.local_array_from((i + 1 for i in indices), dtype=np.int64)
+        arr = local_array_from((i + 1 for i in indices), dtype=np.int64)
         out[0] = arr[0]
         out[1] = arr[1]
         out[2] = arr[2]
@@ -44,9 +44,9 @@ def test_local_array_from_runs_correctly():
 def test_local_array_from_expression():
     """Test local_array_from with a more complex expression."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @cuda.jit
     def kernel(out, values):
-        arr = numba_cuda_mlir.cuda.local_array_from((v * 2 + 1 for v in values), dtype=np.float32)
+        arr = local_array_from((v * 2 + 1 for v in values), dtype=np.float32)
         for i in range(3):
             out[i] = arr[i]
 
@@ -61,9 +61,9 @@ def test_local_array_from_expression():
 def test_local_array_from_dtypes(dtype):
     """Test local_array_from with various dtypes."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @cuda.jit
     def kernel(out, indices):
-        arr = numba_cuda_mlir.cuda.local_array_from((i for i in indices), dtype=dtype)
+        arr = local_array_from((i for i in indices), dtype=dtype)
         out[0] = arr[0]
 
     out = np.zeros(1, dtype=dtype)

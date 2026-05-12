@@ -40,6 +40,7 @@ def make_vector_type_stubs():
         "uint16",
         "uint32",
         "uint64",
+        "float16",
         "float32",
         "float64",
     )
@@ -86,6 +87,7 @@ def map_vector_type_stubs_to_alias(vector_type_stubs):
         "uint": f"uint{np.dtype(np.uintc).itemsize * 8}",
         "ulong": f"uint{np.dtype(np.uint).itemsize * 8}",
         "ulonglong": f"uint{np.dtype(np.ulonglong).itemsize * 8}",
+        "half": "float16",
         "float": f"float{np.dtype(np.single).itemsize * 8}",
         "double": f"float{np.dtype(np.double).itemsize * 8}",
     }

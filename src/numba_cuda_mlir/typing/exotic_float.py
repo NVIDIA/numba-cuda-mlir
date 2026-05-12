@@ -20,6 +20,7 @@ from numba_cuda_mlir import types
 from numba_cuda_mlir.numba_cuda.types.ext_types import bfloat16 as bf16
 
 registry = Registry()
+_fp8_globals_registered = False
 
 _EXOTIC_FLOAT_TYPES = [
     types.f4E2M1FN,
@@ -111,6 +112,10 @@ for _ty in _EXOTIC_FLOAT_TYPES:
 
 def register_fp8_globals():
     """Register FP8 constructors, cvt_e8m0_to_bf16raw, and bfloat16_raw.x."""
+    global _fp8_globals_registered
+    if _fp8_globals_registered:
+        return
+
     try:
         fp8_e5m2 = types.fp8_e5m2
         fp8_e4m3 = types.fp8_e4m3
@@ -153,3 +158,4 @@ def register_fp8_globals():
             return types.uint16
 
     registry.register_attr(Bfloat16RawAttrTemplate)
+    _fp8_globals_registered = True

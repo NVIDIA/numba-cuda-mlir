@@ -15,7 +15,6 @@ def reinterpret_array_type(byte_arr, start, stop, output):
 
 
 class TestCudaArrayMethods(NumbaCUDATestCase):
-    @pytest.mark.xfail(True, reason="ICE")
     def test_reinterpret_array_type(self):
         """
         Reinterpret byte array as int32 in the GPU.

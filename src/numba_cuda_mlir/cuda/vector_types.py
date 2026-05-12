@@ -23,6 +23,7 @@ BASE_TYPE_MAP = {
     "uint16": types.uint16,
     "uint32": types.uint32,
     "uint64": types.uint64,
+    "float32": types.float16,
     "float32": types.float32,
     "float64": types.float64,
 }
@@ -40,6 +41,7 @@ def make_vector_types():
         "uint16",
         "uint32",
         "uint64",
+        "float16",
         "float32",
         "float64",
     )
@@ -70,6 +72,7 @@ def map_vector_types_to_alias(vector_types):
         "uint": f"uint{np.dtype(np.uintc).itemsize * 8}",
         "ulong": f"uint{np.dtype(np.uint).itemsize * 8}",
         "ulonglong": f"uint{np.dtype(np.ulonglong).itemsize * 8}",
+        "half": "float16",
         "float": f"float{np.dtype(np.single).itemsize * 8}",
         "double": f"float{np.dtype(np.double).itemsize * 8}",
     }

@@ -92,7 +92,7 @@ Instead, it uses a fixed size 3D grid with a total of 2,097,152 (``(16 ** 3) *
 ``tid``, to index into the 2,097,152 RNG states.
 
 
-.. literalinclude:: ../../../../tests/doc_examples/test_random.py
+.. literalinclude:: ../../../tests/doc_examples/test_random.py
    :language: python
    :start-after: magictoken.ex_3d_grid.begin
    :end-before: magictoken.ex_3d_grid.end

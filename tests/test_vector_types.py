@@ -236,6 +236,20 @@ def test_cuda_vector_alias_float4():
     np.testing.assert_allclose(arr, [5.0, 6.0, 7.0, 8.0])
 
 
+def test_cuda_vector_alias_half2():
+    """Test C-style alias half2 -> float16x2."""
+
+    @cuda.jit
+    def kernel(arr):
+        v = cuda.half2(1.5, 2.5)
+        arr[0] = v.x
+        arr[1] = v.y
+
+    arr = np.zeros(2, dtype=np.float16)
+    kernel[1, 1](arr)
+    np.testing.assert_allclose(arr, [1.5, 2.5])
+
+
 def test_cuda_vector_alias_int2():
     """Test C-style alias int2 -> int32x2."""
 
@@ -284,6 +298,10 @@ def test_cuda_vector_closure_capture():
 @pytest.mark.parametrize(
     "vec_type,num_elements,dtype",
     [
+        (cuda.float16x1, 1, np.float16),
+        (cuda.float16x2, 2, np.float16),
+        (cuda.float16x3, 3, np.float16),
+        (cuda.float16x4, 4, np.float16),
         (cuda.float32x1, 1, np.float32),
         (cuda.float32x2, 2, np.float32),
         (cuda.float32x3, 3, np.float32),

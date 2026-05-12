@@ -1007,6 +1007,7 @@ def lower_array_view_cg(builder, target, args, kwargs):
     target_mr = builder.get_mlir_type(target_ty)
     layout = target_ty.layout
 
+    # To support shared memory, memory space must be propagated with the memref
     target_mr = ir.MemRefType.get(
         shape=target_mr.shape,
         element_type=target_mr.element_type,

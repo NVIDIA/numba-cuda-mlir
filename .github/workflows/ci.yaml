@@ -182,12 +182,17 @@ jobs:
         with:
           extra_args: --all-files --show-diff-on-failure
 
-  # TODO: Uncomment when pixi.toml docs environment + Sphinx setup are available
-  # build-docs:
-  #   needs:
-  #     - should-skip
-  #   if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
-  #   uses: ./.github/workflows/docs-build.yaml
+  build-docs:
+    needs:
+      - should-skip
+      - build-linux-64
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+    permissions:
+      actions: read
+      contents: write
+    uses: ./.github/workflows/build-docs.yml
+    with:
+      host-platform: linux-64
 
   # TODO: Coverage runs take over 2 hours; need to figure out why it's running so slow.
   # coverage-report:
@@ -216,9 +221,9 @@ jobs:
       - test-expensive-linux-64
       - test-expensive-linux-aarch64
       - pre-commit
+      - build-docs
       # - coverage-report
       # - test-simulator
-      # - build-docs
     steps:
       - name: Exit
         run: |
@@ -247,13 +252,13 @@ jobs:
                  needs.test-expensive-linux-aarch64.result == 'cancelled' ||
                  needs.test-expensive-linux-aarch64.result == 'failure' ||
                  needs.pre-commit.result == 'cancelled' ||
-                 needs.pre-commit.result == 'failure' }}; then
+                 needs.pre-commit.result == 'failure' ||
+                 needs.build-docs.result == 'cancelled' ||
+                 needs.build-docs.result == 'failure' }}; then
           #        needs.coverage-report.result == 'cancelled' ||
           #        needs.coverage-report.result == 'failure' ||
           #        needs.test-simulator.result == 'cancelled' ||
           #        needs.test-simulator.result == 'failure' ||
-          #        needs.build-docs.result == 'cancelled' ||
-          #        needs.build-docs.result == 'failure' }}; then
             exit 1
           else
             exit 0

@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+from typing import TypeVar
 from numba_cuda_mlir._mlir.dialects import math
 from numba_cuda_mlir.mlir.dialect_exts import func, scf, arith
 from numba_cuda_mlir.mlir.context import mlir_mod_ctx
@@ -10,6 +11,9 @@ from numba_cuda_mlir.mlir.dialect_exts.scf import (
 )
 from numba_cuda_mlir._mlir.ir import UnitAttr
 from numba_cuda_mlir.lowering_utilities import convert
+
+FTy = TypeVar("FTy")
+ITy = TypeVar("ITy")
 
 
 def fpowi32(base, exponent):
@@ -23,8 +27,8 @@ def round_ties_to_even(x):
     return math.roundeven(x)
 
 
-@func.func(sym_visibility="private")
-def round_ndigits[FTy, ITy](x: FTy, ndigits: ITy):
+@func.func(sym_visibility="private", generics=[FTy, ITy])
+def round_ndigits(x: FTy, ndigits: ITy):
     c10 = arith.constant(10.0, x.type)
     c1 = arith.constant(1.0, x.type)
     c1e22 = arith.constant(1e22, x.type)

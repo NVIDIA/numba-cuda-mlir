@@ -6,9 +6,9 @@ MLIR lowering support for union operations (getattr, setattr)
 
 from numba_cuda_mlir.type_defs.aggregate_types import UnionType, AggregateType
 from numba_cuda_mlir.descriptor import MLIRTargetContext
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 from numba_cuda_mlir.logging import trace
 from numba_cuda_mlir.lowering_utilities import convert
 from numba_cuda_mlir._mlir.dialects import llvm, arith

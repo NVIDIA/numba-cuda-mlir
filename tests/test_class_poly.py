@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir.cuda.experimental import consteval
 import numpy as np
 
 
@@ -26,12 +27,12 @@ class ReLU(Epilogue):
 
 
 def kernel_factory(Epilogue):
-    @cuda.jit(experimental_ast_transforms=True)
+    @cuda.jit
     def kernel(A, B, C):
         matrix = C
         for i in range(C.shape[1]):
             matrix = gemm(A, B, C, i)
-        cuda.consteval(cuda.jit(Epilogue.run))(matrix)
+        consteval(cuda.jit(Epilogue.run))(matrix)
 
     return kernel
 

@@ -7,8 +7,8 @@ Typing support for struct and union field access
 from numba_cuda_mlir.numba_cuda.typing.templates import AttributeTemplate, Registry
 from numba_cuda_mlir.numba_cuda.extending import typeof_impl
 from numba_cuda_mlir.type_defs.aggregate_types import AggregateType, UnionType
-from numba_cuda_mlir.host.struct import StructInstance, StructTypeWrapper
-from numba_cuda_mlir.host.union import UnionInstance, UnionTypeWrapper
+from numba_cuda_mlir.cuda.experimental.struct import StructInstance, StructTypeWrapper
+from numba_cuda_mlir.cuda.experimental.union import UnionInstance, UnionTypeWrapper
 from numba_cuda_mlir.numba_cuda import types as numba_types
 
 registry = Registry()

@@ -2180,6 +2180,7 @@ class _Linker:
         prec_sqrt=None,
         fma=None,
         optimize_unused_variables=None,
+        variables_used=None,
         optimization_level=3,
         ptxas_options=None,
     ):
@@ -2207,8 +2208,17 @@ class _Linker:
         self._prec_sqrt = prec_sqrt
         self._fma = fma
         self._optimize_unused_variables = optimize_unused_variables
+        self.variables_used = variables_used
         self._optimization_level = optimization_level
         self._ptxas_options = ptxas_options
+
+    @property
+    def variables_used(self):
+        return self._variables_used
+
+    @variables_used.setter
+    def variables_used(self, variables_used):
+        self._variables_used = variables_used
 
     def add_cu_file(self, path):
         cu = cached_file_read(path, how="rb")
@@ -2393,6 +2403,7 @@ class _Linker:
             prec_div=self._prec_div,
             prec_sqrt=self._prec_sqrt,
             fma=self._fma,
+            variables_used=self.variables_used,
             optimize_unused_variables=self._optimize_unused_variables,
             optimization_level=self._optimization_level,
             ptxas_options=self._ptxas_options,

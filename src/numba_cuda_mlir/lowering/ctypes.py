@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 import operator
 import ctypes
 from numba_cuda_mlir.numba_cuda.types import ffi as _numba_ffi_type
@@ -19,7 +19,7 @@ from numba_cuda_mlir._mlir.dialects import llvm, arith, memref
 from numba_cuda_mlir.logging import trace
 from numba_cuda_mlir._mlir.extras import types as T
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower_getattr = registry.lower_getattr
 
 llvm_kDynamic = (

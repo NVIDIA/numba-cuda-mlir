@@ -4,7 +4,7 @@ from numba_cuda_mlir.numba_cuda import typing
 import inspect
 from numba_cuda_mlir import types
 from functools import singledispatch
-from typeguard import typechecked
+
 import importlib.util
 import numba_cuda_mlir._mlir.ir as ir
 from numba_cuda_mlir._mlir.dialects import llvm
@@ -46,14 +46,12 @@ def numba_sig_from_pyfunc(pysig: inspect.Signature) -> typing.Signature:
 
 
 @to_numba_type.register(ir.TypeAttr)
-@typechecked
 def _(ty: ir.TypeAttr) -> types.Signature:
     return to_numba_type(ty.value)
 
 
 @to_numba_type.register(ir.Type)
 @to_numba_type.register(ir.FunctionType)
-@typechecked
 def _(ty: ir.Type | ir.FunctionType) -> types.Type | typing.Signature:
     match ty:
         case ty if str(ty) == "!llvm.ptr":
@@ -440,7 +438,6 @@ except ImportError:
 
 
 @to_numba_type.register(np.dtype)
-@typechecked
 def np_dtype_to_numba_dtype(dtype: np.dtype) -> types.Type:
     match dtype:
         case np.bool:
@@ -505,12 +502,10 @@ if importlib.util.find_spec("torch") is not None:
     import torch
 
     @to_mlir_type.register(torch.dtype)
-    @typechecked
     def torch_dtype_to_mlir_dtype(dtype: torch.dtype) -> ir.Type:
         return to_mlir_type(to_numba_type(dtype))
 
     @to_numba_type.register(torch.dtype)
-    @typechecked
     def torch_dtype_to_numba_dtype(dtype: torch.dtype) -> types.Type:
         from numba_cuda_mlir.type_defs import float_types
 
@@ -535,7 +530,6 @@ if importlib.util.find_spec("torch") is not None:
                 return types.int64
 
 
-@typechecked
 def inline_ptx_type_constraint_to_numba_type(constraint: str) -> types.Type:
     if len(constraint) != 1:
         raise ValueError(f"Invalid inline ptx type constraint: {constraint}")
@@ -553,7 +547,6 @@ def inline_ptx_type_constraint_to_numba_type(constraint: str) -> types.Type:
     return numba_types[constraint]
 
 
-@typechecked
 def inline_ptx_type_constraint_to_mlir_type(constraint: str) -> ir.Type:
     if len(constraint) != 1:
         raise ValueError(f"Invalid inline ptx type constraint: {constraint}")

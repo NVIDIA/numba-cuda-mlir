@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import numba_cuda_mlir
-from numba_cuda_mlir.cuda import consteval
+from numba_cuda_mlir.cuda.experimental import consteval
 from numba_cuda_mlir.ast_transforms import ConstevalError
 from numba_cuda_mlir import cuda
 import numpy as np
@@ -13,7 +13,7 @@ def test_consteval_freevars():
     def loop_body(x, i):
         x[i] += 1
 
-    @cuda.jit(experimental_ast_transforms=True)
+    @cuda.jit
     def k(x):
         for i in consteval(range(5)):
             loop_body(x, i)
@@ -28,7 +28,7 @@ GLOBAL_CONST = 16
 def test_consteval_global_constant():
     """Test consteval with a global constant."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         limit = consteval(GLOBAL_CONST)
@@ -50,7 +50,7 @@ def test_consteval_closure_variable():
     """Test consteval with a closure variable."""
 
     def make_kernel(n):
-        @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+        @numba_cuda_mlir.cuda.jit
         def kernel(arr):
             i = cuda.threadIdx.x
             limit = consteval(n)
@@ -73,7 +73,7 @@ def test_consteval_closure_variable():
 def test_consteval_expression():
     """Test consteval with an expression."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         limit = consteval(GLOBAL_CONST * 2)
@@ -92,7 +92,7 @@ def test_consteval_expression():
 def test_consteval_undefined_raises():
     """Test that consteval with undefined variable raises ConstevalError."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         limit = consteval(UNDEFINED_VAR)  # noqa: F821
@@ -107,7 +107,7 @@ def test_consteval_kernel_param_resolves_to_type():
     """Test that kernel parameters resolve to their Numba types in consteval."""
     from numba_cuda_mlir import types
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr, n):
         i = cuda.threadIdx.x
         # n resolves to its Numba type in consteval context
@@ -133,7 +133,7 @@ def test_chained_consteval_simple():
     """Test that a = consteval(X) followed by consteval(a) works."""
     X = 42
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         a = consteval(X)
@@ -150,7 +150,7 @@ def test_chained_consteval_expression():
     """Test chained consteval with expressions."""
     BASE = 10
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         x = consteval(BASE)
@@ -171,7 +171,7 @@ def test_chained_consteval_multiple():
     A = 2
     B = 3
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         x = consteval(A)
@@ -192,7 +192,7 @@ def test_consteval_chained_runs_correctly():
     """Test that chained consteval produces correct runtime results."""
     THRESHOLD = 16
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         limit = consteval(THRESHOLD)
@@ -216,7 +216,7 @@ def test_consteval_tuple_indexing():
     """Test consteval with tuple indexing."""
     ITEMS = (10, 20, 30)
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         arr[i] = float(consteval(ITEMS[1]))
@@ -230,7 +230,7 @@ def test_consteval_dict_access():
     """Test consteval with dict access."""
     CONFIG = {"value": 42}
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         arr[i] = float(consteval(CONFIG["value"]))
@@ -244,7 +244,7 @@ def test_consteval_list_operations():
     """Test consteval with list operations."""
     NUMBERS = [1, 2, 3, 4, 5]
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         arr[i] = float(consteval(len(NUMBERS)))
@@ -259,7 +259,7 @@ def test_consteval_arithmetic():
     X = 10
     Y = 3
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         a = consteval(X + Y)
@@ -285,7 +285,7 @@ def test_consteval_boolean_ops():
     A = True
     B = False
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         if consteval(A and not B):
@@ -303,7 +303,7 @@ def test_consteval_comparison():
     """Test consteval with comparison operations."""
     X = 5
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         if consteval(X > 3 and X < 10):
@@ -321,7 +321,7 @@ def test_consteval_with_builtin_functions():
     """Test consteval with builtin functions."""
     ITEMS = [3, 1, 4, 1, 5]
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         m = consteval(max(ITEMS))
@@ -366,7 +366,7 @@ class Config:
 def test_consteval_user_function_no_args():
     """Test consteval with user-defined function (no arguments)."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         val = consteval(_compute_value())
@@ -380,7 +380,7 @@ def test_consteval_user_function_no_args():
 def test_consteval_user_function_with_args():
     """Test consteval with user-defined function with arguments."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         val = consteval(_compute_with_args(5, 6))
@@ -395,7 +395,7 @@ def test_consteval_user_function_with_args():
 def test_consteval_user_function_runs():
     """Test that consteval with user function produces correct runtime results."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         arr[i] = float(consteval(_compute_value()))
@@ -415,7 +415,7 @@ def test_consteval_closure_function():
         def local_compute(x):
             return x * x
 
-        @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+        @numba_cuda_mlir.cuda.jit
         def kernel(arr):
             i = cuda.threadIdx.x
             arr[i] = float(consteval(local_compute(7)))
@@ -431,7 +431,7 @@ def test_consteval_closure_function():
 def test_consteval_static_method():
     """Test consteval with static method call."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         limit = consteval(Config.get_limit())
@@ -446,7 +446,7 @@ def test_consteval_static_method():
 def test_consteval_class_method():
     """Test consteval with class method call."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         limit = consteval(Config.get_double_limit())
@@ -460,7 +460,7 @@ def test_consteval_class_method():
 def test_consteval_class_attribute():
     """Test consteval with class attribute access."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         bs = consteval(Config.BLOCK_SIZE)
@@ -475,7 +475,7 @@ def test_consteval_lambda():
     """Test consteval with lambda expression."""
     square = lambda x: x * x  # noqa: E731
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         arr[i] = float(consteval(square(8)))
@@ -494,7 +494,7 @@ def test_consteval_chained_function_calls():
     def inner(x):
         return x * 2
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         arr[i] = float(consteval(outer(5)))
@@ -509,7 +509,7 @@ def test_consteval_function_with_consteval_arg():
     """Test consteval with function argument from another consteval."""
     BASE = 7
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         b = consteval(BASE)
@@ -529,7 +529,7 @@ def test_consteval_arg_type_dtype():
     """Test accessing array dtype via consteval."""
     from numba_cuda_mlir import types
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         # arr resolves to its Numba type in consteval context
@@ -549,7 +549,7 @@ def test_consteval_arg_type_dtype():
 def test_consteval_arg_type_ndim():
     """Test accessing array ndim via consteval."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         ndim = consteval(arr.ndim)
@@ -568,7 +568,7 @@ def test_consteval_arg_type_ndim():
 def test_consteval_arg_type_print():
     """Test that printing an arg in consteval shows its type."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr, n):
         i = cuda.threadIdx.x
         # This should print the type, not the value
@@ -585,7 +585,7 @@ def test_consteval_arg_type_different_specializations():
     """Test that different arg types produce different consteval results."""
     from numba_cuda_mlir import types
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         dtype = consteval(arr.dtype)
@@ -610,9 +610,9 @@ def test_consteval_arg_type_different_specializations():
 
 def test_consteval_target_options_chip():
     """Test accessing chip target option in consteval."""
-    from numba_cuda_mlir.cuda import current_target_options
+    from numba_cuda_mlir.cuda.experimental import current_target_options
 
-    @numba_cuda_mlir.cuda.jit(chip="sm_90", experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit(chip="sm_90")
     def kernel(arr):
         i = cuda.threadIdx.x
         chip = consteval(current_target_options()["chip"])
@@ -628,10 +628,10 @@ def test_consteval_target_options_chip():
 
 def test_consteval_target_options_opt_level():
     """Test accessing opt_level target option in consteval."""
-    from numba_cuda_mlir.cuda import current_target_options
+    from numba_cuda_mlir.cuda.experimental import current_target_options
 
     # Use default opt_level (3) to avoid linker issues
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         opt = consteval(current_target_options()["opt_level"])
@@ -645,9 +645,9 @@ def test_consteval_target_options_opt_level():
 
 def test_consteval_target_options_fast_math():
     """Test accessing fastmath target option in consteval."""
-    from numba_cuda_mlir.cuda import current_target_options
+    from numba_cuda_mlir.cuda.experimental import current_target_options
 
-    @numba_cuda_mlir.cuda.jit(fastmath=True, experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit(fastmath=True)
     def kernel(arr):
         i = cuda.threadIdx.x
         fm = consteval(current_target_options()["fastmath"])
@@ -665,7 +665,7 @@ def test_consteval_current_target_options():
     """Test using numba_cuda_mlir.current_target_options() syntax."""
     from numba_cuda_mlir import cuda
 
-    @cuda.jit(chip="sm_80", experimental_ast_transforms=True)
+    @cuda.jit(chip="sm_80")
     def kernel(arr):
         i = cuda.threadIdx.x
         chip = consteval(cuda.current_target_options()["chip"])
@@ -686,7 +686,7 @@ def test_consteval_current_target_options():
 def test_inspect_transformed_source_returns_dict():
     """Test that inspect_transformed_source() returns a dict."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         arr[i] = float(consteval(42))
@@ -705,7 +705,7 @@ def test_inspect_transformed_source_with_signature():
     """Test that inspect_transformed_source(sig) returns the source for that sig."""
     from numba_cuda_mlir import types
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         ndim = consteval(arr.ndim)
@@ -729,7 +729,7 @@ def test_consteval_block_basic():
     """Test basic consteval block execution and variable extraction."""
     VALUE = 42
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         with consteval():
@@ -750,7 +750,7 @@ def test_consteval_block_runs_correctly():
     """Test that consteval block produces correct runtime results."""
     SCALE = 3
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         with consteval():
@@ -768,7 +768,7 @@ def test_consteval_block_runs_correctly():
 def test_consteval_block_multiple_statements():
     """Test consteval block with multiple statements."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         with consteval():
@@ -787,7 +787,7 @@ def test_consteval_block_with_conditionals():
     """Test consteval block with conditional logic."""
     USE_LARGE = True
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         with consteval():
@@ -806,7 +806,7 @@ def test_consteval_block_with_loop():
     """Test consteval block with a loop inside."""
     ITEMS = [1, 2, 3, 4, 5]
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         with consteval():
@@ -826,7 +826,7 @@ def test_consteval_block_with_function_call():
     def compute_value(x, y):
         return x * y + 10
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         with consteval():
@@ -842,7 +842,7 @@ def test_consteval_block_with_function_call():
 def test_consteval_block_as_var_raises():
     """Test that 'with consteval() as x:' raises an error."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         with consteval() as x:
@@ -856,7 +856,7 @@ def test_consteval_block_as_var_raises():
 def test_consteval_block_error_propagation():
     """Test that errors in consteval blocks are propagated as ConstevalError."""
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         with consteval():
@@ -871,7 +871,7 @@ def test_consteval_block_with_complex_objects():
     """Test consteval block with complex objects that need storage."""
     CONFIG = {"a": 1, "b": 2}
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         with consteval():
@@ -887,7 +887,7 @@ def test_consteval_block_nested():
     """Test nested consteval blocks."""
     OUTER = 10
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         with consteval():
@@ -905,9 +905,9 @@ def test_consteval_block_nested():
 
 def test_consteval_block_with_target_options():
     """Test consteval block accessing target options."""
-    from numba_cuda_mlir.cuda import current_target_options
+    from numba_cuda_mlir.cuda.experimental import current_target_options
 
-    @numba_cuda_mlir.cuda.jit(chip="sm_80", experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit(chip="sm_80")
     def kernel(arr):
         i = cuda.threadIdx.x
         with consteval():
@@ -925,7 +925,7 @@ def test_consteval_block_with_target_options():
 
 def test_consteval_runtime_error_without_ast_transforms():
     """Test that consteval() raises an error when AST transforms are disabled."""
-    from numba_cuda_mlir.cuda import consteval as ce
+    from numba_cuda_mlir.cuda.experimental import consteval as ce
 
     with pytest.raises(RuntimeError, match="experimental_ast_transforms"):
         ce(42)
@@ -933,7 +933,7 @@ def test_consteval_runtime_error_without_ast_transforms():
 
 def test_consteval_block_runtime_error_without_ast_transforms():
     """Test that 'with consteval():' raises an error when AST transforms are disabled."""
-    from numba_cuda_mlir.cuda import consteval as ce
+    from numba_cuda_mlir.cuda.experimental import consteval as ce
 
     with pytest.raises(RuntimeError, match="experimental_ast_transforms"):
         with ce():
@@ -944,7 +944,7 @@ def test_consteval_block_multiple_extractions():
     """Test extracting multiple values from a consteval block."""
     BASE = 100
 
-    @numba_cuda_mlir.cuda.jit(experimental_ast_transforms=True)
+    @numba_cuda_mlir.cuda.jit
     def kernel(arr):
         i = cuda.threadIdx.x
         with consteval():

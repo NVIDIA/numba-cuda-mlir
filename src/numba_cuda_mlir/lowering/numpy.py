@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from dataclasses import dataclass
-from typeguard import typechecked
 import functools
 import operator
 from numba_cuda_mlir import lowering_utilities
@@ -22,9 +21,9 @@ from numba_cuda_mlir._mlir.dialects import (
 )
 from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower = registry.lower
 lower_getattr = registry.lower_getattr
 lower_getattr_generic = registry.lower_getattr_generic
@@ -907,7 +906,6 @@ class MemRefSlices:
         return memref.subview(mr, **kws, result_type=mrt)
 
 
-@typechecked
 def slice_memref(mr: ir.Value, mrs: MemRefSlices) -> ir.Value:
     value = mrs.subview(mr)
     return value
@@ -960,14 +958,18 @@ def lower_array_slice_getitem(builder, target, args, kwargs):
 
 def lower_array_view_cg(builder, target, args, kwargs):
     _self, dtype = [builder.load_var(arg) for arg in args]
-    dtype = lowering_utilities.mlir_type_from_numpy_dtype(dtype)
+    dtype = lowering_utilities.to_mlir_type(dtype)
     mr_ty: ir.MemRefType = _self.type
     assert mr_ty.has_rank, "NYI: unranked memrefs"
-    tens = memref_to_tensor(_self)
-    newty = T.tensor(*tens.type.shape, dtype)
-    value = tensor.bitcast(newty, tens)
-    value = tensor_to_memref(value)
-    builder.store_var(target, value)
+
+    if mr_ty.element_type == dtype:
+        builder.store_var(target, _self)
+        return
+
+    target_numba_type = builder.get_numba_type(target.name)
+    memref_type = builder.get_mlir_type(target_numba_type)
+    result = builtin.unrealized_conversion_cast([memref_type], [_self])
+    builder.store_var(target, result)
 
 
 @lower_getattr(types.Array, "view")

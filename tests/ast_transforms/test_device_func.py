@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir.cuda.experimental import consteval
 import numpy as np
 from numba_cuda_mlir import tools
 from numba_cuda_mlir.testing import filecheck_with_comments
@@ -36,17 +37,17 @@ def epilogue_for(arch: str):
 def kernel_factory(M):  # M is CT-constant
     config = dict(assign_one=True, N=5, arch=sm_arch)  # CT-constant
 
-    @cuda.jit(experimental_ast_transforms=True)
+    @cuda.jit
     def kernel(x):
         print("RUNTIME: Start of kernel")
-        for i in cuda.consteval(range(config["N"] + 1)):
-            cuda.consteval(print(f"COMPTIME: unrolled loop iteration {i}"))
-            if cuda.consteval(config["assign_one"]):
+        for i in consteval(range(config["N"] + 1)):
+            consteval(print(f"COMPTIME: unrolled loop iteration {i}"))
+            if consteval(config["assign_one"]):
                 print("RUNTIME: assigning ", M, " to index: ", i)
                 x[i] = M
             else:
                 x[i] = 2
-        epi = cuda.consteval(cuda.jit(epilogue_for(config["arch"])))
+        epi = consteval(cuda.jit(epilogue_for(config["arch"])))
         epi(x)
 
     return kernel

@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir import cuda, extending, types, testing
+from numba_cuda_mlir.models import PrimitiveModel, register_model
+from numba_cuda_mlir.numba_cuda.extending import overload as numba_cuda_overload
+from numba_cuda_mlir.numba_cuda.extending import typeof_impl
+from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 import numpy as np
+import pytest
 
 
 def test_extending_intrinsic():
@@ -46,7 +51,7 @@ def test_extending_overload_with_lowering():
         x, _, _ = builder.load_vars(args)
         builder.store_var(target, x)
 
-    @extending.overload(np.sum)
+    @extending.overload(np.sum, typing_registry=extending.typing_registry)
     def sum_overload(a, b, c):
         """
         Silly overload of np.sum that takes three arguments and returns the first.
@@ -71,7 +76,7 @@ def test_extending_overload_without_lowering():
 
     logging.basicConfig(level=logging.DEBUG)
 
-    @extending.overload(np.sum)
+    @extending.overload(np.sum, typing_registry=extending.typing_registry)
     def sum_overload(a, c):
         def ol(a, c):
             return a
@@ -89,7 +94,11 @@ def test_extending_overload_without_lowering():
 def test_extending_overload_method():
     """User-defined @overload_method dispatches through BoundFunction."""
 
-    @extending.overload_method(types.Array, "doubled_first")
+    @extending.overload_method(
+        types.Array,
+        "doubled_first",
+        typing_registry=extending.typing_registry,
+    )
     def array_doubled_first(arr):
         def impl(arr):
             return arr[0] * 2
@@ -106,10 +115,95 @@ def test_extending_overload_method():
     assert out[0] == 42.0
 
 
+def test_extern_function_typeof():
+    from numba_cuda_mlir.descriptor import mlir_target
+
+    sig = types.void(types.int64)
+    device_func = cuda.declare_device("my_device_func", sig)
+
+    function_type = typeof(device_func)
+
+    assert isinstance(function_type, types.Function)
+    assert function_type.get_call_type(mlir_target.typing_context, sig.args, {}) == sig
+
+
+def test_numba_cuda_overload_captures_extern_function():
+    sig = types.void(types.int64)
+    device_func = cuda.declare_device("my_device_func", sig)
+
+    def my_func(val):
+        pass
+
+    @numba_cuda_overload(my_func)
+    def ol_my_func(val):
+        def impl(val):
+            device_func(val)
+
+        return impl
+
+    @cuda.jit
+    def kernel(val):
+        my_func(val)
+
+    with pytest.raises(
+        Exception, match=r"(Undefined reference to|Unresolved extern function) 'my_device_func'"
+    ):
+        kernel[1, 1](1)
+
+
+def test_overload_method_custom_type_uses_mlir_model_only():
+    class MyObj:
+        pass
+
+    class MyObjType(types.Type):
+        def __init__(self, obj):
+            self.obj = obj
+            super().__init__(name="MyObjType")
+
+    @typeof_impl.register(MyObj)
+    def typeof_myobj(val, c):
+        return MyObjType(val)
+
+    from numba_cuda_mlir.lowering_utilities import constant, unverified_convert
+
+    @unverified_convert.register(MyObj)
+    def convert_myobj(_val, target_type, **_kwargs):
+        return constant(0, target_type)
+
+    @register_model(MyObjType)
+    class MyObjMlirModel(PrimitiveModel):
+        def __init__(self, dmm, fe_type):
+            from numba_cuda_mlir._mlir.extras import types as T
+
+            super().__init__(dmm, fe_type, T.i8())
+
+    @extending.overload_method(
+        MyObjType,
+        "execute",
+        typing_registry=extending.typing_registry,
+    )
+    def ol_execute(obj, val):
+        def impl(obj, val):
+            pass
+
+        return impl
+
+    obj = MyObj()
+
+    @cuda.jit
+    def kernel(out, val):
+        obj.execute(val)
+        out[0] = val
+
+    out = np.zeros(1, dtype=np.int64)
+    kernel[1, 1](out, 7)
+    assert out[0] == 7
+
+
 def test_register_jitable():
     """register_jitable makes a plain Python function callable from device code."""
 
-    @extending.register_jitable
+    @extending.register_jitable(typing_registry=extending.typing_registry)
     def triple(x):
         return x * 3
 
@@ -125,11 +219,11 @@ def test_register_jitable():
 def test_register_jitable_calls_register_jitable():
     """Chained register_jitable: one jitable function calls another."""
 
-    @extending.register_jitable
+    @extending.register_jitable(typing_registry=extending.typing_registry)
     def add_one(x):
         return x + 1
 
-    @extending.register_jitable
+    @extending.register_jitable(typing_registry=extending.typing_registry)
     def add_two(x):
         return add_one(add_one(x))
 
@@ -145,7 +239,12 @@ def test_register_jitable_calls_register_jitable():
 def test_overload_attribute():
     """overload_attribute exposes a read-only property on a Numba type."""
 
-    @extending.overload_attribute(types.Array, "doubled_size")
+    @extending.overload_attribute(
+        types.Array,
+        "doubled_size",
+        typing_registry=extending.typing_registry,
+        lowering_registry=extending.lowering_registry,
+    )
     def array_doubled_size(arr):
         def get(arr):
             return arr.size * 2
@@ -165,7 +264,11 @@ def test_overload_attribute():
 def test_overload_method_with_args():
     """overload_method with arguments beyond self."""
 
-    @extending.overload_method(types.Array, "elem_plus")
+    @extending.overload_method(
+        types.Array,
+        "elem_plus",
+        typing_registry=extending.typing_registry,
+    )
     def array_elem_plus(arr, idx, val):
         def impl(arr, idx, val):
             return arr[idx] + val
@@ -188,7 +291,7 @@ def test_overload_dispatches_on_type():
     def my_func(x):
         raise NotImplementedError
 
-    @extending.overload(my_func)
+    @extending.overload(my_func, typing_registry=extending.typing_registry)
     def my_func_overload(x):
         if isinstance(x, types.Integer):
 

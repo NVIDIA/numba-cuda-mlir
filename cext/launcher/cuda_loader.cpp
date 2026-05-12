@@ -5,16 +5,22 @@
 #include "cuda_loader.h"
 #include "cuda_helper.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <dlfcn.h>
+#endif
 
 namespace {
 
-
-// TODO: windows compatibility
 class DynamicLoader {
 public:
     DynamicLoader(const char* path) {
+#ifdef _WIN32
+        handle_ = LoadLibraryA(path);
+#else
         handle_ = dlopen(path, RTLD_NOW);
+#endif
     }
 
     DynamicLoader(const DynamicLoader&&) = delete;
@@ -22,7 +28,11 @@ public:
 
     template <typename F>
     F load_function(const char* name) {
+#ifdef _WIN32
+        auto ret = GetProcAddress(reinterpret_cast<HMODULE>(handle_), name);
+#else
         void* ret = dlsym(handle_, name);
+#endif
         return reinterpret_cast<F>(ret);
     }
 
@@ -35,7 +45,13 @@ public:
     }
 
     ~DynamicLoader() {
-        if (handle_) dlclose(handle_);
+        if (handle_) {
+#ifdef _WIN32
+            FreeLibrary(reinterpret_cast<HMODULE>(handle_));
+#else
+            dlclose(handle_);
+#endif
+        }
     }
 
     explicit operator bool () const {
@@ -65,8 +81,12 @@ void* do_get_proc_address(cuGetProcAddress_v2_t getter, void* dlhandle,
     }
 
     if (!ret && dlhandle) {
+#ifdef _WIN32
+        ret = reinterpret_cast<void*>(GetProcAddress(reinterpret_cast<HMODULE>(dlhandle), name));
+#else
         // Fallback to dlsym for functions not available via cuGetProcAddress_v2
         ret = dlsym(dlhandle, name);
+#endif
     }
 
     if (!ret) {
@@ -89,18 +109,22 @@ F get_proc_address(cuGetProcAddress_v2_t getter, void* dlhandle,
 
 
 #define DEFINE_CUDA_FUNCTION_GLOBAL(name, _cuda_version) \
-    typeof(name)* g_##name;
+    decltype(&name) g_##name;
 
 FOREACH_CUDA_FUNCTION_TO_LOAD(DEFINE_CUDA_FUNCTION_GLOBAL)
 
 #define GET_PROC_ADDRESS(name, cuda_ver) \
-        if (!(g_##name = get_proc_address<typeof(name)*>(_cuGetProcAddress, loader.get_handle(), #name, cuda_ver))) \
+        if (!(g_##name = get_proc_address<decltype(&name)>(_cuGetProcAddress, loader.get_handle(), #name, cuda_ver))) \
             return ErrorRaised;
 
 
 Status cuda_loader_init() {
     // loader is static to keep the handle alive for the lifetime of the process
+#ifdef _WIN32
+    static DynamicLoader loader("nvcuda.dll");
+#else
     static DynamicLoader loader("libcuda.so.1");
+#endif
     if (!loader) {
       return raise(PyExc_RuntimeError,
                    "Failed to load the CUDA dynamic library");

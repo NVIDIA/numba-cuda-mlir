@@ -4,7 +4,11 @@
  */
 #include "llvm_downgrade.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <dlfcn.h>
+#endif
 #include <cstring>
 #include <string_view>
 #include <vector>
@@ -170,17 +174,33 @@ LLVM_CAPI_OPTIONAL(DECLARE_FN)
 
 static void* g_mlir_lib_handle;
 
+static void* load_symbol(void* handle, const char* name) {
+#ifdef _WIN32
+    return reinterpret_cast<void*>(
+        GetProcAddress(reinterpret_cast<HMODULE>(handle), name));
+#else
+    return dlsym(handle, name);
+#endif
+}
+
 Status load_mlir_capi(const char* lib_path) {
     if (g_mlir_lib_handle)
         return OK;
 
+#ifdef _WIN32
+    g_mlir_lib_handle = LoadLibraryA(lib_path);
+    if (!g_mlir_lib_handle)
+        return raise(PyExc_RuntimeError, "Failed to load %s: error %lu",
+                     lib_path, GetLastError());
+#else
     g_mlir_lib_handle = dlopen(lib_path, RTLD_NOW | RTLD_GLOBAL);
     if (!g_mlir_lib_handle)
         return raise(PyExc_RuntimeError, "Failed to load %s: %s",
                      lib_path, dlerror());
+#endif
 
 #define LOAD_REQUIRED(ret, name, args) \
-    g_##name = reinterpret_cast<name##_fn>(dlsym(g_mlir_lib_handle, #name)); \
+    g_##name = reinterpret_cast<name##_fn>(load_symbol(g_mlir_lib_handle, #name)); \
     if (!g_##name) \
         return raise(PyExc_RuntimeError, \
                      "Symbol '%s' not found in libMLIRPythonCAPI.so", #name);
@@ -189,7 +209,7 @@ Status load_mlir_capi(const char* lib_path) {
 #undef LOAD_REQUIRED
 
 #define LOAD_OPTIONAL(ret, name, args) \
-    g_##name = reinterpret_cast<name##_fn>(dlsym(g_mlir_lib_handle, #name));
+    g_##name = reinterpret_cast<name##_fn>(load_symbol(g_mlir_lib_handle, #name));
 
     LLVM_CAPI_OPTIONAL(LOAD_OPTIONAL)
 #undef LOAD_OPTIONAL

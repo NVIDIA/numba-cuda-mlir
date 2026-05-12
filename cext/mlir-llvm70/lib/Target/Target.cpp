@@ -91,7 +91,11 @@ static std::string resolveLibNVVMPath(LLVM70TargetAttr target,
     return env;
   if (!toolkitPath.empty()) {
     llvm::SmallString<256> p(toolkitPath);
+#ifdef _WIN32
+    llvm::sys::path::append(p, "nvvm", "bin", "nvvm64_40_0.dll");
+#else
     llvm::sys::path::append(p, "nvvm", "lib64", "libnvvm.so");
+#endif
     return std::string(p);
   }
   return {};
@@ -118,12 +122,14 @@ std::optional<SmallVector<char, 0>> LLVM70TargetAttrImpl::serializeToObject(
 
   // Resolve paths.
   std::string libllvmPath = resolveLibLLVMPath(target);
+#ifndef _WIN32
   if (libllvmPath.empty()) {
     module->emitError()
         << "LLVM70: libLLVM path not set. Use #nvvm_llvm70.target<libllvm=...>, "
            "set LIBLLVM7 env, or pass via target options.";
     return std::nullopt;
   }
+#endif
 
   std::string libnvvmPath =
       resolveLibNVVMPath(target, options.getToolkitPath());

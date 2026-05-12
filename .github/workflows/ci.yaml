@@ -75,6 +75,15 @@ jobs:
       host-platform: linux-aarch64
     secrets: inherit
 
+  build-llvm-windows:
+    needs:
+      - should-skip
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+    uses: ./.github/workflows/build-llvm.yml
+    with:
+      host-platform: win-64
+    secrets: inherit
+
   # WARNING: make sure all of the build jobs are in sync
   build-linux-64:
     needs:
@@ -105,6 +114,25 @@ jobs:
       matrix:
         host-platform:
           - linux-aarch64
+    name: Build ${{ matrix.host-platform }}
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+    uses: ./.github/workflows/build-wheel.yml
+    with:
+      host-platform: ${{ matrix.host-platform }}
+      cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
+      prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
+
+  # WARNING: make sure all of the build jobs are in sync
+  build-windows:
+    needs:
+      - ci-vars
+      - should-skip
+      - build-llvm-windows
+    strategy:
+      fail-fast: false
+      matrix:
+        host-platform:
+          - win-64
     name: Build ${{ matrix.host-platform }}
     if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
     uses: ./.github/workflows/build-wheel.yml
@@ -149,6 +177,23 @@ jobs:
       build-type: pull-request
       host-platform: ${{ matrix.host-platform }}
 
+  test-windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        host-platform:
+          - win-64
+    name: Test ${{ matrix.host-platform }}
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read  # This is required for actions/checkout
+    needs:
+      - build-windows
+    uses: ./.github/workflows/test-wheel-windows.yml
+    with:
+      build-type: pull-request
+      host-platform: ${{ matrix.host-platform }}
+
   test-expensive-linux-64:
     name: Expensive Test linux-64
     if: ${{ github.repository_owner == 'nvidia' }}
@@ -182,17 +227,12 @@ jobs:
         with:
           extra_args: --all-files --show-diff-on-failure
 
-  build-docs:
-    needs:
-      - should-skip
-      - build-linux-64
-    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
-    permissions:
-      actions: read
-      contents: write
-    uses: ./.github/workflows/build-docs.yml
-    with:
-      host-platform: linux-64
+  # TODO: Uncomment when pixi.toml docs environment + Sphinx setup are available
+  # build-docs:
+  #   needs:
+  #     - should-skip
+  #   if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+  #   uses: ./.github/workflows/docs-build.yaml
 
   # TODO: Coverage runs take over 2 hours; need to figure out why it's running so slow.
   # coverage-report:
@@ -218,12 +258,13 @@ jobs:
     needs:
       - test-linux-64
       - test-linux-aarch64
+      - test-windows
       - test-expensive-linux-64
       - test-expensive-linux-aarch64
       - pre-commit
-      - build-docs
       # - coverage-report
       # - test-simulator
+      # - build-docs
     steps:
       - name: Exit
         run: |
@@ -247,18 +288,20 @@ jobs:
                  needs.test-linux-64.result == 'failure' ||
                  needs.test-linux-aarch64.result == 'cancelled' ||
                  needs.test-linux-aarch64.result == 'failure' ||
+                 needs.test-windows.result == 'cancelled' ||
+                 needs.test-windows.result == 'failure' ||
                  needs.test-expensive-linux-64.result == 'cancelled' ||
                  needs.test-expensive-linux-64.result == 'failure' ||
                  needs.test-expensive-linux-aarch64.result == 'cancelled' ||
                  needs.test-expensive-linux-aarch64.result == 'failure' ||
                  needs.pre-commit.result == 'cancelled' ||
-                 needs.pre-commit.result == 'failure' ||
-                 needs.build-docs.result == 'cancelled' ||
-                 needs.build-docs.result == 'failure' }}; then
+                 needs.pre-commit.result == 'failure' }}; then
           #        needs.coverage-report.result == 'cancelled' ||
           #        needs.coverage-report.result == 'failure' ||
           #        needs.test-simulator.result == 'cancelled' ||
           #        needs.test-simulator.result == 'failure' ||
+          #        needs.build-docs.result == 'cancelled' ||
+          #        needs.build-docs.result == 'failure' }}; then
             exit 1
           else
             exit 0

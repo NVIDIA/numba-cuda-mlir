@@ -9,6 +9,11 @@ import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+IS_WINDOWS = os.name == "nt"
+
+
+def _shared_lib_name(name: str) -> str:
+    return f"{name}.dll" if IS_WINDOWS else f"lib{name}.so"
 
 
 def _find_mlir_python_capi() -> str | None:
@@ -22,23 +27,28 @@ def _find_mlir_python_capi() -> str | None:
     mlir_dir = os.environ.get("MLIR_DIR")
     if mlir_dir:
         install_root = Path(mlir_dir).resolve().parent.parent.parent
-        capi = (
+        mlir_libs = (
             install_root
             / "python_packages"
             / "numba_cuda_mlir_mlir"
             / "numba_cuda_mlir"
             / "_mlir"
             / "_mlir_libs"
-            / "libMLIRPythonCAPI.so"
         )
-        if capi.exists():
-            return str(capi)
+        for capi_name in ("MLIRPythonCAPI.dll", "libMLIRPythonCAPI.so"):
+            capi = mlir_libs / capi_name
+            if capi.exists():
+                return str(capi)
 
     import sysconfig
 
     sp = Path(sysconfig.get_path("platlib"))
-    capi = sp / "numba_cuda_mlir" / "_mlir" / "_mlir_libs" / "libMLIRPythonCAPI.so"
-    return str(capi) if capi.exists() else None
+    mlir_libs = sp / "numba_cuda_mlir" / "_mlir" / "_mlir_libs"
+    for capi_name in ("MLIRPythonCAPI.dll", "libMLIRPythonCAPI.so"):
+        capi = mlir_libs / capi_name
+        if capi.exists():
+            return str(capi)
+    return None
 
 
 class BuildExtWithCmake(build_ext):
@@ -55,16 +65,26 @@ class BuildExtWithCmake(build_ext):
         build_dir.mkdir(parents=True, exist_ok=True)
         print(f"Build directory: {build_dir}")
         build_type = "Debug" if self.debug else "Release"
-        cmake_cmd = ["cmake", "-B", build_dir, ROOT, f"-DCMAKE_BUILD_TYPE={build_type}"]
+        cmake_cmd = ["cmake"]
+        if IS_WINDOWS:
+            cmake_cmd += ["-G", "Ninja"]
+        cmake_cmd += ["-B", build_dir, ROOT, f"-DCMAKE_BUILD_TYPE={build_type}"]
+        for launcher_var in ("CMAKE_C_COMPILER_LAUNCHER", "CMAKE_CXX_COMPILER_LAUNCHER"):
+            launcher = os.environ.get(launcher_var)
+            if launcher:
+                cmake_cmd.append(f"-D{launcher_var}={launcher}")
         mlir_dir = os.environ.get("MLIR_DIR")
         if mlir_dir:
             cmake_cmd += ["-DBUILD_LLVM70=ON", f"-DMLIR_DIR={mlir_dir}"]
+            llvm70_root = os.environ.get("LLVM70_ROOT")
+            if llvm70_root:
+                cmake_cmd.append(f"-DLLVM70_ROOT={llvm70_root}")
             capi = _find_mlir_python_capi()
             if capi:
                 cmake_cmd.append(f"-DLLVM70_MLIR_PYTHON_CAPI={capi}")
         self.spawn(cmake_cmd)
         parallel = 1 if self.parallel is None else self.parallel
-        self.spawn(["make", "-C", build_dir, "-j", str(parallel)])
+        self.spawn(["cmake", "--build", build_dir, "-j", str(parallel)])
 
         # TODO: ideally, we should "make install" the library somewhere, so that CMake removes
         #   any build RPATHs etc. But I'll leave that for another day.
@@ -83,11 +103,11 @@ class BuildExtWithCmake(build_ext):
                 else:
                     shutil.copy2(ext_build_path, ext_path)
 
-        # Copy libMLIRToLLVM70.so next to _cext if it was built
-        llvm70_capi = build_dir / "cext" / "mlir-llvm70" / "lib" / "libMLIRToLLVM70.so"
+        # Copy the LLVM70 translator next to _cext if it was built
+        llvm70_capi = build_dir / "cext" / "mlir-llvm70" / "lib" / _shared_lib_name("MLIRToLLVM70")
         if llvm70_capi.exists():
             dest_dir = Path(self.get_ext_fullpath("numba_cuda_mlir._cext")).parent
-            dest = dest_dir / "libMLIRToLLVM70.so"
+            dest = dest_dir / llvm70_capi.name
             if not self.dry_run:
                 dest_dir.mkdir(parents=True, exist_ok=True)
                 if dest.exists() or dest.is_symlink():
@@ -101,7 +121,7 @@ class BuildExtWithCmake(build_ext):
             # via RPATH when loaded from the wheel
             mlir_libs_dir = Path(self.build_lib) / "numba_cuda_mlir" / "_mlir" / "_mlir_libs"
             if mlir_libs_dir.exists() and not self.dry_run:
-                mlir_dest = mlir_libs_dir / "libMLIRToLLVM70.so"
+                mlir_dest = mlir_libs_dir / llvm70_capi.name
                 if mlir_dest.exists() or mlir_dest.is_symlink():
                     mlir_dest.unlink()
                 print(f"Staging libMLIRToLLVM70.so: {llvm70_capi} -> {mlir_dest}")
@@ -143,7 +163,7 @@ class BuildExtWithCmake(build_ext):
             shutil.copytree(str(mlir_pkg), str(dest))
 
     def _stage_libllvm7(self):
-        """Copy libLLVM-7.so into the wheel for the LLVM70 path."""
+        """Copy the optional LLVM 7 runtime library into the wheel."""
         libllvm7 = os.environ.get("LIBLLVM7")
         if not libllvm7:
             return
@@ -158,8 +178,8 @@ class BuildExtWithCmake(build_ext):
         )
         dest_dir = pkg / "lib"
         dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / "libLLVM-7.so"
-        print(f"Staging libLLVM-7.so: {libllvm7} -> {dest}")
+        dest = dest_dir / libllvm7.name
+        print(f"Staging {libllvm7.name}: {libllvm7} -> {dest}")
         if self.editable_mode:
             if dest.exists() or dest.is_symlink():
                 dest.unlink()
@@ -179,7 +199,7 @@ def _get_csrc_dir(ext_name: str):
 
 def _get_build_lib_filename(ext_name: str):
     name = ext_name.split(".")[-1]
-    return f"lib{name}.so"
+    return _shared_lib_name(name)
 
 
 VERSION = os.getenv("NUMBA_CUDA_MLIR_VERSION")

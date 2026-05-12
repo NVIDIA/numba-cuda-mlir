@@ -44,7 +44,21 @@ target_include_directories(MLIRToLLVM70 PRIVATE
   ${LLVM70_SOURCE_DIR}/include
   ${LLVM70_BINARY_DIR}/include
 )
+if(WIN32)
+  set_target_properties(MLIRToLLVM70 PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+endif()
 target_link_libraries(MLIRToLLVM70 PRIVATE LLVM70Translate ${CMAKE_DL_LIBS})
+
+if(WIN32 AND LLVM70_ROOT)
+  file(GLOB LLVM70_STATIC_LIBS "${LLVM70_ROOT}/lib/*.lib")
+  if(NOT LLVM70_STATIC_LIBS)
+    message(FATAL_ERROR "LLVM70_ROOT was set but no static libraries were found under ${LLVM70_ROOT}/lib")
+  endif()
+  target_link_libraries(MLIRToLLVM70 PRIVATE ${LLVM70_STATIC_LIBS})
+  foreach(LLVM70_STATIC_LIB IN LISTS LLVM70_STATIC_LIBS)
+    target_link_options(MLIRToLLVM70 PRIVATE "/WHOLEARCHIVE:${LLVM70_STATIC_LIB}")
+  endforeach()
+endif()
 
 if(LLVM70_MLIR_PYTHON_CAPI)
   message(STATUS "MLIRToLLVM70: linking against ${LLVM70_MLIR_PYTHON_CAPI}")

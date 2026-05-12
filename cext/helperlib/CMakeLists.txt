@@ -1,7 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) <2026> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-set(CEXT_OPTIONS -fno-exceptions -fno-rtti)
+if(MSVC)
+    set(CEXT_OPTIONS /EHs-c- /GR-)
+else()
+    set(CEXT_OPTIONS -fno-exceptions -fno-rtti)
+endif()
 
 add_library(_helperlib MODULE
     _helpermod.cpp

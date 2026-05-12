@@ -11,7 +11,11 @@ add_library(_cext MODULE
     kernel.cpp
     )
 
-target_compile_options(_cext PUBLIC -fno-exceptions -fno-rtti)
+if(MSVC)
+    target_compile_options(_cext PUBLIC /EHs-c- /GR-)
+else()
+    target_compile_options(_cext PUBLIC -fno-exceptions -fno-rtti)
+endif()
 
 target_include_directories(_cext PRIVATE
     ${dlpack_INCLUDE_DIR}

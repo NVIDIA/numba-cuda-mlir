@@ -986,11 +986,8 @@ class NumpyArrayViewMethodTemplate(AbstractTemplate):
         if len(args) == 1:
             arr = self.this
             dtype = args[0]
-
-            parsed_dtype = parse_dtype(dtype)
-            retty = arr.copy(dtype=parsed_dtype)
             # Return array with potentially different dtype
-            return signature(retty, dtype, recvr=self.this)
+            return signature(arr, dtype, recvr=self.this)
         return None
 
 

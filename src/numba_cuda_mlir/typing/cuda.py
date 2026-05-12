@@ -651,6 +651,7 @@ class Cuda_stub_resolver(cudadecl.CudaModuleTemplate, AttributeTemplate):
         return types.Module(cg)
 
     def generic_resolve(self, mod, attr):
+        from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
         # Handle vector type constructors (float64x4, float32x2, int32x4, etc.)
         stub = vector_types_by_name.get(attr) or vector_types_by_alias.get(attr)
         if stub is not None:

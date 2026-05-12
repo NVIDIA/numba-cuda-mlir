@@ -20,7 +20,6 @@ from numba_cuda_mlir._mlir.dialects import (
 )
 from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir.type_defs.vector_types import VectorType as MLIRVectorType
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
 registry = LoweringRegistry()
@@ -955,137 +954,14 @@ def lower_array_slice_getitem(builder, target, args, kwargs):
 
 
 def lower_array_view_cg(builder, target, args, kwargs):
-    _self, _ = [builder.load_var(arg) for arg in args]
-    target_type = builder.get_numba_type(target.name)
-    source_type = builder.get_numba_type(args[0].name)
-    dtype = lowering_utilities.to_mlir_type(target_type.dtype)
+    _self, dtype = [builder.load_var(arg) for arg in args]
+    dtype = lowering_utilities.mlir_type_from_numpy_dtype(dtype)
     mr_ty: ir.MemRefType = _self.type
     assert mr_ty.has_rank, "NYI: unranked memrefs"
-
-    def get_vec_len(numba_type):
-        if isinstance(numba_type, MLIRVectorType):
-            return numba_type.shape[0]
-        return None
-
-    target_vec_len = get_vec_len(target_type.dtype)
-    source_vec_len = get_vec_len(source_type.dtype)
-
-    if target_vec_len is not None or source_vec_len is not None:
-        # We need to construct a new memref with the new element type and sizes.
-        target_mlir_type = lowering_utilities.to_mlir_type(target_type)
-        if isinstance(target_mlir_type, ir.MemRefType):
-            target_rank = len(target_mlir_type.shape)
-            target_mlir_type = ir.MemRefType.get(
-                target_mlir_type.shape,
-                target_mlir_type.element_type,
-                target_mlir_type.layout,
-                memory_space=mr_ty.memory_space,
-            )
-        else:
-            # For scalar / vector target types
-            target_rank = mr_ty.rank
-
-        dynamic_sizes = []
-        dynamic_strides = []
-
-        metadata = memref_dialect.extract_strided_metadata(_self)
-        offset = metadata[1]
-
-        dyn_size = ir.ShapedType.get_dynamic_size()
-        dyn_stride = ir.ShapedType.get_dynamic_stride_or_offset()
-
-        # If both are vectors or complex of the same total size, we just reinterpret-cast without changing rank/sizes
-        if source_vec_len == target_vec_len and source_vec_len is not None:
-            for i in range(target_rank):
-                dynamic_sizes.append(metadata[2 + i])
-                dynamic_strides.append(metadata[2 + target_rank + i])
-
-            converted = builtin.unrealized_conversion_cast(
-                [
-                    ir.MemRefType.get(
-                        [dyn_size] * target_rank,
-                        dtype,
-                        ir.StridedLayoutAttr.get(dyn_stride, [dyn_stride] * target_rank),
-                        memory_space=mr_ty.memory_space,
-                    )
-                ],
-                [_self],
-            )
-            value = converted
-        elif target_vec_len is not None:
-            vec_len = target_vec_len
-            for i in range(target_rank):
-                dim_size = metadata[2 + i]
-                dim_stride = metadata[2 + target_rank + i]
-                if i == target_rank - 1:
-                    vec_len_val = arith.constant(vec_len, index=True)
-                    dim_size = arith_dialect.divui(dim_size, vec_len_val)
-                dynamic_sizes.append(dim_size)
-                dynamic_strides.append(dim_stride)
-
-            # Reinterpret cast to modify sizes while keeping same element type
-            reinterpreted = memref_dialect.reinterpret_cast(
-                ir.MemRefType.get(
-                    [dyn_size] * target_rank,
-                    mr_ty.element_type,
-                    ir.StridedLayoutAttr.get(dyn_stride, [dyn_stride] * target_rank),
-                    memory_space=mr_ty.memory_space,
-                ),
-                _self,
-                offsets=[offset],
-                sizes=dynamic_sizes,
-                strides=dynamic_strides,
-                static_offsets=[dyn_stride],
-                static_sizes=[dyn_size] * target_rank,
-                static_strides=[dyn_stride] * target_rank,
-            )
-
-            # Unrealized conversion cast to change element type to vector
-            value = builtin.unrealized_conversion_cast([target_mlir_type], [reinterpreted])
-        else:
-            vec_len = source_vec_len
-            for i in range(target_rank):
-                dim_size = metadata[2 + i]
-                dim_stride = metadata[2 + target_rank + i]
-                if i == target_rank - 1:
-                    vec_len_val = arith.constant(vec_len, index=True)
-                    dim_size = arith_dialect.muli(dim_size, vec_len_val)
-                dynamic_sizes.append(dim_size)
-                dynamic_strides.append(dim_stride)
-
-            # Unrealized conversion cast to change element type to float
-            float_memref_type = ir.MemRefType.get(
-                [dyn_size] * len(mr_ty.shape),
-                dtype,
-                ir.StridedLayoutAttr.get(dyn_stride, [dyn_stride] * len(mr_ty.shape)),
-                memory_space=mr_ty.memory_space,
-            )
-            converted = builtin.unrealized_conversion_cast([float_memref_type], [_self])
-
-            # Reinterpret cast to modify sizes while keeping same element type
-            value = memref_dialect.reinterpret_cast(
-                ir.MemRefType.get(
-                    [dyn_size] * target_rank,
-                    dtype,
-                    ir.StridedLayoutAttr.get(dyn_stride, [dyn_stride] * target_rank),
-                    memory_space=mr_ty.memory_space,
-                ),
-                converted,
-                offsets=[offset],
-                sizes=dynamic_sizes,
-                strides=dynamic_strides,
-                static_offsets=[dyn_stride],
-                static_sizes=[dyn_size] * target_rank,
-                static_strides=[dyn_stride] * target_rank,
-            )
-    else:
-        if isinstance(dtype, llvm.StructType):
-            dtype = ir.IntegerType.get_signless(8)
-
-        tens = memref_to_tensor(_self)
-        newty = T.tensor(*tens.type.shape, dtype)
-        value = tensor.bitcast(newty, tens)
-        value = tensor_to_memref(value)
+    tens = memref_to_tensor(_self)
+    newty = T.tensor(*tens.type.shape, dtype)
+    value = tensor.bitcast(newty, tens)
+    value = tensor_to_memref(value)
     builder.store_var(target, value)
 
 

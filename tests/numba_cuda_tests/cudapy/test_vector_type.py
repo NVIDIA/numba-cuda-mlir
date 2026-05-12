@@ -488,3 +488,35 @@ class TestCudaVectorType(NumbaCUDATestCase):
         for vty in _vector_types():
             for alias in vty.user_facing_object.aliases:
                 self.assertEqual(id(getattr(cuda, vty.name)), id(getattr(cuda, alias)))
+
+    def test_vector_local_array(self):
+        """Tests that vector types can be used as dtype for cuda.local.array"""
+
+        @cuda.jit
+        def kernel(out):
+            arr = cuda.local.array(1, dtype=cuda.float32x4)
+            arr[0] = cuda.float32x4(1.0, 2.0, 3.0, 4.0)
+            out[0] = arr[0].x
+            out[1] = arr[0].y
+            out[2] = arr[0].z
+            out[3] = arr[0].w
+
+        out = np.zeros(4, dtype=np.float32)
+        kernel[1, 1](out)
+        np.testing.assert_array_equal(out, np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
+
+    def test_vector_shared_array(self):
+        """Tests that vector types can be used as dtype for cuda.shared.array"""
+
+        @cuda.jit
+        def kernel(out):
+            arr = cuda.shared.array(1, dtype=cuda.float32x4)
+            arr[0] = cuda.float32x4(1.0, 2.0, 3.0, 4.0)
+            out[0] = arr[0].x
+            out[1] = arr[0].y
+            out[2] = arr[0].z
+            out[3] = arr[0].w
+
+        out = np.zeros(4, dtype=np.float32)
+        kernel[1, 1](out)
+        np.testing.assert_array_equal(out, np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))

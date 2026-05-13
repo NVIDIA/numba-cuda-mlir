@@ -119,8 +119,8 @@ jobs:
           # - { python-version: "3.13", py-tag: cp313 }
           # - { python-version: "3.14", py-tag: cp314 }
           # - { python-version: "3.14t", py-tag: cp314t }
-    runs-on: windows-2022
-    timeout-minutes: 240
+    runs-on: windows-2022-4core
+    timeout-minutes: 300
     env:
       PARALLEL: "4"
     steps:
@@ -257,8 +257,8 @@ jobs:
   build-llvm7-windows:
     name: LLVM 7 Windows
     if: ${{ inputs.host-platform == 'win-64' }}
-    runs-on: windows-2022
-    timeout-minutes: 240
+    runs-on: windows-2022-4core
+    timeout-minutes: 300
     env:
       PARALLEL: "4"
     steps:

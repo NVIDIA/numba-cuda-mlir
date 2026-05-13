@@ -12,7 +12,7 @@ add_library(_cext MODULE
     )
 
 if(MSVC)
-    target_compile_options(_cext PUBLIC /EHs-c- /GR-)
+    target_compile_options(_cext PUBLIC /EHs-c- /GR- /wd4100 /wd4530)
 else()
     target_compile_options(_cext PUBLIC -fno-exceptions -fno-rtti)
 endif()
@@ -22,6 +22,7 @@ target_include_directories(_cext PRIVATE
     ${Python_INCLUDE_DIRS}
     ${CUDAToolkit_INCLUDE_DIRS}
     )
+target_link_libraries(_cext PRIVATE Python::Module)
 
 set_target_properties(_cext PROPERTIES SKIP_BUILD_RPATH TRUE)
 

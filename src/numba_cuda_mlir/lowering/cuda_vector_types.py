@@ -77,6 +77,11 @@ def _constructor_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs)
 
         if isinstance(arg_type, VectorType):
             scalars.extend(_extract_vector_elements(val))
+        elif isinstance(arg_type, types.Complex):
+            from numba_cuda_mlir._mlir.dialects import complex as complex_dialect
+
+            scalars.append(complex_dialect.re(val))
+            scalars.append(complex_dialect.im(val))
         else:
             scalars.append(val)
 
@@ -111,3 +116,27 @@ lower_getattr(VectorType, "x")(_make_attr_lowering("x"))
 lower_getattr(VectorType, "y")(_make_attr_lowering("y"))
 lower_getattr(VectorType, "z")(_make_attr_lowering("z"))
 lower_getattr(VectorType, "w")(_make_attr_lowering("w"))
+
+
+@_raw_lower(complex, VectorType)
+def _complex_from_vector_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
+    """Lowering for complex(vector_type)."""
+    target_type = lower_ctx.get_numba_type(target.name)
+    mlir_target_type = lower_ctx.get_mlir_type(target_type)
+
+    val = lower_ctx.load_var(args[0])
+
+    real = vector.extract(val, [], [0])
+    imag = vector.extract(val, [], [1])
+
+    real = convert(real, mlir_target_type.element_type)
+    imag = convert(imag, mlir_target_type.element_type)
+
+    from numba_cuda_mlir._mlir.dialects import complex as complex_dialect
+
+    result = complex_dialect.create_(
+        complex=mlir_target_type,
+        real=real,
+        imaginary=imag,
+    )
+    lower_ctx.store_var(target, result)

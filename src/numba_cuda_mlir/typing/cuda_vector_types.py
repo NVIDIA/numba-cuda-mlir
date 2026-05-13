@@ -86,6 +86,9 @@ def make_constructor_template(vec_type):
                 # Scalar broadcast
                 if isinstance(arg, (types.Integer, types.Float)):
                     return signature(vec_type, arg)
+                # Complex broadcast/cast
+                if isinstance(arg, types.Complex) and num_elements == 2:
+                    return signature(vec_type, arg)
 
             # All scalar arguments matching element count
             if len(args) == num_elements:
@@ -153,3 +156,14 @@ def typeof_vector_type(val, c):
     """Create a typeof implementation for a vector type."""
     template = make_constructor_template(val)
     return VectorTypeClass(val, template)
+
+
+@registry.register_global(complex)
+class ComplexBuiltinTemplate(AbstractTemplate):
+    def generic(self, args, kws):
+        if len(args) == 1 and isinstance(args[0], VectorType) and args[0].length == 2:
+            if args[0].dtype == types.float32:
+                return signature(types.complex64, args[0])
+            else:
+                return signature(types.complex128, args[0])
+        return None

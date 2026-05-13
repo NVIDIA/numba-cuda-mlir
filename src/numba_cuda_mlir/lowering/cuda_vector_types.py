@@ -111,3 +111,103 @@ lower_getattr(VectorType, "x")(_make_attr_lowering("x"))
 lower_getattr(VectorType, "y")(_make_attr_lowering("y"))
 lower_getattr(VectorType, "z")(_make_attr_lowering("z"))
 lower_getattr(VectorType, "w")(_make_attr_lowering("w"))
+
+
+import operator
+from numba_cuda_mlir.lowering_utilities import _get_mlir_bin_op_for_operator
+from numba_cuda_mlir._mlir.dialects import arith
+
+
+def _make_vector_binop_lowering(op):
+    iop, fop = _get_mlir_bin_op_for_operator(op)
+
+    def binop_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
+        lhs = lower_ctx.load_var(args[0])
+        rhs = lower_ctx.load_var(args[1])
+
+        lhs_type = lower_ctx.get_numba_type(args[0].name)
+        rhs_type = lower_ctx.get_numba_type(args[1].name)
+
+        target_type = lower_ctx.get_numba_type(target.name)
+        mlir_target_type = to_mlir_type(target_type)
+        elem_type = mlir_target_type.element_type
+
+        if isinstance(lhs_type, VectorType):
+            if not isinstance(rhs_type, VectorType):
+                # rhs is scalar, broadcast it
+                rhs_val = convert(rhs, elem_type)
+                rhs = vector.broadcast(mlir_target_type, rhs_val)
+            else:
+                rhs = convert(rhs, mlir_target_type)
+            lhs = convert(lhs, mlir_target_type)
+        else:
+            # lhs is scalar, broadcast it
+            lhs_val = convert(lhs, elem_type)
+            lhs = vector.broadcast(mlir_target_type, lhs_val)
+            rhs = convert(rhs, mlir_target_type)
+
+        if isinstance(elem_type, ir.IntegerType):
+            result = iop(lhs, rhs)
+        else:
+            result = fop(lhs, rhs)
+
+        lower_ctx.store_var(target, result)
+
+    return binop_lowering
+
+
+for op in [
+    operator.add,
+    operator.iadd,
+    operator.sub,
+    operator.isub,
+    operator.mul,
+    operator.imul,
+    operator.truediv,
+    operator.itruediv,
+    operator.floordiv,
+    operator.ifloordiv,
+    operator.mod,
+    operator.imod,
+]:
+    _raw_lower(op, VectorType, VectorType)(_make_vector_binop_lowering(op))
+    _raw_lower(op, VectorType, types.Number)(_make_vector_binop_lowering(op))
+    _raw_lower(op, types.Number, VectorType)(_make_vector_binop_lowering(op))
+
+
+def _make_vector_unary_lowering(op):
+    def unary_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
+        val = lower_ctx.load_var(args[0])
+
+        target_type = lower_ctx.get_numba_type(target.name)
+        mlir_target_type = to_mlir_type(target_type)
+        elem_type = mlir_target_type.element_type
+
+        val = convert(val, mlir_target_type)
+
+        if op == operator.neg:
+            if isinstance(elem_type, ir.IntegerType):
+                zero = arith.constant(elem_type, 0)
+                zero_vec = vector.broadcast(mlir_target_type, zero)
+                result = arith.subi(zero_vec, val)
+            else:
+                result = arith.negf(val)
+        elif op == abs:
+            if isinstance(elem_type, ir.IntegerType):
+                from numba_cuda_mlir._mlir.dialects import math
+
+                result = math.absi(val)
+            else:
+                from numba_cuda_mlir._mlir.dialects import math
+
+                result = math.absf(val)
+        else:
+            raise NotImplementedError(f"Unary operator {op} not implemented for vector types")
+
+        lower_ctx.store_var(target, result)
+
+    return unary_lowering
+
+
+_raw_lower(operator.neg, VectorType)(_make_vector_unary_lowering(operator.neg))
+_raw_lower(abs, VectorType)(_make_vector_unary_lowering(abs))

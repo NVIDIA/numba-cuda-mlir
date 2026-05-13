@@ -322,25 +322,30 @@ def _get_mlir_bin_op_for_operator(op):
                 functools.partial(arith.cmpi, arith.CmpIPredicate.ne),
                 functools.partial(arith.cmpf, arith.CmpFPredicate.UNE),
             )
-        case operator.add:
+        case operator.add | operator.iadd:
             return (
                 functools.partial(arith.addi),
                 functools.partial(arith.addf),
             )
-        case operator.sub:
+        case operator.sub | operator.isub:
             return (
                 functools.partial(arith.subi),
                 functools.partial(arith.subf),
             )
-        case operator.mul:
+        case operator.mul | operator.imul:
             return (
                 functools.partial(arith.muli),
                 functools.partial(arith.mulf),
             )
-        case operator.truediv | operator.floordiv | operator.itruediv:
+        case operator.truediv | operator.floordiv | operator.itruediv | operator.ifloordiv:
             return (
                 functools.partial(arith.divsi),
                 functools.partial(arith.divf),
+            )
+        case operator.mod | operator.imod:
+            return (
+                functools.partial(arith.remsi),
+                functools.partial(arith.remf),
             )
         case _:
             raise NotImplementedError(f"Not implemented for operator {op}")
@@ -606,6 +611,34 @@ def unverified_basic_mlir_convert(
             else:
                 trace("value_type.width < target_type.width, extending")
                 return arith.extf(out=target_type, in_=value)
+        case ir.VectorType() as vt1, ir.VectorType() as vt2 if vt1.shape == vt2.shape:
+            # We can use arith ops to convert vectors element-wise
+            elem1 = vt1.element_type
+            elem2 = vt2.element_type
+            if isinstance(elem1, ir.FloatType) and isinstance(elem2, ir.FloatType):
+                if elem1.width > elem2.width:
+                    return arith.truncf(out=target_type, in_=value)
+                else:
+                    return arith.extf(out=target_type, in_=value)
+            elif isinstance(elem1, ir.IntegerType) and isinstance(elem2, ir.IntegerType):
+                if elem1.width > elem2.width:
+                    return arith.trunci(out=target_type, in_=value)
+                else:
+                    return arith.extsi(out=target_type, in_=value)
+            elif isinstance(elem1, ir.IntegerType) and isinstance(elem2, ir.FloatType):
+                return (
+                    arith.sitofp(out=target_type, in_=value)
+                    if elem1.width > 1
+                    else arith.uitofp(out=target_type, in_=value)
+                )
+            elif isinstance(elem1, ir.FloatType) and isinstance(elem2, ir.IntegerType):
+                return (
+                    arith.fptosi(out=target_type, in_=value)
+                    if elem2.width > 1
+                    else arith.fptoui(out=target_type, in_=value)
+                )
+            else:
+                raise NotImplementedError(f"Vector conversion not implemented: {vt1} to {vt2}")
         case ir.IntegerType(), ir.FloatType():
             return (
                 arith.sitofp(out=target_type, in_=value)

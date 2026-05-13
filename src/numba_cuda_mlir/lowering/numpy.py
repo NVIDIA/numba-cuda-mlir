@@ -965,7 +965,39 @@ def lower_array_view_cg(builder, target, args, kwargs):
 
     target_numba_type = builder.get_numba_type(target.name)
     memref_type = builder.get_mlir_type(target_numba_type)
+
+    source_width = lowering_utilities.get_type_width(mr_ty.element_type)
+    target_width = lowering_utilities.get_type_width(dtype)
+
     result = builtin.unrealized_conversion_cast([memref_type], [_self])
+
+    if source_width != target_width:
+        metadata = memref_dialect.extract_strided_metadata(_self)
+        offset = metadata[1]
+
+        target_rank = memref_type.rank
+        dynamic_sizes = list(metadata[2 : 2 + target_rank])
+        dynamic_strides = list(metadata[2 + target_rank :])
+
+        source_width_val = arith.constant(source_width, index=True)
+        target_width_val = arith.constant(target_width, index=True)
+        bytes_size = arith_dialect.muli(dynamic_sizes[-1], source_width_val)
+        dynamic_sizes[-1] = arith_dialect.divui(bytes_size, target_width_val)
+
+        dyn_size = ir.ShapedType.get_dynamic_size()
+        dyn_stride = ir.ShapedType.get_dynamic_stride_or_offset()
+
+        result = memref_dialect.reinterpret_cast(
+            memref_type,
+            result,
+            offsets=[offset],
+            sizes=dynamic_sizes,
+            strides=dynamic_strides,
+            static_offsets=[dyn_stride],
+            static_sizes=[dyn_size] * target_rank,
+            static_strides=[dyn_stride] * target_rank,
+        )
+
     builder.store_var(target, result)
 
 

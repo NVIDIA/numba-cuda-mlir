@@ -59,20 +59,21 @@ def test_vector_to_scalar_view(vec_type, scalar_type, vec_len):
     kernel_wrapper[1, 1](arr, out)
     np.testing.assert_allclose(out, arr)
 
+
 @pytest.mark.parametrize("vec_type, scalar_type, vec_len", vector_types_to_test)
 def test_vector_view_len(vec_type, scalar_type, vec_len):
     @cuda.jit
     def kernel(arr, out_len):
         vec_arr = arr.view(vec_type)
         out_len[0] = len(vec_arr)
-        
+
         scalar_arr = vec_arr.view(scalar_type)
         out_len[1] = len(scalar_arr)
 
     arr = np.arange(vec_len * 4, dtype=scalar_type)
     out_len = np.zeros(2, dtype=np.int64)
     kernel[1, 1](arr, out_len)
-    
+
     assert out_len[0] == 4
     assert out_len[1] == vec_len * 4
 
@@ -81,9 +82,9 @@ def test_vector_to_vector_view():
     @cuda.jit
     def kernel(arr, out):
         # arr is float32 array of size 8
-        vec4_arr = arr.view(cuda.float32x4) # size 2
-        vec2_arr = vec4_arr.view(cuda.float32x2) # size 4
-        
+        vec4_arr = arr.view(cuda.float32x4)  # size 2
+        vec2_arr = vec4_arr.view(cuda.float32x2)  # size 4
+
         # Read from vec2_arr
         out[0] = vec2_arr[0].x
         out[1] = vec2_arr[0].y
@@ -104,10 +105,10 @@ def test_vector_to_vector_view_len():
     @cuda.jit
     def kernel(arr, out_len):
         # arr is float32 array of size 12
-        vec4_arr = arr.view(cuda.float32x4) # size 3
-        vec2_arr = vec4_arr.view(cuda.float32x2) # size 6
-        vec3_arr = vec2_arr.view(cuda.float32x3) # size 4
-        
+        vec4_arr = arr.view(cuda.float32x4)  # size 3
+        vec2_arr = vec4_arr.view(cuda.float32x2)  # size 6
+        vec3_arr = vec2_arr.view(cuda.float32x3)  # size 4
+
         out_len[0] = len(vec4_arr)
         out_len[1] = len(vec2_arr)
         out_len[2] = len(vec3_arr)
@@ -115,7 +116,7 @@ def test_vector_to_vector_view_len():
     arr = np.arange(12, dtype=np.float32)
     out_len = np.zeros(3, dtype=np.int64)
     kernel[1, 1](arr, out_len)
-    
+
     assert out_len[0] == 3
     assert out_len[1] == 6
     assert out_len[2] == 4

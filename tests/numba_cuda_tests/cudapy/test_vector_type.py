@@ -21,15 +21,15 @@ from numba_cuda_mlir.cuda.vector_types import _vector_types as _cuda_vector_type
 
 
 class _VectorTypeTestInfo:
-    def __init__(self, stub):
-        self.name = stub.__name__
-        self.base_type = getattr(types, stub._base_type_name)
-        self.num_elements = stub._num_elements
-        self.user_facing_object = stub
+    def __init__(self, vec_type):
+        self.name = vec_type.name
+        self.base_type = vec_type.dtype
+        self.num_elements = vec_type.length
+        self.user_facing_object = vec_type
 
 
 def _vector_types():
-    return [_VectorTypeTestInfo(stub) for stub in _cuda_vector_types]
+    return [_VectorTypeTestInfo(vec_type) for vec_type in _cuda_vector_types]
 
 
 def make_kernel(vtype):
@@ -485,9 +485,10 @@ class TestCudaVectorType(NumbaCUDATestCase):
         with its name. This test makes sure that construction with
         objects imported with alias should work the same.
         """
-        for vty in _vector_types():
-            for alias in vty.user_facing_object.aliases:
-                self.assertEqual(id(getattr(cuda, vty.name)), id(getattr(cuda, alias)))
+        from numba_cuda_mlir.cuda.vector_types import vector_types_by_alias
+
+        for alias, vec_type in vector_types_by_alias.items():
+            self.assertEqual(id(getattr(cuda, vec_type.name)), id(getattr(cuda, alias)))
 
     def test_vector_local_array(self):
         """Tests that vector types can be used as dtype for cuda.local.array"""

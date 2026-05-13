@@ -16,17 +16,22 @@ def _shared_lib_name(name: str) -> str:
     return f"{name}.dll" if IS_WINDOWS else f"lib{name}.so"
 
 
-def _find_mlir_python_capi() -> str | None:
-    """Find libMLIRPythonCAPI.so, preferring the MLIR_DIR local build.
+def _find_mlir_python_capi_link_library() -> str | None:
+    """Find the MLIRPythonCAPI link library, preferring the MLIR_DIR install.
 
     When MLIR_DIR is set (pointing to <install>/lib/cmake/mlir), look for
-    the library under <install>/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs/
-    (our custom install prefix). This ensures libMLIRToLLVM70.so links against
-    the same libMLIRPythonCAPI.so that will be loaded at runtime.
+    the Python bindings under our custom install prefix. On Windows the linker
+    needs MLIRPythonCAPI.lib; at runtime MLIRPythonCAPI.dll is loaded from the
+    staged _mlir_libs directory.
     """
+    capi_names = ["MLIRPythonCAPI.lib"] if IS_WINDOWS else ["libMLIRPythonCAPI.so"]
     mlir_dir = os.environ.get("MLIR_DIR")
     if mlir_dir:
         install_root = Path(mlir_dir).resolve().parent.parent.parent
+        for capi_name in capi_names:
+            capi = install_root / "lib" / capi_name
+            if capi.exists():
+                return str(capi)
         mlir_libs = (
             install_root
             / "python_packages"
@@ -35,7 +40,7 @@ def _find_mlir_python_capi() -> str | None:
             / "_mlir"
             / "_mlir_libs"
         )
-        for capi_name in ("MLIRPythonCAPI.dll", "libMLIRPythonCAPI.so"):
+        for capi_name in capi_names:
             capi = mlir_libs / capi_name
             if capi.exists():
                 return str(capi)
@@ -44,7 +49,7 @@ def _find_mlir_python_capi() -> str | None:
 
     sp = Path(sysconfig.get_path("platlib"))
     mlir_libs = sp / "numba_cuda_mlir" / "_mlir" / "_mlir_libs"
-    for capi_name in ("MLIRPythonCAPI.dll", "libMLIRPythonCAPI.so"):
+    for capi_name in capi_names:
         capi = mlir_libs / capi_name
         if capi.exists():
             return str(capi)
@@ -79,7 +84,7 @@ class BuildExtWithCmake(build_ext):
             llvm70_root = os.environ.get("LLVM70_ROOT")
             if llvm70_root:
                 cmake_cmd.append(f"-DLLVM70_ROOT={llvm70_root}")
-            capi = _find_mlir_python_capi()
+            capi = _find_mlir_python_capi_link_library()
             if capi:
                 cmake_cmd.append(f"-DLLVM70_MLIR_PYTHON_CAPI={capi}")
         self.spawn(cmake_cmd)
@@ -103,6 +108,8 @@ class BuildExtWithCmake(build_ext):
                 else:
                     shutil.copy2(ext_build_path, ext_path)
 
+        self._stage_mlir_bindings()
+
         # Copy the LLVM70 translator next to _cext if it was built
         llvm70_capi = build_dir / "cext" / "mlir-llvm70" / "lib" / _shared_lib_name("MLIRToLLVM70")
         if llvm70_capi.exists():
@@ -117,17 +124,19 @@ class BuildExtWithCmake(build_ext):
                 else:
                     shutil.copy2(llvm70_capi, dest)
 
-            # Also place alongside libMLIRPythonCAPI.so so it's found
-            # via RPATH when loaded from the wheel
-            mlir_libs_dir = Path(self.build_lib) / "numba_cuda_mlir" / "_mlir" / "_mlir_libs"
+            # Also place alongside MLIRPythonCAPI so the runtime loader can
+            # resolve it from the wheel on DLL platforms.
+            if self.editable_mode:
+                mlir_libs_dir = dest_dir / "_mlir" / "_mlir_libs"
+            else:
+                mlir_libs_dir = Path(self.build_lib) / "numba_cuda_mlir" / "_mlir" / "_mlir_libs"
             if mlir_libs_dir.exists() and not self.dry_run:
                 mlir_dest = mlir_libs_dir / llvm70_capi.name
                 if mlir_dest.exists() or mlir_dest.is_symlink():
                     mlir_dest.unlink()
-                print(f"Staging libMLIRToLLVM70.so: {llvm70_capi} -> {mlir_dest}")
+                print(f"Staging {llvm70_capi.name}: {llvm70_capi} -> {mlir_dest}")
                 shutil.copy2(llvm70_capi, mlir_dest)
 
-        self._stage_mlir_bindings()
         self._stage_libllvm7()
 
     def _stage_mlir_bindings(self):

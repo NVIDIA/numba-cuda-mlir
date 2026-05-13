@@ -127,6 +127,7 @@ def _needs_llvm70_path(cc: str) -> bool:
 
 
 _llvm70_capi = None
+_llvm70_dll_dirs = []
 
 
 def _get_llvm70_capi():
@@ -135,8 +136,15 @@ def _get_llvm70_capi():
         return _llvm70_capi
 
     from numba_cuda_mlir.tools import get_llvm70_capi_path
+    import numba_cuda_mlir._mlir._mlir_libs as _mlir_libs
 
-    lib = ctypes.CDLL(get_llvm70_capi_path())
+    capi_path = get_llvm70_capi_path()
+    if os.name == "nt":
+        for dll_dir in {os.path.dirname(capi_path), _mlir_libs.__path__[0]}:
+            if os.path.isdir(dll_dir):
+                _llvm70_dll_dirs.append(os.add_dll_directory(dll_dir))
+
+    lib = ctypes.CDLL(capi_path)
     lib.llvm70_translate_gpu_module_from_op.restype = ctypes.c_int
     lib.llvm70_translate_gpu_module_from_op.argtypes = [
         ctypes.c_void_p,  # raw_op (Operation*)

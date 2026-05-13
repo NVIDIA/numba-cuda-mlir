@@ -19,6 +19,12 @@ target_include_directories(LLVM70Translate PUBLIC
 set_target_properties(LLVM70Translate PROPERTIES
   POSITION_INDEPENDENT_CODE ON
 )
+if(MSVC)
+  target_compile_options(LLVM70Translate PRIVATE /EHsc /wd4706)
+endif()
+if(WIN32)
+  target_compile_definitions(LLVM70Translate PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
 
 target_link_libraries(LLVM70Translate
   PUBLIC
@@ -35,9 +41,9 @@ target_link_libraries(LLVM70Translate
 install(TARGETS LLVM70Translate DESTINATION lib)
 
 # Shared library with C API for in-process use from Python.
-# Set LLVM70_MLIR_PYTHON_CAPI to the path of libMLIRPythonCAPI.so to link
-# against it and share TypeIDs with the Python MLIR bindings, enabling
-# raw Operation* passing without text roundtrip.
+# Set LLVM70_MLIR_PYTHON_CAPI to libMLIRPythonCAPI.so, or to the
+# MLIRPythonCAPI.lib import library on Windows, to share TypeIDs with the Python
+# MLIR bindings and enable raw Operation* passing without text roundtrip.
 add_library(MLIRToLLVM70 SHARED CAPI.cpp)
 add_dependencies(MLIRToLLVM70 LLVM70OpsIncGen)
 target_include_directories(MLIRToLLVM70 PRIVATE
@@ -47,22 +53,26 @@ target_include_directories(MLIRToLLVM70 PRIVATE
 if(WIN32)
   set_target_properties(MLIRToLLVM70 PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 endif()
+if(MSVC)
+  target_compile_options(MLIRToLLVM70 PRIVATE /EHsc /wd4706)
+endif()
+if(WIN32)
+  target_compile_definitions(MLIRToLLVM70 PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
 target_link_libraries(MLIRToLLVM70 PRIVATE LLVM70Translate ${CMAKE_DL_LIBS})
 
 if(WIN32 AND LLVM70_ROOT)
-  file(GLOB LLVM70_STATIC_LIBS "${LLVM70_ROOT}/lib/*.lib")
-  if(NOT LLVM70_STATIC_LIBS)
-    message(FATAL_ERROR "LLVM70_ROOT was set but no static libraries were found under ${LLVM70_ROOT}/lib")
-  endif()
-  target_link_libraries(MLIRToLLVM70 PRIVATE ${LLVM70_STATIC_LIBS})
-  foreach(LLVM70_STATIC_LIB IN LISTS LLVM70_STATIC_LIBS)
-    target_link_options(MLIRToLLVM70 PRIVATE "/WHOLEARCHIVE:${LLVM70_STATIC_LIB}")
-  endforeach()
+  message(STATUS "MLIRToLLVM70: LLVM70_ROOT=${LLVM70_ROOT} will be used at runtime")
 endif()
 
 if(LLVM70_MLIR_PYTHON_CAPI)
   message(STATUS "MLIRToLLVM70: linking against ${LLVM70_MLIR_PYTHON_CAPI}")
   target_link_libraries(MLIRToLLVM70 PRIVATE ${LLVM70_MLIR_PYTHON_CAPI})
+  if(MSVC)
+    # MLIRPythonCAPI.dll exports MLIR support symbols that are also present in
+    # the static MLIR libraries pulled in by the C++ bridge.
+    target_link_options(MLIRToLLVM70 PRIVATE /FORCE:MULTIPLE)
+  endif()
 endif()
 
 install(TARGETS MLIRToLLVM70 DESTINATION lib)

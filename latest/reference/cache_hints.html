@@ -387,16 +387,18 @@
 <li class="toctree-l2"><a class="reference internal" href="../user/cuda_ffi.html">Calling foreign functions from Python kernels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/cuda_compilation.html">Compiling Python functions for use with other languages</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/callconv.html">CUDA device call conventions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/profiling.html">Profiling</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Reference documentation</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="host.html">CUDA Host API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="compilation.html">Compilation API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="kernel.html">CUDA Kernel API</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Cache Hints for Memory Operations</a></li>
 <li class="toctree-l2"><a class="reference internal" href="types.html">CUDA-Specific Types</a></li>
-<li class="toctree-l2"><a class="reference internal" href="memory.html">Memory Management</a></li>
 <li class="toctree-l2"><a class="reference internal" href="libdevice.html">Libdevice functions</a></li>
 <li class="toctree-l2"><a class="reference internal" href="envvars.html">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="host.html">CUDA Host API (Deprecated)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="memory.html">Memory Management (Deprecated)</a></li>
 </ul>
 </details></li>
 </ul>
@@ -466,64 +468,64 @@ types.</p>
 in the PTX ISA documentation.</p>
 </div>
 <dl class="py function">
-<dt class="sig sig-object py" id="numba.cuda.ldca">
-<span class="sig-prename descclassname"><span class="pre">numba.cuda.</span></span><span class="sig-name descname"><span class="pre">ldca</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#numba.cuda.ldca" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object py" id="numba_cuda_mlir.cuda.ldca">
+<span class="sig-prename descclassname"><span class="pre">numba_cuda_mlir.cuda.</span></span><span class="sig-name descname"><span class="pre">ldca</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#numba_cuda_mlir.cuda.ldca" title="Link to this definition">#</a></dt>
 <dd><p>Load element <code class="docutils literal notranslate"><span class="pre">i</span></code> from <code class="docutils literal notranslate"><span class="pre">array</span></code> with cache-all policy (<code class="docutils literal notranslate"><span class="pre">ld.global.ca</span></code>). This
 is the default caching behavior.</p>
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="numba.cuda.ldcg">
-<span class="sig-prename descclassname"><span class="pre">numba.cuda.</span></span><span class="sig-name descname"><span class="pre">ldcg</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#numba.cuda.ldcg" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object py" id="numba_cuda_mlir.cuda.ldcg">
+<span class="sig-prename descclassname"><span class="pre">numba_cuda_mlir.cuda.</span></span><span class="sig-name descname"><span class="pre">ldcg</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#numba_cuda_mlir.cuda.ldcg" title="Link to this definition">#</a></dt>
 <dd><p>Load element <code class="docutils literal notranslate"><span class="pre">i</span></code> from <code class="docutils literal notranslate"><span class="pre">array</span></code> with cache-global policy (<code class="docutils literal notranslate"><span class="pre">ld.global.cg</span></code>).
 Useful for data shared across thread blocks.</p>
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="numba.cuda.ldcs">
-<span class="sig-prename descclassname"><span class="pre">numba.cuda.</span></span><span class="sig-name descname"><span class="pre">ldcs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#numba.cuda.ldcs" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object py" id="numba_cuda_mlir.cuda.ldcs">
+<span class="sig-prename descclassname"><span class="pre">numba_cuda_mlir.cuda.</span></span><span class="sig-name descname"><span class="pre">ldcs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#numba_cuda_mlir.cuda.ldcs" title="Link to this definition">#</a></dt>
 <dd><p>Load element <code class="docutils literal notranslate"><span class="pre">i</span></code> from <code class="docutils literal notranslate"><span class="pre">array</span></code> with cache-streaming policy
 (<code class="docutils literal notranslate"><span class="pre">ld.global.cs</span></code>). Optimized for streaming data accessed once.</p>
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="numba.cuda.ldlu">
-<span class="sig-prename descclassname"><span class="pre">numba.cuda.</span></span><span class="sig-name descname"><span class="pre">ldlu</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#numba.cuda.ldlu" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object py" id="numba_cuda_mlir.cuda.ldlu">
+<span class="sig-prename descclassname"><span class="pre">numba_cuda_mlir.cuda.</span></span><span class="sig-name descname"><span class="pre">ldlu</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#numba_cuda_mlir.cuda.ldlu" title="Link to this definition">#</a></dt>
 <dd><p>Load element <code class="docutils literal notranslate"><span class="pre">i</span></code> from <code class="docutils literal notranslate"><span class="pre">array</span></code> with last-use policy (<code class="docutils literal notranslate"><span class="pre">ld.global.lu</span></code>).
 Indicates data is unlikely to be reused.</p>
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="numba.cuda.ldcv">
-<span class="sig-prename descclassname"><span class="pre">numba.cuda.</span></span><span class="sig-name descname"><span class="pre">ldcv</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#numba.cuda.ldcv" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object py" id="numba_cuda_mlir.cuda.ldcv">
+<span class="sig-prename descclassname"><span class="pre">numba_cuda_mlir.cuda.</span></span><span class="sig-name descname"><span class="pre">ldcv</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#numba_cuda_mlir.cuda.ldcv" title="Link to this definition">#</a></dt>
 <dd><p>Load element <code class="docutils literal notranslate"><span class="pre">i</span></code> from <code class="docutils literal notranslate"><span class="pre">array</span></code> with cache-volatile policy (<code class="docutils literal notranslate"><span class="pre">ld.global.cv</span></code>).
 Used for volatile data that may change externally.</p>
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="numba.cuda.stcg">
-<span class="sig-prename descclassname"><span class="pre">numba.cuda.</span></span><span class="sig-name descname"><span class="pre">stcg</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#numba.cuda.stcg" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object py" id="numba_cuda_mlir.cuda.stcg">
+<span class="sig-prename descclassname"><span class="pre">numba_cuda_mlir.cuda.</span></span><span class="sig-name descname"><span class="pre">stcg</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#numba_cuda_mlir.cuda.stcg" title="Link to this definition">#</a></dt>
 <dd><p>Store <code class="docutils literal notranslate"><span class="pre">value</span></code> to <code class="docutils literal notranslate"><span class="pre">array[i]</span></code> with cache-global policy (<code class="docutils literal notranslate"><span class="pre">st.global.cg</span></code>).
 Useful for data shared across thread blocks.</p>
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="numba.cuda.stcs">
-<span class="sig-prename descclassname"><span class="pre">numba.cuda.</span></span><span class="sig-name descname"><span class="pre">stcs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#numba.cuda.stcs" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object py" id="numba_cuda_mlir.cuda.stcs">
+<span class="sig-prename descclassname"><span class="pre">numba_cuda_mlir.cuda.</span></span><span class="sig-name descname"><span class="pre">stcs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#numba_cuda_mlir.cuda.stcs" title="Link to this definition">#</a></dt>
 <dd><p>Store <code class="docutils literal notranslate"><span class="pre">value</span></code> to <code class="docutils literal notranslate"><span class="pre">array[i]</span></code> with cache-streaming policy (<code class="docutils literal notranslate"><span class="pre">st.global.cs</span></code>).
 Optimized for streaming writes.</p>
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="numba.cuda.stwb">
-<span class="sig-prename descclassname"><span class="pre">numba.cuda.</span></span><span class="sig-name descname"><span class="pre">stwb</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#numba.cuda.stwb" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object py" id="numba_cuda_mlir.cuda.stwb">
+<span class="sig-prename descclassname"><span class="pre">numba_cuda_mlir.cuda.</span></span><span class="sig-name descname"><span class="pre">stwb</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#numba_cuda_mlir.cuda.stwb" title="Link to this definition">#</a></dt>
 <dd><p>Store <code class="docutils literal notranslate"><span class="pre">value</span></code> to <code class="docutils literal notranslate"><span class="pre">array[i]</span></code> with write-back policy (<code class="docutils literal notranslate"><span class="pre">st.global.wb</span></code>). This
 is the default caching behavior.</p>
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="numba.cuda.stwt">
-<span class="sig-prename descclassname"><span class="pre">numba.cuda.</span></span><span class="sig-name descname"><span class="pre">stwt</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#numba.cuda.stwt" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object py" id="numba_cuda_mlir.cuda.stwt">
+<span class="sig-prename descclassname"><span class="pre">numba_cuda_mlir.cuda.</span></span><span class="sig-name descname"><span class="pre">stwt</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#numba_cuda_mlir.cuda.stwt" title="Link to this definition">#</a></dt>
 <dd><p>Store <code class="docutils literal notranslate"><span class="pre">value</span></code> to <code class="docutils literal notranslate"><span class="pre">array[i]</span></code> with write-through policy (<code class="docutils literal notranslate"><span class="pre">st.global.wt</span></code>).
 Writes through cache hierarchy to memory.</p>
 </dd></dl>
@@ -579,15 +581,15 @@ Writes through cache hierarchy to memory.</p>
   </div>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#numba.cuda.ldca"><code class="docutils literal notranslate"><span class="pre">ldca()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#numba.cuda.ldcg"><code class="docutils literal notranslate"><span class="pre">ldcg()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#numba.cuda.ldcs"><code class="docutils literal notranslate"><span class="pre">ldcs()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#numba.cuda.ldlu"><code class="docutils literal notranslate"><span class="pre">ldlu()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#numba.cuda.ldcv"><code class="docutils literal notranslate"><span class="pre">ldcv()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#numba.cuda.stcg"><code class="docutils literal notranslate"><span class="pre">stcg()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#numba.cuda.stcs"><code class="docutils literal notranslate"><span class="pre">stcs()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#numba.cuda.stwb"><code class="docutils literal notranslate"><span class="pre">stwb()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#numba.cuda.stwt"><code class="docutils literal notranslate"><span class="pre">stwt()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#numba_cuda_mlir.cuda.ldca"><code class="docutils literal notranslate"><span class="pre">ldca()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#numba_cuda_mlir.cuda.ldcg"><code class="docutils literal notranslate"><span class="pre">ldcg()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#numba_cuda_mlir.cuda.ldcs"><code class="docutils literal notranslate"><span class="pre">ldcs()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#numba_cuda_mlir.cuda.ldlu"><code class="docutils literal notranslate"><span class="pre">ldlu()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#numba_cuda_mlir.cuda.ldcv"><code class="docutils literal notranslate"><span class="pre">ldcv()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#numba_cuda_mlir.cuda.stcg"><code class="docutils literal notranslate"><span class="pre">stcg()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#numba_cuda_mlir.cuda.stcs"><code class="docutils literal notranslate"><span class="pre">stcs()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#numba_cuda_mlir.cuda.stwb"><code class="docutils literal notranslate"><span class="pre">stwb()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#numba_cuda_mlir.cuda.stwt"><code class="docutils literal notranslate"><span class="pre">stwt()</span></code></a></li>
 </ul>
   </nav></div>
 

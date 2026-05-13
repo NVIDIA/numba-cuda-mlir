@@ -387,16 +387,18 @@
 <li class="toctree-l2"><a class="reference internal" href="cuda_ffi.html">Calling foreign functions from Python kernels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cuda_compilation.html">Compiling Python functions for use with other languages</a></li>
 <li class="toctree-l2"><a class="reference internal" href="callconv.html">CUDA device call conventions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="profiling.html">Profiling</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../reference/index.html">Reference documentation</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../reference/host.html">CUDA Host API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/compilation.html">Compilation API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/kernel.html">CUDA Kernel API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/cache_hints.html">Cache Hints for Memory Operations</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/types.html">CUDA-Specific Types</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../reference/memory.html">Memory Management</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/libdevice.html">Libdevice functions</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/envvars.html">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/host.html">CUDA Host API (Deprecated)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/memory.html">Memory Management (Deprecated)</a></li>
 </ul>
 </details></li>
 </ul>
@@ -540,7 +542,7 @@ scalar / integer-like type). <em>type</em> is a <a class="reference external" hr
 elements needing to be stored in the array. The returned array-like object can be
 read and written to like any normal device array (e.g. through indexing).</p>
 <p>A common pattern is to have each thread populate one element in the
-shared array and then wait for all threads to finish using <a class="reference internal" href="../reference/kernel.html#numba.cuda.syncthreads" title="numba.cuda.syncthreads"><code class="xref py py-func docutils literal notranslate"><span class="pre">syncthreads()</span></code></a>.</p>
+shared array and then wait for all threads to finish using <a class="reference internal" href="../reference/kernel.html#numba_cuda_mlir.cuda.syncthreads" title="numba_cuda_mlir.cuda.syncthreads"><code class="xref py py-func docutils literal notranslate"><span class="pre">syncthreads()</span></code></a>.</p>
 </dd></dl>
 
 <dl class="py function">

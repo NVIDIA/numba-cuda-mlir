@@ -387,16 +387,18 @@
 <li class="toctree-l2"><a class="reference internal" href="cuda_ffi.html">Calling foreign functions from Python kernels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cuda_compilation.html">Compiling Python functions for use with other languages</a></li>
 <li class="toctree-l2"><a class="reference internal" href="callconv.html">CUDA device call conventions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="profiling.html">Profiling</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../reference/index.html">Reference documentation</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../reference/host.html">CUDA Host API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/compilation.html">Compilation API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/kernel.html">CUDA Kernel API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/cache_hints.html">Cache Hints for Memory Operations</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/types.html">CUDA-Specific Types</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../reference/memory.html">Memory Management</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/libdevice.html">Libdevice functions</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/envvars.html">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/host.html">CUDA Host API (Deprecated)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/memory.html">Memory Management (Deprecated)</a></li>
 </ul>
 </details></li>
 </ul>
@@ -593,7 +595,7 @@ and manually compute the corresponding array position:</p>
 <p>Unless you are sure the block size and grid size is a divisor
 of your array size, you <strong>must</strong> check boundaries as shown above.</p>
 </div>
-<p><a class="reference internal" href="../reference/kernel.html#numba.cuda.threadIdx" title="numba.cuda.threadIdx"><code class="xref py py-attr docutils literal notranslate"><span class="pre">threadIdx</span></code></a>, <a class="reference internal" href="../reference/kernel.html#numba.cuda.blockIdx" title="numba.cuda.blockIdx"><code class="xref py py-attr docutils literal notranslate"><span class="pre">blockIdx</span></code></a>, <a class="reference internal" href="../reference/kernel.html#numba.cuda.blockDim" title="numba.cuda.blockDim"><code class="xref py py-attr docutils literal notranslate"><span class="pre">blockDim</span></code></a> and <a class="reference internal" href="../reference/kernel.html#numba.cuda.gridDim" title="numba.cuda.gridDim"><code class="xref py py-attr docutils literal notranslate"><span class="pre">gridDim</span></code></a>
+<p><a class="reference internal" href="../reference/kernel.html#numba_cuda_mlir.cuda.threadIdx" title="numba_cuda_mlir.cuda.threadIdx"><code class="xref py py-attr docutils literal notranslate"><span class="pre">threadIdx</span></code></a>, <a class="reference internal" href="../reference/kernel.html#numba_cuda_mlir.cuda.blockIdx" title="numba_cuda_mlir.cuda.blockIdx"><code class="xref py py-attr docutils literal notranslate"><span class="pre">blockIdx</span></code></a>, <a class="reference internal" href="../reference/kernel.html#numba_cuda_mlir.cuda.blockDim" title="numba_cuda_mlir.cuda.blockDim"><code class="xref py py-attr docutils literal notranslate"><span class="pre">blockDim</span></code></a> and <a class="reference internal" href="../reference/kernel.html#numba_cuda_mlir.cuda.gridDim" title="numba_cuda_mlir.cuda.gridDim"><code class="xref py py-attr docutils literal notranslate"><span class="pre">gridDim</span></code></a>
 are special objects provided for the sole purpose of knowing the geometry of
 the thread hierarchy and the position of the current thread within that
 geometry.</p>
@@ -653,7 +655,7 @@ integers is returned.</p>
 <dt class="sig sig-object py">
 <span class="sig-prename descclassname"><span class="pre">cuda.</span></span><span class="sig-name descname"><span class="pre">gridsize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ndim</span></span></em><span class="sig-paren">)</span></dt>
 <dd><p>Return the absolute size (or shape) in threads of the entire grid of
-blocks.  <em>ndim</em> has the same meaning as in <a class="reference internal" href="../reference/kernel.html#numba.cuda.grid" title="numba.cuda.grid"><code class="xref py py-func docutils literal notranslate"><span class="pre">grid()</span></code></a> above.</p>
+blocks.  <em>ndim</em> has the same meaning as in <a class="reference internal" href="../reference/kernel.html#numba_cuda_mlir.cuda.grid" title="numba_cuda_mlir.cuda.grid"><code class="xref py py-func docutils literal notranslate"><span class="pre">grid()</span></code></a> above.</p>
 </dd></dl>
 
 <p>With these functions, the incrementation example can become:</p>

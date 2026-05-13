@@ -9,7 +9,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Memory Management &#8212; Numba CUDA MLIR</title>
+    <title>Memory Management (Deprecated) &#8212; Numba CUDA MLIR</title>
   
   
   
@@ -59,8 +59,7 @@
 
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Libdevice functions" href="libdevice.html" />
-    <link rel="prev" title="CUDA-Specific Types" href="types.html" />
+    <link rel="prev" title="CUDA Host API (Deprecated)" href="host.html" />
 
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -387,16 +386,18 @@
 <li class="toctree-l2"><a class="reference internal" href="../user/cuda_ffi.html">Calling foreign functions from Python kernels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/cuda_compilation.html">Compiling Python functions for use with other languages</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/callconv.html">CUDA device call conventions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/profiling.html">Profiling</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Reference documentation</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="host.html">CUDA Host API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="compilation.html">Compilation API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="kernel.html">CUDA Kernel API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cache_hints.html">Cache Hints for Memory Operations</a></li>
 <li class="toctree-l2"><a class="reference internal" href="types.html">CUDA-Specific Types</a></li>
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">Memory Management</a></li>
 <li class="toctree-l2"><a class="reference internal" href="libdevice.html">Libdevice functions</a></li>
 <li class="toctree-l2"><a class="reference internal" href="envvars.html">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="host.html">CUDA Host API (Deprecated)</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Memory Management (Deprecated)</a></li>
 </ul>
 </details></li>
 </ul>
@@ -436,7 +437,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">Reference documentation</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Memory Management</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Memory Management (Deprecated)</span></li>
   </ul>
 </nav>
 </div>
@@ -453,8 +454,16 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="memory-management">
-<h1>Memory Management<a class="headerlink" href="#memory-management" title="Link to this heading">#</a></h1>
+  <section id="memory-management-deprecated">
+<h1>Memory Management (Deprecated)<a class="headerlink" href="#memory-management-deprecated" title="Link to this heading">#</a></h1>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The Memory API functions are not recommended for use in new code,
+and are provided for backwards compatibility with code written for
+Numba-CUDA. It is recommended that applications pass <a class="reference external" href="https://docs.pytorch.org/tutorials/beginner/introyt/tensors_deeper_tutorial.html">PyTorch Tensors</a>
+or <a class="reference external" href="https://docs.cupy.dev/en/stable/user_guide/basic.html">CuPy arrays</a> to
+kernels instead.</p>
+</div>
 <section id="device-objects">
 <h2>Device Objects<a class="headerlink" href="#device-objects" title="Link to this heading">#</a></h2>
 </section>
@@ -471,22 +480,13 @@
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="types.html"
+       href="host.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">CUDA-Specific Types</p>
+        <p class="prev-next-title">CUDA Host API (Deprecated)</p>
       </div>
-    </a>
-    <a class="right-next"
-       href="libdevice.html"
-       title="next page">
-      <div class="prev-next-info">
-        <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Libdevice functions</p>
-      </div>
-      <i class="fa-solid fa-angle-right"></i>
     </a>
 </div>
                 </footer>

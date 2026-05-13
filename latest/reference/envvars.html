@@ -59,6 +59,7 @@
 
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="CUDA Host API (Deprecated)" href="host.html" />
     <link rel="prev" title="Libdevice functions" href="libdevice.html" />
 
 
@@ -382,16 +383,18 @@
 <li class="toctree-l2"><a class="reference internal" href="../user/cuda_ffi.html">Calling foreign functions from Python kernels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/cuda_compilation.html">Compiling Python functions for use with other languages</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/callconv.html">CUDA device call conventions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/profiling.html">Profiling</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Reference documentation</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="host.html">CUDA Host API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="compilation.html">Compilation API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="kernel.html">CUDA Kernel API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cache_hints.html">Cache Hints for Memory Operations</a></li>
 <li class="toctree-l2"><a class="reference internal" href="types.html">CUDA-Specific Types</a></li>
-<li class="toctree-l2"><a class="reference internal" href="memory.html">Memory Management</a></li>
 <li class="toctree-l2"><a class="reference internal" href="libdevice.html">Libdevice functions</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="host.html">CUDA Host API (Deprecated)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="memory.html">Memory Management (Deprecated)</a></li>
 </ul>
 </details></li>
 </ul>
@@ -453,94 +456,13 @@
 <p>Various environment variables can be set to affect the behavior of the CUDA
 target.</p>
 <dl class="std envvar">
-<dt class="sig sig-object std" id="envvar-NUMBA_DISABLE_CUDA">
-<span class="sig-name descname"><span class="pre">NUMBA_DISABLE_CUDA</span></span><a class="headerlink" href="#envvar-NUMBA_DISABLE_CUDA" title="Link to this definition">#</a></dt>
-<dd><p>If set to non-zero, disable CUDA support.</p>
-</dd></dl>
-
-<dl class="std envvar">
-<dt class="sig sig-object std" id="envvar-NUMBA_FORCE_CUDA_CC">
-<span class="sig-name descname"><span class="pre">NUMBA_FORCE_CUDA_CC</span></span><a class="headerlink" href="#envvar-NUMBA_FORCE_CUDA_CC" title="Link to this definition">#</a></dt>
-<dd><p>If set, force the CUDA compute capability to the given version (a
-string of the type <code class="docutils literal notranslate"><span class="pre">major.minor</span></code>), regardless of attached devices.</p>
-</dd></dl>
-
-<dl class="std envvar">
-<dt class="sig sig-object std" id="envvar-NUMBA_CUDA_DEFAULT_PTX_CC">
-<span class="sig-name descname"><span class="pre">NUMBA_CUDA_DEFAULT_PTX_CC</span></span><a class="headerlink" href="#envvar-NUMBA_CUDA_DEFAULT_PTX_CC" title="Link to this definition">#</a></dt>
-<dd><p>The default compute capability (a string of the type <code class="docutils literal notranslate"><span class="pre">major.minor</span></code>) to
-target when compiling to PTX using <code class="docutils literal notranslate"><span class="pre">cuda.compile_ptx</span></code>. The default is
-5.0, which is the lowest non-deprecated compute capability in the most
-recent version of the CUDA toolkit supported (12.4 at present).</p>
-</dd></dl>
-
-<dl class="std envvar">
-<dt class="sig sig-object std" id="envvar-NUMBA_ENABLE_CUDASIM">
-<span class="sig-name descname"><span class="pre">NUMBA_ENABLE_CUDASIM</span></span><a class="headerlink" href="#envvar-NUMBA_ENABLE_CUDASIM" title="Link to this definition">#</a></dt>
-<dd><p>If set, don’t compile and execute code for the GPU, but use the CUDA
-Simulator instead. For debugging purposes.</p>
-</dd></dl>
-
-<dl class="std envvar">
 <dt class="sig sig-object std" id="envvar-NUMBA_CUDA_ARRAY_INTERFACE_SYNC">
 <span class="sig-name descname"><span class="pre">NUMBA_CUDA_ARRAY_INTERFACE_SYNC</span></span><a class="headerlink" href="#envvar-NUMBA_CUDA_ARRAY_INTERFACE_SYNC" title="Link to this definition">#</a></dt>
 <dd><p>Whether to synchronize on streams provided by objects imported using the CUDA
 Array Interface. This defaults to 1. If set to 0, then no synchronization
-takes place, and the user of Numba (and other CUDA libraries) is responsible
-for ensuring correctness with respect to synchronization on streams.</p>
-</dd></dl>
-
-<dl class="std envvar">
-<dt class="sig sig-object std" id="envvar-NUMBA_CUDA_LOG_LEVEL">
-<span class="sig-name descname"><span class="pre">NUMBA_CUDA_LOG_LEVEL</span></span><a class="headerlink" href="#envvar-NUMBA_CUDA_LOG_LEVEL" title="Link to this definition">#</a></dt>
-<dd><p>For debugging purposes. If no other logging is configured, the value of this
-variable is the logging level for CUDA API calls. The default value is
-<code class="docutils literal notranslate"><span class="pre">CRITICAL</span></code> - to trace all API calls on standard error, set this to
-<code class="docutils literal notranslate"><span class="pre">DEBUG</span></code>.</p>
-</dd></dl>
-
-<dl class="std envvar">
-<dt class="sig sig-object std" id="envvar-NUMBA_CUDA_LOG_API_ARGS">
-<span class="sig-name descname"><span class="pre">NUMBA_CUDA_LOG_API_ARGS</span></span><a class="headerlink" href="#envvar-NUMBA_CUDA_LOG_API_ARGS" title="Link to this definition">#</a></dt>
-<dd><p>By default the CUDA API call logs only give the names of functions called.
-Setting this variable to 1 also includes the values of arguments to Driver
-API calls in the logs.</p>
-</dd></dl>
-
-<dl class="std envvar">
-<dt class="sig sig-object std" id="envvar-NUMBA_CUDA_LOG_SIZE">
-<span class="sig-name descname"><span class="pre">NUMBA_CUDA_LOG_SIZE</span></span><a class="headerlink" href="#envvar-NUMBA_CUDA_LOG_SIZE" title="Link to this definition">#</a></dt>
-<dd><p>Buffer size for logs produced by CUDA driver API operations. This defaults
-to 1024 and should not normally need to be modified - however, if an error
-in an API call produces a large amount of output that appears to be
-truncated (perhaps due to multiple long function names, for example) then
-this variable can be used to increase the buffer size and view the full
-error message.</p>
-</dd></dl>
-
-<dl class="std envvar">
-<dt class="sig sig-object std" id="envvar-NUMBA_CUDA_VERBOSE_JIT_LOG">
-<span class="sig-name descname"><span class="pre">NUMBA_CUDA_VERBOSE_JIT_LOG</span></span><a class="headerlink" href="#envvar-NUMBA_CUDA_VERBOSE_JIT_LOG" title="Link to this definition">#</a></dt>
-<dd><p>Whether the CUDA driver should produce verbose log messages. Defaults to 1,
-indicating that verbose messaging is enabled. This should not need to be
-modified under normal circumstances.</p>
-</dd></dl>
-
-<dl class="std envvar">
-<dt class="sig sig-object std" id="envvar-NUMBA_CUDA_PER_THREAD_DEFAULT_STREAM">
-<span class="sig-name descname"><span class="pre">NUMBA_CUDA_PER_THREAD_DEFAULT_STREAM</span></span><a class="headerlink" href="#envvar-NUMBA_CUDA_PER_THREAD_DEFAULT_STREAM" title="Link to this definition">#</a></dt>
-<dd><p>When set to 1, the default stream is the per-thread default stream. When set
-to 0, the default stream is the legacy default stream. This defaults to 0,
-for the legacy default stream. See <a class="reference external" href="https://docs.nvidia.com/cuda/cuda-runtime-api/stream-sync-behavior.html">Stream Synchronization Behavior</a>
-for an explanation of the legacy and per-thread default streams.</p>
-<p>This variable only takes effect when using Numba’s internal CUDA bindings;
-when using the NVIDIA bindings, use the environment variable
-<code class="docutils literal notranslate"><span class="pre">CUDA_PYTHON_CUDA_PER_THREAD_DEFAULT_STREAM</span></code> instead.</p>
-<div class="admonition seealso">
-<p class="admonition-title">See also</p>
-<p>The <a class="reference external" href="https://nvidia.github.io/cuda-python/cuda-bindings/latest/environment_variables.html#runtime-environment-variables">Runtime Environment Variables section</a>
-in the NVIDIA Bindings documentation.</p>
-</div>
+takes place, and the user of Numba CUDA MLIR (and other CUDA libraries) is
+responsible for ensuring correctness with respect to synchronization on
+streams.</p>
 </dd></dl>
 
 <dl class="std envvar">
@@ -562,16 +484,10 @@ current context.</p>
 from the device. This option is on by default (default value is 1).</p>
 </dd></dl>
 
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Numba-CUDA always uses the NVIDIA CUDA Python bindings. The legacy ctypes
-bindings and the <code class="docutils literal notranslate"><span class="pre">NUMBA_CUDA_USE_NVIDIA_BINDING</span></code> environment variable have
-been removed.</p>
-</div>
 <dl class="std envvar">
 <dt class="sig sig-object std" id="envvar-NUMBA_CUDA_INCLUDE_PATH">
 <span class="sig-name descname"><span class="pre">NUMBA_CUDA_INCLUDE_PATH</span></span><a class="headerlink" href="#envvar-NUMBA_CUDA_INCLUDE_PATH" title="Link to this definition">#</a></dt>
-<dd><p>The location of the CUDA include files. This is used when linking CUDA C/C++
+<dd><p>The location of the CUDA include files. This is used when linking CUDA C++
 sources to Python kernels, and needs to be correctly set for CUDA includes to
 be available to linked C/C++ sources. On Linux, it defaults to
 <code class="docutils literal notranslate"><span class="pre">/usr/local/cuda/include</span></code>. On Windows, the default is
@@ -581,9 +497,9 @@ be available to linked C/C++ sources. On Linux, it defaults to
 <dl class="std envvar">
 <dt class="sig sig-object std" id="envvar-NUMBA_CUDA_NVRTC_EXTRA_SEARCH_PATHS">
 <span class="sig-name descname"><span class="pre">NUMBA_CUDA_NVRTC_EXTRA_SEARCH_PATHS</span></span><a class="headerlink" href="#envvar-NUMBA_CUDA_NVRTC_EXTRA_SEARCH_PATHS" title="Link to this definition">#</a></dt>
-<dd><p>A colon separated list of paths that Numba’s NVRTC should search for when compiling
-external functions. These folders are searched after the system cudatoolkit search
-paths and Numba-CUDA’s internal search paths.</p>
+<dd><p>A colon separated list of paths that NVRTC should search for when compiling
+external functions. These folders are searched after the system cudatoolkit
+search paths and Numba CUDA MLIR’s internal search paths.</p>
 </dd></dl>
 
 </section>
@@ -606,6 +522,15 @@ paths and Numba-CUDA’s internal search paths.</p>
         <p class="prev-next-subtitle">previous</p>
         <p class="prev-next-title">Libdevice functions</p>
       </div>
+    </a>
+    <a class="right-next"
+       href="host.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">CUDA Host API (Deprecated)</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
     </a>
 </div>
                 </footer>

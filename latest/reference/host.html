@@ -9,7 +9,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>CUDA Host API &#8212; Numba CUDA MLIR</title>
+    <title>CUDA Host API (Deprecated) &#8212; Numba CUDA MLIR</title>
   
   
   
@@ -59,8 +59,8 @@
 
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="CUDA Kernel API" href="kernel.html" />
-    <link rel="prev" title="Reference documentation" href="index.html" />
+    <link rel="next" title="Memory Management (Deprecated)" href="memory.html" />
+    <link rel="prev" title="Environment Variables" href="envvars.html" />
 
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -387,16 +387,18 @@
 <li class="toctree-l2"><a class="reference internal" href="../user/cuda_ffi.html">Calling foreign functions from Python kernels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/cuda_compilation.html">Compiling Python functions for use with other languages</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/callconv.html">CUDA device call conventions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/profiling.html">Profiling</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Reference documentation</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">CUDA Host API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="compilation.html">Compilation API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="kernel.html">CUDA Kernel API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cache_hints.html">Cache Hints for Memory Operations</a></li>
 <li class="toctree-l2"><a class="reference internal" href="types.html">CUDA-Specific Types</a></li>
-<li class="toctree-l2"><a class="reference internal" href="memory.html">Memory Management</a></li>
 <li class="toctree-l2"><a class="reference internal" href="libdevice.html">Libdevice functions</a></li>
 <li class="toctree-l2"><a class="reference internal" href="envvars.html">Environment Variables</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">CUDA Host API (Deprecated)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="memory.html">Memory Management (Deprecated)</a></li>
 </ul>
 </details></li>
 </ul>
@@ -436,7 +438,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">Reference documentation</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">CUDA Host API</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">CUDA Host API (Deprecated)</span></li>
   </ul>
 </nav>
 </div>
@@ -453,10 +455,22 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="cuda-host-api">
-<h1>CUDA Host API<a class="headerlink" href="#cuda-host-api" title="Link to this heading">#</a></h1>
+  <section id="cuda-host-api-deprecated">
+<h1>CUDA Host API (Deprecated)<a class="headerlink" href="#cuda-host-api-deprecated" title="Link to this heading">#</a></h1>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The host API functions are not recommended for use in new code,
+and are provided for backwards compatibility with code written for
+Numba-CUDA. It is recommended that the <a class="reference external" href="https://nvidia.github.io/cuda-python/cuda-core/latest/">cuda.core</a> equivalents are
+used for new code.</p>
+</div>
 <section id="device-management">
 <h2>Device Management<a class="headerlink" href="#device-management" title="Link to this heading">#</a></h2>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>See <a class="reference external" href="https://nvidia.github.io/cuda-python/cuda-core/latest/api.html#devices-and-execution">Devices and execution</a>
+in the cuda.core documentation for recommended replacement APIs.</p>
+</div>
 <section id="device-detection-and-enquiry">
 <h3>Device detection and enquiry<a class="headerlink" href="#device-detection-and-enquiry" title="Link to this heading">#</a></h3>
 <p>The following functions are available for querying the available hardware:</p>
@@ -541,46 +555,13 @@ otherwise.</p>
 </dd></dl>
 
 </section>
-</section>
-<section id="compilation">
-<h2>Compilation<a class="headerlink" href="#compilation" title="Link to this heading">#</a></h2>
-<p>Numba provides an entry point for compiling a Python function without invoking
-any of the driver API. This can be useful for:</p>
-<ul class="simple">
-<li><p>Generating PTX that is to be inlined into other PTX code (e.g. from outside
-the Numba / Python ecosystem).</p></li>
-<li><p>Generating PTX or LTO-IR to link with objects from non-Python translation
-units.</p></li>
-<li><p>Generating code when there is no device present.</p></li>
-<li><p>Generating code prior to a fork without initializing CUDA.</p></li>
-</ul>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>It is the user’s responsibility to manage any ABI issues arising from
-the use of compilation to PTX / LTO-IR. Passing the <code class="docutils literal notranslate"><span class="pre">abi=&quot;c&quot;</span></code> keyword
-argument can provide a solution to most issues that may arise - see
-<a class="reference internal" href="../user/cuda_compilation.html#cuda-using-the-c-abi"><span class="std std-ref">Using the C ABI</span></a>.</p>
-</div>
-<p>The environment variable <code class="docutils literal notranslate"><span class="pre">NUMBA_CUDA_DEFAULT_PTX_CC</span></code> can be set to control
-the default compute capability targeted by <code class="docutils literal notranslate"><span class="pre">compile</span></code> - see
-<a class="reference internal" href="envvars.html#numba-envvars-gpu-support"><span class="std std-ref">Environment Variables</span></a>. If code for the compute capability of the
-current device is required, the <code class="docutils literal notranslate"><span class="pre">compile_for_current_device</span></code> function can
-be used:</p>
-<p>Numba also provides two functions that may be used in legacy code that
-specifically compile to PTX only:</p>
-</section>
-<section id="measurement">
-<h2>Measurement<a class="headerlink" href="#measurement" title="Link to this heading">#</a></h2>
-<section id="profiling">
-<span id="cuda-profiling"></span><h3>Profiling<a class="headerlink" href="#profiling" title="Link to this heading">#</a></h3>
-<p>The NVidia Visual Profiler can be used directly on executing CUDA Python code -
-it is not a requirement to insert calls to these functions into user code.
-However, these functions can be used to allow profiling to be performed
-selectively on specific portions of the code. For further information on
-profiling, see the <a class="reference external" href="https://docs.nvidia.com/cuda/profiler-users-guide/">NVidia Profiler User’s Guide</a>.</p>
-</section>
 <section id="events">
 <span id="id2"></span><h3>Events<a class="headerlink" href="#events" title="Link to this heading">#</a></h3>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>See the <a class="reference external" href="https://nvidia.github.io/cuda-python/cuda-core/latest/generated/cuda.core.Event.html">Event class</a>
+in the cuda.core documentation for recommended replacement APIs.</p>
+</div>
 <p>Events can be used to monitor the progress of execution and to record the
 timestamps of specific points being reached. Event creation returns immediately,
 and the created event can be queried to determine if it has been reached. For
@@ -592,6 +573,11 @@ events:</p>
 </section>
 <section id="stream-management">
 <span id="streams"></span><h2>Stream Management<a class="headerlink" href="#stream-management" title="Link to this heading">#</a></h2>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>See the <a class="reference external" href="https://nvidia.github.io/cuda-python/cuda-core/latest/generated/cuda.core.Stream.html">Stream class</a>
+in the cuda.core documentation for recommended replacement APIs.</p>
+</div>
 <p>Streams allow concurrency of execution on a single device within a given
 context. Queued work items in the same stream execute sequentially, but work
 items in different streams may execute concurrently. Most operations involving a
@@ -628,20 +614,20 @@ in use.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="index.html"
+       href="envvars.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Reference documentation</p>
+        <p class="prev-next-title">Environment Variables</p>
       </div>
     </a>
     <a class="right-next"
-       href="kernel.html"
+       href="memory.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">CUDA Kernel API</p>
+        <p class="prev-next-title">Memory Management (Deprecated)</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -683,11 +669,6 @@ in use.</p>
 </li>
 </ul>
 </li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#compilation">Compilation</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#measurement">Measurement</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#profiling">Profiling</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#events">Events</a></li>
 </ul>
 </li>

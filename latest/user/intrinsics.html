@@ -387,16 +387,18 @@
 <li class="toctree-l2"><a class="reference internal" href="cuda_ffi.html">Calling foreign functions from Python kernels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cuda_compilation.html">Compiling Python functions for use with other languages</a></li>
 <li class="toctree-l2"><a class="reference internal" href="callconv.html">CUDA device call conventions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="profiling.html">Profiling</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../reference/index.html">Reference documentation</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../reference/host.html">CUDA Host API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/compilation.html">Compilation API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/kernel.html">CUDA Kernel API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/cache_hints.html">Cache Hints for Memory Operations</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/types.html">CUDA-Specific Types</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../reference/memory.html">Memory Management</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/libdevice.html">Libdevice functions</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/envvars.html">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/host.html">CUDA Host API (Deprecated)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/memory.html">Memory Management (Deprecated)</a></li>
 </ul>
 </details></li>
 </ul>
@@ -459,7 +461,7 @@
 that are presently implemented are as follows:</p>
 <section id="example">
 <h2>Example<a class="headerlink" href="#example" title="Link to this heading">#</a></h2>
-<p>The following code demonstrates the use of <code class="xref py py-class docutils literal notranslate"><span class="pre">numba_cuda_mlir.cuda.atomic.max</span></code> to
+<p>The following code demonstrates the use of <a class="reference internal" href="../reference/kernel.html#numba_cuda_mlir.cuda.atomic.max" title="numba_cuda_mlir.cuda.atomic.max"><code class="xref py py-class docutils literal notranslate"><span class="pre">numba_cuda_mlir.cuda.atomic.max</span></code></a> to
 find the maximum value in an array. Note that this is not the most efficient way
 of finding a maximum in this case, but that it serves as an example:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>

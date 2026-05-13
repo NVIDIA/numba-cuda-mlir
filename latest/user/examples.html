@@ -387,16 +387,18 @@
 <li class="toctree-l2"><a class="reference internal" href="cuda_ffi.html">Calling foreign functions from Python kernels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cuda_compilation.html">Compiling Python functions for use with other languages</a></li>
 <li class="toctree-l2"><a class="reference internal" href="callconv.html">CUDA device call conventions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="profiling.html">Profiling</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../reference/index.html">Reference documentation</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../reference/host.html">CUDA Host API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/compilation.html">Compilation API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/kernel.html">CUDA Kernel API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/cache_hints.html">Cache Hints for Memory Operations</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/types.html">CUDA-Specific Types</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../reference/memory.html">Memory Management</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/libdevice.html">Libdevice functions</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/envvars.html">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/host.html">CUDA Host API (Deprecated)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/memory.html">Memory Management (Deprecated)</a></li>
 </ul>
 </details></li>
 </ul>
@@ -587,7 +589,7 @@ object, and the value of the element represents the temperature.</p>
 <p>In our kernel each thread will be responsible for managing the temperature update for a single element
 in a loop over the desired number of timesteps. The kernel is below. Note the use of cooperative group
 synchronization and the use of two buffers swapped at each iteration to avoid race conditions. See
-<code class="xref py py-func docutils literal notranslate"><span class="pre">cuda.cg.this_grid()</span></code> for details.</p>
+<a class="reference internal" href="../reference/kernel.html#numba_cuda_mlir.cuda.cg.this_grid" title="numba_cuda_mlir.cuda.cg.this_grid"><code class="xref py py-func docutils literal notranslate"><span class="pre">cuda.cg.this_grid()</span></code></a> for details.</p>
 <div class="literal-block-wrapper docutils container" id="id8">
 <div class="code-block-caption"><span class="caption-text">from <code class="docutils literal notranslate"><span class="pre">test_ex_laplace</span></code> in <code class="docutils literal notranslate"><span class="pre">tests/doc_examples/test_laplace.py</span></code></span><a class="headerlink" href="#id8" title="Link to this code">#</a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos"> 1</span><span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span>
@@ -1143,7 +1145,7 @@ memory:</p>
 </div>
 <p>Because the shared memory is a limited resource, the code preloads a small
 block at a time from the input arrays.  Then, it calls
-<code class="xref py py-func docutils literal notranslate"><span class="pre">syncthreads()</span></code> to wait until all threads have
+<a class="reference internal" href="../reference/kernel.html#numba_cuda_mlir.cuda.syncthreads" title="numba_cuda_mlir.cuda.syncthreads"><code class="xref py py-func docutils literal notranslate"><span class="pre">syncthreads()</span></code></a> to wait until all threads have
 finished preloading and before doing the computation on the shared memory. It
 synchronizes again after the computation to ensure all threads have finished
 with the data in shared memory before overwriting it in the next loop

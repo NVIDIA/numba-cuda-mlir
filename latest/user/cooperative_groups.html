@@ -387,16 +387,18 @@
 <li class="toctree-l2"><a class="reference internal" href="cuda_ffi.html">Calling foreign functions from Python kernels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cuda_compilation.html">Compiling Python functions for use with other languages</a></li>
 <li class="toctree-l2"><a class="reference internal" href="callconv.html">CUDA device call conventions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="profiling.html">Profiling</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../reference/index.html">Reference documentation</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../reference/host.html">CUDA Host API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/compilation.html">Compilation API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/kernel.html">CUDA Kernel API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/cache_hints.html">Cache Hints for Memory Operations</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/types.html">CUDA-Specific Types</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../reference/memory.html">Memory Management</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/libdevice.html">Libdevice functions</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../reference/envvars.html">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/host.html">CUDA Host API (Deprecated)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/memory.html">Memory Management (Deprecated)</a></li>
 </ul>
 </details></li>
 </ul>
@@ -464,11 +466,11 @@ mode</a>.</p>
 </section>
 <section id="using-grid-groups">
 <h2>Using Grid Groups<a class="headerlink" href="#using-grid-groups" title="Link to this heading">#</a></h2>
-<p>To get the current grid group, use the <a class="reference internal" href="../reference/kernel.html#numba.cuda.cg.this_grid" title="numba.cuda.cg.this_grid"><code class="xref py py-meth docutils literal notranslate"><span class="pre">cg.this_grid()</span></code></a> function:</p>
+<p>To get the current grid group, use the <code class="xref py py-meth docutils literal notranslate"><span class="pre">cg.this_grid()</span></code> function:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">g</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">cg</span><span class="o">.</span><span class="n">this_grid</span><span class="p">()</span>
 </pre></div>
 </div>
-<p>Synchronizing the grid is done with the <a class="reference internal" href="../reference/kernel.html#numba.cuda.cg.GridGroup.sync" title="numba.cuda.cg.GridGroup.sync"><code class="xref py py-meth docutils literal notranslate"><span class="pre">sync()</span></code></a> method of the grid group:</p>
+<p>Synchronizing the grid is done with the <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.cg.GridGroup.sync" title="(in Numba v0.66)"><code class="xref py py-meth docutils literal notranslate"><span class="pre">sync()</span></code></a> method of the grid group:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">g</span><span class="o">.</span><span class="n">sync</span><span class="p">()</span>
 </pre></div>
 </div>

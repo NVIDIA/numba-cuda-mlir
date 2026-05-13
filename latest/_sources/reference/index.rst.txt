@@ -7,10 +7,11 @@ Reference documentation
 
 .. toctree::
 
-   host.rst
+   compilation.rst
    kernel.rst
    cache_hints.rst
    types.rst
-   memory.rst
    libdevice.rst
    envvars.rst
+   host.rst
+   memory.rst

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from abc import abstractmethod
 import functools
 import numpy as np
+import re
 from numba_cuda_mlir.numba_cuda import types, typing
 from numba_cuda_mlir.annotations import AnyCallable, PS
 from numba_cuda_mlir.lowering_utilities import type_conversions
@@ -16,8 +17,10 @@ from numba_cuda_mlir.lowering_utilities.type_conversions import (
     np_dtype_to_mlir_type as mlir_type_from_numpy_dtype,
     to_mlir_type,
 )
+from numba_cuda_mlir.lowering_utilities.llvm_utils import NVPTX64_DATALAYOUT
 from numba_cuda_mlir.type_defs.float_types import BFloat16Type
 from numba_cuda_mlir._mlir import ir
+import numba_cuda_mlir._mlir.passmanager as pm
 from numba_cuda_mlir._mlir.dialects import (
     arith,
     memref,
@@ -141,18 +144,30 @@ def tensor_to_memref(tensor):
             raise NotImplementedError(f"Not implemented for type {tensor.type}")
 
 
+@functools.cache
 def get_type_width(ty: ir.Type) -> int:
-    match ty:
-        case ir.IntegerType():
-            return ty.width
-        case ir.IndexType():
-            return 64
-        case ir.FloatType():
-            return ty.width
-        case ir.ComplexType():
-            return ir.ComplexType(ty).element_type.width
-        case _:
-            raise NotImplementedError(f"Not implemented for type {ty}")
+    # Create a temporary module to compute the size using GEP
+    module = ir.Module.create()
+    module.operation.attributes["llvm.data_layout"] = ir.StringAttr.get(NVPTX64_DATALAYOUT)
+    with ir.InsertionPoint(module.body):
+        fnty = ir.TypeAttr.get(ir.Type.parse("!llvm.func<i64 ()>"))
+        func = llvm.LLVMFuncOp("get_size", fnty)
+        block = ir.Block.create_at_start(func.body)
+        with ir.InsertionPoint(block):
+            null_ptr = llvm.mlir_zero(ir.Type.parse("!llvm.ptr"))
+            gep = llvm.getelementptr(ir.Type.parse("!llvm.ptr"), null_ptr, [], [1], ty, None)
+            size = llvm.PtrToIntOp(ir.Type.parse("i64"), gep)
+            llvm.ReturnOp(arg=size)
+
+    pm.PassManager.parse("builtin.module(canonicalize)").run(module.operation)
+    llvm_module = llvm.translate_module_to_llvmir(module.operation)
+
+    match = re.search(r"ret i64 (\d+)", llvm_module)
+    if match:
+        width = int(match.group(1)) * 8
+        return width
+    else:
+        raise RuntimeError(f"Could not extract size from module: {llvm_module}")
 
 
 @singledispatch

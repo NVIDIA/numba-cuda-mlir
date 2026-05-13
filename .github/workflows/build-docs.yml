@@ -1,0 +1,142 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+name: "CI: Build and update docs"
+
+on:
+  workflow_call:
+    inputs:
+      host-platform:
+        description: "Host platform of the wheel artifact to use"
+        required: false
+        default: "linux-64"
+        type: string
+      git-tag:
+        description: "Target git tag to build docs for"
+        required: false
+        default: ""
+        type: string
+      run-id:
+        description: "The GHA run ID that generated validated artifacts"
+        required: false
+        default: ${{ github.run_id }}
+        type: string
+      is-release:
+        description: "Are we building release docs?"
+        required: false
+        default: false
+        type: boolean
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -xeuo pipefail {0}
+
+permissions:
+  actions: read
+  contents: write  # required for JamesIves/github-pages-deploy-action to push to gh-pages
+
+jobs:
+  build:
+    name: Build docs
+    # The build stage could fail but we want the CI to keep moving.
+    if: ${{ github.repository_owner == 'nvidia' && !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ${{ github.event.repository.name }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.git-tag }}
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Set environment variables
+        run: |
+          PYTHON_VERSION_FORMATTED="312"
+          REPO_DIR=$(pwd)
+
+          if [[ "${{ inputs.is-release }}" == "true" ]]; then
+            FILE_HASH="*"
+            COMMIT_HASH="${{ inputs.git-tag }}"
+          else
+            FILE_HASH="${{ github.sha }}"
+            COMMIT_HASH="${{ github.sha }}"
+          fi
+
+          ARTIFACT_BASENAME="numba-cuda-mlir-python${PYTHON_VERSION_FORMATTED}-${{ inputs.host-platform }}"
+          {
+            echo "COMMIT_HASH=${COMMIT_HASH}"
+            echo "NUMBA_CUDA_MLIR_ARTIFACT_NAME=${ARTIFACT_BASENAME}-${FILE_HASH}"
+            echo "NUMBA_CUDA_MLIR_ARTIFACTS_DIR=${REPO_DIR}/dist"
+          } >> "$GITHUB_ENV"
+
+      - name: Download numba-cuda-mlir wheel (same-run)
+        if: ${{ !inputs.is-release }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: ${{ env.NUMBA_CUDA_MLIR_ARTIFACT_NAME }}
+          path: ${{ env.NUMBA_CUDA_MLIR_ARTIFACTS_DIR }}
+
+      - name: Download numba-cuda-mlir wheel (release run)
+        if: ${{ inputs.is-release }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          pattern: ${{ env.NUMBA_CUDA_MLIR_ARTIFACT_NAME }}
+          merge-multiple: true
+          path: ${{ env.NUMBA_CUDA_MLIR_ARTIFACTS_DIR }}
+          run-id: ${{ inputs.run-id }}
+          github-token: ${{ github.token }}
+
+      - name: Display structure of downloaded artifacts
+        run: |
+          ls -lahR "${NUMBA_CUDA_MLIR_ARTIFACTS_DIR}"
+
+      - name: Install docs build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            sphinx \
+            numpydoc \
+            sphinx-copybutton \
+            enum_tools \
+            sphinx-toolbox \
+            nvidia-sphinx-theme
+
+      - name: Install numba-cuda-mlir wheel
+        run: |
+          python -m pip install "${NUMBA_CUDA_MLIR_ARTIFACTS_DIR}"/*.whl
+
+      - name: Build docs
+        env:
+          BUILD_LATEST: ${{ (inputs.is-release && '0') || '1' }}
+        run: |
+          pushd docs
+          if [[ "${{ inputs.is-release }}" == "false" ]]; then
+            ./build_docs.sh latest-only
+          else
+            ./build_docs.sh
+            # At release time, we don't want to update the latest docs
+            rm -rf build/html/latest
+          fi
+          ls -l build/html
+          popd
+
+      - name: Upload built docs artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: numba-cuda-mlir-docs
+          path: docs/build/html/
+          retention-days: 7
+
+      - name: Deploy docs
+        if: ${{ github.ref_name == 'main' || inputs.is-release }}
+        uses: JamesIves/github-pages-deploy-action@d92aa235d04922e8f08b40ce78cc5442fcfbfa2f  # v4.8.0
+        with:
+          folder: docs/build/html/
+          target-folder: /
+          commit-message: "Deploy ${{ (inputs.is-release && 'release') || 'latest' }} docs: ${{ env.COMMIT_HASH }}"
+          clean: false

@@ -13,49 +13,64 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
 from numba_cuda_mlir import types
 from numba_cuda_mlir.type_defs.vector_types import VectorType
 from numba_cuda_mlir.cuda.vector_types import (
-    _vector_type_stubs,
+    _vector_types,
 )
 
-registry = Registry()
+from numba_cuda_mlir.numba_cuda.types import Callable, DTypeSpec
+from numba_cuda_mlir.models import register_model
+from numba_cuda_mlir.numba_cuda.datamodel.models import OpaqueModel
+from numba_cuda_mlir.numba_cuda.typing import typeof
 
-# Map base type names to numba types
-BASE_TYPE_MAP = {
-    "int8": types.int8,
-    "int16": types.int16,
-    "int32": types.int32,
-    "int64": types.int64,
-    "uint8": types.uint8,
-    "uint16": types.uint16,
-    "uint32": types.uint32,
-    "uint64": types.uint64,
-    "float32": types.float32,
-    "float64": types.float64,
-}
+
+class VectorTypeClass(Callable, DTypeSpec):
+    """
+    A class representing a vector type that can be called to construct instances
+    and used as a dtype specifier.
+    """
+
+    def __init__(self, instance_type, constructor_template):
+        self.instance_type = instance_type
+        self._template = constructor_template
+        self.typing_key = instance_type
+        super().__init__(f"class({instance_type})")
+
+    @property
+    def dtype(self):
+        return self.instance_type
+
+    def get_call_type(self, context, args, kws):
+        return self._template(context).apply(args, kws)
+
+    def get_call_signatures(self):
+        sigs = getattr(self._template, "cases", [])
+        is_param = hasattr(self._template, "generic")
+        return sigs, is_param
+
+    def get_impl_key(self, sig):
+        return self.typing_key
+
+
+registry = Registry()
 
 # Attribute index mapping
 ATTR_INDEX = {"x": 0, "y": 1, "z": 2, "w": 3}
 
 
-def get_vector_type_for_stub(stub_class):
-    """Get the VectorType corresponding to a stub class."""
-    base_type = BASE_TYPE_MAP[stub_class._base_type_name]
-    return VectorType(base_type, (stub_class._num_elements,))
+register_model(VectorTypeClass)(OpaqueModel)
 
 
 _constructor_template_cache = {}
 
 
-def make_constructor_template(stub_class):
+def make_constructor_template(vec_type):
     """Create a typing template for a vector type constructor (cached)."""
-    if stub_class in _constructor_template_cache:
-        return _constructor_template_cache[stub_class]
+    if vec_type in _constructor_template_cache:
+        return _constructor_template_cache[vec_type]
 
-    base_type = BASE_TYPE_MAP[stub_class._base_type_name]
-    num_elements = stub_class._num_elements
-    result_type = VectorType(base_type, (num_elements,))
+    num_elements = vec_type.length
 
     class ConstructorTemplate(AbstractTemplate):
-        key = stub_class
+        key = vec_type
 
         def generic(self, args, kws):
             if kws:
@@ -67,10 +82,10 @@ def make_constructor_template(stub_class):
                 # Copy from compatible vector (same number of elements)
                 if isinstance(arg, VectorType):
                     if arg.length == num_elements:
-                        return signature(result_type, arg)
+                        return signature(vec_type, arg)
                 # Scalar broadcast
                 if isinstance(arg, (types.Integer, types.Float)):
-                    return signature(result_type, arg)
+                    return signature(vec_type, arg)
 
             # All scalar arguments matching element count
             if len(args) == num_elements:
@@ -78,7 +93,7 @@ def make_constructor_template(stub_class):
                     isinstance(arg, (types.Integer, types.Float, types.Boolean)) for arg in args
                 )
                 if all_scalars:
-                    return signature(result_type, *args)
+                    return signature(vec_type, *args)
 
             # Mixed vector/scalar arguments
             total_elements = 0
@@ -91,20 +106,20 @@ def make_constructor_template(stub_class):
                     return None
 
             if total_elements == num_elements:
-                return signature(result_type, *args)
+                return signature(vec_type, *args)
 
             return None
 
-    ConstructorTemplate.__name__ = f"{stub_class.__name__}ConstructorTemplate"
-    _constructor_template_cache[stub_class] = ConstructorTemplate
+    ConstructorTemplate.__name__ = f"{vec_type.name}ConstructorTemplate"
+    _constructor_template_cache[vec_type] = ConstructorTemplate
     return ConstructorTemplate
 
 
 # Register all vector type constructors
-for stub in _vector_type_stubs:
-    template = make_constructor_template(stub)
+for vec_type in _vector_types:
+    template = make_constructor_template(vec_type)
     registry.register(template)
-    registry.register_global(stub, types.Function(template))
+    registry.register_global(vec_type, VectorTypeClass(vec_type, template))
 
 
 @registry.register_attr
@@ -130,19 +145,11 @@ class VectorTypeAttributeTemplate(AttributeTemplate):
             return ty.dtype
 
 
-# Register typeof_impl for all vector type stubs so they can be used as closure variables
-from numba_cuda_mlir.numba_cuda.typing import typeof
+# Register typeof_impl for all vector types so they can be used as closure variables
 
 
-def _make_typeof_impl(stub_class):
-    """Create a typeof implementation for a vector type stub."""
-    template = make_constructor_template(stub_class)
-
-    def typeof_stub(val, c):
-        return types.Function(template)
-
-    return typeof_stub
-
-
-for stub in _vector_type_stubs:
-    typeof.typeof_impl.register(stub)(_make_typeof_impl(stub))
+@typeof.typeof_impl.register(VectorType)
+def typeof_vector_type(val, c):
+    """Create a typeof implementation for a vector type."""
+    template = make_constructor_template(val)
+    return VectorTypeClass(val, template)

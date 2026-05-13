@@ -13,7 +13,6 @@ from numba_cuda_mlir._mlir.dialects import (
     builtin,
     math as math_dialect,
     llvm,
-    shape,
     tensor,
     memref as memref_dialect,
     complex as complex_dialect,
@@ -29,10 +28,8 @@ lower = registry.lower
 lower_getattr = registry.lower_getattr
 lower_getattr_generic = registry.lower_getattr_generic
 lower_constant = registry.lower_constant
-from numba_cuda_mlir import numba_cuda as cuda
 from numba_cuda_mlir.numba_cuda import types
 import numba_cuda_mlir.numba_cuda.core.ir as numba_ir
-from numba_cuda_mlir.numba_cuda.types.ext_types import Dim3
 from typing import Any, cast
 from numba_cuda_mlir.logging import trace
 import numpy as np
@@ -429,7 +426,7 @@ def np_all_cg(builder, target, args, kwargs):
     region = reduce_op.combiner
     block = region.blocks.append(array.type.element_type, T.bool())
     with ir.InsertionPoint(block):
-        from numba_cuda_mlir.lowering_utilities import not_equal, or_, and_, constant
+        from numba_cuda_mlir.lowering_utilities import not_equal, and_, constant
 
         in_arg, out_arg = block.arguments
         result = not_equal(in_arg, constant(0.0, dtype))

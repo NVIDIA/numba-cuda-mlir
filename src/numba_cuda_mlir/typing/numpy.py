@@ -10,6 +10,7 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
 )
 from numba_cuda_mlir import types
 from numba_cuda_mlir.numba_cuda.typing import npydecl
+from numba_cuda_mlir.numba_cuda.typing.npydecl import parse_dtype
 from numba_cuda_mlir.lowering_utilities import type_conversions
 from numba_cuda_mlir.numba_cuda.np.unsafe.ndarray import to_fixed_tuple
 

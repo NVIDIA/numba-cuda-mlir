@@ -3,6 +3,10 @@ import pytest
 from numba_cuda_mlir import cuda
 
 vector_types_to_test = [
+    (cuda.float16x1, np.float16, 1),
+    (cuda.float16x2, np.float16, 2),
+    (cuda.float16x3, np.float16, 3),
+    (cuda.float16x4, np.float16, 4),
     (cuda.float32x1, np.float32, 1),
     (cuda.float32x2, np.float32, 2),
     (cuda.float32x3, np.float32, 3),

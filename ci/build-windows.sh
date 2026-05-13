@@ -110,9 +110,9 @@ clone_modern_llvm() {
   mkdir -p "${BUILD_ROOT}"
   if [[ ! -d "${LLVM_MODERN_SRC}/llvm" ]]; then
     git clone --depth 1 https://github.com/llvm/llvm-project.git "${LLVM_MODERN_SRC}"
-    git -C "${LLVM_MODERN_SRC}" fetch --depth 1 origin "${LLVM_MODERN_COMMIT}"
-    git -C "${LLVM_MODERN_SRC}" checkout "${LLVM_MODERN_COMMIT}"
   fi
+  git -C "${LLVM_MODERN_SRC}" fetch --depth 1 origin "${LLVM_MODERN_COMMIT}"
+  git -C "${LLVM_MODERN_SRC}" checkout "${LLVM_MODERN_COMMIT}"
 }
 
 build_modern_llvm() {
@@ -137,12 +137,17 @@ build_modern_llvm() {
     -DLLVM_ENABLE_ZSTD=OFF \
     -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded \
     -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
-    -DCMAKE_CXX_FLAGS="-DMLIR_PYTHON_PACKAGE_PREFIX=numba_cuda_mlir._mlir." \
+    -DMLIR_PYTHON_PACKAGE_PREFIX="numba_cuda_mlir._mlir" \
     -DMLIR_BINDINGS_PYTHON_INSTALL_PREFIX="python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir" \
     -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=numba_cuda_mlir \
+    -DMLIR_PYTHON_STUBGEN_ENABLED=OFF \
     -DPython3_EXECUTABLE="$("${PYTHON}" -c 'import sys; print(sys.executable)')"
   cmake --build "$(cmake_path "${LLVM_MODERN_BUILD}")" -j "${PARALLEL}"
   cmake --install "$(cmake_path "${LLVM_MODERN_BUILD}")"
+  local capi_import_lib="${LLVM_MODERN_BUILD}/tools/mlir/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs/MLIRPythonCAPI.lib"
+  if [[ -f "${capi_import_lib}" ]]; then
+    cp "${capi_import_lib}" "${LLVM_MODERN_INSTALL}/lib/MLIRPythonCAPI.lib"
+  fi
 }
 
 step "Validate Windows build prerequisites" check_prereqs

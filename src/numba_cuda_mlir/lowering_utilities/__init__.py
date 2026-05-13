@@ -151,6 +151,12 @@ def get_type_width(ty: ir.Type) -> int:
             return ty.width
         case ir.ComplexType():
             return ir.ComplexType(ty).element_type.width
+        case ir.VectorType():
+            vec_ty = ir.VectorType(ty)
+            width = get_type_width(vec_ty.element_type)
+            for dim in vec_ty.shape:
+                width *= dim
+            return width
         case _:
             raise NotImplementedError(f"Not implemented for type {ty}")
 

@@ -17,6 +17,7 @@ from numba_cuda_mlir.numba_cuda.cudadrv.driver import (
     _have_nvjitlink,
 )
 from cuda.core import LaunchConfig, launch
+from numba_cuda_mlir.numba_cuda._compat import CUDA_CORE_GE_1_0
 from numba_cuda_mlir.numba_cuda.cudadrv import devices
 from numba_cuda_mlir.numba_cuda.api import get_current_device
 from numba_cuda_mlir.numba_cuda.utils import _readenv, cached_file_read
@@ -174,12 +175,20 @@ class _Runtime:
             stream = cuda.default_stream()
 
         func = module.get_function(name)
-        config = LaunchConfig(
-            grid=(1, 1, 1),
-            block=(1, 1, 1),
-            shmem_size=0,
-            cooperative_launch=False,
-        )
+        if CUDA_CORE_GE_1_0:
+            config = LaunchConfig(
+                grid=(1, 1, 1),
+                block=(1, 1, 1),
+                shmem_size=0,
+                is_cooperative=False,
+            )
+        else:
+            config = LaunchConfig(
+                grid=(1, 1, 1),
+                block=(1, 1, 1),
+                shmem_size=0,
+                cooperative_launch=False,
+            )
 
         launch(_to_core_stream(stream), config, func.kernel, *params)
 

@@ -23,6 +23,7 @@ from numba_cuda_mlir.compiler import (
     compile_mlir,
     compile_for,
     compile_cubin,
+    declare_device,
 )
 
 

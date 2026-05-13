@@ -290,7 +290,8 @@ def get_llvm70_capi_path() -> str:
         if c.exists():
             return str(c.resolve())
     raise FileNotFoundError(
-        f"{lib_name} not found. Rebuild numba_cuda_mlir with MLIR_DIR env var set."
+        f"{lib_name} not found. Rebuild numba_cuda_mlir with MLIR_DIR and "
+        "NUMBA_CUDA_MLIR_BUILD_LLVM70=1 set."
     )
 
 

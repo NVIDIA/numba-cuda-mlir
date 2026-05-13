@@ -141,6 +141,7 @@ jobs:
           CIBW_MANYLINUX_X86_64_IMAGE: quay.io/pypa/manylinux_2_28_x86_64
           CIBW_MANYLINUX_AARCH64_IMAGE: quay.io/pypa/manylinux_2_28_aarch64
           CIBW_ENVIRONMENT_LINUX: >
+            NUMBA_CUDA_MLIR_BUILD_LLVM70=1
             MLIR_DIR=/host/${{ github.workspace }}/llvm-modern-install/lib/cmake/mlir
             LIBLLVM7=/host/${{ github.workspace }}/llvm7-install/lib/libLLVM-7.so
             CC="/host/${{ env.SCCACHE_PATH }} cc"
@@ -153,6 +154,7 @@ jobs:
             ACTIONS_CACHE_SERVICE_V2=${{ env.ACTIONS_CACHE_SERVICE_V2 }}
             SCCACHE_GHA_USE_PREPROCESSOR_CACHE_MODE=${{ env.SCCACHE_GHA_USE_PREPROCESSOR_CACHE_MODE }}
           CIBW_ENVIRONMENT_WINDOWS: >
+            NUMBA_CUDA_MLIR_BUILD_LLVM70=1
             MLIR_DIR="$(cygpath -w ${{ github.workspace }}/llvm-modern-install/lib/cmake/mlir)"
             LLVM70_ROOT="$(cygpath -w ${{ github.workspace }}/llvm7-install)"
             CMAKE_C_COMPILER_LAUNCHER="$(cygpath -w ${{ env.SCCACHE_PATH }})"

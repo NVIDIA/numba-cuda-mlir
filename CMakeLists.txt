@@ -48,7 +48,10 @@ endif()
 
 add_subdirectory(cext)
 
-option(BUILD_LLVM70 "Build mlir-llvm70 (requires MLIR_DIR)" OFF)
+option(
+  BUILD_LLVM70
+  "Build the LLVM 7 compatibility bridge alongside latest MLIR support (requires MLIR_DIR)"
+  OFF)
 if(BUILD_LLVM70)
   if(NOT DEFINED MLIR_DIR)
     message(FATAL_ERROR "BUILD_LLVM70=ON requires MLIR_DIR to be set")

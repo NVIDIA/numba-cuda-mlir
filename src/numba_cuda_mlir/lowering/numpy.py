@@ -1012,55 +1012,31 @@ def lower_array_view_cg(builder, target, args, kwargs):
                 [_self],
             )
             value = converted
-        elif target_vec_len is not None:
-            vec_len = target_vec_len
-            for i in range(target_rank):
-                dim_size = metadata[2 + i]
-                dim_stride = metadata[2 + target_rank + i]
-                if i == target_rank - 1:
-                    vec_len_val = arith.constant(vec_len, index=True)
-                    dim_size = arith_dialect.divui(dim_size, vec_len_val)
-                dynamic_sizes.append(dim_size)
-                dynamic_strides.append(dim_stride)
-
-            # Reinterpret cast to modify sizes while keeping same element type
-            reinterpreted = memref_dialect.reinterpret_cast(
-                ir.MemRefType.get(
-                    [dyn_size] * target_rank,
-                    mr_ty.element_type,
-                    ir.StridedLayoutAttr.get(dyn_stride, [dyn_stride] * target_rank),
-                    memory_space=mr_ty.memory_space,
-                ),
-                _self,
-                offsets=[offset],
-                sizes=dynamic_sizes,
-                strides=dynamic_strides,
-                static_offsets=[dyn_stride],
-                static_sizes=[dyn_size] * target_rank,
-                static_strides=[dyn_stride] * target_rank,
-            )
-
-            # Unrealized conversion cast to change element type to vector
-            value = builtin.unrealized_conversion_cast([target_mlir_type], [reinterpreted])
         else:
-            vec_len = source_vec_len
+            source_len = source_vec_len if source_vec_len is not None else 1
+            target_len = target_vec_len if target_vec_len is not None else 1
+            
             for i in range(target_rank):
                 dim_size = metadata[2 + i]
                 dim_stride = metadata[2 + target_rank + i]
                 if i == target_rank - 1:
-                    vec_len_val = arith.constant(vec_len, index=True)
-                    dim_size = arith_dialect.muli(dim_size, vec_len_val)
+                    if source_len != 1:
+                        source_len_val = arith.constant(source_len, index=True)
+                        dim_size = arith_dialect.muli(dim_size, source_len_val)
+                    if target_len != 1:
+                        target_len_val = arith.constant(target_len, index=True)
+                        dim_size = arith_dialect.divui(dim_size, target_len_val)
                 dynamic_sizes.append(dim_size)
                 dynamic_strides.append(dim_stride)
 
-            # Unrealized conversion cast to change element type to float
-            float_memref_type = ir.MemRefType.get(
+            # Unrealized conversion cast to change element type
+            intermediate_memref_type = ir.MemRefType.get(
                 [dyn_size] * len(mr_ty.shape),
                 dtype,
                 ir.StridedLayoutAttr.get(dyn_stride, [dyn_stride] * len(mr_ty.shape)),
                 memory_space=mr_ty.memory_space,
             )
-            converted = builtin.unrealized_conversion_cast([float_memref_type], [_self])
+            converted = builtin.unrealized_conversion_cast([intermediate_memref_type], [_self])
 
             # Reinterpret cast to modify sizes while keeping same element type
             value = memref_dialect.reinterpret_cast(

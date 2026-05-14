@@ -119,10 +119,10 @@ jobs:
           # - { python-version: "3.13", py-tag: cp313 }
           # - { python-version: "3.14", py-tag: cp314 }
           # - { python-version: "3.14t", py-tag: cp314t }
-    runs-on: windows-2022-4core
-    timeout-minutes: 300
+    runs-on: windows-amd64-cpu16
+    timeout-minutes: 120
     env:
-      PARALLEL: "4"
+      PARALLEL: "16"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -132,14 +132,6 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
           role-duration-seconds: 43200
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Set up MSVC
-        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756  # v1
 
       - name: Compute cache key
         id: cache-key
@@ -157,17 +149,37 @@ jobs:
           path: llvm-modern-install/
           key: ${{ steps.cache-key.outputs.key }}
 
-      - name: Install build dependencies
+      - name: Pull devcontainer image
         if: steps.gha-cache.outputs.cache-hit != 'true'
+        shell: pwsh
         run: |
-          python -m pip install pybind11 nanobind numpy ninja cmake awscli "typing-extensions; python_version < '3.12'"
-          chmod +x ci/*.sh
+          Get-Content ci/windows-devcontainer.env | ForEach-Object {
+            if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)\s*$') {
+              Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2].Trim()
+            }
+          }
+          docker pull $env:WINDOWS_DEVCONTAINER_IMAGE
 
-      - name: Build modern LLVM with MLIR
+      - name: Build modern LLVM in devcontainer
         if: steps.gha-cache.outputs.cache-hit != 'true'
+        shell: pwsh
         env:
-          PYTHON: python
-        run: ci/build-windows.sh modern
+          PYTHON_VERSION: ${{ matrix.python-version }}
+        run: |
+          Get-Content ci/windows-devcontainer.env | ForEach-Object {
+            if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)\s*$') {
+              Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2].Trim()
+            }
+          }
+          $src = (Resolve-Path "${{ github.workspace }}").Path
+          $img = $env:WINDOWS_DEVCONTAINER_IMAGE
+          $py = $env:PYTHON_VERSION
+          docker run --isolation=process `
+            --mount "type=bind,source=$src,target=C:\workspace" `
+            --workdir C:\workspace `
+            --env "PARALLEL=${{ env.PARALLEL }}" `
+            $img `
+            powershell -NoProfile -ExecutionPolicy Bypass -File C:\workspace\ci\windows-llvm-container-build.ps1 -PythonVersion $py -Mode modern
 
       - name: Upload LLVM Modern artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -257,10 +269,10 @@ jobs:
   build-llvm7-windows:
     name: LLVM 7 Windows
     if: ${{ inputs.host-platform == 'win-64' }}
-    runs-on: windows-2022-4core
-    timeout-minutes: 300
+    runs-on: windows-amd64-cpu16
+    timeout-minutes: 120
     env:
-      PARALLEL: "4"
+      PARALLEL: "16"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -270,14 +282,6 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
           role-duration-seconds: 43200
-
-      - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
-        with:
-          python-version: "3.12"
-
-      - name: Set up MSVC
-        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756  # v1
 
       - name: Compute cache key
         id: cache-key
@@ -295,17 +299,34 @@ jobs:
           path: llvm7-install/
           key: ${{ steps.cache-key.outputs.key }}
 
-      - name: Install build dependencies
+      - name: Pull devcontainer image
         if: steps.gha-cache.outputs.cache-hit != 'true'
+        shell: pwsh
         run: |
-          python -m pip install ninja cmake awscli
-          chmod +x ci/*.sh
+          Get-Content ci/windows-devcontainer.env | ForEach-Object {
+            if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)\s*$') {
+              Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2].Trim()
+            }
+          }
+          docker pull $env:WINDOWS_DEVCONTAINER_IMAGE
 
-      - name: Build LLVM 7
+      - name: Build LLVM 7 in devcontainer
         if: steps.gha-cache.outputs.cache-hit != 'true'
-        env:
-          PYTHON: python
-        run: ci/build-windows.sh llvm7
+        shell: pwsh
+        run: |
+          Get-Content ci/windows-devcontainer.env | ForEach-Object {
+            if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)\s*$') {
+              Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2].Trim()
+            }
+          }
+          $src = (Resolve-Path "${{ github.workspace }}").Path
+          $img = $env:WINDOWS_DEVCONTAINER_IMAGE
+          docker run --isolation=process `
+            --mount "type=bind,source=$src,target=C:\workspace" `
+            --workdir C:\workspace `
+            --env "PARALLEL=${{ env.PARALLEL }}" `
+            $img `
+            powershell -NoProfile -ExecutionPolicy Bypass -File C:\workspace\ci\windows-llvm-container-build.ps1 -PythonVersion 3.12 -Mode llvm7
 
       - name: Upload LLVM 7 artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1

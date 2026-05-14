@@ -174,12 +174,21 @@ jobs:
           $src = (Resolve-Path "${{ github.workspace }}").Path
           $img = $env:WINDOWS_DEVCONTAINER_IMAGE
           $py = $env:PYTHON_VERSION
-          docker run --isolation=process `
+          $cname = "llvm-modern-${{ matrix.py-tag }}"
+          docker run --name $cname --isolation=process `
             --mount "type=bind,source=$src,target=C:\workspace" `
             --workdir C:\workspace `
             --env "PARALLEL=${{ env.PARALLEL }}" `
             $img `
             powershell -NoProfile -ExecutionPolicy Bypass -File C:\workspace\ci\windows-llvm-container-build.ps1 -PythonVersion $py -Mode modern
+
+      - name: Copy LLVM Modern install from container
+        if: steps.gha-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $cname = "llvm-modern-${{ matrix.py-tag }}"
+          docker cp "${cname}:C:\workspace\llvm-modern-install" "${{ github.workspace }}\llvm-modern-install"
+          docker rm $cname
 
       - name: Upload LLVM Modern artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -321,12 +330,19 @@ jobs:
           }
           $src = (Resolve-Path "${{ github.workspace }}").Path
           $img = $env:WINDOWS_DEVCONTAINER_IMAGE
-          docker run --isolation=process `
+          docker run --name llvm7-build --isolation=process `
             --mount "type=bind,source=$src,target=C:\workspace" `
             --workdir C:\workspace `
             --env "PARALLEL=${{ env.PARALLEL }}" `
             $img `
             powershell -NoProfile -ExecutionPolicy Bypass -File C:\workspace\ci\windows-llvm-container-build.ps1 -PythonVersion 3.12 -Mode llvm7
+
+      - name: Copy LLVM 7 install from container
+        if: steps.gha-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          docker cp "llvm7-build:C:\workspace\llvm7-install" "${{ github.workspace }}\llvm7-install"
+          docker rm llvm7-build
 
       - name: Upload LLVM 7 artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1

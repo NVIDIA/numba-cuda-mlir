@@ -33,11 +33,23 @@ function Install-PythonViaNuGet {
     }
 
     Write-Host "Installing $packageId $baseVersion via NuGet to $TargetDir"
-    & $nugetExe install $packageId -Version $baseVersion -OutputDirectory $TargetDir -ExcludeVersion
-    if ($LASTEXITCODE -ne 0) {
+    $nugetArgs = @(
+        'install', $packageId,
+        '-Version', $baseVersion,
+        '-OutputDirectory', $TargetDir,
+        '-ExcludeVersion'
+    )
+    $p = Start-Process -FilePath $nugetExe -ArgumentList $nugetArgs -Wait -NoNewWindow -PassThru
+    if ($p.ExitCode -ne 0) {
         Write-Host "Exact version $baseVersion not found, trying version prefix"
-        & $nugetExe install $packageId -Version "[${baseVersion},${baseVersion}.99999]" -OutputDirectory $TargetDir -ExcludeVersion
-        if ($LASTEXITCODE -ne 0) {
+        $nugetArgs = @(
+            'install', $packageId,
+            '-Version', "[${baseVersion},${baseVersion}.99999]",
+            '-OutputDirectory', $TargetDir,
+            '-ExcludeVersion'
+        )
+        $p = Start-Process -FilePath $nugetExe -ArgumentList $nugetArgs -Wait -NoNewWindow -PassThru
+        if ($p.ExitCode -ne 0) {
             throw "Failed to install $packageId $baseVersion via NuGet"
         }
     }

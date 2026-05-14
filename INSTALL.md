@@ -118,6 +118,28 @@ LIBLLVM7=$PWD/llvm7-install/lib/libLLVM-7.so \
   pip install -e '.[cu13]' --group dev --config-settings editable_mode=compat
 ```
 
+`MLIR_DIR` selects the latest LLVM/MLIR install and stages the MLIR Python
+bindings. Source installs build the LLVM 7 compatibility bridge by default when
+`MLIR_DIR` is set, matching CI wheels that support both latest LLVM and the
+LLVM 7 NVVM path. You can choose the build mode explicitly:
+
+```shell
+# Build latest LLVM/MLIR support plus the LLVM 7 compatibility bridge:
+NUMBA_CUDA_MLIR_BUILD_LLVM70=1 \
+MLIR_DIR=$PWD/llvm-modern-install/lib/cmake/mlir \
+LIBLLVM7=$PWD/llvm7-install/lib/libLLVM-7.so \
+  pip install -e '.[cu13]' --group dev --config-settings editable_mode=compat
+
+# Build latest LLVM/MLIR support only:
+NUMBA_CUDA_MLIR_BUILD_LLVM70=0 \
+MLIR_DIR=$PWD/llvm-modern-install/lib/cmake/mlir \
+  pip install -e '.[cu13]' --group dev --config-settings editable_mode=compat
+```
+
+On Windows, use `LLVM70_ROOT=<path-to-llvm7-install>` instead of `LIBLLVM7`
+when building the LLVM 7 bridge. Direct CMake builds use the same selection via
+`-DBUILD_LLVM70=ON` or `-DBUILD_LLVM70=OFF`.
+
 ### Option 3: Build LLVM from source
 
 If you need to modify LLVM/MLIR or want to build without cached artifacts:

@@ -1,7 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) <2026> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-set(CEXT_OPTIONS -fno-exceptions -fno-rtti)
+if(MSVC)
+    set(CEXT_OPTIONS /EHs-c- /GR- /wd4100 /wd4127 /wd4530)
+else()
+    set(CEXT_OPTIONS -fno-exceptions -fno-rtti)
+endif()
 
 add_library(_helperlib MODULE
     _helpermod.cpp
@@ -10,6 +14,7 @@ add_library(_helperlib MODULE
 target_compile_options(_helperlib PUBLIC ${CEXT_OPTIONS})
 
 target_include_directories(_helperlib PRIVATE ${Python_INCLUDE_DIRS})
+target_link_libraries(_helperlib PRIVATE Python::Module)
 
 set_target_properties(_helperlib PROPERTIES SKIP_BUILD_RPATH TRUE)
 

@@ -8,6 +8,13 @@
 #include <Python.h>
 #include <optional>
 
+#if defined(__GNUC__) || defined(__clang__)
+#define NUMBA_CUDA_MLIR_PRINTF_FORMAT(format_arg, first_arg) \
+    __attribute__((format(printf, format_arg, first_arg)))
+#else
+#define NUMBA_CUDA_MLIR_PRINTF_FORMAT(format_arg, first_arg)
+#endif
+
 #if PY_MAJOR_VERSION >= 3 && PY_MINOR_VERSION >= 13
 #define PyLong_AsInt PyLong_AsInt
 #else
@@ -165,7 +172,7 @@ static inline SavedException save_raised_exception() {
 
 void log_python_error(const char* filename, int line, const char* level, SavedException& exc,
                       const char* fmt, ...)
-    __attribute__(( format(printf, 5, 6) ));
+    NUMBA_CUDA_MLIR_PRINTF_FORMAT(5, 6);
 
 #define LOG_PYTHON_ERROR(level, exc, ...) \
         log_python_error(__FILE__, __LINE__, level, exc, __VA_ARGS__)

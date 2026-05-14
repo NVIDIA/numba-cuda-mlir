@@ -51,6 +51,7 @@ runs:
         echo "CTK_CACHE_COMPONENTS=${CTK_CACHE_COMPONENTS}" >> $GITHUB_ENV
 
     - name: Install dependencies
+      if: ${{ startsWith(inputs.host-platform, 'linux') }}
       uses: ./.github/actions/install_unix_deps
       continue-on-error: false
       with:
@@ -83,12 +84,28 @@ runs:
           CTK_SUBDIR="linux-x86_64"
         elif [[ "${{ inputs.host-platform }}" == "linux-aarch64" ]]; then
           CTK_SUBDIR="linux-sbsa"
+        elif [[ "${{ inputs.host-platform }}" == "win-64" ]]; then
+          CTK_SUBDIR="windows-x86_64"
         else
           echo "Unsupported host platform: ${{ inputs.host-platform }}"
           exit 1
         fi
         function extract() {
-          tar -xvf $1 -C $CACHE_TMP_DIR --strip-components=1
+          if [[ "$1" == *.zip ]]; then
+            ZIP_TMP="${CACHE_TMP_DIR}/.zip_extract"
+            mkdir -p "${ZIP_TMP}"
+            python -m zipfile -e "$1" "${ZIP_TMP}"
+            shopt -s dotglob nullglob
+            ZIP_ROOTS=("${ZIP_TMP}"/*)
+            if [[ ${#ZIP_ROOTS[@]} -ne 1 ]]; then
+              echo "Expected one top-level directory in $1, found ${#ZIP_ROOTS[@]}"
+              exit 1
+            fi
+            cp -r "${ZIP_ROOTS[0]}"/* "${CACHE_TMP_DIR}"
+            rm -rf "${ZIP_TMP}"
+          else
+            tar -xvf $1 -C $CACHE_TMP_DIR --strip-components=1
+          fi
         }
         function populate_cuda_path() {
           # take the component name as a argument
@@ -164,7 +181,14 @@ runs:
       run: |
         # mimics actual CTK installation
         CUDA_PATH=$(realpath "${{ inputs.cuda-path }}")
-        echo "${CUDA_PATH}/bin" >> $GITHUB_PATH
-        echo "LD_LIBRARY_PATH=${CUDA_PATH}/lib64:${LD_LIBRARY_PATH:-}" >> $GITHUB_ENV
-        echo "CUDA_PATH=${CUDA_PATH}" >> $GITHUB_ENV
-        echo "CUDA_HOME=${CUDA_PATH}" >> $GITHUB_ENV
+        if [[ "${{ inputs.host-platform }}" == win* ]]; then
+          CUDA_PATH_WIN=$(cygpath -w "${CUDA_PATH}")
+          echo "${CUDA_PATH_WIN}\\bin" >> $GITHUB_PATH
+          echo "CUDA_PATH=${CUDA_PATH_WIN}" >> $GITHUB_ENV
+          echo "CUDA_HOME=${CUDA_PATH_WIN}" >> $GITHUB_ENV
+        else
+          echo "${CUDA_PATH}/bin" >> $GITHUB_PATH
+          echo "LD_LIBRARY_PATH=${CUDA_PATH}/lib64:${LD_LIBRARY_PATH:-}" >> $GITHUB_ENV
+          echo "CUDA_PATH=${CUDA_PATH}" >> $GITHUB_ENV
+          echo "CUDA_HOME=${CUDA_PATH}" >> $GITHUB_ENV
+        fi

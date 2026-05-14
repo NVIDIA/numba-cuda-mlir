@@ -28,11 +28,9 @@ mkdir -p "${BUILD_ROOT}"
 if [ ! -d "${LLVM_SRC}/llvm" ]; then
     echo ">>> Cloning LLVM (commit ${LLVM_COMMIT})"
     git clone --depth 1 https://github.com/llvm/llvm-project.git "${LLVM_SRC}"
-    cd "${LLVM_SRC}"
-    git fetch --depth 1 origin "${LLVM_COMMIT}"
-    git checkout "${LLVM_COMMIT}"
-    cd -
 fi
+git -C "${LLVM_SRC}" fetch --depth 1 origin "${LLVM_COMMIT}"
+git -C "${LLVM_SRC}" checkout "${LLVM_COMMIT}"
 
 # Require sccache for compiler caching
 command -v sccache &>/dev/null || { echo "ERROR: sccache not found"; exit 1; }
@@ -40,8 +38,9 @@ export CMAKE_C_COMPILER_LAUNCHER="$(which sccache)"
 export CMAKE_CXX_COMPILER_LAUNCHER="$(which sccache)"
 
 # Configure
-# MLIR_PYTHON_PACKAGE_PREFIX bakes "numba_cuda_mlir._mlir." into all compiled .so
-#   files, so bindings expect numba_cuda_mlir._mlir.ir (not mlir.ir) at runtime.
+# MLIR_PYTHON_PACKAGE_PREFIX bakes "numba_cuda_mlir._mlir." into all compiled
+#   extension modules, so bindings expect numba_cuda_mlir._mlir.ir (not mlir.ir)
+#   at runtime.
 # MLIR_BINDINGS_PYTHON_INSTALL_PREFIX controls on-disk install path.
 # MLIR_BINDINGS_PYTHON_NB_DOMAIN isolates nanobind typeids from other
 #   MLIR-based projects that may coexist in the same process.
@@ -61,9 +60,10 @@ cmake_args=(
     -DLLVM_INCLUDE_BENCHMARKS=OFF
     -DLLVM_INCLUDE_DOCS=OFF
     -DMLIR_ENABLE_BINDINGS_PYTHON=ON
-    -DCMAKE_CXX_FLAGS="-DMLIR_PYTHON_PACKAGE_PREFIX=numba_cuda_mlir._mlir."
+    -DMLIR_PYTHON_PACKAGE_PREFIX="numba_cuda_mlir._mlir"
     -DMLIR_BINDINGS_PYTHON_INSTALL_PREFIX="python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir"
     -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=numba_cuda_mlir
+    -DMLIR_PYTHON_STUBGEN_ENABLED=OFF
     -DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON
     -DPython3_EXECUTABLE="$($PYTHON -c 'import sys; print(sys.executable)')"
 )
@@ -73,6 +73,10 @@ cmake "${cmake_args[@]}"
 # Build & install
 cmake --build "${LLVM_BUILD}" -j "${PARALLEL}"
 cmake --install "${LLVM_BUILD}"
+capi_import_lib="${LLVM_BUILD}/tools/mlir/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs/MLIRPythonCAPI.lib"
+if [[ -f "${capi_import_lib}" ]]; then
+    cp "${capi_import_lib}" "${LLVM_INSTALL}/lib/MLIRPythonCAPI.lib"
+fi
 
 echo "=== Modern LLVM installed to ${LLVM_INSTALL} ==="
 echo "  MLIR_DIR=${LLVM_INSTALL}/lib/cmake/mlir"

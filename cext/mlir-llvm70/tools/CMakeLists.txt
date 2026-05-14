@@ -4,6 +4,12 @@
 add_executable(llvm70-translate
   llvm70-translate.cpp
 )
+if(MSVC)
+  target_compile_options(llvm70-translate PRIVATE /EHsc /wd4706)
+endif()
+if(WIN32)
+  target_compile_definitions(llvm70-translate PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
 
 target_link_libraries(llvm70-translate
   PRIVATE

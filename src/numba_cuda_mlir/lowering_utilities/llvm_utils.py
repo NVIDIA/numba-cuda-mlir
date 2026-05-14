@@ -10,7 +10,8 @@ NVPTX64_TRIPLE = "nvptx64-nvidia-cuda"
 def _find_mlir_capi_lib():
     import numba_cuda_mlir._mlir._mlir_libs as libs
 
-    return os.path.join(os.path.dirname(libs.__file__), "libMLIRPythonCAPI.so")
+    name = "MLIRPythonCAPI.dll" if os.name == "nt" else "libMLIRPythonCAPI.so"
+    return os.path.join(os.path.dirname(libs.__file__), name)
 
 
 MLIR_CAPI_LIB_PATH = _find_mlir_capi_lib()

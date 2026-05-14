@@ -162,7 +162,10 @@ def typeof_vector_type(val, c):
 class ComplexBuiltinTemplate(AbstractTemplate):
     def generic(self, args, kws):
         if len(args) == 1 and isinstance(args[0], VectorType) and args[0].length == 2:
-            if args[0].dtype == types.float32:
+            dtype = args[0].dtype
+            if (isinstance(dtype, types.Float) and dtype.bitwidth <= 32) or (
+                isinstance(dtype, types.Integer) and dtype.bitwidth <= 16
+            ):
                 return signature(types.complex64, args[0])
             else:
                 return signature(types.complex128, args[0])

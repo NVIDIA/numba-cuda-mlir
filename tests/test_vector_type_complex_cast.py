@@ -1,9 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: BSD-2-Clause
+# SPDX-License-Identifier: Apache-2.0
 
 import numpy as np
 
 from numba_cuda_mlir.testing import NumbaCUDATestCase
+from numba_cuda_mlir.errors import TypingError
 
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir import types
@@ -42,8 +43,6 @@ class TestVectorTypeComplexCast(NumbaCUDATestCase):
         self.assertEqual(res[0], complex(1.0, 2.0))
 
     def test_invalid_complex_cast(self):
-        from numba_cuda_mlir.errors import TypingError
-
         with self.assertRaises(TypingError):
 
             @cuda.jit("void(complex128[:])")

@@ -19,6 +19,7 @@ from numba_cuda_mlir.cuda.vector_types import _vector_types
 from numba_cuda_mlir.type_defs.vector_types import VectorType
 from numba_cuda_mlir import types
 from numba_cuda_mlir._mlir.dialects import vector
+from numba_cuda_mlir._mlir.dialects import complex as complex_dialect
 from numba_cuda_mlir._mlir import ir
 
 ATTR_INDEX = {"x": 0, "y": 1, "z": 2, "w": 3}
@@ -78,8 +79,6 @@ def _constructor_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs)
         if isinstance(arg_type, VectorType):
             scalars.extend(_extract_vector_elements(val))
         elif isinstance(arg_type, types.Complex):
-            from numba_cuda_mlir._mlir.dialects import complex as complex_dialect
-
             scalars.append(complex_dialect.re(val))
             scalars.append(complex_dialect.im(val))
         else:
@@ -131,8 +130,6 @@ def _complex_from_vector_lowering(lower_ctx: MLIRLower, target, args: list[Any],
 
     real = convert(real, mlir_target_type.element_type)
     imag = convert(imag, mlir_target_type.element_type)
-
-    from numba_cuda_mlir._mlir.dialects import complex as complex_dialect
 
     result = complex_dialect.create_(
         complex=mlir_target_type,

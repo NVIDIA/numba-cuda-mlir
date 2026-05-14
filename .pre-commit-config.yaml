@@ -48,3 +48,6 @@ repos:
       args: ['--fix=lf']
     - id: trailing-whitespace
       exclude: '.+\.patch'
+
+default_language_version:
+      python: python3

@@ -11,81 +11,48 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$FullVersions = @{
-    '3.11'  = '3.11.11'
-    '3.12'  = '3.12.10'
-    '3.13'  = '3.13.5'
-    '3.14'  = '3.14.3'
-    '3.14t' = '3.14.3'
-}
-
-function Resolve-FullPythonVersion {
-    param([string]$Spec)
-    $key = $Spec.Trim()
-    if ($FullVersions.ContainsKey($key)) {
-        return $FullVersions[$key]
-    }
-    $base = $key.TrimEnd('t').Trim()
-    if ($FullVersions.ContainsKey($base)) {
-        return $FullVersions[$base]
-    }
-    throw "No pinned full Python version for '$Spec'. Update `$FullVersions in ci/windows-llvm-container-build.ps1."
-}
-
-function Install-PythonFromPythonOrg {
+function Install-PythonViaNuGet {
     param(
         [string]$Spec,
-        [string]$FullVer,
         [string]$TargetDir
     )
     $freethreaded = $Spec -match 't$'
-    $majMin = [version]($Spec.TrimEnd('t').Trim())
-    $installer = Join-Path $env:TEMP "python-$FullVer-amd64.exe"
-    $url = "https://www.python.org/ftp/python/$FullVer/python-$FullVer-amd64.exe"
-    Write-Host "Downloading $url"
-    Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing
+    $baseVersion = $Spec.TrimEnd('t').Trim()
 
-    $argList = @(
-        '/quiet',
-        'InstallAllUsers=0',
-        'SimpleInstall=1',
-        'Include_test=0',
-        'PrependPath=0',
-        "TargetDir=$TargetDir",
-        'Include_pip=1',
-        'Include_doc=0',
-        'Include_lib=1',
-        'Include_tcltk=0'
-    )
-    if ($freethreaded -and $majMin -ge [version]'3.13') {
-        $argList += 'Include_freethreaded=1'
+    $nugetExe = Join-Path $env:TEMP 'nuget.exe'
+    if (-not (Test-Path $nugetExe)) {
+        Write-Host 'Downloading nuget.exe'
+        Invoke-WebRequest -Uri 'https://dist.nuget.org/win-x86-commandline/latest/nuget.exe' -OutFile $nugetExe -UseBasicParsing
     }
 
-    Write-Host "Installing Python $FullVer to $TargetDir"
-    $p = Start-Process -FilePath $installer -ArgumentList $argList -Wait -PassThru
-    if ($p.ExitCode -ne 0) {
-        throw "Python installer exited with $($p.ExitCode)"
+    if ($freethreaded) {
+        $packageId = 'python-freethreaded'
+    }
+    else {
+        $packageId = 'python'
     }
 
-    if ($freethreaded -and $majMin -ge [version]'3.13') {
-        $ft = Get-ChildItem -Path $TargetDir -Filter 'python*.*t.exe' -File -ErrorAction SilentlyContinue |
-            Sort-Object Name |
-            Select-Object -First 1
-        if (-not $ft) {
-            $ft = Get-ChildItem -Path $TargetDir -Filter '*t.exe' -File -ErrorAction SilentlyContinue |
-                Where-Object { $_.Name -match '^python\d' } |
-                Select-Object -First 1
+    Write-Host "Installing $packageId $baseVersion via NuGet to $TargetDir"
+    & $nugetExe install $packageId -Version $baseVersion -OutputDirectory $TargetDir -ExcludeVersion
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Exact version $baseVersion not found, trying version prefix"
+        & $nugetExe install $packageId -Version "[${baseVersion},${baseVersion}.99999]" -OutputDirectory $TargetDir -ExcludeVersion
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to install $packageId $baseVersion via NuGet"
         }
-        if (-not $ft) {
-            throw "Free-threaded python.exe not found under $TargetDir"
-        }
-        return $ft.FullName
     }
 
-    $pyExe = Join-Path $TargetDir 'python.exe'
+    $pkgDir = Join-Path $TargetDir $packageId
+    $toolsDir = Join-Path $pkgDir 'tools'
+    if (-not (Test-Path $toolsDir)) {
+        throw "NuGet package installed but tools/ directory not found under $pkgDir"
+    }
+
+    $pyExe = Join-Path $toolsDir 'python.exe'
     if (-not (Test-Path $pyExe)) {
-        throw "python.exe not found under $TargetDir"
+        throw "python.exe not found under $toolsDir"
     }
+
     return $pyExe
 }
 
@@ -127,17 +94,17 @@ Write-Host "Repository root: $repoRoot"
 Test-Toolchain
 
 $spec = $PythonVersion.Trim()
-$fullVer = Resolve-FullPythonVersion -Spec $spec
 $targetDir = 'C:\python-ci'
 if (Test-Path $targetDir) {
     Remove-Item -Recurse -Force $targetDir
 }
 New-Item -ItemType Directory -Path $targetDir | Out-Null
 
-$pythonExe = Install-PythonFromPythonOrg -Spec $spec -FullVer $fullVer -TargetDir $targetDir
+$pythonExe = Install-PythonViaNuGet -Spec $spec -TargetDir $targetDir
 Write-Host "Using Python: $pythonExe"
 & $pythonExe --version
 
+& $pythonExe -m ensurepip --upgrade
 & $pythonExe -m pip install --upgrade pip
 
 if ($Mode -eq 'modern') {

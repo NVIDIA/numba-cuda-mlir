@@ -136,9 +136,11 @@ MLIR_DIR=$PWD/llvm-modern-install/lib/cmake/mlir \
   pip install -e '.[cu13]' --group dev --config-settings editable_mode=compat
 ```
 
-On Windows, use `LLVM70_ROOT=<path-to-llvm7-install>` instead of `LIBLLVM7`
-when building the LLVM 7 bridge. Direct CMake builds use the same selection via
-`-DBUILD_LLVM70=ON` or `-DBUILD_LLVM70=OFF`.
+On Windows, use `LLVM70_ROOT=<path-to-llvm7-install>` instead of `LIBLLVM7`;
+the install must contain the LLVM 7 runtime at `bin/LLVM.dll`. Direct CMake
+builds use the same selection via `-DBUILD_LLVM70=ON` or
+`-DBUILD_LLVM70=OFF`, and direct runtime users can set
+`LIBLLVM7=<path-to-LLVM.dll>`.
 
 ### Option 3: Build LLVM from source
 

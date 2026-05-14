@@ -61,10 +61,6 @@ if(WIN32)
 endif()
 target_link_libraries(MLIRToLLVM70 PRIVATE LLVM70Translate ${CMAKE_DL_LIBS})
 
-if(WIN32 AND LLVM70_ROOT)
-  message(STATUS "MLIRToLLVM70: LLVM70_ROOT=${LLVM70_ROOT} will be used at runtime")
-endif()
-
 if(LLVM70_MLIR_PYTHON_CAPI)
   message(STATUS "MLIRToLLVM70: linking against ${LLVM70_MLIR_PYTHON_CAPI}")
   target_link_libraries(MLIRToLLVM70 PRIVATE ${LLVM70_MLIR_PYTHON_CAPI})

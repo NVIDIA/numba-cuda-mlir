@@ -3,6 +3,7 @@
 
 import ctypes
 import os
+from pathlib import Path
 from io import StringIO
 
 from numba_cuda_mlir._mlir.passmanager import PassManager
@@ -140,9 +141,11 @@ def _get_llvm70_capi():
 
     capi_path = get_llvm70_capi_path()
     if os.name == "nt":
-        for dll_dir in {os.path.dirname(capi_path), _mlir_libs.__path__[0]}:
-            if os.path.isdir(dll_dir):
-                _llvm70_dll_dirs.append(os.add_dll_directory(dll_dir))
+        _llvm70_dll_dirs.extend(
+            os.add_dll_directory(dll_dir)
+            for dll_dir in {os.path.dirname(capi_path), _mlir_libs.__path__[0]}
+            if os.path.isdir(dll_dir)
+        )
 
     lib = ctypes.CDLL(capi_path)
     lib.llvm70_translate_gpu_module_from_op.restype = ctypes.c_int
@@ -182,6 +185,28 @@ def _get_op_ptr(op) -> ctypes.c_void_p:
     return ptr(capsule, b"numba_cuda_mlir._mlir.ir.Operation._CAPIPtr")
 
 
+def _get_llvm70_runtime_path() -> str:
+    libllvm = os.environ.get("LIBLLVM7", "")
+    if libllvm:
+        return libllvm
+
+    bundled_name = "LLVM.dll" if os.name == "nt" else "libLLVM-7.so"
+    bundled = Path(__file__).parent / "lib" / bundled_name
+    if bundled.is_file():
+        return str(bundled.resolve())
+
+    llvm70_root = os.environ.get("LLVM70_ROOT", "")
+    if llvm70_root and os.name == "nt":
+        candidate = Path(llvm70_root) / "bin" / "LLVM.dll"
+        if candidate.is_file():
+            return str(candidate.resolve())
+
+    hint = "Set LIBLLVM7=/path/to/libLLVM-7.so"
+    if os.name == "nt":
+        hint = "Set LIBLLVM7=/path/to/LLVM.dll or LLVM70_ROOT=/path/to/llvm7-install"
+    raise RuntimeError(f"LLVM70 path requires an LLVM 7 runtime library. {hint}")
+
+
 def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
     """Compile MLIR gpu.module via in-process LLVM70 C API (raw Operation*)."""
     from numba_cuda_mlir._mlir.dialects import gpu
@@ -201,15 +226,7 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
 
     raw_op = _get_op_ptr(gpu_mod.operation)
 
-    libllvm = os.environ.get("LIBLLVM7", "")
-    if not libllvm:
-        bundled_name = "LLVM70CAPI.dll" if os.name == "nt" else "libLLVM-7.so"
-        bundled = os.path.join(os.path.dirname(__file__), "lib", bundled_name)
-        if os.path.isfile(bundled):
-            libllvm = os.path.realpath(bundled)
-
-    if not libllvm and os.name != "nt":
-        raise RuntimeError("LLVM70 path requires libLLVM-7.so. Set LIBLLVM7=/path/to/libLLVM-7.so")
+    libllvm = _get_llvm70_runtime_path()
 
     libnvvm = _get_libnvvm_path().decode()
     libdevice = get_libdevice()

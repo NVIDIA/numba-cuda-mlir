@@ -68,7 +68,7 @@ def _env_switch(name: str, default: str = "auto") -> str:
         return "on"
     if value in ("0", "false", "no", "off"):
         return "off"
-    raise RuntimeError(f"{name} must be one of auto, on, off, 1, 0, true, or false")
+    raise RuntimeError(f"{name} must be one of auto, on, off, yes, no, 1, 0, true, or false")
 
 
 def _should_build_llvm70(mlir_dir: str | None) -> bool:
@@ -108,9 +108,6 @@ class BuildExtWithCmake(build_ext):
         build_llvm70 = _should_build_llvm70(mlir_dir)
         if build_llvm70:
             cmake_cmd += ["-DBUILD_LLVM70=ON", f"-DMLIR_DIR={mlir_dir}"]
-            llvm70_root = os.environ.get("LLVM70_ROOT")
-            if llvm70_root:
-                cmake_cmd.append(f"-DLLVM70_ROOT={llvm70_root}")
             capi = _find_mlir_python_capi_link_library()
             if capi:
                 cmake_cmd.append(f"-DLLVM70_MLIR_PYTHON_CAPI={capi}")
@@ -175,6 +172,8 @@ class BuildExtWithCmake(build_ext):
 
         # Also place alongside MLIRPythonCAPI so the runtime loader can
         # resolve it from the wheel on DLL platforms.
+        if self.editable_mode:
+            return
         mlir_libs_dir = pkg / "_mlir" / "_mlir_libs"
         if mlir_libs_dir.exists() and not self.dry_run:
             mlir_dest = mlir_libs_dir / llvm70_capi.name
@@ -188,9 +187,12 @@ class BuildExtWithCmake(build_ext):
         pkg = self._package_root()
         candidates = [
             pkg / _shared_lib_name("MLIRToLLVM70"),
-            pkg / "_mlir" / "_mlir_libs" / _shared_lib_name("MLIRToLLVM70"),
-            pkg / "lib" / "libLLVM-7.so",
         ]
+        if not (pkg / "_mlir").is_symlink():
+            candidates.append(pkg / "_mlir" / "_mlir_libs" / _shared_lib_name("MLIRToLLVM70"))
+        lib_dir = pkg / "lib"
+        for pattern in ("libLLVM-7*.so", "LLVM*.dll"):
+            candidates.extend(lib_dir.glob(pattern))
         for candidate in candidates:
             if candidate.exists() or candidate.is_symlink():
                 candidate.unlink()
@@ -225,24 +227,41 @@ class BuildExtWithCmake(build_ext):
 
     def _stage_libllvm7(self):
         """Copy the optional LLVM 7 runtime library into the wheel."""
-        libllvm7 = os.environ.get("LIBLLVM7")
-        if not libllvm7:
+        libllvm7 = self._find_llvm70_runtime()
+        if libllvm7 is None:
+            print("WARNING: LLVM 7 runtime library not found; set LIBLLVM7 or LLVM70_ROOT")
             return
-        libllvm7 = Path(libllvm7)
         if not libllvm7.exists():
-            print(f"WARNING: LIBLLVM7 not found at {libllvm7}")
-            return
+            raise RuntimeError(f"LLVM 7 runtime library not found at {libllvm7}")
         pkg = self._package_root()
         dest_dir = pkg / "lib"
         dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / libllvm7.name
-        print(f"Staging {libllvm7.name}: {libllvm7} -> {dest}")
+        dest_name = "LLVM.dll" if IS_WINDOWS else "libLLVM-7.so"
+        dest = dest_dir / dest_name
+        print(f"Staging {dest_name}: {libllvm7} -> {dest}")
         if self.editable_mode:
             if dest.exists() or dest.is_symlink():
                 dest.unlink()
             dest.symlink_to(libllvm7.resolve())
         else:
             shutil.copy2(str(libllvm7), str(dest))
+
+    def _find_llvm70_runtime(self):
+        libllvm7 = os.environ.get("LIBLLVM7")
+        if libllvm7:
+            return Path(libllvm7)
+
+        llvm70_root = os.environ.get("LLVM70_ROOT")
+        if not llvm70_root:
+            return None
+
+        root = Path(llvm70_root)
+        candidates = (
+            [root / "bin" / "LLVM.dll", root / "lib" / "LLVM.dll"]
+            if IS_WINDOWS
+            else [root / "lib" / "libLLVM-7.so"]
+        )
+        return next((candidate for candidate in candidates if candidate.exists()), candidates[0])
 
 
 def _get_csrc_dir(ext_name: str):

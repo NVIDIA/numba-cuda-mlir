@@ -57,23 +57,23 @@ jobs:
           echo "skip=${skip}" >> "$GITHUB_OUTPUT"
 
   # LLVM build stages (matching GitLab build-llvm stage)
-  # build-llvm-linux-64:
-  #   needs:
-  #     - should-skip
-  #   if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
-  #   uses: ./.github/workflows/build-llvm.yml
-  #   with:
-  #     host-platform: linux-64
-  #   secrets: inherit
+  build-llvm-linux-64:
+    needs:
+      - should-skip
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+    uses: ./.github/workflows/build-llvm.yml
+    with:
+      host-platform: linux-64
+    secrets: inherit
 
-  # build-llvm-linux-aarch64:
-  #   needs:
-  #     - should-skip
-  #   if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
-  #   uses: ./.github/workflows/build-llvm.yml
-  #   with:
-  #     host-platform: linux-aarch64
-  #   secrets: inherit
+  build-llvm-linux-aarch64:
+    needs:
+      - should-skip
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+    uses: ./.github/workflows/build-llvm.yml
+    with:
+      host-platform: linux-aarch64
+    secrets: inherit
 
   build-llvm-windows:
     needs:
@@ -85,42 +85,42 @@ jobs:
     secrets: inherit
 
   # WARNING: make sure all of the build jobs are in sync
-  # build-linux-64:
-  #   needs:
-  #     - ci-vars
-  #     - should-skip
-  #     - build-llvm-linux-64
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       host-platform:
-  #         - linux-64
-  #   name: Build ${{ matrix.host-platform }}
-  #   if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
-  #   uses: ./.github/workflows/build-wheel.yml
-  #   with:
-  #     host-platform: ${{ matrix.host-platform }}
-  #     cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
-  #     prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
+  build-linux-64:
+    needs:
+      - ci-vars
+      - should-skip
+      - build-llvm-linux-64
+    strategy:
+      fail-fast: false
+      matrix:
+        host-platform:
+          - linux-64
+    name: Build ${{ matrix.host-platform }}
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+    uses: ./.github/workflows/build-wheel.yml
+    with:
+      host-platform: ${{ matrix.host-platform }}
+      cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
+      prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
 
   # WARNING: make sure all of the build jobs are in sync
-  # build-linux-aarch64:
-  #   needs:
-  #     - ci-vars
-  #     - should-skip
-  #     - build-llvm-linux-aarch64
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       host-platform:
-  #         - linux-aarch64
-  #   name: Build ${{ matrix.host-platform }}
-  #   if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
-  #   uses: ./.github/workflows/build-wheel.yml
-  #   with:
-  #     host-platform: ${{ matrix.host-platform }}
-  #     cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
-  #     prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
+  build-linux-aarch64:
+    needs:
+      - ci-vars
+      - should-skip
+      - build-llvm-linux-aarch64
+    strategy:
+      fail-fast: false
+      matrix:
+        host-platform:
+          - linux-aarch64
+    name: Build ${{ matrix.host-platform }}
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+    uses: ./.github/workflows/build-wheel.yml
+    with:
+      host-platform: ${{ matrix.host-platform }}
+      cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
+      prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
 
   # WARNING: make sure all of the build jobs are in sync
   build-windows:
@@ -142,40 +142,40 @@ jobs:
       prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
 
   # WARNING: make sure both Linux test jobs are in sync
-  # test-linux-64:
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       host-platform:
-  #         - linux-64
-  #   name: Test ${{ matrix.host-platform }}
-  #   if: ${{ github.repository_owner == 'nvidia' }}
-  #   permissions:
-  #     contents: read  # This is required for actions/checkout
-  #   needs:
-  #     - build-linux-64
-  #   uses: ./.github/workflows/test-wheel-linux.yml
-  #   with:
-  #     build-type: pull-request
-  #     host-platform: ${{ matrix.host-platform }}
+  test-linux-64:
+    strategy:
+      fail-fast: false
+      matrix:
+        host-platform:
+          - linux-64
+    name: Test ${{ matrix.host-platform }}
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read  # This is required for actions/checkout
+    needs:
+      - build-linux-64
+    uses: ./.github/workflows/test-wheel-linux.yml
+    with:
+      build-type: pull-request
+      host-platform: ${{ matrix.host-platform }}
 
   # WARNING: make sure both Linux test jobs are in sync
-  # test-linux-aarch64:
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       host-platform:
-  #         - linux-aarch64
-  #   name: Test ${{ matrix.host-platform }}
-  #   if: ${{ github.repository_owner == 'nvidia' }}
-  #   permissions:
-  #     contents: read  # This is required for actions/checkout
-  #   needs:
-  #     - build-linux-aarch64
-  #   uses: ./.github/workflows/test-wheel-linux.yml
-  #   with:
-  #     build-type: pull-request
-  #     host-platform: ${{ matrix.host-platform }}
+  test-linux-aarch64:
+    strategy:
+      fail-fast: false
+      matrix:
+        host-platform:
+          - linux-aarch64
+    name: Test ${{ matrix.host-platform }}
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read  # This is required for actions/checkout
+    needs:
+      - build-linux-aarch64
+    uses: ./.github/workflows/test-wheel-linux.yml
+    with:
+      build-type: pull-request
+      host-platform: ${{ matrix.host-platform }}
 
   test-windows:
     strategy:
@@ -256,8 +256,14 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     needs:
-      # - test-linux-64
-      # - test-linux-aarch64
+      - build-llvm-linux-64
+      - build-llvm-linux-aarch64
+      - build-llvm-windows
+      - build-linux-64
+      - build-linux-aarch64
+      - build-windows
+      - test-linux-64
+      - test-linux-aarch64
       - test-windows
       # - test-expensive-linux-64
       # - test-expensive-linux-aarch64
@@ -284,14 +290,26 @@ jobs:
           # failing job(s) will timeout causing a cancellation here and the
           # build to succeed which we don't want (originally this was just
           # 'exit 0')
-          if ${{ needs.test-windows.result == 'cancelled' ||
+          if ${{ needs.build-llvm-linux-64.result == 'cancelled' ||
+                 needs.build-llvm-linux-64.result == 'failure' ||
+                 needs.build-llvm-linux-aarch64.result == 'cancelled' ||
+                 needs.build-llvm-linux-aarch64.result == 'failure' ||
+                 needs.build-llvm-windows.result == 'cancelled' ||
+                 needs.build-llvm-windows.result == 'failure' ||
+                 needs.build-linux-64.result == 'cancelled' ||
+                 needs.build-linux-64.result == 'failure' ||
+                 needs.build-linux-aarch64.result == 'cancelled' ||
+                 needs.build-linux-aarch64.result == 'failure' ||
+                 needs.build-windows.result == 'cancelled' ||
+                 needs.build-windows.result == 'failure' ||
+                 needs.test-linux-64.result == 'cancelled' ||
+                 needs.test-linux-64.result == 'failure' ||
+                 needs.test-linux-aarch64.result == 'cancelled' ||
+                 needs.test-linux-aarch64.result == 'failure' ||
+                 needs.test-windows.result == 'cancelled' ||
                  needs.test-windows.result == 'failure' ||
                  needs.pre-commit.result == 'cancelled' ||
                  needs.pre-commit.result == 'failure' }}; then
-          #        needs.test-linux-64.result == 'cancelled' ||
-          #        needs.test-linux-64.result == 'failure' ||
-          #        needs.test-linux-aarch64.result == 'cancelled' ||
-          #        needs.test-linux-aarch64.result == 'failure' ||
           #        needs.test-expensive-linux-64.result == 'cancelled' ||
           #        needs.test-expensive-linux-64.result == 'failure' ||
           #        needs.test-expensive-linux-aarch64.result == 'cancelled' ||

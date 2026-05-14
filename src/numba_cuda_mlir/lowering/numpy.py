@@ -21,6 +21,7 @@ from numba_cuda_mlir._mlir.dialects import (
 from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
+from numba_cuda_mlir.type_defs.vector_types import VectorType
 
 registry = LoweringRegistry()
 lower = registry.lower
@@ -1250,6 +1251,7 @@ def lower_charseq_array_setitem_string(builder: MLIRLower, target, args, kwargs)
 @lower(operator.setitem, types.Array, types.Integer, types.NPDatetime)
 @lower(operator.setitem, types.Array, types.Integer, types.NPTimedelta)
 @lower(operator.setitem, types.Array, types.Integer, Record)
+@lower(operator.setitem, types.Array, types.Integer, VectorType)
 def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
     trace()
 

@@ -20,8 +20,7 @@ def test_slicing():
     assert output[0] == expect, f"output: {output} != {expect}"
 
 
-@pytest.mark.xfail
-def tests_array_view():
+def test_array_view():
     @cuda.jit(dump=False)
     def reinterpret_array_type(
         byte_arr: cuda.DeviceNDArray, start: int, stop: int, output: cuda.DeviceNDArray
@@ -106,4 +105,4 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.DEBUG)
     # test_slicing()
-    tests_array_view()
+    test_array_view()

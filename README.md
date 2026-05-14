@@ -82,12 +82,15 @@ documentation for further details.
 ## Installation guidance
 
 For full details of installation methods including from packages and building
-from source and testing, please see [INSTALL.md](INSTALL.md).
+from source and testing, please see
+[INSTALL.md](https://github.com/NVIDIA/numba-cuda-mlir/blob/main/INSTALL.md).
 
 
 ## Contributing to Numba-CUDA-MLIR
 
-See the [Contribution Guidelines](CONTRIBUTING.md) for information on how to set
+See the [Contribution
+Guidelines](https://github.com/NVIDIA/numba-cuda-mlir/blob/main/CONTRIBUTING.md)
+for information on how to set
 up a development environment and follow the contribution process.
 
 
@@ -102,19 +105,26 @@ pytest tests/benchmarks/ --benchmark -s
 
 ## Licensing
 
-Numba-CUDA-MLIR is distributed under the [Apache License 2.0](LICENSE).
+Numba-CUDA-MLIR is distributed under the [Apache License
+2.0](https://github.com/NVIDIA/numba-cuda-mlir/blob/main/LICENSE).
 
 It incorporates the following third-party projects, each retained under its
 original license:
 
-1. [numba-cuda](https://github.com/NVIDIA/numba-cuda) — [BSD 2-Clause License](THIRD-PARTY-LICENSES)
-2. [cloudpickle](https://github.com/cloudpipe/cloudpickle) — [BSD 3-Clause License](THIRD-PARTY-LICENSES)
-3. [appdirs](https://github.com/ActiveState/appdirs) — [MIT License](THIRD-PARTY-LICENSES)
-4. [LLVM Project / EUDSL](https://github.com/llvm/llvm-project) — [Apache License 2.0 WITH LLVM-exception](THIRD-PARTY-LICENSES)
+1. [numba-cuda](https://github.com/NVIDIA/numba-cuda) — [BSD 2-Clause
+   License](https://github.com/NVIDIA/numba-cuda-mlir/blob/main/THIRD-PARTY-LICENSES)
+2. [cloudpickle](https://github.com/cloudpipe/cloudpickle) — [BSD 3-Clause
+   License](https://github.com/NVIDIA/numba-cuda-mlir/blob/main/THIRD-PARTY-LICENSES)
+3. [appdirs](https://github.com/ActiveState/appdirs) — [MIT
+   License](https://github.com/NVIDIA/numba-cuda-mlir/blob/main/THIRD-PARTY-LICENSES)
+4. [LLVM Project / EUDSL](https://github.com/llvm/llvm-project) — [Apache
+   License 2.0 WITH
+   LLVM-exception](https://github.com/NVIDIA/numba-cuda-mlir/blob/main/THIRD-PARTY-LICENSES)
 
-See [`NOTICE`](NOTICE) for the full attribution map and per-component locations
-in this repository, and [`THIRD-PARTY-LICENSES`](THIRD-PARTY-LICENSES) for the
-verbatim upstream license texts.
+See [`NOTICE`](https://github.com/NVIDIA/numba-cuda-mlir/blob/main/NOTICE) for
+the full attribution map and per-component locations in this repository, and
+[`THIRD-PARTY-LICENSES`](https://github.com/NVIDIA/numba-cuda-mlir/blob/main/THIRD-PARTY-LICENSES)
+for the verbatim upstream license texts.
 
 Contributions are accepted under the terms described in
-[`CONTRIBUTING.md`](CONTRIBUTING.md).
+[`CONTRIBUTING.md`](https://github.com/NVIDIA/numba-cuda-mlir/blob/main/CONTRIBUTING.md).

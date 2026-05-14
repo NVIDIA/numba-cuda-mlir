@@ -13,7 +13,6 @@ from numba_cuda_mlir._mlir.dialects import (
     builtin,
     math as math_dialect,
     llvm,
-    shape,
     tensor,
     memref as memref_dialect,
     complex as complex_dialect,
@@ -28,10 +27,8 @@ lower = registry.lower
 lower_getattr = registry.lower_getattr
 lower_getattr_generic = registry.lower_getattr_generic
 lower_constant = registry.lower_constant
-from numba_cuda_mlir import numba_cuda as cuda
 from numba_cuda_mlir.numba_cuda import types
 import numba_cuda_mlir.numba_cuda.core.ir as numba_ir
-from numba_cuda_mlir.numba_cuda.types.ext_types import Dim3
 from typing import Any, cast
 from numba_cuda_mlir.logging import trace
 import numpy as np
@@ -428,7 +425,7 @@ def np_all_cg(builder, target, args, kwargs):
     region = reduce_op.combiner
     block = region.blocks.append(array.type.element_type, T.bool())
     with ir.InsertionPoint(block):
-        from numba_cuda_mlir.lowering_utilities import not_equal, or_, and_, constant
+        from numba_cuda_mlir.lowering_utilities import not_equal, and_, constant
 
         in_arg, out_arg = block.arguments
         result = not_equal(in_arg, constant(0.0, dtype))
@@ -956,20 +953,132 @@ def lower_array_slice_getitem(builder, target, args, kwargs):
     builder.store_var(target, mr)
 
 
+def _idx_c(value: int) -> ir.Value:
+    return arith.constant(result=T.index(), value=value)
+
+
+def _view_transform_axis(
+    sizes: list[ir.Value],
+    strides: list[ir.Value],
+    axis: int,
+    old_size: int,
+    new_size: int,
+) -> tuple[list[ir.Value], list[ir.Value]]:
+    new_sizes = list(sizes)
+    new_strides = list(strides)
+    if new_size < old_size:
+        ratio = old_size // new_size
+        new_sizes[axis] = arith.muli(sizes[axis], _idx_c(ratio))
+    else:
+        bytelen = arith.muli(sizes[axis], _idx_c(old_size))
+        new_sizes[axis] = arith.divsi(bytelen, _idx_c(new_size))
+    for j in range(len(strides)):
+        if j == axis:
+            new_strides[j] = _idx_c(1)
+        else:
+            byte_stride = arith.muli(strides[j], _idx_c(old_size))
+            new_strides[j] = arith.divsi(byte_stride, _idx_c(new_size))
+    return new_sizes, new_strides
+
+
 def lower_array_view_cg(builder, target, args, kwargs):
     _self, dtype = [builder.load_var(arg) for arg in args]
-    dtype = lowering_utilities.to_mlir_type(dtype)
     mr_ty: ir.MemRefType = _self.type
     assert mr_ty.has_rank, "NYI: unranked memrefs"
 
-    if mr_ty.element_type == dtype:
+    new_dtype = lowering_utilities.to_mlir_type(dtype)
+    old_dtype = mr_ty.element_type
+
+    if old_dtype == new_dtype:
         builder.store_var(target, _self)
         return
 
-    target_numba_type = builder.get_numba_type(target.name)
-    memref_type = builder.get_mlir_type(target_numba_type)
-    result = builtin.unrealized_conversion_cast([memref_type], [_self])
-    builder.store_var(target, result)
+    new_dtype_bytes = lowering_utilities.get_type_width(new_dtype) // 8
+    old_dtype_bytes = lowering_utilities.get_type_width(old_dtype) // 8
+
+    rank = mr_ty.rank
+    if rank == 0:
+        raise ValueError(f"Cannot .view() a 0-d array (target {target.name!r})")
+
+    target_ty = builder.get_numba_type(target.name)
+    target_mr = builder.get_mlir_type(target_ty)
+    layout = target_ty.layout
+
+    # To support shared memory, memory space must be propagated with the memref
+    target_mr = ir.MemRefType.get(
+        shape=target_mr.shape,
+        element_type=target_mr.element_type,
+        layout=target_mr.layout,
+        memory_space=mr_ty.memory_space,
+    )
+    retyped = builtin.unrealized_conversion_cast([target_mr], [_self])
+
+    if old_dtype_bytes == new_dtype_bytes:
+        builder.store_var(target, retyped)
+        return
+
+    md = memref_dialect.extract_strided_metadata(_self)
+    offset_e = md[1]
+    sizes = list(md[2 : 2 + rank])
+    strides = list(md[2 + rank : 2 + 2 * rank])
+
+    new_offset = arith.divsi(
+        arith.muli(offset_e, _idx_c(old_dtype_bytes)),
+        _idx_c(new_dtype_bytes),
+    )
+
+    def _reinterpret(axis: int) -> ir.Value:
+        new_sizes, new_strides = _view_transform_axis(
+            sizes,
+            strides,
+            axis,
+            old_dtype_bytes,
+            new_dtype_bytes,
+        )
+
+        dyn = ir.ShapedType.get_dynamic_size()
+        dyn_s = ir.ShapedType.get_dynamic_stride_or_offset()
+        return memref_dialect.reinterpret_cast(
+            target_mr,
+            retyped,
+            offsets=[new_offset],
+            sizes=new_sizes,
+            strides=new_strides,
+            static_offsets=[dyn_s],
+            static_sizes=[dyn] * rank,
+            static_strides=[dyn_s] * rank,
+        )
+
+    # ====================
+    # "C", "F" and "A" with rank 1 layouts
+    # ====================
+
+    if layout in ("C", "F") or rank == 1:
+        axis = (rank - 1) if (layout == "C" or rank == 1) else 0
+        builder.store_var(target, _reinterpret(axis))
+        return
+
+    # ====================
+    # "A" layout with rank >= 2
+    # ====================
+
+    error_memref = builder._get_or_create_error_global()
+    one_idx = _idx_c(1)
+
+    def _dispatch(axis_idx: int) -> ir.Value:
+        if axis_idx < 0:
+            if error_memref is not None:
+                set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+            return retyped
+        is_contig = arith.cmpi(arith.CmpIPredicate.eq, strides[axis_idx], one_idx)
+        if_op = scf.IfOp(is_contig, results_=[target_mr], has_else=True)
+        with ir.InsertionPoint(if_op.then_block):
+            scf.yield_([_reinterpret(axis_idx)])
+        with ir.InsertionPoint(if_op.else_block):
+            scf.yield_([_dispatch(axis_idx - 1)])
+        return if_op.results[0]
+
+    builder.store_var(target, _dispatch(rank - 1))
 
 
 @lower_getattr(types.Array, "view")

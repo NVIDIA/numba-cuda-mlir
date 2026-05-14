@@ -16,5 +16,5 @@ CUDA Python by other means, e.g. ``math.nan``.
 Wrapped functions
 -----------------
 
-.. automodule:: numba.cuda.libdevice
+.. automodule:: numba_cuda_mlir.cuda.libdevice
    :members:

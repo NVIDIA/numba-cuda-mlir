@@ -2125,7 +2125,7 @@ def gen_isAlX(ascii_func, unicode_func):
 # https://github.com/python/cpython/blob/1d4b6ba19466aba0eb91c4ba01ba509acf18c723/Objects/unicodeobject.c#L11928-L11964    # noqa: E501
 overload_method(types.UnicodeType, "isalpha")(gen_isAlX(_Py_ISALPHA, _PyUnicode_IsAlpha))
 
-_unicode_is_alnum = register_jitable(lambda x: (_PyUnicode_IsNumeric(x) or _PyUnicode_IsAlpha(x)))
+_unicode_is_alnum = register_jitable(lambda x: _PyUnicode_IsNumeric(x) or _PyUnicode_IsAlpha(x))
 
 # https://github.com/python/cpython/blob/1d4b6ba19466aba0eb91c4ba01ba509acf18c723/Objects/unicodeobject.c#L11975-L12006    # noqa: E501
 overload_method(types.UnicodeType, "isalnum")(gen_isAlX(_Py_ISALNUM, _unicode_is_alnum))

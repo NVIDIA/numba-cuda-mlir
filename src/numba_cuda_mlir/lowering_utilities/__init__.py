@@ -150,7 +150,13 @@ def get_type_width(ty: ir.Type) -> int:
         case ir.FloatType():
             return ty.width
         case ir.ComplexType():
-            return ir.ComplexType(ty).element_type.width
+            return 2 * ir.ComplexType(ty).element_type.width
+        case ir.VectorType():
+            vt = ir.VectorType(ty)
+            count = 1
+            for d in vt.shape:
+                count *= d
+            return count * get_type_width(vt.element_type)
         case _:
             raise NotImplementedError(f"Not implemented for type {ty}")
 
@@ -226,7 +232,11 @@ def _(a: ir.Type, b: ir.Type) -> ir.Type:
             ty = T.f32() if larger_width == 32 else T.f64()
             return ty
         case (ir.ComplexType(), _) | (_, ir.ComplexType()):
-            larger_width = max(get_type_width(a), get_type_width(b))
+
+            def _scalar_width(t: ir.Type) -> int:
+                return t.element_type.width if isinstance(t, ir.ComplexType) else get_type_width(t)
+
+            larger_width = max(_scalar_width(a), _scalar_width(b))
             elem = T.f32() if larger_width <= 32 else T.f64()
             return T.complex(elem)
         case _:

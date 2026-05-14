@@ -140,6 +140,7 @@ build_modern_llvm() {
     -DCMAKE_CXX_FLAGS="-DMLIR_PYTHON_PACKAGE_PREFIX=numba_cuda_mlir._mlir." \
     -DMLIR_BINDINGS_PYTHON_INSTALL_PREFIX="python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir" \
     -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=numba_cuda_mlir \
+    -DMLIR_PYTHON_STUBGEN_ENABLED=OFF \
     -DPython3_EXECUTABLE="$("${PYTHON}" -c 'import sys; print(sys.executable)')"
   cmake --build "$(cmake_path "${LLVM_MODERN_BUILD}")" -j "${PARALLEL}"
   cmake --install "$(cmake_path "${LLVM_MODERN_BUILD}")"

@@ -102,6 +102,7 @@ jobs:
           fi
 
       - name: Upload LLVM Modern artifacts
+        if: steps.gha-cache.outputs.cache-hit != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: llvm-modern-install-${{ matrix.py-tag }}-${{ inputs.host-platform }}
@@ -191,6 +192,7 @@ jobs:
           docker rm $cname
 
       - name: Upload LLVM Modern artifacts
+        if: steps.gha-cache.outputs.cache-hit != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: llvm-modern-install-${{ matrix.py-tag }}-${{ inputs.host-platform }}
@@ -270,6 +272,7 @@ jobs:
           fi
 
       - name: Upload LLVM 7 artifacts
+        if: steps.gha-cache.outputs.cache-hit != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: llvm7-install-${{ inputs.host-platform }}
@@ -345,6 +348,7 @@ jobs:
           docker rm llvm7-build
 
       - name: Upload LLVM 7 artifacts
+        if: steps.gha-cache.outputs.cache-hit != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: llvm7-install-${{ inputs.host-platform }}

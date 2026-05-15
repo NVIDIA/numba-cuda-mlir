@@ -34,7 +34,6 @@ public:
 #ifdef _WIN32
     HMODULE handle = nullptr;
     std::string path = libPath.str();
-    bool ownsHandle = true;
     if (path.empty()) {
       GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
                          reinterpret_cast<LPCSTR>(&CAPILoader::create), &handle);
@@ -56,7 +55,6 @@ public:
 #endif
     auto loader = std::make_unique<CAPILoader>();
     loader->handle = reinterpret_cast<void *>(handle);
-    loader->ownsHandle = ownsHandle;
     loader->path = libPath.str();
 #ifdef _WIN32
     if (loader->path.empty())

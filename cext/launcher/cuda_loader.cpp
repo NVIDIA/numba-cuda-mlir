@@ -114,8 +114,9 @@ F get_proc_address(cuGetProcAddress_v2_t getter, void* dlhandle,
 FOREACH_CUDA_FUNCTION_TO_LOAD(DEFINE_CUDA_FUNCTION_GLOBAL)
 
 #define GET_PROC_ADDRESS(name, cuda_ver) \
-        if (!(g_##name = get_proc_address<decltype(&name)>(_cuGetProcAddress, loader.get_handle(), #name, cuda_ver))) \
-            return ErrorRaised;
+    g_##name = get_proc_address<decltype(&name)>(_cuGetProcAddress, loader.get_handle(), #name, cuda_ver); \
+    if (!g_##name) \
+        return ErrorRaised;
 
 
 Status cuda_loader_init() {

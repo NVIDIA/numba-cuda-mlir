@@ -4,6 +4,9 @@
 add_executable(llvm70-translate
   llvm70-translate.cpp
 )
+if(MSVC)
+  target_compile_options(llvm70-translate PRIVATE /wd4706)
+endif()
 
 target_link_libraries(llvm70-translate
   PRIVATE

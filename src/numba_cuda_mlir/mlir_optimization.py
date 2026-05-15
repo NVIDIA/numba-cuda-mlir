@@ -127,6 +127,8 @@ def _needs_llvm70_path(cc: str) -> bool:
 
 
 _llvm70_capi = None
+# Keep AddDllDirectory handles alive while the CAPI DLL is loaded.
+_llvm70_dll_dirs = []
 
 
 def _get_llvm70_capi():
@@ -136,7 +138,17 @@ def _get_llvm70_capi():
 
     from numba_cuda_mlir.tools import get_llvm70_capi_path
 
-    lib = ctypes.CDLL(get_llvm70_capi_path())
+    capi_path = get_llvm70_capi_path()
+    if os.name == "nt":
+        import numba_cuda_mlir._mlir._mlir_libs as _mlir_libs
+
+        _llvm70_dll_dirs.extend(
+            os.add_dll_directory(dll_dir)
+            for dll_dir in {os.path.dirname(capi_path), _mlir_libs.__path__[0]}
+            if os.path.isdir(dll_dir)
+        )
+
+    lib = ctypes.CDLL(capi_path)
     lib.llvm70_translate_gpu_module_from_op.restype = ctypes.c_int
     lib.llvm70_translate_gpu_module_from_op.argtypes = [
         ctypes.c_void_p,  # raw_op (Operation*)
@@ -195,13 +207,16 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
 
     libllvm = os.environ.get("LIBLLVM7", "")
     if not libllvm:
-        bundled_name = "LLVM70CAPI.dll" if os.name == "nt" else "libLLVM-7.so"
+        bundled_name = "LLVM.dll" if os.name == "nt" else "libLLVM-7.so"
         bundled = os.path.join(os.path.dirname(__file__), "lib", bundled_name)
         if os.path.isfile(bundled):
             libllvm = os.path.realpath(bundled)
 
-    if not libllvm and os.name != "nt":
-        raise RuntimeError("LLVM70 path requires libLLVM-7.so. Set LIBLLVM7=/path/to/libLLVM-7.so")
+    if not libllvm:
+        hint = "Set LIBLLVM7=/path/to/libLLVM-7.so"
+        if os.name == "nt":
+            hint = "Set LIBLLVM7=/path/to/LLVM.dll"
+        raise RuntimeError(f"LLVM70 path requires an LLVM 7 runtime library. {hint}")
 
     libnvvm = _get_libnvvm_path().decode()
     libdevice = get_libdevice()

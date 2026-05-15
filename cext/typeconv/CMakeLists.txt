@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 if(MSVC)
-    set(CEXT_OPTIONS /EHs-c- /GR-)
+    set(CEXT_OPTIONS /EHs-c- /GR- /wd4100 /wd4530)
 else()
     set(CEXT_OPTIONS -fno-exceptions -fno-rtti)
 endif()
@@ -15,6 +15,9 @@ add_library(_typeconv MODULE
 target_compile_options(_typeconv PUBLIC ${CEXT_OPTIONS})
 
 target_include_directories(_typeconv PRIVATE ${Python_INCLUDE_DIRS})
+if(WIN32)
+    target_link_libraries(_typeconv PRIVATE Python::Module)
+endif()
 
 set_target_properties(_typeconv PROPERTIES SKIP_BUILD_RPATH TRUE)
 

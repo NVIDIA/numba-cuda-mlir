@@ -17,6 +17,7 @@
 #include "llvm/Support/raw_ostream.h"
 #ifdef _WIN32
 #include <windows.h>
+#undef interface
 #else
 #include <dlfcn.h>
 #endif

@@ -190,6 +190,12 @@ jobs:
           docker cp "${cname}:C:\workspace\llvm-modern-install" "${{ github.workspace }}\llvm-modern-install"
           docker rm $cname
 
+      - name: Upload LLVM Modern artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: llvm-modern-install-${{ matrix.py-tag }}-${{ inputs.host-platform }}
+          path: llvm-modern-install/
+
   build-llvm7:
     name: LLVM 7
     if: ${{ startsWith(inputs.host-platform, 'linux') }}
@@ -337,3 +343,9 @@ jobs:
         run: |
           docker cp "llvm7-build:C:\workspace\llvm7-install" "${{ github.workspace }}\llvm7-install"
           docker rm llvm7-build
+
+      - name: Upload LLVM 7 artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: llvm7-install-${{ inputs.host-platform }}
+          path: llvm7-install/

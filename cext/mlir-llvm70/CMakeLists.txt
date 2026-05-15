@@ -30,7 +30,7 @@ if(NOT LLVM_ENABLE_RTTI)
 endif()
 
 if(WIN32)
-  add_definitions(-DNOMINMAX)
+  add_definitions(-DNOMINMAX -DWIN32_LEAN_AND_MEAN)
 endif()
 
 include_directories(${LLVM_INCLUDE_DIRS})

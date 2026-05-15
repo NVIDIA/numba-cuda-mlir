@@ -15,8 +15,17 @@ from numba_cuda_mlir.numba_cuda.cudadrv.devicearray import (
 )  # noqa: F401
 from numba_cuda_mlir.numba_cuda.misc.special import literal_unroll  # noqa: F401,E402
 
-# numba-cuda-mlir overrides/extensions
-from numba_cuda_mlir.cuda.lazy_api import *
+from numba_cuda_mlir.decorators import mlir_jit as jit
+from numba_cuda_mlir.compiler import (
+    compile,
+    compile_ptx,
+    compile_all,
+    compile_mlir,
+    compile_for,
+    compile_cubin,
+    declare_device,
+)
+
 
 HAS_NUMBA = False
 

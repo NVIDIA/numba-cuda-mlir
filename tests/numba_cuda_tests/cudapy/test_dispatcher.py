@@ -687,7 +687,6 @@ class TestDispatcherKernelProperties(NumbaCUDATestCase):
         max_threads_f32_all = simple_maxthreads.get_max_threads_per_block()
         self.assertEqual(max_threads_f32_all[sig_f32.args], max_threads_f32)
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_get_local_mem_per_thread_unspecialized(self):
         # NOTE: A large amount of local memory must be allocated
         # otherwise the compiler will optimize out the call to
@@ -727,7 +726,6 @@ class TestDispatcherKernelProperties(NumbaCUDATestCase):
         self.assertEqual(local_mem_all[sig_f32.args], local_mem_f32)
         self.assertEqual(local_mem_all[sig_f64.args], local_mem_f64)
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_get_local_mem_per_thread_specialized(self):
         # NOTE: A large amount of local memory must be allocated
         # otherwise the compiler will optimize out the call to

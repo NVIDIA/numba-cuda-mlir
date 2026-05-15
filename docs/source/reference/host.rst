@@ -2,11 +2,21 @@
    SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
    SPDX-License-Identifier: BSD-2-Clause
 
-CUDA Host API
-=============
+CUDA Host API (Deprecated)
+==========================
+
+.. warning:: The host API functions are not recommended for use in new code,
+   and are provided for backwards compatibility with code written for
+   Numba-CUDA. It is recommended that the `cuda.core
+   <https://nvidia.github.io/cuda-python/cuda-core/latest/>`_ equivalents are
+   used for new code.
 
 Device Management
 -----------------
+
+.. note:: See `Devices and execution
+   <https://nvidia.github.io/cuda-python/cuda-core/latest/api.html#devices-and-execution>`_
+   in the cuda.core documentation for recommended replacement APIs.
 
 Device detection and enquiry
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -105,70 +115,15 @@ the functionality of the selected device:
       otherwise.
 
 
-Compilation
------------
-
-Numba provides an entry point for compiling a Python function without invoking
-any of the driver API. This can be useful for:
-
-- Generating PTX that is to be inlined into other PTX code (e.g. from outside
-  the Numba / Python ecosystem).
-- Generating PTX or LTO-IR to link with objects from non-Python translation
-  units.
-- Generating code when there is no device present.
-- Generating code prior to a fork without initializing CUDA.
-
-.. note:: It is the user's responsibility to manage any ABI issues arising from
-   the use of compilation to PTX / LTO-IR. Passing the ``abi="c"`` keyword
-   argument can provide a solution to most issues that may arise - see
-   :ref:`cuda-using-the-c-abi`.
-
-.. autofunction:: numba.cuda.compile
-
-.. autofunction:: numba.cuda.compile_all
-
-
-The environment variable ``NUMBA_CUDA_DEFAULT_PTX_CC`` can be set to control
-the default compute capability targeted by ``compile`` - see
-:ref:`numba-envvars-gpu-support`. If code for the compute capability of the
-current device is required, the ``compile_for_current_device`` function can
-be used:
-
-.. autofunction:: numba.cuda.compile_for_current_device
-
-
-Numba also provides two functions that may be used in legacy code that
-specifically compile to PTX only:
-
-.. autofunction:: numba.cuda.compile_ptx
-
-.. autofunction:: numba.cuda.compile_ptx_for_current_device
-
-
-Measurement
------------
-
-.. _cuda-profiling:
-
-Profiling
-~~~~~~~~~
-
-The NVidia Visual Profiler can be used directly on executing CUDA Python code -
-it is not a requirement to insert calls to these functions into user code.
-However, these functions can be used to allow profiling to be performed
-selectively on specific portions of the code. For further information on
-profiling, see the `NVidia Profiler User's Guide
-<https://docs.nvidia.com/cuda/profiler-users-guide/>`_.
-
-.. autofunction:: numba.cuda.profile_start
-.. autofunction:: numba.cuda.profile_stop
-.. autofunction:: numba.cuda.profiling
-
 
 .. _events:
 
 Events
 ~~~~~~
+
+.. note:: See the `Event class
+   <https://nvidia.github.io/cuda-python/cuda-core/latest/generated/cuda.core.Event.html>`_
+   in the cuda.core documentation for recommended replacement APIs.
 
 Events can be used to monitor the progress of execution and to record the
 timestamps of specific points being reached. Event creation returns immediately,
@@ -192,6 +147,10 @@ Events are instances of the :class:`numba.cuda.cudadrv.driver.Event` class:
 
 Stream Management
 -----------------
+
+.. note:: See the `Stream class
+   <https://nvidia.github.io/cuda-python/cuda-core/latest/generated/cuda.core.Stream.html>`_
+   in the cuda.core documentation for recommended replacement APIs.
 
 Streams allow concurrency of execution on a single device within a given
 context. Queued work items in the same stream execute sequentially, but work

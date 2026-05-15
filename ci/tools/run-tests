@@ -41,6 +41,7 @@ else
 fi
 
 echo "Running numba-cuda-mlir tests"
+export NUMBA_CUDA_MLIR_ICE_FULL_TB=1
 ${SANITIZER_CMD} pytest "${pytest_args[@]}"
 
 if [[ "${NUMBA_CUDA_MLIR_COVERAGE:-0}" == "1" ]]; then

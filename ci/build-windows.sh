@@ -119,6 +119,7 @@ clone_modern_llvm() {
 
 build_modern_llvm() {
   mkdir -p "${LLVM_MODERN_BUILD}" "${LLVM_MODERN_INSTALL}"
+  local mlir_python_package_prefix="numba_cuda_mlir._mlir"
   cmake -G Ninja \
     -S "$(cmake_path "${LLVM_MODERN_SRC}/llvm")" \
     -B "$(cmake_path "${LLVM_MODERN_BUILD}")" \
@@ -139,7 +140,8 @@ build_modern_llvm() {
     -DLLVM_ENABLE_ZSTD=OFF \
     -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded \
     -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
-    -DMLIR_PYTHON_PACKAGE_PREFIX="numba_cuda_mlir._mlir" \
+    -DMLIR_PYTHON_PACKAGE_PREFIX="${mlir_python_package_prefix}" \
+    -DCMAKE_CXX_FLAGS="-DMLIR_PYTHON_PACKAGE_PREFIX=${mlir_python_package_prefix}." \
     -DMLIR_BINDINGS_PYTHON_INSTALL_PREFIX="python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir" \
     -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=numba_cuda_mlir \
     -DMLIR_PYTHON_STUBGEN_ENABLED=OFF \

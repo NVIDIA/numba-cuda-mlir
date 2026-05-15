@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 if(MSVC)
-    set(CEXT_OPTIONS /EHs-c- /GR- /wd4127 /wd4530)
+    set(CEXT_OPTIONS /GR- /wd4127 /wd4530)
 else()
     set(CEXT_OPTIONS -fno-exceptions -fno-rtti)
 endif()

@@ -12,7 +12,7 @@ add_library(_cext MODULE
     )
 
 if(MSVC)
-    target_compile_options(_cext PUBLIC /EHs-c- /GR- /wd4530)
+    target_compile_options(_cext PUBLIC /GR- /wd4530)
 else()
     target_compile_options(_cext PUBLIC -fno-exceptions -fno-rtti)
 endif()

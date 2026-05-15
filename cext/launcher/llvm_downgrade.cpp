@@ -625,7 +625,7 @@ static void adapt_for_libnvvm(LLVMModuleRef mod, LLVMContextRef ctx) {
 // Strip lifetime intrinsics -- MLIR emits them with a 1-arg signature (ptr)
 // but libnvvm expects the 2-arg form (i64, ptr). Just remove them.
 // They're optimization hints with minimal impact on GPU code.
-static void downgrade_lifetime(LLVMModuleRef mod, LLVMContextRef ctx) {
+static void downgrade_lifetime(LLVMModuleRef mod, LLVMContextRef) {
     const char* names[] = {"llvm.lifetime.start.p0", "llvm.lifetime.end.p0"};
     for (const char* name : names) {
         LLVMValueRef fn = g_LLVMGetNamedFunction(mod, name);
@@ -639,8 +639,8 @@ static void downgrade_lifetime(LLVMModuleRef mod, LLVMContextRef ctx) {
 // Strip enum attributes not recognized by libnvvm's parser:
 //   nocreateundeforpoison -> strip  (LLVM 23, rejected by all current libnvvm)
 //   captures(...)         -> strip  (CTK < 13.0 only; LLVM 23 enum attr kind)
-static void downgrade_attributes(LLVMModuleRef mod, LLVMContextRef ctx,
-                                 int ctk_major, int ctk_minor) {
+static void downgrade_attributes(LLVMModuleRef mod, LLVMContextRef,
+                                 int ctk_major, int) {
     static const char nocup_name[] = "nocreateundeforpoison";
     static const char captures_name[] = "captures";
     unsigned nocup_kind = g_LLVMGetEnumAttributeKindForName(

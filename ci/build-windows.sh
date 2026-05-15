@@ -148,6 +148,17 @@ build_modern_llvm() {
     -DPython3_EXECUTABLE="$("${PYTHON}" -c 'import sys; print(sys.executable)')"
   cmake --build "$(cmake_path "${LLVM_MODERN_BUILD}")" -j "${PARALLEL}"
   cmake --install "$(cmake_path "${LLVM_MODERN_BUILD}")"
+
+  local build_mlir_pkg="${LLVM_MODERN_BUILD}/tools/mlir/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir"
+  local install_mlir_pkg="${LLVM_MODERN_INSTALL}/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir"
+  if [[ -d "${build_mlir_pkg}" ]]; then
+    mkdir -p "${install_mlir_pkg}"
+    cp -a "${build_mlir_pkg}/." "${install_mlir_pkg}/"
+  else
+    echo "ERROR: MLIR Python build package not found at ${build_mlir_pkg}" >&2
+    exit 1
+  fi
+
   local capi_import_lib="${LLVM_MODERN_BUILD}/tools/mlir/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs/MLIRPythonCAPI.lib"
   if [[ -f "${capi_import_lib}" ]]; then
     cp "${capi_import_lib}" "${LLVM_MODERN_INSTALL}/lib/MLIRPythonCAPI.lib"

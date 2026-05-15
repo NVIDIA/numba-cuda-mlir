@@ -1,12 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+import importlib.machinery
+import os
 import shutil
+from pathlib import Path
 
 from setuptools import setup
 from setuptools.command.build_ext import build_ext
 from setuptools.extension import Extension
-import os
-from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 IS_WINDOWS = os.name == "nt"
@@ -54,6 +55,26 @@ def _find_mlir_python_capi() -> str | None:
         if capi.exists():
             return str(capi)
     return None
+
+
+def _has_core_mlir_extension(mlir_libs: Path) -> bool:
+    for suffix in importlib.machinery.EXTENSION_SUFFIXES:
+        if (mlir_libs / f"_mlir{suffix}").exists():
+            return True
+    return False
+
+
+def _validate_mlir_bindings(mlir_pkg: Path) -> None:
+    """Check that the staged MLIR package contains its native core module."""
+    mlir_libs = mlir_pkg / "_mlir_libs"
+    if not (mlir_pkg / "ir.py").exists():
+        raise RuntimeError(f"MLIR Python bindings are missing ir.py under {mlir_pkg}")
+    if not _has_core_mlir_extension(mlir_libs):
+        suffixes = ", ".join(importlib.machinery.EXTENSION_SUFFIXES)
+        raise RuntimeError(
+            f"MLIR Python bindings are missing the core native _mlir extension in "
+            f"{mlir_libs}. Expected one of: {suffixes}"
+        )
 
 
 class BuildExtWithCmake(build_ext):
@@ -119,6 +140,8 @@ class BuildExtWithCmake(build_ext):
                 else:
                     shutil.copy2(llvm70_capi, dest)
 
+        self._stage_mlir_bindings()
+        if llvm70_capi.exists():
             # Also place alongside MLIRPythonCAPI so dependent DLLs can resolve
             # from the wheel.
             mlir_libs_dir = Path(self.build_lib) / "numba_cuda_mlir" / "_mlir" / "_mlir_libs"
@@ -128,8 +151,6 @@ class BuildExtWithCmake(build_ext):
                     mlir_dest.unlink()
                 print(f"Staging {llvm70_capi.name}: {llvm70_capi} -> {mlir_dest}")
                 shutil.copy2(llvm70_capi, mlir_dest)
-
-        self._stage_mlir_bindings()
         self._stage_libllvm7()
 
     def _stage_mlir_bindings(self):
@@ -163,6 +184,7 @@ class BuildExtWithCmake(build_ext):
                 shutil.rmtree(dest)
             print(f"Staging MLIR Python bindings: {mlir_pkg} -> {dest}")
             shutil.copytree(str(mlir_pkg), str(dest))
+        _validate_mlir_bindings(dest)
 
     def _stage_libllvm7(self):
         """Copy the optional LLVM 7 runtime library into the wheel."""

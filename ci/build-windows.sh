@@ -103,7 +103,8 @@ build_llvm7() {
     -DLLVM_INCLUDE_DOCS=OFF \
     -DLLVM_ENABLE_TERMINFO=OFF \
     -DLLVM_ENABLE_ZLIB=OFF \
-    -DLLVM_ENABLE_ZSTD=OFF
+    -DLLVM_ENABLE_ZSTD=OFF \
+    -DLLVM_ENABLE_DIA_SDK=OFF
   cmake --build "$(cmake_path "${LLVM7_BUILD}")" --target install -j "${PARALLEL}"
 }
 

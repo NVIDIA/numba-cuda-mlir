@@ -4,6 +4,8 @@
 Typing support for CUDA vector types (float32x4, int32x2, etc.)
 """
 
+import operator
+from numba_cuda_mlir.lowering_utilities.type_conversions import float_of_width
 from numba_cuda_mlir.numba_cuda.typing.templates import (
     AbstractTemplate,
     AttributeTemplate,
@@ -129,10 +131,6 @@ def _get_vector_type(dtype, length):
     return None
 
 
-import operator
-from numba_cuda_mlir.lowering_utilities.type_conversions import float_of_width
-
-
 def make_vector_binop_template(op):
     class VectorBinOpTemplate(AbstractTemplate):
         key = op
@@ -159,15 +157,12 @@ def make_vector_binop_template(op):
 
                 restype = _get_vector_type(target_dtype, lhs.length)
                 if restype is None:
-                    print(f"restype is None for {target_dtype} and {lhs.length}")
                     return None
-                print(f"Returning signature {restype} {lhs} {rhs}")
                 return signature(restype, lhs, rhs)
 
             elif isinstance(lhs, VectorType) and isinstance(rhs, types.Number):
                 target_dtype = self.context.unify_types(lhs.dtype, rhs)
                 if target_dtype is None:
-                    print(f"target_dtype is None for {lhs.dtype} and {rhs}")
                     return None
 
                 if op == operator.truediv and isinstance(target_dtype, types.Integer):
@@ -176,9 +171,7 @@ def make_vector_binop_template(op):
 
                 restype = _get_vector_type(target_dtype, lhs.length)
                 if restype is None:
-                    print(f"restype is None for {target_dtype} and {lhs.length}")
                     return None
-                print(f"Returning signature {restype} {lhs} {rhs}")
                 return signature(restype, lhs, rhs)
 
             elif isinstance(lhs, types.Number) and isinstance(rhs, VectorType):

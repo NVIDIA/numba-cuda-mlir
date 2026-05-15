@@ -5,6 +5,7 @@ Lowering support for CUDA vector types (float32x4, int32x2, etc.)
 """
 
 import itertools
+import operator
 from typing import Any
 
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
@@ -13,12 +14,12 @@ registry = LoweringRegistry()
 _raw_lower = registry.lower
 lower_getattr = registry.lower_getattr
 from numba_cuda_mlir.mlir_lowering import MLIRLower
-from numba_cuda_mlir.lowering_utilities import convert
+from numba_cuda_mlir.lowering_utilities import convert, _get_mlir_bin_op_for_operator
 from numba_cuda_mlir.lowering_utilities.type_conversions import to_mlir_type
 from numba_cuda_mlir.cuda.vector_types import _vector_types
 from numba_cuda_mlir.type_defs.vector_types import VectorType
 from numba_cuda_mlir import types
-from numba_cuda_mlir._mlir.dialects import vector
+from numba_cuda_mlir._mlir.dialects import vector, arith
 from numba_cuda_mlir._mlir import ir
 
 ATTR_INDEX = {"x": 0, "y": 1, "z": 2, "w": 3}
@@ -111,11 +112,6 @@ lower_getattr(VectorType, "x")(_make_attr_lowering("x"))
 lower_getattr(VectorType, "y")(_make_attr_lowering("y"))
 lower_getattr(VectorType, "z")(_make_attr_lowering("z"))
 lower_getattr(VectorType, "w")(_make_attr_lowering("w"))
-
-
-import operator
-from numba_cuda_mlir.lowering_utilities import _get_mlir_bin_op_for_operator
-from numba_cuda_mlir._mlir.dialects import arith
 
 
 def _make_vector_binop_lowering(op):

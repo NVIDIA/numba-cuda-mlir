@@ -29,6 +29,10 @@ if(NOT LLVM_ENABLE_RTTI)
   endif()
 endif()
 
+if(WIN32)
+  add_definitions(-DNOMINMAX)
+endif()
+
 include_directories(${LLVM_INCLUDE_DIRS})
 include_directories(${MLIR_INCLUDE_DIRS})
 include_directories(${LLVM70_SOURCE_DIR}/include)

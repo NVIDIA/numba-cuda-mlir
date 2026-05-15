@@ -7,7 +7,7 @@
  * NUMBA_EXPORT_FUNC() and NUMBA_EXPORT_DATA() macros.
  */
 
-#include <cstddef>
+#include <stddef.h>
 
 /*
  * Unicode helpers

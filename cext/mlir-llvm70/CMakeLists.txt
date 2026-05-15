@@ -29,6 +29,11 @@ if(NOT LLVM_ENABLE_RTTI)
   endif()
 endif()
 
+if(MSVC)
+  add_compile_definitions(_SILENCE_NONFLOATING_COMPLEX_DEPRECATION_WARNING)
+  add_compile_options(/EHsc)
+endif()
+
 if(WIN32)
   add_definitions(-DNOMINMAX -DWIN32_LEAN_AND_MEAN)
 endif()

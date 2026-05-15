@@ -115,7 +115,7 @@ typedef struct {
 
 /* ---- function declarations --------------------------------------------- */
 /*
- * These provide the signatures needed by typeof() in cuda_loader.h.
+ * These provide the signatures needed by decltype() in cuda_loader.h.
  * The functions themselves are never linked — they are loaded at runtime
  * via cuGetProcAddress.
  */

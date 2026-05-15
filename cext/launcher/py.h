@@ -165,7 +165,10 @@ static inline SavedException save_raised_exception() {
 
 void log_python_error(const char* filename, int line, const char* level, SavedException& exc,
                       const char* fmt, ...)
-    __attribute__(( format(printf, 5, 6) ));
+#ifdef __GNUC__
+    __attribute__(( format(printf, 5, 6) ))
+#endif
+    ;
 
 #define LOG_PYTHON_ERROR(level, exc, ...) \
         log_python_error(__FILE__, __LINE__, level, exc, __VA_ARGS__)

@@ -190,7 +190,7 @@ jobs:
             SCCACHE_GHA_USE_PREPROCESSOR_CACHE_MODE=${{ env.SCCACHE_GHA_USE_PREPROCESSOR_CACHE_MODE }}
           CIBW_ENVIRONMENT_WINDOWS: >
             MLIR_DIR="$(cygpath -w ${{ env.LLVM_MODERN_INSTALL_DIR }}/lib/cmake/mlir)"
-            LLVM70_ROOT="$(cygpath -w ${{ env.LLVM7_INSTALL_DIR }})"
+            LIBLLVM7="$(cygpath -w ${{ env.LLVM7_INSTALL_DIR }}/bin/LLVM.dll)"
             CMAKE_C_COMPILER_LAUNCHER="$(cygpath -w ${{ env.SCCACHE_PATH }})"
             CMAKE_CXX_COMPILER_LAUNCHER="$(cygpath -w ${{ env.SCCACHE_PATH }})"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >

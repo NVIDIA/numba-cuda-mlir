@@ -153,8 +153,8 @@ jobs:
             ACTIONS_CACHE_SERVICE_V2=${{ env.ACTIONS_CACHE_SERVICE_V2 }}
             SCCACHE_GHA_USE_PREPROCESSOR_CACHE_MODE=${{ env.SCCACHE_GHA_USE_PREPROCESSOR_CACHE_MODE }}
           CIBW_ENVIRONMENT_WINDOWS: >
-            MLIR_DIR="$(cygpath -w ${{ github.workspace }}/llvm-modern-install/lib/cmake/mlir)"
-            LLVM70_ROOT="$(cygpath -w ${{ github.workspace }}/llvm7-install)"
+            MLIR_DIR="$(cygpath -w ${{ env.LLVM_MODERN_INSTALL_DIR }}/lib/cmake/mlir)"
+            LLVM70_ROOT="$(cygpath -w ${{ env.LLVM7_INSTALL_DIR }})"
             CMAKE_C_COMPILER_LAUNCHER="$(cygpath -w ${{ env.SCCACHE_PATH }})"
             CMAKE_CXX_COMPILER_LAUNCHER="$(cygpath -w ${{ env.SCCACHE_PATH }})"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >

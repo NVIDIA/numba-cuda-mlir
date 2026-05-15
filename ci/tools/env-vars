@@ -34,6 +34,10 @@ echo "${TOOLS_PATH}" >> $GITHUB_PATH
 } >> $GITHUB_ENV
 
 if [[ "${1}" == "build" ]]; then
+  {
+    echo "LLVM_MODERN_INSTALL_DIR=${REPO_DIR}/llvm-modern-install"
+    echo "LLVM7_INSTALL_DIR=${REPO_DIR}/llvm7-install"
+  } >> $GITHUB_ENV
   NUMBA_CUDA_MLIR_CUDA_ARTIFACT_BASENAME="numba-cuda-mlir-python${PYTHON_VERSION_FORMATTED}-${HOST_PLATFORM}"
 elif [[ "${1}" == "test" ]]; then
   TEST_CUDA_MAJOR="$(cut -d '.' -f 1 <<< ${CUDA_VER})"

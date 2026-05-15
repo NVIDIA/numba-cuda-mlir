@@ -876,8 +876,8 @@ Status extract_cuda_array(PyObject* pyobj, LaunchHelper& helper) {
     helper.cuargs.push_back(cuda_arg_device_ptr(data_ptr));  // allocated ptr
     helper.cuargs.push_back(cuda_arg_device_ptr(data_ptr));  // aligned ptr
     helper.cuargs.push_back(cuda_arg_i64(0));  // offset
-    for (int64_t shape : shapes) {
-        helper.cuargs.push_back(cuda_arg_i64(shape));
+    for (int64_t dim : shapes) {
+        helper.cuargs.push_back(cuda_arg_i64(dim));
     }
     for (int64_t stride : strides_vec) {
         helper.cuargs.push_back(cuda_arg_i64(stride));
@@ -933,8 +933,8 @@ Status extract_dlpack_common(PyObject* dlpack_capsule, LaunchHelper& helper) {
     helper.cuargs.push_back(cuda_arg_device_ptr(data_ptr));  // allocated ptr
     helper.cuargs.push_back(cuda_arg_device_ptr(data_ptr));  // aligned ptr
     helper.cuargs.push_back(cuda_arg_i64(0));  // offset
-    for (int64_t shape : shapes) {
-        helper.cuargs.push_back(cuda_arg_i64(shape));
+    for (int64_t dim : shapes) {
+        helper.cuargs.push_back(cuda_arg_i64(dim));
     }
     for (int64_t stride : strides_vec) {
         helper.cuargs.push_back(cuda_arg_i64(stride));
@@ -1119,14 +1119,14 @@ static uint16_t double_to_f16_bits(double d) {
     uint32_t mant = fbits & 0x7FFFFF;
 
     if (exp == 128) {
-        return sign | 0x7C00 | (mant ? ((mant >> 13) | 1) : 0);
+        return static_cast<uint16_t>(sign | 0x7C00 | (mant ? ((mant >> 13) | 1) : 0));
     } else if (exp > 15) {
-        return sign | 0x7C00;
+        return static_cast<uint16_t>(sign | 0x7C00);
     } else if (exp > -15) {
-        return sign | ((uint16_t)(exp + 15) << 10) | (uint16_t)(mant >> 13);
+        return static_cast<uint16_t>(sign | ((uint16_t)(exp + 15) << 10) | (uint16_t)(mant >> 13));
     } else if (exp >= -24) {
         mant |= 0x800000;
-        return sign | (uint16_t)(mant >> (-exp - 14 + 23));
+        return static_cast<uint16_t>(sign | (uint16_t)(mant >> (-exp - 14 + 23)));
     }
     return sign;
 }

@@ -149,8 +149,10 @@ build_modern_llvm() {
   cmake --build "$(cmake_path "${LLVM_MODERN_BUILD}")" -j "${PARALLEL}"
   cmake --install "$(cmake_path "${LLVM_MODERN_BUILD}")"
 
-  local build_mlir_pkg="${LLVM_MODERN_BUILD}/tools/mlir/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir"
-  local install_mlir_pkg="${LLVM_MODERN_INSTALL}/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir"
+  local mlir_pkg_rel="python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir"
+  local build_mlir_pkg="${LLVM_MODERN_BUILD}/tools/mlir/${mlir_pkg_rel}"
+  local install_mlir_pkg="${LLVM_MODERN_INSTALL}/${mlir_pkg_rel}"
+  local install_mlir_libs="${install_mlir_pkg}/_mlir_libs"
   if [[ -d "${build_mlir_pkg}" ]]; then
     mkdir -p "${install_mlir_pkg}"
     cp -a "${build_mlir_pkg}/." "${install_mlir_pkg}/"
@@ -159,7 +161,36 @@ build_modern_llvm() {
     exit 1
   fi
 
-  local capi_import_lib="${LLVM_MODERN_BUILD}/tools/mlir/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs/MLIRPythonCAPI.lib"
+  mkdir -p "${install_mlir_libs}"
+  while IFS= read -r -d '' mlir_runtime; do
+    cp "${mlir_runtime}" "${install_mlir_libs}/"
+  done < <(
+    find "${LLVM_MODERN_BUILD}" -type f \( \
+      -name '_mlir*.pyd' -o \
+      -name 'MLIRPython*.dll' -o \
+      -name 'nanobind*.dll' \
+    \) -print0
+  )
+
+  local core_mlir_extensions=()
+  while IFS= read -r -d '' core_mlir_extension; do
+    core_mlir_extensions+=("${core_mlir_extension}")
+  done < <(find "${install_mlir_libs}" -maxdepth 1 -type f -name '_mlir*.pyd' -print0)
+
+  if [[ ${#core_mlir_extensions[@]} -eq 0 ]]; then
+    echo "ERROR: MLIR Python native extension was not staged into ${install_mlir_libs}" >&2
+    echo "Contents of ${install_mlir_libs}:" >&2
+    ls -la "${install_mlir_libs}" >&2 || true
+    echo "MLIR native artifacts found under ${LLVM_MODERN_BUILD}:" >&2
+    find "${LLVM_MODERN_BUILD}" -type f \( \
+      -name '_mlir*.pyd' -o \
+      -name 'MLIRPython*.dll' -o \
+      -name 'nanobind*.dll' \
+    \) -print >&2 || true
+    exit 1
+  fi
+
+  local capi_import_lib="${build_mlir_pkg}/_mlir_libs/MLIRPythonCAPI.lib"
   if [[ -f "${capi_import_lib}" ]]; then
     cp "${capi_import_lib}" "${LLVM_MODERN_INSTALL}/lib/MLIRPythonCAPI.lib"
   fi

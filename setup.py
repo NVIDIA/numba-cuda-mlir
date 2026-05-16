@@ -64,6 +64,17 @@ def _has_core_mlir_extension(mlir_libs: Path) -> bool:
     return False
 
 
+def _mlir_native_candidates(mlir_libs: Path) -> list[str]:
+    if not mlir_libs.exists():
+        return []
+    return sorted(
+        str(path.relative_to(mlir_libs))
+        for pattern in ("_mlir*", "MLIRPython*", "nanobind*")
+        for path in mlir_libs.glob(pattern)
+        if path.is_file()
+    )
+
+
 def _validate_mlir_bindings(mlir_pkg: Path) -> None:
     """Check that the staged MLIR package contains its native core module."""
     mlir_libs = mlir_pkg / "_mlir_libs"
@@ -71,9 +82,10 @@ def _validate_mlir_bindings(mlir_pkg: Path) -> None:
         raise RuntimeError(f"MLIR Python bindings are missing ir.py under {mlir_pkg}")
     if not _has_core_mlir_extension(mlir_libs):
         suffixes = ", ".join(importlib.machinery.EXTENSION_SUFFIXES)
+        candidates = ", ".join(_mlir_native_candidates(mlir_libs)) or "<none>"
         raise RuntimeError(
             f"MLIR Python bindings are missing the core native _mlir extension in "
-            f"{mlir_libs}. Expected one of: {suffixes}"
+            f"{mlir_libs}. Expected one of: {suffixes}. Found: {candidates}"
         )
 
 

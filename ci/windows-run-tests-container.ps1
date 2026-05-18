@@ -141,7 +141,7 @@ $bashCmd = @"
 set -euo pipefail
 cd '$repoRootUnix'
 chmod +x ci/tools/* || true
-export PATH="$pythonScriptsUnix:$pythonDirUnix:$repoRootUnix/ci/tools:$repoRootUnix/llvm-modern-install/lib:$repoRootUnix/llvm-modern-install/bin:$repoRootUnix/llvm7-install/lib:$repoRootUnix/llvm7-install/bin:`$PATH"
+export PATH="${pythonScriptsUnix}:${pythonDirUnix}:${repoRootUnix}/ci/tools:${repoRootUnix}/llvm-modern-install/lib:${repoRootUnix}/llvm-modern-install/bin:${repoRootUnix}/llvm7-install/lib:${repoRootUnix}/llvm7-install/bin:`$PATH"
 export NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR='$repoRootUnix/dist'
 export TEST_CUDA_MAJOR='$cudaMajor'
 export TEST_CUDA_MINOR='$cudaMinor'

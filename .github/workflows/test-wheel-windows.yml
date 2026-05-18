@@ -146,16 +146,33 @@ jobs:
 
           $src = (Resolve-Path "${{ github.workspace }}").Path
           $img = $env:WINDOWS_DEVCONTAINER_IMAGE
-          docker run --rm --isolation=process `
-            --device "class/5B45201D-F2F2-4F3B-85BB-30FF1F953599" `
-            --mount "type=bind,source=$src,target=C:\workspace" `
-            --workdir C:\workspace `
-            $img `
-            powershell -NoProfile -ExecutionPolicy Bypass -File C:\workspace\ci\windows-run-tests-container.ps1 `
-              -PythonVersion $env:PY_VER `
-              -CudaVersion $env:CUDA_VER `
-              -LocalCtk $env:LOCAL_CTK `
-              -TestScript $env:TEST_SCRIPT
+          $dockerArgs = @(
+            'run',
+            '--rm',
+            '--isolation=process',
+            '--device',
+            'class/5B45201D-F2F2-4F3B-85BB-30FF1F953599',
+            '--mount',
+            "type=bind,source=$src,target=C:\workspace",
+            '--workdir',
+            'C:\workspace',
+            $img,
+            'powershell',
+            '-NoProfile',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-File',
+            'C:\workspace\ci\windows-run-tests-container.ps1',
+            '-PythonVersion',
+            $env:PY_VER,
+            '-CudaVersion',
+            $env:CUDA_VER,
+            '-LocalCtk',
+            $env:LOCAL_CTK,
+            '-TestScript',
+            $env:TEST_SCRIPT
+          )
+          & docker @dockerArgs
           if ($LASTEXITCODE -ne 0) {
             throw "Windows test container failed with exit code $LASTEXITCODE"
-          fi
+          }

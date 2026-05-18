@@ -870,8 +870,20 @@ extern "C" __global__ void
         exc_class = static_raise_inst.exc_class
         error_code = KERNEL_ERROR_CODES.get(exc_class, 4)  # Default to RuntimeError
         self.set_error_code(error_code)
-        return_block = self.blkmap[max(self.blkmap.keys())]
-        cf.br([], return_block)
+
+        # Branch to the highest-offset Return block if available.
+        return_offsets = [
+            offset
+            for offset, block in self.blocks.items()
+            if block.body and isinstance(block.body[-1], numba_ir.Return)
+        ]
+        if return_offsets:
+            cf.br([], self.blkmap[max(return_offsets)])
+            return
+
+        # Terminate the current block if no reachable Return block is found.
+        return_ctor = gpu.ReturnOp if isinstance(self.mlir_funcOp, gpu.GPUFuncOp) else func.ReturnOp
+        return_ctor([])
 
     def lower_assign(self, assign_inst):
         """

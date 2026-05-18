@@ -56,3 +56,23 @@ def test_error_global_in_ptx():
 
     assert "__numba_cuda_mlir_error_code" in ptx, "Error global not found in PTX"
     assert ".visible .global" in ptx, "Error global should be visible"
+
+
+@pytest.mark.parametrize(
+    "debug, opt",
+    [
+        (False, False),
+        (False, True),
+        (True, False),
+    ],
+)
+def test_raise_only_kernel(debug, opt):
+    """Test that raise-only kernel compiles and surfaces RuntimeError to host."""
+
+    @cuda.jit(debug=debug, opt=opt)
+    def k():
+        raise RuntimeError("Error")
+
+    with pytest.raises(RuntimeError, match="Runtime error in kernel"):
+        k[1, 1]()
+        cuda.synchronize()

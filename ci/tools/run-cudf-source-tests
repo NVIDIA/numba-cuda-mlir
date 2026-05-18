@@ -98,13 +98,13 @@ fi
 
 # --- Build cudf from source ---
 echo "Building cudf from source..."
-conda run -n "${CONDA_ENV_NAME}" --no-banner bash -c "cd ${CUDF_DIR} && bash build.sh libcudf pylibcudf cudf"
+conda run -n "${CONDA_ENV_NAME}" bash -c "cd ${CUDF_DIR} && bash build.sh libcudf pylibcudf cudf"
 
 # --- Install numba-cuda-mlir wheel ---
 echo "Installing numba-cuda-mlir wheel into conda env..."
 EXTRAS="cu${TEST_CUDA_MAJOR}"
-conda run -n "${CONDA_ENV_NAME}" --no-banner pip install "${wheel}[${EXTRAS}]"
-conda run -n "${CONDA_ENV_NAME}" --no-banner pip list
+conda run -n "${CONDA_ENV_NAME}" pip install "${wheel}[${EXTRAS}]"
+conda run -n "${CONDA_ENV_NAME}" pip list
 
 # --- Run cudf UDF tests ---
 echo "Running cudf UDF tests for CUDA ${CUDA_VERSION}"
@@ -115,7 +115,7 @@ NRT_STATS="${CUDF_DIR}/python/cudf/cudf/tests/private_objects/test_nrt_stats.py"
 
 COMMON_ARGS=(-W "ignore::UserWarning" -v --tb=short)
 
-conda run -n "${CONDA_ENV_NAME}" --no-banner python -m pytest \
+conda run -n "${CONDA_ENV_NAME}" python -m pytest \
   "${SCALAR_UDF}" \
   "${NRT_STATS}" \
   "${COMMON_ARGS[@]}" \
@@ -123,7 +123,7 @@ conda run -n "${CONDA_ENV_NAME}" --no-banner python -m pytest \
   -o addopts= \
   "$@" || true
 
-conda run -n "${CONDA_ENV_NAME}" --no-banner python -m pytest \
+conda run -n "${CONDA_ENV_NAME}" python -m pytest \
   "${GROUPBY_UDF}" \
   -k "test_groupby_apply" \
   "${COMMON_ARGS[@]}" \

@@ -156,7 +156,6 @@ else
   export NUMBA_CUDA_MLIR_CUDA_TEST_WHEEL_ONLY=1
   export NUMBA_CUDA_TEST_WHEEL_ONLY=1
 fi
-nvidia-smi
 '$TestScript'
 "@
 

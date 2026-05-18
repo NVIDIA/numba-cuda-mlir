@@ -182,6 +182,17 @@ jobs:
     with:
       host-platform: linux-64
 
+  test-cudf-source-linux-aarch64:
+    name: cudf source Test linux-aarch64
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read
+    needs:
+      - build-linux-aarch64
+    uses: ./.github/workflows/test-cudf-source-linux.yml
+    with:
+      host-platform: linux-aarch64
+
   # ============== old CI jobs (ci.yaml & pr.yaml) ==============
 
   build-docs:
@@ -223,6 +234,7 @@ jobs:
       - test-expensive-linux-64
       - test-expensive-linux-aarch64
       - test-cudf-source-linux-64
+      - test-cudf-source-linux-aarch64
       - build-docs
       # - coverage-report
       # - test-simulator
@@ -255,6 +267,8 @@ jobs:
                  needs.test-expensive-linux-aarch64.result == 'failure' ||
                  needs.test-cudf-source-linux-64.result == 'cancelled' ||
                  needs.test-cudf-source-linux-64.result == 'failure' ||
+                 needs.test-cudf-source-linux-aarch64.result == 'cancelled' ||
+                 needs.test-cudf-source-linux-aarch64.result == 'failure' ||
                  needs.build-docs.result == 'cancelled' ||
                  needs.build-docs.result == 'failure' }}; then
           #        needs.coverage-report.result == 'cancelled' ||

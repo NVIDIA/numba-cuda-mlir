@@ -171,8 +171,10 @@ print(f'  Failed:  {total_failures}')
 print(f'  Errors:  {total_errors}')
 print(f'  Skipped: {total_skipped}')
 total = total_passed + total_failures + total_errors
-if total > 0:
-    print(f'  Pass rate: {total_passed/total*100:.1f}%')
+if total == 0:
+    print('ERROR: No test results found — tests may not have run')
+    sys.exit(1)
+print(f'  Pass rate: {total_passed/total*100:.1f}%')
 if total_failures > 0 or total_errors > 0:
     sys.exit(1)
 "

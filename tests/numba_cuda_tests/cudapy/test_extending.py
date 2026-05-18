@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
+from numba_cuda_mlir import extending
 from numba_cuda_mlir.testing import NumbaCUDATestCase
 from llvmlite import ir
 
@@ -10,6 +11,7 @@ from numba_cuda_mlir import cuda
 
 from numba_cuda_mlir.numba_cuda import types
 
+import functools
 import inspect
 import math
 import pickle
@@ -25,7 +27,7 @@ from numba_cuda_mlir.numba_cuda.cudaimpl import lower_attr as cuda_lower_attr
 from numba_cuda_mlir.numba_cuda.core import errors
 from numba_cuda_mlir.numba_cuda.errors import LoweringError
 
-from numba_cuda_mlir.numba_cuda.extending import (
+from numba_cuda_mlir.extending import (
     type_callable,
     lower_builtin,
     overload,
@@ -33,11 +35,16 @@ from numba_cuda_mlir.numba_cuda.extending import (
     intrinsic,
     _Intrinsic,
     register_jitable,
-    core_models,
-    typeof_impl,
     register_model,
+    typeof_impl,
     make_attribute_wrapper,
+    typing_registry as extending_typing_registry,
 )
+from numba_cuda_mlir.models import StructModel
+
+overload = functools.partial(overload, typing_registry=extending_typing_registry)
+overload_method = functools.partial(overload_method, typing_registry=extending_typing_registry)
+register_jitable = functools.partial(register_jitable, typing_registry=extending_typing_registry)
 
 
 class Interval:
@@ -90,13 +97,13 @@ def type_interval(context):
 
 
 @register_model(IntervalType)
-class IntervalModel(core_models.StructModel):
+class IntervalModel(StructModel):
     def __init__(self, dmm, fe_type):
         members = [
             ("lo", types.float64),
             ("hi", types.float64),
         ]
-        core_models.StructModel.__init__(self, dmm, fe_type, members)
+        super().__init__(dmm, fe_type, members)
 
 
 make_attribute_wrapper(IntervalType, "lo", "lo")

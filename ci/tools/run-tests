@@ -44,6 +44,98 @@ else
     "${coverage_packages[@]}"
 fi
 
+if [[ "${RUNNER_OS:-}" == "Windows" || "$(python - <<'PY'
+import os
+print(os.name)
+PY
+)" == "nt" ]]; then
+  echo "Debugging Windows MLIR native import"
+  python - <<'PY'
+import ctypes
+import glob
+import importlib.util
+import os
+import pathlib
+import sys
+import traceback
+
+print(f"Python executable: {sys.executable}")
+print(f"Python version: {sys.version}")
+print(f"PATH: {os.environ.get('PATH', '')}")
+
+spec = importlib.util.find_spec("numba_cuda_mlir")
+print(f"numba_cuda_mlir spec: {spec}")
+if spec is None or not spec.submodule_search_locations:
+    raise SystemExit(0)
+
+pkg = pathlib.Path(next(iter(spec.submodule_search_locations)))
+mlir_libs = pkg / "_mlir" / "_mlir_libs"
+pkg_lib = pkg / "lib"
+print(f"Package dir: {pkg}")
+print(f"MLIR libs dir: {mlir_libs} exists={mlir_libs.is_dir()}")
+print(f"Package lib dir: {pkg_lib} exists={pkg_lib.is_dir()}")
+
+_dll_directory_handles = []
+for directory in (mlir_libs, pkg, pkg_lib):
+    if directory.is_dir():
+        print(f"Adding DLL directory: {directory}")
+        _dll_directory_handles.append(os.add_dll_directory(str(directory)))
+
+if mlir_libs.is_dir():
+    print("MLIR native files:")
+    for path in sorted(mlir_libs.iterdir()):
+        if path.is_file() and path.suffix.lower() in {".dll", ".pyd", ".lib", ".exp"}:
+            print(f"  {path.name} size={path.stat().st_size}")
+
+load_candidates = [
+    mlir_libs / "nanobind-numba_cuda_mlir.dll",
+    mlir_libs / "MLIRPythonSupport-numba_cuda_mlir.dll",
+    mlir_libs / "MLIRPythonCAPI.dll",
+    mlir_libs / "MLIRToLLVM70.dll",
+    pkg / "MLIRToLLVM70.dll",
+    pkg_lib / "LLVM.dll",
+]
+load_candidates.extend(pathlib.Path(p) for p in glob.glob(str(mlir_libs / "_mlir*.pyd")))
+
+for path in load_candidates:
+    if not path.exists():
+        print(f"LOAD skip missing: {path}")
+        continue
+    try:
+        ctypes.WinDLL(str(path))
+        print(f"LOAD ok: {path}")
+    except OSError as exc:
+        print(f"LOAD failed: {path}")
+        print(f"  winerror={getattr(exc, 'winerror', None)} errno={getattr(exc, 'errno', None)}")
+        print(f"  {exc!r}")
+
+core_candidates = sorted(mlir_libs.glob("_mlir*.pyd")) if mlir_libs.is_dir() else []
+core_candidates = [p for p in core_candidates if p.name.startswith("_mlir.")]
+if core_candidates:
+    core_pyd = core_candidates[0]
+    try:
+        core_spec = importlib.util.spec_from_file_location(
+            "numba_cuda_mlir._mlir._mlir_libs._mlir", core_pyd
+        )
+        print(f"Direct _mlir spec: {core_spec}")
+        raw_mlir = importlib.util.module_from_spec(core_spec)
+        core_spec.loader.exec_module(raw_mlir)
+        print(f"Direct _mlir import ok: {raw_mlir}")
+    except BaseException:
+        print(f"Direct _mlir import failed from {core_pyd}:")
+        traceback.print_exc()
+else:
+    print("Direct _mlir import skipped: no core _mlir*.pyd found")
+
+try:
+    from numba_cuda_mlir._mlir import ir
+    print(f"MLIR ir import ok: {ir}")
+except BaseException:
+    print("MLIR ir import failed:")
+    traceback.print_exc()
+PY
+fi
+
 echo "Running numba-cuda-mlir tests"
 ${SANITIZER_CMD} pytest "${pytest_args[@]}"
 

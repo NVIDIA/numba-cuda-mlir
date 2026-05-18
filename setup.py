@@ -90,6 +90,39 @@ def _validate_mlir_bindings(mlir_pkg: Path) -> None:
         )
 
 
+def _patch_mlir_windows_dll_search(mlir_pkg: Path) -> None:
+    """Teach the staged MLIR package where to find bundled Windows DLLs."""
+    if not IS_WINDOWS:
+        return
+
+    init_py = mlir_pkg / "_mlir_libs" / "__init__.py"
+    if not init_py.exists():
+        return
+
+    marker = "# numba-cuda-mlir: bundled Windows DLL search paths"
+    text = init_py.read_text()
+    if marker in text:
+        return
+
+    patch = f"""
+
+{marker}
+_dll_directory_handles = []
+if os.name == "nt" and hasattr(os, "add_dll_directory"):
+    for _dll_dir in (
+        _this_dir,
+        os.path.abspath(os.path.join(_this_dir, os.pardir, os.pardir)),
+        os.path.abspath(os.path.join(_this_dir, os.pardir, os.pardir, "lib")),
+    ):
+        if os.path.isdir(_dll_dir):
+            _dll_directory_handles.append(os.add_dll_directory(_dll_dir))
+"""
+    anchor = "_this_dir = os.path.dirname(__file__)\n"
+    if anchor not in text:
+        raise RuntimeError(f"Could not patch Windows DLL search paths into {init_py}")
+    init_py.write_text(text.replace(anchor, anchor + patch, 1))
+
+
 class BuildExtWithCmake(build_ext):
     def run(self):
         build_dir = os.getenv("NUMBA_CUDA_MLIR_BUILD_DIR")
@@ -205,6 +238,7 @@ class BuildExtWithCmake(build_ext):
                 shutil.rmtree(dest)
             print(f"Staging MLIR Python bindings: {mlir_pkg} -> {dest}")
             shutil.copytree(str(mlir_pkg), str(dest))
+        _patch_mlir_windows_dll_search(dest)
         _validate_mlir_bindings(dest)
 
     def _stage_libllvm7(self):

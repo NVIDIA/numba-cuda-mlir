@@ -5,6 +5,7 @@ Implementation of linear algebra operations.
 """
 
 import contextlib
+import functools
 import warnings
 
 from llvmlite import ir
@@ -14,7 +15,15 @@ import operator
 
 from numba_cuda_mlir.numba_cuda.core.imputils import impl_ret_borrowed, impl_ret_new_ref
 from numba_cuda_mlir.numba_cuda.typing import signature
-from numba_cuda_mlir.extending import intrinsic, overload, register_jitable
+from numba_cuda_mlir.extending import (
+    intrinsic,
+    overload,
+    register_jitable,
+    typing_registry,
+)
+
+overload = functools.partial(overload, typing_registry=typing_registry)
+register_jitable = functools.partial(register_jitable, typing_registry=typing_registry)
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda import cgutils
 from numba_cuda_mlir.numba_cuda.core.errors import (

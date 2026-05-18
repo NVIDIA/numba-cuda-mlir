@@ -5,6 +5,7 @@
 Implementation of math operations on Array objects.
 """
 
+import functools
 import math
 from collections import namedtuple
 import operator
@@ -18,7 +19,12 @@ from numba_cuda_mlir.extending import (
     overload,
     overload_method,
     register_jitable,
+    typing_registry,
 )
+
+overload = functools.partial(overload, typing_registry=typing_registry)
+overload_method = functools.partial(overload_method, typing_registry=typing_registry)
+register_jitable = functools.partial(register_jitable, typing_registry=typing_registry)
 from numba_cuda_mlir.numba_cuda.np.numpy_support import (
     as_dtype,
     type_can_asarray,

@@ -136,8 +136,13 @@ from numba_cuda_mlir.numba_cuda._internal.cuda_fp16 import (
     htrunc,
 )
 
+import functools
+
 from numba_cuda_mlir.extending import overload
+from numba_cuda_mlir.extending import typing_registry as extending_typing_registry
 import math
+
+overload = functools.partial(overload, typing_registry=extending_typing_registry)
 
 
 def _make_unary(a, func):

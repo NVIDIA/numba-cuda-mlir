@@ -3,6 +3,7 @@
 
 """Implements operations on bytes and str (unicode) array items."""
 
+import functools
 import operator
 import numpy as np
 from llvmlite import ir
@@ -14,7 +15,12 @@ from numba_cuda_mlir.extending import (
     overload_method,
     register_jitable,
     intrinsic,
+    typing_registry,
 )
+
+overload = functools.partial(overload, typing_registry=typing_registry)
+overload_method = functools.partial(overload_method, typing_registry=typing_registry)
+register_jitable = functools.partial(register_jitable, typing_registry=typing_registry)
 from numba_cuda_mlir.numba_cuda.core.imputils import Registry
 from numba_cuda_mlir.numba_cuda.cgutils import is_nonelike
 from numba_cuda_mlir.numba_cuda.cpython import unicode

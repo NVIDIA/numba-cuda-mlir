@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
+import functools
 import sys
 import operator
 
@@ -13,7 +14,12 @@ from numba_cuda_mlir.extending import (
     overload,
     overload_method,
     register_jitable,
+    typing_registry,
 )
+
+overload = functools.partial(overload, typing_registry=typing_registry)
+overload_method = functools.partial(overload_method, typing_registry=typing_registry)
+register_jitable = functools.partial(register_jitable, typing_registry=typing_registry)
 from numba_cuda_mlir.extending import models
 from numba_cuda_mlir.numba_cuda.core.pythonapi import box, unbox
 from numba_cuda_mlir.extending import make_attribute_wrapper, intrinsic

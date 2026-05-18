@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+import functools
 import operator
 
 from numba_cuda_mlir import types
@@ -13,6 +14,9 @@ from numba_cuda_mlir.extending import (
     register_jitable,
     typing_registry as extending_typing_registry,
 )
+
+overload_method = functools.partial(overload_method, typing_registry=extending_typing_registry)
+register_jitable = functools.partial(register_jitable, typing_registry=extending_typing_registry)
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.lowering_utilities import GEP_DYNAMIC_INDEX, true, false
 

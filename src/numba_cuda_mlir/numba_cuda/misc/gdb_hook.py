@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
+import functools
 import os
 import sys
 
@@ -10,7 +11,9 @@ from numba_cuda_mlir.numba_cuda import types, config
 from numba_cuda_mlir.numba_cuda.core import errors
 from numba_cuda_mlir.numba_cuda import cgutils, utils
 from numba_cuda_mlir.numba_cuda.misc.special import gdb, gdb_init, gdb_breakpoint
-from numba_cuda_mlir.extending import overload, intrinsic
+from numba_cuda_mlir.extending import overload, intrinsic, typing_registry
+
+overload = functools.partial(overload, typing_registry=typing_registry)
 
 _path = os.path.dirname(__file__)
 

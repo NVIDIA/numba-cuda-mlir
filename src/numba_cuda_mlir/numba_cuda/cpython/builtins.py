@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 from collections import namedtuple
+import functools
 import math
 from functools import reduce
 
@@ -20,7 +21,15 @@ from numba_cuda_mlir.numba_cuda.core.imputils import (
 )
 from numba_cuda_mlir.numba_cuda import typing, types
 from numba_cuda_mlir.numba_cuda import cgutils
-from numba_cuda_mlir.extending import overload, intrinsic, register_jitable
+from numba_cuda_mlir.extending import (
+    overload,
+    intrinsic,
+    register_jitable,
+    typing_registry,
+)
+
+overload = functools.partial(overload, typing_registry=typing_registry)
+register_jitable = functools.partial(register_jitable, typing_registry=typing_registry)
 from numba_cuda_mlir.numba_cuda.core.errors import (
     TypingError,
     LoweringError,

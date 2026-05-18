@@ -20,6 +20,11 @@ from numba_cuda_mlir.numba_cuda.extending import (
     intrinsic,
     _Intrinsic,
     type_callable,
+    NativeValue,
+    box,
+    unbox,
+    models,
+    core_models,
 )
 
 from numba_cuda_mlir.models import mlir_data_manager

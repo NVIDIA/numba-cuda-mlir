@@ -131,7 +131,7 @@ from numba_cuda_mlir.numba_cuda._internal.cuda_bf16 import (
     htanh,
     htanh_approx,
 )
-from numba_cuda_mlir.numba_cuda.extending import overload
+from numba_cuda_mlir.extending import overload
 
 import math
 

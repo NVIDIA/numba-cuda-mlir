@@ -16,7 +16,7 @@ from numba_cuda_mlir.numba_cuda.typing.templates import ConcreteTemplate
 from numba_cuda_mlir.numba_cuda.types import float16
 from numba_cuda_mlir.numba_cuda.types import IntEnumMember
 from numba_cuda_mlir.numba_cuda import types
-from numba_cuda_mlir.numba_cuda.extending import make_attribute_wrapper
+from numba_cuda_mlir.extending import make_attribute_wrapper
 from numba_cuda_mlir.numba_cuda.types import bool_
 from numba_cuda_mlir.numba_cuda.types import uint64
 from llvmlite import ir
@@ -27,7 +27,7 @@ from numba_cuda_mlir.numba_cuda.types import float32
 from enum import IntEnum
 from numba_cuda_mlir.numba_cuda.datamodel import StructModel
 from numba_cuda_mlir.numba_cuda.core.imputils import Registry as TargetRegistry
-from numba_cuda_mlir.numba_cuda.extending import as_numba_type
+from numba_cuda_mlir.extending import as_numba_type
 from numba_cuda_mlir.numba_cuda.types import Function
 from numba_cuda_mlir.numba_cuda.types import Type
 from numba_cuda_mlir.numba_cuda.types import int32
@@ -39,7 +39,7 @@ from numba_cuda_mlir.numba_cuda.types import int8
 from numba_cuda_mlir.numba_cuda.typing import signature
 from numba_cuda_mlir.numba_cuda.types import bfloat16
 from numba_cuda_mlir.numba_cuda.typing import signature
-from numba_cuda_mlir.numba_cuda.extending import register_model
+from numba_cuda_mlir.extending import register_model
 from numba_cuda_mlir.numba_cuda.types import float64
 from numba_cuda_mlir.numba_cuda.datamodel import PrimitiveModel
 from numba_cuda_mlir.numba_cuda._internal.cuda_bf16 import (

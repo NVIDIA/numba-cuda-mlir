@@ -9,7 +9,7 @@ from llvmlite import ir
 
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda import cgutils
-from numba_cuda_mlir.numba_cuda.extending import (
+from numba_cuda_mlir.extending import (
     overload,
     overload_method,
     register_jitable,

@@ -32,7 +32,7 @@ from numba_cuda_mlir.numba_cuda.np.numpy_support import (
 )
 from numba_cuda_mlir.numba_cuda.np.arrayobj import _getitem_array_generic
 from numba_cuda_mlir.numba_cuda.typing import npydecl
-from numba_cuda_mlir.numba_cuda.extending import overload, intrinsic
+from numba_cuda_mlir.extending import overload, intrinsic
 
 from numba_cuda_mlir.numba_cuda.core import errors
 

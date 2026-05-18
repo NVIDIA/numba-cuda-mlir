@@ -37,7 +37,7 @@ from numba_cuda_mlir.numba_cuda.core.analysis import (
     dead_branch_prune,
 )
 from numba_cuda_mlir.numba_cuda.core.imputils import impl_ret_untracked
-from numba_cuda_mlir.numba_cuda.extending import intrinsic
+from numba_cuda_mlir.extending import intrinsic
 from numba_cuda_mlir.numba_cuda.typing import signature
 
 from numba_cuda_mlir.numba_cuda.core import postproc, rewrites

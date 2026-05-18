@@ -136,7 +136,7 @@ from numba_cuda_mlir.numba_cuda._internal.cuda_fp16 import (
     htrunc,
 )
 
-from numba_cuda_mlir.numba_cuda.extending import overload
+from numba_cuda_mlir.extending import overload
 import math
 
 

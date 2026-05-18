@@ -20,7 +20,7 @@ from numba_cuda_mlir.numba_cuda.core.imputils import (
 )
 from numba_cuda_mlir.numba_cuda import typing, types
 from numba_cuda_mlir.numba_cuda import cgutils
-from numba_cuda_mlir.numba_cuda.extending import overload, intrinsic, register_jitable
+from numba_cuda_mlir.extending import overload, intrinsic, register_jitable
 from numba_cuda_mlir.numba_cuda.core.errors import (
     TypingError,
     LoweringError,

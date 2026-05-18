@@ -14,7 +14,7 @@ import numpy as np
 
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda import cgutils
-from numba_cuda_mlir.numba_cuda.extending import (
+from numba_cuda_mlir.extending import (
     overload,
     overload_method,
     register_jitable,
@@ -43,7 +43,7 @@ from numba_cuda_mlir.numba_cuda.np.arrayobj import (
 )
 from numba_cuda_mlir.numba_cuda.np.linalg import ensure_blas
 
-from numba_cuda_mlir.numba_cuda.extending import intrinsic
+from numba_cuda_mlir.extending import intrinsic
 from numba_cuda_mlir.numba_cuda.core.errors import (
     RequireLiteralValue,
     TypingError,

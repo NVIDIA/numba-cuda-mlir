@@ -5,7 +5,7 @@
 
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core import errors
-from numba_cuda_mlir.numba_cuda.extending import intrinsic
+from numba_cuda_mlir.extending import intrinsic
 
 from llvmlite import ir
 

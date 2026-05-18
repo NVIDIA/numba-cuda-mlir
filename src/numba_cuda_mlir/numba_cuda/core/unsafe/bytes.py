@@ -6,7 +6,7 @@ This file provides internal compiler utilities that support certain special
 operations with bytes and workarounds for limitations enforced in userland.
 """
 
-from numba_cuda_mlir.numba_cuda.extending import intrinsic
+from numba_cuda_mlir.extending import intrinsic
 from llvmlite import ir
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda import cgutils

@@ -12,7 +12,7 @@ from numpy.polynomial import polyutils as pu
 from numba_cuda_mlir.numba_cuda.misc.special import literal_unroll
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core import errors
-from numba_cuda_mlir.numba_cuda.extending import overload
+from numba_cuda_mlir.extending import overload
 from numba_cuda_mlir.numba_cuda.np.numpy_support import (
     type_can_asarray,
     as_dtype,

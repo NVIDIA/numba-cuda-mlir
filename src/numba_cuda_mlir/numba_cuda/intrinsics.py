@@ -1,7 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
+from numba_cuda_mlir.extending import typing_registry, lowering_registry
 from llvmlite import ir
+import functools
 
 from numba_cuda_mlir import numba_cuda as cuda
 from numba_cuda_mlir.numba_cuda import types
@@ -12,10 +14,14 @@ from numba_cuda_mlir.numba_cuda.core.errors import (
     NumbaTypeError,
 )
 from numba_cuda_mlir.numba_cuda.typing import signature
-from numba_cuda_mlir.numba_cuda.extending import overload_attribute, overload_method
+from numba_cuda_mlir.extending import overload_attribute, overload_method, typing_registry
 from numba_cuda_mlir.numba_cuda import nvvmutils
-from numba_cuda_mlir.numba_cuda.extending import intrinsic
+from numba_cuda_mlir.extending import intrinsic
 
+overload_method = functools.partial(overload_method, typing_registry=typing_registry)
+overload_attribute = functools.partial(
+    overload_attribute, typing_registry=typing_registry, lowering_registry=lowering_registry
+)
 
 # -------------------------------------------------------------------------------
 # Grid functions

@@ -18,8 +18,8 @@ from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda import cgutils
 from numba_cuda_mlir.numba_cuda.core.imputils import impl_ret_untracked
 
-from numba_cuda_mlir.numba_cuda.extending import overload, register_jitable
-from numba_cuda_mlir.numba_cuda.extending import intrinsic
+from numba_cuda_mlir.extending import overload, register_jitable
+from numba_cuda_mlir.extending import intrinsic
 from numba_cuda_mlir.numba_cuda.core.errors import TypingError
 
 # This is equivalent to the struct `_PyUnicode_TypeRecord defined in CPython's

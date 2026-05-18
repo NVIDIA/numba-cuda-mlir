@@ -21,7 +21,7 @@ from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.cudadrv.driver import _have_nvjitlink
 from numba_cuda_mlir.numba_cuda.datamodel import PrimitiveModel, StructModel
 from numba_cuda_mlir.numba_cuda.core.errors import NumbaPerformanceWarning
-from numba_cuda_mlir.numba_cuda.extending import (
+from numba_cuda_mlir.extending import (
     lower_cast,
     make_attribute_wrapper,
     register_model,
@@ -38,7 +38,7 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
 )
 from numba_cuda_mlir.numba_cuda.typing.templates import Registry as TypingRegistry
 from numba_cuda_mlir.numba_cuda.vector_types import vector_types
-from numba_cuda_mlir.numba_cuda.extending import as_numba_type
+from numba_cuda_mlir.extending import as_numba_type
 from numba_cuda_mlir.numba_cuda.types import (
     CPointer,
     Function,

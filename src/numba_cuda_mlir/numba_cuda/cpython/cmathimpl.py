@@ -12,7 +12,7 @@ from numba_cuda_mlir.numba_cuda.core.imputils import impl_ret_untracked, Registr
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.typing import signature
 from numba_cuda_mlir.numba_cuda.cpython import mathimpl
-from numba_cuda_mlir.numba_cuda.extending import overload
+from numba_cuda_mlir.extending import overload
 
 
 registry = Registry("cmathimpl")

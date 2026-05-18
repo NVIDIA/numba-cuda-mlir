@@ -9,7 +9,7 @@ operations with tuple and workarounds for limitations enforced in userland.
 from numba_cuda_mlir.numba_cuda import types, typing
 from numba_cuda_mlir.numba_cuda.core import errors
 from numba_cuda_mlir.numba_cuda.cgutils import alloca_once
-from numba_cuda_mlir.numba_cuda.extending import intrinsic
+from numba_cuda_mlir.extending import intrinsic
 
 
 @intrinsic

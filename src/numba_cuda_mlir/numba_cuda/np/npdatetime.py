@@ -20,7 +20,7 @@ from numba_cuda_mlir.numba_cuda.core.imputils import (
     Registry,
 )
 from numba_cuda_mlir.numba_cuda.np import npdatetime_helpers, numpy_support, npyfuncs
-from numba_cuda_mlir.numba_cuda.extending import overload_method
+from numba_cuda_mlir.extending import overload_method
 from numba_cuda_mlir.numba_cuda.core.config import IS_32BITS
 from numba_cuda_mlir.numba_cuda.core.errors import LoweringError
 

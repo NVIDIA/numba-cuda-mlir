@@ -16,7 +16,7 @@ from llvmlite.ir import Constant
 from numba_cuda_mlir.numba_cuda.core.imputils import impl_ret_untracked, Registry
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core import config
-from numba_cuda_mlir.numba_cuda.extending import overload
+from numba_cuda_mlir.extending import overload
 from numba_cuda_mlir.numba_cuda.typing import signature
 from numba_cuda_mlir.numba_cuda.cpython.unsafe.numbers import trailing_zeros
 from numba_cuda_mlir.numba_cuda import cgutils

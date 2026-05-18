@@ -1,15 +1,20 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
+import functools
+
 from numba_cuda_mlir.numba_cuda import types
-from numba_cuda_mlir.numba_cuda.extending import overload, overload_method
+from numba_cuda_mlir.extending import overload, overload_method, typing_registry
 from numba_cuda_mlir.numba_cuda.typing import signature
 from numba_cuda_mlir.numba_cuda import nvvmutils
-from numba_cuda_mlir.numba_cuda.extending import intrinsic
+from numba_cuda_mlir.extending import intrinsic
 from numba_cuda_mlir.numba_cuda.types.ext_types import (
     grid_group,
     GridGroup as GridGroupClass,
 )
+
+overload = functools.partial(overload, typing_registry=typing_registry)
+overload_method = functools.partial(overload_method, typing_registry=typing_registry)
 
 
 class GridGroup:

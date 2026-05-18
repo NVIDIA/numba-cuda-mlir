@@ -14,7 +14,7 @@ import operator
 
 from numba_cuda_mlir.numba_cuda.core.imputils import impl_ret_borrowed, impl_ret_new_ref
 from numba_cuda_mlir.numba_cuda.typing import signature
-from numba_cuda_mlir.numba_cuda.extending import intrinsic, overload, register_jitable
+from numba_cuda_mlir.extending import intrinsic, overload, register_jitable
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda import cgutils
 from numba_cuda_mlir.numba_cuda.core.errors import (

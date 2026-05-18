@@ -16,7 +16,7 @@ from numba_cuda_mlir.numba_cuda.core.imputils import (
 )
 from numba_cuda_mlir.numba_cuda import typing, types
 from numba_cuda_mlir.numba_cuda import cgutils
-from numba_cuda_mlir.numba_cuda.extending import overload_method, overload
+from numba_cuda_mlir.extending import overload_method, overload
 
 registry = Registry("tupleobj")
 lower = registry.lower

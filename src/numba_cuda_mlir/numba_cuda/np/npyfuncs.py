@@ -12,13 +12,13 @@ import math
 import llvmlite.ir
 import numpy as np
 
-from numba_cuda_mlir.numba_cuda.extending import overload
+from numba_cuda_mlir.extending import overload
 from numba_cuda_mlir.numba_cuda.core.imputils import impl_ret_untracked
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core import errors
 from numba_cuda_mlir.numba_cuda import cgutils, typing
 from numba_cuda_mlir.numba_cuda.np import npdatetime
-from numba_cuda_mlir.numba_cuda.extending import register_jitable
+from numba_cuda_mlir.extending import register_jitable
 from numba_cuda_mlir.numba_cuda.np.math import cmathimpl, mathimpl, numbers
 from numba_cuda_mlir.numba_cuda.np.numpy_support import numpy_version
 

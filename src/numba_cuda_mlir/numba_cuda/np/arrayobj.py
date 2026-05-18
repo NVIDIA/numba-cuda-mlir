@@ -48,7 +48,7 @@ from numba_cuda_mlir.numba_cuda.core.imputils import (
 )
 from numba_cuda_mlir.numba_cuda.typing import signature
 from numba_cuda_mlir.numba_cuda.types import StringLiteral
-from numba_cuda_mlir.numba_cuda.extending import (
+from numba_cuda_mlir.extending import (
     register_jitable,
     overload,
     overload_method,
@@ -60,7 +60,7 @@ from numba_cuda_mlir.numba_cuda.cpython.unsafe.tuple import (
     tuple_setitem,
     build_full_slice_tuple,
 )
-from numba_cuda_mlir.numba_cuda.extending import overload_classmethod
+from numba_cuda_mlir.extending import overload_classmethod
 from numba_cuda_mlir.numba_cuda.typing.npydecl import (
     parse_dtype as ty_parse_dtype,
     parse_shape as ty_parse_shape,

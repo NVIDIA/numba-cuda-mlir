@@ -10,7 +10,7 @@ from numba_cuda_mlir.numba_cuda import types, config
 from numba_cuda_mlir.numba_cuda.core import errors
 from numba_cuda_mlir.numba_cuda import cgutils, utils
 from numba_cuda_mlir.numba_cuda.misc.special import gdb, gdb_init, gdb_breakpoint
-from numba_cuda_mlir.numba_cuda.extending import overload, intrinsic
+from numba_cuda_mlir.extending import overload, intrinsic
 
 _path = os.path.dirname(__file__)
 

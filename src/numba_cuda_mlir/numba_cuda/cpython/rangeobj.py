@@ -16,7 +16,7 @@ from numba_cuda_mlir.numba_cuda.core.imputils import (
     impl_ret_untracked,
 )
 from numba_cuda_mlir.numba_cuda.typing import signature
-from numba_cuda_mlir.numba_cuda.extending import (
+from numba_cuda_mlir.extending import (
     intrinsic,
     overload,
     overload_attribute,

@@ -49,7 +49,7 @@ def make_attribute_wrapper(typeclass, struct_attr, python_attr):
     as a read-only attribute named *python_attr*.
     The given *typeclass*'s model must be a StructModel subclass.
 
-    Vendored from numba_cuda_mlir.numba_cuda.extending with a change to consider the CUDA data
+    Vendored from numba_cuda_mlir.extending with a change to consider the CUDA data
     model manager.
     """
     from numba_cuda_mlir.numba_cuda.typing.templates import AttributeTemplate

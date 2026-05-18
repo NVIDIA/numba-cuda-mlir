@@ -9,7 +9,7 @@ import operator
 
 from numba_cuda_mlir.numba_cuda.core.imputils import Registry, impl_ret_untracked
 from numba_cuda_mlir.numba_cuda import types
-from numba_cuda_mlir.numba_cuda.extending import overload_method
+from numba_cuda_mlir.extending import overload_method
 
 registry = Registry("enumimpl")
 lower = registry.lower

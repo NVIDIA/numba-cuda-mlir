@@ -18,7 +18,7 @@ from numba_cuda_mlir.numba_cuda.core.imputils import (
     impl_ret_new_ref,
     RefType,
 )
-from numba_cuda_mlir.numba_cuda.extending import overload_method, overload
+from numba_cuda_mlir.extending import overload_method, overload
 from numba_cuda_mlir.numba_cuda.cpython import slicing
 from numba_cuda_mlir.numba_cuda.misc.special import literal_unroll
 

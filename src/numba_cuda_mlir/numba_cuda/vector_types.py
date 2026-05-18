@@ -15,7 +15,7 @@ from numba_cuda_mlir.numba_cuda.typing.templates import Registry as TypingRegist
 from numba_cuda_mlir.numba_cuda.typing.templates import signature
 from numba_cuda_mlir.numba_cuda import stubs
 from numba_cuda_mlir.numba_cuda.errors import CudaLoweringError
-from numba_cuda_mlir.numba_cuda.extending import make_attribute_wrapper, register_model
+from numba_cuda_mlir.extending import make_attribute_wrapper, register_model
 
 
 typing_registry = TypingRegistry()

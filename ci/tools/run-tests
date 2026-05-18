@@ -56,6 +56,7 @@ import glob
 import importlib.util
 import os
 import pathlib
+import struct
 import sys
 import traceback
 
@@ -96,6 +97,66 @@ load_candidates = [
     pkg_lib / "LLVM.dll",
 ]
 load_candidates.extend(pathlib.Path(p) for p in glob.glob(str(mlir_libs / "_mlir*.pyd")))
+
+def _rva_to_offset(sections, rva):
+    for virtual_address, virtual_size, raw_size, raw_pointer in sections:
+        size = max(virtual_size, raw_size)
+        if virtual_address <= rva < virtual_address + size:
+            return raw_pointer + (rva - virtual_address)
+    return None
+
+def _read_c_string(data, offset):
+    end = data.find(b"\0", offset)
+    if end < 0:
+        end = len(data)
+    return data[offset:end].decode("ascii", errors="replace")
+
+def _pe_imports(path):
+    data = path.read_bytes()
+    if data[:2] != b"MZ":
+        return []
+    pe_offset = struct.unpack_from("<I", data, 0x3C)[0]
+    if data[pe_offset:pe_offset + 4] != b"PE\0\0":
+        return []
+
+    coff_offset = pe_offset + 4
+    number_of_sections = struct.unpack_from("<H", data, coff_offset + 2)[0]
+    optional_header_size = struct.unpack_from("<H", data, coff_offset + 16)[0]
+    optional_offset = coff_offset + 20
+    magic = struct.unpack_from("<H", data, optional_offset)[0]
+    data_directory_offset = optional_offset + (112 if magic == 0x20B else 96)
+    import_rva, _ = struct.unpack_from("<II", data, data_directory_offset + 8)
+
+    sections = []
+    section_offset = optional_offset + optional_header_size
+    for i in range(number_of_sections):
+        off = section_offset + i * 40
+        virtual_size, virtual_address, raw_size, raw_pointer = struct.unpack_from("<IIII", data, off + 8)
+        sections.append((virtual_address, virtual_size, raw_size, raw_pointer))
+
+    import_offset = _rva_to_offset(sections, import_rva)
+    if import_offset is None:
+        return []
+
+    imports = []
+    descriptor_size = 20
+    for i in range(2048):
+        off = import_offset + i * descriptor_size
+        original_first_thunk, _, _, name_rva, first_thunk = struct.unpack_from("<IIIII", data, off)
+        if original_first_thunk == 0 and name_rva == 0 and first_thunk == 0:
+            break
+        name_offset = _rva_to_offset(sections, name_rva)
+        if name_offset is not None:
+            imports.append(_read_c_string(data, name_offset))
+    return imports
+
+for path in load_candidates:
+    if path.exists() and path.suffix.lower() in {".dll", ".pyd"}:
+        try:
+            imports = _pe_imports(path)
+            print(f"PE imports: {path.name}: {', '.join(imports) if imports else '<none>'}")
+        except Exception as exc:
+            print(f"PE imports failed: {path}: {exc!r}")
 
 for path in load_candidates:
     if not path.exists():

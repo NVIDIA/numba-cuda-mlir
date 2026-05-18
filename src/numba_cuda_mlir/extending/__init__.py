@@ -1,8 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+import functools
 from types import MappingProxyType
 
 from numba_cuda_mlir.numba_cuda import types
+from numba_cuda_mlir.numba_cuda.datamodel.registry import register
+from numba_cuda_mlir.numba_cuda.typing.asnumbatype import as_numba_type
+from numba_cuda_mlir.numba_cuda.typing.typeof import typeof_impl
 from numba_cuda_mlir.numba_cuda.typing.templates import (
     Registry,
     _OverloadAttributeTemplate,
@@ -18,24 +22,31 @@ from numba_cuda_mlir.numba_cuda.extending import (
     type_callable,
 )
 
+from numba_cuda_mlir.models import mlir_data_manager
+
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.extending.argument_handler import ArgumentHandler
 
 lowering_registry = LoweringRegistry()
 typing_registry = Registry()
 lower_cast = lowering_registry.lower_cast
+lower_builtin = lowering_registry.lower
+register_model = functools.partial(register, mlir_data_manager)
 
 __all__ = [
     "ArgumentHandler",
     "intrinsic",
-    "lower_cast",
     "lowering_registry",
+    "as_numba_type",
+    "lower_builtin",
+    "lower_cast",
     "overload",
     "overload_attribute",
     "overload_method",
     "register_jitable",
     "type_callable",
     "typing_registry",
+    "typeof_impl",
 ]
 
 _overload_default_jit_options = {"no_cpython_wrapper": True, "nopython": True}
@@ -255,6 +266,10 @@ def overload_method(typ, attr, typing_registry=None, **kwargs):
     return decorate
 
 
+def overload_classmethod(typ, attr, typing_registry=None, **kwargs):
+    return overload_method(types.TypeRef(typ), attr, typing_registry=typing_registry, **kwargs)
+
+
 def register_jitable(*args, typing_registry=None, **kwargs):
     """Mark a plain Python function as compilable from device code.
 
@@ -299,3 +314,49 @@ def register_jitable(*args, typing_registry=None, **kwargs):
     if len(args) != 1:
         raise TypeError("register_jitable accepts at most one positional argument")
     return wrap(*args)
+
+
+def make_attribute_wrapper(typeclass, struct_attr, python_attr):
+    """
+    Make an automatic attribute wrapper exposing member named *struct_attr*
+    as a read-only attribute named *python_attr*.
+    The given *typeclass*'s model must be a StructModel subclass.
+
+    Vendored from cusimt.extending with a change to consider the CUDA data
+    model manager.
+    """
+    from numba_cuda_mlir.numba_cuda.typing.templates import AttributeTemplate
+    from numba_cuda_mlir.models import StructModel
+    from numba_cuda_mlir.numba_cuda.core.imputils import impl_ret_borrowed
+
+    from numba_cuda_mlir.typing.builtin import registry as cuda_registry
+    from numba_cuda_mlir.lowering.builtins import registry as cuda_impl_registry
+
+    data_model_manager = mlir_data_manager
+
+    if not isinstance(typeclass, type) or not issubclass(typeclass, types.Type):
+        raise TypeError("typeclass should be a Type subclass, got %s" % (typeclass,))
+
+    def get_attr_fe_type(typ):
+        """
+        Get the Numba type of member *struct_attr* in *typ*.
+        """
+        model = data_model_manager.lookup(typ)
+        if not isinstance(model, StructModel):
+            raise TypeError(
+                "make_struct_attribute_wrapper() needs a type "
+                "with a StructModel, but got %s" % (model,)
+            )
+        return model.get_member_fe_type(struct_attr)
+
+    @cuda_registry.register_attr
+    class StructAttribute(AttributeTemplate):
+        key = typeclass
+
+        def generic_resolve(self, typ, attr):
+            if attr == python_attr:
+                return get_attr_fe_type(typ)
+
+    @cuda_impl_registry.lower_getattr(typeclass, python_attr)
+    def struct_getattr_impl(context, builder, typ, val):
+        raise NotImplementedError("To be implemented")

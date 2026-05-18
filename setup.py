@@ -138,9 +138,12 @@ class BuildExtWithCmake(build_ext):
                 else:
                     shutil.copy2(ext_build_path, ext_path)
 
-        # Copy the LLVM70 translator next to _cext if it was built
         llvm70_capi = build_dir / "cext" / "mlir-llvm70" / "lib" / _shared_lib_name("MLIRToLLVM70")
+        self._stage_mlir_bindings()
+
         if llvm70_capi.exists():
+            # Copy the LLVM70 bridge next to _cext and alongside
+            # MLIRPythonCAPI so dependent DLLs can resolve from the wheel.
             dest_dir = Path(self.get_ext_fullpath("numba_cuda_mlir._cext")).parent
             dest = dest_dir / llvm70_capi.name
             if not self.dry_run:
@@ -152,10 +155,6 @@ class BuildExtWithCmake(build_ext):
                 else:
                     shutil.copy2(llvm70_capi, dest)
 
-        self._stage_mlir_bindings()
-        if llvm70_capi.exists():
-            # Also place alongside MLIRPythonCAPI so dependent DLLs can resolve
-            # from the wheel.
             mlir_libs_dir = Path(self.build_lib) / "numba_cuda_mlir" / "_mlir" / "_mlir_libs"
             if mlir_libs_dir.exists() and not self.dry_run:
                 mlir_dest = mlir_libs_dir / llvm70_capi.name

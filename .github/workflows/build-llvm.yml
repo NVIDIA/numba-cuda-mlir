@@ -60,13 +60,12 @@ jobs:
           KEY="llvm-modern-linux-${ARCH}-${PY_TAG}-${VERSION_SHORT}-${SCRIPT_HASH}"
           echo "key=${KEY}" >> "$GITHUB_OUTPUT"
 
-      - name: Restore or check LLVM Modern GHA cache
+      - name: Restore LLVM Modern GHA cache
         id: gha-cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: llvm-modern-install/
           key: ${{ steps.cache-key.outputs.key }}
-          lookup-only: ${{ github.ref_name != 'main' }}
 
       - name: Install build dependencies
         if: steps.gha-cache.outputs.cache-hit != 'true'
@@ -110,7 +109,6 @@ jobs:
           key: ${{ steps.cache-key.outputs.key }}
 
       - name: Upload LLVM Modern artifacts
-        if: github.ref_name == 'main' || steps.gha-cache.outputs.cache-hit != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: llvm-modern-install-${{ matrix.py-tag }}-${{ inputs.host-platform }}
@@ -151,13 +149,12 @@ jobs:
           KEY="llvm-modern-windows-amd64-${{ matrix.py-tag }}-${VERSION_SHORT}-${SCRIPT_HASH}"
           echo "key=${KEY}" >> "$GITHUB_OUTPUT"
 
-      - name: Restore or check LLVM Modern GHA cache
+      - name: Restore LLVM Modern GHA cache
         id: gha-cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: llvm-modern-install/
           key: ${{ steps.cache-key.outputs.key }}
-          lookup-only: ${{ github.ref_name != 'main' }}
 
       - name: Pull devcontainer image
         if: steps.gha-cache.outputs.cache-hit != 'true'
@@ -208,7 +205,6 @@ jobs:
           key: ${{ steps.cache-key.outputs.key }}
 
       - name: Upload LLVM Modern artifacts
-        if: github.ref_name == 'main' || steps.gha-cache.outputs.cache-hit != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: llvm-modern-install-${{ matrix.py-tag }}-${{ inputs.host-platform }}
@@ -246,13 +242,12 @@ jobs:
           KEY="llvm7-linux-${ARCH}-${VERSION_SHORT}-${SCRIPT_HASH}"
           echo "key=${KEY}" >> "$GITHUB_OUTPUT"
 
-      - name: Restore or check LLVM 7 GHA cache
+      - name: Restore LLVM 7 GHA cache
         id: gha-cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: llvm7-install/
           key: ${{ steps.cache-key.outputs.key }}
-          lookup-only: ${{ github.ref_name != 'main' }}
 
       - name: Install build dependencies
         if: steps.gha-cache.outputs.cache-hit != 'true'
@@ -296,7 +291,6 @@ jobs:
           key: ${{ steps.cache-key.outputs.key }}
 
       - name: Upload LLVM 7 artifacts
-        if: github.ref_name == 'main' || steps.gha-cache.outputs.cache-hit != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: llvm7-install-${{ inputs.host-platform }}
@@ -328,13 +322,12 @@ jobs:
           KEY="llvm7-windows-amd64-${VERSION_SHORT}-${SCRIPT_HASH}"
           echo "key=${KEY}" >> "$GITHUB_OUTPUT"
 
-      - name: Restore or check LLVM 7 GHA cache
+      - name: Restore LLVM 7 GHA cache
         id: gha-cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: llvm7-install/
           key: ${{ steps.cache-key.outputs.key }}
-          lookup-only: ${{ github.ref_name != 'main' }}
 
       - name: Pull devcontainer image
         if: steps.gha-cache.outputs.cache-hit != 'true'
@@ -380,7 +373,6 @@ jobs:
           key: ${{ steps.cache-key.outputs.key }}
 
       - name: Upload LLVM 7 artifacts
-        if: github.ref_name == 'main' || steps.gha-cache.outputs.cache-hit != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: llvm7-install-${{ inputs.host-platform }}

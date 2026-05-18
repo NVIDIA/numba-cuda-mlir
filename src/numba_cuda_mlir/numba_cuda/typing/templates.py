@@ -751,9 +751,9 @@ class _OverloadFunctionTemplate(AbstractTemplate):
 
     def _get_jit_decorator(self):
         """Gets a jit decorator suitable for the current target"""
-        from numba_cuda_mlir.numba_cuda.decorators import jit
+        from numba_cuda_mlir.descriptor import mlir_jit
 
-        return jit
+        return mlir_jit
 
     def _build_impl(self, cache_key, args, kws):
         """Build and cache the implementation.

@@ -108,10 +108,10 @@ jobs:
       - name: Add LLVM DLL directories to PATH
         run: |
           {
-            echo "$(cygpath -w "$(pwd)/llvm-modern-install/bin")"
-            echo "$(cygpath -w "$(pwd)/llvm-modern-install/lib")"
             echo "$(cygpath -w "$(pwd)/llvm7-install/bin")"
             echo "$(cygpath -w "$(pwd)/llvm7-install/lib")"
+            echo "$(cygpath -w "$(pwd)/llvm-modern-install/bin")"
+            echo "$(cygpath -w "$(pwd)/llvm-modern-install/lib")"
           } >> "$GITHUB_PATH"
 
       - name: Set up Python ${{ matrix.PY_VER }}

@@ -208,6 +208,57 @@ PY
   if [[ -f "${capi_import_lib}" ]]; then
     cp "${capi_import_lib}" "${LLVM_MODERN_INSTALL}/lib/MLIRPythonCAPI.lib"
   fi
+
+  local smoke_install_root
+  smoke_install_root="$(cmake_path "${LLVM_MODERN_INSTALL}")"
+  "${PYTHON}" - "${smoke_install_root}" <<'PY'
+import ctypes
+import os
+import pathlib
+import sys
+import traceback
+
+install_root = pathlib.Path(sys.argv[1])
+pkg_root = install_root / "python_packages" / "numba_cuda_mlir_mlir"
+mlir_pkg = pkg_root / "numba_cuda_mlir" / "_mlir"
+mlir_libs = mlir_pkg / "_mlir_libs"
+
+print("Smoke testing modern MLIR Python artifact")
+print(f"  python={sys.executable}")
+print(f"  install_root={install_root}")
+print(f"  mlir_libs={mlir_libs} exists={mlir_libs.is_dir()}")
+
+handles = []
+if os.name == "nt" and hasattr(os, "add_dll_directory"):
+    for directory in (
+        mlir_libs,
+        install_root / "lib",
+        install_root / "bin",
+    ):
+        if directory.is_dir():
+            print(f"  add_dll_directory={directory}")
+            handles.append(os.add_dll_directory(str(directory)))
+
+for name in (
+    "nanobind-numba_cuda_mlir.dll",
+    "MLIRPythonCAPI.dll",
+    "MLIRPythonSupport-numba_cuda_mlir.dll",
+):
+    path = mlir_libs / name
+    if path.exists():
+        print(f"  loading {path}")
+        ctypes.WinDLL(str(path))
+
+sys.path.insert(0, str(pkg_root))
+try:
+    from numba_cuda_mlir._mlir import ir  # noqa: F401
+except BaseException:
+    print("Modern MLIR Python artifact smoke import failed:", file=sys.stderr)
+    traceback.print_exc()
+    raise
+
+print("Modern MLIR Python artifact smoke import passed")
+PY
 }
 
 step "Validate Windows build prerequisites" check_prereqs

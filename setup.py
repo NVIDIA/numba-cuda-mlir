@@ -3,6 +3,7 @@
 import importlib.machinery
 import os
 import shutil
+import sys
 from pathlib import Path
 
 from setuptools import setup
@@ -107,6 +108,15 @@ class BuildExtWithCmake(build_ext):
         if IS_WINDOWS:
             cmake_cmd += ["-G", "Ninja"]
         cmake_cmd += ["-B", build_dir, ROOT, f"-DCMAKE_BUILD_TYPE={build_type}"]
+        python_root = Path(sys.executable).resolve().parent
+        cmake_cmd += [
+            f"-DPython_ROOT_DIR={python_root}",
+            f"-DPython_EXECUTABLE={sys.executable}",
+            "-DPython_FIND_REGISTRY=NEVER",
+            f"-DPython3_ROOT_DIR={python_root}",
+            f"-DPython3_EXECUTABLE={sys.executable}",
+            "-DPython3_FIND_REGISTRY=NEVER",
+        ]
         for launcher_var in ("CMAKE_C_COMPILER_LAUNCHER", "CMAKE_CXX_COMPILER_LAUNCHER"):
             launcher = os.environ.get(launcher_var)
             if launcher:

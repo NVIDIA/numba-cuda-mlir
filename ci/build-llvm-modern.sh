@@ -47,6 +47,8 @@ export CMAKE_CXX_COMPILER_LAUNCHER="$(which sccache)"
 # MLIR_BINDINGS_PYTHON_NB_DOMAIN isolates nanobind typeids from other
 #   MLIR-based projects that may coexist in the same process.
 # See: https://github.com/llvm/llvm-project/pull/171775
+python_executable="$($PYTHON -c 'import sys; print(sys.executable)')"
+python_root="$(dirname "${python_executable}")"
 
 cmake_args=(
     -G Ninja
@@ -68,7 +70,12 @@ cmake_args=(
     -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=numba_cuda_mlir
     -DMLIR_PYTHON_STUBGEN_ENABLED=OFF
     -DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON
-    -DPython3_EXECUTABLE="$($PYTHON -c 'import sys; print(sys.executable)')"
+    -DPython_ROOT_DIR="${python_root}"
+    -DPython_EXECUTABLE="${python_executable}"
+    -DPython_FIND_REGISTRY=NEVER
+    -DPython3_ROOT_DIR="${python_root}"
+    -DPython3_EXECUTABLE="${python_executable}"
+    -DPython3_FIND_REGISTRY=NEVER
 )
 
 cmake "${cmake_args[@]}"

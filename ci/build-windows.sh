@@ -119,6 +119,10 @@ clone_modern_llvm() {
 
 build_modern_llvm() {
   mkdir -p "${LLVM_MODERN_BUILD}" "${LLVM_MODERN_INSTALL}"
+  local python_executable
+  local python_root
+  python_executable="$("${PYTHON}" -c 'import sys; print(sys.executable)')"
+  python_root="$(dirname "${python_executable}")"
   cmake -G Ninja \
     -S "$(cmake_path "${LLVM_MODERN_SRC}/llvm")" \
     -B "$(cmake_path "${LLVM_MODERN_BUILD}")" \
@@ -144,7 +148,12 @@ build_modern_llvm() {
     -DMLIR_BINDINGS_PYTHON_INSTALL_PREFIX="python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir" \
     -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=numba_cuda_mlir \
     -DMLIR_PYTHON_STUBGEN_ENABLED=OFF \
-    -DPython3_EXECUTABLE="$("${PYTHON}" -c 'import sys; print(sys.executable)')"
+    -DPython_ROOT_DIR="${python_root}" \
+    -DPython_EXECUTABLE="${python_executable}" \
+    -DPython_FIND_REGISTRY=NEVER \
+    -DPython3_ROOT_DIR="${python_root}" \
+    -DPython3_EXECUTABLE="${python_executable}" \
+    -DPython3_FIND_REGISTRY=NEVER
   cmake --build "$(cmake_path "${LLVM_MODERN_BUILD}")" -j "${PARALLEL}"
   cmake --install "$(cmake_path "${LLVM_MODERN_BUILD}")"
 

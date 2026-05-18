@@ -444,7 +444,9 @@ class BaseContext:
         """
         reg_id = id(registry)
         current_version = getattr(registry, "_version", None)
-        if current_version is not None and current_version == self._registry_versions.get(reg_id, -1):
+        if current_version is not None and current_version == self._registry_versions.get(
+            reg_id, -1
+        ):
             return
 
         try:

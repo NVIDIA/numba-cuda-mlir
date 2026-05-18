@@ -41,9 +41,7 @@ class DeviceDeclaration:
         context_id = id(typingctx)
         if context_id in self._typing_context_ids:
             return
-        device_function_template = typing.make_concrete_template(
-            self.name, self.extfn, [self.sig]
-        )
+        device_function_template = typing.make_concrete_template(self.name, self.extfn, [self.sig])
         typingctx.insert_user_function(self.extfn, device_function_template)
         self._typing_context_ids.add(context_id)
 

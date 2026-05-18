@@ -137,6 +137,7 @@ class BaseContext:
     def __init__(self):
         # A list of installed registries
         self._registries = {}
+        self._registry_versions = {}
         # Typing declarations extracted from the registries or other sources
         self._functions = defaultdict(list)
         self._attributes = defaultdict(list)
@@ -152,13 +153,24 @@ class BaseContext:
         Initialize the typing context.  Can be overridden by subclasses.
         """
 
+    def _registries_unchanged(self):
+        for registry, _loader in self._registries.items():
+            reg_id = id(registry)
+            current = getattr(registry, "_version", None)
+            if current is None:
+                return False
+            if current != self._registry_versions.get(reg_id, -1):
+                return False
+        return bool(self._registries)
+
     def refresh(self):
         """
         Refresh context with new declarations from known registries.
         Useful for third-party extensions.
         """
+        if self._registries_unchanged():
+            return
         self.load_additional_registries()
-        # Some extensions may have augmented the builtin registry
         self._load_builtins()
 
     def explain_function_type(self, func):
@@ -430,6 +442,11 @@ class BaseContext:
             a shared registry like Numba's typing registry (builtin_registry).
 
         """
+        reg_id = id(registry)
+        current_version = getattr(registry, "_version", None)
+        if current_version is not None and current_version == self._registry_versions.get(reg_id, -1):
+            return
+
         try:
             loader = self._registries[registry]
         except KeyError:
@@ -491,6 +508,9 @@ class BaseContext:
                     raise TypeError("cannot augment %s with %s" % (existing, gty))
                 self._remove_global(gv)
                 self._insert_global(gv, newty)
+
+        if current_version is not None:
+            self._registry_versions[reg_id] = current_version
 
     def _lookup_global(self, gv):
         """

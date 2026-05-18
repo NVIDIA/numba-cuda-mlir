@@ -27,6 +27,7 @@ class Registry:
         self.setattrs = []
         self.casts = []
         self.constants = []
+        self._version = 0
 
     def lower(self, func, *argtys):
         """
@@ -40,6 +41,7 @@ class Registry:
 
         def decorate(impl):
             self.functions.append((impl, func, argtys))
+            self._version += 1
             return impl
 
         return decorate
@@ -47,6 +49,7 @@ class Registry:
     def _decorate_attr(self, impl, ty, attr, impl_list, decorator):
         real_impl = decorator(impl, ty, attr)
         impl_list.append((real_impl, attr, real_impl.signature))
+        self._version += 1
         return impl
 
     def lower_getattr(self, ty, attr):
@@ -110,6 +113,7 @@ class Registry:
 
         def decorate(impl):
             self.casts.append((impl, (fromty, toty)))
+            self._version += 1
             return impl
 
         return decorate
@@ -124,6 +128,7 @@ class Registry:
 
         def decorate(impl):
             self.constants.append((impl, (ty,)))
+            self._version += 1
             return impl
 
         return decorate

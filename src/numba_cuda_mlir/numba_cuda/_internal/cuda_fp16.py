@@ -29,7 +29,10 @@ from numba_cuda_mlir.numba_cuda.extending import (
 from numba_cuda_mlir.numba_cuda.core.imputils import Registry as TargetRegistry
 from numba_cuda_mlir.numba_cuda.core.imputils import lower_cast
 from numba_cuda_mlir.numba_cuda.typing import signature
-from numba_cuda_mlir.numba_cuda import CUSource, declare_device
+from numba_cuda_mlir.numba_cuda.cudadrv.linkable_code import CUSource
+from numba_cuda_mlir.device_declarations import (
+    register_device_declaration as declare_device,
+)
 from numba_cuda_mlir.numba_cuda._internal.cuda_bf16 import _type___nv_bfloat16
 from numba_cuda_mlir.numba_cuda.typing.templates import (
     AbstractTemplate,

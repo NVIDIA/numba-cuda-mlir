@@ -27,6 +27,7 @@ lower_cast = lowering_registry.lower_cast
 __all__ = [
     "lowering_registry",
     "lower_cast",
+    "refresh_registries",
     "typing_registry",
 ]
 
@@ -43,6 +44,15 @@ def _require_lowering_registry(decorator_name, registry):
     if registry is None:
         raise ValueError(f"numba_cuda_mlir.extending.{decorator_name} requires lowering_registry=")
     return registry
+
+
+def refresh_registries(*, typing=True, target=True):
+    """Sync compiler contexts after adding entries to extension registries."""
+    from numba_cuda_mlir.descriptor import mlir_target
+    from numba_cuda_mlir.numba_cuda.descriptor import cuda_target
+
+    mlir_target.refresh_registries(typing=typing, target=target)
+    cuda_target.refresh_registries(typing=typing, target=target)
 
 
 class _NumbaCudaMlirOverloadFunctionTemplate(_OverloadFunctionTemplate):

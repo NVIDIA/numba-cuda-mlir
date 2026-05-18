@@ -8,7 +8,7 @@ Test cases adapted from numba/tests/test_enums.py
 import numpy as np
 
 from numba_cuda_mlir.numba_cuda.types import int16, int32
-from numba_cuda_mlir.extending import register_jitable, typing_registry
+from numba_cuda_mlir.extending import refresh_registries, register_jitable, typing_registry
 
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
@@ -66,6 +66,8 @@ class EnumTest(NumbaCUDATestCase):
         @register_jitable(typing_registry=typing_registry)
         def inner(pred):
             return Color.red if pred else Color.green
+
+        refresh_registries()
 
         def f(pred, out):
             out[0] = inner(pred) == Color.red

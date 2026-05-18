@@ -7,6 +7,7 @@ from llvmlite import ir
 import numpy as np
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir import extending
 
 from numba_cuda_mlir.numba_cuda import types
 
@@ -391,6 +392,8 @@ class TestHighLevelExtending(NumbaCUDATestCase):
             def _myoverload_impl(a, b, c, kw=None):
                 return impl
 
+            extending.refresh_registries()
+
             @cuda.jit
             def foo(a, b, c, d):
                 myoverload(a, b, c, kw=d)
@@ -535,6 +538,7 @@ class TestHighLevelExtending(NumbaCUDATestCase):
         from .overload_usecases import var_positional_impl
 
         overload(myoverload)(var_positional_impl)
+        extending.refresh_registries()
 
         @cuda.jit
         def foo(a, b):
@@ -627,6 +631,8 @@ class TestHighLevelExtending(NumbaCUDATestCase):
                         return val
 
                     return impl
+
+        extending.refresh_registries()
 
         @cuda.jit
         def bar(A, res):
@@ -806,6 +812,8 @@ class TestRegisterJitable(NumbaCUDATestCase):
         def foo(x, y):
             x[0] += y
 
+        extending.refresh_registries()
+
         def bar(x, y):
             foo(x, y)
             x[0] += x[0]
@@ -885,6 +893,8 @@ def test_overload_array_return():
             return a[:, 0]
 
         return impl
+
+    extending.refresh_registries()
 
     @numba_cuda_mlir.cuda.jit
     def add(a):

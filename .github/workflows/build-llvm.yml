@@ -188,13 +188,19 @@ jobs:
             --env "PARALLEL=${{ env.PARALLEL }}" `
             $img `
             powershell -NoProfile -ExecutionPolicy Bypass -File C:\workspace\ci\windows-llvm-container-build.ps1 -PythonVersion $py -Mode modern
+          if ($LASTEXITCODE -ne 0) {
+            throw "Modern LLVM build container failed with exit code $LASTEXITCODE"
+          }
 
-      - name: Copy LLVM Modern install from container
+      - name: Verify LLVM Modern install and remove container
         if: steps.gha-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $cname = "llvm-modern-${{ matrix.py-tag }}"
-          docker cp "${cname}:C:\workspace\llvm-modern-install" "${{ github.workspace }}\llvm-modern-install"
+          $install = "${{ github.workspace }}\llvm-modern-install"
+          if (-not (Test-Path $install)) {
+            throw "LLVM Modern install not found at $install"
+          }
           docker rm $cname
 
       - name: Save LLVM Modern to GHA cache
@@ -357,12 +363,18 @@ jobs:
             --env "PARALLEL=${{ env.PARALLEL }}" `
             $img `
             powershell -NoProfile -ExecutionPolicy Bypass -File C:\workspace\ci\windows-llvm-container-build.ps1 -PythonVersion 3.12 -Mode llvm7
+          if ($LASTEXITCODE -ne 0) {
+            throw "LLVM 7 build container failed with exit code $LASTEXITCODE"
+          }
 
-      - name: Copy LLVM 7 install from container
+      - name: Verify LLVM 7 install and remove container
         if: steps.gha-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          docker cp "llvm7-build:C:\workspace\llvm7-install" "${{ github.workspace }}\llvm7-install"
+          $install = "${{ github.workspace }}\llvm7-install"
+          if (-not (Test-Path $install)) {
+            throw "LLVM 7 install not found at $install"
+          }
           docker rm llvm7-build
 
       - name: Save LLVM 7 to GHA cache

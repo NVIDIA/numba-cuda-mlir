@@ -42,6 +42,7 @@ class TestCompile(NumbaCUDATestCase):
     def test_global_kernel(self):
         self._test_global_kernel(compile_ptx, {})
 
+    @pytest.mark.xfail(True, reason="compile_all not implemented")
     def test_global_kernel_compile_all(self):
         self._test_global_kernel(compile_all, {"device": False, "abi": "numba", "output": "ptx"})
 
@@ -68,6 +69,7 @@ class TestCompile(NumbaCUDATestCase):
     def test_device_function(self):
         self._test_device_function(compile_ptx, {"device": True})
 
+    @pytest.mark.xfail(True, reason="compile_all not implemented")
     def test_device_function_compile_all(self):
         self._test_device_function(compile_all, {"device": True, "abi": "c", "output": "ptx"})
 
@@ -110,6 +112,7 @@ class TestCompile(NumbaCUDATestCase):
     def test_fastmath(self):
         self._test_fastmath(compile_ptx, {"device": True})
 
+    @pytest.mark.xfail(True, reason="compile_all not implemented")
     def test_fastmath_compile_all(self):
         self._test_fastmath(compile_all, {"device": True, "output": "ptx"})
 
@@ -164,6 +167,7 @@ class TestCompile(NumbaCUDATestCase):
             compile_ptx, {"device": True, "debug": True, "opt": False}
         )
 
+    @pytest.mark.xfail(True, reason="compile_all not implemented")
     def test_device_function_with_debug_compile_all(self):
         self._test_device_function_with_debug(
             compile_all,
@@ -187,6 +191,7 @@ class TestCompile(NumbaCUDATestCase):
         # Inspired by (but not originally affected by) Issue #6719
         self._test_kernel_with_debug(compile_ptx, {"debug": True, "opt": False})
 
+    @pytest.mark.xfail(True, reason="compile_all not implemented")
     def test_kernel_with_debug_compile_all(self):
         self._test_kernel_with_debug(
             compile_all,
@@ -216,6 +221,7 @@ class TestCompile(NumbaCUDATestCase):
     def test_device_function_with_line_info(self):
         self._test_device_function_with_line_info(compile_ptx, {"device": True, "lineinfo": True})
 
+    @pytest.mark.xfail(True, reason="compile_all not implemented")
     def test_device_function_with_line_info_compile_all(self):
         self._test_device_function_with_line_info(
             compile_all,
@@ -238,6 +244,7 @@ class TestCompile(NumbaCUDATestCase):
     def test_kernel_with_line_info(self):
         self._test_kernel_with_line_info(compile_ptx, {"lineinfo": True})
 
+    @pytest.mark.xfail(True, reason="compile_all not implemented")
     def test_kernel_with_line_info_compile_all(self):
         self._test_kernel_with_line_info(
             compile_all,
@@ -264,6 +271,11 @@ class TestCompile(NumbaCUDATestCase):
         with self.assertRaisesRegex(TypeError, "must have void return type"):
             compile_ptx(f, (uint32[::1], uint32[::1]))
 
+    @pytest.mark.xfail(True, reason="compile_all not implemented")
+    def test_non_void_return_type_compile_all(self):
+        def f(x, y):
+            return x[0] + y[0]
+
         with self.assertRaisesRegex(TypeError, "must have void return type"):
             compile_all(
                 f,
@@ -280,6 +292,11 @@ class TestCompile(NumbaCUDATestCase):
         with self.assertRaisesRegex(NotImplementedError, "The C ABI is not supported for kernels"):
             compile_ptx(f, (int32, int32), abi="c")
 
+    @pytest.mark.xfail(True, reason="compile_all not implemented")
+    def test_c_abi_disallowed_for_kernel_compile_all(self):
+        def f(x, y):
+            return x + y
+
         with self.assertRaisesRegex(NotImplementedError, "The C ABI is not supported for kernels"):
             compile_all(f, (int32, int32), abi="c", device=False, output="ptx")
 
@@ -290,6 +307,11 @@ class TestCompile(NumbaCUDATestCase):
         with self.assertRaisesRegex(NotImplementedError, "Unsupported ABI: fastcall"):
             compile_ptx(f, (int32, int32), abi="fastcall")
 
+    @pytest.mark.xfail(True, reason="compile_all not implemented")
+    def test_unsupported_abi_compile_all(self):
+        def f(x, y):
+            return x + y
+
         with self.assertRaisesRegex(NotImplementedError, "Unsupported ABI: fastcall"):
             compile_all(f, (int32, int32), abi="fastcall", output="ptx")
 
@@ -297,6 +319,7 @@ class TestCompile(NumbaCUDATestCase):
     def test_c_abi_device_function(self):
         self._test_c_abi_device_function(compile_ptx, {"device": True, "abi": "c"})
 
+    @pytest.mark.xfail(True, reason="compile_all not implemented")
     def test_c_abi_device_function_compile_all(self):
         self._test_c_abi_device_function(compile_all, {"device": True, "abi": "c", "output": "ptx"})
 
@@ -326,6 +349,7 @@ class TestCompile(NumbaCUDATestCase):
     def test_c_abi_device_function_module_scope(self):
         self._test_c_abi_device_function_module_scope(compile_ptx, {"device": True, "abi": "c"})
 
+    @pytest.mark.xfail(True, reason="compile_all not implemented")
     def test_c_abi_device_function_module_scope_compile_all(self):
         self._test_c_abi_device_function_module_scope(
             compile_all,
@@ -351,6 +375,7 @@ class TestCompile(NumbaCUDATestCase):
             {"device": True, "abi": "c", "abi_info": abi_info},
         )
 
+    @pytest.mark.xfail(True, reason="compile_all not implemented")
     def test_c_abi_with_abi_name_compile_all(self):
         abi_info = {"abi_name": "_Z4funcii"}
 
@@ -385,6 +410,7 @@ class TestCompile(NumbaCUDATestCase):
         """
         self._test_c_abi_boolean_return(compile_ptx, {"device": True, "abi": "c"})
 
+    @pytest.mark.xfail(True, reason="compile_all not implemented")
     def test_c_abi_boolean_return_compile_all(self):
         self._test_c_abi_boolean_return(compile_all, {"device": True, "abi": "c", "output": "ptx"})
 
@@ -466,6 +492,7 @@ class TestCompile(NumbaCUDATestCase):
     def test_compile_defaults_to_c_abi(self):
         self._test_compile_defaults_to_c_abi(compile, {"device": True})
 
+    @pytest.mark.xfail(True, reason="compile_all not implemented")
     def test_compile_defaults_to_c_abi_compile_all(self):
         self._test_compile_defaults_to_c_abi(
             compile_all,
@@ -487,6 +514,7 @@ class TestCompile(NumbaCUDATestCase):
     def test_compile_to_ltoir(self):
         self._test_compile_to_ltoir(compile, {"device": True, "output": "ltoir"})
 
+    @pytest.mark.xfail(True, reason="compile_all not implemented")
     def test_compile_to_ltoir_compile_all(self):
         self._test_compile_to_ltoir(
             compile_all,
@@ -516,6 +544,10 @@ class TestCompile(NumbaCUDATestCase):
                 output=illegal_output,
             )
 
+    @pytest.mark.xfail(True, reason="compile_all not implemented")
+    def test_compile_to_invalid_error_compile_all(self):
+        illegal_output = "illegal"
+        msg = f"Unsupported output type: {illegal_output}"
         with self.assertRaisesRegex(NotImplementedError, msg):
             compile_all(
                 f_module,

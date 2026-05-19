@@ -62,6 +62,14 @@ check_prereqs() {
   require_tool ninja
   require_tool git
   require_tool cl
+  if ! command -v dumpbin.exe >/dev/null 2>&1 && ! command -v dumpbin >/dev/null 2>&1; then
+    echo "ERROR: required tool not found in PATH: dumpbin(.exe)" >&2
+    exit 1
+  fi
+  if ! command -v link.exe >/dev/null 2>&1 && ! command -v link >/dev/null 2>&1; then
+    echo "ERROR: required tool not found in PATH: link(.exe)" >&2
+    exit 1
+  fi
   "${PYTHON}" -c "import sys; print(sys.executable)"
 }
 
@@ -106,6 +114,68 @@ build_llvm7() {
     -DLLVM_ENABLE_ZSTD=OFF \
     -DLLVM_ENABLE_DIA_SDK=OFF
   cmake --build "$(cmake_path "${LLVM7_BUILD}")" --target install -j "${PARALLEL}"
+
+  local llvm7_lib_dir="${LLVM7_INSTALL}/lib"
+  local llvm7_bin_dir="${LLVM7_INSTALL}/bin"
+  local exports_script="${REPO_ROOT}/ci/tools/gen-llvm-c-exports.py"
+  local libs_rsp="${LLVM7_BUILD}/llvm-c-libs.rsp"
+  local exports_file="${LLVM7_BUILD}/LLVM-C.exports"
+  local def_file="${LLVM7_BUILD}/LLVM-C.def"
+  local link_rsp="${LLVM7_BUILD}/llvm-c-link.rsp"
+  local llvm_c_dll="${llvm7_bin_dir}/LLVM-C.dll"
+  local llvm_c_import_lib="${llvm7_lib_dir}/LLVM-C.lib"
+  local dumpbin_tool="dumpbin.exe"
+  local link_tool="link.exe"
+  if ! command -v "${dumpbin_tool}" >/dev/null 2>&1; then
+    dumpbin_tool="dumpbin"
+  fi
+  if ! command -v "${link_tool}" >/dev/null 2>&1; then
+    link_tool="link"
+  fi
+
+  local llvm_libs=()
+  mapfile -t llvm_libs < <(
+    find "${llvm7_lib_dir}" -maxdepth 1 -type f -name 'LLVM*.lib' ! -name 'LLVM-C.lib' ! -name 'LLVM.lib' | sort
+  )
+  if [[ "${#llvm_libs[@]}" -eq 0 ]]; then
+    echo "ERROR: no LLVM static/import libs found under ${llvm7_lib_dir}" >&2
+    exit 1
+  fi
+  : > "${libs_rsp}"
+  for lib_path in "${llvm_libs[@]}"; do
+    printf '%s\n' "$(cmake_path "${lib_path}")" >> "${libs_rsp}"
+  done
+
+  "${PYTHON}" "${exports_script}" \
+    --dumpbin "${dumpbin_tool}" \
+    --libsfile "${libs_rsp}" \
+    --output "${exports_file}" \
+    --deffile "${def_file}" \
+    --dll-name LLVM-C
+
+  {
+    printf '/NOLOGO\n'
+    printf '/DLL\n'
+    printf '/MACHINE:X64\n'
+    printf '/OUT:"%s"\n' "$(cmake_path "${llvm_c_dll}")"
+    printf '/IMPLIB:"%s"\n' "$(cmake_path "${llvm_c_import_lib}")"
+    printf '/DEF:"%s"\n' "$(cmake_path "${def_file}")"
+    while IFS= read -r lib_path; do
+      [[ -z "${lib_path}" ]] && continue
+      printf '"%s"\n' "${lib_path}"
+    done < "${libs_rsp}"
+  } > "${link_rsp}"
+
+  "${link_tool}" @"$(cmake_path "${link_rsp}")"
+
+  if [[ ! -f "${llvm_c_dll}" ]]; then
+    echo "ERROR: failed to produce ${llvm_c_dll}" >&2
+    exit 1
+  fi
+  if ! "${dumpbin_tool}" /nologo /exports "$(cmake_path "${llvm_c_dll}")" | grep -q 'LLVMContextCreate'; then
+    echo "ERROR: ${llvm_c_dll} does not export LLVMContextCreate" >&2
+    exit 1
+  fi
 }
 
 clone_modern_llvm() {

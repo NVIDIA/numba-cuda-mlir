@@ -207,15 +207,21 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
 
     libllvm = os.environ.get("LIBLLVM7", "")
     if not libllvm:
-        bundled_name = "LLVM.dll" if os.name == "nt" else "libLLVM-7.so"
-        bundled = os.path.join(os.path.dirname(__file__), "lib", bundled_name)
-        if os.path.isfile(bundled):
-            libllvm = os.path.realpath(bundled)
+        bundled_dir = os.path.join(os.path.dirname(__file__), "lib")
+        if os.name == "nt":
+            bundled_names = ("LLVM-C.dll", "LLVM.dll")
+        else:
+            bundled_names = ("libLLVM-7.so",)
+        for bundled_name in bundled_names:
+            bundled = os.path.join(bundled_dir, bundled_name)
+            if os.path.isfile(bundled):
+                libllvm = os.path.realpath(bundled)
+                break
 
     if not libllvm:
         hint = "Set LIBLLVM7=/path/to/libLLVM-7.so"
         if os.name == "nt":
-            hint = "Set LIBLLVM7=/path/to/LLVM.dll"
+            hint = "Set LIBLLVM7=/path/to/LLVM-C.dll (or /path/to/LLVM.dll)"
         raise RuntimeError(f"LLVM70 path requires an LLVM 7 runtime library. {hint}")
 
     libnvvm = _get_libnvvm_path().decode()

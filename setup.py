@@ -254,7 +254,11 @@ class BuildExtWithCmake(build_ext):
         )
         dest_dir = pkg / "lib"
         dest_dir.mkdir(parents=True, exist_ok=True)
-        dest_name = "LLVM.dll" if IS_WINDOWS else "libLLVM-7.so"
+        if IS_WINDOWS:
+            # Preserve the incoming DLL basename (e.g. LLVM-C.dll).
+            dest_name = libllvm7.name
+        else:
+            dest_name = "libLLVM-7.so"
         dest = dest_dir / dest_name
         print(f"Staging {dest_name}: {libllvm7} -> {dest}")
         if self.editable_mode:

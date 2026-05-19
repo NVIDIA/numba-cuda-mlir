@@ -94,6 +94,7 @@ load_candidates = [
     mlir_libs / "MLIRPythonCAPI.dll",
     mlir_libs / "MLIRToLLVM70.dll",
     pkg / "MLIRToLLVM70.dll",
+    pkg_lib / "LLVM-C.dll",
     pkg_lib / "LLVM.dll",
 ]
 load_candidates.extend(pathlib.Path(p) for p in glob.glob(str(mlir_libs / "_mlir*.pyd")))
@@ -111,13 +112,13 @@ def _read_c_string(data, offset):
         end = len(data)
     return data[offset:end].decode("ascii", errors="replace")
 
-def _pe_imports(path):
+def _pe_layout(path):
     data = path.read_bytes()
     if data[:2] != b"MZ":
-        return []
+        return None, None, None
     pe_offset = struct.unpack_from("<I", data, 0x3C)[0]
     if data[pe_offset:pe_offset + 4] != b"PE\0\0":
-        return []
+        return None, None, None
 
     coff_offset = pe_offset + 4
     number_of_sections = struct.unpack_from("<H", data, coff_offset + 2)[0]
@@ -125,7 +126,6 @@ def _pe_imports(path):
     optional_offset = coff_offset + 20
     magic = struct.unpack_from("<H", data, optional_offset)[0]
     data_directory_offset = optional_offset + (112 if magic == 0x20B else 96)
-    import_rva, _ = struct.unpack_from("<II", data, data_directory_offset + 8)
 
     sections = []
     section_offset = optional_offset + optional_header_size
@@ -133,6 +133,47 @@ def _pe_imports(path):
         off = section_offset + i * 40
         virtual_size, virtual_address, raw_size, raw_pointer = struct.unpack_from("<IIII", data, off + 8)
         sections.append((virtual_address, virtual_size, raw_size, raw_pointer))
+    return data, sections, data_directory_offset
+
+def _pe_exports(path):
+    data, sections, data_directory_offset = _pe_layout(path)
+    if data is None:
+        return []
+    export_rva, _ = struct.unpack_from("<II", data, data_directory_offset)
+    if export_rva == 0:
+        return []
+    export_offset = _rva_to_offset(sections, export_rva)
+    if export_offset is None:
+        return []
+    (
+        _characteristics,
+        _timestamp,
+        _major,
+        _minor,
+        _name_rva,
+        _base,
+        _num_funcs,
+        num_names,
+        _funcs_rva,
+        names_rva,
+        _name_ord_rva,
+    ) = struct.unpack_from("<IIHHIIIIIII", data, export_offset)
+    names_offset = _rva_to_offset(sections, names_rva)
+    if names_offset is None:
+        return []
+    exports = []
+    for i in range(num_names):
+        name_rva = struct.unpack_from("<I", data, names_offset + i * 4)[0]
+        name_offset = _rva_to_offset(sections, name_rva)
+        if name_offset is not None:
+            exports.append(_read_c_string(data, name_offset))
+    return exports
+
+def _pe_imports(path):
+    data, sections, data_directory_offset = _pe_layout(path)
+    if data is None:
+        return []
+    import_rva, _ = struct.unpack_from("<II", data, data_directory_offset + 8)
 
     import_offset = _rva_to_offset(sections, import_rva)
     if import_offset is None:
@@ -159,6 +200,18 @@ for path in load_candidates:
             print(f"PE imports failed: {path}: {exc!r}")
 
 for path in load_candidates:
+    if path.exists() and path.suffix.lower() == ".dll":
+        try:
+            exports = _pe_exports(path)
+            if path.name.lower().startswith("llvm"):
+                print(
+                    f"PE exports: {path.name}: count={len(exports)} "
+                    f"has LLVMContextCreate={'LLVMContextCreate' in exports}"
+                )
+        except Exception as exc:
+            print(f"PE exports failed: {path}: {exc!r}")
+
+for path in load_candidates:
     if not path.exists():
         print(f"LOAD skip missing: {path}")
         continue
@@ -169,6 +222,22 @@ for path in load_candidates:
         print(f"LOAD failed: {path}")
         print(f"  winerror={getattr(exc, 'winerror', None)} errno={getattr(exc, 'errno', None)}")
         print(f"  {exc!r}")
+
+libllvm7_env = os.environ.get("LIBLLVM7", "").strip()
+if libllvm7_env:
+    libllvm7_path = pathlib.Path(libllvm7_env)
+    print(f"LIBLLVM7 env path: {libllvm7_path} exists={libllvm7_path.exists()}")
+    if libllvm7_path.exists() and libllvm7_path.suffix.lower() == ".dll":
+        exports = _pe_exports(libllvm7_path)
+        has_context_create = "LLVMContextCreate" in exports
+        print(
+            f"LIBLLVM7 exports: count={len(exports)} "
+            f"has LLVMContextCreate={has_context_create}"
+        )
+        if not has_context_create:
+            raise RuntimeError(
+                f"LIBLLVM7 does not export LLVMContextCreate: {libllvm7_path}"
+            )
 
 try:
     from numba_cuda_mlir._mlir import ir

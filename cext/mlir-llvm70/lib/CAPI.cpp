@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
+#include <string>
 
 static constexpr const char *kDefaultDataLayout =
     "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32"
@@ -55,7 +56,17 @@ int llvm70_translate_gpu_module_from_op(
   auto *op = static_cast<mlir::Operation *>(raw_op);
   auto gpuMod = mlir::dyn_cast<mlir::gpu::GPUModuleOp>(op);
   if (!gpuMod) {
-    *err_out = copyCString("Operation is not a gpu.module");
+    std::string msg = "Operation is not a gpu.module";
+    std::string opName = op->getName().getStringRef().str();
+    if (!opName.empty()) {
+      msg += " (operation name: " + opName + ")";
+      if (opName == mlir::gpu::GPUModuleOp::getOperationName()) {
+        msg += "; operation name matches gpu.module, which suggests an MLIR "
+               "registered-operation TypeID mismatch between MLIRToLLVM70 "
+               "and MLIRPythonCAPI";
+      }
+    }
+    *err_out = copyCString(msg.c_str());
     return 1;
   }
 

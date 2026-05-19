@@ -282,15 +282,12 @@ def get_llvm70_capi_path() -> str:
     import numba_cuda_mlir._mlir._mlir_libs as _mlir_libs
 
     lib_name = "MLIRToLLVM70.dll" if os.name == "nt" else "libMLIRToLLVM70.so"
-    candidates = [
-        Path(__file__).parent / lib_name,
-        Path(_mlir_libs.__path__[0]) / lib_name,
-    ]
-    for c in candidates:
-        if c.exists():
-            return str(c.resolve())
+    capi_path = Path(_mlir_libs.__path__[0]) / lib_name
+    if capi_path.exists():
+        return str(capi_path.resolve())
     raise FileNotFoundError(
-        f"{lib_name} not found. Rebuild numba_cuda_mlir with MLIR_DIR env var set."
+        f"{lib_name} not found under {_mlir_libs.__path__[0]}. "
+        "Rebuild numba_cuda_mlir with MLIR_DIR env var set."
     )
 
 

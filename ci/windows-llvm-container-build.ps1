@@ -149,3 +149,6 @@ ci/build-windows.sh $modeArg
 
 Write-Host "Running build via bash (PARALLEL=$parallel, Mode=$modeArg)"
 & $bash -lc $bashCmd
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}

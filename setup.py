@@ -185,26 +185,23 @@ class BuildExtWithCmake(build_ext):
         self._stage_mlir_bindings()
 
         if llvm70_capi.exists():
-            # Copy the LLVM70 bridge next to _cext and alongside
-            # MLIRPythonCAPI so dependent DLLs can resolve from the wheel.
-            dest_dir = Path(self.get_ext_fullpath("numba_cuda_mlir._cext")).parent
-            dest = dest_dir / llvm70_capi.name
-            if not self.dry_run:
-                dest_dir.mkdir(parents=True, exist_ok=True)
-                if dest.exists() or dest.is_symlink():
-                    dest.unlink()
-                if self.editable_mode:
-                    dest.symlink_to(llvm70_capi)
-                else:
-                    shutil.copy2(llvm70_capi, dest)
-
-            mlir_libs_dir = Path(self.build_lib) / "numba_cuda_mlir" / "_mlir" / "_mlir_libs"
+            # Keep the LLVM70 bridge alongside MLIRPythonCAPI.  This is the
+            # only canonical wheel/runtime location.
+            pkg = (
+                Path(self.get_ext_fullpath("numba_cuda_mlir._cext")).parent
+                if self.editable_mode
+                else Path(self.build_lib) / "numba_cuda_mlir"
+            )
+            mlir_libs_dir = pkg / "_mlir" / "_mlir_libs"
             if mlir_libs_dir.exists() and not self.dry_run:
                 mlir_dest = mlir_libs_dir / llvm70_capi.name
                 if mlir_dest.exists() or mlir_dest.is_symlink():
                     mlir_dest.unlink()
                 print(f"Staging {llvm70_capi.name}: {llvm70_capi} -> {mlir_dest}")
-                shutil.copy2(llvm70_capi, mlir_dest)
+                if self.editable_mode:
+                    mlir_dest.symlink_to(llvm70_capi)
+                else:
+                    shutil.copy2(llvm70_capi, mlir_dest)
         self._stage_libllvm7()
 
     def _stage_mlir_bindings(self):

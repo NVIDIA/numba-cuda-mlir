@@ -161,3 +161,6 @@ fi
 
 Write-Host "Running $TestScript inside Windows devcontainer"
 & $bash -lc $bashCmd
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}

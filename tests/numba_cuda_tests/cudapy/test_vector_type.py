@@ -15,9 +15,21 @@ from numba_cuda_mlir.testing import NumbaCUDATestCase
 
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir import types
 
-from numba_cuda_mlir.numba_cuda.vector_types import vector_types
-import pytest
+from numba_cuda_mlir.cuda.vector_types import _vector_types as _cuda_vector_types
+
+
+class _VectorTypeTestInfo:
+    def __init__(self, vec_type):
+        self.name = vec_type.name
+        self.base_type = vec_type.dtype
+        self.num_elements = vec_type.length
+        self.user_facing_object = vec_type
+
+
+def _vector_types():
+    return [_VectorTypeTestInfo(vec_type) for vec_type in _cuda_vector_types]
 
 
 def make_kernel(vtype):
@@ -256,15 +268,14 @@ class TestCudaVectorType(NumbaCUDATestCase):
         self.assertTrue(np.allclose(res, [1.0, 3.0, 5.0, 7.0, 10, 11]))
 
     def test_creation_readout(self):
-        for vty in vector_types.values():
+        for vty in _vector_types():
             arr = np.zeros((vty.num_elements,))
             kernel = make_kernel(vty)
             kernel[1, 1](arr)
             np.testing.assert_almost_equal(arr, np.array(range(vty.num_elements)))
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_fancy_creation_readout(self):
-        for vty in vector_types.values():
+        for vty in _vector_types():
             kernel = make_fancy_creation_kernel(vty)
 
             expected = np.array(
@@ -474,6 +485,39 @@ class TestCudaVectorType(NumbaCUDATestCase):
         with its name. This test makes sure that construction with
         objects imported with alias should work the same.
         """
-        for vty in vector_types.values():
-            for alias in vty.user_facing_object.aliases:
-                self.assertEqual(id(getattr(cuda, vty.name)), id(getattr(cuda, alias)))
+        from numba_cuda_mlir.cuda.vector_types import vector_types_by_alias
+
+        for alias, vec_type in vector_types_by_alias.items():
+            self.assertEqual(id(getattr(cuda, vec_type.name)), id(getattr(cuda, alias)))
+
+    def test_vector_local_array(self):
+        """Tests that vector types can be used as dtype for cuda.local.array"""
+
+        @cuda.jit
+        def kernel(out):
+            arr = cuda.local.array(1, dtype=cuda.float32x4)
+            arr[0] = cuda.float32x4(1.0, 2.0, 3.0, 4.0)
+            out[0] = arr[0].x
+            out[1] = arr[0].y
+            out[2] = arr[0].z
+            out[3] = arr[0].w
+
+        out = np.zeros(4, dtype=np.float32)
+        kernel[1, 1](out)
+        np.testing.assert_array_equal(out, np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
+
+    def test_vector_shared_array(self):
+        """Tests that vector types can be used as dtype for cuda.shared.array"""
+
+        @cuda.jit
+        def kernel(out):
+            arr = cuda.shared.array(1, dtype=cuda.float32x4)
+            arr[0] = cuda.float32x4(1.0, 2.0, 3.0, 4.0)
+            out[0] = arr[0].x
+            out[1] = arr[0].y
+            out[2] = arr[0].z
+            out[3] = arr[0].w
+
+        out = np.zeros(4, dtype=np.float32)
+        kernel[1, 1](out)
+        np.testing.assert_array_equal(out, np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))

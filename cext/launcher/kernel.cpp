@@ -20,6 +20,7 @@
 #include <vector>
 #include <algorithm>
 #include <optional>
+#include <string>
 #include <utility>
 
 namespace {
@@ -205,6 +206,7 @@ Status check_kernel_error_code(const CudaLibrary& lib) {
 enum class ConstantArgType {
     INT64,
     FLOAT64,
+    STRING,
 };
 
 struct ConstantArg {
@@ -213,10 +215,12 @@ struct ConstantArg {
         int64_t i64;
         double f64;
     } value;
+    std::string str;
 
     template <typename T>
     ConstantArg(T val) :
-        type(std::is_floating_point_v<T> ? ConstantArgType::FLOAT64 : ConstantArgType::INT64)
+        type(std::is_floating_point_v<T> ? ConstantArgType::FLOAT64 : ConstantArgType::INT64),
+        value{}
     {
         if constexpr (std::is_floating_point_v<T>) {
             value.f64 = static_cast<double>(val);
@@ -224,6 +228,12 @@ struct ConstantArg {
             value.i64 = static_cast<int64_t>(val);
         }
     }
+
+    explicit ConstantArg(std::string val) :
+        type(ConstantArgType::STRING),
+        value{},
+        str(std::move(val))
+    {}
 
     bool operator==(const ConstantArg& other) const {
         if (type != other.type) return false;
@@ -236,6 +246,8 @@ struct ConstantArg {
             std::memcpy(&this_float_bits, &value.f64, sizeof(value.f64));
             std::memcpy(&other_float_bits, &other.value.f64, sizeof(other.value.f64));
             return this_float_bits == other_float_bits;
+        case ConstantArgType::STRING:
+            return str == other.str;
         default:
             return false;
         }
@@ -498,9 +510,54 @@ Result<std::pair<PythonArgKind, ParameterKind>> classify_arg(PyObject* arg) {
 }
 
 
+using ScalarExtractor = void(*)(PyObject*, CudaArg*);
+
+inline void fast_extract_np_float32(PyObject* obj, CudaArg* out) {
+    out->f32 = (float)PyFloat_AsDouble(obj);
+}
+
+inline void fast_extract_py_float(PyObject* obj, CudaArg* out) {
+    out->f64 = PyFloat_AS_DOUBLE(obj);
+}
+
+inline void fast_extract_py_long(PyObject* obj, CudaArg* out) {
+    out->i64 = PyLong_AsLongLong(obj);
+}
+
+ScalarExtractor get_scalar_extractor(PythonArgKind kind) {
+    switch (kind) {
+    case PythonArgKind::NpFloat32:  return fast_extract_np_float32;
+    case PythonArgKind::PyFloat:    return fast_extract_py_float;
+    case PythonArgKind::PyLong:     return fast_extract_py_long;
+    default:                        return nullptr;
+    }
+}
+
 struct PythonArgProfile {
     RefPtr<KernelFamily> family;
     std::vector<PythonArgKind> arg_kinds;
+
+    // Populated on first use: per-arg fast extractors for all-scalar, no-constant profiles.
+    // Empty if the profile contains arrays, TMA descriptors, or unsupported scalar types.
+    std::vector<ScalarExtractor> fast_extractors;
+    bool fast_path_checked = false;
+
+    void maybe_init_fast_path(const std::vector<bool>& constant_flags) {
+        if (fast_path_checked) return;
+        fast_path_checked = true;
+
+        // Only enable if no arg is constant and all args have a fast extractor
+        std::vector<ScalarExtractor> extractors;
+        extractors.reserve(arg_kinds.size());
+        for (size_t i = 0; i < arg_kinds.size(); ++i) {
+            if (i < constant_flags.size() && constant_flags[i])
+                return;  // constant args need the full path
+            ScalarExtractor ex = get_scalar_extractor(arg_kinds[i]);
+            if (!ex) return;  // unsupported type (array, complex, etc.)
+            extractors.push_back(ex);
+        }
+        fast_extractors = std::move(extractors);
+    }
 };
 
 // Concatenate values of two chars in a single unsigned integer
@@ -607,6 +664,42 @@ Result<DLDataType> parse_typestr(PyObject* typestr) {
     }
 
     return ret;
+}
+
+
+Result<std::string> array_dtype_identity_constant(PyObject* pyobj, PyObject* typestr) {
+    Py_ssize_t len;
+    const char* str = PyUnicode_AsUTF8AndSize(typestr, &len);
+    if (!str) return ErrorRaised;
+
+    if (len < 2) return std::string();
+
+    // DLDataType loses schema/unit information for opaque records and
+    // datetime-like arrays, so include the Python dtype in the kernel key.
+    switch (str[1]) {
+    case 'V':
+    case 'S':
+    case 'U':
+    case 'M':
+    case 'm':
+        break;
+    default:
+        return std::string();
+    }
+
+    PyPtr dtype = steal(PyObject_GetAttrString(pyobj, "dtype"));
+    if (dtype) {
+        PyPtr repr = steal(PyObject_Repr(dtype.get()));
+        if (!repr) return ErrorRaised;
+
+        Py_ssize_t repr_len;
+        const char* repr_str = PyUnicode_AsUTF8AndSize(repr.get(), &repr_len);
+        if (!repr_str) return ErrorRaised;
+        return std::string(repr_str, repr_len);
+    }
+
+    PyErr_Clear();
+    return std::string(str, len);
 }
 
 
@@ -735,6 +828,10 @@ Status extract_cuda_array(PyObject* pyobj, LaunchHelper& helper) {
 
     helper.arg_metadata.push_back({ArgMetadata::Kind::Array, start_idx, static_cast<size_t>(ndim)});
     helper.constants.push_back(ConstantArg(pack_dtype_and_ndim(*dtype, ndim)));
+    Result<std::string> dtype_identity = array_dtype_identity_constant(pyobj, typestr);
+    if (!dtype_identity.is_ok()) return ErrorRaised;
+    if (!dtype_identity->empty())
+        helper.constants.push_back(ConstantArg(std::move(*dtype_identity)));
     return OK;
 }
 
@@ -1588,72 +1685,132 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
                     PythonArgProfile{family_iter->second, std::move(arg_kinds)});
     }
 
-    if (!extract_cuda_args(pyargs, num_pyargs, profile->arg_kinds,
-                           dispatcher.constant_arg_flags, *helper)) {
-        return ErrorRaised;
-    }
+    // Try fast scalar extraction path
+    profile->maybe_init_fast_path(dispatcher.constant_arg_flags);
 
+    KernelFamily::KernelMap::iterator kernel_iter;
     ContextGuard ctx_guard;
-    if (helper->cuda_context) {
-        if (!maybe_switch_context(helper->cuda_context, ctx_guard))
-            return ErrorRaised;
-    } else {
+
+    if (!profile->fast_extractors.empty()) {
+        // Fast path: all args are simple scalars with no constants.
+        // Single loop: extract values + build pointers simultaneously.
+        // Clean up any leftover state from previous (non-scalar) launches
+        // since LaunchHelper is reused from a freelist.
+        for (void* ptr : helper->aligned_tma_descriptors) {
+            if (ptr) free(ptr);
+        }
+        helper->aligned_tma_descriptors.clear();
+        for (const auto& info : helper->record_copies) {
+            if (info.device_ptr) g_cuMemFree(info.device_ptr);
+        }
+        helper->record_copies.clear();
+
+        size_t n = static_cast<size_t>(num_pyargs);
+        helper->cuargs.resize(n);
+        helper->cuarg_pointers.resize(n);
+        CudaArg* base = helper->cuargs.data();
+        const ScalarExtractor* extractors = profile->fast_extractors.data();
+        for (size_t i = 0; i < n; ++i) {
+            extractors[i](pyargs[i], &base[i]);
+            helper->cuarg_pointers[i] = &base[i];
+        }
+        helper->constants.clear();
+        helper->cuda_context = nullptr;
+
         if (!ensure_numba_context(dispatcher.ensure_context_func.get()))
             return ErrorRaised;
-    }
 
-    KernelFamily::KernelMap& kernel_map = profile->family->kernels_by_constants;
-    KernelFamily::KernelMap::iterator kernel_iter = kernel_map.find(helper->constants);
-    if (kernel_iter == kernel_map.end()) {
-        // Slowest path: need to compile a new kernel
-        Result<CudaKernelHandle> kernel = compile(dispatcher.compile_func.get(), pyargs, num_pyargs);
-        if (!kernel.is_ok()) return ErrorRaised;
-
-        // Defer the post-load callback until after emplace so that racing
-        // threads that compile the same kernel don't fire duplicate callbacks.
-        PyPtr post_load_cb = std::move(kernel->post_load_callback);
-        auto [it, inserted] = kernel_map.emplace(helper->constants, std::move(*kernel));
-        kernel_iter = it;
-        if (inserted && post_load_cb) {
-            PyPtr py_handle = steal(PyLong_FromVoidPtr(
-                    static_cast<void*>(kernel_iter->second.cukernel.lib.get())));
-            if (!py_handle) return ErrorRaised;
-            PyPtr cb_result = steal(
-                    PyObject_CallOneArg(post_load_cb.get(), py_handle.get()));
-            if (!cb_result) return ErrorRaised;
-        }
-    }
-
-    if (!helper->cuda_context
-            && !maybe_switch_context(kernel_iter->second.cukernel.lib.context(), ctx_guard))
-        return ErrorRaised;
-
-    helper->cuarg_pointers.clear();
-
-    // Build kernel arguments in MLIR memref calling convention order.
-    // For each array: (ptr, ptr, offset, shapes..., strides...)
-    // For scalars: just the value
-    // For TMA descriptors: the descriptor pointer
-    // All values are already stored in the flat cuargs vector, we just build pointers to them.
-
-    for (const ArgMetadata& meta : helper->arg_metadata) {
-        if (meta.is_array()) {
-            // Array: cuargs contains [ptr, ptr, offset, shapes..., strides...]
-            // All already in correct order, just create pointers
-            size_t num_values = 3 + 2 * meta.ndim;  // ptr, ptr, offset, ndim shapes, ndim strides
-            for (size_t i = 0; i < num_values; ++i) {
-                helper->cuarg_pointers.push_back(&helper->cuargs[meta.start_idx + i]);
+        KernelFamily::KernelMap& kernel_map = profile->family->kernels_by_constants;
+        kernel_iter = kernel_map.find(helper->constants);
+        if (kernel_iter == kernel_map.end()) {
+            // Slowest path: need to compile a new kernel
+            Result<CudaKernelHandle> kernel = compile(dispatcher.compile_func.get(), pyargs, num_pyargs);
+            if (!kernel.is_ok()) return ErrorRaised;
+            // Defer the post-load callback until after emplace so that racing
+            // threads that compile the same kernel don't fire duplicate callbacks.
+            PyPtr post_load_cb = std::move(kernel->post_load_callback);
+            auto [it, inserted] = kernel_map.emplace(helper->constants, std::move(*kernel));
+            kernel_iter = it;
+            if (inserted && post_load_cb) {
+                PyPtr py_handle = steal(PyLong_FromVoidPtr(
+                        static_cast<void*>(kernel_iter->second.cukernel.lib.get())));
+                if (!py_handle) return ErrorRaised;
+                PyPtr cb_result = steal(
+                        PyObject_CallOneArg(post_load_cb.get(), py_handle.get()));
+                if (!cb_result) return ErrorRaised;
             }
-        } else if (meta.is_tma_descriptor()) {
-            // TMA descriptor: cuLaunchKernel expects kernel_params[i] to point to the descriptor data.
-            // We pass the 128-byte aligned storage we created in extract_tma_descriptor.
-            helper->cuarg_pointers.push_back(helper->cuargs[meta.start_idx].device_ptr);
+        }
+
+        if (!maybe_switch_context(kernel_iter->second.cukernel.lib.context(), ctx_guard))
+            return ErrorRaised;
+    } else {
+        // Standard path: full extraction with per-type switch
+        if (!extract_cuda_args(pyargs, num_pyargs, profile->arg_kinds,
+                               dispatcher.constant_arg_flags, *helper)) {
+            return ErrorRaised;
+        }
+
+        if (helper->cuda_context) {
+            if (!maybe_switch_context(helper->cuda_context, ctx_guard))
+                return ErrorRaised;
         } else {
-            // Scalar: always one pointer
-            // ndim=0: regular scalar (1 entry)
-            // ndim=1: complex64 (1 entry with packed f32 pair)
-            // ndim=2: complex128 (2 consecutive f64 entries, 1 pointer to first)
-            helper->cuarg_pointers.push_back(&helper->cuargs[meta.start_idx]);
+            if (!ensure_numba_context(dispatcher.ensure_context_func.get()))
+                return ErrorRaised;
+        }
+
+        KernelFamily::KernelMap& kernel_map = profile->family->kernels_by_constants;
+        kernel_iter = kernel_map.find(helper->constants);
+        if (kernel_iter == kernel_map.end()) {
+            // Slowest path: need to compile a new kernel
+            Result<CudaKernelHandle> kernel = compile(dispatcher.compile_func.get(), pyargs, num_pyargs);
+            if (!kernel.is_ok()) return ErrorRaised;
+
+            // Defer the post-load callback until after emplace so that racing
+            // threads that compile the same kernel don't fire duplicate callbacks.
+            PyPtr post_load_cb = std::move(kernel->post_load_callback);
+            auto [it, inserted] = kernel_map.emplace(helper->constants, std::move(*kernel));
+            kernel_iter = it;
+            if (inserted && post_load_cb) {
+                PyPtr py_handle = steal(PyLong_FromVoidPtr(
+                        static_cast<void*>(kernel_iter->second.cukernel.lib.get())));
+                if (!py_handle) return ErrorRaised;
+                PyPtr cb_result = steal(
+                        PyObject_CallOneArg(post_load_cb.get(), py_handle.get()));
+                if (!cb_result) return ErrorRaised;
+            }
+        }
+
+        if (!helper->cuda_context
+                && !maybe_switch_context(kernel_iter->second.cukernel.lib.context(), ctx_guard))
+            return ErrorRaised;
+
+        helper->cuarg_pointers.clear();
+
+        // Build kernel arguments in MLIR memref calling convention order.
+        // For each array: (ptr, ptr, offset, shapes..., strides...)
+        // For scalars: just the value
+        // For TMA descriptors: the descriptor pointer
+        // All values are already stored in the flat cuargs vector, we just build pointers to them.
+
+        for (const ArgMetadata& meta : helper->arg_metadata) {
+            if (meta.is_array()) {
+                // Array: cuargs contains [ptr, ptr, offset, shapes..., strides...]
+                // All already in correct order, just create pointers
+                size_t num_values = 3 + 2 * meta.ndim;  // ptr, ptr, offset, ndim shapes, ndim strides
+                for (size_t i = 0; i < num_values; ++i) {
+                    helper->cuarg_pointers.push_back(&helper->cuargs[meta.start_idx + i]);
+                }
+            } else if (meta.is_tma_descriptor()) {
+                // TMA descriptor: cuLaunchKernel expects kernel_params[i] to point to the descriptor data.
+                // We pass the 128-byte aligned storage we created in extract_tma_descriptor.
+                helper->cuarg_pointers.push_back(helper->cuargs[meta.start_idx].device_ptr);
+            } else {
+                // Scalar: always one pointer
+                // ndim=0: regular scalar (1 entry)
+                // ndim=1: complex64 (1 entry with packed f32 pair)
+                // ndim=2: complex128 (2 consecutive f64 entries, 1 pointer to first)
+                helper->cuarg_pointers.push_back(&helper->cuargs[meta.start_idx]);
+            }
         }
     }
 
@@ -2057,6 +2214,8 @@ struct hash<ConstantArg> {
             uint64_t float_bits;
             std::memcpy(&float_bits, &arg.value.f64, sizeof(arg.value.f64));
             return std::hash<uint64_t>{}(float_bits);
+        case ConstantArgType::STRING:
+            return std::hash<std::string>{}(arg.str);
         }
         // unreachable code
         assert(false && "Unsupported constant arg type");

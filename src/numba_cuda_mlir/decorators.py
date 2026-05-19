@@ -7,11 +7,12 @@ from io import StringIO
 from numba_cuda_mlir.numba_cuda.core import sigutils
 from numba_cuda_mlir.numba_cuda import types as numba_types
 from numba_cuda_mlir.numba_cuda.core.typeinfer import register_dispatcher
+from numba_cuda_mlir.numba_cuda.decorators import jit as numba_cuda_jit
 import inspect
 import sys
 from textwrap import dedent
 from dataclasses import dataclass
-from numba_cuda_mlir.tools import get_gpu_compute_capability, format_arch
+from numba_cuda_mlir.tools import format_arch
 
 
 @dataclass
@@ -38,6 +39,8 @@ def _verify_opt_level(value: Any, targetoptions: dict[str, Any]) -> str | None:
 
 
 def _verify_chip(value: Any, targetoptions: dict[str, Any]) -> str | None:
+    if value is None:
+        return None
     if not value.startswith("sm_"):
         return f"Expected chip to start with 'sm_', got {value}"
     return None
@@ -131,8 +134,8 @@ def _get_schema() -> tuple[MLIRJITOption, ...]:
         ),
         MLIRJITOption(
             name="chip",
-            types=str,
-            default_value=get_gpu_compute_capability(),
+            types=(str, type(None)),
+            default_value=None,
             help="GPU compute capability used for compilation",
             extra_verification=_verify_chip,
         ),
@@ -228,8 +231,8 @@ def _get_schema() -> tuple[MLIRJITOption, ...]:
         ),
         MLIRJITOption(
             name="lto",
-            types=bool,
-            default_value=False,
+            types=(bool, type(None)),
+            default_value=None,
             help="Enable link time optimization",
         ),
         MLIRJITOption(
@@ -422,11 +425,10 @@ def _extract_signature_from_annotations(func):
     Returns a Numba signature if all parameters have valid type annotations,
     or None if any parameter lacks an annotation (template/lazy mode).
     """
-    from numba_cuda_mlir.lowering_utilities.type_conversions import to_numba_type
-
     sig = inspect.signature(func)
     argtypes = []
     has_unannotated = False
+    to_numba_type = None
 
     # A function with no parameters cannot have parameter annotations, so
     # there is no annotation-derived signature to return.
@@ -441,6 +443,8 @@ def _extract_signature_from_annotations(func):
         elif isinstance(ann, numba_types.Type):
             argtypes.append(ann)
         else:
+            if to_numba_type is None:
+                from numba_cuda_mlir.lowering_utilities.type_conversions import to_numba_type
             try:
                 argtypes.append(to_numba_type(ann))
             except (TypeError, NotImplementedError):
@@ -458,6 +462,8 @@ def _extract_signature_from_annotations(func):
         if isinstance(ret_ann, numba_types.Type):
             return_type = ret_ann
         else:
+            if to_numba_type is None:
+                from numba_cuda_mlir.lowering_utilities.type_conversions import to_numba_type
             try:
                 return_type = to_numba_type(ret_ann)
             except (TypeError, NotImplementedError):
@@ -477,6 +483,14 @@ def _get_signatures(func_or_sig):
         return None
     else:
         raise ValueError(_target_options_help(f"Invalid function or signature: {func_or_sig}."))
+
+
+def _link_items_have_callbacks(link_items) -> bool:
+    return any(
+        bool(getattr(link_item, "setup_callback", None))
+        or bool(getattr(link_item, "teardown_callback", None))
+        for link_item in link_items
+    )
 
 
 def verify_target_options(kws: dict[str, Any]) -> dict[str, Any]:
@@ -534,9 +548,19 @@ def verify_target_options(kws: dict[str, Any]) -> dict[str, Any]:
         if isinstance(cc, tuple):
             targetoptions["chip"] = format_arch(cc)
 
-    # When LTO is enabled, output LTOIR instead of PTX
-    if targetoptions.get("lto", False):
-        targetoptions["output"] = "ltoir"
+    lto_was_explicit = "lto" in kws
+    output_was_explicit = "output" in kws
+    if targetoptions.get("lto") is None and output_was_explicit:
+        targetoptions["lto"] = targetoptions["output"] == "ltoir"
+    elif targetoptions.get("lto") is None and (
+        targetoptions.get("lineinfo") or _link_items_have_callbacks(targetoptions.get("link", []))
+    ):
+        targetoptions["lto"] = False
+    elif targetoptions.get("lto") is None:
+        from numba_cuda_mlir.numba_cuda.cudadrv.driver import _have_nvjitlink
+
+        targetoptions["lto"] = _have_nvjitlink() and not targetoptions.get("debug")
+    targetoptions["_lto_explicit"] = lto_was_explicit
 
     return targetoptions
 
@@ -577,12 +601,43 @@ def mlir_jit(func_or_sig=None, **kws):
 
     signatures = _get_signatures(func_or_sig)
 
-    targetoptions = verify_target_options(kws)
+    resolved_kws = kws.copy()
+    resolved_kws.setdefault("debug", debug)
+    if "opt_level" not in resolved_kws:
+        resolved_kws.setdefault("opt", opt)
+    targetoptions = verify_target_options(resolved_kws)
     annotations_as_signatures = targetoptions.get("annotations_as_signatures", True)
+    _user_set_ast = "experimental_ast_transforms" in kws
+
+    def _maybe_enable_experimental(func):
+        """Auto-enable AST transforms if func's module imported cuda.experimental."""
+        if _user_set_ast:
+            return
+        g = getattr(func, "__globals__", None)
+        if g is None:
+            return
+        exp = sys.modules.get("numba_cuda_mlir.cuda.experimental")
+        if exp is None:
+            return
+        sentinel_ids = {id(exp), id(exp.consteval), id(exp.local_array_from)}
+        if any(id(v) in sentinel_ids for v in g.values()):
+            targetoptions["experimental_ast_transforms"] = True
+            return
+        # Also check closure cells (covers local imports like
+        # `from cuda.experimental import consteval` inside a function).
+        if func.__closure__:
+            for cell in func.__closure__:
+                try:
+                    if id(cell.cell_contents) in sentinel_ids:
+                        targetoptions["experimental_ast_transforms"] = True
+                        return
+                except ValueError:
+                    pass
 
     def _jit_with_signatures(func):
         """JIT when explicit signatures are provided."""
         nonlocal signatures
+        _maybe_enable_experimental(func)
 
         # Check for conflicting signature sources
         if annotations_as_signatures:
@@ -608,7 +663,10 @@ def mlir_jit(func_or_sig=None, **kws):
         with register_dispatcher(disp):
             for sig in signatures:
                 argtypes, restype = sigutils.normalize_signature(sig)
-                disp.compile(argtypes)
+                if targetoptions.get("device", False):
+                    disp.compile_device(argtypes)
+                else:
+                    disp.compile(argtypes)
 
         disp.disable_compile()
         disp._specialized = True
@@ -617,6 +675,7 @@ def mlir_jit(func_or_sig=None, **kws):
 
     def _jit_with_annotations(func):
         """JIT using type annotations as the signature if available."""
+        _maybe_enable_experimental(func)
         sig = _extract_signature_from_annotations(func)
 
         disp = MLIRDispatcher(func, targetoptions=targetoptions)
@@ -628,7 +687,10 @@ def mlir_jit(func_or_sig=None, **kws):
             # Annotations present - pre-compile with annotated signature
             argtypes, restype = sigutils.normalize_signature(sig)
             with register_dispatcher(disp):
-                disp.compile(argtypes)
+                if targetoptions.get("device", False):
+                    disp.compile_device(argtypes)
+                else:
+                    disp.compile(argtypes)
             disp.disable_compile()
             disp._specialized = True
 
@@ -637,6 +699,7 @@ def mlir_jit(func_or_sig=None, **kws):
 
     def _jit_lazy(func):
         """JIT with lazy compilation (non-binding mode)."""
+        _maybe_enable_experimental(func)
         disp = MLIRDispatcher(func, targetoptions=targetoptions)
         if targetoptions.get("cache", False):
             disp.enable_caching()
@@ -659,6 +722,9 @@ def mlir_jit(func_or_sig=None, **kws):
             return _jit_with_annotations(func_or_sig)
         else:
             return _jit_lazy(func_or_sig)
+
+
+mlir_jit.__doc__ = numba_cuda_jit.__doc__
 
 
 def stubgen(out: StringIO = sys.stdout):

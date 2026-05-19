@@ -4,7 +4,6 @@ from numba_cuda_mlir.errors import ensure_verifies
 from numba_cuda_mlir.descriptor import MLIRDispatcher
 from numba_cuda_mlir.descriptor import MLIRDispatcherType
 from numba_cuda_mlir.errors import InternalCompilerError
-from typeguard import typechecked
 from functools import singledispatch
 from dataclasses import dataclass
 from abc import abstractmethod
@@ -21,23 +20,16 @@ from numba_cuda_mlir.type_defs.float_types import BFloat16Type
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir._mlir.dialects import (
     arith,
-    linalg,
-    complex as complex_dialect,
     memref,
     func,
     gpu,
     llvm,
     cf,
-    tensor,
-    shape,
-    nvgpu,
     builtin,
-    vector,
 )
 from numba_cuda_mlir.mlir.dialect_exts import scf
 from numba_cuda_mlir._mlir.extras.meta import region_op
 from numba_cuda_mlir.logging import trace
-from numba_cuda_mlir._mlir.dialects import bufferization
 from numba_cuda_mlir._mlir.extras import types as T
 import operator
 
@@ -109,6 +101,8 @@ def memref_to_tensor(memref):
     """
     Utility function to convert from a memref to tensor
     """
+    from numba_cuda_mlir._mlir.dialects import bufferization
+
     match memref.type:
         case ir.MemRefType():
             tensor_type = ir.RankedTensorType.get(
@@ -126,6 +120,8 @@ def tensor_to_memref(tensor):
     """
     Utility function to convert from a tensor to memref
     """
+    from numba_cuda_mlir._mlir.dialects import bufferization
+
     match tensor.type:
         case ir.MemRefType():
             return tensor
@@ -154,7 +150,13 @@ def get_type_width(ty: ir.Type) -> int:
         case ir.FloatType():
             return ty.width
         case ir.ComplexType():
-            return ir.ComplexType(ty).element_type.width
+            return 2 * ir.ComplexType(ty).element_type.width
+        case ir.VectorType():
+            vt = ir.VectorType(ty)
+            count = 1
+            for d in vt.shape:
+                count *= d
+            return count * get_type_width(vt.element_type)
         case _:
             raise NotImplementedError(f"Not implemented for type {ty}")
 
@@ -230,7 +232,11 @@ def _(a: ir.Type, b: ir.Type) -> ir.Type:
             ty = T.f32() if larger_width == 32 else T.f64()
             return ty
         case (ir.ComplexType(), _) | (_, ir.ComplexType()):
-            larger_width = max(get_type_width(a), get_type_width(b))
+
+            def _scalar_width(t: ir.Type) -> int:
+                return t.element_type.width if isinstance(t, ir.ComplexType) else get_type_width(t)
+
+            larger_width = max(_scalar_width(a), _scalar_width(b))
             elem = T.f32() if larger_width <= 32 else T.f64()
             return T.complex(elem)
         case _:
@@ -326,25 +332,30 @@ def _get_mlir_bin_op_for_operator(op):
                 functools.partial(arith.cmpi, arith.CmpIPredicate.ne),
                 functools.partial(arith.cmpf, arith.CmpFPredicate.UNE),
             )
-        case operator.add:
+        case operator.add | operator.iadd:
             return (
                 functools.partial(arith.addi),
                 functools.partial(arith.addf),
             )
-        case operator.sub:
+        case operator.sub | operator.isub:
             return (
                 functools.partial(arith.subi),
                 functools.partial(arith.subf),
             )
-        case operator.mul:
+        case operator.mul | operator.imul:
             return (
                 functools.partial(arith.muli),
                 functools.partial(arith.mulf),
             )
-        case operator.truediv | operator.floordiv | operator.itruediv:
+        case operator.truediv | operator.floordiv | operator.itruediv | operator.ifloordiv:
             return (
                 functools.partial(arith.divsi),
                 functools.partial(arith.divf),
+            )
+        case operator.mod | operator.imod:
+            return (
+                functools.partial(arith.remsi),
+                functools.partial(arith.remf),
             )
         case _:
             raise NotImplementedError(f"Not implemented for operator {op}")
@@ -434,6 +445,8 @@ def bool_of(value: ir.Value | bool) -> ir.Value:
 
 
 def concretize_tuple_to_tensor(tup: tuple[ir.Value]) -> ir.Value:
+    from numba_cuda_mlir._mlir.dialects import tensor
+
     ty = tup[0].type
     if not all(ty == t.type for t in tup):
         raise NotImplementedError("All elements of the tuple must have the same type")
@@ -445,6 +458,8 @@ def concretize_tuple_to_tensor(tup: tuple[ir.Value]) -> ir.Value:
 
 
 def convert_tuple_like(values: list[ir.Value], target_type: ir.Type) -> ir.Value:
+    from numba_cuda_mlir._mlir.dialects import tensor
+
     match target_type:
         case tuple():
             return tuple(convert(value, ty) for value, ty in zip(values, target_type))
@@ -458,7 +473,6 @@ def convert_tuple_like(values: list[ir.Value], target_type: ir.Type) -> ir.Value
             raise NotImplementedError(f"Not implemented for type {target_type}")
 
 
-@typechecked
 def _convert_integer_to_integer(
     value: ir.Value, target_type: ir.IntegerType, *, signed: bool = False
 ) -> ir.Value:
@@ -515,6 +529,8 @@ def _convert_integer_to_integer(
 
 
 def convert(value, target_type, *, signed: bool = False):
+    if getattr(value, "type", None) == target_type:
+        return value
     return ensure_verifies(unverified_convert(value, target_type, signed=signed))
 
 
@@ -530,7 +546,6 @@ def convert_none(value: ir.NoneType, target_type: ir.NoneType, **_):
     return value
 
 
-@typechecked
 @unverified_convert.register
 def opaque_data_model_convert(value: type | MLIRDispatcher, target_type: ir.NoneType, **_):
     """
@@ -540,7 +555,6 @@ def opaque_data_model_convert(value: type | MLIRDispatcher, target_type: ir.None
     return value
 
 
-@typechecked
 @unverified_convert.register
 def number_class_convert(value: types.Type, target_type: types.functions.NumberClass, **_):
     return value
@@ -562,7 +576,6 @@ def _memory_spaces_match(lhs: ir.MemRefType, rhs: ir.MemRefType) -> bool:
             return True
 
 
-@typechecked
 @unverified_convert.register
 def unverified_basic_mlir_convert(
     value: ir.Value | int | float | bool | complex,
@@ -570,6 +583,13 @@ def unverified_basic_mlir_convert(
     *,
     signed: bool = False,
 ) -> ir.Value:
+    from numba_cuda_mlir._mlir.dialects import (
+        complex as complex_dialect,
+        nvgpu,
+        tensor,
+        vector,
+    )
+
     if isinstance(value, (int, float, bool, complex)):
         if isinstance(target_type, ir.IndexType):
             return index_of(int(value))
@@ -601,6 +621,34 @@ def unverified_basic_mlir_convert(
             else:
                 trace("value_type.width < target_type.width, extending")
                 return arith.extf(out=target_type, in_=value)
+        case ir.VectorType() as vt1, ir.VectorType() as vt2 if vt1.shape == vt2.shape:
+            # We can use arith ops to convert vectors element-wise
+            elem1 = vt1.element_type
+            elem2 = vt2.element_type
+            if isinstance(elem1, ir.FloatType) and isinstance(elem2, ir.FloatType):
+                if elem1.width > elem2.width:
+                    return arith.truncf(out=target_type, in_=value)
+                else:
+                    return arith.extf(out=target_type, in_=value)
+            elif isinstance(elem1, ir.IntegerType) and isinstance(elem2, ir.IntegerType):
+                if elem1.width > elem2.width:
+                    return arith.trunci(out=target_type, in_=value)
+                else:
+                    return arith.extsi(out=target_type, in_=value)
+            elif isinstance(elem1, ir.IntegerType) and isinstance(elem2, ir.FloatType):
+                return (
+                    arith.sitofp(out=target_type, in_=value)
+                    if elem1.width > 1
+                    else arith.uitofp(out=target_type, in_=value)
+                )
+            elif isinstance(elem1, ir.FloatType) and isinstance(elem2, ir.IntegerType):
+                return (
+                    arith.fptosi(out=target_type, in_=value)
+                    if elem2.width > 1
+                    else arith.fptoui(out=target_type, in_=value)
+                )
+            else:
+                raise NotImplementedError(f"Vector conversion not implemented: {vt1} to {vt2}")
         case ir.IntegerType(), ir.FloatType():
             return (
                 arith.sitofp(out=target_type, in_=value)
@@ -1170,7 +1218,6 @@ def get_or_insert_function(
     return declare_external_function(name, mlir_type, ir.InsertionPoint(body))
 
 
-@typechecked
 def constant(
     value: ir.Value | int | float | bool | complex | np.number, ty: ir.Type | None
 ) -> ir.Value:
@@ -1180,6 +1227,8 @@ def constant(
     to the appropriate type. This should really be handled in MLIR.
     TODO: send patch
     """
+    from numba_cuda_mlir._mlir.dialects import complex as complex_dialect
+
     match value, ty:
         # First, if the type is None, we infer the MLIR type.
         # This is useful for converting literals to the appropriate type.
@@ -1225,6 +1274,8 @@ def constant(
 
 
 def dims_of_tensor_shape(tens: ir.Value) -> list[ir.Value]:
+    from numba_cuda_mlir._mlir.dialects import shape
+
     ty = tens.type
     sh = shape.shape_of(tens)
     return [shape.get_extent(sh, index_of(i)) for i in range(ty.rank)]
@@ -1233,6 +1284,8 @@ def dims_of_tensor_shape(tens: ir.Value) -> list[ir.Value]:
 def broadcast_shapes_for_binary_op(
     a: ir.Value, b: ir.Value, builder=None
 ) -> tuple[ir.Value, ir.Value]:
+    from numba_cuda_mlir._mlir.dialects import shape, tensor
+
     if isinstance(a.type, ir.MemRefType):
         a = memref_to_tensor(a)
     if isinstance(b.type, ir.MemRefType):
@@ -1295,6 +1348,8 @@ def simple_scalar_conversion_op(src: ir.Type, dst: ir.Type):
 
 
 def expensive_coerce_tensor_type(a: ir.Value, target_element_type: ir.Type) -> ir.Value:
+    from numba_cuda_mlir._mlir.dialects import linalg
+
     if a.type.element_type == target_element_type:
         return a
     output_type = T.tensor(*a.type.shape, target_element_type)
@@ -1311,7 +1366,6 @@ def expensive_coerce_tensor_type(a: ir.Value, target_element_type: ir.Type) -> i
     return result.results[0]
 
 
-@typechecked
 def try_extract_constant(
     value: ir.Value | ir.OpResult | int | float | bool | None,
 ) -> int | float | bool | None:

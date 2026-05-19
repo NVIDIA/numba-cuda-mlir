@@ -87,11 +87,16 @@ class TestLinker(NumbaCUDATestCase):
 class TestLinkerDumpAssembly(NumbaCUDATestCase):
     def setUp(self):
         super().setUp()
-        self._prev_dump_assembly = config.DUMP_ASSEMBLY
-        config.DUMP_ASSEMBLY = True
+        self._prev_dump_assembly = os.environ.get("NUMBA_DUMP_ASSEMBLY")
+        os.environ["NUMBA_DUMP_ASSEMBLY"] = "1"
+        config.reload_config()
 
     def tearDown(self):
-        config.DUMP_ASSEMBLY = self._prev_dump_assembly
+        if self._prev_dump_assembly is None:
+            os.environ.pop("NUMBA_DUMP_ASSEMBLY", None)
+        else:
+            os.environ["NUMBA_DUMP_ASSEMBLY"] = self._prev_dump_assembly
+        config.reload_config()
         super().tearDown()
 
     @pytest.mark.numba_cuda_test_binaries("cu", "ltoir", "fatbin_multi")

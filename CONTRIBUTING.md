@@ -48,7 +48,7 @@ be applied to every commit.
 They can be installed with:
 
 ```
-pip install -e '.[dev]'
+pip install --group dev  # requires pip >= 25.1
 pre-commit install
 ```
 

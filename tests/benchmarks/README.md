@@ -9,7 +9,7 @@ Benchmarks to compare JIT compile-time and kernel performance between Numba CUDA
 pytest tests/benchmarks/
 
 # Run performance benchmarks (requires NCU)
-NUMBA_CUDA_MLIR_SKIP_REDIRECTOR=1 pytest tests/benchmarks/ --benchmark -s
+pytest tests/benchmarks/ --benchmark -s
 ```
 
 ## Available Benchmarks
@@ -29,35 +29,40 @@ NUMBA_CUDA_MLIR_SKIP_REDIRECTOR=1 pytest tests/benchmarks/ --benchmark -s
 ### Three ways to run benchmarks:
 
 1. **Correctness only**: `pytest tests/benchmarks/vector_add/`
-2. **With profiling scripts**: `NUMBA_CUDA_MLIR_SKIP_REDIRECTOR=1 pytest tests/benchmarks/vector_add/ --benchmark -s`
-3. **Direct execution**: `python tests/benchmarks/vector_add/test_vector_addition.py scalar`
+2. **With profiling scripts**: `pytest tests/benchmarks/vector_add/ --benchmark -s`
+3. **Direct execution**: `python tests/benchmarks/vector_add/test_vector_addition.py scalar --compile-mode warm`
+
+### Compile modes
+
+Standalone benchmark scripts accept `--compile-mode {cold,warm}`:
+
+- `cold` measures compilation in a fresh subprocess without benchmark-side warmup.
+- `warm` first compiles a trivial kernel through both backends, then times the benchmark kernel compilation. This removes one-time initialization costs from the measured compile time.
+
+The pytest benchmark runner invokes each script once per compile mode and reports both results in the consolidated table.
 
 ## Output
 
 Running benchmarks using pytest with `--benchmark -s` produces:
 
+Machine: AMD Ryzen 9 9950X | NVIDIA RTX PRO 6000 Blackwell | CUDA driver 580.95 | Python 3.12 | Ubuntu 24.04 | CUDA Toolkit 13.0
+
 ```
-+------------------------------+---------------------------+-----------------------+-------------------+--------------------------+----------------------+------------------+
-| Benchmark                    |   Numba-CUDA Compile (ms) |   numba-cuda-mlir Compile (ms) | Compile Speedup   |   Numba-CUDA Kernel (ms) |   numba-cuda-mlir Kernel (ms) | Kernel Speedup   |
-+==============================+===========================+=======================+===================+==========================+======================+==================+
-| Attention                    |                    607.41 |                405.14 | 1.50x             |                  10.2513 |               8.3995 | 1.22x            |
-+------------------------------+---------------------------+-----------------------+-------------------+--------------------------+----------------------+------------------+
-| Blackscholes                 |                    574.71 |                422.94 | 1.36x             |                   0.0229 |               0.0249 | 0.92x            |
-+------------------------------+---------------------------+-----------------------+-------------------+--------------------------+----------------------+------------------+
-| Cholesky                     |                    596.7  |                498.65 | 1.20x             |                  34.2783 |              29.6348 | 1.16x            |
-+------------------------------+---------------------------+-----------------------+-------------------+--------------------------+----------------------+------------------+
-| Cholesky Blocked             |                    756.21 |                722.45 | 1.05x             |                   4.4048 |               3.3369 | 1.32x            |
-+------------------------------+---------------------------+-----------------------+-------------------+--------------------------+----------------------+------------------+
-| Fft                          |                    563.77 |                260.67 | 2.16x             |                   0.0628 |               0.0736 | 0.85x            |
-+------------------------------+---------------------------+-----------------------+-------------------+--------------------------+----------------------+------------------+
-| Matmul Smem                  |                    556.61 |                415.77 | 1.34x             |                   0.1553 |               0.2252 | 0.69x            |
-+------------------------------+---------------------------+-----------------------+-------------------+--------------------------+----------------------+------------------+
-| Softmax                      |                    567.8  |                416.38 | 1.36x             |                   0.0056 |               0.0045 | 1.24x            |
-+------------------------------+---------------------------+-----------------------+-------------------+--------------------------+----------------------+------------------+
-| Softmax Large                |                    564.92 |                406.4  | 1.39x             |                   2.6519 |               2.8426 | 0.93x            |
-+------------------------------+---------------------------+-----------------------+-------------------+--------------------------+----------------------+------------------+
-| Vector Addition (scalar)     |                    473.65 |                339.47 | 1.40x             |                   0.0742 |               0.081  | 0.92x            |
-+------------------------------+---------------------------+-----------------------+-------------------+--------------------------+----------------------+------------------+
-| Vector Addition (vectorized) |                    510.54 |                370.53 | 1.38x             |                   0.0687 |               0.0692 | 0.99x            |
-+------------------------------+---------------------------+-----------------------+-------------------+--------------------------+----------------------+------------------+
+====================================================================================================
+BENCHMARK RESULTS SUMMARY
+====================================================================================================
+Benchmark                    | Numba-CUDA Cold Compile (ms) | numba-cuda-mlir Cold Compile (ms) | Cold Compile Speedup | Numba-CUDA Warm Compile (ms) | numba-cuda-mlir Warm Compile (ms) | Warm Compile Speedup | Numba-CUDA Kernel (ms) | numba-cuda-mlir Kernel (ms) | Kernel Speedup
+-----------------------------+------------------------------+-----------------------------------+----------------------+------------------------------+-----------------------------------+----------------------+------------------------+-----------------------------+---------------
+Attention                    | 354.84                       | 333.05                            | 1.07x                | 89.53                        | 48.23                             | 1.86x                | 34.5719                | 35.7985                     | 0.97x
+Blackscholes                 | 248.04                       | 356.83                            | 0.70x                | 55.85                        | 55.80                             | 1.00x                | 0.5028                 | 0.5019                      | 1.00x
+Cholesky                     | 260.55                       | 362.27                            | 0.72x                | 93.78                        | 78.73                             | 1.19x                | 40.5486                | 40.8926                     | 0.99x
+Cholesky Blocked             | 488.24                       | 419.72                            | 1.16x                | 178.33                       | 130.23                            | 1.37x                | 8.9310                 | 9.3268                      | 0.96x
+Fft                          | 262.19                       | 64.29                             | 4.08x                | 120.23                       | 62.33                             | 1.93x                | 0.0788                 | 0.0817                      | 0.96x
+Matmul Smem                  | 238.35                       | 355.13                            | 0.67x                | 67.18                        | 49.12                             | 1.37x                | 0.9163                 | 0.9332                      | 0.98x
+Softmax                      | 255.60                       | 349.96                            | 0.73x                | 74.67                        | 49.29                             | 1.51x                | 0.0082                 | 0.0068                      | 1.21x
+Softmax Large                | 362.57                       | 368.74                            | 0.98x                | 74.83                        | 47.70                             | 1.57x                | 4.7444                 | 6.1678                      | 0.77x
+Vector Addition (scalar)     | 195.31                       | 317.99                            | 0.61x                | 21.47                        | 16.61                             | 1.29x                | 0.1614                 | 0.1597                      | 1.01x
+Vector Addition (vectorized) | 212.06                       | 339.67                            | 0.62x                | 44.74                        | 34.34                             | 1.30x                | 0.1724                 | 0.1763                      | 0.98x
+GEOMEAN                      | 277.27                       | 299.21                            | 0.93x                | 71.77                        | 50.75                             | 1.41x                | 0.9318                 | 0.9526                      | 0.98x
+====================================================================================================
 ```

@@ -1,7 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from functools import lru_cache
-from typing import Callable, override
+import sys
+from typing import Callable
+
+if sys.version_info >= (3, 12):
+    from typing import override
+else:
+    from typing_extensions import override
 from numba_cuda_mlir.numba_cuda.core.imputils import Registry
 from numba_cuda_mlir.numba_cuda import types
 import functools
@@ -58,12 +64,12 @@ def _decorate_setattr(impl, ty, attr):
     return res
 
 
-class MLIRLoweringRegistry(Registry):
+class LoweringRegistry(Registry):
     """
     Registry for MLIR-based lowering implementations.
 
     Each lowering module should create its own instance of this registry:
-        registry = MLIRLoweringRegistry()
+        registry = LoweringRegistry()
         lower = registry.lower
     """
 

@@ -30,9 +30,9 @@ from numba_cuda_mlir.lowering_utilities import (
     GEP_DYNAMIC_INDEX,
     int_of,
 )
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower = registry.lower
 
 _HASH_WIDTH = 64 if sys.maxsize > 2**32 else 32

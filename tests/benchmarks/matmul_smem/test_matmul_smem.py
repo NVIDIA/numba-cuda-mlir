@@ -1,13 +1,37 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import time
+import argparse
+import sys
+from pathlib import Path
+
 import numpy as np
 import math
-from numba_cuda_mlir.numba_cuda import types
 
-import numba.cuda as numba_cuda
-from numba_cuda_mlir import cuda
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from benchmark_utils import (
+    BACKEND_BOTH,
+    BACKEND_NUMBA_CUDA,
+    BACKEND_NUMBA_CUDA_MLIR,
+    add_backend_arg,
+    add_compile_mode_arg,
+    prepare_compile_measurement,
+    print_compile_times,
+    selected_backend_from_argv,
+    should_run_backend,
+    skipped_backend,
+    time_compile,
+)
+
+SELECTED_BACKEND = selected_backend_from_argv()
+if should_run_backend(SELECTED_BACKEND, BACKEND_NUMBA_CUDA):
+    import numba.cuda as numba_cuda
+else:
+    numba_cuda = skipped_backend()
+if should_run_backend(SELECTED_BACKEND, BACKEND_NUMBA_CUDA_MLIR):
+    from numba_cuda_mlir import cuda
+else:
+    cuda = skipped_backend()
 
 TPB = 16
 M = 512
@@ -128,41 +152,42 @@ def test_matmul_smem_benchmark(benchmark_runner):
     benchmark_runner(script=__file__)
 
 
-def run_benchmark_main():
-    sig = types.void(
-        types.float32[:, ::1],
-        types.float32[:, ::1],
-        types.float32[:, ::1],
-    )
+def run_benchmark_main(compile_mode="cold", backend=BACKEND_BOTH):
+    sig = "void(float32[:, ::1], float32[:, ::1], float32[:, ::1])"
+    prepare_compile_measurement(compile_mode, backend)
 
-    start = time.perf_counter()
-    numba_cuda_matmul_smem.compile(sig)
-    numba_compile_time = (time.perf_counter() - start) * 1000
+    compile_times = {}
+    if should_run_backend(backend, BACKEND_NUMBA_CUDA):
+        compile_times[BACKEND_NUMBA_CUDA] = time_compile(numba_cuda_matmul_smem.compile, sig)
+    if should_run_backend(backend, BACKEND_NUMBA_CUDA_MLIR):
+        compile_times[BACKEND_NUMBA_CUDA_MLIR] = time_compile(
+            numba_cuda_mlir_matmul_smem.compile, sig
+        )
 
-    start = time.perf_counter()
-    numba_cuda_mlir_matmul_smem.compile(sig)
-    numba_cuda_mlir_compile_time = (time.perf_counter() - start) * 1000
-
-    print("\n=== COMPILE TIMES ===")
-    print(f"Numba-CUDA: {numba_compile_time:.3f} ms")
-    print(f"numba-cuda-mlir: {numba_cuda_mlir_compile_time:.3f} ms")
+    print_compile_times(compile_times)
 
     A, B = get_input_data()
     threads = (TPB, TPB)
     blocks = (math.ceil(M / TPB), math.ceil(N / TPB))
 
-    A_dev = numba_cuda.to_device(A)
-    B_dev = numba_cuda.to_device(B)
-    C_dev = numba_cuda.device_array((M, N), dtype=np.float32)
-    numba_cuda_matmul_smem[blocks, threads](A_dev, B_dev, C_dev)
-    numba_cuda.synchronize()
+    if should_run_backend(backend, BACKEND_NUMBA_CUDA):
+        A_dev = numba_cuda.to_device(A)
+        B_dev = numba_cuda.to_device(B)
+        C_dev = numba_cuda.device_array((M, N), dtype=np.float32)
+        numba_cuda_matmul_smem[blocks, threads](A_dev, B_dev, C_dev)
+        numba_cuda.synchronize()
 
-    A_dev = cuda.to_device(A)
-    B_dev = cuda.to_device(B)
-    C_dev = cuda.device_array((M, N), dtype=np.float32)
-    numba_cuda_mlir_matmul_smem[blocks, threads](A_dev, B_dev, C_dev)
-    cuda.synchronize()
+    if should_run_backend(backend, BACKEND_NUMBA_CUDA_MLIR):
+        A_dev = cuda.to_device(A)
+        B_dev = cuda.to_device(B)
+        C_dev = cuda.device_array((M, N), dtype=np.float32)
+        numba_cuda_mlir_matmul_smem[blocks, threads](A_dev, B_dev, C_dev)
+        cuda.synchronize()
 
 
 if __name__ == "__main__":
-    run_benchmark_main()
+    parser = argparse.ArgumentParser(description="Shared-memory matmul benchmark")
+    add_compile_mode_arg(parser)
+    add_backend_arg(parser)
+    args = parser.parse_args()
+    run_benchmark_main(args.compile_mode, args.backend)

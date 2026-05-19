@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir.cuda.experimental import consteval
 import numpy as np
 from numba_cuda_mlir.testing import filecheck_with_comments
 
@@ -12,21 +13,21 @@ def test_consteval_prints(capfd):
         print(f"COMPTIME: should_assign_one({loop_iter})")
         return loop_iter < 3
 
-    @cuda.jit(experimental_ast_transforms=True)
+    @cuda.jit
     def k(x):
-        cuda.consteval(print("COMPTIME: start of kernel"))
+        consteval(print("COMPTIME: start of kernel"))
         print("RUNTIME: start of kernel")
 
-        for i in cuda.consteval(range(5)):
-            cuda.consteval(print(f"COMPTIME: unrolled iteration {i}"))
+        for i in consteval(range(5)):
+            consteval(print(f"COMPTIME: unrolled iteration {i}"))
             print("RUNTIME: unrolled iteration", i)
-            if cuda.consteval(should_assign_one(i)):
+            if consteval(should_assign_one(i)):
                 x[i] = 1
             else:
                 x[i] = 2
 
         print("RUNTIME: kernel finished")
-        cuda.consteval(print("COMPTIME: kernel finished"))
+        consteval(print("COMPTIME: kernel finished"))
 
     x = np.zeros(5, dtype=np.float32)
     k[1, 1](x)

@@ -11,9 +11,9 @@ from numba_cuda_mlir.lowering_utilities import (
     get_or_insert_function,
 )
 from numba_cuda_mlir.logging import trace
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower = registry.lower
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core import ir as numba_ir
@@ -140,8 +140,9 @@ def _make_icmp(
     return functools.partial(arith.cmpi, predicate)
 
 
-def _get_operator_mapping(fn) -> OpForType | None:
-    operator_mapping = {
+@functools.lru_cache(maxsize=1)
+def _operator_mapping() -> dict:
+    return {
         operator.add: OpForType(
             arith.addf,
             arith.addi,
@@ -241,7 +242,10 @@ def _get_operator_mapping(fn) -> OpForType | None:
             None,
         ),
     }
-    info = operator_mapping.get(fn)
+
+
+def _get_operator_mapping(fn) -> OpForType | None:
+    info = _operator_mapping().get(fn)
     trace("info: %s", info)
     return info
 

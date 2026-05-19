@@ -15,50 +15,19 @@ from numba_cuda_mlir.numba_cuda.cudadrv.devicearray import (
 )  # noqa: F401
 from numba_cuda_mlir.numba_cuda.misc.special import literal_unroll  # noqa: F401,E402
 
-# numba-cuda-mlir overrides/extensions
-from numba_cuda_mlir.cuda.lazy_api import *
+from numba_cuda_mlir.decorators import mlir_jit as jit
+from numba_cuda_mlir.compiler import (
+    compile,
+    compile_ptx,
+    compile_all,
+    compile_mlir,
+    compile_for,
+    compile_cubin,
+    declare_device,
+)
+
 
 HAS_NUMBA = False
-
-
-class _ConstevalContextManager:
-    """Context manager for consteval blocks - transformed away by AST passes."""
-
-    def __enter__(self):
-        raise RuntimeError(
-            "consteval() block was not transformed at compile time.\n"
-            "This usually means experimental_ast_transforms is not enabled.\n"
-            "Add experimental_ast_transforms=True to your @jit decorator:\n"
-            "    @cuda.jit(experimental_ast_transforms=True)"
-        )
-
-    def __exit__(self, *args):
-        pass
-
-
-def consteval(value=None):
-    """
-    Evaluate an expression at compile time, or mark a block for compile-time execution.
-
-    Usage as expression (returns the compile-time value):
-        x = consteval(GLOBAL_CONST * 2)
-
-    Usage as context manager (executes block at compile time):
-        with consteval():
-            config = load_config()
-            N = config["block_size"]
-        # Use consteval(N) to access N at runtime
-
-    Requires experimental_ast_transforms=True in the @jit decorator.
-    """
-    if value is None:
-        return _ConstevalContextManager()
-    raise RuntimeError(
-        "consteval() was not transformed at compile time.\n"
-        "This usually means experimental_ast_transforms is not enabled.\n"
-        "Add experimental_ast_transforms=True to your @jit decorator:\n"
-        "    @cuda.jit(experimental_ast_transforms=True)"
-    )
 
 
 # Submodules (must be modules, not class stubs) so that `numba.cuda.shared` and
@@ -81,24 +50,9 @@ local_array = local.array  # noqa: F401
 shared_array = shared.array  # noqa: F401
 
 
-def local_array_from(iterable, dtype):
-    """
-    Create a local array from a generator expression or iterable.
-
-    This function is transformed at AST level to:
-        arr = local_array(len(iterable_source), dtype=dtype)
-        for i, val in enumerate(iterable):
-            arr[i] = val
-
-    Example:
-        arr = cuda.local_array_from((i+1 for i in indices), dtype=np.float32)
-    """
-    pass
-
-
 def __getattr__(name):
     """Lazy load modules to avoid circular import issues."""
-    if name in ("intrin", "tcgen05_descriptors", "tensor_map"):
+    if name in ("intrin", "tensor_map", "experimental"):
         import importlib
 
         module = importlib.import_module(f"numba_cuda_mlir.cuda.{name}")
@@ -107,19 +61,15 @@ def __getattr__(name):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-def vectorize(*args, **kwargs):
-    raise NotImplementedError("vectorize is not implemented")
-
-
 def inline_ptx(format_string: str, *args) -> None:
     """
     Add PTX code directly into the kernel.
     The format string and arguments mirror the CUDA C++ inline assembly syntax.
-
-    ```
-    TODO(ajm): examples
-    ```
     """
+
+
+def vectorize(*args, **kwargs):
+    raise NotImplementedError("vectorize is not implemented")
 
 
 def clz(x):
@@ -197,25 +147,3 @@ def stwb(array, i, value):
 def stwt(array, i, value):
     """Generate a `st.global.wt` instruction for element `i` of an array."""
     pass
-
-
-class _CurrentTargetOptionsMarker:
-    """Marker class for current_target_options() - replaced during consteval."""
-
-    def __repr__(self):
-        return "numba_cuda_mlir.current_target_options()"
-
-
-def current_target_options() -> dict:
-    """
-    Return the current kernel's target options as a dictionary.
-
-    This function can only be used inside consteval() expressions.
-    At consteval time, it returns the targetoptions dict passed to @jit().
-
-    Example:
-        @cuda.jit(chip='sm_90', experimental_ast_transforms=True)
-        def kernel(arr):
-            chip = consteval(numba_cuda_mlir.current_target_options()['chip'])  # 'sm_90'
-    """
-    return _CurrentTargetOptionsMarker()

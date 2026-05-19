@@ -24,9 +24,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # TODO: Re-enable cp310/cp311 after fixing PEP 695 type parameter syntax
           # - { python-dir: cp310-cp310, py-tag: cp310 }
-          # - { python-dir: cp311-cp311, py-tag: cp311 }
+          - { python-dir: cp311-cp311, py-tag: cp311 }
           - { python-dir: cp312-cp312, py-tag: cp312 }
           - { python-dir: cp313-cp313, py-tag: cp313 }
           - { python-dir: cp314-cp314, py-tag: cp314 }
@@ -72,7 +71,7 @@ jobs:
         if: steps.gha-cache.outputs.cache-hit != 'true'
         run: |
           export PATH="$(dirname $PY):$PATH"
-          "${PY}" -m pip install pybind11 nanobind numpy ninja cmake awscli typing_extensions
+          "${PY}" -m pip install pybind11 nanobind numpy ninja cmake awscli "typing-extensions; python_version < '3.12'"
           chmod +x ci/*.sh
 
       - name: Install sccache

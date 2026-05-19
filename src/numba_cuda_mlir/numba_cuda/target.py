@@ -130,6 +130,54 @@ class CUDATypingContext(typing.BaseContext):
 VALID_CHARS = re.compile(r"[^a-z0-9]", re.I)
 
 
+def load_cuda_target_registration_modules():
+    from numba_cuda_mlir.numba_cuda.cpython import (
+        numbers,
+        slicing,
+        iterators,
+        listobj,
+        unicode,
+        charseq,
+        cmathimpl,
+        mathimpl,
+        tupleobj,
+        rangeobj,
+        enumimpl,
+    )
+    from numba_cuda_mlir.numba_cuda.cpython import builtins as cpython_builtins
+    from numba_cuda_mlir.numba_cuda.core import optional
+    from numba_cuda_mlir.numba_cuda.misc import cffiimpl
+    from numba_cuda_mlir.numba_cuda.np import (
+        arrayobj,
+        npdatetime,
+        polynomial,
+        arraymath,
+    )
+    from numba_cuda_mlir.numba_cuda.np.unsafe import ndarray
+
+    return (
+        numbers,
+        slicing,
+        iterators,
+        listobj,
+        unicode,
+        charseq,
+        cmathimpl,
+        mathimpl,
+        tupleobj,
+        rangeobj,
+        enumimpl,
+        cpython_builtins,
+        optional,
+        cffiimpl,
+        arrayobj,
+        npdatetime,
+        polynomial,
+        arraymath,
+        ndarray,
+    )
+
+
 class CUDATargetContext(BaseContext):
     implement_powi_as_math_call = True
     strict_alignment = True
@@ -160,9 +208,7 @@ class CUDATargetContext(BaseContext):
         self._target_data = None
 
     def load_additional_registries(self):
-        # side effect of import needed for numba.cuda.cpython.*, the builtins
-        # registry is updated at import time.
-        from numba_cuda_mlir.numba_cuda.cpython import (
+        (
             numbers,
             slicing,
             iterators,
@@ -174,16 +220,15 @@ class CUDATargetContext(BaseContext):
             tupleobj,
             rangeobj,
             enumimpl,
-        )
-        from numba_cuda_mlir.numba_cuda.cpython import builtins as cpython_builtins
-        from numba_cuda_mlir.numba_cuda.core import optional  # noqa: F401
-        from numba_cuda_mlir.numba_cuda.misc import cffiimpl
-        from numba_cuda_mlir.numba_cuda.np import (
+            cpython_builtins,
+            optional,
+            cffiimpl,
             arrayobj,
             npdatetime,
             polynomial,
             arraymath,
-        )
+            _,
+        ) = load_cuda_target_registration_modules()
 
         from . import (
             cudaimpl,
@@ -195,9 +240,6 @@ class CUDATargetContext(BaseContext):
             bf16,
             fp8,
         )
-
-        # fix for #8940
-        from numba_cuda_mlir.numba_cuda.np.unsafe import ndarray  # noqa F401
 
         self.install_registry(cudaimpl.registry)
         self.install_registry(cffiimpl.registry)

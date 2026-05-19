@@ -32,19 +32,24 @@ lower = registry.lower
 def _unicode_eq_lower(builder, target, args, kwargs):
     """Lower unicode_type == unicode_type / StringLiteral.
 
-    Compares length first, then byte-by-byte (ASCII/kind=1).
+    Constant-folds when both values are known Python strings at compile time.
+    Otherwise compares length first, then byte-by-byte (ASCII/kind=1).
     Uses select + for loop (no scf.if with results needed).
     """
     from numba_cuda_mlir.lowering_utilities.string import (
         materialize_string_constant_if_needed,
     )
 
-    lhs_val = materialize_string_constant_if_needed(
-        builder.mlir_gpu_module, builder.load_var(args[0])
-    )
-    rhs_val = materialize_string_constant_if_needed(
-        builder.mlir_gpu_module, builder.load_var(args[1])
-    )
+    lhs_raw = builder.load_var(args[0])
+    rhs_raw = builder.load_var(args[1])
+
+    if isinstance(lhs_raw, str) and isinstance(rhs_raw, str):
+        result = arith.constant(result=T.bool(), value=(lhs_raw == rhs_raw))
+        builder.store_var(target, result)
+        return
+
+    lhs_val = materialize_string_constant_if_needed(builder.mlir_gpu_module, lhs_raw)
+    rhs_val = materialize_string_constant_if_needed(builder.mlir_gpu_module, rhs_raw)
 
     # Extract lengths (field 1)
     lhs_len = llvm.extractvalue(T.i64(), lhs_val, [1])

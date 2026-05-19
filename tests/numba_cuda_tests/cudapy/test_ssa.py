@@ -167,7 +167,6 @@ class TestSSA(SSABaseTest):
 
         self.check_func(foo, np.array([1, 2]), np.array([1, 2]))
 
-    @pytest.mark.xfail(True, reason="Typing error")
     def test_unhandled_undefined(self):
         @numba_cuda_mlir.cuda.jit
         def function1(arg1, arg2, arg3, arg4, arg5):

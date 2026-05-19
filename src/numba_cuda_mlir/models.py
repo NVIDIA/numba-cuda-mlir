@@ -281,6 +281,19 @@ class UniTupleModel(PrimitiveModel):
         super().__init__(dmm, fe_type, be_type)
 
 
+@register_model(types.Optional)
+class OptionalModel(StructModel):
+    def __init__(self, dmm, fe_type):
+        super().__init__(
+            dmm,
+            fe_type,
+            [
+                ("data", fe_type.type),
+                ("valid", types.boolean),
+            ],
+        )
+
+
 @register_model(types.UnionType)
 class UnionType(PrimitiveModel):
     def __init__(self, dmm, fe_type):

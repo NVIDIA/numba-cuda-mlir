@@ -101,3 +101,17 @@ class TestVectorTypeComplexCast(NumbaCUDATestCase):
         self.assertEqual(res32[1], 2.5)
         self.assertEqual(res64[0], 3.5)
         self.assertEqual(res64[1], 4.5)
+
+    def test_float64x2_setitem_complex128_array(self):
+        from numba_cuda_mlir.cuda.vector_types import float64x2
+
+        @cuda.jit
+        def kernel(matrix, out):
+            smem = cuda.shared.array(shape=(1,), dtype=float64x2)
+            smem[0] = matrix[0]
+            out[0] = smem[0]
+
+        matrix = np.array([1 + 2j], dtype=np.complex128)
+        out = np.zeros(1, dtype=np.complex128)
+        kernel[1, 1](matrix, out)
+        np.testing.assert_equal(out[0], matrix[0])

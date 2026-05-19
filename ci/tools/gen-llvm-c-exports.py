@@ -22,7 +22,28 @@ from typing import Iterable
 import re
 
 
-_SYMBOL_RE = re.compile(r"\|\s+(_?LLVM[A-Za-z0-9_]+)\s*$")
+_SYMBOL_RE = re.compile(r"\|\s+((?:__imp_)?_?LLVM[A-Za-z0-9_@]+)\s*$")
+
+
+def _normalize_symbol(symbol: str, strip_leading_underscore: bool) -> str:
+    # Import-libraries often expose __imp_ thunks alongside function symbols.
+    if symbol.startswith("__imp_"):
+        symbol = symbol[len("__imp_") :]
+
+    # x86 stdcall decoration: LLVMFoo@8 -> LLVMFoo
+    if "@" in symbol:
+        base, sep, suffix = symbol.rpartition("@")
+        if sep and suffix.isdigit():
+            symbol = base
+
+    if strip_leading_underscore and symbol.startswith("_"):
+        symbol = symbol[1:]
+
+    # For imported x86 cdecl symbols this can still be present after __imp_.
+    if symbol.startswith("_LLVM"):
+        symbol = symbol[1:]
+
+    return symbol
 
 
 def _read_libsfile(path: pathlib.Path) -> list[pathlib.Path]:
@@ -65,9 +86,9 @@ def _extract_lib_exports(
         m = _SYMBOL_RE.search(line)
         if not m:
             continue
-        symbol = m.group(1)
-        if strip_leading_underscore and symbol.startswith("_"):
-            symbol = symbol[1:]
+        symbol = _normalize_symbol(m.group(1), strip_leading_underscore)
+        if not symbol.startswith("LLVM"):
+            continue
         exports.add(symbol)
 
     return exports

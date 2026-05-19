@@ -57,19 +57,19 @@ cmake_path() {
   fi
 }
 
+shell_path() {
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -u "$1"
+  else
+    printf '%s\n' "$1"
+  fi
+}
+
 check_prereqs() {
   require_tool cmake
   require_tool ninja
   require_tool git
   require_tool cl
-  if ! command -v dumpbin.exe >/dev/null 2>&1 && ! command -v dumpbin >/dev/null 2>&1; then
-    echo "ERROR: required tool not found in PATH: dumpbin(.exe)" >&2
-    exit 1
-  fi
-  if ! command -v link.exe >/dev/null 2>&1 && ! command -v link >/dev/null 2>&1; then
-    echo "ERROR: required tool not found in PATH: link(.exe)" >&2
-    exit 1
-  fi
   "${PYTHON}" -c "import sys; print(sys.executable)"
 }
 
@@ -101,7 +101,6 @@ build_llvm7() {
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DLLVM_TARGETS_TO_BUILD=NVPTX \
     -DBUILD_SHARED_LIBS=OFF \
-    -DLLVM_BUILD_LLVM_DYLIB=ON \
     -DLLVM_ENABLE_PIC=ON \
     -DLLVM_BUILD_TOOLS=OFF \
     -DLLVM_BUILD_UTILS=OFF \
@@ -124,13 +123,53 @@ build_llvm7() {
   local link_rsp="${LLVM7_BUILD}/llvm-c-link.rsp"
   local llvm_c_dll="${llvm7_bin_dir}/LLVM-C.dll"
   local llvm_c_import_lib="${llvm7_lib_dir}/LLVM-C.lib"
-  local dumpbin_tool="dumpbin.exe"
-  local link_tool="link.exe"
-  if ! command -v "${dumpbin_tool}" >/dev/null 2>&1; then
-    dumpbin_tool="dumpbin"
+  local cmake_cache="${LLVM7_BUILD}/CMakeCache.txt"
+  local link_tool=""
+  if [[ -f "${cmake_cache}" ]]; then
+    link_tool="$(sed -n 's#^CMAKE_LINKER:FILEPATH=##p' "${cmake_cache}" | head -n 1)"
   fi
-  if ! command -v "${link_tool}" >/dev/null 2>&1; then
-    link_tool="link"
+  if [[ -n "${link_tool}" ]]; then
+    link_tool="$(shell_path "${link_tool}")"
+  fi
+  if [[ -z "${link_tool}" || ! -f "${link_tool}" ]]; then
+    if command -v link.exe >/dev/null 2>&1; then
+      link_tool="$(command -v link.exe)"
+    elif command -v where.exe >/dev/null 2>&1; then
+      link_tool="$(where.exe link.exe 2>/dev/null | tr -d '\r' | head -n 1)"
+      if [[ -n "${link_tool}" ]]; then
+        link_tool="$(shell_path "${link_tool}")"
+      fi
+    fi
+  fi
+  if [[ -z "${link_tool}" || ! -f "${link_tool}" ]]; then
+    echo "ERROR: unable to resolve MSVC link.exe (CMAKE_LINKER/PATH/where.exe)" >&2
+    exit 1
+  fi
+  if ! ("${link_tool}" /? 2>&1 || true) | grep -iq 'Incremental Linker'; then
+    echo "ERROR: resolved linker is not MSVC link.exe: ${link_tool}" >&2
+    exit 1
+  fi
+
+  local dumpbin_tool=""
+  local link_dir
+  link_dir="$(dirname "${link_tool}")"
+  if [[ -f "${link_dir}/dumpbin.exe" ]]; then
+    dumpbin_tool="${link_dir}/dumpbin.exe"
+  elif command -v dumpbin.exe >/dev/null 2>&1; then
+    dumpbin_tool="$(command -v dumpbin.exe)"
+  elif command -v where.exe >/dev/null 2>&1; then
+    dumpbin_tool="$(where.exe dumpbin.exe 2>/dev/null | tr -d '\r' | head -n 1)"
+    if [[ -n "${dumpbin_tool}" ]]; then
+      dumpbin_tool="$(shell_path "${dumpbin_tool}")"
+    fi
+  fi
+  if [[ -z "${dumpbin_tool}" || ! -f "${dumpbin_tool}" ]]; then
+    echo "ERROR: unable to resolve dumpbin.exe (alongside link.exe/PATH/where.exe)" >&2
+    exit 1
+  fi
+  if ! ("${dumpbin_tool}" /? 2>&1 || true) | grep -iq 'COFF/PE Dumper'; then
+    echo "ERROR: resolved dumpbin tool is not MSVC dumpbin.exe: ${dumpbin_tool}" >&2
+    exit 1
   fi
 
   local llvm_libs=()
@@ -152,17 +191,31 @@ build_llvm7() {
     --output "${exports_file}" \
     --deffile "${def_file}" \
     --dll-name LLVM-C
+  if ! grep -qx 'LLVMContextCreate' "${exports_file}"; then
+    echo "ERROR: generated export list is missing LLVMContextCreate: ${exports_file}" >&2
+    exit 1
+  fi
+
+  mkdir -p "${llvm7_bin_dir}"
+
+  local stub_obj="${LLVM7_BUILD}/llvm-c-stub.obj"
+  pushd "${LLVM7_BUILD}" > /dev/null
+  printf 'int _fltused = 0;\n' > llvm-c-stub.c
+  cl -nologo -c -O2 -MD -Follvm-c-stub.obj llvm-c-stub.c
+  popd > /dev/null
 
   {
     printf '/NOLOGO\n'
     printf '/DLL\n'
     printf '/MACHINE:X64\n'
-    printf '/OUT:"%s"\n' "$(cmake_path "${llvm_c_dll}")"
-    printf '/IMPLIB:"%s"\n' "$(cmake_path "${llvm_c_import_lib}")"
-    printf '/DEF:"%s"\n' "$(cmake_path "${def_file}")"
+    printf '/OUT:%s\n' "$(cmake_path "${llvm_c_dll}")"
+    printf '/IMPLIB:%s\n' "$(cmake_path "${llvm_c_import_lib}")"
+    printf '/DEF:%s\n' "$(cmake_path "${def_file}")"
+    printf '/INCLUDE:LLVMContextCreate\n'
+    printf '%s\n' "$(cmake_path "${stub_obj}")"
     while IFS= read -r lib_path; do
       [[ -z "${lib_path}" ]] && continue
-      printf '"%s"\n' "${lib_path}"
+      printf '/WHOLEARCHIVE:%s\n' "${lib_path}"
     done < "${libs_rsp}"
   } > "${link_rsp}"
 
@@ -172,8 +225,13 @@ build_llvm7() {
     echo "ERROR: failed to produce ${llvm_c_dll}" >&2
     exit 1
   fi
-  if ! "${dumpbin_tool}" /nologo /exports "$(cmake_path "${llvm_c_dll}")" | grep -q 'LLVMContextCreate'; then
+
+  local dumpbin_rsp="${LLVM7_BUILD}/dumpbin-exports.rsp"
+  printf '/NOLOGO\n/EXPORTS\n%s\n' "$(cmake_path "${llvm_c_dll}")" > "${dumpbin_rsp}"
+  if ! "${dumpbin_tool}" @"$(cmake_path "${dumpbin_rsp}")" | grep -q 'LLVMContextCreate'; then
     echo "ERROR: ${llvm_c_dll} does not export LLVMContextCreate" >&2
+    echo "DLL size: $(ls -la "${llvm_c_dll}" 2>&1)"
+    "${dumpbin_tool}" @"$(cmake_path "${dumpbin_rsp}")" 2>&1 | head -40
     exit 1
   fi
 }

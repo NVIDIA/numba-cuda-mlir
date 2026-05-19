@@ -144,7 +144,7 @@ build_modern_llvm() {
     -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded \
     -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
     -DMLIR_PYTHON_PACKAGE_PREFIX="numba_cuda_mlir._mlir" \
-    -DCMAKE_CXX_FLAGS="-DMLIR_PYTHON_PACKAGE_PREFIX=numba_cuda_mlir._mlir." \
+    -DCMAKE_CXX_FLAGS="-DMLIR_PYTHON_PACKAGE_PREFIX=numba_cuda_mlir._mlir. -DMLIR_USE_FALLBACK_TYPE_IDS=1" \
     -DMLIR_BINDINGS_PYTHON_INSTALL_PREFIX="python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir" \
     -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=numba_cuda_mlir \
     -DMLIR_PYTHON_STUBGEN_ENABLED=OFF \

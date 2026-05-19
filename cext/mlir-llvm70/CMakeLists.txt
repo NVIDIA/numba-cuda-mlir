@@ -31,6 +31,10 @@ endif()
 
 if(MSVC)
   add_compile_definitions(_SILENCE_NONFLOATING_COMPLEX_DEPRECATION_WARNING)
+  # Windows wheels load MLIR Python and MLIRToLLVM70 as separate DLLs.  MLIR's
+  # fallback TypeIDs keep registered op/type/interface IDs consistent across
+  # those DSOs when both are compiled with this define.
+  add_compile_definitions(MLIR_USE_FALLBACK_TYPE_IDS=1)
   add_compile_options(/EHsc)
 endif()
 

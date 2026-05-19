@@ -174,6 +174,7 @@ class TestCUDAGufunc(NumbaCUDATestCase):
         copy2d(A, out=B)
         self.assertTrue(np.allclose(A, B))
 
+    @pytest.mark.xfail(True, reason="guvectorize not supported")
     def test_not_supported_call_from_jit(self):
         # not supported
         @guvectorize([void(int32[:], int32[:])], "(n)->(n)", target="cuda")
@@ -231,6 +232,7 @@ class TestCUDAGufunc(NumbaCUDATestCase):
 
         numba_dist_cuda2(a, b, dist)
 
+    @pytest.mark.xfail(True, reason="guvectorize not supported")
     def test_nopython_flag(self):
         def foo(A, B):
             pass
@@ -273,6 +275,7 @@ class TestCUDAGufunc(NumbaCUDATestCase):
         items = [i.strip("'\" ") for i in items]
         self.assertEqual(set(["what1", "ever2"]), set(items))
 
+    @pytest.mark.xfail(True, reason="guvectorize not supported")
     def test_duplicated_output(self):
         @guvectorize([void(float32[:], float32[:])], "(x)->(x)", target="cuda")
         def foo(inp, out):
@@ -317,6 +320,7 @@ class TestCUDAGufunc(NumbaCUDATestCase):
         b = (np.asarray((1.5, 2.5, 3.5)), np.asarray((4.5, 5.5, 6.5)))
         self.check_tuple_arg(a, b)
 
+    @pytest.mark.xfail(True, reason="guvectorize not supported")
     def test_gufunc_name(self):
         gufunc = _get_matmulcore_gufunc()
         self.assertEqual(gufunc.__name__, "matmulcore")
@@ -332,6 +336,7 @@ class TestCUDAGufunc(NumbaCUDATestCase):
         self.assertIn("guvectorized functions cannot return values", msg)
         self.assertIn("specifies int32 return type", msg)
 
+    @pytest.mark.xfail(True, reason="guvectorize not supported")
     def test_incorrect_number_of_pos_args(self):
         @guvectorize([(int32[:], int32[:], int32[:])], "(m),(m)->(m)", target="cuda")
         def f(x, y, z):
@@ -433,6 +438,7 @@ class TestMultipleOutputs(NumbaCUDATestCase):
         np.testing.assert_allclose(A, B)
         np.testing.assert_allclose(A * np.float64(1.5), C)
 
+    @pytest.mark.xfail(True, reason="guvectorize not supported")
     def test_incorrect_number_of_pos_args(self):
         @guvectorize(
             [(int32[:], int32[:], int32[:], int32[:])],

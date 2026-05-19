@@ -364,5 +364,18 @@ def make_attribute_wrapper(typeclass, struct_attr, python_attr):
                 return get_attr_fe_type(typ)
 
     @cuda_impl_registry.lower_getattr(typeclass, python_attr)
-    def struct_getattr_impl(context, builder, typ, val):
-        raise NotImplementedError("To be implemented")
+    def struct_getattr_impl(context, builder, target, value):
+        from numba_cuda_mlir._mlir import ir as mlir_ir
+        from numba_cuda_mlir._mlir.dialects import llvm as llvm_dialect
+
+        value_type = builder.get_numba_type(value.name)
+        model = data_model_manager.lookup(value_type)
+        field_idx = model.get_field_position(struct_attr)
+        field_mlir_type = model.get_model(field_idx).get_value_type()
+        struct_val = builder.load_var(value)
+        extracted = llvm_dialect.extractvalue(
+            field_mlir_type,
+            struct_val,
+            position=mlir_ir.DenseI64ArrayAttr.get([field_idx]),
+        )
+        builder.store_var(target, extracted)

@@ -181,6 +181,7 @@ jobs:
     permissions:
       actions: read
       contents: write
+      pull-requests: write  # required for sticky PR comment (doc preview link)
     uses: ./.github/workflows/build-docs.yml
     with:
       host-platform: linux-64

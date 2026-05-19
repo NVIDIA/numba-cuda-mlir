@@ -170,24 +170,6 @@ for path in load_candidates:
         print(f"  winerror={getattr(exc, 'winerror', None)} errno={getattr(exc, 'errno', None)}")
         print(f"  {exc!r}")
 
-core_candidates = sorted(mlir_libs.glob("_mlir*.pyd")) if mlir_libs.is_dir() else []
-core_candidates = [p for p in core_candidates if p.name.startswith("_mlir.")]
-if core_candidates:
-    core_pyd = core_candidates[0]
-    try:
-        core_spec = importlib.util.spec_from_file_location(
-            "numba_cuda_mlir._mlir._mlir_libs._mlir", core_pyd
-        )
-        print(f"Direct _mlir spec: {core_spec}")
-        raw_mlir = importlib.util.module_from_spec(core_spec)
-        core_spec.loader.exec_module(raw_mlir)
-        print(f"Direct _mlir import ok: {raw_mlir}")
-    except BaseException:
-        print(f"Direct _mlir import failed from {core_pyd}:")
-        traceback.print_exc()
-else:
-    print("Direct _mlir import skipped: no core _mlir*.pyd found")
-
 try:
     from numba_cuda_mlir._mlir import ir
     print(f"MLIR ir import ok: {ir}")

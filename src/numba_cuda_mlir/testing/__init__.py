@@ -55,7 +55,7 @@ def filecheck_with_comments(module):
     fun = inspect.currentframe().f_back.f_code
     _, lnum = inspect.findsource(fun)
     fun_with_checks = inspect.getsource(fun)
-    check_content = "\n" * lnum + fun_with_checks
+    check_content = ("\n" * lnum + fun_with_checks).replace("\r\n", "\n")
 
     opts = Options(match_filename="-", check_prefixes=["CHECK"])
     input_file = FInput(fname="-", content=op)
@@ -73,7 +73,8 @@ def filecheck(checks: str, actual: str | bytes | ir.Module):
         actual = str(actual)
     if isinstance(actual, bytes):
         actual = actual.decode()
-    checks = dedent(checks)
+    checks = dedent(checks).replace("\r\n", "\n")
+    actual = actual.replace("\r\n", "\n")
 
     opts = Options(match_filename="-", check_prefixes=["CHECK"])
     input_file = FInput(fname="-", content=actual)

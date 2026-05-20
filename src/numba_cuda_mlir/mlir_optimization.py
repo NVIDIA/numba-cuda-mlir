@@ -15,7 +15,7 @@ from numba_cuda_mlir.numba_cuda.cudadrv.nvvm import CompilationUnit
 from numba_cuda_mlir.logging import trace
 from numba_cuda_mlir.mlir.util import find_ops
 from numba_cuda_mlir.lowering_utilities.llvm_utils import (
-    MLIR_CAPI_LIB_PATH,
+    LLVM_C_LIB_PATH,
     NVPTX64_DATALAYOUT,
     NVPTX64_TRIPLE,
     translate_to_llvmir,
@@ -284,7 +284,7 @@ def _prepare_llvm_ir(module, dump=False) -> bytes:
         print(f"=============== LLVM IR ===============\n\n{dump_llvmir(llvm_mod)}\n\n")
 
     ctk_major, ctk_minor = get_cuda_runtime_version()
-    return downgrade_for_libnvvm(llvm_mod, llvm_ctx, ctk_major, ctk_minor, MLIR_CAPI_LIB_PATH)
+    return downgrade_for_libnvvm(llvm_mod, llvm_ctx, ctk_major, ctk_minor, LLVM_C_LIB_PATH)
 
 
 def _nvvm_options(cc: str, target_options=None, **extra) -> dict:

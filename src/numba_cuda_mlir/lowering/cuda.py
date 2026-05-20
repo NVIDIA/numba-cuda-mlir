@@ -30,6 +30,7 @@ from numba_cuda_mlir.lowering_utilities import (
     f32_of,
     i32_of,
     memref_to_llvm_ptr,
+    memref_llvm_address_space,
 )
 from numba_cuda_mlir.lowering_utilities.type_conversions import (
     to_mlir_type,
@@ -1111,21 +1112,9 @@ def cuda_generic_atomic_cg(builder, target, mr, indices, value, body_builder):
     builder.store_var(target, ir.Value(rmw))
 
 
-def _get_llvm_address_space(memref_type: ir.MemRefType) -> int:
-    mspace = memref_type.memory_space
-    if mspace is None:
-        return 1  # Global memory
-    mspace_str = str(mspace)
-    if "workgroup" in mspace_str:
-        return 3  # Shared memory
-    if "private" in mspace_str:
-        return 5  # Local/private memory
-    return 1  # Default to global
-
-
 def _atomic_ptr(mr: ir.Value, indices: list[ir.Value], value_type: ir.Type) -> ir.Value:
     llvm_kDynamic = -2147483648
-    addrspace = _get_llvm_address_space(mr.type)
+    addrspace = memref_llvm_address_space(mr.type)
     ptr_type = llvm.PointerType.get(addrspace)
 
     md = memref.extract_strided_metadata(mr)

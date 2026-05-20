@@ -37,6 +37,40 @@ import operator
 GEP_DYNAMIC_INDEX = -2147483648
 
 
+def memref_llvm_address_space(memref_type: ir.MemRefType) -> int:
+    """Return the NVVM LLVM address space for a CUDA memref type.
+
+    Untagged CUDA kernel argument memrefs represent global memory. Tagged memrefs
+    are used for explicit CUDA spaces such as workgroup/shared and private/local.
+    """
+    memory_space = memref_type.memory_space
+    if memory_space is None:
+        return 1
+    if isinstance(memory_space, ir.IntegerAttr):
+        return int(memory_space.value)
+    memory_space_str = str(memory_space)
+    if "workgroup" in memory_space_str:
+        return 3
+    if "private" in memory_space_str:
+        return 5
+    return 1
+
+
+def _memref_llvm_pointer_type(memref_type: ir.MemRefType) -> llvm.PointerType:
+    return llvm.PointerType.get(memref_llvm_address_space(memref_type))
+
+
+def memref_data_pointer_as_index(array: ir.Value, element_type: ir.Type | None = None) -> ir.Value:
+    base_ptr_idx = memref.extract_aligned_pointer_as_index(array)
+    metadata = memref.extract_strided_metadata(array)
+    offset = index_of(metadata[1])
+    if element_type is None:
+        element_type = ir.MemRefType(array.type).element_type
+    elem_bytes = get_type_size_bytes(element_type)
+    byte_offset = arith.muli(offset, arith.constant(T.index(), elem_bytes))
+    return arith.addi(base_ptr_idx, byte_offset)
+
+
 def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value], element_type: ir.Type) -> ir.Value:
     """Convert memref + indices to LLVM pointer.
 
@@ -51,16 +85,18 @@ def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value], element_type: i
     Returns:
         LLVM pointer (!llvm.ptr) to the indexed element
     """
-    # Extract base pointer from memref and convert to LLVM pointer
-    base_ptr_idx = memref.extract_aligned_pointer_as_index(array)
-    base_ptr = convert(base_ptr_idx, llvm.PointerType.get())
+    # Extract base pointer from memref and convert to an address-space-preserving
+    # LLVM pointer.
+    ptr_type = _memref_llvm_pointer_type(ir.MemRefType(array.type))
+    base_ptr_idx = memref_data_pointer_as_index(array)
+    base_ptr = llvm.inttoptr(res=ptr_type, arg=convert(base_ptr_idx, T.i64()))
 
     # Compute linear offset and use getelementptr
     if len(indices) == 1:
         # 1D case: simple offset
         idx = convert(indices[0], T.i64())
         element_ptr = llvm.getelementptr(
-            llvm.PointerType.get(),
+            ptr_type,
             base_ptr,
             [idx],
             [GEP_DYNAMIC_INDEX],
@@ -86,7 +122,7 @@ def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value], element_type: i
             linear_idx = linear_idx + idx_val * strides[d]
 
         element_ptr = llvm.getelementptr(
-            llvm.PointerType.get(),
+            ptr_type,
             base_ptr,
             [linear_idx],
             [GEP_DYNAMIC_INDEX],
@@ -159,6 +195,12 @@ def get_type_width(ty: ir.Type) -> int:
             return count * get_type_width(vt.element_type)
         case _:
             raise NotImplementedError(f"Not implemented for type {ty}")
+
+
+def get_type_size_bytes(ty: ir.Type) -> int:
+    # CUDA memrefs handled here are byte-addressable.  Numpy bool storage is one
+    # byte even though the MLIR element type is i1.
+    return max(1, (get_type_width(ty) + 7) // 8)
 
 
 @singledispatch
@@ -692,7 +734,7 @@ def unverified_basic_mlir_convert(
             imag = convert(imag, target_element_type)
             return complex_dialect.create_(complex=target_type, real=real, imaginary=imag)
         case ir.MemRefType() as mr, ptr_type if str(ptr_type) == "!llvm.ptr":
-            idx = memref.extract_aligned_pointer_as_index(value)
+            idx = memref_data_pointer_as_index(value, mr.element_type)
             return convert(idx, target_type)
         case ptr_type, ir.IntegerType() if str(ptr_type) == "!llvm.ptr":
             ptrtoi = llvm.ptrtoint(res=T.i64(), arg=value)

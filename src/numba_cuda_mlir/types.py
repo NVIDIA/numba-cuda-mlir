@@ -3,6 +3,7 @@
 from numba_cuda_mlir.numba_cuda.types import (
     BaseTuple,
     BoundFunction,
+    Optional,
     Poison,
     UnicodeType,
     UnionType,

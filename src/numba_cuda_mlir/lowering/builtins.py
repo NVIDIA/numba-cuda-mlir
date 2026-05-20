@@ -800,6 +800,21 @@ def operator_is_none_none_lower(builder, target, args, kwargs):
     builder.store_var(target, result)
 
 
+@lower(operator.is_, types.Optional, types.NoneType)
+@lower(operator.is_, types.NoneType, types.Optional)
+def operator_is_optional_none_lower(builder, target, args, kwargs):
+    """Lower 'optional_val is None' - check valid bit is false."""
+    from numba_cuda_mlir.mlir.dialect_exts import llvm
+
+    lhs_type = builder.get_numba_type(args[0].name)
+    opt_arg = args[0] if isinstance(lhs_type, types.Optional) else args[1]
+    opt_val = builder.load_var(opt_arg)
+    i1 = ir.IntegerType.get_signless(1)
+    valid = llvm.extractvalue(i1, opt_val, [1])
+    result = arith.xori(valid, arith.constant(i1, 1))
+    builder.store_var(target, result)
+
+
 @lower(operator.is_, types.Boolean, types.Literal)
 @lower(operator.is_, types.Literal, types.Boolean)
 def operator_is_bool_literal_lower(builder, target, args, kwargs):
@@ -839,6 +854,20 @@ def operator_is_not_none_none_lower(builder, target, args, kwargs):
     """Lower 'None is not None' - always False."""
     result = arith.constant(result=ir.IntegerType.get_signless(1), value=False)
     builder.store_var(target, result)
+
+
+@lower(operator.is_not, types.Optional, types.NoneType)
+@lower(operator.is_not, types.NoneType, types.Optional)
+def operator_is_not_optional_none_lower(builder, target, args, kwargs):
+    """Lower 'optional_val is not None' - check valid bit is true."""
+    from numba_cuda_mlir.mlir.dialect_exts import llvm
+
+    lhs_type = builder.get_numba_type(args[0].name)
+    opt_arg = args[0] if isinstance(lhs_type, types.Optional) else args[1]
+    opt_val = builder.load_var(opt_arg)
+    i1 = ir.IntegerType.get_signless(1)
+    valid = llvm.extractvalue(i1, opt_val, [1])
+    builder.store_var(target, valid)
 
 
 @lower(operator.is_not, types.Boolean, types.Literal)

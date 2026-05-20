@@ -9,6 +9,7 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
     signature,
 )
 from numba_cuda_mlir import types
+from numba_cuda_mlir.type_defs.vector_types import VectorType
 import operator
 
 registry = Registry()
@@ -35,15 +36,20 @@ class TupleMultiplyTemplate(AbstractTemplate):
 @registry.register_global(operator.setitem)
 class ArraySetitemTemplate(AbstractTemplate):
     def generic(self, args, kws):
-        match args:
-            case (
-                types.Array() as array,
-                types.Integer() as idx,
-                types.Complex() as value,
-            ):
-                return signature(types.none, array, idx, value)
-            case _:
-                return None
+        if len(args) != 3:
+            return None
+        array, idx, value = args
+        if not isinstance(array, types.Array):
+            return None
+        if isinstance(value, types.Complex):
+            return signature(types.none, array, idx, value)
+        if (
+            isinstance(value, VectorType)
+            and value.length == 2
+            and isinstance(array.dtype, types.Complex)
+        ):
+            return signature(types.none, array, idx, value)
+        return None
 
 
 @registry.register_global(operator.contains)

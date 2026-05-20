@@ -233,5 +233,25 @@ def test_tuple_of_array_scalar_tuple():
     np.testing.assert_array_equal(r, expected)
 
 
+def test_tuple_multi_assign_from_device_function():
+    @cuda.jit(device=True)
+    def two_tuple_returns(cond):
+        if cond:
+            return (1, 2, 3)
+        return (4, 5, 6)
+
+    @cuda.jit
+    def kernel(out, n):
+        t = two_tuple_returns(n > 0)
+        out[0] = t[0]
+
+    out = cuda.device_array((1,), dtype=np.int64)
+    kernel[1, 1](out, 1)
+    assert out.copy_to_host()[0] == 1
+
+    kernel[1, 1](out, -1)
+    assert out.copy_to_host()[0] == 4
+
+
 if __name__ == "__main__":
     test_tuple_concat((1, 2), (3, 4, 5))

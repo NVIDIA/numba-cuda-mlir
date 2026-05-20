@@ -679,7 +679,6 @@ class TestCompile(NumbaCUDATestCase):
 
         cuda.compile(wrapper, wrapper_sig.args, output="ltoir")
 
-    @pytest.mark.xfail(True, reason="Issue with Optional type")
     def test_compile_CABI_calling_device_function_returning_optional(self):
         # Exercise a CABI caller invoking a Numba ABI callee that can return
         # None through Optional[int32]

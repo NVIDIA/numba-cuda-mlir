@@ -436,8 +436,10 @@ def compile_mlir(pyfunc, sig, optimized=False, **targetoptions):
         cres = _compile_and_optimize(pyfunc, sig, targetoptions)
         return cres.metadata["mlir_module_optimized"]
     else:
+        from numba_cuda_mlir.descriptor import mlir_target
         from numba_cuda_mlir.mlir_lowering import get_mlir_module_str
 
+        mlir_target.ensure_initialized()
         cres = _compile_only(pyfunc, sig, targetoptions)
         return get_mlir_module_str(cres.metadata)
 

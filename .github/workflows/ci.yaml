@@ -149,6 +149,52 @@ jobs:
       build-type: pull-request
       host-platform: ${{ matrix.host-platform }}
 
+  test-numbast-mlir-linux-64:
+    name: Numbast MLIR Test linux-64
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read  # This is required for actions/checkout
+    needs:
+      - build-linux-64
+    uses: ./.github/workflows/test-wheel-linux.yml
+    with:
+      build-type: pull-request
+      host-platform: linux-64
+      test-script: run-numbast-mlir-tests
+      matrix_filter: >-
+        map(select(
+          .PY_VER == "3.12" and
+          .CUDA_VER == "13.2.1" and
+          .GPU == "l4" and
+          .GPU_COUNT == "1" and
+          (.FLAVOR | not)
+        ))
+        | map(.LOCAL_CTK = "1")
+        | .[0:1]
+
+  test-numbast-mlir-linux-aarch64:
+    name: Numbast MLIR Test linux-aarch64
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read  # This is required for actions/checkout
+    needs:
+      - build-linux-aarch64
+    uses: ./.github/workflows/test-wheel-linux.yml
+    with:
+      build-type: pull-request
+      host-platform: linux-aarch64
+      test-script: run-numbast-mlir-tests
+      matrix_filter: >-
+        map(select(
+          .PY_VER == "3.12" and
+          .CUDA_VER == "13.2.1" and
+          .GPU == "a100" and
+          .GPU_COUNT == "1" and
+          (.FLAVOR | not)
+        ))
+        | map(.LOCAL_CTK = "1")
+        | .[0:1]
+
   test-expensive-linux-64:
     name: Expensive Test linux-64
     if: ${{ github.repository_owner == 'nvidia' }}
@@ -209,6 +255,8 @@ jobs:
     needs:
       - test-linux-64
       - test-linux-aarch64
+      - test-numbast-mlir-linux-64
+      - test-numbast-mlir-linux-aarch64
       - test-expensive-linux-64
       - test-expensive-linux-aarch64
       - build-docs
@@ -237,6 +285,10 @@ jobs:
                  needs.test-linux-64.result == 'failure' ||
                  needs.test-linux-aarch64.result == 'cancelled' ||
                  needs.test-linux-aarch64.result == 'failure' ||
+                 needs.test-numbast-mlir-linux-64.result == 'cancelled' ||
+                 needs.test-numbast-mlir-linux-64.result == 'failure' ||
+                 needs.test-numbast-mlir-linux-aarch64.result == 'cancelled' ||
+                 needs.test-numbast-mlir-linux-aarch64.result == 'failure' ||
                  needs.test-expensive-linux-64.result == 'cancelled' ||
                  needs.test-expensive-linux-64.result == 'failure' ||
                  needs.test-expensive-linux-aarch64.result == 'cancelled' ||

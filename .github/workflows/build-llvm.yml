@@ -119,10 +119,10 @@ jobs:
       matrix:
         include:
           - { python-version: "3.11", py-tag: cp311 }
-          # - { python-version: "3.12", py-tag: cp312 }
-          # - { python-version: "3.13", py-tag: cp313 }
-          # - { python-version: "3.14", py-tag: cp314 }
-          # - { python-version: "3.14t", py-tag: cp314t }
+          - { python-version: "3.12", py-tag: cp312 }
+          - { python-version: "3.13", py-tag: cp313 }
+          - { python-version: "3.14", py-tag: cp314 }
+          - { python-version: "3.14t", py-tag: cp314t }
     runs-on: windows-amd64-cpu16
     timeout-minutes: 120
     env:

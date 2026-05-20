@@ -29,10 +29,10 @@ jobs:
         python-version:
           # - "3.10"
           - "3.11"
-          # - "3.12"
-          # - "3.13"
-          # - "3.14"
-          # - "3.14t"
+          - "3.12"
+          - "3.13"
+          - "3.14"
+          - "3.14t"
     name: py${{ matrix.python-version }}
     runs-on: ${{ (inputs.host-platform == 'linux-64' && 'linux-amd64-cpu8') ||
                  (inputs.host-platform == 'linux-aarch64' && 'linux-arm64-cpu8') ||
@@ -57,17 +57,6 @@ jobs:
           sccache --version
           echo "SCCACHE_PATH=/usr/local/bin/sccache" >> "$GITHUB_ENV"
           echo "SCCACHE_GHA_USE_PREPROCESSOR_CACHE_MODE=true" >> "$GITHUB_ENV"
-
-      - name: Install sccache for Windows
-        if: ${{ inputs.host-platform == 'win-64' }}
-        run: |
-          curl -fsSL https://github.com/mozilla/sccache/releases/download/v0.10.0/sccache-v0.10.0-x86_64-pc-windows-msvc.tar.gz -o sccache.tar.gz
-          mkdir -p sccache-bin
-          tar -xzf sccache.tar.gz -C sccache-bin --strip-components=1
-          echo "$(pwd)/sccache-bin" >> "$GITHUB_PATH"
-          echo "SCCACHE_PATH=$(pwd)/sccache-bin/sccache.exe" >> "$GITHUB_ENV"
-          export PATH="$(pwd)/sccache-bin:$PATH"
-          sccache --version
 
       # xref: https://github.com/orgs/community/discussions/42856#discussioncomment-7678867
       - name: Adding addtional GHA cache-related env vars
@@ -193,8 +182,6 @@ jobs:
           CIBW_ENVIRONMENT_WINDOWS: >
             MLIR_DIR="$(cygpath -w ${{ env.LLVM_MODERN_INSTALL_DIR }}/lib/cmake/mlir)"
             LIBLLVM7="$(cygpath -w ${{ env.LLVM7_INSTALL_DIR }}/bin/LLVM-C.dll)"
-            CMAKE_C_COMPILER_LAUNCHER="$(cygpath -w ${{ env.SCCACHE_PATH }})"
-            CMAKE_CXX_COMPILER_LAUNCHER="$(cygpath -w ${{ env.SCCACHE_PATH }})"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             auditwheel -v repair {wheel} --wheel-dir {dest_dir}
             --exclude libMLIRPythonCAPI.so

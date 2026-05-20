@@ -337,6 +337,8 @@ PY
     cp "${capi_import_lib}" "${LLVM_MODERN_INSTALL}/lib/MLIRPythonCAPI.lib"
   fi
 
+  build_modern_llvm_c_dll "${install_mlir_libs}"
+
   local smoke_install_root
   smoke_install_root="$(cmake_path "${LLVM_MODERN_INSTALL}")"
   "${PYTHON}" - "${smoke_install_root}" <<'PY'
@@ -369,8 +371,9 @@ if os.name == "nt" and hasattr(os, "add_dll_directory"):
 
 for name in (
     "nanobind-numba_cuda_mlir.dll",
-    "MLIRPythonCAPI.dll",
     "MLIRPythonSupport-numba_cuda_mlir.dll",
+    "LLVM-C-modern.dll",
+    "MLIRPythonCAPI.dll",
 ):
     path = mlir_libs / name
     if path.exists():
@@ -387,6 +390,129 @@ except BaseException:
 
 print("Modern MLIR Python artifact smoke import passed")
 PY
+}
+
+build_modern_llvm_c_dll() {
+  local install_mlir_libs="$1"
+  local modern_lib_dir="${LLVM_MODERN_INSTALL}/lib"
+  local exports_script="${REPO_ROOT}/ci/tools/gen-llvm-c-exports.py"
+  local libs_rsp="${LLVM_MODERN_BUILD}/llvm-c-modern-libs.rsp"
+  local exports_file="${LLVM_MODERN_BUILD}/LLVM-C-modern.exports"
+  local def_file="${LLVM_MODERN_BUILD}/LLVM-C-modern.def"
+  local link_rsp="${LLVM_MODERN_BUILD}/llvm-c-modern-link.rsp"
+  local llvm_c_dll="${install_mlir_libs}/LLVM-C-modern.dll"
+  local llvm_c_import_lib="${install_mlir_libs}/LLVM-C-modern.lib"
+  local cmake_cache="${LLVM_MODERN_BUILD}/CMakeCache.txt"
+  local link_tool=""
+  if [[ -f "${cmake_cache}" ]]; then
+    link_tool="$(sed -n 's#^CMAKE_LINKER:FILEPATH=##p' "${cmake_cache}" | head -n 1)"
+  fi
+  if [[ -n "${link_tool}" ]]; then
+    link_tool="$(shell_path "${link_tool}")"
+  fi
+  if [[ -z "${link_tool}" || ! -f "${link_tool}" ]]; then
+    if command -v link.exe >/dev/null 2>&1; then
+      link_tool="$(command -v link.exe)"
+    elif command -v where.exe >/dev/null 2>&1; then
+      link_tool="$(where.exe link.exe 2>/dev/null | tr -d '\r' | head -n 1)"
+      if [[ -n "${link_tool}" ]]; then
+        link_tool="$(shell_path "${link_tool}")"
+      fi
+    fi
+  fi
+  if [[ -z "${link_tool}" || ! -f "${link_tool}" ]]; then
+    echo "ERROR: unable to resolve MSVC link.exe (CMAKE_LINKER/PATH/where.exe)" >&2
+    exit 1
+  fi
+  if ! ("${link_tool}" /? 2>&1 || true) | grep -iq 'Incremental Linker'; then
+    echo "ERROR: resolved linker is not MSVC link.exe: ${link_tool}" >&2
+    exit 1
+  fi
+
+  local dumpbin_tool=""
+  local link_dir
+  link_dir="$(dirname "${link_tool}")"
+  if [[ -f "${link_dir}/dumpbin.exe" ]]; then
+    dumpbin_tool="${link_dir}/dumpbin.exe"
+  elif command -v dumpbin.exe >/dev/null 2>&1; then
+    dumpbin_tool="$(command -v dumpbin.exe)"
+  elif command -v where.exe >/dev/null 2>&1; then
+    dumpbin_tool="$(where.exe dumpbin.exe 2>/dev/null | tr -d '\r' | head -n 1)"
+    if [[ -n "${dumpbin_tool}" ]]; then
+      dumpbin_tool="$(shell_path "${dumpbin_tool}")"
+    fi
+  fi
+  if [[ -z "${dumpbin_tool}" || ! -f "${dumpbin_tool}" ]]; then
+    echo "ERROR: unable to resolve dumpbin.exe (alongside link.exe/PATH/where.exe)" >&2
+    exit 1
+  fi
+  if ! ("${dumpbin_tool}" /? 2>&1 || true) | grep -iq 'COFF/PE Dumper'; then
+    echo "ERROR: resolved dumpbin tool is not MSVC dumpbin.exe: ${dumpbin_tool}" >&2
+    exit 1
+  fi
+
+  local llvm_libs=()
+  mapfile -t llvm_libs < <(
+    find "${modern_lib_dir}" -maxdepth 1 -type f -name 'LLVM*.lib' ! -name 'LLVM-C.lib' ! -name 'LLVM-C-modern.lib' ! -name 'LLVM.lib' | sort
+  )
+  if [[ "${#llvm_libs[@]}" -eq 0 ]]; then
+    echo "ERROR: no LLVM static/import libs found under ${modern_lib_dir}" >&2
+    exit 1
+  fi
+  : > "${libs_rsp}"
+  for lib_path in "${llvm_libs[@]}"; do
+    printf '%s\n' "$(cmake_path "${lib_path}")" >> "${libs_rsp}"
+  done
+
+  "${PYTHON}" "${exports_script}" \
+    --dumpbin "${dumpbin_tool}" \
+    --libsfile "${libs_rsp}" \
+    --output "${exports_file}" \
+    --deffile "${def_file}" \
+    --dll-name LLVM-C-modern
+  if ! grep -qx 'LLVMContextCreate' "${exports_file}"; then
+    echo "ERROR: generated export list is missing LLVMContextCreate: ${exports_file}" >&2
+    exit 1
+  fi
+
+  mkdir -p "${install_mlir_libs}"
+
+  local stub_obj="${LLVM_MODERN_BUILD}/llvm-c-modern-stub.obj"
+  pushd "${LLVM_MODERN_BUILD}" > /dev/null
+  printf 'int _fltused = 0;\n' > llvm-c-modern-stub.c
+  cl -nologo -c -O2 -MD -Follvm-c-modern-stub.obj llvm-c-modern-stub.c
+  popd > /dev/null
+
+  {
+    printf '/NOLOGO\n'
+    printf '/DLL\n'
+    printf '/MACHINE:X64\n'
+    printf '/OUT:%s\n' "$(cmake_path "${llvm_c_dll}")"
+    printf '/IMPLIB:%s\n' "$(cmake_path "${llvm_c_import_lib}")"
+    printf '/DEF:%s\n' "$(cmake_path "${def_file}")"
+    printf '/INCLUDE:LLVMContextCreate\n'
+    printf '%s\n' "$(cmake_path "${stub_obj}")"
+    while IFS= read -r lib_path; do
+      [[ -z "${lib_path}" ]] && continue
+      printf '/WHOLEARCHIVE:%s\n' "${lib_path}"
+    done < "${libs_rsp}"
+  } > "${link_rsp}"
+
+  "${link_tool}" @"$(cmake_path "${link_rsp}")"
+
+  if [[ ! -f "${llvm_c_dll}" ]]; then
+    echo "ERROR: failed to produce ${llvm_c_dll}" >&2
+    exit 1
+  fi
+
+  local dumpbin_rsp="${LLVM_MODERN_BUILD}/dumpbin-modern-exports.rsp"
+  printf '/NOLOGO\n/EXPORTS\n%s\n' "$(cmake_path "${llvm_c_dll}")" > "${dumpbin_rsp}"
+  if ! "${dumpbin_tool}" @"$(cmake_path "${dumpbin_rsp}")" | grep -q 'LLVMContextCreate'; then
+    echo "ERROR: ${llvm_c_dll} does not export LLVMContextCreate" >&2
+    echo "DLL size: $(ls -la "${llvm_c_dll}" 2>&1)"
+    "${dumpbin_tool}" @"$(cmake_path "${dumpbin_rsp}")" 2>&1 | head -40
+    exit 1
+  fi
 }
 
 step "Validate Windows build prerequisites" check_prereqs

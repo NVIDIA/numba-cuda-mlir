@@ -91,6 +91,7 @@ if mlir_libs.is_dir():
 load_candidates = [
     mlir_libs / "nanobind-numba_cuda_mlir.dll",
     mlir_libs / "MLIRPythonSupport-numba_cuda_mlir.dll",
+    mlir_libs / "LLVM-C-modern.dll",
     mlir_libs / "MLIRPythonCAPI.dll",
     mlir_libs / "MLIRToLLVM70.dll",
     pkg / "MLIRToLLVM70.dll",

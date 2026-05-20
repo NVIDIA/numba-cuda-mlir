@@ -16,12 +16,6 @@ Install with pip:
 pip install numba-cuda-mlir[cu13]  # or [cu12] if using CUDA 12
 ```
 
-or using conda:
-
-```
-conda install -c conda-forge numba-cuda-mlir
-```
-
 Writing and executing a simple vector add kernel:
 
 ```python
@@ -73,7 +67,7 @@ documentation for further details.
   - The `cuda.core` and `cuda-bindings` packages
   - NumPy >= 1.22
 - CUDA Toolkit components (CUDA Runtime, NVCC, NVRTC, nvJitLink, and CCCL)
-  installed via pip or conda, or a system package manager (Linux).
+  installed via pip or a system package manager (Linux).
 - NVIDIA GPU with Compute Capability 7.0 or greater and a compatible driver:
   - &gt;= r525 for CUDA 12.x
   - &gt;= r580 for CUDA 13.x

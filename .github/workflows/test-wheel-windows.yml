@@ -138,15 +138,23 @@ jobs:
           cuda-version: ${{ matrix.CUDA_VER }}
           cuda-components: "cuda_nvcc,cuda_cudart,cuda_crt,libnvvm,cuda_nvrtc,cuda_cccl,libnvjitlink,cuda_cuobjdump"
 
+      - name: Resolve devcontainer image
+        env:
+          CUDA_VER: ${{ matrix.CUDA_VER }}
+        run: |
+          cuda_major_minor="$(cut -d '.' -f 1,2 <<< "${CUDA_VER}")"
+          case "${cuda_major_minor}" in
+            12.*|13.*) ;;
+            *) echo "Unsupported Windows devcontainer CUDA version: ${CUDA_VER}" >&2; exit 1 ;;
+          esac
+          image="rapidsai/devcontainers:26.06-cuda${cuda_major_minor}-cl14.44"
+          echo "WINDOWS_TEST_DEVCONTAINER_IMAGE=${image}" >> "$GITHUB_ENV"
+          echo "Resolved Windows test devcontainer image: ${image}"
+
       - name: Pull devcontainer image
         shell: pwsh
         run: |
-          Get-Content ci/windows-devcontainer.env | ForEach-Object {
-            if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)\s*$') {
-              Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2].Trim()
-            }
-          }
-          docker pull $env:WINDOWS_DEVCONTAINER_IMAGE
+          docker pull $env:WINDOWS_TEST_DEVCONTAINER_IMAGE
 
       - name: Run numba-cuda-mlir tests in devcontainer
         shell: pwsh
@@ -156,12 +164,6 @@ jobs:
           PY_VER: ${{ matrix.PY_VER }}
           TEST_SCRIPT: ${{ inputs.test-script }}
         run: |
-          Get-Content ci/windows-devcontainer.env | ForEach-Object {
-            if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)\s*$') {
-              Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2].Trim()
-            }
-          }
-
           switch ($env:TEST_SCRIPT) {
             'run-tests' { }
             'run-coverage-tests' { }
@@ -169,7 +171,7 @@ jobs:
           }
 
           $src = (Resolve-Path "${{ github.workspace }}").Path
-          $img = $env:WINDOWS_DEVCONTAINER_IMAGE
+          $img = $env:WINDOWS_TEST_DEVCONTAINER_IMAGE
           $dockerArgs = @(
             'run',
             '--rm',

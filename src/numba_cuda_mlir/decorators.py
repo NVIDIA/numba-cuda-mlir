@@ -550,16 +550,19 @@ def verify_target_options(kws: dict[str, Any]) -> dict[str, Any]:
 
     lto_was_explicit = "lto" in kws
     output_was_explicit = "output" in kws
+    link_items = targetoptions.get("link", [])
     if targetoptions.get("lto") is None and output_was_explicit:
         targetoptions["lto"] = targetoptions["output"] == "ltoir"
     elif targetoptions.get("lto") is None and (
-        targetoptions.get("lineinfo") or _link_items_have_callbacks(targetoptions.get("link", []))
+        targetoptions.get("lineinfo") or _link_items_have_callbacks(link_items)
     ):
         targetoptions["lto"] = False
-    elif targetoptions.get("lto") is None:
+    elif targetoptions.get("lto") is None and link_items and not targetoptions.get("debug"):
         from numba_cuda_mlir.numba_cuda.cudadrv.driver import _have_nvjitlink
 
-        targetoptions["lto"] = _have_nvjitlink() and not targetoptions.get("debug")
+        targetoptions["lto"] = _have_nvjitlink()
+    elif targetoptions.get("lto") is None:
+        targetoptions["lto"] = False
     targetoptions["_lto_explicit"] = lto_was_explicit
 
     return targetoptions

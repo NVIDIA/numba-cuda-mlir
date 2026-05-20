@@ -9,9 +9,7 @@ import re
 from textwrap import dedent
 import inspect
 from numba_cuda_mlir._mlir.ir import Module, Operation
-from subprocess import PIPE, Popen, run
 from typing import Iterable, Union
-import tempfile
 import sys
 import shutil
 
@@ -57,22 +55,17 @@ def filecheck_with_comments(module):
     fun = inspect.currentframe().f_back.f_code
     _, lnum = inspect.findsource(fun)
     fun_with_checks = inspect.getsource(fun)
+    check_content = "\n" * lnum + fun_with_checks
 
-    filecheck_path = get_filecheck_path()
-    assert filecheck_path is not None, "couldn't find FileCheck"
-    with tempfile.NamedTemporaryFile() as tmp:
-        tmp.write(("\n" * lnum + fun_with_checks).encode())
-        tmp.flush()
-        p = Popen(
-            [filecheck_path, tmp.name],
-            stdout=PIPE,
-            stdin=PIPE,
-            stderr=PIPE,
-        )
-        out, err = map(lambda o: o.decode(), p.communicate(input=op.encode()))
-        if p.returncode:
-            err = err.replace(tmp.name, inspect.getfile(fun))
-            raise ValueError(f"\n{err}")
+    opts = Options(match_filename="-", check_prefixes=["CHECK"])
+    input_file = FInput(fname="-", content=op)
+    parser = Parser(opts, StringIO(check_content), *pattern_for_opts(opts))
+    matcher = Matcher(opts, input_file, parser)
+    matcher.stderr = StringIO()
+    result = matcher.run()
+    if result != 0:
+        err = matcher.stderr.getvalue()
+        raise ValueError(f"\n{err}")
 
 
 def filecheck(checks: str, actual: str | bytes | ir.Module):
@@ -82,32 +75,15 @@ def filecheck(checks: str, actual: str | bytes | ir.Module):
         actual = actual.decode()
     checks = dedent(checks)
 
-    filecheck_path = get_filecheck_path()
-    assert filecheck_path is not None, "couldn't find FileCheck"
-
-    with tempfile.NamedTemporaryFile(mode="w", delete=False) as tmp:
-        tmp.write(checks)
-        tmp.flush()
-        tmp_name = tmp.name
-
-    try:
-        p = Popen(
-            [
-                filecheck_path,
-                tmp_name,
-            ],
-            stdout=PIPE,
-            stdin=PIPE,
-            stderr=PIPE,
-        )
-        out, err = p.communicate(input=actual.encode())
-        out = out.decode()
-        err = err.decode()
-
-        if p.returncode != 0:
-            raise ValueError(f"\n{out}\n{err}")
-    finally:
-        Path(tmp_name).unlink(missing_ok=True)
+    opts = Options(match_filename="-", check_prefixes=["CHECK"])
+    input_file = FInput(fname="-", content=actual)
+    parser = Parser(opts, StringIO(checks), *pattern_for_opts(opts))
+    matcher = Matcher(opts, input_file, parser)
+    matcher.stderr = StringIO()
+    result = matcher.run()
+    if result != 0:
+        err = matcher.stderr.getvalue()
+        raise ValueError(f"\n{err}")
 
 
 # From legacy Numba-CUDA testsuite

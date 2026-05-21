@@ -67,8 +67,8 @@ jobs:
         uses: ./.github/actions/install_unix_deps
         continue-on-error: false
         with:
-          dependencies: "git jq wget libgl1 libegl1"
-          dependent_exes: "git jq wget"
+          dependencies: "clang git jq wget libgl1 libegl1"
+          dependent_exes: "clang++ git jq wget"
 
       - name: Checkout Numbast
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -139,7 +139,7 @@ jobs:
         with:
           host-platform: ${{ inputs.host-platform }}
           cuda-version: ${{ matrix.CUDA_VER }}
-          cuda-components: "cuda_nvcc,cuda_cudart,cuda_crt,libnvvm,cuda_nvrtc,cuda_cccl,libnvjitlink,cuda_cuobjdump"
+          cuda-components: "cuda_nvcc,cuda_cudart,cuda_crt,libnvvm,cuda_nvrtc,cuda_cccl,libnvjitlink,libcurand,cuda_cuobjdump"
 
       - name: Run Numbast MLIR tests
         env:

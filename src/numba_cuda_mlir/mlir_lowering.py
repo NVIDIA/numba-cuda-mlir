@@ -2038,13 +2038,22 @@ extern "C" __global__ void
         has_teardown_callback = (
             hasattr(link_item, "teardown_callback") and link_item.teardown_callback
         )
-        if (has_setup_callback or has_teardown_callback) and not self.targetoptions.get(
-            "_lto_explicit", False
+        if (
+            (has_setup_callback or has_teardown_callback)
+            and not self.targetoptions.get("_lto_explicit", False)
+            and not self.targetoptions.get("_output_explicit", False)
         ):
             self.targetoptions["lto"] = False
             self.targetoptions["output"] = "ptx"
             if self._linker_config["lto"]:
                 self._linker_config["lto"] = False
+                self.linker = self._create_linker()
+                for prior_link_item in self._linked_external_link_items:
+                    self.linker.add_file_guess_ext(prior_link_item)
+        elif self._can_enable_implicit_lto_for_external_link_item():
+            self.targetoptions["lto"] = True
+            if not self._linker_config["lto"]:
+                self._linker_config["lto"] = True
                 self.linker = self._create_linker()
                 for prior_link_item in self._linked_external_link_items:
                     self.linker.add_file_guess_ext(prior_link_item)
@@ -2055,6 +2064,22 @@ extern "C" __global__ void
             self._teardown_callbacks.append(link_item.teardown_callback)
         self.linker.add_file_guess_ext(link_item)
         self._linked_external_link_items.append(link_item)
+
+    def _can_enable_implicit_lto_for_external_link_item(self) -> bool:
+        if self.targetoptions.get("lto", False):
+            return False
+        if self.targetoptions.get("_lto_explicit", False):
+            return False
+        if self.targetoptions.get("_output_explicit", False):
+            return False
+        if self._setup_callbacks or self._teardown_callbacks:
+            return False
+        if self.targetoptions.get("debug") or self.targetoptions.get("lineinfo"):
+            return False
+
+        from numba_cuda_mlir.numba_cuda.cudadrv.driver import _have_nvjitlink
+
+        return _have_nvjitlink()
 
     @staticmethod
     def _external_link_item_key(link_item):
@@ -2317,14 +2342,39 @@ extern "C" __global__ void
                 self._shared_memory_base = gpu.dynamic_shared_memory(mr_type)
         return self._shared_memory_base
 
-    def _request_shared_memory(self, sizes: tuple[ir.Value, ...], mr_type: ir.MemRefType):
+    def _shared_memory_element_bytes(self, mr_type: ir.MemRefType) -> int:
         match mr_type.element_type:
             case ir.IntegerType() | ir.FloatType() as t:
-                bytes: int = t.width // 8
+                return t.width // 8
             case T.index:
-                bytes: int = 8
+                return 8
             case _:
                 raise NotImplementedError(f"NotImplemented shared memory type {mr_type}.")
+
+    def _request_dynamic_shared_memory(self, mr_type: ir.MemRefType):
+        bytes = self._shared_memory_element_bytes(mr_type)
+        assert self.mlir_funcOp
+        with ir.InsertionPoint(self.mlir_funcOp.entry_block):
+            bytes_op = arith.constant(result=T.index(), value=bytes)
+            shm_base = self._get_shared_memory_base()
+            if self._total_shared_memory_bytes is None:
+                self._total_shared_memory_bytes = arith.constant(result=T.index(), value=0)
+            dynamic_shared_bytes = memref.dim(shm_base, index_of(0))
+            remaining_bytes = arith.subi(
+                lhs=dynamic_shared_bytes, rhs=self._total_shared_memory_bytes
+            )
+            size = arith.divui(lhs=remaining_bytes, rhs=bytes_op)
+            view = memref.view(
+                result=mr_type,
+                source=shm_base,
+                byte_shift=self._total_shared_memory_bytes,
+                sizes=[size],
+            )
+            self._total_shared_memory_bytes = dynamic_shared_bytes
+        return view
+
+    def _request_shared_memory(self, sizes: tuple[ir.Value, ...], mr_type: ir.MemRefType):
+        bytes = self._shared_memory_element_bytes(mr_type)
         assert self.mlir_funcOp
         with ir.InsertionPoint(self.mlir_funcOp.entry_block):
             bytes_op = arith.constant(result=T.index(), value=bytes)

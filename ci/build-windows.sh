@@ -269,7 +269,6 @@ build_modern_llvm() {
     -DLLVM_INCLUDE_DOCS=OFF \
     -DLLVM_ENABLE_ZLIB=OFF \
     -DLLVM_ENABLE_ZSTD=OFF \
-    -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded \
     -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
     -DMLIR_PYTHON_PACKAGE_PREFIX="numba_cuda_mlir._mlir" \
     -DCMAKE_CXX_FLAGS="-DMLIR_PYTHON_PACKAGE_PREFIX=numba_cuda_mlir._mlir. -DMLIR_USE_FALLBACK_TYPE_IDS=1" \
@@ -395,13 +394,92 @@ PY
 build_modern_llvm_c_dll() {
   local install_mlir_libs="$1"
   local modern_lib_dir="${LLVM_MODERN_INSTALL}/lib"
-  local exports_script="${REPO_ROOT}/ci/tools/gen-llvm-c-exports.py"
   local libs_rsp="${LLVM_MODERN_BUILD}/llvm-c-modern-libs.rsp"
   local exports_file="${LLVM_MODERN_BUILD}/LLVM-C-modern.exports"
   local def_file="${LLVM_MODERN_BUILD}/LLVM-C-modern.def"
   local link_rsp="${LLVM_MODERN_BUILD}/llvm-c-modern-link.rsp"
   local llvm_c_dll="${install_mlir_libs}/LLVM-C-modern.dll"
   local llvm_c_import_lib="${install_mlir_libs}/LLVM-C-modern.lib"
+  local required_llvm_c_exports=(
+    LLVMContextCreate
+    LLVMContextDispose
+    LLVMDisposeModule
+    LLVMPrintModuleToString
+    LLVMDisposeMessage
+    LLVMGetFirstFunction
+    LLVMGetNextFunction
+    LLVMGetFirstBasicBlock
+    LLVMGetNextBasicBlock
+    LLVMGetFirstInstruction
+    LLVMGetNextInstruction
+    LLVMGetNamedFunction
+    LLVMAddFunction
+    LLVMCountParams
+    LLVMGetFunctionCallConv
+    LLVMSetLinkage
+    LLVMGetCalledValue
+    LLVMGetAttributeCountAtIndex
+    LLVMGetAttributesAtIndex
+    LLVMIsEnumAttribute
+    LLVMIsStringAttribute
+    LLVMGetEnumAttributeKind
+    LLVMGetStringAttributeKind
+    LLVMRemoveEnumAttributeAtIndex
+    LLVMGetEnumAttributeKindForName
+    LLVMVoidTypeInContext
+    LLVMInt1TypeInContext
+    LLVMInt32TypeInContext
+    LLVMFloatTypeInContext
+    LLVMDoubleTypeInContext
+    LLVMHalfTypeInContext
+    LLVMBFloatTypeInContext
+    LLVMFunctionType
+    LLVMPointerTypeInContext
+    LLVMTypeOf
+    LLVMGetTypeKind
+    LLVMArrayType2
+    LLVMGetReturnType
+    LLVMReplaceAllUsesWith
+    LLVMGetOperand
+    LLVMGetNumOperands
+    LLVMConstInt
+    LLVMInstructionEraseFromParent
+    LLVMGetAtomicRMWBinOp
+    LLVMSetAtomicRMWBinOp
+    LLVMCreateBuilderInContext
+    LLVMPositionBuilderBefore
+    LLVMDisposeBuilder
+    LLVMBuildCall2
+    LLVMBuildZExt
+    LLVMBuildTrunc
+    LLVMBuildFPExt
+    LLVMBuildFPTrunc
+    LLVMGetInlineAsm
+    LLVMGetFirstUse
+    LLVMGetNextUse
+    LLVMGetUser
+    LLVMMDStringInContext2
+    LLVMMDNodeInContext2
+    LLVMValueAsMetadata
+    LLVMMetadataAsValue
+    LLVMAddNamedMetadataOperand
+    LLVMGetNamedMetadataNumOperands
+    LLVMGetNamedMetadataOperands
+    LLVMAddGlobal
+    LLVMSetInitializer
+    LLVMSetSection
+    LLVMConstArray2
+    LLVMGetMDNodeNumOperands
+    LLVMGetMDNodeOperands
+    LLVMReplaceMDNodeOperandWith
+    LLVMGetMDString
+    LLVMConstIntGetZExtValue
+    LLVMIsACallInst
+    LLVMIsAAtomicRMWInst
+    LLVMIsAConstantInt
+    LLVMGetPointerAddressSpace
+    LLVMDeleteFunction
+  )
   local windows_system_libs=(
     winhttp.lib
     crypt32.lib
@@ -475,16 +553,18 @@ build_modern_llvm_c_dll() {
     printf '%s\n' "$(cmake_path "${lib_path}")" >> "${libs_rsp}"
   done
 
-  "${PYTHON}" "${exports_script}" \
-    --dumpbin "${dumpbin_tool}" \
-    --libsfile "${libs_rsp}" \
-    --output "${exports_file}" \
-    --deffile "${def_file}" \
-    --dll-name LLVM-C-modern
-  if ! grep -qx 'LLVMContextCreate' "${exports_file}"; then
-    echo "ERROR: generated export list is missing LLVMContextCreate: ${exports_file}" >&2
-    exit 1
-  fi
+  {
+    for symbol in "${required_llvm_c_exports[@]}"; do
+      printf '%s\n' "${symbol}"
+    done
+  } > "${exports_file}"
+  {
+    printf 'LIBRARY LLVM-C-modern\n'
+    printf 'EXPORTS\n'
+    for symbol in "${required_llvm_c_exports[@]}"; do
+      printf '%s\n' "${symbol}"
+    done
+  } > "${def_file}"
 
   mkdir -p "${install_mlir_libs}"
 
@@ -501,11 +581,13 @@ build_modern_llvm_c_dll() {
     printf '/OUT:%s\n' "$(cmake_path "${llvm_c_dll}")"
     printf '/IMPLIB:%s\n' "$(cmake_path "${llvm_c_import_lib}")"
     printf '/DEF:%s\n' "$(cmake_path "${def_file}")"
-    printf '/INCLUDE:LLVMContextCreate\n'
+    for symbol in "${required_llvm_c_exports[@]}"; do
+      printf '/INCLUDE:%s\n' "${symbol}"
+    done
     printf '%s\n' "$(cmake_path "${stub_obj}")"
     while IFS= read -r lib_path; do
       [[ -z "${lib_path}" ]] && continue
-      printf '/WHOLEARCHIVE:%s\n' "${lib_path}"
+      printf '%s\n' "${lib_path}"
     done < "${libs_rsp}"
     for system_lib in "${windows_system_libs[@]}"; do
       printf '%s\n' "${system_lib}"
@@ -523,13 +605,22 @@ build_modern_llvm_c_dll() {
   fi
 
   local dumpbin_rsp="${LLVM_MODERN_BUILD}/dumpbin-modern-exports.rsp"
+  local dumpbin_exports="${LLVM_MODERN_BUILD}/LLVM-C-modern.dumpbin.exports"
   printf '/NOLOGO\n/EXPORTS\n%s\n' "$(cmake_path "${llvm_c_dll}")" > "${dumpbin_rsp}"
-  if ! "${dumpbin_tool}" @"$(cmake_path "${dumpbin_rsp}")" | grep -q 'LLVMContextCreate'; then
-    echo "ERROR: ${llvm_c_dll} does not export LLVMContextCreate" >&2
+  if ! "${dumpbin_tool}" @"$(cmake_path "${dumpbin_rsp}")" > "${dumpbin_exports}"; then
+    echo "ERROR: failed to inspect exports from ${llvm_c_dll}" >&2
     echo "DLL size: $(ls -la "${llvm_c_dll}" 2>&1)"
-    "${dumpbin_tool}" @"$(cmake_path "${dumpbin_rsp}")" 2>&1 | head -40
+    head -40 "${dumpbin_exports}" >&2 || true
     exit 1
   fi
+  for symbol in "${required_llvm_c_exports[@]}"; do
+    if ! grep -q "${symbol}" "${dumpbin_exports}"; then
+      echo "ERROR: ${llvm_c_dll} does not export ${symbol}" >&2
+      echo "DLL size: $(ls -la "${llvm_c_dll}" 2>&1)"
+      head -40 "${dumpbin_exports}" >&2 || true
+      exit 1
+    fi
+  done
 }
 
 step "Validate Windows build prerequisites" check_prereqs

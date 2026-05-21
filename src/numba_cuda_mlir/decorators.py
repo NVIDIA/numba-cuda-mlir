@@ -564,6 +564,7 @@ def verify_target_options(kws: dict[str, Any]) -> dict[str, Any]:
     elif targetoptions.get("lto") is None:
         targetoptions["lto"] = False
     targetoptions["_lto_explicit"] = lto_was_explicit
+    targetoptions["_output_explicit"] = output_was_explicit
 
     return targetoptions
 

@@ -67,8 +67,19 @@ jobs:
         uses: ./.github/actions/install_unix_deps
         continue-on-error: false
         with:
-          dependencies: "clang git jq wget libgl1 libegl1"
-          dependent_exes: "clang++ git jq wget"
+          dependencies: "ca-certificates gnupg git jq wget libgl1 libegl1"
+          dependent_exes: "gpg git jq wget"
+
+      - name: Install Clang 18
+        run: |
+          wget -qO /tmp/llvm-snapshot.gpg.key https://apt.llvm.org/llvm-snapshot.gpg.key
+          gpg --dearmor --yes -o /usr/share/keyrings/llvm-snapshot.gpg /tmp/llvm-snapshot.gpg.key
+          echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] https://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" > /etc/apt/sources.list.d/llvm-toolchain-jammy-18.list
+          apt update
+          apt install -y clang-18
+          ln -sf /usr/bin/clang-18 /usr/local/bin/clang
+          ln -sf /usr/bin/clang++-18 /usr/local/bin/clang++
+          clang++ --version
 
       - name: Checkout Numbast
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2

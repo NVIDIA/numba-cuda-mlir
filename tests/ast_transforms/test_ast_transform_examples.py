@@ -1,39 +1,48 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from numba_cuda_mlir import cuda
-from numba_cuda_mlir.cuda.experimental import consteval
-import numpy as np
-from numba_cuda_mlir.testing import captured_output, filecheck_with_comments
+from numba_cuda_mlir.testing import filecheck_with_comments, run_in_subprocess
 
 
-def test_consteval_prints(capfd):
+def test_consteval_prints():
     """Test that consteval prints happen at compile time, not runtime."""
 
-    def should_assign_one(loop_iter: int):
-        print(f"COMPTIME: should_assign_one({loop_iter})")
-        return loop_iter < 3
+    stdout, stderr = run_in_subprocess(
+        """
+        import warnings
+        warnings.filterwarnings("ignore")
 
-    @cuda.jit
-    def k(x):
-        consteval(print("COMPTIME: start of kernel"))
-        print("RUNTIME: start of kernel")
+        from numba_cuda_mlir import cuda
+        from numba_cuda_mlir.cuda.experimental import consteval
+        import numpy as np
 
-        for i in consteval(range(5)):
-            consteval(print(f"COMPTIME: unrolled iteration {i}"))
-            print("RUNTIME: unrolled iteration", i)
-            if consteval(should_assign_one(i)):
-                x[i] = 1
-            else:
-                x[i] = 2
+        def should_assign_one(loop_iter: int):
+            print(f"COMPTIME: should_assign_one({loop_iter})")
+            return loop_iter < 3
 
-        print("RUNTIME: kernel finished")
-        consteval(print("COMPTIME: kernel finished"))
+        @cuda.jit
+        def k(x):
+            consteval(print("COMPTIME: start of kernel"))
+            print("RUNTIME: start of kernel")
 
-    x = np.zeros(5, dtype=np.float32)
-    k[1, 1](x)
+            for i in consteval(range(5)):
+                consteval(print(f"COMPTIME: unrolled iteration {i}"))
+                print("RUNTIME: unrolled iteration", i)
+                if consteval(should_assign_one(i)):
+                    x[i] = 1
+                else:
+                    x[i] = 2
 
-    cuda.synchronize()
-    output = captured_output(capfd)
+            print("RUNTIME: kernel finished")
+            consteval(print("COMPTIME: kernel finished"))
+
+        x = np.zeros(5, dtype=np.float32)
+        k[1, 1](x)
+
+        cuda.synchronize()
+        np.testing.assert_array_equal(x, [1, 1, 1, 2, 2])
+        """
+    )
+    output = stderr + stdout
     print(output)
     # CHECK: COMPTIME: start of kernel
     # CHECK-NEXT: COMPTIME: unrolled iteration 0
@@ -56,5 +65,3 @@ def test_consteval_prints(capfd):
     # CHECK-NEXT: RUNTIME: kernel finished
 
     filecheck_with_comments(output)
-
-    np.testing.assert_array_equal(x, [1, 1, 1, 2, 2])

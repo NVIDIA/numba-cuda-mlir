@@ -8,6 +8,7 @@ from io import StringIO
 import re
 from textwrap import dedent
 import inspect
+import os
 from numba_cuda_mlir._mlir.ir import Module, Operation
 from typing import Iterable, Union
 import sys
@@ -25,6 +26,8 @@ import enum
 import math
 import numpy as np
 import pytest
+import subprocess
+import tempfile
 import unittest
 
 np_version = tuple(map(int, np.__version__.split(".")[:2]))
@@ -34,6 +37,30 @@ IS_NUMPY_2 = np_version >= (2, 0)
 def captured_output(capfd) -> str:
     captured = capfd.readouterr()
     return captured.out + captured.err
+
+
+def run_in_subprocess(code: str, timeout: int = 60) -> tuple[str, str]:
+    """Run Python code in a subprocess and return stdout/stderr."""
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".py", encoding="utf-8", delete=False)
+    try:
+        tmp.write(dedent(code))
+        tmp.close()
+        proc = subprocess.run(
+            [sys.executable, "-u", tmp.name],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.CalledProcessError as e:
+        raise AssertionError(
+            f"process failed with code {e.returncode:d}:\n"
+            f"stdout:\n{e.stdout}\n\nstderr:\n{e.stderr}"
+        ) from e
+    finally:
+        tmp.close()
+        os.unlink(tmp.name)
+    return proc.stdout, proc.stderr
 
 
 def get_filecheck_path():

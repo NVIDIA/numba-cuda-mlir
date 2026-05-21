@@ -668,9 +668,6 @@ class MLIRTargetContext(BaseContext):
         from numba_cuda_mlir.lowering.cuda_vector_types import (
             registry as cuda_vector_types_lowering_registry,
         )
-        from numba_cuda_mlir.lowering.mlir.types import (
-            registry as mlir_types_lowering_registry,
-        )
         from numba_cuda_mlir.lowering.record import registry as record_lowering_registry
         from numba_cuda_mlir.lowering.unicode import (
             registry as unicode_lowering_registry,
@@ -700,7 +697,6 @@ class MLIRTargetContext(BaseContext):
         self.install_registry(exotic_float_lowering_registry)
         self.install_registry(vector_lowering_registry)
         self.install_registry(cuda_vector_types_lowering_registry)
-        self.install_registry(mlir_types_lowering_registry)
         self.install_registry(enum_lowering_registry)
         self.install_registry(unicode_lowering_registry)
         self.install_registry(nrt_lowering_registry)

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 from collections import namedtuple
+import functools
 import math
 from functools import reduce
 
@@ -20,7 +21,15 @@ from numba_cuda_mlir.numba_cuda.core.imputils import (
 )
 from numba_cuda_mlir.numba_cuda import typing, types
 from numba_cuda_mlir.numba_cuda import cgutils
-from numba_cuda_mlir.numba_cuda.extending import overload, intrinsic, register_jitable
+from numba_cuda_mlir.extending import (
+    overload,
+    intrinsic,
+    register_jitable,
+    typing_registry,
+)
+
+overload = functools.partial(overload, typing_registry=typing_registry)
+register_jitable = functools.partial(register_jitable, typing_registry=typing_registry)
 from numba_cuda_mlir.numba_cuda.core.errors import (
     TypingError,
     LoweringError,
@@ -1066,43 +1075,6 @@ def ol_getattr_2(obj, name):
 def ol_getattr_3(obj, name, default):
     def impl(obj, name, default):
         return resolve_getattr(obj, name, default)
-
-    return impl
-
-
-@intrinsic
-def resolve_hasattr(tyctx, obj, name):
-    if not isinstance(name, types.StringLiteral):
-        raise RequireLiteralValue("argument 'name' must be a literal string")
-    lname = name.literal_value
-    fn = tyctx.resolve_getattr(obj, lname)
-    # Whilst technically the return type could be a types.bool_, the literal
-    # value is resolvable at typing time. Propagating this literal information
-    # into the type system allows the compiler to prune branches based on a
-    # hasattr predicate. As a result the signature is based on literals. This is
-    # "safe" because the overload requires a literal string so each will be a
-    # different variant of (obj, literal(name)) -> literal(bool).
-    if fn is None:
-        retty = types.literal(False)
-    else:
-        retty = types.literal(True)
-    sig = retty(obj, name)
-
-    def impl(cgctx, builder, sig, ll_args):
-        return cgutils.false_bit if fn is None else cgutils.true_bit
-
-    return sig, impl
-
-
-# hasattr cannot be implemented as a getattr call and then catching
-# AttributeError because Numba doesn't support catching anything other than
-# "Exception", so lacks the specificity required. Instead this implementation
-# tries to resolve the attribute via typing information and returns True/False
-# based on that.
-@overload(hasattr)
-def ol_hasattr(obj, name):
-    def impl(obj, name):
-        return resolve_hasattr(obj, name)
 
     return impl
 

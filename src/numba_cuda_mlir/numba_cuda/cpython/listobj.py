@@ -5,6 +5,7 @@
 Support for native homogeneous lists.
 """
 
+import functools
 import operator
 
 from llvmlite import ir
@@ -18,7 +19,10 @@ from numba_cuda_mlir.numba_cuda.core.imputils import (
     impl_ret_new_ref,
     RefType,
 )
-from numba_cuda_mlir.numba_cuda.extending import overload_method, overload
+from numba_cuda_mlir.extending import overload_method, overload, typing_registry
+
+overload = functools.partial(overload, typing_registry=typing_registry)
+overload_method = functools.partial(overload_method, typing_registry=typing_registry)
 from numba_cuda_mlir.numba_cuda.cpython import slicing
 from numba_cuda_mlir.numba_cuda.misc.special import literal_unroll
 

@@ -5,6 +5,7 @@
 Provide math calls that uses intrinsics or libc math functions.
 """
 
+import functools
 import math
 import operator
 import sys
@@ -16,7 +17,9 @@ from llvmlite.ir import Constant
 from numba_cuda_mlir.numba_cuda.core.imputils import impl_ret_untracked
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda import cgutils, config
-from numba_cuda_mlir.numba_cuda.extending import overload
+from numba_cuda_mlir.extending import overload, typing_registry
+
+overload = functools.partial(overload, typing_registry=typing_registry)
 from numba_cuda_mlir.numba_cuda.typing import signature
 from numba_cuda_mlir.numba_cuda.cpython.unsafe.numbers import trailing_zeros
 

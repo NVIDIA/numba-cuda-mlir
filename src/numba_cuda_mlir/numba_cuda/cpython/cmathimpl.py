@@ -6,13 +6,16 @@ Implement the cmath module functions.
 """
 
 import cmath
+import functools
 import math
 
 from numba_cuda_mlir.numba_cuda.core.imputils import impl_ret_untracked, Registry
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.typing import signature
 from numba_cuda_mlir.numba_cuda.cpython import mathimpl
-from numba_cuda_mlir.numba_cuda.extending import overload
+from numba_cuda_mlir.extending import overload, typing_registry
+
+overload = functools.partial(overload, typing_registry=typing_registry)
 
 
 registry = Registry("cmathimpl")

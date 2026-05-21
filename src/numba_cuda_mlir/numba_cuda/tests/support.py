@@ -28,7 +28,7 @@ from numba_cuda_mlir.numba_cuda.core import errors
 from numba_cuda_mlir.numba_cuda.core import config
 from numba_cuda_mlir.numba_cuda.typing import cffi_utils
 from numba_cuda_mlir.numba_cuda.memory_management.nrt import rtsys
-from numba_cuda_mlir.numba_cuda.extending import (
+from numba_cuda_mlir.extending import (
     typeof_impl,
     register_model,
     NativeValue,

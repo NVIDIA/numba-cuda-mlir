@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
+import functools
 import sys
 import operator
 
@@ -8,15 +9,20 @@ import numpy as np
 from llvmlite.ir import IntType, Constant
 
 from numba_cuda_mlir.numba_cuda.cgutils import is_nonelike
-from numba_cuda_mlir.numba_cuda.extending import (
+from numba_cuda_mlir.extending import (
     NativeValue,
     overload,
     overload_method,
     register_jitable,
+    typing_registry,
 )
-from numba_cuda_mlir.numba_cuda.extending import models
+
+overload = functools.partial(overload, typing_registry=typing_registry)
+overload_method = functools.partial(overload_method, typing_registry=typing_registry)
+register_jitable = functools.partial(register_jitable, typing_registry=typing_registry)
+from numba_cuda_mlir.extending import models
 from numba_cuda_mlir.numba_cuda.core.pythonapi import box, unbox
-from numba_cuda_mlir.numba_cuda.extending import make_attribute_wrapper, intrinsic
+from numba_cuda_mlir.extending import make_attribute_wrapper, intrinsic
 from numba_cuda_mlir.numba_cuda.models import register_model
 from numba_cuda_mlir.numba_cuda.core.imputils import (
     iternext_impl,

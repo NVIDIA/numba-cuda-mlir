@@ -12,7 +12,7 @@ import functools
 from llvmlite import ir
 
 from numba_cuda_mlir.numba_cuda import types
-from numba_cuda_mlir.numba_cuda import config, utils, debuginfo
+from numba_cuda_mlir.numba_cuda import config, utils  # , debuginfo
 import numba_cuda_mlir.numba_cuda.datamodel
 
 

@@ -1,12 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
+import functools
+
 from llvmlite import ir
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda import cgutils
-from numba_cuda_mlir.numba_cuda.extending import intrinsic, overload
+from numba_cuda_mlir.extending import intrinsic, overload, typing_registry
 from numba_cuda_mlir.numba_cuda.core.errors import NumbaTypeError
 from numba_cuda_mlir.numba_cuda.api_util import normalize_indices
+
+overload = functools.partial(overload, typing_registry=typing_registry)
 
 # Docs references:
 # https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-ld

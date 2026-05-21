@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 import ctypes
+import functools
 import os
 from functools import wraps
 import numpy as np
@@ -24,7 +25,9 @@ from numba_cuda_mlir.numba_cuda.utils import _readenv, cached_file_read
 from numba_cuda_mlir.numba_cuda.cudadrv.linkable_code import CUSource
 from numba_cuda_mlir.numba_cuda.typing.templates import signature
 
-from numba_cuda_mlir.numba_cuda.extending import intrinsic, overload_classmethod
+from numba_cuda_mlir.extending import intrinsic, overload_classmethod, typing_registry
+
+overload_classmethod = functools.partial(overload_classmethod, typing_registry=typing_registry)
 
 _nrt_mstats = namedtuple("nrt_mstats", ["alloc", "free", "mi_alloc", "mi_free"])
 

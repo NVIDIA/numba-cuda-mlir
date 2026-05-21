@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
+import functools
 import math
 import numbers
 
@@ -13,7 +14,9 @@ from llvmlite.ir import Constant
 from numba_cuda_mlir.numba_cuda.core.imputils import impl_ret_untracked, Registry
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core import errors
-from numba_cuda_mlir.numba_cuda.extending import overload_method
+from numba_cuda_mlir.extending import overload_method, typing_registry
+
+overload_method = functools.partial(overload_method, typing_registry=typing_registry)
 from numba_cuda_mlir.numba_cuda.cpython.unsafe.numbers import viewer
 from numba_cuda_mlir.numba_cuda import cgutils, typing
 

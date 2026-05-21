@@ -5,6 +5,7 @@
 Implementation of the range object for fixed-size integers.
 """
 
+import functools
 import operator
 
 from numba_cuda_mlir.numba_cuda import types
@@ -16,12 +17,20 @@ from numba_cuda_mlir.numba_cuda.core.imputils import (
     impl_ret_untracked,
 )
 from numba_cuda_mlir.numba_cuda.typing import signature
-from numba_cuda_mlir.numba_cuda.extending import (
+from numba_cuda_mlir.extending import (
     intrinsic,
     overload,
     overload_attribute,
     register_jitable,
+    typing_registry,
+    lowering_registry,
 )
+
+overload = functools.partial(overload, typing_registry=typing_registry)
+overload_attribute = functools.partial(
+    overload_attribute, typing_registry=typing_registry, lowering_registry=lowering_registry
+)
+register_jitable = functools.partial(register_jitable, typing_registry=typing_registry)
 
 
 registry = Registry("rangeobj")

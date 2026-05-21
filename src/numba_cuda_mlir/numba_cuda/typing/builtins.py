@@ -19,7 +19,7 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
     make_callable_template,
 )
 
-from numba_cuda_mlir.numba_cuda.extending import (
+from numba_cuda_mlir.extending import (
     typeof_impl,
     type_callable,
     core_models,

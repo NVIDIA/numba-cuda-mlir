@@ -1,10 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
-from numba_cuda_mlir.numba_cuda.extending import overload
+import functools
+
+from numba_cuda_mlir.extending import overload, typing_registry
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.misc.special import literally, literal_unroll
 from numba_cuda_mlir.numba_cuda.core.errors import TypingError
+
+overload = functools.partial(overload, typing_registry=typing_registry)
 
 
 @overload(literally, target="cuda")

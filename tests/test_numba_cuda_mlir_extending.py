@@ -375,3 +375,116 @@ def test_aggregate_type_field_model():
         assert model.get_field_position("x") == 0
         assert model.get_field_position("y") == 1
         assert model.get_field_position("z") == 2
+
+
+def test_register_jitable_tuple_return_cast_from_branches():
+    @extending.register_jitable(typing_registry=extending.typing_registry)
+    def select(flag, a, b):
+        if flag:
+            return (a, b)
+        return (b, a)
+
+    @cuda.jit
+    def kernel(out, flag):
+        x, y = select(flag, 1, 2)
+        out[0] = x
+        out[1] = y
+
+    out = np.zeros(2, dtype=np.int64)
+    kernel[1, 1](out, True)
+    assert out.tolist() == [1, 2]
+
+    kernel[1, 1](out, False)
+    assert out.tolist() == [2, 1]
+
+
+def test_overload_method_omitted_trailing_default_arg():
+    from numba_cuda_mlir._mlir.dialects import llvm
+    from numba_cuda_mlir._mlir.extras import types as T
+    from numba_cuda_mlir.lowering_utilities import unverified_convert
+
+    class Widget:
+        pass
+
+    class WidgetType(types.Type):
+        def __init__(self):
+            super().__init__(name="Widget")
+
+    widget_type = WidgetType()
+
+    @typeof_impl.register(Widget)
+    def typeof_widget(val, c):
+        return widget_type
+
+    class WidgetModel(PrimitiveModel):
+        def __init__(self, dmm, fe):
+            super().__init__(dmm, fe, T.i8())
+
+    register_model(WidgetType)(WidgetModel)
+
+    @unverified_convert.register(Widget)
+    def convert_widget(val, tt, signed=False):
+        return llvm.mlir_undef(T.i8())
+
+    @extending.overload_method(
+        WidgetType,
+        "poke",
+        strict=False,
+        typing_registry=extending.typing_registry,
+    )
+    def ol_poke(w, buf, extra=None):
+        if not isinstance(buf, types.Array):
+            return
+
+        def impl(w, buf, extra=None):
+            buf[0] = buf[0] + 1
+
+        return impl
+
+    widget = Widget()
+
+    @cuda.jit
+    def kernel(buf):
+        widget.poke(buf)
+
+    buf = np.zeros(1, dtype=np.int32)
+    kernel[1, 1](buf)
+    assert buf[0] == 1
+
+
+def test_register_jitable_omitted_default_arg():
+    @extending.register_jitable(typing_registry=extending.typing_registry)
+    def fill(out, lda=None):
+        out[0] = 42
+
+    @cuda.jit
+    def kernel(out):
+        fill(out)
+
+    out = np.zeros(1, dtype=np.int64)
+    kernel[1, 1](out)
+    assert out[0] == 42
+
+
+def test_inline_overload_returning_dtype_token_for_local_array():
+    def get_value_type():
+        return np.float32
+
+    @extending.overload(
+        get_value_type,
+        inline="always",
+        typing_registry=extending.typing_registry,
+        lowering_registry=extending.lowering_registry,
+    )
+    def ol_get_value_type():
+        return lambda: types.float32
+
+    @cuda.jit
+    def kernel(buf):
+        arr = cuda.local.array(shape=(1,), dtype=get_value_type())
+        arr[0] = buf[0]
+        buf[0] = arr[0] + 1
+
+    buf = np.zeros(1, dtype=np.float32)
+    kernel[1, 1](buf)
+    assert buf[0] == 1

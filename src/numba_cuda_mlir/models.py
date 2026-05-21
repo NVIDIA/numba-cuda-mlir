@@ -133,6 +133,10 @@ class StructModel(DataModel):
         return self._models
 
 
+from numba_cuda_mlir.typing.cuda_vector_types import VectorTypeClass
+
+
+@register_model(VectorTypeClass)
 @register_model(types.NumberClass)
 class NumpyDataTypeModel(PrimitiveModel):
     """

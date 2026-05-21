@@ -24,6 +24,15 @@ hash_file() {
     sha256sum "$1" | cut -c1-12
 }
 
+cache_version() {
+    local version_id="$1"
+    if [[ "${version_id}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+        echo "${version_id:0:12}"
+    else
+        echo "${version_id}"
+    fi
+}
+
 cache_arch() {
     case "$1" in
         linux-64) echo "x86_64" ;;
@@ -40,7 +49,7 @@ case "${kind}" in
     modern)
         py_tag="${3:-}"
         [[ -n "${host_platform}" && -n "${py_tag}" ]] || usage
-        version_short="$(echo "${LLVM_MODERN_COMMIT}" | cut -c1-12)"
+        version_short="$(cache_version "${LLVM_MODERN_COMMIT}")"
         case "${host_platform}" in
             linux-*)
                 build_hash="$(hash_file "${SCRIPT_DIR}/build-llvm-modern.sh")"
@@ -61,7 +70,7 @@ case "${kind}" in
         ;;
     llvm7)
         [[ -n "${host_platform}" && $# -eq 2 ]] || usage
-        version_short="$(echo "${LLVM7_TAG}" | cut -c1-12)"
+        version_short="$(cache_version "${LLVM7_TAG}")"
         case "${host_platform}" in
             linux-*)
                 build_hash="$(hash_file "${SCRIPT_DIR}/build-llvm7.sh")"

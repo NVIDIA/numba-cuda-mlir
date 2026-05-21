@@ -402,6 +402,17 @@ build_modern_llvm_c_dll() {
   local link_rsp="${LLVM_MODERN_BUILD}/llvm-c-modern-link.rsp"
   local llvm_c_dll="${install_mlir_libs}/LLVM-C-modern.dll"
   local llvm_c_import_lib="${install_mlir_libs}/LLVM-C-modern.lib"
+  local windows_system_libs=(
+    winhttp.lib
+    crypt32.lib
+    psapi.lib
+    shell32.lib
+    ole32.lib
+    uuid.lib
+    advapi32.lib
+    ws2_32.lib
+    ntdll.lib
+  )
   local cmake_cache="${LLVM_MODERN_BUILD}/CMakeCache.txt"
   local link_tool=""
   if [[ -f "${cmake_cache}" ]]; then
@@ -496,7 +507,13 @@ build_modern_llvm_c_dll() {
       [[ -z "${lib_path}" ]] && continue
       printf '/WHOLEARCHIVE:%s\n' "${lib_path}"
     done < "${libs_rsp}"
+    for system_lib in "${windows_system_libs[@]}"; do
+      printf '%s\n' "${system_lib}"
+    done
   } > "${link_rsp}"
+
+  echo "=== LLVM-C-modern link response file (last 20 lines) ==="
+  tail -n 20 "${link_rsp}"
 
   "${link_tool}" @"$(cmake_path "${link_rsp}")"
 

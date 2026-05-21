@@ -66,9 +66,6 @@ from numba_cuda_mlir.numba_cuda.extending import (
 from typing import Any
 from numba_cuda_mlir.logging import trace
 import numpy as np
-from numba_cuda_mlir.lowering.mlir.memref import (
-    memref_alloc,
-)
 from numba_cuda_mlir.numba_cuda.typing.templates import ConcreteTemplate
 from numba_cuda_mlir.numba_cuda import stubs as cuda_stubs
 

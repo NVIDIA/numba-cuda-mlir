@@ -57,15 +57,6 @@ jobs:
       - name: Checkout ${{ github.event.repository.name }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
-      - name: Checkout Numbast
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          repository: NVIDIA/numbast
-          ref: d619c135b5d37b054d739f405d11979ebe914644
-          path: numbast-checkout
-          fetch-depth: 0
-          persist-credentials: false
-
       - name: Setup proxy cache
         uses: nv-gha-runners/setup-proxy-cache@main
         continue-on-error: true
@@ -76,8 +67,17 @@ jobs:
         uses: ./.github/actions/install_unix_deps
         continue-on-error: false
         with:
-          dependencies: "jq wget libgl1 libegl1"
-          dependent_exes: "jq wget"
+          dependencies: "git jq wget libgl1 libegl1"
+          dependent_exes: "git jq wget"
+
+      - name: Checkout Numbast
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: NVIDIA/numbast
+          ref: d619c135b5d37b054d739f405d11979ebe914644
+          path: numbast-checkout
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Set environment variables
         env:

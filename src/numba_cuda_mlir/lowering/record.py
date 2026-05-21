@@ -16,68 +16,11 @@ from numba_cuda_mlir._mlir.dialects import (
     llvm,
     arith,
     memref as memref_dialect,
-    complex as complex_dialect,
     scf,
 )
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir._mlir.dialects import arith as arith_dialect
-
-
-def _is_complex_type(mlir_type):
-    """Check if a type is MLIR complex type."""
-    return isinstance(mlir_type, ir.ComplexType)
-
-
-def _get_llvm_struct_for_complex(complex_type):
-    """Get the LLVM struct type for a complex type."""
-    elem_type = complex_type.element_type
-    return llvm.StructType.get_literal([elem_type, elem_type])
-
-
-def _complex_to_llvm_struct(value):
-    """Convert MLIR complex value to LLVM struct for storage."""
-    complex_type = value.type
-    elem_type = complex_type.element_type
-    struct_type = _get_llvm_struct_for_complex(complex_type)
-
-    # Extract real and imaginary parts
-    real = complex_dialect.re(value)
-    imag = complex_dialect.im(value)
-
-    # Build LLVM struct
-    undef = llvm.UndefOp(struct_type)
-    with_real = llvm.insertvalue(
-        container=undef,
-        value=real,
-        position=ir.DenseI64ArrayAttr.get([0]),
-    )
-    with_imag = llvm.insertvalue(
-        container=with_real,
-        value=imag,
-        position=ir.DenseI64ArrayAttr.get([1]),
-    )
-    return with_imag
-
-
-def _llvm_struct_to_complex(value, complex_type):
-    """Convert LLVM struct back to MLIR complex value."""
-    elem_type = complex_type.element_type
-
-    # Extract real and imaginary from struct
-    real = llvm.extractvalue(
-        res=elem_type,
-        container=value,
-        position=ir.DenseI64ArrayAttr.get([0]),
-    )
-    imag = llvm.extractvalue(
-        res=elem_type,
-        container=value,
-        position=ir.DenseI64ArrayAttr.get([1]),
-    )
-
-    # Create complex value
-    return complex_dialect.create_(complex=complex_type, real=real, imaginary=imag)
 
 
 # For llvm.getelementptr - dynamic offset marker
@@ -89,7 +32,14 @@ from numba_cuda_mlir.descriptor import MLIRTargetContext
 registry = LoweringRegistry()
 lower = registry.lower
 from numba_cuda_mlir.logging import trace
-from numba_cuda_mlir.lowering_utilities import index_of, convert
+from numba_cuda_mlir.lowering_utilities import (
+    index_of,
+    convert,
+    is_complex_type as _is_complex_type,
+    get_llvm_struct_for_complex as _get_llvm_struct_for_complex,
+    complex_to_llvm_struct as _complex_to_llvm_struct,
+    llvm_struct_to_complex as _llvm_struct_to_complex,
+)
 
 
 def get_record_field_ptr(builder, record_ptr, record_type, field_name):

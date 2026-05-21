@@ -14,6 +14,11 @@ from numba_cuda_mlir.lowering_utilities import (
     i64_of,
     DeferredLowering,
     index_of,
+    is_complex_type as _is_complex_type,
+    get_llvm_struct_for_complex as _get_llvm_struct_for_complex,
+    complex_to_llvm_struct as _complex_to_llvm_struct,
+    llvm_struct_to_complex as _llvm_struct_to_complex,
+    get_type_width,
 )
 from numba_cuda_mlir._mlir.dialects import llvm, arith, memref
 from numba_cuda_mlir.logging import trace
@@ -25,6 +30,10 @@ lower_getattr = registry.lower_getattr
 llvm_kDynamic = (
     -2147483648
 )  # std::numeric_limits<int32_t>::min(), ugh we need this in the bindings...
+
+
+def _get_pointer_element_width(ele_ty):
+    return get_type_width(ele_ty)
 
 
 @registry.lower(ctypes.pointer, types.Array)
@@ -101,8 +110,12 @@ def lower_pointer_setitem(builder, target, args, kwargs):
     idx = convert(idx, T.i64())
     ele_ty = to_mlir_type(ele_ty)
     value = convert(value, ele_ty)
+    gep_ele_ty = ele_ty
+    if _is_complex_type(ele_ty):
+        gep_ele_ty = _get_llvm_struct_for_complex(ele_ty)
+        value = _complex_to_llvm_struct(value)
     elementptr = llvm.getelementptr(
-        llvm.PointerType.get(), ptr, [idx], [llvm_kDynamic], ele_ty, None
+        llvm.PointerType.get(), ptr, [idx], [llvm_kDynamic], gep_ele_ty, None
     )
     llvm.store(value, elementptr)
 
@@ -119,11 +132,16 @@ def lower_pointer_getitem(builder, target, args, kwargs):
         )
     idx = convert(idx, T.i64())
     ele_ty = to_mlir_type(ele_ty)
+    gep_ele_ty = _get_llvm_struct_for_complex(ele_ty) if _is_complex_type(ele_ty) else ele_ty
     elementptr = llvm.getelementptr(
-        llvm.PointerType.get(), ptr, [idx], [llvm_kDynamic], ele_ty, None
+        llvm.PointerType.get(), ptr, [idx], [llvm_kDynamic], gep_ele_ty, None
     )
     # Load the value from the computed address
-    value = llvm.load(ele_ty, elementptr)
+    if _is_complex_type(ele_ty):
+        value = llvm.load(gep_ele_ty, elementptr)
+        value = _llvm_struct_to_complex(value, ele_ty)
+    else:
+        value = llvm.load(ele_ty, elementptr)
     builder.incref(nb_type.dtype, value)
     builder.store_var(target, value)
 
@@ -140,7 +158,7 @@ def lower_pointer_add(builder, target, args, kwargs):
             f"Cannot add to pointer of type {nb_type}, must cast to a typed pointer first"
         )
     ele_ty = to_mlir_type(ele_ty)
-    w = ele_ty.width
+    w = _get_pointer_element_width(ele_ty)
     num = convert(num, T.i64())
     ptri = llvm.ptrtoint(res=T.i64(), arg=ptr)
     ptri += num * w / 8
@@ -160,7 +178,7 @@ def lower_pointer_sub(builder, target, args, kwargs):
             f"Cannot subtract from pointer of type {nb_type}, must cast to a typed pointer first"
         )
     ele_ty = to_mlir_type(ele_ty)
-    w = ele_ty.width
+    w = _get_pointer_element_width(ele_ty)
     num = convert(num, T.i64())
     ptri = llvm.ptrtoint(res=T.i64(), arg=ptr)
     ptri -= num * w / 8

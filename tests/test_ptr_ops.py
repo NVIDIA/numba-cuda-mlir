@@ -4,6 +4,7 @@ from numba_cuda_mlir import cuda
 from numba_cuda_mlir import compiler, types
 import ctypes
 import numpy as np
+import pytest
 
 
 def test_ptr_arith():
@@ -63,6 +64,55 @@ def test_cpointer_getitem():
     hr = dr.copy_to_host()
     expected = a * hx + hy
     np.testing.assert_array_equal(hr, expected)
+
+
+@pytest.mark.parametrize(
+    ("numba_complex", "numpy_complex", "float_dtype"),
+    [
+        (types.complex64, np.complex64, np.float32),
+        (types.complex128, np.complex128, np.float64),
+    ],
+)
+def test_cpointer_complex_getitem_setitem(numba_complex, numpy_complex, float_dtype):
+    """Test complex CPointer getitem/setitem lowers through LLVM struct storage."""
+    ptr = types.CPointer(numba_complex)
+    sig = types.void(ptr, ptr, types.uint32)
+    arith_sig = types.void(ptr, ptr)
+
+    @cuda.jit(sig)
+    def copy_complex(dst, src, n):
+        i = cuda.grid(1)
+        if i < n:
+            dst[i] = src[i]
+
+    @cuda.jit(arith_sig)
+    def copy_complex_with_pointer_arith(dst, src):
+        src += 1
+        dst[0] = src[0]
+        src -= 1
+        dst += 1
+        dst[0] = src[0]
+
+    n = 16
+    h_src = (np.arange(n, dtype=float_dtype) + 1j * np.arange(n, dtype=float_dtype)[::-1]).astype(
+        numpy_complex
+    )
+    d_src = cuda.to_device(h_src)
+    d_dst = cuda.device_array(n, dtype=numpy_complex)
+
+    src_ptr = d_src.__cuda_array_interface__["data"][0]
+    dst_ptr = d_dst.__cuda_array_interface__["data"][0]
+
+    copy_complex[1, n](dst_ptr, src_ptr, n)
+
+    np.testing.assert_array_equal(d_dst.copy_to_host(), h_src)
+
+    d_arith = cuda.device_array(2, dtype=numpy_complex)
+    arith_ptr = d_arith.__cuda_array_interface__["data"][0]
+
+    copy_complex_with_pointer_arith[1, 1](arith_ptr, src_ptr)
+
+    np.testing.assert_array_equal(d_arith.copy_to_host(), h_src[[1, 0]])
 
 
 if __name__ == "__main__":

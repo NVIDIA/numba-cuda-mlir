@@ -26,6 +26,7 @@ from numba_cuda_mlir._mlir.dialects import (
     llvm,
     cf,
     builtin,
+    complex as complex_dialect,
 )
 from numba_cuda_mlir.mlir.dialect_exts import scf
 from numba_cuda_mlir._mlir.extras.meta import region_op
@@ -159,6 +160,50 @@ def get_type_width(ty: ir.Type) -> int:
             return count * get_type_width(vt.element_type)
         case _:
             raise NotImplementedError(f"Not implemented for type {ty}")
+
+
+def is_complex_type(mlir_type):
+    return isinstance(mlir_type, ir.ComplexType)
+
+
+def get_llvm_struct_for_complex(complex_type):
+    elem_type = complex_type.element_type
+    return llvm.StructType.get_literal([elem_type, elem_type])
+
+
+def complex_to_llvm_struct(value):
+    complex_type = value.type
+    if not is_complex_type(complex_type):
+        raise TypeError(f"Expected MLIR complex type, got {complex_type}")
+    struct_type = get_llvm_struct_for_complex(complex_type)
+    real = complex_dialect.re(value)
+    imag = complex_dialect.im(value)
+    undef = llvm.UndefOp(struct_type)
+    with_real = llvm.insertvalue(
+        container=undef,
+        value=real,
+        position=ir.DenseI64ArrayAttr.get([0]),
+    )
+    return llvm.insertvalue(
+        container=with_real,
+        value=imag,
+        position=ir.DenseI64ArrayAttr.get([1]),
+    )
+
+
+def llvm_struct_to_complex(value, complex_type):
+    elem_type = complex_type.element_type
+    real = llvm.extractvalue(
+        res=elem_type,
+        container=value,
+        position=ir.DenseI64ArrayAttr.get([0]),
+    )
+    imag = llvm.extractvalue(
+        res=elem_type,
+        container=value,
+        position=ir.DenseI64ArrayAttr.get([1]),
+    )
+    return complex_dialect.create_(complex=complex_type, real=real, imaginary=imag)
 
 
 @singledispatch

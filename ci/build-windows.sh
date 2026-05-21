@@ -404,6 +404,7 @@ build_modern_llvm_c_dll() {
   local required_llvm_c_exports=(
     LLVMContextCreate
     LLVMContextDispose
+    LLVMDisposeModule
     LLVMPrintModuleToString
     LLVMDisposeMessage
   )

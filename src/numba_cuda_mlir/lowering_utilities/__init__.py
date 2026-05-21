@@ -8,6 +8,7 @@ from functools import singledispatch
 from dataclasses import dataclass
 from abc import abstractmethod
 import functools
+import os
 import numpy as np
 from numba_cuda_mlir.numba_cuda import types, typing
 from numba_cuda_mlir.annotations import AnyCallable, PS
@@ -35,6 +36,34 @@ import operator
 
 # std::numeric_limits<int32_t>::min() — marks a dynamic index in llvm.getelementptr
 GEP_DYNAMIC_INDEX = -2147483648
+
+
+def bf16_to_f32(value: ir.Value) -> ir.Value:
+    """Convert bf16 to f32 using an explicit PTX conversion on Windows."""
+    if os.name != "nt":
+        return arith.extf(T.f32(), value)
+    bits = arith.bitcast(T.i16(), value)
+    return llvm.inline_asm(
+        T.f32(),
+        [bits],
+        "cvt.f32.bf16 $0, $1;",
+        "=f,h",
+        has_side_effects=False,
+    )
+
+
+def f32_to_bf16(value: ir.Value) -> ir.Value:
+    """Convert f32 to bf16 using an explicit PTX conversion on Windows."""
+    if os.name != "nt":
+        return arith.truncf(out=T.bf16(), in_=value)
+    bits = llvm.inline_asm(
+        T.i16(),
+        [value],
+        "cvt.rn.bf16.f32 $0, $1;",
+        "=h,f",
+        has_side_effects=False,
+    )
+    return arith.bitcast(T.bf16(), bits)
 
 
 def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value], element_type: ir.Type) -> ir.Value:
@@ -591,6 +620,14 @@ def unverified_basic_mlir_convert(
             return convert(int_of(value, T.i64()), target_type)
         case ir.IntegerType() as a, ir.IntegerType() as b:
             return _convert_integer_to_integer(value, target_type, signed=signed)
+        case ir.BF16Type(), ir.FloatType() if target_type == T.f32():
+            return bf16_to_f32(value)
+        case ir.BF16Type(), ir.FloatType():
+            return convert(bf16_to_f32(value), target_type)
+        case ir.FloatType(), ir.BF16Type() if value_type == T.f32():
+            return f32_to_bf16(value)
+        case ir.FloatType(), ir.BF16Type():
+            return f32_to_bf16(convert(value, T.f32()))
         case ir.FloatType(), ir.FloatType() if (
             value_type.width == target_type.width and value_type != target_type
         ):

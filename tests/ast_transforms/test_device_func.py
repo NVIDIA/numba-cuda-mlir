@@ -4,7 +4,7 @@ from numba_cuda_mlir import cuda
 from numba_cuda_mlir.cuda.experimental import consteval
 import numpy as np
 from numba_cuda_mlir import tools
-from numba_cuda_mlir.testing import filecheck_with_comments
+from numba_cuda_mlir.testing import captured_output, filecheck_with_comments
 
 sm_arch = tools.get_gpu_compute_capability()
 
@@ -58,7 +58,7 @@ def test_device_func(capfd):
     x_d = cuda.to_device(x)
     kernel_factory(777)[1, 1](x_d)
     x = x_d.copy_to_host()
-    output = capfd.readouterr().out
+    output = captured_output(capfd)
     print(output)
 
     # CHECK: COMPTIME: unrolled loop iteration 0

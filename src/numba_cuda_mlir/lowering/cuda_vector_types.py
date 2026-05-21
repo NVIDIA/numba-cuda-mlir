@@ -87,10 +87,12 @@ def _constructor_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs)
     lower_ctx.store_var(target, result)
 
 
-# One generic registration per vector-type stub instead of enumerating
-# every permutation of scalar/vector argument types.
+# Register fixed constructor arities instead of a single VarArg lowering.  This
+# avoids platform-dependent dispatch of mixed scalar/vector constructors while
+# keeping typing responsible for rejecting invalid element counts.
 for stub in _vector_type_stubs:
-    _raw_lower(stub, types.VarArg(types.Any))(_constructor_lowering)
+    for arity in range(1, 5):
+        _raw_lower(stub, *([types.Any] * arity))(_constructor_lowering)
 
 
 # Register attribute access lowerings

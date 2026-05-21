@@ -5,6 +5,7 @@ Example of using print intrinsic
 """
 
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir.testing import captured_output
 import numpy as np
 import pytest
 
@@ -31,7 +32,7 @@ def test_print_space_separator(capfd):
 
     k[1, 1]()
     cuda.synchronize()
-    out = capfd.readouterr().out
+    out = captured_output(capfd)
     assert "1 2 3" in out
 
 
@@ -45,7 +46,7 @@ def test_print_bool_true_false(capfd):
 
     k[1, 1]()
     cuda.synchronize()
-    out = capfd.readouterr().out
+    out = captured_output(capfd)
     assert "True" in out
     assert "False" in out
 
@@ -59,7 +60,7 @@ def test_print_bool_variable(capfd):
 
     k[1, 1](0)
     cuda.synchronize()
-    out = capfd.readouterr().out
+    out = captured_output(capfd)
     assert "True" in out
 
 
@@ -72,7 +73,7 @@ def test_print_tuple(capfd):
 
     k[1, 1]((1, 2, 3))
     cuda.synchronize()
-    out = capfd.readouterr().out
+    out = captured_output(capfd)
     assert "(1, 2, 3)" in out
 
 
@@ -85,7 +86,7 @@ def test_print_single_element_tuple(capfd):
 
     k[1, 1]((42,))
     cuda.synchronize()
-    out = capfd.readouterr().out
+    out = captured_output(capfd)
     assert "(42,)" in out
 
 
@@ -98,7 +99,7 @@ def test_print_dim3(capfd):
 
     k[1, 1]()
     cuda.synchronize()
-    out = capfd.readouterr().out
+    out = captured_output(capfd)
     assert "(0, 0, 0)" in out
 
 
@@ -112,7 +113,7 @@ def test_print_empty(capfd):
 
     k[1, 1]()
     cuda.synchronize()
-    out = capfd.readouterr().out
+    out = captured_output(capfd)
     assert "after" in out
 
 
@@ -126,7 +127,7 @@ def test_print_string_literal(capfd):
 
     k[1, 1]()
     cuda.synchronize()
-    out = capfd.readouterr().out
+    out = captured_output(capfd)
     assert "hello world" in out
 
 
@@ -140,7 +141,7 @@ def test_print_string_literal_with_other_args(capfd):
     arr = cuda.to_device(np.array([42], dtype=np.int64))
     k[1, 1](arr)
     cuda.synchronize()
-    out = capfd.readouterr().out
+    out = captured_output(capfd)
     assert "value:" in out
     assert "42" in out
 
@@ -155,7 +156,7 @@ def test_print_multiple_string_literals(capfd):
 
     k[1, 1]()
     cuda.synchronize()
-    out = capfd.readouterr().out
+    out = captured_output(capfd)
     assert "first" in out
     assert "second" in out
 

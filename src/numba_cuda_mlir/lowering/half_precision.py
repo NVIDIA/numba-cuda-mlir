@@ -3,7 +3,7 @@
 """Lowering for half-precision (fp16/bf16) intrinsic functions."""
 
 import operator
-from numba_cuda_mlir.lowering_utilities import convert
+from numba_cuda_mlir.lowering_utilities import bf16_to_f32, convert, f32_to_bf16
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
 registry = LoweringRegistry()
@@ -179,7 +179,7 @@ def register_bf16_lowering():
     @lower(nv_bfloat16, types.float32)
     def bf16_ctor_f32(builder, target, args, kwargs):
         value = builder.load_var(args[0])
-        result = convert(value, T.bf16())
+        result = f32_to_bf16(value)
         builder.store_var(target, result)
 
     # Constructor: nv_bfloat16(float16)
@@ -654,31 +654,31 @@ def register_bf16_lowering():
     @lower(__float2bfloat16, types.float32)
     def float2bfloat16_impl(builder, target, args, kwargs):
         value = builder.load_var(args[0])
-        result = arith.truncf(out=T.bf16(), in_=value)
+        result = f32_to_bf16(value)
         builder.store_var(target, result)
 
     @lower(__float2bfloat16_rn, types.float32)
     def float2bfloat16_rn_impl(builder, target, args, kwargs):
         value = builder.load_var(args[0])
-        result = arith.truncf(out=T.bf16(), in_=value)
+        result = f32_to_bf16(value)
         builder.store_var(target, result)
 
     @lower(__float2bfloat16_rz, types.float32)
     def float2bfloat16_rz_impl(builder, target, args, kwargs):
         value = builder.load_var(args[0])
-        result = arith.truncf(out=T.bf16(), in_=value)
+        result = f32_to_bf16(value)
         builder.store_var(target, result)
 
     @lower(__float2bfloat16_rd, types.float32)
     def float2bfloat16_rd_impl(builder, target, args, kwargs):
         value = builder.load_var(args[0])
-        result = arith.truncf(out=T.bf16(), in_=value)
+        result = f32_to_bf16(value)
         builder.store_var(target, result)
 
     @lower(__float2bfloat16_ru, types.float32)
     def float2bfloat16_ru_impl(builder, target, args, kwargs):
         value = builder.load_var(args[0])
-        result = arith.truncf(out=T.bf16(), in_=value)
+        result = f32_to_bf16(value)
         builder.store_var(target, result)
 
     @lower(__double2bfloat16, types.float64)
@@ -690,7 +690,7 @@ def register_bf16_lowering():
     @lower(__bfloat162float, bf16)
     def bfloat162float_impl(builder, target, args, kwargs):
         value = builder.load_var(args[0])
-        result = arith.extf(out=T.f32(), in_=value)
+        result = bf16_to_f32(value)
         builder.store_var(target, result)
 
     # Conversion intrinsics: short (int16) <-> bf16

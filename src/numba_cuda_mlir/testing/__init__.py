@@ -31,6 +31,11 @@ np_version = tuple(map(int, np.__version__.split(".")[:2]))
 IS_NUMPY_2 = np_version >= (2, 0)
 
 
+def captured_output(capfd) -> str:
+    captured = capfd.readouterr()
+    return captured.out + captured.err
+
+
 def get_filecheck_path():
     for filecheck_name in ("FileCheck", "filecheck"):
         path = Path(sys.prefix) / "bin" / filecheck_name
@@ -62,7 +67,11 @@ def filecheck_with_comments(module):
     parser = Parser(opts, StringIO(check_content), *pattern_for_opts(opts))
     matcher = Matcher(opts, input_file, parser)
     matcher.stderr = StringIO()
-    result = matcher.run()
+    try:
+        result = matcher.run()
+    except AssertionError as e:
+        err = matcher.stderr.getvalue()
+        raise ValueError(f"\n{err}") from e
     if result != 0:
         err = matcher.stderr.getvalue()
         raise ValueError(f"\n{err}")

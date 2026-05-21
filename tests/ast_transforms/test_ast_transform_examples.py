@@ -3,7 +3,7 @@
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.cuda.experimental import consteval
 import numpy as np
-from numba_cuda_mlir.testing import filecheck_with_comments
+from numba_cuda_mlir.testing import captured_output, filecheck_with_comments
 
 
 def test_consteval_prints(capfd):
@@ -33,7 +33,7 @@ def test_consteval_prints(capfd):
     k[1, 1](x)
 
     cuda.synchronize()
-    output = capfd.readouterr().out
+    output = captured_output(capfd)
     print(output)
     # CHECK: COMPTIME: start of kernel
     # CHECK-NEXT: COMPTIME: unrolled iteration 0

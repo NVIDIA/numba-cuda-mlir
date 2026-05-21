@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 from numba_cuda_mlir.mlir.context import mlir_mod_ctx
+from numba_cuda_mlir.mlir.dialect_exts import arith as _arith_ext  # noqa: F401
 from numba_cuda_mlir.mlir.dialect_exts import func
 from numba_cuda_mlir import testing
 from numba_cuda_mlir._mlir.extras import types as T

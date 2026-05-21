@@ -79,7 +79,6 @@ def get_base_pipeline():
       """
         + inline
         + """,
-      convert-math-to-nvvm,
       gpu-kernel-outlining{data-layout-str=},
       convert-vector-to-scf{full-unroll=false lower-scalable=false lower-tensors=false target-rank=1},
       convert-scf-to-cf,

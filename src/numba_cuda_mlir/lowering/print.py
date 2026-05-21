@@ -19,7 +19,6 @@ from numba_cuda_mlir.lowering_registry import LoweringRegistry
 registry = LoweringRegistry()
 lower = registry.lower
 from numba_cuda_mlir.lowering_utilities import (
-    bf16_to_f32,
     get_or_insert_function,
     lookup_callee_in_module,
     tensor_to_memref,
@@ -139,7 +138,7 @@ def _lower_variable_print(mlir_lower: MLIRLower, value: ir.Value) -> None:
             return gpu.printf(_dtype_format_string(value.type), value)
         case ir.BF16Type():
             # Convert bf16 to f32 for printing
-            f32_val = bf16_to_f32(value)
+            f32_val = arith.extf(T.f32(), value)
             return gpu.printf("%f", f32_val)
         case ir.F16Type():
             # Convert f16 to f32 for printing
@@ -300,7 +299,7 @@ def _get_format_and_values(mlir_lower: MLIRLower, arg) -> tuple[str, list[ir.Val
             case ir.IntegerType():
                 return "%lld", [arg]
             case ir.BF16Type():
-                return "%f", [bf16_to_f32(arg)]
+                return "%f", [arith.extf(T.f32(), arg)]
             case ir.F16Type():
                 return "%f", [arith.extf(T.f32(), arg)]
             case ir.FloatType():

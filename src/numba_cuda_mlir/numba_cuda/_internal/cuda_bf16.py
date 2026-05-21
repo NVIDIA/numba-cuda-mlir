@@ -40,7 +40,10 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
     ConcreteTemplate,
 )
 from numba_cuda_mlir.numba_cuda.typing.templates import Registry as TypingRegistry
-from numba_cuda_mlir.numba_cuda import CUSource, declare_device
+from numba_cuda_mlir.numba_cuda.cudadrv.linkable_code import CUSource
+from numba_cuda_mlir.device_declarations import (
+    register_device_declaration as declare_device,
+)
 from numba_cuda_mlir.numba_cuda.vector_types import vector_types
 from numba_cuda_mlir.numba_cuda.extending import as_numba_type
 from numba_cuda_mlir.numba_cuda.types import (

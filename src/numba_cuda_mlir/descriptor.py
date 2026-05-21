@@ -503,7 +503,6 @@ class MLIRTypingContext(typing.BaseContext):
 
         # Install numba-cuda registries after numba_cuda_mlir ones
         self.install_registry(cuda_registry)
-        self.install_registry(builtin_registry)
 
         # Install numba-cuda's bf16 typing registry (includes operators)
         from numba_cuda_mlir.numba_cuda._internal.cuda_bf16 import (
@@ -520,12 +519,20 @@ class MLIRTypingContext(typing.BaseContext):
 
             self.install_registry(torch_registry)
 
+        # Install builtin_registry last: imports above (bf16, extending, etc.)
+        # register @overload templates into it at import time.
+        self.install_registry(builtin_registry)
+
         if find_spec("cupy") is not None:
             import numba_cuda_mlir.type_defs.cupy_types  # noqa: F401
 
+    _conflicts_filtered = False
+
     def refresh(self):
         super().refresh()
-        self._filter_conflicting_overload_methods()
+        if not self._conflicts_filtered:
+            self._filter_conflicting_overload_methods()
+            self._conflicts_filtered = True
 
     def _filter_conflicting_overload_methods(self):
         """Remove upstream overload_method templates that conflict with
@@ -709,7 +716,9 @@ class MLIRTargetContext(BaseContext):
 
     @override
     def refresh(self):
-        super().refresh()
+        if self._registries_unchanged():
+            return
+        self.load_additional_registries()
 
     def get_overload_builder(self, fn, sig):
         """Return an MLIR builder for an overloaded function, or None.
@@ -933,6 +942,9 @@ class MLIRTarget(TargetDescriptor):
         # systems that might not have them present.
         self._typingctx = None
         self._targetctx = None
+        self._typingctx_initialized = False
+        self._targetctx_initialized = False
+        self._initializing = False
         super().__init__(name)
 
     @property
@@ -947,6 +959,52 @@ class MLIRTarget(TargetDescriptor):
             # Ensure typing context is initialized before target context.
             self._targetctx = MLIRTargetContext(self.typing_context)
         return self._targetctx
+
+    def ensure_initialized(self):
+        if self._typingctx_initialized and self._targetctx_initialized:
+            return
+        if self._initializing:
+            return
+
+        self._initializing = True
+        try:
+            if not self._typingctx_initialized:
+                try:
+                    self.typing_context.refresh()
+                except Exception:
+                    self._typingctx_initialized = False
+                    raise
+                else:
+                    self._typingctx_initialized = True
+
+            if not self._targetctx_initialized:
+                try:
+                    self.target_context.refresh()
+                except Exception:
+                    self._targetctx_initialized = False
+                    raise
+                else:
+                    self._targetctx_initialized = True
+
+            from numba_cuda_mlir.numba_cuda.typing.templates import builtin_registry
+
+            self.typing_context.install_registry(builtin_registry)
+        finally:
+            self._initializing = False
+
+    def refresh_registries(self, *, typing=True, target=True):
+        if self._initializing:
+            return
+        self._initializing = True
+        try:
+            if typing:
+                self.typing_context.refresh()
+                self._typingctx_initialized = True
+            if target:
+                self.target_context.refresh()
+                self._targetctx_initialized = True
+        finally:
+            self._initializing = False
 
 
 mlir_target = MLIRTarget("numba_cuda_mlir")
@@ -1155,8 +1213,10 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     def inspect_mlir(self, sig=None):
         if sig is None:
             return {sig: self.inspect_mlir(sig) for sig in self.overloads}
+        from numba_cuda_mlir.mlir_lowering import get_mlir_module_str
+
         cres = self._find_overload(sig)
-        return cres.metadata["mlir_module_str"]
+        return get_mlir_module_str(cres.metadata)
 
     def inspect_mlir_optimized(self, sig=None):
         if sig is None:
@@ -1376,6 +1436,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         self._resolve_target_options()
 
         # Try to load from disk cache
+        mlir_target.ensure_initialized()
         sig = typing.signature(types.none, *argtypes)
         cres = self._cache.load_overload(sig, mlir_target.target_context)
         if cres is not None:
@@ -1426,6 +1487,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         self._resolve_target_options()
 
         # Try to load from disk cache
+        mlir_target.ensure_initialized()
         cres = self._cache.load_overload(sig, mlir_target.target_context)
         if cres is not None:
             self._cache_hits[argtypes] += 1

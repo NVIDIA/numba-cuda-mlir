@@ -1,9 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from numba_cuda_mlir import cuda, extending, types, testing
+from numba_cuda_mlir import compiler, cuda, extending, types, testing
 from numba_cuda_mlir.models import PrimitiveModel, register_model
 from numba_cuda_mlir.numba_cuda.extending import overload as numba_cuda_overload
 from numba_cuda_mlir.numba_cuda.extending import typeof_impl
+from numba_cuda_mlir.numba_cuda.typing.templates import ConcreteTemplate
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 import numpy as np
 import pytest
@@ -21,6 +22,8 @@ def test_extending_intrinsic():
     @extending.intrinsic
     def do_nothing(typingctx, x):
         return x(x), codegen
+
+    extending.refresh_registries()
 
     @cuda.jit
     def k(x):
@@ -62,6 +65,8 @@ def test_extending_overload_with_lowering():
 
         return ol
 
+    extending.refresh_registries()
+
     @cuda.jit
     def k(x):
         x[0] = np.sum(x, x, x)[2]
@@ -82,6 +87,8 @@ def test_extending_overload_without_lowering():
             return a
 
         return ol
+
+    extending.refresh_registries()
 
     @cuda.jit
     def k(x):
@@ -104,6 +111,8 @@ def test_extending_overload_method():
             return arr[0] * 2
 
         return impl
+
+    extending.refresh_registries()
 
     @cuda.jit
     def kernel(arr, out):
@@ -140,6 +149,8 @@ def test_numba_cuda_overload_captures_extern_function():
             device_func(val)
 
         return impl
+
+    extending.refresh_registries()
 
     @cuda.jit
     def kernel(val):
@@ -188,6 +199,8 @@ def test_overload_method_custom_type_uses_mlir_model_only():
 
         return impl
 
+    extending.refresh_registries()
+
     obj = MyObj()
 
     @cuda.jit
@@ -206,6 +219,8 @@ def test_register_jitable():
     @extending.register_jitable(typing_registry=extending.typing_registry)
     def triple(x):
         return x * 3
+
+    extending.refresh_registries()
 
     @cuda.jit
     def kernel(arr):
@@ -226,6 +241,8 @@ def test_register_jitable_calls_register_jitable():
     @extending.register_jitable(typing_registry=extending.typing_registry)
     def add_two(x):
         return add_one(add_one(x))
+
+    extending.refresh_registries()
 
     @cuda.jit
     def kernel(arr):
@@ -251,6 +268,8 @@ def test_overload_attribute():
 
         return get
 
+    extending.refresh_registries()
+
     @cuda.jit
     def kernel(arr, out):
         out[0] = arr.doubled_size
@@ -274,6 +293,8 @@ def test_overload_method_with_args():
             return arr[idx] + val
 
         return impl
+
+    extending.refresh_registries()
 
     @cuda.jit
     def kernel(arr, out):
@@ -305,6 +326,8 @@ def test_overload_dispatches_on_type():
                 return x * 2.0
 
             return impl
+
+    extending.refresh_registries()
 
     @cuda.jit
     def kernel(int_out, float_out):

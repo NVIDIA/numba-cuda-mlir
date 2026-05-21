@@ -7,7 +7,7 @@ from numba_cuda_mlir.numba_cuda import types
 
 from numba_cuda_mlir.numba_cuda.core.errors import TypingError
 
-from numba_cuda_mlir.extending import overload, typing_registry
+from numba_cuda_mlir.extending import overload, refresh_registries, typing_registry
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof as cpu_typeof
 from numba_cuda_mlir.testing import NumbaCUDATestCase
@@ -228,6 +228,9 @@ def ol_default_values_and_kwargs(out, x, y=5, z=6):
         out[0], out[1] = x + y, z
 
     return impl
+
+
+refresh_registries()
 
 
 class TestOverload(NumbaCUDATestCase):

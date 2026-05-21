@@ -488,21 +488,13 @@ Toolkit releases. Presently 12 and 13 are supported.</p>
 versions, refer to <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda/minor_version_compatibility.html#minor-version-compatibility" title="(in Numba v0.66)"><span>CUDA Minor Version Compatibility</span></a>.</p>
 </section>
 </section>
-<section id="installation-with-a-python-package-manager">
-<h2>Installation with a Python package manager<a class="headerlink" href="#installation-with-a-python-package-manager" title="Link to this heading">#</a></h2>
-<p>Conda users can install the CUDA Toolkit into a conda environment:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ conda install -c conda-forge numba-cuda-mlir &quot;cuda-version=12&quot;
-</pre></div>
-</div>
-<p>Or for CUDA 13:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ conda install -c conda-forge numba-cuda-mlir &quot;cuda-version=13&quot;
-</pre></div>
-</div>
-<p>Alternatively, you can install all CUDA 12 dependencies from PyPI via <code class="docutils literal notranslate"><span class="pre">pip</span></code>:</p>
+<section id="installation-with-pip">
+<h2>Installation with pip<a class="headerlink" href="#installation-with-pip" title="Link to this heading">#</a></h2>
+<p>Install CUDA 12 dependencies from PyPI via <code class="docutils literal notranslate"><span class="pre">pip</span></code>:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ pip install numba-cuda-mlir[cu12]
 </pre></div>
 </div>
-<p>CUDA 13 dependencies can be installed via <code class="docutils literal notranslate"><span class="pre">pip</span></code> with:</p>
+<p>CUDA 13 dependencies can be installed with:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ pip install numba-cuda-mlir[cu13]
 </pre></div>
 </div>
@@ -563,7 +555,7 @@ versions, refer to <a class="reference external" href="https://numba.readthedocs
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#supported-cuda-toolkits">Supported CUDA Toolkits</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation-with-a-python-package-manager">Installation with a Python package manager</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation-with-pip">Installation with pip</a></li>
 </ul>
   </nav></div>
 

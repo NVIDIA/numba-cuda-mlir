@@ -65,11 +65,35 @@ jobs:
     runs-on: "windows-${{ matrix.ARCH }}-gpu-${{ matrix.GPU }}-${{ matrix.DRIVER }}-${{ matrix.GPU_COUNT }}"
     if: ${{ github.repository_owner == 'nvidia' && !cancelled() }}
     steps:
-      - name: Ensure GPU is working
-        run: nvidia-smi
-
       - name: Checkout ${{ github.event.repository.name }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+        continue-on-error: true
+        with:
+          enable-apt: true
+
+      - name: Update driver
+        shell: pwsh
+        env:
+          DRIVER_MODE: ${{ matrix.DRIVER_MODE }}
+          GPU_TYPE: ${{ matrix.GPU }}
+        run: |
+          ci/tools/install_gpu_driver.ps1
+
+      - name: Ensure GPU is working
+        shell: pwsh
+        run: |
+          nvidia-smi
+
+          $mode_output = nvidia-smi | Select-String -Pattern "${{ matrix.DRIVER_MODE }}"
+          Write-Output "Driver mode check: $mode_output"
+          if ("$mode_output" -eq "") {
+            Write-Error "Switching to driver mode ${{ matrix.DRIVER_MODE }} failed!"
+            exit 1
+          }
+          Write-Output "Driver mode verified: ${{ matrix.DRIVER_MODE }}"
 
       - name: Set environment variables
         env:
@@ -151,6 +175,11 @@ jobs:
         with:
           name: llvm7-install-${{ inputs.host-platform }}
           path: llvm7-install
+
+      - name: Set up Python ${{ matrix.PY_VER }}
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: ${{ matrix.PY_VER }}
 
       - name: Set up mini CTK
         if: ${{ matrix.LOCAL_CTK == '1' }}

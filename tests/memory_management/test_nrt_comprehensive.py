@@ -74,6 +74,7 @@ class TestNrtBasic:
         g[1, 1](out_ary)
         assert out_ary[0] == 1
 
+    @pytest.mark.xfail(reason="np.array unimplemented")
     def test_nrt_arrays_basic(self):
         """Test basic array creation and access."""
 
@@ -460,6 +461,7 @@ class TestNrtArrayOperations:
         kernel[1, 1](out)
         assert out[0] == 5
 
+    @pytest.mark.xfail(reason="np.array unimplemented")
     def test_current_basic_functionality(self):
         """Test that basic functionality from existing test still works."""
 

@@ -193,6 +193,28 @@ jobs:
     with:
       host-platform: linux-aarch64
 
+  test-numbast-mlir-linux-64:
+    name: Numbast MLIR Test linux-64
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read
+    needs:
+      - build-linux-64
+    uses: ./.github/workflows/test-numbast-mlir-linux.yml
+    with:
+      host-platform: linux-64
+
+  test-numbast-mlir-linux-aarch64:
+    name: Numbast MLIR Test linux-aarch64
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read
+    needs:
+      - build-linux-aarch64
+    uses: ./.github/workflows/test-numbast-mlir-linux.yml
+    with:
+      host-platform: linux-aarch64
+
   # ============== old CI jobs (ci.yaml & pr.yaml) ==============
 
   build-docs:
@@ -236,6 +258,8 @@ jobs:
       - test-expensive-linux-aarch64
       - test-cudf-source-linux-64
       - test-cudf-source-linux-aarch64
+      - test-numbast-mlir-linux-64
+      - test-numbast-mlir-linux-aarch64
       - build-docs
       # - coverage-report
       # - test-simulator
@@ -270,6 +294,10 @@ jobs:
                  needs.test-cudf-source-linux-64.result == 'failure' ||
                  needs.test-cudf-source-linux-aarch64.result == 'cancelled' ||
                  needs.test-cudf-source-linux-aarch64.result == 'failure' ||
+                 needs.test-numbast-mlir-linux-64.result == 'cancelled' ||
+                 needs.test-numbast-mlir-linux-64.result == 'failure' ||
+                 needs.test-numbast-mlir-linux-aarch64.result == 'cancelled' ||
+                 needs.test-numbast-mlir-linux-aarch64.result == 'failure' ||
                  needs.build-docs.result == 'cancelled' ||
                  needs.build-docs.result == 'failure' }}; then
           #        needs.coverage-report.result == 'cancelled' ||

@@ -1,6 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-import importlib.machinery
 import os
 import shutil
 import sys
@@ -58,38 +57,6 @@ def _find_mlir_python_capi() -> str | None:
     return None
 
 
-def _has_core_mlir_extension(mlir_libs: Path) -> bool:
-    for suffix in importlib.machinery.EXTENSION_SUFFIXES:
-        if (mlir_libs / f"_mlir{suffix}").exists():
-            return True
-    return False
-
-
-def _mlir_native_candidates(mlir_libs: Path) -> list[str]:
-    if not mlir_libs.exists():
-        return []
-    return sorted(
-        str(path.relative_to(mlir_libs))
-        for pattern in ("_mlir*", "MLIRPython*", "nanobind*")
-        for path in mlir_libs.glob(pattern)
-        if path.is_file()
-    )
-
-
-def _validate_mlir_bindings(mlir_pkg: Path) -> None:
-    """Check that the staged MLIR package contains its native core module."""
-    mlir_libs = mlir_pkg / "_mlir_libs"
-    if not (mlir_pkg / "ir.py").exists():
-        raise RuntimeError(f"MLIR Python bindings are missing ir.py under {mlir_pkg}")
-    if not _has_core_mlir_extension(mlir_libs):
-        suffixes = ", ".join(importlib.machinery.EXTENSION_SUFFIXES)
-        candidates = ", ".join(_mlir_native_candidates(mlir_libs)) or "<none>"
-        raise RuntimeError(
-            f"MLIR Python bindings are missing the core native _mlir extension in "
-            f"{mlir_libs}. Expected one of: {suffixes}. Found: {candidates}"
-        )
-
-
 def _patch_mlir_windows_dll_search(mlir_pkg: Path) -> None:
     """Teach the staged MLIR package where to find bundled Windows DLLs."""
     if not IS_WINDOWS:
@@ -104,23 +71,37 @@ def _patch_mlir_windows_dll_search(mlir_pkg: Path) -> None:
     if marker in text:
         return
 
-    patch = f"""
-
+    patch = f"""\
 {marker}
-_dll_directory_handles = []
-if os.name == "nt" and hasattr(os, "add_dll_directory"):
-    for _dll_dir in (
-        _this_dir,
-        os.path.abspath(os.path.join(_this_dir, os.pardir, os.pardir)),
-        os.path.abspath(os.path.join(_this_dir, os.pardir, os.pardir, "lib")),
+import os as _numba_cuda_mlir_os
+_numba_cuda_mlir_this_dir = _numba_cuda_mlir_os.path.dirname(__file__)
+_numba_cuda_mlir_dll_directory_handles = []
+if _numba_cuda_mlir_os.name == "nt" and hasattr(_numba_cuda_mlir_os, "add_dll_directory"):
+    for _numba_cuda_mlir_dll_dir in (
+        _numba_cuda_mlir_this_dir,
+        _numba_cuda_mlir_os.path.abspath(
+            _numba_cuda_mlir_os.path.join(
+                _numba_cuda_mlir_this_dir,
+                _numba_cuda_mlir_os.pardir,
+                _numba_cuda_mlir_os.pardir,
+            )
+        ),
+        _numba_cuda_mlir_os.path.abspath(
+            _numba_cuda_mlir_os.path.join(
+                _numba_cuda_mlir_this_dir,
+                _numba_cuda_mlir_os.pardir,
+                _numba_cuda_mlir_os.pardir,
+                "lib",
+            )
+        ),
     ):
-        if os.path.isdir(_dll_dir):
-            _dll_directory_handles.append(os.add_dll_directory(_dll_dir))
+        if _numba_cuda_mlir_os.path.isdir(_numba_cuda_mlir_dll_dir):
+            _numba_cuda_mlir_dll_directory_handles.append(
+                _numba_cuda_mlir_os.add_dll_directory(_numba_cuda_mlir_dll_dir)
+            )
+
 """
-    anchor = "_this_dir = os.path.dirname(__file__)\n"
-    if anchor not in text:
-        raise RuntimeError(f"Could not patch Windows DLL search paths into {init_py}")
-    init_py.write_text(text.replace(anchor, anchor + patch, 1))
+    init_py.write_text(patch + text)
 
 
 class BuildExtWithCmake(build_ext):
@@ -236,7 +217,6 @@ class BuildExtWithCmake(build_ext):
             print(f"Staging MLIR Python bindings: {mlir_pkg} -> {dest}")
             shutil.copytree(str(mlir_pkg), str(dest))
         _patch_mlir_windows_dll_search(dest)
-        _validate_mlir_bindings(dest)
 
     def _stage_libllvm7(self):
         """Copy the optional LLVM 7 runtime library into the wheel."""

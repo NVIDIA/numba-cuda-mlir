@@ -155,11 +155,8 @@ jobs:
         if: steps.gha-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          Get-Content ci/windows-devcontainer.env | ForEach-Object {
-            if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)\s*$') {
-              Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2].Trim()
-            }
-          }
+          . ./ci/windows-common.ps1
+          Import-EnvFile ci/windows-devcontainer.env
           docker pull $env:WINDOWS_DEVCONTAINER_IMAGE
 
       - name: Build modern LLVM in devcontainer
@@ -168,11 +165,8 @@ jobs:
         env:
           PYTHON_VERSION: ${{ matrix.python-version }}
         run: |
-          Get-Content ci/windows-devcontainer.env | ForEach-Object {
-            if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)\s*$') {
-              Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2].Trim()
-            }
-          }
+          . ./ci/windows-common.ps1
+          Import-EnvFile ci/windows-devcontainer.env
           $src = (Resolve-Path "${{ github.workspace }}").Path
           $img = $env:WINDOWS_DEVCONTAINER_IMAGE
           $py = $env:PYTHON_VERSION
@@ -331,22 +325,16 @@ jobs:
         if: steps.gha-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          Get-Content ci/windows-devcontainer.env | ForEach-Object {
-            if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)\s*$') {
-              Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2].Trim()
-            }
-          }
+          . ./ci/windows-common.ps1
+          Import-EnvFile ci/windows-devcontainer.env
           docker pull $env:WINDOWS_DEVCONTAINER_IMAGE
 
       - name: Build LLVM 7 in devcontainer
         if: steps.gha-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          Get-Content ci/windows-devcontainer.env | ForEach-Object {
-            if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)\s*$') {
-              Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2].Trim()
-            }
-          }
+          . ./ci/windows-common.ps1
+          Import-EnvFile ci/windows-devcontainer.env
           $src = (Resolve-Path "${{ github.workspace }}").Path
           $img = $env:WINDOWS_DEVCONTAINER_IMAGE
           docker run --name llvm7-build --isolation=process `

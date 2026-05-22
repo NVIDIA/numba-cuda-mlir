@@ -65,6 +65,66 @@ shell_path() {
   fi
 }
 
+debug_enabled() {
+  [[ "${NUMBA_CUDA_MLIR_CI_DEBUG:-0}" == "1" ]]
+}
+
+resolve_msvc_linker() {
+  local cmake_cache="$1"
+  local link_tool=""
+  if [[ -f "${cmake_cache}" ]]; then
+    link_tool="$(sed -n 's#^CMAKE_LINKER:FILEPATH=##p' "${cmake_cache}" | head -n 1)"
+  fi
+  if [[ -n "${link_tool}" ]]; then
+    link_tool="$(shell_path "${link_tool}")"
+  fi
+  if [[ -z "${link_tool}" || ! -f "${link_tool}" ]]; then
+    if command -v link.exe >/dev/null 2>&1; then
+      link_tool="$(command -v link.exe)"
+    elif command -v where.exe >/dev/null 2>&1; then
+      link_tool="$(where.exe link.exe 2>/dev/null | tr -d '\r' | head -n 1)"
+      if [[ -n "${link_tool}" ]]; then
+        link_tool="$(shell_path "${link_tool}")"
+      fi
+    fi
+  fi
+  if [[ -z "${link_tool}" || ! -f "${link_tool}" ]]; then
+    echo "ERROR: unable to resolve MSVC link.exe (CMAKE_LINKER/PATH/where.exe)" >&2
+    exit 1
+  fi
+  if ! ("${link_tool}" /? 2>&1 || true) | grep -iq 'Incremental Linker'; then
+    echo "ERROR: resolved linker is not MSVC link.exe: ${link_tool}" >&2
+    exit 1
+  fi
+  printf '%s\n' "${link_tool}"
+}
+
+resolve_dumpbin_tool() {
+  local link_tool="$1"
+  local dumpbin_tool=""
+  local link_dir
+  link_dir="$(dirname "${link_tool}")"
+  if [[ -f "${link_dir}/dumpbin.exe" ]]; then
+    dumpbin_tool="${link_dir}/dumpbin.exe"
+  elif command -v dumpbin.exe >/dev/null 2>&1; then
+    dumpbin_tool="$(command -v dumpbin.exe)"
+  elif command -v where.exe >/dev/null 2>&1; then
+    dumpbin_tool="$(where.exe dumpbin.exe 2>/dev/null | tr -d '\r' | head -n 1)"
+    if [[ -n "${dumpbin_tool}" ]]; then
+      dumpbin_tool="$(shell_path "${dumpbin_tool}")"
+    fi
+  fi
+  if [[ -z "${dumpbin_tool}" || ! -f "${dumpbin_tool}" ]]; then
+    echo "ERROR: unable to resolve dumpbin.exe (alongside link.exe/PATH/where.exe)" >&2
+    exit 1
+  fi
+  if ! ("${dumpbin_tool}" /? 2>&1 || true) | grep -iq 'COFF/PE Dumper'; then
+    echo "ERROR: resolved dumpbin tool is not MSVC dumpbin.exe: ${dumpbin_tool}" >&2
+    exit 1
+  fi
+  printf '%s\n' "${dumpbin_tool}"
+}
+
 check_prereqs() {
   require_tool cmake
   require_tool ninja
@@ -124,53 +184,10 @@ build_llvm7() {
   local llvm_c_dll="${llvm7_bin_dir}/LLVM-C.dll"
   local llvm_c_import_lib="${llvm7_lib_dir}/LLVM-C.lib"
   local cmake_cache="${LLVM7_BUILD}/CMakeCache.txt"
-  local link_tool=""
-  if [[ -f "${cmake_cache}" ]]; then
-    link_tool="$(sed -n 's#^CMAKE_LINKER:FILEPATH=##p' "${cmake_cache}" | head -n 1)"
-  fi
-  if [[ -n "${link_tool}" ]]; then
-    link_tool="$(shell_path "${link_tool}")"
-  fi
-  if [[ -z "${link_tool}" || ! -f "${link_tool}" ]]; then
-    if command -v link.exe >/dev/null 2>&1; then
-      link_tool="$(command -v link.exe)"
-    elif command -v where.exe >/dev/null 2>&1; then
-      link_tool="$(where.exe link.exe 2>/dev/null | tr -d '\r' | head -n 1)"
-      if [[ -n "${link_tool}" ]]; then
-        link_tool="$(shell_path "${link_tool}")"
-      fi
-    fi
-  fi
-  if [[ -z "${link_tool}" || ! -f "${link_tool}" ]]; then
-    echo "ERROR: unable to resolve MSVC link.exe (CMAKE_LINKER/PATH/where.exe)" >&2
-    exit 1
-  fi
-  if ! ("${link_tool}" /? 2>&1 || true) | grep -iq 'Incremental Linker'; then
-    echo "ERROR: resolved linker is not MSVC link.exe: ${link_tool}" >&2
-    exit 1
-  fi
-
-  local dumpbin_tool=""
-  local link_dir
-  link_dir="$(dirname "${link_tool}")"
-  if [[ -f "${link_dir}/dumpbin.exe" ]]; then
-    dumpbin_tool="${link_dir}/dumpbin.exe"
-  elif command -v dumpbin.exe >/dev/null 2>&1; then
-    dumpbin_tool="$(command -v dumpbin.exe)"
-  elif command -v where.exe >/dev/null 2>&1; then
-    dumpbin_tool="$(where.exe dumpbin.exe 2>/dev/null | tr -d '\r' | head -n 1)"
-    if [[ -n "${dumpbin_tool}" ]]; then
-      dumpbin_tool="$(shell_path "${dumpbin_tool}")"
-    fi
-  fi
-  if [[ -z "${dumpbin_tool}" || ! -f "${dumpbin_tool}" ]]; then
-    echo "ERROR: unable to resolve dumpbin.exe (alongside link.exe/PATH/where.exe)" >&2
-    exit 1
-  fi
-  if ! ("${dumpbin_tool}" /? 2>&1 || true) | grep -iq 'COFF/PE Dumper'; then
-    echo "ERROR: resolved dumpbin tool is not MSVC dumpbin.exe: ${dumpbin_tool}" >&2
-    exit 1
-  fi
+  local link_tool
+  local dumpbin_tool
+  link_tool="$(resolve_msvc_linker "${cmake_cache}")"
+  dumpbin_tool="$(resolve_dumpbin_tool "${link_tool}")"
 
   local llvm_libs=()
   mapfile -t llvm_libs < <(
@@ -347,15 +364,28 @@ import pathlib
 import sys
 import traceback
 
+debug = os.environ.get("NUMBA_CUDA_MLIR_CI_DEBUG") == "1"
+
+
+def log(message):
+    if debug:
+        print(message)
+
+
+def describe_failure():
+    print(f"  python={sys.executable}", file=sys.stderr)
+    print(f"  install_root={install_root}", file=sys.stderr)
+    print(f"  mlir_libs={mlir_libs} exists={mlir_libs.is_dir()}", file=sys.stderr)
+    if mlir_libs.is_dir():
+        for path in sorted(mlir_libs.iterdir()):
+            if path.is_file() and path.suffix.lower() in {".dll", ".pyd", ".lib", ".exp"}:
+                print(f"    {path.name} size={path.stat().st_size}", file=sys.stderr)
+
+
 install_root = pathlib.Path(sys.argv[1])
 pkg_root = install_root / "python_packages" / "numba_cuda_mlir_mlir"
 mlir_pkg = pkg_root / "numba_cuda_mlir" / "_mlir"
 mlir_libs = mlir_pkg / "_mlir_libs"
-
-print("Smoke testing modern MLIR Python artifact")
-print(f"  python={sys.executable}")
-print(f"  install_root={install_root}")
-print(f"  mlir_libs={mlir_libs} exists={mlir_libs.is_dir()}")
 
 handles = []
 if os.name == "nt" and hasattr(os, "add_dll_directory"):
@@ -365,7 +395,7 @@ if os.name == "nt" and hasattr(os, "add_dll_directory"):
         install_root / "bin",
     ):
         if directory.is_dir():
-            print(f"  add_dll_directory={directory}")
+            log(f"  add_dll_directory={directory}")
             handles.append(os.add_dll_directory(str(directory)))
 
 for name in (
@@ -376,7 +406,7 @@ for name in (
 ):
     path = mlir_libs / name
     if path.exists():
-        print(f"  loading {path}")
+        log(f"  loading {path}")
         ctypes.WinDLL(str(path))
 
 sys.path.insert(0, str(pkg_root))
@@ -384,10 +414,11 @@ try:
     from numba_cuda_mlir._mlir import ir  # noqa: F401
 except BaseException:
     print("Modern MLIR Python artifact smoke import failed:", file=sys.stderr)
+    describe_failure()
     traceback.print_exc()
     raise
 
-print("Modern MLIR Python artifact smoke import passed")
+log("Modern MLIR Python artifact smoke import passed")
 PY
 }
 
@@ -400,86 +431,16 @@ build_modern_llvm_c_dll() {
   local link_rsp="${LLVM_MODERN_BUILD}/llvm-c-modern-link.rsp"
   local llvm_c_dll="${install_mlir_libs}/LLVM-C-modern.dll"
   local llvm_c_import_lib="${install_mlir_libs}/LLVM-C-modern.lib"
-  local required_llvm_c_exports=(
-    LLVMContextCreate
-    LLVMContextDispose
-    LLVMDisposeModule
-    LLVMPrintModuleToString
-    LLVMDisposeMessage
-    LLVMGetFirstFunction
-    LLVMGetNextFunction
-    LLVMGetFirstBasicBlock
-    LLVMGetNextBasicBlock
-    LLVMGetFirstInstruction
-    LLVMGetNextInstruction
-    LLVMGetNamedFunction
-    LLVMAddFunction
-    LLVMCountParams
-    LLVMGetFunctionCallConv
-    LLVMSetLinkage
-    LLVMGetCalledValue
-    LLVMGetAttributeCountAtIndex
-    LLVMGetAttributesAtIndex
-    LLVMIsEnumAttribute
-    LLVMIsStringAttribute
-    LLVMGetEnumAttributeKind
-    LLVMGetStringAttributeKind
-    LLVMRemoveEnumAttributeAtIndex
-    LLVMGetEnumAttributeKindForName
-    LLVMVoidTypeInContext
-    LLVMInt1TypeInContext
-    LLVMInt32TypeInContext
-    LLVMFloatTypeInContext
-    LLVMDoubleTypeInContext
-    LLVMHalfTypeInContext
-    LLVMBFloatTypeInContext
-    LLVMFunctionType
-    LLVMPointerTypeInContext
-    LLVMTypeOf
-    LLVMGetTypeKind
-    LLVMArrayType2
-    LLVMGetReturnType
-    LLVMReplaceAllUsesWith
-    LLVMGetOperand
-    LLVMGetNumOperands
-    LLVMConstInt
-    LLVMInstructionEraseFromParent
-    LLVMGetAtomicRMWBinOp
-    LLVMSetAtomicRMWBinOp
-    LLVMCreateBuilderInContext
-    LLVMPositionBuilderBefore
-    LLVMDisposeBuilder
-    LLVMBuildCall2
-    LLVMBuildZExt
-    LLVMBuildTrunc
-    LLVMBuildFPExt
-    LLVMBuildFPTrunc
-    LLVMGetInlineAsm
-    LLVMGetFirstUse
-    LLVMGetNextUse
-    LLVMGetUser
-    LLVMMDStringInContext2
-    LLVMMDNodeInContext2
-    LLVMValueAsMetadata
-    LLVMMetadataAsValue
-    LLVMAddNamedMetadataOperand
-    LLVMGetNamedMetadataNumOperands
-    LLVMGetNamedMetadataOperands
-    LLVMAddGlobal
-    LLVMSetInitializer
-    LLVMSetSection
-    LLVMConstArray2
-    LLVMGetMDNodeNumOperands
-    LLVMGetMDNodeOperands
-    LLVMReplaceMDNodeOperandWith
-    LLVMGetMDString
-    LLVMConstIntGetZExtValue
-    LLVMIsACallInst
-    LLVMIsAAtomicRMWInst
-    LLVMIsAConstantInt
-    LLVMGetPointerAddressSpace
-    LLVMDeleteFunction
+  local required_exports_script="${REPO_ROOT}/ci/tools/extract-llvm-capi-symbols.py"
+  local required_exports_source="${REPO_ROOT}/cext/launcher/llvm_downgrade.cpp"
+  local required_llvm_c_exports=()
+  mapfile -t required_llvm_c_exports < <(
+    "${PYTHON}" "${required_exports_script}" "${required_exports_source}"
   )
+  if [[ "${#required_llvm_c_exports[@]}" -eq 0 ]]; then
+    echo "ERROR: no required LLVM C API exports found in ${required_exports_source}" >&2
+    exit 1
+  fi
   local windows_system_libs=(
     winhttp.lib
     crypt32.lib
@@ -492,53 +453,10 @@ build_modern_llvm_c_dll() {
     ntdll.lib
   )
   local cmake_cache="${LLVM_MODERN_BUILD}/CMakeCache.txt"
-  local link_tool=""
-  if [[ -f "${cmake_cache}" ]]; then
-    link_tool="$(sed -n 's#^CMAKE_LINKER:FILEPATH=##p' "${cmake_cache}" | head -n 1)"
-  fi
-  if [[ -n "${link_tool}" ]]; then
-    link_tool="$(shell_path "${link_tool}")"
-  fi
-  if [[ -z "${link_tool}" || ! -f "${link_tool}" ]]; then
-    if command -v link.exe >/dev/null 2>&1; then
-      link_tool="$(command -v link.exe)"
-    elif command -v where.exe >/dev/null 2>&1; then
-      link_tool="$(where.exe link.exe 2>/dev/null | tr -d '\r' | head -n 1)"
-      if [[ -n "${link_tool}" ]]; then
-        link_tool="$(shell_path "${link_tool}")"
-      fi
-    fi
-  fi
-  if [[ -z "${link_tool}" || ! -f "${link_tool}" ]]; then
-    echo "ERROR: unable to resolve MSVC link.exe (CMAKE_LINKER/PATH/where.exe)" >&2
-    exit 1
-  fi
-  if ! ("${link_tool}" /? 2>&1 || true) | grep -iq 'Incremental Linker'; then
-    echo "ERROR: resolved linker is not MSVC link.exe: ${link_tool}" >&2
-    exit 1
-  fi
-
-  local dumpbin_tool=""
-  local link_dir
-  link_dir="$(dirname "${link_tool}")"
-  if [[ -f "${link_dir}/dumpbin.exe" ]]; then
-    dumpbin_tool="${link_dir}/dumpbin.exe"
-  elif command -v dumpbin.exe >/dev/null 2>&1; then
-    dumpbin_tool="$(command -v dumpbin.exe)"
-  elif command -v where.exe >/dev/null 2>&1; then
-    dumpbin_tool="$(where.exe dumpbin.exe 2>/dev/null | tr -d '\r' | head -n 1)"
-    if [[ -n "${dumpbin_tool}" ]]; then
-      dumpbin_tool="$(shell_path "${dumpbin_tool}")"
-    fi
-  fi
-  if [[ -z "${dumpbin_tool}" || ! -f "${dumpbin_tool}" ]]; then
-    echo "ERROR: unable to resolve dumpbin.exe (alongside link.exe/PATH/where.exe)" >&2
-    exit 1
-  fi
-  if ! ("${dumpbin_tool}" /? 2>&1 || true) | grep -iq 'COFF/PE Dumper'; then
-    echo "ERROR: resolved dumpbin tool is not MSVC dumpbin.exe: ${dumpbin_tool}" >&2
-    exit 1
-  fi
+  local link_tool
+  local dumpbin_tool
+  link_tool="$(resolve_msvc_linker "${cmake_cache}")"
+  dumpbin_tool="$(resolve_dumpbin_tool "${link_tool}")"
 
   local llvm_libs=()
   mapfile -t llvm_libs < <(
@@ -594,10 +512,17 @@ build_modern_llvm_c_dll() {
     done
   } > "${link_rsp}"
 
-  echo "=== LLVM-C-modern link response file (last 20 lines) ==="
-  tail -n 20 "${link_rsp}"
+  if debug_enabled; then
+    echo "=== LLVM-C-modern link response file (last 20 lines) ==="
+    tail -n 20 "${link_rsp}"
+  fi
 
-  "${link_tool}" @"$(cmake_path "${link_rsp}")"
+  if ! "${link_tool}" @"$(cmake_path "${link_rsp}")"; then
+    echo "ERROR: failed to link ${llvm_c_dll}" >&2
+    echo "=== LLVM-C-modern link response file (last 20 lines) ===" >&2
+    tail -n 20 "${link_rsp}" >&2 || true
+    exit 1
+  fi
 
   if [[ ! -f "${llvm_c_dll}" ]]; then
     echo "ERROR: failed to produce ${llvm_c_dll}" >&2

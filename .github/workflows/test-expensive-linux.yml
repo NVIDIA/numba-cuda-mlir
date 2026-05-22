@@ -91,45 +91,17 @@ jobs:
           ls -lahR $NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR
 
       - name: Determine LLVM Python tag
+        id: wheel-tags
         run: |
           PY_VER_FMT=$(echo "${{ matrix.PY_VER }}" | tr -d '.')
           echo "LLVM_PY_TAG=cp${PY_VER_FMT}" >> "$GITHUB_ENV"
+          echo "llvm-py-tag=cp${PY_VER_FMT}" >> "$GITHUB_OUTPUT"
 
-      - name: Compute LLVM cache keys
-        id: llvm-cache-keys
-        run: |
-          echo "llvm-modern-key=$(bash ci/llvm-cache-key.sh modern "${{ inputs.host-platform }}" "${LLVM_PY_TAG}")" >> "$GITHUB_OUTPUT"
-          echo "llvm7-key=$(bash ci/llvm-cache-key.sh llvm7 "${{ inputs.host-platform }}")" >> "$GITHUB_OUTPUT"
-
-      - name: Restore LLVM Modern from cache
-        if: ${{ github.ref_name != 'main' }}
-        id: llvm-modern-cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+      - name: Restore LLVM artifacts
+        uses: ./.github/actions/restore_llvm_artifacts
         with:
-          path: llvm-modern-install/
-          key: ${{ steps.llvm-cache-keys.outputs.llvm-modern-key }}
-
-      - name: Download LLVM Modern artifacts
-        if: ${{ github.ref_name == 'main' || steps.llvm-modern-cache.outputs.cache-hit != 'true' }}
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          name: llvm-modern-install-${{ env.LLVM_PY_TAG }}-${{ inputs.host-platform }}
-          path: llvm-modern-install
-
-      - name: Restore LLVM 7 from cache
-        if: ${{ github.ref_name != 'main' }}
-        id: llvm7-cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: llvm7-install/
-          key: ${{ steps.llvm-cache-keys.outputs.llvm7-key }}
-
-      - name: Download LLVM 7 artifacts
-        if: ${{ github.ref_name == 'main' || steps.llvm7-cache.outputs.cache-hit != 'true' }}
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          name: llvm7-install-${{ inputs.host-platform }}
-          path: llvm7-install
+          host-platform: ${{ inputs.host-platform }}
+          llvm-py-tag: ${{ steps.wheel-tags.outputs.llvm-py-tag }}
 
       - name: Fix LLVM artifact permissions
         run: |

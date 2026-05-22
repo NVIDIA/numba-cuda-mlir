@@ -203,7 +203,7 @@ Status load_mlir_capi(const char* lib_path) {
     g_##name = reinterpret_cast<name##_fn>(load_symbol(g_mlir_lib_handle, #name)); \
     if (!g_##name) \
         return raise(PyExc_RuntimeError, \
-                     "Symbol '%s' not found in libMLIRPythonCAPI.so", #name);
+                     "Symbol '%s' not found in %s", #name, lib_path);
 
     LLVM_CAPI_REQUIRED(LOAD_REQUIRED)
 #undef LOAD_REQUIRED

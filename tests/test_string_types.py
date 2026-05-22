@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir import testing
 
 
 @pytest.mark.parametrize(
@@ -142,6 +143,36 @@ def test_string_literal_eq_used_in_conditional():
     kernel[1, 1](out)
     assert out[0] == 1
     assert out[1] == 0
+
+
+def test_string_literal_eq_module_global():
+    """Module-level string compared repeatedly should constant-fold without loops."""
+    _ARRANGEMENT = "col_major"
+
+    @cuda.jit
+    def kernel(out):
+        acc = 0
+        if _ARRANGEMENT == "col_major":
+            acc += 1
+        if _ARRANGEMENT == "col_major":
+            acc += 1
+        if _ARRANGEMENT == "col_major":
+            acc += 1
+        if _ARRANGEMENT == "col_major":
+            acc += 1
+        out[0] = acc
+
+    out = np.zeros(1, dtype=np.int64)
+    kernel[1, 1](out)
+    assert out[0] == 4
+
+    (mlir,) = kernel.inspect_mlir().values()
+    testing.filecheck(
+        """
+        CHECK-NOT: scf.for
+        """,
+        mlir,
+    )
 
 
 def test_string_literal_eq_single_char():

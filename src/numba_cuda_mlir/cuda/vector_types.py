@@ -8,29 +8,29 @@ vector types. They map to numba_cuda_mlir's VectorType internally.
 """
 
 import itertools
-from inspect import Signature, Parameter
 import numpy as np
-from collections import defaultdict
+
+from numba_cuda_mlir.type_defs.vector_types import VectorType
+from numba_cuda_mlir import types
+
+BASE_TYPE_MAP = {
+    "int8": types.int8,
+    "int16": types.int16,
+    "int32": types.int32,
+    "int64": types.int64,
+    "uint8": types.uint8,
+    "uint16": types.uint16,
+    "uint32": types.uint32,
+    "uint64": types.uint64,
+    "float16": types.float16,
+    "float32": types.float32,
+    "float64": types.float64,
+}
 
 
-class VectorTypeStub:
-    """Base class for vector type stubs."""
-
-    _base_type_name: str
-    _num_elements: int
-    _attr_names: tuple
-    aliases: list
-
-    def __new__(cls, *args):
-        raise NotImplementedError(f"{cls.__name__} can only be used inside a CUDA kernel")
-
-    def __repr__(self):
-        return f"<{self.__class__.__name__}>"
-
-
-def make_vector_type_stubs():
-    """Create stub classes for all CUDA vector types."""
-    vector_type_stubs = []
+def make_vector_types():
+    """Create instances for all CUDA vector types."""
+    vector_types_by_name = {}
     vector_type_prefix = (
         "int8",
         "int16",
@@ -45,37 +45,17 @@ def make_vector_type_stubs():
         "float64",
     )
     vector_type_element_counts = (1, 2, 3, 4)
-    vector_type_attribute_names = ("x", "y", "z", "w")
 
     for prefix, nelem in itertools.product(vector_type_prefix, vector_type_element_counts):
-        type_name = f"{prefix}x{nelem}"
-        attr_names = vector_type_attribute_names[:nelem]
+        base_type = BASE_TYPE_MAP[prefix]
+        vec_type = VectorType(base_type, nelem)
+        vector_types_by_name[vec_type.name] = vec_type
 
-        stub_class = type(
-            type_name,
-            (VectorTypeStub,),
-            {
-                "_base_type_name": prefix,
-                "_num_elements": nelem,
-                "_attr_names": attr_names,
-                "_description_": f"<{type_name}>",
-                "__signature__": Signature(
-                    parameters=[
-                        Parameter(name=attr_name, kind=Parameter.POSITIONAL_ONLY)
-                        for attr_name in attr_names
-                    ]
-                ),
-                "__doc__": f"Construct a {type_name} vector type in CUDA kernels.",
-                "aliases": [],
-            },
-        )
-        vector_type_stubs.append(stub_class)
-
-    return vector_type_stubs
+    return vector_types_by_name
 
 
-def map_vector_type_stubs_to_alias(vector_type_stubs):
-    """Create C-compatible aliases for vector type stubs (e.g., float4 -> float32x4)."""
+def make_vector_type_aliases(vector_types_by_name):
+    """Create C-compatible aliases for vector types (e.g., float4 -> float32x4)."""
     base_type_to_alias = {
         "char": f"int{np.dtype(np.byte).itemsize * 8}",
         "short": f"int{np.dtype(np.short).itemsize * 8}",
@@ -92,33 +72,29 @@ def map_vector_type_stubs_to_alias(vector_type_stubs):
         "double": f"float{np.dtype(np.double).itemsize * 8}",
     }
 
-    base_type_to_vector_type = defaultdict(list)
-    for stub in vector_type_stubs:
-        base_type_to_vector_type[stub._base_type_name].append(stub)
+    vector_types_by_alias = {}
+    for alias_prefix, base_type_prefix in base_type_to_alias.items():
+        for nelem in (1, 2, 3, 4):
+            alias_name = f"{alias_prefix}{nelem}"
+            target_name = f"{base_type_prefix}x{nelem}"
+            if target_name in vector_types_by_name:
+                vector_types_by_alias[alias_name] = vector_types_by_name[target_name]
 
-    for alias, base_type in base_type_to_alias.items():
-        stubs_for_base = base_type_to_vector_type[base_type]
-        for stub in stubs_for_base:
-            nelem = stub._num_elements
-            stub.aliases.append(f"{alias}{nelem}")
+    return vector_types_by_alias
 
-
-# Create all vector type stubs
-_vector_type_stubs = make_vector_type_stubs()
-map_vector_type_stubs_to_alias(_vector_type_stubs)
 
 # Build lookup dictionaries
-vector_type_stubs_by_name = {stub.__name__: stub for stub in _vector_type_stubs}
-vector_type_stubs_by_alias = {}
-for stub in _vector_type_stubs:
-    for alias in stub.aliases:
-        vector_type_stubs_by_alias[alias] = stub
+vector_types_by_name = make_vector_types()
+vector_types_by_alias = make_vector_type_aliases(vector_types_by_name)
 
-# Export all stubs as module-level attributes
-for stub in _vector_type_stubs:
-    globals()[stub.__name__] = stub
-    for alias in stub.aliases:
-        globals()[alias] = stub
+# List of all unique vector types
+_vector_types = list(vector_types_by_name.values())
+
+# Export all types as module-level attributes
+for name, vec_type in vector_types_by_name.items():
+    globals()[name] = vec_type
+for alias, vec_type in vector_types_by_alias.items():
+    globals()[alias] = vec_type
 
 # List of all exported names
-__all__ = list(vector_type_stubs_by_name.keys()) + list(vector_type_stubs_by_alias.keys())
+__all__ = list(vector_types_by_name.keys()) + list(vector_types_by_alias.keys())

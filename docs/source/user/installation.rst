@@ -30,21 +30,13 @@ For further information about version compatibility between toolkit and driver
 versions, refer to :ref:`minor-version-compatibility`.
 
 
-Installation with a Python package manager
-==========================================
+Installation with pip
+=====================
 
-Conda users can install the CUDA Toolkit into a conda environment::
-
-    $ conda install -c conda-forge numba-cuda-mlir "cuda-version=12"
-
-Or for CUDA 13::
-
-    $ conda install -c conda-forge numba-cuda-mlir "cuda-version=13"
-
-Alternatively, you can install all CUDA 12 dependencies from PyPI via ``pip``::
+Install CUDA 12 dependencies from PyPI via ``pip``::
 
     $ pip install numba-cuda-mlir[cu12]
 
-CUDA 13 dependencies can be installed via ``pip`` with::
+CUDA 13 dependencies can be installed with::
 
     $ pip install numba-cuda-mlir[cu13]

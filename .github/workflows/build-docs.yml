@@ -35,6 +35,7 @@ defaults:
 permissions:
   actions: read
   contents: write  # required for JamesIves/github-pages-deploy-action to push to gh-pages
+  pull-requests: write  # required for sticky PR comment (doc preview link)
 
 jobs:
   build:
@@ -125,12 +126,31 @@ jobs:
           ls -l build/html
           popd
 
+      # This step sets the PR_NUMBER/BUILD_LATEST/BUILD_PREVIEW env vars.
+      - name: Get PR number
+        if: ${{ !inputs.is-release }}
+        uses: ./.github/actions/get_pr_number
+
+      - name: Set up artifact directories
+        run: |
+          # create an empty folder for removal use (on merge, the preview folder is
+          # replaced with an empty one to effectively delete it)
+          mkdir -p empty_docs
+
       - name: Upload built docs artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: numba-cuda-mlir-docs
           path: docs/build/html/
           retention-days: 7
+
+      - name: Deploy or clean up doc preview
+        if: ${{ !inputs.is-release }}
+        uses: ./.github/actions/doc_preview
+        with:
+          source-folder: ${{ (github.ref_name != 'main' && 'docs/build/html') ||
+                              'empty_docs' }}
+          pr-number: ${{ env.PR_NUMBER }}
 
       - name: Deploy docs
         if: ${{ github.ref_name == 'main' || inputs.is-release }}

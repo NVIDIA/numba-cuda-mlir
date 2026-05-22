@@ -7,6 +7,7 @@ from io import StringIO
 from numba_cuda_mlir.numba_cuda.core import sigutils
 from numba_cuda_mlir.numba_cuda import types as numba_types
 from numba_cuda_mlir.numba_cuda.core.typeinfer import register_dispatcher
+from numba_cuda_mlir.numba_cuda.decorators import jit as numba_cuda_jit
 import inspect
 import sys
 from textwrap import dedent
@@ -721,6 +722,9 @@ def mlir_jit(func_or_sig=None, **kws):
             return _jit_with_annotations(func_or_sig)
         else:
             return _jit_lazy(func_or_sig)
+
+
+mlir_jit.__doc__ = numba_cuda_jit.__doc__
 
 
 def stubgen(out: StringIO = sys.stdout):

@@ -54,8 +54,8 @@ runs:
       uses: ./.github/actions/install_unix_deps
       continue-on-error: false
       with:
-        dependencies: "zstd curl xz-utils"
-        dependent_exes: "zstd curl xz"
+        dependencies: "zstd curl xz-utils jq"
+        dependent_exes: "zstd curl xz jq"
 
     - name: Download CTK cache
       id: ctk-get-cache
@@ -96,8 +96,9 @@ runs:
             curl -LSs $1 -o $2
           }
           CTK_COMPONENT=$1
-          CTK_COMPONENT_REL_PATH="$(curl -s $CTK_JSON_URL |
-              python -c "import sys, json; print(json.load(sys.stdin)['${CTK_COMPONENT}']['${CTK_SUBDIR}']['relative_path'])")"
+          CTK_COMPONENT_REL_PATH="$(curl -fsSL "$CTK_JSON_URL" |
+              jq -er --arg component "$CTK_COMPONENT" --arg subdir "$CTK_SUBDIR" \
+                '.[$component][$subdir].relative_path')"
           CTK_COMPONENT_URL="${CTK_BASE_URL}/${CTK_COMPONENT_REL_PATH}"
           CTK_COMPONENT_COMPONENT_FILENAME="$(basename $CTK_COMPONENT_REL_PATH)"
           download $CTK_COMPONENT_URL $CTK_COMPONENT_COMPONENT_FILENAME

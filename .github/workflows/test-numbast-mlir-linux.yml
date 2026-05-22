@@ -74,7 +74,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           repository: NVIDIA/numbast
-          ref: 6e41a63efb299e1944fee3fa3a636b41827a21c4
+          ref: f779d7d7f834a7e8b411b4d0bfe6c2fb36a58859
           path: numbast-checkout
           fetch-depth: 0
           persist-credentials: false

@@ -67,19 +67,8 @@ jobs:
         uses: ./.github/actions/install_unix_deps
         continue-on-error: false
         with:
-          dependencies: "ca-certificates gnupg git jq wget libgl1 libegl1"
-          dependent_exes: "gpg git jq wget"
-
-      - name: Install Clang 18
-        run: |
-          wget -qO /tmp/llvm-snapshot.gpg.key https://apt.llvm.org/llvm-snapshot.gpg.key
-          gpg --dearmor --yes -o /usr/share/keyrings/llvm-snapshot.gpg /tmp/llvm-snapshot.gpg.key
-          echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] https://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" > /etc/apt/sources.list.d/llvm-toolchain-jammy-18.list
-          apt update
-          apt install -y clang-18
-          ln -sf /usr/bin/clang-18 /usr/local/bin/clang
-          ln -sf /usr/bin/clang++-18 /usr/local/bin/clang++
-          clang++ --version
+          dependencies: "bzip2 ca-certificates git jq wget libgl1 libegl1"
+          dependent_exes: "bzip2 git jq wget"
 
       - name: Checkout Numbast
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -136,12 +125,21 @@ jobs:
         run: |
           echo "LD_LIBRARY_PATH=$(pwd)/llvm-modern-install/lib:$(pwd)/llvm7-install/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
 
-      - name: Set up Python ${{ matrix.PY_VER }}
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
-        with:
-          python-version: ${{ matrix.PY_VER }}
-        env:
-          AGENT_TOOLSDIRECTORY: "/opt/hostedtoolcache"
+      - name: Set up Miniforge Python ${{ matrix.PY_VER }}
+        run: |
+          MINIFORGE_DIR="/tmp/miniforge"
+          MINIFORGE_URL="https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-$(uname -m).sh"
+          if [[ ! -x "${MINIFORGE_DIR}/bin/mamba" ]]; then
+            wget -q "${MINIFORGE_URL}" -O /tmp/miniforge.sh
+            bash /tmp/miniforge.sh -b -p "${MINIFORGE_DIR}"
+            rm /tmp/miniforge.sh
+          fi
+          "${MINIFORGE_DIR}/bin/mamba" create -y -n numbast-mlir \
+            -c conda-forge \
+            "python=${{ matrix.PY_VER }}" \
+            "clangdev=18" \
+            pip
+          "${MINIFORGE_DIR}/bin/conda" run -n numbast-mlir clang++ --version
 
       - name: Set up mini CTK
         if: ${{ matrix.LOCAL_CTK == '1' }}
@@ -157,7 +155,7 @@ jobs:
           CUDA_VER: ${{ matrix.CUDA_VER }}
           LOCAL_CTK: ${{ matrix.LOCAL_CTK }}
           NUMBAST_CHECKOUT: ${{ github.workspace }}/numbast-checkout
-        run: run-numbast-mlir-tests
+        run: /tmp/miniforge/bin/conda run -n numbast-mlir ./ci/tools/run-numbast-mlir-tests
 
       - name: Upload Numbast MLIR test results
         if: always()

@@ -1019,19 +1019,24 @@ class UniTupleIterObject:
 
         current_index = self.index
         is_valid = arith.cmpi(predicate=arith.CmpIPredicate.slt, lhs=current_index, rhs=count)
+        safe_index = arith.select(
+            condition=is_valid,
+            true_value=current_index,
+            false_value=int_of(0, ty=T.i64()),
+        )
 
         if self._uses_llvm:
             elem_ptr = llvm.getelementptr(
                 llvm.PointerType.get(),
                 self._tuple_storage,
-                [current_index],
+                [safe_index],
                 [GEP_DYNAMIC_INDEX],
                 self._element_type,
                 None,
             )
             current_value = llvm.load(res=self._element_type, addr=elem_ptr)
         else:
-            index_as_index = arith.index_cast(out=ir.IndexType.get(), in_=current_index)
+            index_as_index = arith.index_cast(out=ir.IndexType.get(), in_=safe_index)
             current_value = memref.load(self._tuple_storage, [index_as_index])
 
         next_index = arith.addi(lhs=current_index, rhs=one)

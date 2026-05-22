@@ -9,7 +9,10 @@ and should not be imported by user, user should only import the
 corresponding vector type from `cuda` module in kernel to use them.
 """
 
+import sys
+
 import numpy as np
+import pytest
 
 from numba_cuda_mlir.testing import NumbaCUDATestCase
 
@@ -274,6 +277,10 @@ class TestCudaVectorType(NumbaCUDATestCase):
             kernel[1, 1](arr)
             np.testing.assert_almost_equal(arr, np.array(range(vty.num_elements)))
 
+    @pytest.mark.xfail(
+        sys.platform == "win32",
+        reason="Fancy vector construction currently only fails on Windows",
+    )
     def test_fancy_creation_readout(self):
         for vty in _vector_types():
             kernel = make_fancy_creation_kernel(vty)

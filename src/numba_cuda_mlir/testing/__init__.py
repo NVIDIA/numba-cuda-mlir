@@ -8,6 +8,7 @@ from io import StringIO
 import re
 from textwrap import dedent
 import inspect
+import os
 from numba_cuda_mlir._mlir.ir import Module, Operation
 from typing import Iterable, Union
 import sys
@@ -25,10 +26,41 @@ import enum
 import math
 import numpy as np
 import pytest
+import subprocess
+import tempfile
 import unittest
 
 np_version = tuple(map(int, np.__version__.split(".")[:2]))
 IS_NUMPY_2 = np_version >= (2, 0)
+
+
+def captured_output(capfd) -> str:
+    captured = capfd.readouterr()
+    return captured.out + captured.err
+
+
+def run_in_subprocess(code: str, timeout: int = 60) -> tuple[str, str]:
+    """Run Python code in a subprocess and return stdout/stderr."""
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".py", encoding="utf-8", delete=False)
+    try:
+        tmp.write(dedent(code))
+        tmp.close()
+        proc = subprocess.run(
+            [sys.executable, "-u", tmp.name],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.CalledProcessError as e:
+        raise AssertionError(
+            f"process failed with code {e.returncode:d}:\n"
+            f"stdout:\n{e.stdout}\n\nstderr:\n{e.stderr}"
+        ) from e
+    finally:
+        tmp.close()
+        os.unlink(tmp.name)
+    return proc.stdout, proc.stderr
 
 
 def get_filecheck_path():
@@ -55,14 +87,18 @@ def filecheck_with_comments(module):
     fun = inspect.currentframe().f_back.f_code
     _, lnum = inspect.findsource(fun)
     fun_with_checks = inspect.getsource(fun)
-    check_content = "\n" * lnum + fun_with_checks
+    check_content = ("\n" * lnum + fun_with_checks).replace("\r\n", "\n")
 
     opts = Options(match_filename="-", check_prefixes=["CHECK"])
     input_file = FInput(fname="-", content=op)
     parser = Parser(opts, StringIO(check_content), *pattern_for_opts(opts))
     matcher = Matcher(opts, input_file, parser)
     matcher.stderr = StringIO()
-    result = matcher.run()
+    try:
+        result = matcher.run()
+    except AssertionError as e:
+        err = matcher.stderr.getvalue()
+        raise ValueError(f"\n{err}") from e
     if result != 0:
         err = matcher.stderr.getvalue()
         raise ValueError(f"\n{err}")
@@ -73,7 +109,8 @@ def filecheck(checks: str, actual: str | bytes | ir.Module):
         actual = str(actual)
     if isinstance(actual, bytes):
         actual = actual.decode()
-    checks = dedent(checks)
+    checks = dedent(checks).replace("\r\n", "\n")
+    actual = actual.replace("\r\n", "\n")
 
     opts = Options(match_filename="-", check_prefixes=["CHECK"])
     input_file = FInput(fname="-", content=actual)

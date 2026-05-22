@@ -22,6 +22,7 @@ from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.type_defs.vector_types import VectorType
+from numba_cuda_mlir.numba_cuda.np.npyimpl import _make_dtype_object
 
 registry = LoweringRegistry()
 lower = registry.lower
@@ -4717,3 +4718,9 @@ def numpy_empty_like_nd_lower(builder, target, args, kwargs):
         )
 
     builder.store_var(target, alloca_op.memref)
+
+
+@lower(_make_dtype_object, types.StringLiteral)
+def make_dtype_object_cg(builder, target, args, kws):
+    target_type = builder.get_numba_type(target.name)
+    builder.store_var(target, builder._materialize_type_token(target_type))

@@ -159,6 +159,7 @@ class GridGroupModel(PrimitiveModel):
 @register_model(types.Function)
 @register_model(types.Module)
 @register_model(types.NoneType)
+@register_model(types.DType)
 class OpaqueModel(PrimitiveModel):
     """Passed as opaque pointers"""
 

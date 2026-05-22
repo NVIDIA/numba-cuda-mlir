@@ -512,6 +512,9 @@ extern "C" __global__ void
             argtypes = [self.get_mlir_type(argtype) for argtype in flat_argtypes]
             flat_restypes = self._flatten_type(self.fndesc.restype)
             restypes = [self.get_mlir_type(rt) for rt in flat_restypes]
+            # Opaque types (DType, Function, Module, ...) lower to MLIR NoneType
+            # and have no runtime representation, so the function returns void.
+            restypes = [rt for rt in restypes if not isinstance(rt, ir.NoneType)]
             if not restypes:
                 mlir_funcOp_type = ir.FunctionType.get(argtypes, [])
             else:
@@ -2951,7 +2954,9 @@ extern "C" __global__ void
         value = return_inst.value
         value_type = self.get_numba_type(value.name)
         return_ctor = gpu.ReturnOp if isinstance(self.mlir_funcOp, gpu.GPUFuncOp) else func.ReturnOp
-        if isinstance(value_type, types.NoneType):
+        if isinstance(value_type, types.NoneType) or isinstance(
+            self.get_mlir_type(value_type), ir.NoneType
+        ):
             return_ctor([])
         else:
             value = self.load_var(value)

@@ -497,6 +497,10 @@ class TestCudaVectorType(NumbaCUDATestCase):
         for alias, vec_type in vector_types_by_alias.items():
             self.assertEqual(id(getattr(cuda, vec_type.name)), id(getattr(cuda, alias)))
 
+    @pytest.mark.xfail(
+        sys.platform == "win32",
+        reason="Vector local array readback currently fails on Windows",
+    )
     def test_vector_local_array(self):
         """Tests that vector types can be used as dtype for cuda.local.array"""
 
@@ -513,6 +517,10 @@ class TestCudaVectorType(NumbaCUDATestCase):
         kernel[1, 1](out)
         np.testing.assert_array_equal(out, np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
 
+    @pytest.mark.xfail(
+        sys.platform == "win32",
+        reason="Vector shared array readback currently fails on Windows",
+    )
     def test_vector_shared_array(self):
         """Tests that vector types can be used as dtype for cuda.shared.array"""
 

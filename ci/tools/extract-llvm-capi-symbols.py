@@ -33,6 +33,10 @@ def extract_symbols(path: pathlib.Path) -> list[str]:
 
 
 def main() -> int:
+    # Git Bash mapfile strips LF but keeps CR, so force LF even under Windows Python.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(newline="\n")
+
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=pathlib.Path)
     ns = parser.parse_args()

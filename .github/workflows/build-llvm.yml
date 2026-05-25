@@ -168,7 +168,7 @@ jobs:
           $img = $env:WINDOWS_DEVCONTAINER_IMAGE
           $py = $env:PYTHON_VERSION
           $cname = "llvm-modern-${{ matrix.py-tag }}"
-          docker run --name $cname --isolation=process `
+          docker run --rm --name $cname --isolation=process `
             --mount "type=bind,source=$src,target=C:\workspace" `
             --workdir C:\workspace `
             --env "PARALLEL=${{ env.PARALLEL }}" `
@@ -178,16 +178,14 @@ jobs:
             throw "Modern LLVM build container failed with exit code $LASTEXITCODE"
           }
 
-      - name: Verify LLVM Modern install and remove container
+      - name: Verify LLVM Modern install
         if: steps.gha-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          $cname = "llvm-modern-${{ matrix.py-tag }}"
           $install = "${{ github.workspace }}\llvm-modern-install"
           if (-not (Test-Path $install)) {
             throw "LLVM Modern install not found at $install"
           }
-          docker rm $cname
 
       - name: Save LLVM Modern to GHA cache
         if: steps.gha-cache.outputs.cache-hit != 'true'
@@ -330,7 +328,7 @@ jobs:
           Import-EnvFile ci/windows-devcontainer.env
           $src = (Resolve-Path "${{ github.workspace }}").Path
           $img = $env:WINDOWS_DEVCONTAINER_IMAGE
-          docker run --name llvm7-build --isolation=process `
+          docker run --rm --name llvm7-build --isolation=process `
             --mount "type=bind,source=$src,target=C:\workspace" `
             --workdir C:\workspace `
             --env "PARALLEL=${{ env.PARALLEL }}" `
@@ -340,7 +338,7 @@ jobs:
             throw "LLVM 7 build container failed with exit code $LASTEXITCODE"
           }
 
-      - name: Verify LLVM 7 install and remove container
+      - name: Verify LLVM 7 install
         if: steps.gha-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
@@ -348,7 +346,6 @@ jobs:
           if (-not (Test-Path $install)) {
             throw "LLVM 7 install not found at $install"
           }
-          docker rm llvm7-build
 
       - name: Save LLVM 7 to GHA cache
         if: steps.gha-cache.outputs.cache-hit != 'true'

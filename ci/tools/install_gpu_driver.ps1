@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+$ErrorActionPreference = 'Stop'
+
 # Install the driver
 function Install-Driver {
 
@@ -23,8 +25,7 @@ function Install-Driver {
         $filename = "$version-desktop-win10-win11-64bit-international-dch-whql.exe"
         $server_path = "Windows/$version"
     } else {
-        Write-Output "Unknown GPU type: $gpu_type"
-        exit 1
+        throw "Unsupported GPU type '$gpu_type'. Known data center GPUs: $($data_center_gpus -join ', '); known desktop GPUs: $($desktop_gpus -join ', ')"
     }
 
     $url = "https://us.download.nvidia.com/$server_path/$filename"
@@ -68,8 +69,7 @@ function Install-Driver {
         Write-Output "Setting driver mode to MCDM..."
         nvidia-smi -fdm 2
     } else {
-        Write-Output "Unknown driver mode: $driver_mode"
-        exit 1
+        throw "Unsupported driver mode '$driver_mode'. Expected one of: WDDM, TCC, MCDM"
     }
 
     # Only restart NVIDIA display adapters, not other display devices.

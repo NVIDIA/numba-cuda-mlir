@@ -139,6 +139,8 @@ def _get_llvm70_capi():
     from numba_cuda_mlir.tools import get_llvm70_capi_path
 
     capi_path = get_llvm70_capi_path()
+    if not os.path.isfile(capi_path):
+        raise FileNotFoundError(f"LLVM70 C API bridge not found at {capi_path}")
     if os.name == "nt":
         import numba_cuda_mlir._mlir._mlir_libs as _mlir_libs
 

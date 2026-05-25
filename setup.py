@@ -11,6 +11,40 @@ from setuptools.extension import Extension
 
 ROOT = Path(__file__).resolve().parent
 IS_WINDOWS = os.name == "nt"
+_WINDOWS_DLL_SEARCH_MARKER = "# numba-cuda-mlir: bundled Windows DLL search paths"
+
+
+def _windows_dll_search_patch() -> str:
+    return f"""\
+{_WINDOWS_DLL_SEARCH_MARKER}
+import os
+this_dir = os.path.dirname(__file__)
+dll_directory_handles = []
+if os.name == "nt" and hasattr(os, "add_dll_directory"):
+    for dll_dir in (
+        this_dir,
+        os.path.abspath(
+            os.path.join(
+                this_dir,
+                os.pardir,
+                os.pardir,
+            )
+        ),
+        os.path.abspath(
+            os.path.join(
+                this_dir,
+                os.pardir,
+                os.pardir,
+                "lib",
+            )
+        ),
+    ):
+        if os.path.isdir(dll_dir):
+            dll_directory_handles.append(
+                os.add_dll_directory(dll_dir)
+            )
+
+"""
 
 
 def _shared_lib_name(name: str) -> str:
@@ -66,42 +100,11 @@ def _patch_mlir_windows_dll_search(mlir_pkg: Path) -> None:
     if not init_py.exists():
         return
 
-    marker = "# numba-cuda-mlir: bundled Windows DLL search paths"
-    text = init_py.read_text()
-    if marker in text:
+    text = init_py.read_text(encoding="utf-8")
+    if _WINDOWS_DLL_SEARCH_MARKER in text:
         return
 
-    patch = f"""\
-{marker}
-import os as _numba_cuda_mlir_os
-_numba_cuda_mlir_this_dir = _numba_cuda_mlir_os.path.dirname(__file__)
-_numba_cuda_mlir_dll_directory_handles = []
-if _numba_cuda_mlir_os.name == "nt" and hasattr(_numba_cuda_mlir_os, "add_dll_directory"):
-    for _numba_cuda_mlir_dll_dir in (
-        _numba_cuda_mlir_this_dir,
-        _numba_cuda_mlir_os.path.abspath(
-            _numba_cuda_mlir_os.path.join(
-                _numba_cuda_mlir_this_dir,
-                _numba_cuda_mlir_os.pardir,
-                _numba_cuda_mlir_os.pardir,
-            )
-        ),
-        _numba_cuda_mlir_os.path.abspath(
-            _numba_cuda_mlir_os.path.join(
-                _numba_cuda_mlir_this_dir,
-                _numba_cuda_mlir_os.pardir,
-                _numba_cuda_mlir_os.pardir,
-                "lib",
-            )
-        ),
-    ):
-        if _numba_cuda_mlir_os.path.isdir(_numba_cuda_mlir_dll_dir):
-            _numba_cuda_mlir_dll_directory_handles.append(
-                _numba_cuda_mlir_os.add_dll_directory(_numba_cuda_mlir_dll_dir)
-            )
-
-"""
-    init_py.write_text(patch + text)
+    init_py.write_text(_windows_dll_search_patch() + text, encoding="utf-8")
 
 
 class BuildExtWithCmake(build_ext):
@@ -141,6 +144,11 @@ class BuildExtWithCmake(build_ext):
             capi = _find_mlir_python_capi()
             if capi:
                 cmake_cmd.append(f"-DLLVM70_MLIR_PYTHON_CAPI={capi}")
+            else:
+                print(
+                    "WARNING: MLIR_DIR is set but the MLIRPythonCAPI link library "
+                    "was not found; MLIRToLLVM70 will not link against MLIRPythonCAPI."
+                )
         self.spawn(cmake_cmd)
         parallel = 1 if self.parallel is None else self.parallel
         self.spawn(["cmake", "--build", build_dir, "-j", str(parallel)])

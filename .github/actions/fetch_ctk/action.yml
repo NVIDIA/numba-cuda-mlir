@@ -30,25 +30,26 @@ runs:
       shell: bash --noprofile --norc -xeuo pipefail {0}
       run: |
         # Pre-process the component list to ensure hash uniqueness
-        CTK_CACHE_COMPONENTS=${{ inputs.cuda-components }}
-        # Conditionally strip out libnvjitlink for CUDA versions < 12
         CUDA_MAJOR_VER="$(cut -d '.' -f 1 <<< ${{ inputs.cuda-version }})"
-        if [[ "$CUDA_MAJOR_VER" -lt 12 ]]; then
-          CTK_CACHE_COMPONENTS="${CTK_CACHE_COMPONENTS//libnvjitlink/}"
-        fi
-        # Conditionally strip out cuda_crt and libnvvm for CUDA versions < 13
-        CUDA_MAJOR_VER="$(cut -d '.' -f 1 <<< ${{ inputs.cuda-version }})"
-        if [[ "$CUDA_MAJOR_VER" -lt 13 ]]; then
-          CTK_CACHE_COMPONENTS="${CTK_CACHE_COMPONENTS//cuda_crt/}"
-          CTK_CACHE_COMPONENTS="${CTK_CACHE_COMPONENTS//libnvvm/}"
-        fi
-        # Cleanup stray commas after removing components
-        CTK_CACHE_COMPONENTS="${CTK_CACHE_COMPONENTS//,,/,}"
+        IFS=',' read -ra REQUESTED_COMPONENTS <<< "${{ inputs.cuda-components }}"
+        FILTERED_COMPONENTS=()
+        for component in "${REQUESTED_COMPONENTS[@]}"; do
+          component="${component//[[:space:]]/}"
+          [[ -n "${component}" ]] || continue
+          if [[ "${component}" == "libnvjitlink" && "${CUDA_MAJOR_VER}" -lt 12 ]]; then
+            continue
+          fi
+          if [[ "${component}" =~ ^(cuda_crt|libnvvm)$ && "${CUDA_MAJOR_VER}" -lt 13 ]]; then
+            continue
+          fi
+          FILTERED_COMPONENTS+=("${component}")
+        done
+        CTK_CACHE_COMPONENTS="$(IFS=,; echo "${FILTERED_COMPONENTS[*]}")"
 
-        HASH=$(echo -n "${CTK_CACHE_COMPONENTS}" | sha256sum | awk '{print $1}')
-        echo "CTK_CACHE_KEY=mini-ctk-${{ inputs.cuda-version }}-${{ inputs.host-platform }}-$HASH" >> $GITHUB_ENV
-        echo "CTK_CACHE_FILENAME=mini-ctk-${{ inputs.cuda-version }}-${{ inputs.host-platform }}-$HASH.tar.gz" >> $GITHUB_ENV
-        echo "CTK_CACHE_COMPONENTS=${CTK_CACHE_COMPONENTS}" >> $GITHUB_ENV
+        HASH=$(printf '%s' "${CTK_CACHE_COMPONENTS}" | sha256sum | awk '{print $1}')
+        echo "CTK_CACHE_KEY=mini-ctk-${{ inputs.cuda-version }}-${{ inputs.host-platform }}-$HASH" >> "$GITHUB_ENV"
+        echo "CTK_CACHE_FILENAME=mini-ctk-${{ inputs.cuda-version }}-${{ inputs.host-platform }}-$HASH.tar.gz" >> "$GITHUB_ENV"
+        echo "CTK_CACHE_COMPONENTS=${CTK_CACHE_COMPONENTS}" >> "$GITHUB_ENV"
 
     - name: Install dependencies
       if: ${{ startsWith(inputs.host-platform, 'linux') }}

@@ -30,13 +30,19 @@ LLVM_C_LIB_PATH = _find_llvm_c_lib()
 _capi = None
 
 
+def _load_capi_library(path: str, label: str):
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"{label} library not found at {path}")
+    return ctypes.CDLL(path)
+
+
 def _get_capi():
     global _capi
     if _capi is not None:
         return _capi
     if os.name == "nt":
-        mlir = ctypes.CDLL(MLIR_CAPI_LIB_PATH)
-        llvm = ctypes.CDLL(LLVM_C_LIB_PATH)
+        mlir = _load_capi_library(MLIR_CAPI_LIB_PATH, "MLIR Python C API")
+        llvm = _load_capi_library(LLVM_C_LIB_PATH, "LLVM C API")
         mlir.mlirTranslateModuleToLLVMIR.restype = ctypes.c_void_p
         mlir.mlirTranslateModuleToLLVMIR.argtypes = [
             ctypes.c_void_p,
@@ -58,7 +64,7 @@ def _get_capi():
             mlirTranslateModuleToLLVMIR=mlir.mlirTranslateModuleToLLVMIR,
         )
     else:
-        _capi = ctypes.CDLL(MLIR_CAPI_LIB_PATH)
+        _capi = _load_capi_library(MLIR_CAPI_LIB_PATH, "MLIR/LLVM Python C API")
         _capi.LLVMContextCreate.restype = ctypes.c_void_p
         _capi.LLVMContextCreate.argtypes = []
         _capi.mlirTranslateModuleToLLVMIR.restype = ctypes.c_void_p

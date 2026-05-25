@@ -37,6 +37,29 @@ runs:
         name: llvm-modern-install-${{ inputs.llvm-py-tag }}-${{ inputs.host-platform }}
         path: llvm-modern-install
 
+    - name: Validate LLVM Modern artifacts
+      shell: bash
+      run: |
+        mlir_libs="llvm-modern-install/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs"
+        if [[ "${{ inputs.host-platform }}" == win* ]]; then
+          expected=(
+            "${mlir_libs}/_mlir.${{ inputs.llvm-py-tag }}-win_amd64.pyd"
+            "${mlir_libs}/MLIRPythonCAPI.dll"
+            "${mlir_libs}/LLVM-C-modern.dll"
+          )
+        else
+          expected=(
+            "${mlir_libs}/libMLIRPythonCAPI.so"
+          )
+        fi
+        for path in "${expected[@]}"; do
+          if [[ ! -f "${path}" ]]; then
+            echo "Expected LLVM Modern artifact not found: ${path}" >&2
+            find llvm-modern-install -maxdepth 5 -type f | sort >&2 || true
+            exit 1
+          fi
+        done
+
     - name: Restore LLVM 7 from cache
       if: ${{ github.ref_name != 'main' }}
       id: llvm7-cache
@@ -51,3 +74,17 @@ runs:
       with:
         name: llvm7-install-${{ inputs.host-platform }}
         path: llvm7-install
+
+    - name: Validate LLVM 7 artifacts
+      shell: bash
+      run: |
+        if [[ "${{ inputs.host-platform }}" == win* ]]; then
+          expected="llvm7-install/bin/LLVM-C.dll"
+        else
+          expected="llvm7-install/lib/libLLVM-7.so"
+        fi
+        if [[ ! -f "${expected}" ]]; then
+          echo "Expected LLVM 7 artifact not found: ${expected}" >&2
+          find llvm7-install -maxdepth 4 -type f | sort >&2 || true
+          exit 1
+        fi

@@ -6,6 +6,8 @@ import sys
 import os
 from functools import cached_property, lru_cache
 
+from numba_cuda_mlir.typing import unicode
+
 if sys.version_info >= (3, 12):
     from typing import override
 else:
@@ -482,6 +484,8 @@ class MLIRTypingContext(typing.BaseContext):
         from numba_cuda_mlir.numba_cuda.typing.templates import builtin_registry
         from numba_cuda_mlir.numba_cuda.target import load_cuda_target_registration_modules
 
+        from numba_cuda_mlir.typing.unicode import registry as unicode_registry
+
         load_cuda_target_registration_modules()
         register_bf16_globals()
         register_fp8_globals()
@@ -500,6 +504,7 @@ class MLIRTypingContext(typing.BaseContext):
         self.install_registry(exotic_float_typing_registry)
         self.install_registry(vector_registry)
         self.install_registry(cuda_vector_types_registry)
+        self.install_registry(unicode_registry)
 
         # Install numba-cuda registries after numba_cuda_mlir ones
         self.install_registry(cuda_registry)
@@ -680,6 +685,8 @@ class MLIRTargetContext(BaseContext):
         from numba_cuda_mlir.lowering.datetime import (
             registry as datetime_lowering_registry,
         )
+
+        import numba_cuda_mlir.lowering.cpython  # noqa: F401
 
         # Install registries in order (foundational first, specialized last)
         self.install_registry(builtins_lowering_registry)

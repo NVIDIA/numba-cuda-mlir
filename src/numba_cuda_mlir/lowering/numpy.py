@@ -5,6 +5,7 @@ import functools
 import operator
 from numba_cuda_mlir import lowering_utilities
 from numba_cuda_mlir.descriptor import MLIRTargetContext
+from numba_cuda_mlir.extending import overload, typing_registry
 from numba_cuda_mlir.errors import InternalCompilerError, ensure_verifies
 from numba_cuda_mlir.mlir_lowering import MLIRLower
 from numba_cuda_mlir.mlir.dialect_exts import memref, scf, arith, tensor
@@ -31,6 +32,7 @@ lower_getattr_generic = registry.lower_getattr_generic
 lower_constant = registry.lower_constant
 from numba_cuda_mlir.numba_cuda import types
 import numba_cuda_mlir.numba_cuda.core.ir as numba_ir
+from numba_cuda_mlir.numba_cuda.core import errors
 from typing import Any, cast
 from numba_cuda_mlir.logging import trace
 import numpy as np
@@ -4724,3 +4726,16 @@ def numpy_empty_like_nd_lower(builder, target, args, kwargs):
 def make_dtype_object_cg(builder, target, args, kws):
     target_type = builder.get_numba_type(target.name)
     builder.store_var(target, builder._materialize_type_token(target_type))
+
+
+@overload(np.dtype, typing_registry=typing_registry)
+def numpy_dtype(dtype, align=False, copy=False):
+    """Provide an implementation so that numpy.dtype function can be lowered."""
+    if isinstance(dtype, (types.Literal, types.functions.NumberClass)):
+
+        def imp(dtype, align=False, copy=False):
+            return _make_dtype_object(dtype)
+
+        return imp
+    else:
+        raise errors.NumbaTypeError("unknown dtype descriptor: {}".format(dtype))

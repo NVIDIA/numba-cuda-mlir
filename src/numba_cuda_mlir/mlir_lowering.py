@@ -39,6 +39,7 @@ from numba_cuda_mlir.lowering_utilities import (
     RangeObject,
     ArrayIterObject,
     UniTupleIterObject,
+    NdIterIterObject,
     IterResult,
     get_or_insert_function,
     user_signature_to_external_abi_signature,
@@ -1196,7 +1197,13 @@ extern "C" __global__ void
         var_value = self.load_var(var)
 
         match var_value:
-            case RangeObject() | ArrayIterObject() | UniTupleIterObject() | IterResult():
+            case (
+                RangeObject()
+                | ArrayIterObject()
+                | UniTupleIterObject()
+                | NdIterIterObject()
+                | IterResult()
+            ):
                 self.store_var(target, var_value)
             case tuple():
                 target_type = self.get_numba_type(target.name)
@@ -1419,7 +1426,7 @@ extern "C" __global__ void
         if isinstance(iter_obj, RangeObject):
             iternext = iter_obj.next()
             self.store_var(target, iternext)
-        elif isinstance(iter_obj, (ArrayIterObject, UniTupleIterObject)):
+        elif isinstance(iter_obj, (ArrayIterObject, UniTupleIterObject, NdIterIterObject)):
             iternext = iter_obj.next()
             self.store_var(target, iternext)
         else:
@@ -1436,6 +1443,13 @@ extern "C" __global__ void
             if not isinstance(ro, RangeObject):
                 raise InternalCompilerError(f"Range object not found for value {value.name}")
             self.store_var(target, ro)
+        elif isinstance(value_type, types.NumpyNdIterType):
+            iter_obj = self.load_var(value)
+            if not isinstance(iter_obj, NdIterIterObject):
+                raise InternalCompilerError(
+                    f"NdIter object not found for value {value.name}: got {type(iter_obj)}"
+                )
+            self.store_var(target, iter_obj)
         elif isinstance(value_type, types.Array) and value_type.ndim == 1:
             array = self.load_var(value)
             element_type = self.get_mlir_type(value_type.dtype)

@@ -49,6 +49,7 @@ from numba_cuda_mlir.lowering_utilities import (
     index_of,
     set_error_code_if_zero,
     try_extract_constant,
+    NdIterIterObject,
 )
 from numba_cuda_mlir.mlir_lowering import KERNEL_ERROR_CODES
 from numba_cuda_mlir.lowering_utilities.linalg_lowering import (
@@ -92,9 +93,9 @@ def lower_get_size(
     array: numba_ir.Var,
 ):
     array = builder.load_var(array)
-    size = array.type.rank
-    dims = [memref.dim(array, index_of(i)) for i in range(array.type.rank)]
-    size = functools.reduce(operator.mul, dims)
+    rank = array.type.rank
+    dims = [memref.dim(array, index_of(i)) for i in range(rank)]
+    size = functools.reduce(operator.mul, dims, index_of(1))
     builder.store_var(target, size)
 
 
@@ -562,6 +563,32 @@ def lower_array_sum_getattr(
     array: numba_ir.Var,
 ):
     mlir_lower.store_var(target, DeferredMethodCall(array, np_sum_cg))
+
+
+def _array_item_cg(builder, target, args, kwargs):
+    """Lower ``arr.item()``. Implemented for size-1 arrays only."""
+    assert not kwargs, "array.item() takes no keyword arguments"
+
+    if len(args) != 1:
+        raise NotImplementedError(
+            f"array.item() with positional indices is not implemented; got {len(args) - 1} indices"
+        )
+    array_var = args[0]
+    array = builder.load_var(array_var)
+    rank = array.type.rank
+    indices = [index_of(0)] * rank
+    value = memref.load(array, indices)
+    builder.store_var(target, value)
+
+
+@lower_getattr(types.Array, "item")
+def lower_array_item_getattr(
+    _: MLIRTargetContext,
+    mlir_lower: MLIRLower,
+    target: numba_ir.Var,
+    array: numba_ir.Var,
+):
+    mlir_lower.store_var(target, DeferredMethodCall(array, _array_item_cg))
 
 
 class Slice:
@@ -4739,3 +4766,42 @@ def numpy_dtype(dtype, align=False, copy=False):
         return imp
     else:
         raise errors.NumbaTypeError("unknown dtype descriptor: {}".format(dtype))
+
+
+@lower(np.nditer, types.Any)
+def make_array_nditer(builder, target, args, kws):
+    if len(args) != 1:
+        raise NotImplementedError(
+            f"np.nditer expects exactly one positional argument, got {len(args)}"
+        )
+    operand_var = args[0]
+    operand_ty = builder.get_numba_type(operand_var.name)
+
+    if isinstance(operand_ty, types.BaseTuple):
+        member_tys = list(operand_ty)
+        if not all(isinstance(t, types.Array) for t in member_tys):
+            raise NotImplementedError(
+                "np.nditer over tuples currently requires all members to be Arrays; "
+                f"got {member_tys}"
+            )
+        if len({t.ndim for t in member_tys}) > 1:
+            raise NotImplementedError(
+                "np.nditer with broadcasting across different-rank inputs is not "
+                "yet supported in the MLIR backend"
+            )
+        tup = builder.load_var(operand_var)
+        if isinstance(tup, (tuple, list)):
+            array_values = list(tup)
+        else:
+            raise NotImplementedError(
+                f"Expected tuple storage for np.nditer tuple input, got {type(tup)}"
+            )
+        ndim = member_tys[0].ndim
+    elif isinstance(operand_ty, types.Array):
+        array_values = [builder.load_var(operand_var)]
+        ndim = operand_ty.ndim
+    else:
+        raise NotImplementedError(f"np.nditer not implemented for {operand_ty!r}")
+
+    iter_obj = NdIterIterObject(builder, array_values, ndim)
+    builder.store_var(target, iter_obj)

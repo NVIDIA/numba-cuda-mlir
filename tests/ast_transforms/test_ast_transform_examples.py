@@ -1,5 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+from textwrap import dedent
+
 from numba_cuda_mlir.testing import filecheck_with_comments, run_in_subprocess
 
 
@@ -7,7 +9,8 @@ def test_consteval_prints():
     """Test that consteval prints happen at compile time, not runtime."""
 
     stdout, stderr = run_in_subprocess(
-        """
+        dedent(
+            """
         import warnings
         warnings.filterwarnings("ignore")
 
@@ -41,6 +44,7 @@ def test_consteval_prints():
         cuda.synchronize()
         np.testing.assert_array_equal(x, [1, 1, 1, 2, 2])
         """
+        )
     )
     output = stderr + stdout
     print(output)

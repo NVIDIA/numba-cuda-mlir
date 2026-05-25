@@ -4,11 +4,13 @@
 Example of using print intrinsic
 """
 
+from textwrap import dedent
+
 from numba_cuda_mlir.testing import run_in_subprocess
 
 
 def _run_cuda_print(code: str) -> str:
-    stdout, stderr = run_in_subprocess(code)
+    stdout, stderr = run_in_subprocess(dedent(code))
     return stdout + stderr
 
 

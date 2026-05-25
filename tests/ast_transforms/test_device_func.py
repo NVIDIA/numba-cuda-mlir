@@ -1,11 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+from textwrap import dedent
+
 from numba_cuda_mlir.testing import filecheck_with_comments, run_in_subprocess
 
 
 def test_device_func():
     stdout, stderr = run_in_subprocess(
-        """
+        dedent(
+            """
         import warnings
         warnings.filterwarnings("ignore")
 
@@ -61,6 +64,7 @@ def test_device_func():
         x = x_d.copy_to_host()
         np.testing.assert_array_equal(x, [778.0, 777.0, 777.0, 777.0, 777.0])
         """
+        )
     )
     output = stderr + stdout
     print(output)

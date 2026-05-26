@@ -53,7 +53,7 @@ from numba_cuda_mlir.numba_cuda.errors import (
 )
 from numba_cuda_mlir.numba_cuda.cudadrv.linkable_code import LinkableCode
 from numba_cuda_mlir.numba_cuda.cudadrv.devices import get_context
-from numba_cuda_mlir.numba_cuda.memory_management.nrt import rtsys, NRT_LIBRARY
+from numba_cuda_mlir.numba_cuda.memory_management.nrt import rtsys
 import numba_cuda_mlir.numba_cuda.core.event as ev
 
 # from numba_cuda_mlir.numba_cuda.cext import _dispatcher
@@ -255,9 +255,6 @@ class _Kernel(serialize.ReduceMixin):
                     if file.nrt:
                         link_nrt = True
                         break
-
-        if link_nrt:
-            link.append(NRT_LIBRARY)
 
     @property
     def library(self):

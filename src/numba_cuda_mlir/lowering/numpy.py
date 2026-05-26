@@ -591,6 +591,72 @@ def lower_array_item_getattr(
     mlir_lower.store_var(target, DeferredMethodCall(array, _array_item_cg))
 
 
+def _array_ravel_cg(builder, target, args, kwargs):
+    """Lower ``arr.ravel()`` as a 1-D view over ``arr``'s existing storage -
+    implements the non-copying case of ravel only.
+
+    A non-copying flat view is only well-defined when the source is
+    C-contiguous, so we reject any other layout."""
+
+    # ``memref.reshape`` would be the obvious tool, but it requires the source
+    # to have an identity affine map. The ``types.Array`` data model maps
+    # every array to a memref with a dynamic strided layout, so we use
+    # ``memref.reinterpret_cast`` to produce a 1-D view of length
+    # ``prod(shape)`` with unit stride.
+
+    assert not kwargs, "array.ravel() takes no keyword arguments"
+    if len(args) != 1:
+        raise NotImplementedError(
+            f"array.ravel() with positional arguments is not implemented; got {len(args) - 1}"
+        )
+    array_var = args[0]
+    array_ty = builder.get_numba_type(array_var)
+    if array_ty.layout != "C":
+        raise errors.TypingError(
+            f"array.ravel() requires a C-contiguous array, got layout {array_ty.layout!r}"
+        )
+
+    src = builder.load_var(array_var)
+    src_type: ir.MemRefType = src.type
+    ndim = src_type.rank
+
+    md = memref_dialect.extract_strided_metadata(src)
+    src_offset = md[1]
+    src_sizes = list(md[2 : 2 + ndim])
+
+    if ndim == 0:
+        total_size = index_of(1)
+    else:
+        total_size = src_sizes[0]
+        for s in src_sizes[1:]:
+            total_size = arith.muli(total_size, s)
+
+    result_type = builder.get_mlir_type(builder.get_numba_type(target))
+    dyn = ir.ShapedType.get_dynamic_size()
+    dyn_s = ir.ShapedType.get_dynamic_stride_or_offset()
+    reshaped = memref_dialect.reinterpret_cast(
+        result_type,
+        src,
+        offsets=[src_offset],
+        sizes=[total_size],
+        strides=[index_of(1)],
+        static_offsets=[dyn_s],
+        static_sizes=[dyn],
+        static_strides=[dyn_s],
+    )
+    builder.store_var(target, reshaped)
+
+
+@lower_getattr(types.Array, "ravel")
+def lower_array_ravel_getattr(
+    _: MLIRTargetContext,
+    mlir_lower: MLIRLower,
+    target: numba_ir.Var,
+    array: numba_ir.Var,
+):
+    mlir_lower.store_var(target, DeferredMethodCall(array, _array_ravel_cg))
+
+
 class Slice:
     def __init__(
         self,

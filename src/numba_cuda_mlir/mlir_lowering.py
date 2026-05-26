@@ -2181,6 +2181,19 @@ extern "C" __global__ void
             self.store_var(target, fn_value)
             return
 
+        # Handle ``next(it)`` on a recognised iterator object by advancing the
+        # iterator and yielding its value, mirroring CPython's ``it.__next__()``
+        # semantics. We skip the StopIteration check here: callers in nopython
+        # mode are expected to have already guarded against empty iterators.
+        if fn_value is next and len(args) == 1:
+            iter_obj = self.load_var(args[0])
+            if isinstance(
+                iter_obj, (RangeObject, ArrayIterObject, UniTupleIterObject, NdIterIterObject)
+            ):
+                iternext = iter_obj.next()
+                self.store_var(target, iternext.value)
+                return
+
         if builder := self.get_registered_builder(fn, signature):
             builder_args = args if isinstance(builder, DeferredLowering) else call_args
             builder(self, target, builder_args, kws)

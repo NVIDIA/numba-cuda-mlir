@@ -1515,3 +1515,8 @@ def try_extract_constant(
             return try_extract_constant(opview.operands[0])
         case _:
             return None
+
+
+def is_nonelike(ty):
+    """returns if 'ty' is none"""
+    return ty is None or isinstance(ty, types.NoneType) or isinstance(ty, types.Omitted)

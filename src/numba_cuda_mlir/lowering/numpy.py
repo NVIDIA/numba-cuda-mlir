@@ -5,7 +5,7 @@ import functools
 import operator
 from numba_cuda_mlir import lowering_utilities
 from numba_cuda_mlir.descriptor import MLIRTargetContext
-from numba_cuda_mlir.extending import overload, typing_registry
+from numba_cuda_mlir.extending import overload, overload_method, typing_registry
 from numba_cuda_mlir.errors import InternalCompilerError, ensure_verifies
 from numba_cuda_mlir.mlir_lowering import MLIRLower
 from numba_cuda_mlir.mlir.dialect_exts import memref, scf, arith, tensor
@@ -50,6 +50,7 @@ from numba_cuda_mlir.lowering_utilities import (
     set_error_code_if_zero,
     try_extract_constant,
     NdIterIterObject,
+    is_nonelike,
 )
 from numba_cuda_mlir.mlir_lowering import KERNEL_ERROR_CODES
 from numba_cuda_mlir.lowering_utilities.linalg_lowering import (
@@ -655,6 +656,104 @@ def lower_array_ravel_getattr(
     array: numba_ir.Var,
 ):
     mlir_lower.store_var(target, DeferredMethodCall(array, _array_ravel_cg))
+
+
+@overload(np.take, typing_registry=typing_registry)
+@overload_method(types.Array, "take", typing_registry=typing_registry)
+def numpy_take(a, indices, axis=None):
+    # Moved from numba_cuda - not all branches will be fully supported in
+    # numba-cuda-mlir
+    if is_nonelike(axis):
+        if isinstance(a, types.Array) and isinstance(indices, types.Integer):
+
+            def take_impl(a, indices, axis=None):
+                if indices > (a.size - 1) or indices < -a.size:
+                    raise IndexError("Index out of bounds")
+                return a.ravel()[indices]
+
+            return take_impl
+
+        if isinstance(a, types.Array) and isinstance(indices, types.Array):
+            F_order = indices.layout == "F"
+
+            def take_impl(a, indices, axis=None):
+                ret = np.empty(indices.size, dtype=a.dtype)
+                if F_order:
+                    walker = indices.copy()  # get C order
+                else:
+                    walker = indices
+                it = np.nditer(walker)
+                i = 0
+                flat = a.ravel()
+                for x in it:
+                    if x > (a.size - 1) or x < -a.size:
+                        raise IndexError("Index out of bounds")
+                    ret[i] = flat[x]
+                    i = i + 1
+                return ret.reshape(indices.shape)
+
+            return take_impl
+
+        if isinstance(a, types.Array) and isinstance(indices, (types.List, types.BaseTuple)):
+
+            def take_impl(a, indices, axis=None):
+                convert = np.array(indices)
+                return np.take(a, convert)
+
+            return take_impl
+    else:
+        if isinstance(a, types.Array) and isinstance(indices, types.Integer):
+            t = (0,) * (a.ndim - 1)
+
+            # np.squeeze is too hard to implement in Numba as the tuple "t"
+            # needs to be allocated beforehand we don't know it's size until
+            # code gets executed.
+            @register_jitable
+            def _squeeze(r, axis):
+                tup = tuple(t)
+                j = 0
+                assert axis < len(r.shape) and r.shape[axis] == 1, r.shape
+                for idx in range(len(r.shape)):
+                    s = r.shape[idx]
+                    if idx != axis:
+                        tup = tuple_setitem(tup, j, s)
+                        j += 1
+                return r.reshape(tup)
+
+            def take_impl(a, indices, axis=None):
+                r = np.take(a, (indices,), axis=axis)
+                if a.ndim == 1:
+                    return r[0]
+                if axis < 0:
+                    axis += a.ndim
+                return _squeeze(r, axis)
+
+            return take_impl
+
+        if isinstance(a, types.Array) and isinstance(
+            indices, (types.Array, types.List, types.BaseTuple)
+        ):
+            ndim = a.ndim
+
+            _getitem = generate_getitem_setitem_with_axis(ndim, "getitem")
+            _setitem = generate_getitem_setitem_with_axis(ndim, "setitem")
+
+            def take_impl(a, indices, axis=None):
+                if axis < 0:
+                    axis += a.ndim
+
+                if axis < 0 or axis >= a.ndim:
+                    msg = f"axis {axis} is out of bounds for array of dimension {a.ndim}"
+                    raise ValueError(msg)
+
+                shape = tuple_setitem(a.shape, axis, len(indices))
+                out = np.empty(shape, dtype=a.dtype)
+                for i in range(len(indices)):
+                    y = _getitem(a, indices[i], axis)
+                    _setitem(out, i, axis, y)
+                return out
+
+            return take_impl
 
 
 class Slice:
@@ -2628,6 +2727,43 @@ def np_ceil_array_lower(builder, target, args, kwargs):
         return convert(result, target_mlir_type)
 
     create_elementwise_op(builder, target, args, kwargs, ceil_fn, "np.ceil")
+
+
+@lower(np.isnan, types.Number)
+def np_isnan_scalar_lower(builder, target, args, kwargs):
+    """Lower np.isnan for scalars.
+
+    Integers are never NaN; floats use ``math.isnan``. ``arith.cmpf`` with the
+    UNO predicate would also work (``NaN`` is the only value where ``v != v``),
+    but using the math dialect mirrors the existing ``math.isnan`` lowering.
+    """
+    assert len(args) == 1, "np.isnan expects 1 argument"
+    assert not kwargs, "np.isnan does not accept keyword arguments"
+    value = builder.load_var(args[0])
+    arg_ty = builder.get_numba_type(args[0].name)
+    if isinstance(arg_ty, (types.Integer, types.Boolean)):
+        result = arith.constant(T.bool(), False)
+    else:
+        result = math_dialect.isnan(value)
+    builder.store_var(target, result)
+
+
+@lower(np.isnan, types.Array)
+def np_isnan_array_lower(builder, target, args, kwargs):
+    """Lower np.isnan element-wise over an array."""
+
+    def isnan_fn(
+        input_element_type,
+        target_element_type,
+        input_mlir_type,
+        target_mlir_type,
+        in_elem,
+    ):
+        if isinstance(input_element_type, (types.Integer, types.Boolean)):
+            return arith.constant(T.bool(), False)
+        return math_dialect.isnan(in_elem)
+
+    create_elementwise_op(builder, target, args, kwargs, isnan_fn, "np.isnan")
 
 
 @lower(np.floor, types.Number)

@@ -96,15 +96,9 @@ if [[ ! -e "${ENV_BIN}/nvidia-smi" ]]; then
   fi
 fi
 
-# --- Install RAPIDS nightly wheels (skip expensive C++ builds) ---
-echo "Installing libcudf and rmm nightly wheels..."
-RAPIDS_INDEX="https://pypi.nvidia.com"
-conda run -n "${CONDA_ENV_NAME}" pip install --extra-index-url "${RAPIDS_INDEX}" \
-  "libcudf-cu${TEST_CUDA_MAJOR}" \
-  "librmm-cu${TEST_CUDA_MAJOR}" \
-  "rmm-cu${TEST_CUDA_MAJOR}"
-
 # --- Build pylibcudf and cudf from source ---
+# The conda env already provides libcudf, librmm, and rmm (with Cython pxd
+# files) from rapidsai-nightly. We only build the Python layers from source.
 echo "Building pylibcudf and cudf from source..."
 conda run -n "${CONDA_ENV_NAME}" bash -c "cd ${CUDF_DIR} && bash build.sh pylibcudf cudf"
 

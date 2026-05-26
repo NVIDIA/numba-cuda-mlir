@@ -4,8 +4,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# Build cudf from source against a public branch and run UDF tests with
-# numba-cuda-mlir installed.
+# Install libcudf nightly, build pylibcudf/cudf from source against a public
+# branch, and run UDF tests with numba-cuda-mlir installed.
 
 set -euo pipefail
 
@@ -96,9 +96,11 @@ if [[ ! -e "${ENV_BIN}/nvidia-smi" ]]; then
   fi
 fi
 
-# --- Build cudf from source ---
-echo "Building cudf from source..."
-conda run -n "${CONDA_ENV_NAME}" bash -c "cd ${CUDF_DIR} && bash build.sh libcudf pylibcudf cudf"
+# --- Build pylibcudf and cudf from source ---
+# The conda env already provides libcudf, librmm, and rmm (with Cython pxd
+# files) from rapidsai-nightly. We only build the Python layers from source.
+echo "Building pylibcudf and cudf from source..."
+conda run -n "${CONDA_ENV_NAME}" bash -c "cd ${CUDF_DIR} && bash build.sh pylibcudf cudf"
 
 # --- Install numba-cuda-mlir wheel ---
 echo "Installing numba-cuda-mlir wheel into conda env..."

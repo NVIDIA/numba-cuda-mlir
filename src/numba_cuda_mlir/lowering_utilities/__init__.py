@@ -1350,6 +1350,8 @@ def constant(
             return value
         case int(), ir.IntegerType():
             return arith.constant(ty, value=value)
+        case int(), ir.IndexType():
+            return arith.constant(ty, value=value)
         case float(), ir.FloatType():
             return arith.constant(ty, value=value)
         case bool(), None:
@@ -1364,6 +1366,8 @@ def constant(
         case ir.Value(), _:
             return convert(value, ty)
         case _, ir.IntegerType():
+            return arith.constant(ty, value=int(value))
+        case _, ir.IndexType():
             return arith.constant(ty, value=int(value))
         case _, ir.FloatType():
             return arith.constant(ty, value=float(value))

@@ -6,28 +6,40 @@
 
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 static int run_case(const char *name, const char *mlir, int ctk_major = 13,
-                    int ctk_minor = 0) {
+                    int ctk_minor = 0, bool emit_text_ir = false) {
     char *out = nullptr;
     size_t out_len = 0;
     char *error = nullptr;
     int rc = mlir_modern_to_nvvm_translate_for_libnvvm(
-        mlir, std::strlen(mlir), ctk_major, ctk_minor, 0, &out, &out_len,
-        &error);
+        mlir, std::strlen(mlir), ctk_major, ctk_minor, 0,
+        emit_text_ir ? 1 : 0, &out, &out_len, &error);
     if (rc != 0) {
         std::fprintf(stderr, "bridge smoke case '%s' failed: %s\n", name,
                      error ? error : "unknown error");
         mlir_modern_to_nvvm_free(error);
         return 1;
     }
-    if (!out || out_len < 2 || out[0] != 'B' || out[1] != 'C') {
+    if (!emit_text_ir && (!out || out_len < 2 || out[0] != 'B' || out[1] != 'C')) {
         std::fprintf(stderr,
                      "bridge smoke case '%s' produced non-bitcode output "
                      "(%zu bytes)\n",
                      name, out_len);
         mlir_modern_to_nvvm_free(out);
         return 1;
+    }
+    if (emit_text_ir) {
+        std::string text(out ? out : "", out_len);
+        if (text.find("target triple") == std::string::npos) {
+            std::fprintf(stderr,
+                         "bridge smoke case '%s' produced unexpected text "
+                         "output (%zu bytes)\n",
+                         name, out_len);
+            mlir_modern_to_nvvm_free(out);
+            return 1;
+        }
     }
     mlir_modern_to_nvvm_free(out);
     return 0;
@@ -47,6 +59,7 @@ gpu.module @kernels attributes {
 }
 )MLIR";
     failures += run_case("simple-kernel", simple_kernel);
+    failures += run_case("simple-kernel-text", simple_kernel, 13, 0, true);
 
     static const char nvvm_intrinsics[] = R"MLIR(
 gpu.module @kernels attributes {

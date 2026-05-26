@@ -80,8 +80,21 @@ static bool dump_module_to_stderr(llvm::Module &mod, char **error_out) {
     return true;
 }
 
-static bool serialize_module(llvm::Module &mod, char **out, size_t *out_len,
-                             char **error_out) {
+static bool serialize_module_as_text(llvm::Module &mod, char **out,
+                                     size_t *out_len, char **error_out) {
+    std::string ir_text;
+    llvm::raw_string_ostream os(ir_text);
+    mod.print(os, nullptr);
+    os.flush();
+    if (ir_text.empty()) {
+        set_error(error_out, "LLVM module print produced no output");
+        return false;
+    }
+    return copy_bytes(ir_text.data(), ir_text.size(), out, out_len, error_out);
+}
+
+static bool serialize_module_as_bitcode(llvm::Module &mod, char **out,
+                                        size_t *out_len, char **error_out) {
     llvm::SmallVector<char, 0> bitcode;
     llvm::raw_svector_ostream os(bitcode);
     llvm::WriteBitcodeToFile(mod, os);
@@ -535,7 +548,8 @@ static bool initialize_mlir_context(mlir::MLIRContext &context) {
 extern "C" MLIR_MODERN_TO_NVVM_EXPORT int
 mlir_modern_to_nvvm_translate_for_libnvvm(
     const char *mlir_text, size_t mlir_text_len, int ctk_major, int ctk_minor,
-    int dump_llvmir, char **out, size_t *out_len, char **error_out) {
+    int dump_llvmir, int emit_text_ir, char **out, size_t *out_len,
+    char **error_out) {
     if (out)
         *out = nullptr;
     if (out_len)
@@ -596,7 +610,12 @@ mlir_modern_to_nvvm_translate_for_libnvvm(
     adapt_for_libnvvm(*llvm_module, llvm_context);
     downgrade_for_libnvvm(*llvm_module, llvm_context, ctk_major, ctk_minor);
 
-    return serialize_module(*llvm_module, out, out_len, error_out) ? 0 : 1;
+    bool ok = emit_text_ir
+                  ? serialize_module_as_text(*llvm_module, out, out_len,
+                                             error_out)
+                  : serialize_module_as_bitcode(*llvm_module, out, out_len,
+                                                error_out);
+    return ok ? 0 : 1;
 }
 
 extern "C" MLIR_MODERN_TO_NVVM_EXPORT void

@@ -9,6 +9,7 @@ and should not be imported by user, user should only import the
 corresponding vector type from `cuda` module in kernel to use them.
 """
 
+from functools import wraps
 import sys
 
 import numpy as np
@@ -33,6 +34,31 @@ class _VectorTypeTestInfo:
 
 def _vector_types():
     return [_VectorTypeTestInfo(vec_type) for vec_type in _cuda_vector_types]
+
+
+def _is_windows_llvm70_vector_path():
+    if sys.platform != "win32":
+        return False
+    from numba_cuda_mlir import tools
+
+    return tools.get_gpu_compute_capability(tuple) < (10, 0)
+
+
+def _xfail_windows_llvm70_vector_path(reason):
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            if not _is_windows_llvm70_vector_path():
+                return fn(*args, **kwargs)
+            try:
+                fn(*args, **kwargs)
+            except Exception:
+                pytest.xfail(reason)
+            pytest.fail(f"XPASS(strict): {reason}")
+
+        return wrapper
+
+    return decorator
 
 
 def make_kernel(vtype):
@@ -277,9 +303,8 @@ class TestCudaVectorType(NumbaCUDATestCase):
             kernel[1, 1](arr)
             np.testing.assert_almost_equal(arr, np.array(range(vty.num_elements)))
 
-    @pytest.mark.xfail(
-        sys.platform == "win32",
-        reason="Fancy vector construction currently only fails on Windows",
+    @_xfail_windows_llvm70_vector_path(
+        "Fancy vector construction currently only fails on Windows LLVM 7 path"
     )
     def test_fancy_creation_readout(self):
         for vty in _vector_types():
@@ -497,9 +522,8 @@ class TestCudaVectorType(NumbaCUDATestCase):
         for alias, vec_type in vector_types_by_alias.items():
             self.assertEqual(id(getattr(cuda, vec_type.name)), id(getattr(cuda, alias)))
 
-    @pytest.mark.xfail(
-        sys.platform == "win32",
-        reason="Vector local array readback currently fails on Windows",
+    @_xfail_windows_llvm70_vector_path(
+        "Vector local array readback currently fails on Windows LLVM 7 path"
     )
     def test_vector_local_array(self):
         """Tests that vector types can be used as dtype for cuda.local.array"""
@@ -517,9 +541,8 @@ class TestCudaVectorType(NumbaCUDATestCase):
         kernel[1, 1](out)
         np.testing.assert_array_equal(out, np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
 
-    @pytest.mark.xfail(
-        sys.platform == "win32",
-        reason="Vector shared array readback currently fails on Windows",
+    @_xfail_windows_llvm70_vector_path(
+        "Vector shared array readback currently fails on Windows LLVM 7 path"
     )
     def test_vector_shared_array(self):
         """Tests that vector types can be used as dtype for cuda.shared.array"""

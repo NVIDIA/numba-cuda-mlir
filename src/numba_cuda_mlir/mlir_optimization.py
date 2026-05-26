@@ -267,7 +267,15 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
     return result
 
 
-def _prepare_llvm_ir(module, dump=False) -> bytes:
+def _operation_to_text(operation, *, preserve_debug_info=False) -> str:
+    if not preserve_debug_info:
+        return str(operation)
+    with StringIO() as sb:
+        operation.print(enable_debug_info=True, file=sb)
+        return sb.getvalue()
+
+
+def _prepare_llvm_ir(module, dump=False, preserve_debug_info=False) -> bytes:
     """Translate gpu.module to LLVM IR and apply libnvvm compatibility downgrades."""
     from numba_cuda_mlir._mlir.dialects import gpu
     from numba_cuda_mlir.tools import get_cuda_runtime_version
@@ -283,7 +291,11 @@ def _prepare_llvm_ir(module, dump=False) -> bytes:
 
     if os.name == "nt":
         return translate_gpu_module_to_libnvvm_ir(
-            str(gpu_mod.operation), ctk_major, ctk_minor, dump=dump
+            _operation_to_text(gpu_mod.operation, preserve_debug_info=preserve_debug_info),
+            ctk_major,
+            ctk_minor,
+            dump=dump,
+            emit_text_ir=preserve_debug_info,
         )
 
     from numba_cuda_mlir._cext import downgrade_for_libnvvm
@@ -356,7 +368,12 @@ def get_ptx(cres, target_options=None) -> str:
         if _needs_llvm70_path(cc):
             ptx = _call_llvm70_capi(module, target_options)
         else:
-            llvm_ir = _prepare_llvm_ir(module, dump=target_options.get("dump_llvmir", False))
+            llvm_ir = _prepare_llvm_ir(
+                module,
+                dump=target_options.get("dump_llvmir", False),
+                preserve_debug_info=target_options.get("debug", False)
+                or target_options.get("lineinfo", False),
+            )
             from numba_cuda_mlir.numba_cuda.cudadrv.nvvm import LibDevice
 
             libdevice = LibDevice()
@@ -573,7 +590,12 @@ def optimize(cres):
         if use_llvm70:
             llvm_ir = None
         else:
-            llvm_ir = _prepare_llvm_ir(module, dump=target_options.get("dump_llvmir", False))
+            llvm_ir = _prepare_llvm_ir(
+                module,
+                dump=target_options.get("dump_llvmir", False),
+                preserve_debug_info=target_options.get("debug", False)
+                or target_options.get("lineinfo", False),
+            )
 
         linker = cres.metadata["linker"].recreate_with_lto()
 

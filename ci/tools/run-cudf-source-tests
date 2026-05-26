@@ -96,10 +96,13 @@ if [[ ! -e "${ENV_BIN}/nvidia-smi" ]]; then
   fi
 fi
 
-# --- Install libcudf nightly (skip expensive C++ build) ---
-echo "Installing libcudf nightly wheel..."
+# --- Install RAPIDS nightly wheels (skip expensive C++ builds) ---
+echo "Installing libcudf and rmm nightly wheels..."
 RAPIDS_INDEX="https://pypi.nvidia.com"
-conda run -n "${CONDA_ENV_NAME}" pip install --extra-index-url "${RAPIDS_INDEX}" "libcudf-cu${TEST_CUDA_MAJOR}"
+conda run -n "${CONDA_ENV_NAME}" pip install --extra-index-url "${RAPIDS_INDEX}" \
+  "libcudf-cu${TEST_CUDA_MAJOR}" \
+  "librmm-cu${TEST_CUDA_MAJOR}" \
+  "rmm-cu${TEST_CUDA_MAJOR}"
 
 # --- Build pylibcudf and cudf from source ---
 echo "Building pylibcudf and cudf from source..."

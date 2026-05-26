@@ -16,7 +16,8 @@ from numba_cuda_mlir.numba_cuda.core import analysis
 from numba_cuda_mlir.numba_cuda.extending import _Intrinsic
 
 from numba_cuda_mlir.numba_cuda.core.environment import Environment
-from numba_cuda_mlir.numba_cuda import types
+from numba_cuda_mlir import types
+from numba_cuda_mlir.numba_cuda import types as numba_types
 from numba_cuda_mlir.numba_cuda.datamodel.models import ArrayModel
 from numba_cuda_mlir.annotations import Builder, AnyCallable, PS
 from numba_cuda_mlir.errors import InternalCompilerError, ensure_verifies
@@ -64,6 +65,8 @@ from numba_cuda_mlir._mlir.dialects import (
     scf,
     nvvm,
     gpu,
+    complex as complex_dialect,
+    vector as vector_dialect,
 )
 
 from numba_cuda_mlir.logging import trace
@@ -268,7 +271,7 @@ class MLIRLower(object):
                 continue
             # UnionType is used here as a DI/tag container only;
             # the lowered value is stored in a shared canonical slot.
-            poly_types[name] = types.UnionType(type_set)
+            poly_types[name] = numba_types.UnionType(type_set)
         return poly_types
 
     @staticmethod
@@ -1156,6 +1159,8 @@ extern "C" __global__ void
             )
         elif hasattr(glob.value, "__cuda_array_interface__"):
             self.lower_captured_array_to_memref(target, glob.value)
+        elif isinstance(target_type, types.NumberClass) and isinstance(glob.value, types.Type):
+            self.store_var(target, self._materialize_type_token(target_type))
         else:
             self.store_var(target, glob.value)
 
@@ -1175,6 +1180,9 @@ extern "C" __global__ void
                 self.store_var(target, var_value)
             case str() | bytes():
                 self.store_var(target, var_value)
+            case types.Type() if isinstance(self.get_numba_type(target.name), types.NumberClass):
+                target_type = self.get_numba_type(target.name)
+                self.store_var(target, self._materialize_type_token(target_type))
             case None:
                 target_type = self.get_numba_type(target.name)
                 self.store_var(target, self.get_mlir_type(target_type))
@@ -1208,6 +1216,8 @@ extern "C" __global__ void
 
     def lower_literal_if_needed(self, value: ir.Value | np.ndarray, numba_type=None) -> ir.Value:
         match value:
+            case types.Type() if isinstance(numba_type, types.DTypeSpec):
+                return self._materialize_type_token(numba_type)
             case tuple():
                 return tuple(map(self.lower_literal_if_needed, value))
             case np.ndarray():
@@ -1517,6 +1527,53 @@ extern "C" __global__ void
 
         raise NotImplementedError(f"lowering getitem {target} = {value}[{index}]")
 
+    def _fold_dispatcher_call_args(
+        self,
+        fn: dispatcher._DispatcherBase,
+        args: list[numba_ir.Var],
+        kws: list[tuple[str, numba_ir.Var]] | None = None,
+    ) -> tuple[tuple[types.Type, ...], list[numba_ir.Var], tuple[types.Type, ...]]:
+        """Fold kwargs/defaults for a dispatcher call.
+
+        Numba represents omitted defaults as ``types.Omitted`` in the callee
+        signature.  The MLIR ABI excludes those arguments, so return both the
+        folded compile signature and the concrete operand vars that should be
+        emitted at the call site.
+        """
+        if kws is None:
+            kws = []
+
+        argtypes = tuple(self.get_numba_type(arg.name) for arg in args)
+        kwarg_types = {name: self.get_numba_type(value.name) for name, value in kws}
+        pysig, folded_argtypes = fn._compiler.fold_argument_types(argtypes, kwarg_types)
+
+        kwarg_vars = dict(kws)
+
+        def normal_handler(index, param, value):
+            return value
+
+        def default_handler(index, param, default):
+            return None
+
+        def stararg_handler(index, param, values):
+            return tuple(values)
+
+        folded_vars = typing.fold_arguments(
+            pysig,
+            tuple(args),
+            kwarg_vars,
+            normal_handler,
+            default_handler,
+            stararg_handler,
+        )
+        call_vars = [
+            var
+            for var, argty in zip(folded_vars, folded_argtypes)
+            if var is not None and not _is_omitted_arg(argty)
+        ]
+        call_argtypes = tuple(argty for argty in folded_argtypes if not _is_omitted_arg(argty))
+        return tuple(folded_argtypes), call_vars, call_argtypes
+
     def build_user_defined_function_call(
         self,
         target: numba_ir.Var,
@@ -1526,14 +1583,6 @@ extern "C" __global__ void
     ):
         if kws is None:
             kws = []
-        target_type = self.get_numba_type(target.name)
-
-        # TODO: Here named arguments are simply considered as positional arguments
-        argtypes = tuple(
-            [self.get_numba_type(arg.name) for arg in args]
-            + [self.get_numba_type(value.name) for (name, value) in kws]
-        )
-        func_name = generate_mangled_name(fn.py_func.__qualname__, argtypes)
 
         from numba_cuda_mlir.descriptor import MLIRDispatcher
 
@@ -1554,7 +1603,9 @@ extern "C" __global__ void
                 fn._device_dispatcher = MLIRDispatcher(fn.py_func, targetoptions=opts)
             fn = fn._device_dispatcher
 
-        cres = fn.compile(argtypes)
+        folded_argtypes, call_vars, call_argtypes = self._fold_dispatcher_call_args(fn, args, kws)
+        func_name = generate_mangled_name(fn.py_func.__qualname__, call_argtypes)
+        cres = fn.compile(folded_argtypes)
 
         if callee_linker := cres.metadata.get("linker"):
             self.linker.merge_ltoirs_from(callee_linker)
@@ -1594,11 +1645,12 @@ extern "C" __global__ void
         assert callee, f"Could not find callee function {func_name} in the module."
 
         callee_function_type = callee.function_type.value.results
+        callee_inputs = callee.function_type.value.inputs
+        operands = [convert(val, ty) for val, ty in zip(self.load_vars(call_vars), callee_inputs)]
         call_results = func.call(
             result=callee_function_type,
             callee=callee.name.value,
-            operands_=[self.load_var(arg) for arg in args]
-            + [self.load_var(value) for (name, value) in kws],
+            operands_=operands,
         )
 
         target_type = self.get_numba_type(target.name)
@@ -1731,16 +1783,14 @@ extern "C" __global__ void
         from numba_cuda_mlir import cuda
         from numba_cuda_mlir.lowering_utilities import link
 
-        argtypes = tuple(
-            [self.get_numba_type(arg.name) for arg in args]
-            + [self.get_numba_type(value.name) for (name, value) in kws]
-        )
-
         py_func = overload_disp.py_func
         cuda_func = cuda.jit(device=True)(py_func)
+        folded_argtypes, call_vars, call_argtypes = self._fold_dispatcher_call_args(
+            cuda_func, args, kws
+        )
         unique_qualname = f"{py_func.__qualname__}_{id(overload_disp)}"
-        func_name = generate_mangled_name(unique_qualname, argtypes)
-        cres = cuda_func.compile(argtypes, abi_info={"abi_name": func_name})
+        func_name = generate_mangled_name(unique_qualname, call_argtypes)
+        cres = cuda_func.compile(folded_argtypes, abi_info={"abi_name": func_name})
 
         if callee_linker := cres.metadata.get("linker"):
             self.linker.merge_ltoirs_from(callee_linker)
@@ -1763,7 +1813,9 @@ extern "C" __global__ void
             )
 
         callee_type = get_func_type(callee)
-        call_args = [convert(val, ty) for val, ty in zip(self.load_vars(args), callee_type.inputs)]
+        call_args = [
+            convert(val, ty) for val, ty in zip(self.load_vars(call_vars), callee_type.inputs)
+        ]
         call_result = func.call(
             result=callee_type.results,
             callee=callee.name.value,
@@ -1835,6 +1887,9 @@ extern "C" __global__ void
         ty = self.get_numba_type(var.name)
         if isinstance(ty, types.NumberClass):
             return types.NumberClass
+
+        if isinstance(ty, types.VectorTypeClass):
+            return ty.instance_type
         if isinstance(ty, types.Function):
             if self.var_lowered(var):
                 fn = self.load_var(var)
@@ -2290,7 +2345,54 @@ extern "C" __global__ void
             cast_impl = None
         if cast_impl is not None and self._is_extension_cast(cast_impl):
             return cast_impl(self.context, self, source_type, target_type, value)
+        if isinstance(source_type, types.BaseTuple) and isinstance(target_type, types.BaseTuple):
+            return self._lower_tuple_cast(source_type, target_type, value)
         return self.mlir_convert(value, self.get_mlir_type(target_type))
+
+    def _tuple_element_types(self, tuple_type):
+        if isinstance(tuple_type, types.UniTuple):
+            return (tuple_type.dtype,) * tuple_type.count
+        return tuple_type.types
+
+    def _lower_tuple_cast(self, source_type, target_type, value):
+        if not isinstance(value, tuple):
+            raise InternalCompilerError(
+                f"Cannot cast tuple value stored as {type(value)} from {source_type} "
+                f"to {target_type}."
+            )
+        source_types = self._tuple_element_types(source_type)
+        target_types = self._tuple_element_types(target_type)
+        if len(source_types) != len(target_types) or len(value) != len(target_types):
+            raise InternalCompilerError(
+                f"Cannot cast tuple with mismatched arity from {source_type} to {target_type}."
+            )
+        result = []
+        for source_elem_type, target_elem_type, elem in zip(source_types, target_types, value):
+            if source_elem_type == target_elem_type:
+                result.append(elem)
+            else:
+                result.append(self.lower_cast(source_elem_type, target_elem_type, elem))
+        return tuple(result)
+
+    def _materialize_type_token(self, target_type):
+        if isinstance(target_type, types.DTypeSpec):
+            return self._zero_value_for_type(self.get_mlir_type(target_type.dtype))
+        raise InternalCompilerError(f"Cannot materialize type token for {target_type}.")
+
+    def _zero_value_for_type(self, mlir_type):
+        if isinstance(mlir_type, (ir.IntegerType, ir.IndexType)):
+            return arith.constant(result=mlir_type, value=0)
+        if isinstance(mlir_type, (ir.FloatType, ir.F16Type, ir.BF16Type)):
+            return arith.constant(result=mlir_type, value=0.0)
+        if isinstance(mlir_type, ir.ComplexType):
+            zero = self._zero_value_for_type(mlir_type.element_type)
+            return complex_dialect.create_(complex=mlir_type, real=zero, imaginary=zero)
+        if isinstance(mlir_type, ir.VectorType):
+            zero = self._zero_value_for_type(mlir_type.element_type)
+            return vector_dialect.broadcast(mlir_type, zero)
+        if str(mlir_type).startswith("!llvm."):
+            return llvm.mlir_undef(res=mlir_type)
+        raise InternalCompilerError(f"Cannot materialize zero value for {mlir_type}.")
 
     def _cast_to_optional(self, source_type, target_type, value):
         """Cast T or NoneType to Optional(T)."""
@@ -2820,6 +2922,8 @@ extern "C" __global__ void
             return_ctor([])
         else:
             value = self.load_var(value)
+            if isinstance(value_type, types.DTypeSpec) and isinstance(value, types.Type):
+                value = self._materialize_type_token(value_type)
             if isinstance(value, tuple):
                 return_ctor(list(value))
             else:
@@ -3262,11 +3366,11 @@ extern "C" __global__ void
             case types.CharSeq():
                 return ir.Type.parse(f"!llvm.array<{ty.count} x i8>")
             case types.UnicodeCharSeq():
-                import numpy as np
-
                 char_bits = np.dtype("U1").itemsize * 8
                 return ir.Type.parse(f"!llvm.array<{ty.count} x i{char_bits}>")
             case _:
+                if isinstance(ty, types.DTypeSpec):
+                    return self.get_mlir_type(ty.dtype)
                 try:
                     return self.context.get_value_type(ty)
                 except KeyError as e:

@@ -734,7 +734,18 @@ class MLIRTargetContext(BaseContext):
                 if cache_value is None or len(cache_key) != 4:
                     continue
                 _, args, _, _ = cache_key
-                if args == match_args:
+                cache_args = tuple(args)
+                non_omitted_cache_args = tuple(
+                    arg
+                    for arg in cache_args
+                    if not isinstance(arg, (types.Omitted, types.NoneType))
+                )
+                non_omitted_match_args = tuple(
+                    arg
+                    for arg in match_args
+                    if not isinstance(arg, (types.Omitted, types.NoneType))
+                )
+                if cache_args == match_args or non_omitted_cache_args == non_omitted_match_args:
                     disp, _ = cache_value
                     if hasattr(disp, "py_func"):
 

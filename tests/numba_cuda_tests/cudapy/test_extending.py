@@ -598,7 +598,6 @@ class TestHighLevelExtending(NumbaCUDATestCase):
         self.assertIn("use of VAR_KEYWORD (e.g. **kwargs) is unsupported", msg)
         self.assertIn("offending argument name is '**kws'", msg)
 
-    @pytest.mark.xfail(True, reason="Typing error")
     def test_overload_method_kwargs(self):
         # Issue #3489
         @overload_method(types.Array, "foo")

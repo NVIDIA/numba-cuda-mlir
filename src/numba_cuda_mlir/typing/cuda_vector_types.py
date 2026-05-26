@@ -19,9 +19,10 @@ from numba_cuda_mlir.cuda.vector_types import (
 )
 
 from numba_cuda_mlir.numba_cuda.types import Callable, DTypeSpec
-from numba_cuda_mlir.models import register_model
-from numba_cuda_mlir.numba_cuda.datamodel.models import OpaqueModel
+from numba_cuda_mlir.models import register_model, NumpyDataTypeModel
 from numba_cuda_mlir.numba_cuda.typing import typeof
+
+registry = Registry()
 
 
 class VectorTypeClass(Callable, DTypeSpec):
@@ -52,13 +53,11 @@ class VectorTypeClass(Callable, DTypeSpec):
         return self.typing_key
 
 
-registry = Registry()
+# Register the model for VectorTypeClass
+register_model(VectorTypeClass)(NumpyDataTypeModel)
 
 # Attribute index mapping
 ATTR_INDEX = {"x": 0, "y": 1, "z": 2, "w": 3}
-
-
-register_model(VectorTypeClass)(OpaqueModel)
 
 
 _constructor_template_cache = {}

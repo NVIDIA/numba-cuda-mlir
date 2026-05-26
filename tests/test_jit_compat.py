@@ -203,6 +203,25 @@ def test_none_is_not_none():
     assert arr.copy_to_host()[0] == 0
 
 
+def test_optional_return_from_device_function():
+    @cuda.jit(device=True)
+    def maybe_value(cond):
+        if cond:
+            return 42
+        return None
+
+    @cuda.jit
+    def kernel(out, n):
+        v = maybe_value(n > 0)
+        if v is not None:
+            out[0] = v
+
+    out = cuda.device_array((1,), dtype=np.int64)
+    out.copy_to_device(np.array([0], dtype=np.int64))
+    kernel[1, 1](out, 1)
+    assert out.copy_to_host()[0] == 42
+
+
 @pytest.mark.parametrize(
     "expr,input_val,expected",
     [

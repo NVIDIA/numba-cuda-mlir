@@ -174,7 +174,7 @@ def dotrace(*args, **kwds):
                 dotrace(c, *args, recursive=recursive)
         elif inspect.isclass(arg0):
             for n, f in inspect.getmembers(
-                arg0, lambda x: (inspect.isfunction(x) or inspect.ismethod(x))
+                arg0, lambda x: inspect.isfunction(x) or inspect.ismethod(x)
             ):
                 setattr(arg0, n, decorator(f))
 

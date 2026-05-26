@@ -8,8 +8,12 @@ from numba_cuda_mlir._mlir.dialects import arith, scf
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir.mlir.dialect_exts import llvm
 
-from numba_cuda_mlir.extending import overload_method, register_jitable
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.extending import (
+    overload_method,
+    register_jitable,
+    typing_registry as extending_typing_registry,
+)
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.lowering_utilities import GEP_DYNAMIC_INDEX, true, false
 
 from numba_cuda_mlir.numba_cuda.cpython.unicode import (
@@ -21,26 +25,31 @@ from numba_cuda_mlir.numba_cuda.cpython.unicode import (
 
 import numpy as np
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower = registry.lower
 
 
 def _unicode_eq_lower(builder, target, args, kwargs):
     """Lower unicode_type == unicode_type / StringLiteral.
 
-    Compares length first, then byte-by-byte (ASCII/kind=1).
+    Constant-folds when both values are known Python strings at compile time.
+    Otherwise compares length first, then byte-by-byte (ASCII/kind=1).
     Uses select + for loop (no scf.if with results needed).
     """
     from numba_cuda_mlir.lowering_utilities.string import (
         materialize_string_constant_if_needed,
     )
 
-    lhs_val = materialize_string_constant_if_needed(
-        builder.mlir_gpu_module, builder.load_var(args[0])
-    )
-    rhs_val = materialize_string_constant_if_needed(
-        builder.mlir_gpu_module, builder.load_var(args[1])
-    )
+    lhs_raw = builder.load_var(args[0])
+    rhs_raw = builder.load_var(args[1])
+
+    if isinstance(lhs_raw, str) and isinstance(rhs_raw, str):
+        result = arith.constant(result=T.bool(), value=(lhs_raw == rhs_raw))
+        builder.store_var(target, result)
+        return
+
+    lhs_val = materialize_string_constant_if_needed(builder.mlir_gpu_module, lhs_raw)
+    rhs_val = materialize_string_constant_if_needed(builder.mlir_gpu_module, rhs_raw)
 
     # Extract lengths (field 1)
     lhs_len = llvm.extractvalue(T.i64(), lhs_val, [1])
@@ -101,7 +110,7 @@ def _lower_ne(builder, target, args, kwargs):
     builder.store_var(target, ne_result)
 
 
-@register_jitable
+@register_jitable(typing_registry=extending_typing_registry)
 def _empty_string_numba_cuda_mlir(kind, length, is_ascii=0):
     char_width = _kind_to_byte_width(kind)
     s = _malloc_string(kind, char_width, length, is_ascii)
@@ -109,7 +118,7 @@ def _empty_string_numba_cuda_mlir(kind, length, is_ascii=0):
     return s
 
 
-@register_jitable
+@register_jitable(typing_registry=extending_typing_registry)
 def _ascii_upper_numba_cuda_mlir(data, res):
     for idx in range(len(data)):
         ch = _get_code_point(data, idx)
@@ -118,7 +127,7 @@ def _ascii_upper_numba_cuda_mlir(data, res):
         _set_code_point(res, idx, ch)
 
 
-@register_jitable
+@register_jitable(typing_registry=extending_typing_registry)
 def _ascii_lower_numba_cuda_mlir(data, res):
     for idx in range(len(data)):
         ch = _get_code_point(data, idx)
@@ -127,7 +136,7 @@ def _ascii_lower_numba_cuda_mlir(data, res):
         _set_code_point(res, idx, ch)
 
 
-@overload_method(types.UnicodeType, "upper")
+@overload_method(types.UnicodeType, "upper", typing_registry=extending_typing_registry)
 def unicode_upper(data):
     def impl(data):
         length = len(data)
@@ -140,7 +149,7 @@ def unicode_upper(data):
     return impl
 
 
-@overload_method(types.UnicodeType, "lower")
+@overload_method(types.UnicodeType, "lower", typing_registry=extending_typing_registry)
 def unicode_lower(data):
     def impl(data):
         length = len(data)

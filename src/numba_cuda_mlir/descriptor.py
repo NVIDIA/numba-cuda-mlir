@@ -2,8 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 import collections
 from contextlib import contextmanager
+import sys
+import os
 from functools import cached_property, lru_cache
-from typing import override
+
+if sys.version_info >= (3, 12):
+    from typing import override
+else:
+    from typing_extensions import override
 from numba_cuda_mlir.errors import UserFacingInternalCompilerError
 from numba_cuda_mlir.logging import trace
 import inspect
@@ -22,6 +28,7 @@ from numba_cuda_mlir.numba_cuda.cudadecl import registry as cuda_registry
 from numba_cuda_mlir.numba_cuda import serialize, typing
 from numba_cuda_mlir.numba_cuda.core.base import BaseContext
 from numba_cuda_mlir.numba_cuda.core.callconv import MinimalCallConv
+from numba_cuda_mlir.numba_cuda.cudadrv.devicearray import DeviceNDArrayBase
 from numba_cuda_mlir.numba_cuda.core.descriptors import TargetDescriptor
 from numba_cuda_mlir.numba_cuda.core.compiler_lock import global_compiler_lock
 from numba_cuda_mlir.numba_cuda.dispatcher import Dispatcher
@@ -43,7 +50,6 @@ from numba_cuda_mlir._cext import LaunchConfiguration
 import threading
 import cProfile
 import pstats
-import sys
 
 # Thread-local storage for passing original tuple arg types to _compile
 _compile_arg_types = threading.local()
@@ -114,29 +120,13 @@ def _run_teardown_callback(cb, object_code):
         logging.exception("teardown callback %r failed for %r", cb, object_code)
 
 
-def _append_typeof_or_none(original_types, arg):
-    try:
-        original_types.append(typeof(arg))
-    except (ValueError, TypeError):
-        original_types.append(None)
-
-
-def _flatten_arg(arg):
-    """Recursively flatten a tuple/list argument."""
+def _flatten_arg(arg, out):
+    """Recursively flatten a tuple/list argument into *out*."""
     if isinstance(arg, (tuple, list)):
-        result = []
         for elem in arg:
-            result.extend(_flatten_arg(elem))
-        return result
-    return [arg]
-
-
-def _flatten_args(args):
-    """Flatten all tuple/list arguments in args."""
-    result = []
-    for arg in args:
-        result.extend(_flatten_arg(arg))
-    return result
+            _flatten_arg(elem, out)
+    else:
+        out.append(arg)
 
 
 def _raise_as_cuda_error(e):
@@ -170,8 +160,13 @@ class _ArgMarshaller:
         self._callbacks = []
         self._extensions = extensions or []
         self._dispatcher = dispatcher
+        self._sig_cache = {}  # {type_key: (argtypes, fast_ok)}
+        self._array_sig_cache = {}  # {type_key: (argtypes, ((idx, dtype_num, ndim), ...))}
 
     def _maybe_copy_to_device_item(self, arg):
+        if isinstance(arg, DeviceNDArrayBase):
+            return arg
+
         from numba_cuda_mlir import cuda
 
         match arg:
@@ -219,12 +214,6 @@ class _ArgMarshaller:
             case _ if hasattr(arg, "__cuda_array_interface__") and not isinstance(arg, np.ndarray):
                 # Third-party objects implementing __cuda_array_interface__.
                 # Convert to DeviceNDArray so typeof() works.
-                from numba_cuda_mlir.numba_cuda.cudadrv.devicearray import (
-                    DeviceNDArrayBase,
-                )
-
-                if isinstance(arg, DeviceNDArrayBase):
-                    return arg
                 from numba_cuda_mlir.numba_cuda.api import from_cuda_array_interface
 
                 return from_cuda_array_interface(arg.__cuda_array_interface__, owner=arg)
@@ -253,27 +242,6 @@ class _ArgMarshaller:
                 return _strided_memory_view_to_device_array(arg)
             case _:
                 return arg
-
-    def _maybe_copy_to_device(self, args):
-        return list(map(self._maybe_copy_to_device_item, args))
-
-    def _apply_extensions(self, args):
-        if not self._extensions:
-            return list(args)
-
-        transformed_vals = []
-        for arg in args:
-            try:
-                ty = typeof(arg)
-            except (ValueError, TypeError) as e:
-                raise ExtensionError(
-                    f"Could not get type of argument: {arg}. Please register a typeof_impl for this type."
-                ) from e
-            val = arg
-            for extension in reversed(self._extensions):
-                ty, val = extension.prepare_args(ty, val, stream=None, retr=self._callbacks)
-            transformed_vals.append(val)
-        return transformed_vals
 
     def _coerce_to_overload(self, device_args, argtypes):
         """Coerce scalar arguments to match a pre-compiled overload signature."""
@@ -315,25 +283,12 @@ class _ArgMarshaller:
                 coerced_types.append(runtime_type)
         return coerced_args, coerced_types
 
-    def __call__(self, *args):
-        original_types = []
-        for arg in args:
-            _append_typeof_or_none(original_types, arg)
-
-        args = self._apply_extensions(args)
-
-        device_args = self._maybe_copy_to_device(args)
-        # Store original types for _compile to use (before flattening)
-        argtypes = [typeof(arg) for arg in device_args]
-        device_args, argtypes = self._coerce_to_overload(device_args, argtypes)
+    def _launch(self, argtypes, launch_args):
+        """Set compile arg types and invoke the C++ launcher with error handling."""
         _compile_arg_types.types = argtypes
         try:
-            # Flatten tuple/list arguments for C++ kernel launcher
-            flat_args = _flatten_args(device_args)
-            result = self._launcher(*flat_args)
+            return self._launcher(*launch_args)
         except UserFacingInternalCompilerError as e:
-            import os
-
             if os.environ.get("NUMBA_CUDA_MLIR_ICE_FULL_TB", "0").strip() == "1":
                 raise
             raise e.with_traceback(None) from None
@@ -341,9 +296,106 @@ class _ArgMarshaller:
             _raise_as_cuda_error(e)
         finally:
             _compile_arg_types.types = None
-        for callback in self._callbacks:
+
+    def __call__(self, *args):
+        nargs = len(args)
+        has_ext = bool(self._extensions)
+
+        # Fast caches are only valid when no extension can transform values or
+        # register per-launch callbacks through prepare_args().
+        type_key = None
+        if not has_ext:
+            type_key = tuple(type(a) for a in args)
+            cached = self._sig_cache.get(type_key)
+            if cached is not None:
+                cached_argtypes, fast_ok = cached
+                if fast_ok:
+                    return self._launch(cached_argtypes, args)
+
+                # Array values keep the same Python class across many dtypes.
+                # Reuse cached argtypes only when the Numba array type is stable.
+                array_entry = self._array_sig_cache.get(type_key)
+                if array_entry is not None:
+                    cached_argtypes, array_checks = array_entry
+                    ok = True
+                    for idx, dtype, ndim in array_checks:
+                        a = args[idx]
+                        if a.dtype != dtype or a.ndim != ndim:
+                            ok = False
+                            break
+                    if ok:
+                        return self._launch(cached_argtypes, args)
+
+        reversed_ext = self._extensions[::-1] if has_ext else None
+        copy_item = self._maybe_copy_to_device_item
+        callbacks = self._callbacks
+
+        device_args = [None] * nargs
+        argtypes = [None] * nargs
+        all_pass_through = True
+
+        for i in range(nargs):
+            val = args[i]
+
+            try:
+                ty = typeof(val)
+            except (ValueError, TypeError):
+                ty = None
+
+            if has_ext:
+                if ty is None:
+                    raise ExtensionError(
+                        f"Could not get type of argument: {val}. "
+                        "Please register a typeof_impl for this type."
+                    )
+                for ext in reversed_ext:
+                    ty, val = ext.prepare_args(ty, val, stream=None, retr=callbacks)
+                if val is not args[i]:
+                    all_pass_through = False
+
+            dev = copy_item(val)
+            if dev is not val:
+                all_pass_through = False
+                try:
+                    ty = typeof(dev)
+                except (ValueError, TypeError):
+                    ty = None
+
+            device_args[i] = dev
+            argtypes[i] = ty
+
+        coerced_args, coerced_types = self._coerce_to_overload(device_args, argtypes)
+        if coerced_args is not device_args:
+            all_pass_through = False
+
+        # _compile_arg_types carries top-level Numba types for compilation;
+        # the C++ launcher receives flattened tuple/list leaves for the ABI.
+        flat_args = []
+        for arg in coerced_args:
+            _flatten_arg(arg, flat_args)
+        result = self._launch(coerced_types, flat_args)
+
+        for callback in callbacks:
             callback()
-        self._callbacks.clear()  # Clear callbacks to prevent accumulation
+        callbacks.clear()  # Clear callbacks to prevent accumulation.
+
+        if not has_ext:
+            has_arrays = any(isinstance(ct, types.Array) for ct in coerced_types)
+            if all_pass_through and len(flat_args) == nargs and not has_arrays:
+                self._sig_cache[type_key] = (list(coerced_types), True)
+            else:
+                if type_key not in self._sig_cache:
+                    self._sig_cache[type_key] = (list(coerced_types), False)
+
+                # Only cache already-device array launches. Host arrays and
+                # wrappers need per-launch copy/copyback setup.
+                if has_arrays and all_pass_through and type_key not in self._array_sig_cache:
+                    array_checks = []
+                    for i, ct in enumerate(coerced_types):
+                        if isinstance(ct, types.Array):
+                            array_checks.append((i, args[i].dtype, args[i].ndim))
+                    self._array_sig_cache[type_key] = (list(coerced_types), tuple(array_checks))
+
         return result
 
 
@@ -428,6 +480,11 @@ class MLIRTypingContext(typing.BaseContext):
         import numba_cuda_mlir.lowering.unicode  # noqa: F401 - registers string overloads
         from numba_cuda_mlir.numba_cuda.typing import enumdecl, cffi_utils
         from numba_cuda_mlir.numba_cuda.typing.templates import builtin_registry
+        from numba_cuda_mlir.numba_cuda.target import load_cuda_target_registration_modules
+
+        load_cuda_target_registration_modules()
+        register_bf16_globals()
+        register_fp8_globals()
 
         # Install numba_cuda_mlir registries first to give them priority
         self.install_registry(ctypes_registry)
@@ -443,13 +500,10 @@ class MLIRTypingContext(typing.BaseContext):
         self.install_registry(exotic_float_typing_registry)
         self.install_registry(vector_registry)
         self.install_registry(cuda_vector_types_registry)
-        self.install_registry(extending_typing_registry)
 
         # Install numba-cuda registries after numba_cuda_mlir ones
         self.install_registry(cuda_registry)
         self.install_registry(builtin_registry)
-        register_bf16_globals()
-        register_fp8_globals()
 
         # Install numba-cuda's bf16 typing registry (includes operators)
         from numba_cuda_mlir.numba_cuda._internal.cuda_bf16 import (
@@ -460,6 +514,7 @@ class MLIRTypingContext(typing.BaseContext):
 
         self.install_registry(enumdecl.registry)
         self.install_registry(cffi_utils.registry)
+        self.install_registry(extending_typing_registry)
         if find_spec("torch") is not None:
             from numba_cuda_mlir.type_defs.torch_types import registry as torch_registry
 
@@ -613,9 +668,6 @@ class MLIRTargetContext(BaseContext):
         from numba_cuda_mlir.lowering.cuda_vector_types import (
             registry as cuda_vector_types_lowering_registry,
         )
-        from numba_cuda_mlir.lowering.mlir.types import (
-            registry as mlir_types_lowering_registry,
-        )
         from numba_cuda_mlir.lowering.record import registry as record_lowering_registry
         from numba_cuda_mlir.lowering.unicode import (
             registry as unicode_lowering_registry,
@@ -645,7 +697,6 @@ class MLIRTargetContext(BaseContext):
         self.install_registry(exotic_float_lowering_registry)
         self.install_registry(vector_lowering_registry)
         self.install_registry(cuda_vector_types_lowering_registry)
-        self.install_registry(mlir_types_lowering_registry)
         self.install_registry(enum_lowering_registry)
         self.install_registry(unicode_lowering_registry)
         self.install_registry(nrt_lowering_registry)
@@ -654,9 +705,7 @@ class MLIRTargetContext(BaseContext):
 
     @override
     def refresh(self):
-        self.load_additional_registries()
         super().refresh()
-        self.typing_context.refresh()
 
     def get_overload_builder(self, fn, sig):
         """Return an MLIR builder for an overloaded function, or None.
@@ -1014,7 +1063,12 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
 
     def enable_caching(self):
         """Enable on-disk caching for this dispatcher."""
-        self._cache = MLIRCache(self.py_func)
+        self._cache = MLIRCache(self.py_func, self.targetoptions)
+
+    def _resolve_target_options(self):
+        from numba_cuda_mlir.tools import resolve_target_options
+
+        resolve_target_options(self.targetoptions)
 
     @property
     def stats(self):
@@ -1082,7 +1136,17 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         if signature is None:
             return {sig: self.inspect_asm(sig) for sig in self.overloads}
         cres = self._find_overload(signature)
-        return cres.metadata["ptx"]
+        ptx = cres.metadata.get("ptx")
+        if ptx:
+            return ptx
+        if not cres.metadata.get("ltoir"):
+            return cres.metadata["ptx"]
+
+        from numba_cuda_mlir.mlir_optimization import get_ptx
+
+        ptx = get_ptx(cres)
+        cres.metadata["ptx"] = ptx
+        return ptx
 
     def inspect_mlir(self, sig=None):
         if sig is None:
@@ -1115,8 +1179,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     def inspect_ptx(self, sig=None):
         if sig is None:
             return {sig: self.inspect_ptx(sig) for sig in self.overloads}
-        cres = self._find_overload(sig)
-        return cres.metadata["ptx"]
+        return self.inspect_asm(sig)
 
     @staticmethod
     def _can_reuse_overload(sig_arg, runtime_type):
@@ -1306,6 +1369,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             cres = self.overloads[best[0]]
             return _result(cres)
 
+        self._resolve_target_options()
+
         # Try to load from disk cache
         sig = typing.signature(types.none, *argtypes)
         cres = self._cache.load_overload(sig, mlir_target.target_context)
@@ -1353,6 +1418,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         # Check in-memory overloads first
         if argtypes in self.overloads:
             return self.overloads[argtypes]
+
+        self._resolve_target_options()
 
         # Try to load from disk cache
         cres = self._cache.load_overload(sig, mlir_target.target_context)
@@ -1419,7 +1486,20 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         return self.compile(sig)
 
     def inspect_lto_ptx(self, args=None):
-        return self.inspect_ptx(args)
+        if args is None:
+            return {sig: self.inspect_lto_ptx(sig) for sig in self.overloads}
+        cres = self._find_overload(args)
+        ptx = cres.metadata.get("lto_ptx")
+        if ptx:
+            return ptx
+        if not cres.metadata.get("ltoir"):
+            return self.inspect_ptx(args)
+
+        from numba_cuda_mlir.mlir_optimization import get_lto_ptx
+
+        ptx = get_lto_ptx(cres)
+        cres.metadata["lto_ptx"] = ptx
+        return ptx
 
     def forall(self, ntasks, tpb=0, stream=0, sharedmem=0):
         if ntasks < 0:
@@ -1526,17 +1606,20 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     def compile_device(self, sig):
         """Compile as a device function, injecting device=True if needed
         so that the function is not treated as a kernel."""
-        if not self.targetoptions.get("device", False):
-            if not hasattr(self, "_device_dispatcher"):
-                opts = self.targetoptions.copy()
-                opts["device"] = True
-                self._device_dispatcher = MLIRDispatcher(self.py_func, targetoptions=opts)
-            cres = self._device_dispatcher.compile(sig)
-            argtypes, _ = sigutils.normalize_signature(sig)
-            if argtypes not in self.overloads:
-                self.overloads[argtypes] = cres
-            return cres
-        return self.compile(sig)
+        opts = self.targetoptions.copy()
+        opts["device"] = True
+        opts["lto"] = False
+        opts["output"] = "ptx"
+        if self.targetoptions.get("device", False):
+            self.targetoptions.update(opts)
+            return self.compile(sig)
+        if not hasattr(self, "_device_dispatcher") or self._device_dispatcher.targetoptions != opts:
+            self._device_dispatcher = MLIRDispatcher(self.py_func, targetoptions=opts)
+        cres = self._device_dispatcher.compile(sig)
+        argtypes, _ = sigutils.normalize_signature(sig)
+        if argtypes not in self.overloads:
+            self.overloads[argtypes] = cres
+        return cres
 
     def get_call_template(self, args, kws):
         """Resolve return type when this dispatcher is called from another

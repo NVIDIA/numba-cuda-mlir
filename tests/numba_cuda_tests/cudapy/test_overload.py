@@ -7,7 +7,7 @@ from numba_cuda_mlir.numba_cuda import types
 
 from numba_cuda_mlir.numba_cuda.core.errors import TypingError
 
-from numba_cuda_mlir.extending import overload, overload_attribute
+from numba_cuda_mlir.extending import overload, typing_registry
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof as cpu_typeof
 from numba_cuda_mlir.testing import NumbaCUDATestCase
@@ -94,7 +94,7 @@ CUDA_TARGET_OL_CALLS_TARGET_OL = 43
 # Overload implementations
 
 
-@overload(generic_func_1, target="generic")
+@overload(generic_func_1, target="generic", typing_registry=typing_registry)
 def ol_generic_func_1(x):
     def impl(x):
         x[0] *= GENERIC_FUNCTION_1
@@ -102,7 +102,7 @@ def ol_generic_func_1(x):
     return impl
 
 
-@overload(cuda_func_1, target="cuda")
+@overload(cuda_func_1, target="cuda", typing_registry=typing_registry)
 def ol_cuda_func_1(x):
     def impl(x):
         x[0] *= CUDA_FUNCTION_1
@@ -110,7 +110,7 @@ def ol_cuda_func_1(x):
     return impl
 
 
-@overload(generic_func_2, target="generic")
+@overload(generic_func_2, target="generic", typing_registry=typing_registry)
 def ol_generic_func_2(x):
     def impl(x):
         x[0] *= GENERIC_FUNCTION_2
@@ -118,7 +118,7 @@ def ol_generic_func_2(x):
     return impl
 
 
-@overload(cuda_func_2, target="cuda")
+@overload(cuda_func_2, target="cuda", typing_registry=typing_registry)
 def ol_cuda_func(x):
     def impl(x):
         x[0] *= CUDA_FUNCTION_2
@@ -126,7 +126,7 @@ def ol_cuda_func(x):
     return impl
 
 
-@overload(generic_calls_generic, target="generic")
+@overload(generic_calls_generic, target="generic", typing_registry=typing_registry)
 def ol_generic_calls_generic(x):
     def impl(x):
         x[0] *= GENERIC_CALLS_GENERIC
@@ -135,7 +135,7 @@ def ol_generic_calls_generic(x):
     return impl
 
 
-@overload(generic_calls_cuda, target="generic")
+@overload(generic_calls_cuda, target="generic", typing_registry=typing_registry)
 def ol_generic_calls_cuda(x):
     def impl(x):
         x[0] *= GENERIC_CALLS_CUDA
@@ -144,7 +144,7 @@ def ol_generic_calls_cuda(x):
     return impl
 
 
-@overload(cuda_calls_generic, target="cuda")
+@overload(cuda_calls_generic, target="cuda", typing_registry=typing_registry)
 def ol_cuda_calls_generic(x):
     def impl(x):
         x[0] *= CUDA_CALLS_GENERIC
@@ -153,7 +153,7 @@ def ol_cuda_calls_generic(x):
     return impl
 
 
-@overload(cuda_calls_cuda, target="cuda")
+@overload(cuda_calls_cuda, target="cuda", typing_registry=typing_registry)
 def ol_cuda_calls_cuda(x):
     def impl(x):
         x[0] *= CUDA_CALLS_CUDA
@@ -162,7 +162,7 @@ def ol_cuda_calls_cuda(x):
     return impl
 
 
-@overload(target_overloaded, target="generic")
+@overload(target_overloaded, target="generic", typing_registry=typing_registry)
 def ol_target_overloaded_generic(x):
     def impl(x):
         x[0] *= GENERIC_TARGET_OL
@@ -170,7 +170,7 @@ def ol_target_overloaded_generic(x):
     return impl
 
 
-@overload(target_overloaded, target="cuda")
+@overload(target_overloaded, target="cuda", typing_registry=typing_registry)
 def ol_target_overloaded_cuda(x):
     def impl(x):
         x[0] *= CUDA_TARGET_OL
@@ -178,7 +178,7 @@ def ol_target_overloaded_cuda(x):
     return impl
 
 
-@overload(generic_calls_target_overloaded, target="generic")
+@overload(generic_calls_target_overloaded, target="generic", typing_registry=typing_registry)
 def ol_generic_calls_target_overloaded(x):
     def impl(x):
         x[0] *= GENERIC_CALLS_TARGET_OL
@@ -187,7 +187,7 @@ def ol_generic_calls_target_overloaded(x):
     return impl
 
 
-@overload(cuda_calls_target_overloaded, target="cuda")
+@overload(cuda_calls_target_overloaded, target="cuda", typing_registry=typing_registry)
 def ol_cuda_calls_target_overloaded(x):
     def impl(x):
         x[0] *= CUDA_CALLS_TARGET_OL
@@ -196,7 +196,11 @@ def ol_cuda_calls_target_overloaded(x):
     return impl
 
 
-@overload(target_overloaded_calls_target_overloaded, target="generic")
+@overload(
+    target_overloaded_calls_target_overloaded,
+    target="generic",
+    typing_registry=typing_registry,
+)
 def ol_generic_calls_target_overloaded_generic(x):
     def impl(x):
         x[0] *= GENERIC_TARGET_OL_CALLS_TARGET_OL
@@ -205,7 +209,11 @@ def ol_generic_calls_target_overloaded_generic(x):
     return impl
 
 
-@overload(target_overloaded_calls_target_overloaded, target="cuda")
+@overload(
+    target_overloaded_calls_target_overloaded,
+    target="cuda",
+    typing_registry=typing_registry,
+)
 def ol_generic_calls_target_overloaded_cuda(x):
     def impl(x):
         x[0] *= CUDA_TARGET_OL_CALLS_TARGET_OL
@@ -214,7 +222,7 @@ def ol_generic_calls_target_overloaded_cuda(x):
     return impl
 
 
-@overload(default_values_and_kwargs)
+@overload(default_values_and_kwargs, typing_registry=typing_registry)
 def ol_default_values_and_kwargs(out, x, y=5, z=6):
     def impl(out, x, y=5, z=6):
         out[0], out[1] = x + y, z

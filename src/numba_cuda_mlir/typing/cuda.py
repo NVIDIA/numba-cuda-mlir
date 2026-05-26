@@ -18,9 +18,9 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
     signature,
 )
 from numba_cuda_mlir import types
-from numba_cuda_mlir.type_defs.cuda_types import (
-    CUTensorMapType,
-    CUTensorMapStorageType,
+from numba_cuda_mlir.cuda.vector_types import (
+    vector_types_by_name,
+    vector_types_by_alias,
 )
 
 from numba_cuda_mlir.numba_cuda import cudadecl
@@ -541,8 +541,10 @@ class Cuda_stub_resolver(cudadecl.CudaModuleTemplate, AttributeTemplate):
     def resolve_local_array(self, mod):
         return types.Function(LocalArrayTemplate)
 
-    def resolve_inline_ptx(self, mod):
-        return types.Function(InlinePTXFunctionTemplate)
+    def resolve_experimental(self, mod):
+        import numba_cuda_mlir.cuda.experimental as experimental
+
+        return types.Module(experimental)
 
     def resolve_intrin(self, mod):
         import numba_cuda_mlir.cuda.intrin as intrin
@@ -649,17 +651,12 @@ class Cuda_stub_resolver(cudadecl.CudaModuleTemplate, AttributeTemplate):
         return types.Module(cg)
 
     def generic_resolve(self, mod, attr):
-        # Handle vector type constructors (float64x4, float32x2, int32x4, etc.)
-        from numba_cuda_mlir.cuda.vector_types import (
-            vector_type_stubs_by_name,
-            vector_type_stubs_by_alias,
-        )
-        from numba_cuda_mlir.typing.cuda_vector_types import make_constructor_template
+        from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 
-        stub = vector_type_stubs_by_name.get(attr) or vector_type_stubs_by_alias.get(attr)
+        # Handle vector type constructors (float64x4, float32x2, int32x4, etc.)
+        stub = vector_types_by_name.get(attr) or vector_types_by_alias.get(attr)
         if stub is not None:
-            template = make_constructor_template(stub)
-            return types.Function(template)
+            return typeof(stub)
 
         return None
 
@@ -676,6 +673,21 @@ class RealNumbaCudaModuleTemplate(Cuda_stub_resolver):
     import numba_cuda_mlir.numba_cuda as numba_cuda_module
 
     key = types.Module(numba_cuda_module)
+
+
+@registry.register_attr
+class CudaExperimentalModuleTemplate(AttributeTemplate):
+    import numba_cuda_mlir.cuda.experimental as experimental
+
+    key = types.Module(experimental)
+
+    def resolve_inline_ptx(self, mod):
+        return types.Function(InlinePTXFunctionTemplate)
+
+    def resolve_intrin(self, mod):
+        import numba_cuda_mlir.cuda.intrin as intrin
+
+        return types.Module(intrin)
 
 
 @registry.register_attr

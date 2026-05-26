@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Build cudf from source against a public branch and run UDF tests with
+# numba-cuda-mlir installed.
+
+set -euo pipefail
+
+: "${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR:?NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR must be set by ci/tools/env-vars}"
+: "${LOCAL_CTK:?LOCAL_CTK must be set by the workflow}"
+: "${TEST_CUDA_MAJOR:?TEST_CUDA_MAJOR must be set by ci/tools/env-vars}"
+: "${TEST_CUDA_MINOR:?TEST_CUDA_MINOR must be set by ci/tools/env-vars}"
+
+CUDF_REPO="${CUDF_REPO:-https://github.com/brandon-b-miller/cudf.git}"
+CUDF_BRANCH="${CUDF_BRANCH:-cudf-numba-cuda-mlir-extension-backend}"
+
+export CUDA_VERSION="${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}"
+
+MINIFORGE_URL="https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-$(uname -m).sh"
+CONDA_ENV_NAME="cudf_build"
+
+declare -A CUDA_TO_ENV_YAML=(
+  ["12.9"]="all_cuda-129_arch-x86_64.yaml"
+  ["13.2"]="all_cuda-132_arch-x86_64.yaml"
+)
+
+ARCH=$(uname -m)
+if [[ "${ARCH}" == "aarch64" ]]; then
+  CUDA_TO_ENV_YAML["12.9"]="all_cuda-129_arch-aarch64.yaml"
+  CUDA_TO_ENV_YAML["13.2"]="all_cuda-132_arch-aarch64.yaml"
+fi
+
+# Map CUDA major.minor to the env yaml key (e.g. 12.9)
+ENV_YAML_KEY="${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}"
+if [[ -z "${CUDA_TO_ENV_YAML[${ENV_YAML_KEY}]+_}" ]]; then
+  echo "ERROR: No cudf conda environment YAML for CUDA ${ENV_YAML_KEY}"
+  echo "Supported versions: ${!CUDA_TO_ENV_YAML[*]}"
+  exit 1
+fi
+ENV_YAML_NAME="${CUDA_TO_ENV_YAML[${ENV_YAML_KEY}]}"
+
+# --- Locate numba-cuda-mlir wheel ---
+wheels=("${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR}"/*.whl)
+if [[ ${#wheels[@]} -ne 1 ]]; then
+  echo "Expected exactly one numba-cuda-mlir wheel in ${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR}, found ${#wheels[@]}"
+  printf '%s\n' "${wheels[@]}"
+  exit 1
+fi
+wheel="${wheels[0]}"
+
+# Extract Python version from wheel filename (e.g. ...cp312-cp312-... -> 3.12)
+PY_VER=$(echo "${wheel}" | grep -oP 'cp\K\d+' | head -1 | sed 's/\(.\)\(.*\)/\1.\2/')
+echo "numba-cuda-mlir wheel: $(basename "${wheel}") (Python ${PY_VER})"
+
+# --- Install Miniforge ---
+MAMBA_DIR="/tmp/miniforge"
+if [[ ! -x "${MAMBA_DIR}/bin/mamba" ]]; then
+  echo "Installing Miniforge..."
+  wget -q "${MINIFORGE_URL}" -O /tmp/miniforge.sh
+  bash /tmp/miniforge.sh -b -p "${MAMBA_DIR}"
+  rm /tmp/miniforge.sh
+fi
+export PATH="${MAMBA_DIR}/bin:${PATH}"
+
+# --- Clone cudf ---
+CUDF_DIR="/tmp/cudf"
+if [[ ! -d "${CUDF_DIR}" ]]; then
+  echo "Cloning cudf (branch: ${CUDF_BRANCH})..."
+  git clone --single-branch --branch "${CUDF_BRANCH}" "${CUDF_REPO}" "${CUDF_DIR}"
+fi
+echo "cudf commit:"
+git -C "${CUDF_DIR}" log -1 --format='%H %h %s'
+
+# --- Create conda environment ---
+ENV_YAML="${CUDF_DIR}/conda/environments/${ENV_YAML_NAME}"
+if [[ ! -f "${ENV_YAML}" ]]; then
+  echo "ERROR: Environment YAML not found: ${ENV_YAML}"
+  ls "${CUDF_DIR}/conda/environments/"
+  exit 1
+fi
+
+if [[ ! -d "${MAMBA_DIR}/envs/${CONDA_ENV_NAME}" ]]; then
+  echo "Creating conda environment '${CONDA_ENV_NAME}' from ${ENV_YAML_NAME}..."
+  mamba env create -f "${ENV_YAML}" -n "${CONDA_ENV_NAME}" "python=${PY_VER}" -y
+fi
+
+# Ensure nvidia-smi is accessible inside conda env
+ENV_BIN="${MAMBA_DIR}/envs/${CONDA_ENV_NAME}/bin"
+if [[ ! -e "${ENV_BIN}/nvidia-smi" ]]; then
+  HOST_SMI=$(command -v nvidia-smi 2>/dev/null || true)
+  if [[ -n "${HOST_SMI}" ]]; then
+    ln -sf "${HOST_SMI}" "${ENV_BIN}/nvidia-smi"
+  fi
+fi
+
+# --- Build cudf from source ---
+echo "Building cudf from source..."
+conda run -n "${CONDA_ENV_NAME}" bash -c "cd ${CUDF_DIR} && bash build.sh libcudf pylibcudf cudf"
+
+# --- Install numba-cuda-mlir wheel ---
+echo "Installing numba-cuda-mlir wheel into conda env..."
+EXTRAS="cu${TEST_CUDA_MAJOR}"
+conda run -n "${CONDA_ENV_NAME}" pip install "${wheel}[${EXTRAS}]"
+conda run -n "${CONDA_ENV_NAME}" pip list
+
+# --- Run cudf UDF tests ---
+echo "Running cudf UDF tests for CUDA ${CUDA_VERSION}"
+
+SCALAR_UDF="${CUDF_DIR}/python/cudf/cudf/tests/dataframe/methods/test_apply.py"
+GROUPBY_UDF="${CUDF_DIR}/python/cudf/cudf/tests/groupby/test_apply.py"
+NRT_STATS="${CUDF_DIR}/python/cudf/cudf/tests/private_objects/test_nrt_stats.py"
+
+COMMON_ARGS=(-W "ignore::UserWarning" -v --tb=short)
+
+conda run -n "${CONDA_ENV_NAME}" python -m pytest \
+  "${SCALAR_UDF}" \
+  "${NRT_STATS}" \
+  "${COMMON_ARGS[@]}" \
+  --junit-xml=cudf-source-junit-results.xml \
+  -o addopts= \
+  "$@" || true
+
+conda run -n "${CONDA_ENV_NAME}" python -m pytest \
+  "${GROUPBY_UDF}" \
+  -k "test_groupby_apply" \
+  "${COMMON_ARGS[@]}" \
+  --junit-xml=cudf-source-junit-groupby.xml \
+  -o addopts= \
+  "$@" || true
+
+# --- Print summary ---
+echo ""
+echo "========================================"
+echo "cudf source test run complete"
+echo "========================================"
+echo "Junit results: cudf-source-junit-results.xml"
+echo "Junit groupby: cudf-source-junit-groupby.xml"
+
+# Fail the job if either xml has failures
+python3 -c "
+import xml.etree.ElementTree as ET
+import sys
+from pathlib import Path
+
+total_failures = 0
+total_errors = 0
+total_passed = 0
+total_skipped = 0
+
+for xml_file in ['cudf-source-junit-results.xml', 'cudf-source-junit-groupby.xml']:
+    p = Path(xml_file)
+    if not p.exists():
+        print(f'WARNING: {xml_file} not found')
+        continue
+    tree = ET.parse(p)
+    for ts in tree.iter('testsuite'):
+        tests = int(ts.get('tests', 0))
+        failures = int(ts.get('failures', 0))
+        errors = int(ts.get('errors', 0))
+        skipped = int(ts.get('skipped', 0))
+        total_failures += failures
+        total_errors += errors
+        total_skipped += skipped
+        total_passed += tests - failures - errors - skipped
+
+print(f'  Passed:  {total_passed}')
+print(f'  Failed:  {total_failures}')
+print(f'  Errors:  {total_errors}')
+print(f'  Skipped: {total_skipped}')
+total = total_passed + total_failures + total_errors
+if total == 0:
+    print('ERROR: No test results found — tests may not have run')
+    sys.exit(1)
+print(f'  Pass rate: {total_passed/total*100:.1f}%')
+if total_failures > 0 or total_errors > 0:
+    sys.exit(1)
+"

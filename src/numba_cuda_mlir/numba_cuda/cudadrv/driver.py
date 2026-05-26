@@ -61,7 +61,7 @@ from cuda.core import (
     Stream as ExperimentalStream,
     Device as ExperimentalDevice,
 )
-from numba_cuda_mlir.numba_cuda._compat import CUDA_CORE_GT_0_6
+from numba_cuda_mlir.numba_cuda._compat import CUDA_CORE_GT_0_6, CUDA_CORE_GE_1_0
 from cuda.bindings.utils import get_cuda_native_handle
 
 
@@ -1110,10 +1110,13 @@ class Context:
         :param blocksizelimit: maximum block size the kernel is designed to
                                handle
         """
-        return (
-            binding.CUresult.CUDA_SUCCESS,
-            func.kernel.attributes.max_threads_per_block(),
-        )
+        attrs = func.kernel.attributes
+        if CUDA_CORE_GE_1_0:
+            max_threads_per_block = attrs.max_threads_per_block
+        else:
+            max_threads_per_block = attrs.max_threads_per_block()
+
+        return binding.CUresult.CUDA_SUCCESS, max_threads_per_block
 
     def prepare_for_use(self):
         """Initialize the context for use.
@@ -2122,13 +2125,22 @@ class CudaPythonFunction:
             self.handle = kernel._handle
         self.name = name
         attrs = self.kernel.attributes
-        self.attrs = FuncAttr(
-            regs=attrs.num_regs(),
-            const=attrs.const_size_bytes(),
-            local=attrs.local_size_bytes(),
-            shared=attrs.shared_size_bytes(),
-            maxthreads=attrs.max_threads_per_block(),
-        )
+        if CUDA_CORE_GE_1_0:
+            self.attrs = FuncAttr(
+                regs=attrs.num_regs,
+                const=attrs.const_size_bytes,
+                local=attrs.local_size_bytes,
+                shared=attrs.shared_size_bytes,
+                maxthreads=attrs.max_threads_per_block,
+            )
+        else:
+            self.attrs = FuncAttr(
+                regs=attrs.num_regs(),
+                const=attrs.const_size_bytes(),
+                local=attrs.local_size_bytes(),
+                shared=attrs.shared_size_bytes(),
+                maxthreads=attrs.max_threads_per_block(),
+            )
 
     def __repr__(self):
         return "<CUDA function %s>" % self.name
@@ -2180,6 +2192,7 @@ class _Linker:
         prec_sqrt=None,
         fma=None,
         optimize_unused_variables=None,
+        variables_used=None,
         optimization_level=3,
         ptxas_options=None,
     ):
@@ -2207,8 +2220,17 @@ class _Linker:
         self._prec_sqrt = prec_sqrt
         self._fma = fma
         self._optimize_unused_variables = optimize_unused_variables
+        self.variables_used = variables_used
         self._optimization_level = optimization_level
         self._ptxas_options = ptxas_options
+
+    @property
+    def variables_used(self):
+        return self._variables_used
+
+    @variables_used.setter
+    def variables_used(self, variables_used):
+        self._variables_used = variables_used
 
     def add_cu_file(self, path):
         cu = cached_file_read(path, how="rb")
@@ -2393,6 +2415,7 @@ class _Linker:
             prec_div=self._prec_div,
             prec_sqrt=self._prec_sqrt,
             fma=self._fma,
+            variables_used=self.variables_used,
             optimize_unused_variables=self._optimize_unused_variables,
             optimization_level=self._optimization_level,
             ptxas_options=self._ptxas_options,

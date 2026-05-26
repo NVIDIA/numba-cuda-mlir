@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 import inspect
 import sys
+import types as py_types
 from functools import update_wrapper
 from typing import Optional, List, Union, TypeVar
 
@@ -90,6 +91,21 @@ def isalambda(v):
     return isinstance(v, type(LAMBDA)) and v.__name__ == LAMBDA.__name__
 
 
+def copy_func_with_globals(f, new_globals):
+    globals_ = f.__globals__.copy()
+    globals_.update(new_globals)
+    g = py_types.FunctionType(
+        code=f.__code__,
+        globals=globals_,
+        name=f.__name__,
+        argdefs=f.__defaults__,
+        closure=f.__closure__,
+    )
+    g.__kwdefaults__ = f.__kwdefaults__
+    g.__dict__.update(f.__dict__)
+    return update_wrapper(g, f)
+
+
 def prep_func_types(sig, return_types):
     assert not (not sig.return_annotation is inspect.Signature.empty and len(return_types) > 0), (
         f"func can use return annotation or explicit return_types but not both"
@@ -122,6 +138,9 @@ def prep_func_types(sig, return_types):
 
 
 def get_type_var_default_bound(tvar):
+    if sys.version_info < (3, 12):
+        return None, tvar.__bound__
+
     type_var = PyTypeVarObject.from_object(tvar)
     type_var_bound = type_var.bound
     type_var_default = None
@@ -185,13 +204,14 @@ class ReifiedTypeParam:
 
 # For "generics" (i.e. typevars) which are dependent on previous generics (identified by the fact that they have vals in their own closures),
 # we collect all such previous generics along with the concrete vals (into already_reified_type_params) and then
-# evaluate the typevars in the fully-populated closure. Note, in order to get the unevaled typevar bound and default value
-# we access them in the PyTypeVarObject C struct itself instead of the API that python provides.
+# evaluate the typevars in the fully-populated closure.
 def maybe_eval_type_data_closure_vals(
     unevaled_type_data: _Ptr[PyObject],
     already_reified_type_params: dict[str, object],
 ):
-    assert type(unevaled_type_data) == _Ptr[PyObject]
+    if type(unevaled_type_data) != _Ptr[PyObject]:
+        return unevaled_type_data
+
     unevaled_type_data = unevaled_type_data.contents.into_object()
     cvrs = inspect.getclosurevars(unevaled_type_data).nonlocals
     if len(cvrs):
@@ -411,14 +431,19 @@ class FuncBase:
 
         for it in item:
             tvar = generics.pop(0)
-            if tvar.__name__ in body_builder.__globals__:
-                raise RuntimeError("global typevars for generics are not supported")
             r = ReifiedTypeParam(tvar, it, already_reified_type_params)
             already_reified_type_params[r.name] = r.concrete_val
             reified_type_params.append(r)
 
         for r in reified_type_params:
             r.add_replace_in_closure(body_builder)
+        global_reified_type_params = {
+            r.name: r.concrete_val
+            for r in reified_type_params
+            if r.name in body_builder.__globals__
+        }
+        if global_reified_type_params:
+            body_builder = copy_func_with_globals(body_builder, global_reified_type_params)
 
         name_mangled_generics = []
         for r in reified_type_params:
@@ -455,6 +480,7 @@ def func(
     res_attrs=None,
     func_attrs=None,
     function_type=None,
+    generics=None,
     emit=False,
     loc=None,
     ip=None,
@@ -470,7 +496,7 @@ def func(
         res_attrs=res_attrs,
         func_attrs=func_attrs,
         function_type=function_type,
-        generics=getattr(f, "__type_params__", None),
+        generics=generics if generics is not None else getattr(f, "__type_params__", None),
         loc=loc,
         ip=ip,
     )

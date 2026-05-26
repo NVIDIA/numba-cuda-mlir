@@ -17,7 +17,7 @@ from numba_cuda_mlir.numba_cuda.types import (
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda import types
-from numba_cuda_mlir.numba_cuda.cudadrv import nvvm
+from numba_cuda_mlir.numba_cuda.cudadrv import nvrtc, nvvm
 from numba_cuda_mlir.numba_cuda.core.errors import TypingError
 from numba_cuda_mlir.testing import NumbaCUDATestCase
 from numba_cuda_mlir.numba_cuda.testing import (
@@ -687,7 +687,6 @@ class TestDispatcherKernelProperties(NumbaCUDATestCase):
         max_threads_f32_all = simple_maxthreads.get_max_threads_per_block()
         self.assertEqual(max_threads_f32_all[sig_f32.args], max_threads_f32)
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_get_local_mem_per_thread_unspecialized(self):
         # NOTE: A large amount of local memory must be allocated
         # otherwise the compiler will optimize out the call to
@@ -727,7 +726,6 @@ class TestDispatcherKernelProperties(NumbaCUDATestCase):
         self.assertEqual(local_mem_all[sig_f32.args], local_mem_f32)
         self.assertEqual(local_mem_all[sig_f64.args], local_mem_f64)
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_get_local_mem_per_thread_specialized(self):
         # NOTE: A large amount of local memory must be allocated
         # otherwise the compiler will optimize out the call to
@@ -751,12 +749,18 @@ def _is_sm_100():
     return _get_device_compute_capability() == (10, 0)
 
 
+def _is_sm_120_with_ctk_12_9():
+    return _get_device_compute_capability() == (12, 0) and nvrtc._get_nvrtc_version() == (12, 9)
+
+
 _xfail_launch_bounds = pytest.mark.xfail(
-    _is_sm_100() and nvvm.NVVM().get_version() < (13, 2),
-    reason="libnvvm before CUDA 13.2 does not emit .maxntid for sm_100",
+    (_is_sm_100() and nvvm.NVVM().get_version() < (13, 2)) or _is_sm_120_with_ctk_12_9(),
+    reason="libnvvm omits .maxntid for sm_100 before CUDA 13.2 or sm_120 with CUDA 12.9",
 )
 _xfail_max_cluster_rank = pytest.mark.xfail(
-    not cc_X_or_above(10, 0) or (_is_sm_100() and nvvm.NVVM().get_version() < (13, 2)),
+    not cc_X_or_above(10, 0)
+    or (_is_sm_100() and nvvm.NVVM().get_version() < (13, 2))
+    or _is_sm_120_with_ctk_12_9(),
     reason="libnvvm does not emit .maxclusterrank before CUDA 13.2 on sm_100+",
 )
 

@@ -60,3 +60,36 @@ class TestAtomicOnComplexComponents(unittest.TestCase):
         arr2 = arr1.copy()
         atomic_add_one_j_2d[(1, 1), (M, N)](arr2)
         np.testing.assert_equal(arr1 + 1j, arr2)
+
+
+N_SHARED = 32
+
+
+@pytest.mark.parametrize(
+    "complex_dtype,float_dtype",
+    [
+        (np.complex64, np.float32),
+        (np.complex128, np.float64),
+    ],
+)
+def test_shared_memory_complex_real_imag(complex_dtype, float_dtype):
+    """Regression: .real/.imag on shared-memory complex arrays must preserve address space."""
+
+    @cuda.jit
+    def kernel(inp, out_real, out_imag):
+        tid = cuda.threadIdx.x
+        sm = cuda.shared.array(N_SHARED, dtype=complex_dtype)
+        sm[tid] = inp[tid]
+        cuda.syncthreads()
+        out_real[tid] = sm.real[tid]
+        out_imag[tid] = sm.imag[tid]
+
+    rng = np.random.default_rng(42)
+    inp = (rng.standard_normal(N_SHARED) + 1j * rng.standard_normal(N_SHARED)).astype(complex_dtype)
+    out_real = np.zeros(N_SHARED, dtype=float_dtype)
+    out_imag = np.zeros(N_SHARED, dtype=float_dtype)
+
+    kernel[1, N_SHARED](inp, out_real, out_imag)
+
+    np.testing.assert_allclose(out_real, inp.real)
+    np.testing.assert_allclose(out_imag, inp.imag)

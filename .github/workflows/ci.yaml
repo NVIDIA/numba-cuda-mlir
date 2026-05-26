@@ -171,23 +171,42 @@ jobs:
     with:
       host-platform: linux-aarch64
 
+  test-cudf-source-linux-64:
+    name: cudf source Test linux-64
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read
+    needs:
+      - build-linux-64
+    uses: ./.github/workflows/test-cudf-source-linux.yml
+    with:
+      host-platform: linux-64
+
+  test-cudf-source-linux-aarch64:
+    name: cudf source Test linux-aarch64
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read
+    needs:
+      - build-linux-aarch64
+    uses: ./.github/workflows/test-cudf-source-linux.yml
+    with:
+      host-platform: linux-aarch64
+
   # ============== old CI jobs (ci.yaml & pr.yaml) ==============
 
-  pre-commit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
-      - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd
-        with:
-          extra_args: --all-files --show-diff-on-failure
-
-  # TODO: Uncomment when pixi.toml docs environment + Sphinx setup are available
-  # build-docs:
-  #   needs:
-  #     - should-skip
-  #   if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
-  #   uses: ./.github/workflows/docs-build.yaml
+  build-docs:
+    needs:
+      - should-skip
+      - build-linux-64
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write  # required for sticky PR comment (doc preview link)
+    uses: ./.github/workflows/build-docs.yml
+    with:
+      host-platform: linux-64
 
   # TODO: Coverage runs take over 2 hours; need to figure out why it's running so slow.
   # coverage-report:
@@ -215,10 +234,11 @@ jobs:
       - test-linux-aarch64
       - test-expensive-linux-64
       - test-expensive-linux-aarch64
-      - pre-commit
+      - test-cudf-source-linux-64
+      - test-cudf-source-linux-aarch64
+      - build-docs
       # - coverage-report
       # - test-simulator
-      # - build-docs
     steps:
       - name: Exit
         run: |
@@ -246,14 +266,16 @@ jobs:
                  needs.test-expensive-linux-64.result == 'failure' ||
                  needs.test-expensive-linux-aarch64.result == 'cancelled' ||
                  needs.test-expensive-linux-aarch64.result == 'failure' ||
-                 needs.pre-commit.result == 'cancelled' ||
-                 needs.pre-commit.result == 'failure' }}; then
+                 needs.test-cudf-source-linux-64.result == 'cancelled' ||
+                 needs.test-cudf-source-linux-64.result == 'failure' ||
+                 needs.test-cudf-source-linux-aarch64.result == 'cancelled' ||
+                 needs.test-cudf-source-linux-aarch64.result == 'failure' ||
+                 needs.build-docs.result == 'cancelled' ||
+                 needs.build-docs.result == 'failure' }}; then
           #        needs.coverage-report.result == 'cancelled' ||
           #        needs.coverage-report.result == 'failure' ||
           #        needs.test-simulator.result == 'cancelled' ||
           #        needs.test-simulator.result == 'failure' ||
-          #        needs.build-docs.result == 'cancelled' ||
-          #        needs.build-docs.result == 'failure' }}; then
             exit 1
           else
             exit 0

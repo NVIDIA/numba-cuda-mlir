@@ -4,216 +4,98 @@
 Lowering support for CUDA vector types (float32x4, int32x2, etc.)
 """
 
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+import itertools
+import operator
+from typing import Any
 
-registry = MLIRLoweringRegistry()
-lower = registry.lower
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
+
+registry = LoweringRegistry()
+_raw_lower = registry.lower
 lower_getattr = registry.lower_getattr
 from numba_cuda_mlir.mlir_lowering import MLIRLower
-from numba_cuda_mlir.lowering_utilities import convert
+from numba_cuda_mlir.lowering_utilities import convert, _get_mlir_bin_op_for_operator
 from numba_cuda_mlir.lowering_utilities.type_conversions import to_mlir_type
-from numba_cuda_mlir.cuda.vector_types import _vector_type_stubs, VectorTypeStub
+from numba_cuda_mlir.cuda.vector_types import _vector_types
 from numba_cuda_mlir.type_defs.vector_types import VectorType
 from numba_cuda_mlir import types
 from numba_cuda_mlir._mlir.dialects import vector, arith
+from numba_cuda_mlir._mlir.dialects import complex as complex_dialect
 from numba_cuda_mlir._mlir import ir
-from typing import Any
 
 ATTR_INDEX = {"x": 0, "y": 1, "z": 2, "w": 3}
+
+
+def _num_vector_elements(vec_type: ir.VectorType) -> int:
+    num_elements = 1
+    for dim in vec_type.shape:
+        num_elements *= dim
+    return num_elements
 
 
 def _build_vector_from_scalars(scalars: list, vec_type: ir.VectorType) -> ir.Value:
     """Build an MLIR vector from a list of scalar values."""
     elem_type = vec_type.element_type
+    num_elements = _num_vector_elements(vec_type)
 
-    # Convert all scalars to the correct element type
+    if len(scalars) != num_elements:
+        raise ValueError(
+            f"Expected {num_elements} scalar elements for {vec_type}, got {len(scalars)}"
+        )
+
+    # Convert all scalars to the target element type before building the vector.
     converted = [convert(s, elem_type) for s in scalars]
 
-    # Use vector.from_elements to build the vector
+    # Use vector.from_elements to build the vector.
     return vector.from_elements(vec_type, converted)
 
 
 def _extract_vector_elements(vec: ir.Value) -> list:
     """Extract all elements from an MLIR vector."""
     vec_type = vec.type
-    num_elements = vec_type.shape[0]
     elements = []
-    for i in range(num_elements):
-        # Use static position for extraction (empty dynamic_position list)
-        elem = vector.extract(vec, [], [i])
+    for indices in itertools.product(*(range(dim) for dim in vec_type.shape)):
+        # Use static positions for extraction (empty dynamic_position list).
+        elem = vector.extract(vec, [], list(indices))
         elements.append(elem)
     return elements
 
 
-def make_constructor_lowering(stub_class):
-    """Create a lowering function for a vector type constructor."""
+def _constructor_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
+    """Generic lowering for all vector type constructors.
 
-    def constructor_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
-        target_type = lower_ctx.get_numba_type(target.name)
-        vec_type = to_mlir_type(target_type)
-        elem_type = vec_type.element_type
-        num_elements = vec_type.shape[0]
+    Handles any combination of scalar and vector arguments: broadcasts a
+    single scalar, concatenates mixed scalar/vector args, or copies/converts
+    a vector of the same width.
+    """
+    target_type = lower_ctx.get_numba_type(target.name)
+    vec_type = to_mlir_type(target_type)
+    num_elements = _num_vector_elements(vec_type)
 
-        # Collect all scalar elements from args (may be scalars or vectors)
-        scalars = []
-        for arg in args:
-            val = lower_ctx.load_var(arg)
-            arg_type = lower_ctx.get_numba_type(arg.name)
+    scalars = []
+    for arg in args:
+        val = lower_ctx.load_var(arg)
+        arg_type = lower_ctx.get_numba_type(arg.name)
 
-            if isinstance(arg_type, VectorType):
-                # Extract elements from input vector
-                scalars.extend(_extract_vector_elements(val))
-            else:
-                # Scalar value
-                scalars.append(val)
+        if isinstance(arg_type, VectorType):
+            scalars.extend(_extract_vector_elements(val))
+        elif isinstance(arg_type, types.Complex):
+            scalars.append(complex_dialect.re(val))
+            scalars.append(complex_dialect.im(val))
+        else:
+            scalars.append(val)
 
-        # Handle broadcast case (single scalar -> all elements)
-        if len(scalars) == 1 and num_elements > 1:
-            scalars = scalars * num_elements
+    if len(scalars) == 1 and num_elements > 1:
+        scalars = scalars * num_elements
 
-        result = _build_vector_from_scalars(scalars, vec_type)
-        lower_ctx.store_var(target, result)
-
-    return constructor_lowering
-
-
-def make_scalar_constructor_lowering(stub_class, num_scalars):
-    """Create a lowering for constructor with specific number of scalar args."""
-    lowering_fn = make_constructor_lowering(stub_class)
-
-    # Generate the type signature for this overload
-    base_type_name = stub_class._base_type_name
-    if "float" in base_type_name:
-        scalar_type = types.Float
-    elif "uint" in base_type_name:
-        scalar_type = types.Integer
-    else:
-        scalar_type = types.Integer
-
-    return lowering_fn
+    result = _build_vector_from_scalars(scalars, vec_type)
+    lower_ctx.store_var(target, result)
 
 
-# Register lowerings for all vector type constructors
-for stub in _vector_type_stubs:
-    num_elements = stub._num_elements
-    lowering_fn = make_constructor_lowering(stub)
-
-    # Register for various argument patterns
-    # All scalars - include both concrete types and base types for literal matching
-    int_types = [
-        types.int8,
-        types.int16,
-        types.int32,
-        types.int64,
-        types.Integer,
-        types.IntegerLiteral,
-    ]
-    for int_type in int_types:
-        lower(stub, *([int_type] * num_elements))(lowering_fn)
-        # Single scalar broadcast
-        lower(stub, int_type)(lowering_fn)
-
-    uint_types = [types.uint8, types.uint16, types.uint32, types.uint64]
-    for uint_type in uint_types:
-        lower(stub, *([uint_type] * num_elements))(lowering_fn)
-        lower(stub, uint_type)(lowering_fn)
-
-    float_types = [types.float32, types.float64, types.Float]
-    for float_type in float_types:
-        lower(stub, *([float_type] * num_elements))(lowering_fn)
-        lower(stub, float_type)(lowering_fn)
-
-    # Boolean (for integer vectors)
-    lower(stub, *([types.boolean] * num_elements))(lowering_fn)
-
-    # Vector copy/conversion (single vector arg with same element count)
-    for other_stub in _vector_type_stubs:
-        if other_stub._num_elements == num_elements:
-            other_vec_type = VectorType(
-                getattr(types, other_stub._base_type_name),
-                (other_stub._num_elements,),
-            )
-            lower(stub, other_vec_type)(lowering_fn)
-
-    # Mixed vector+scalar patterns
-    # Generate all valid combinations of vectors and scalars that sum to num_elements
-    base_type_name = stub._base_type_name
-    base_type = getattr(types, base_type_name)
-    scalar_types = (
-        [base_type, types.Float] if "float" in base_type_name else [base_type, types.Integer]
-    )
-
-    # Helper: get all vector types with n elements for this base type
-    def get_vec_type(n, base_ty=base_type):
-        return VectorType(base_ty, (n,))
-
-    # Register patterns with vectors of smaller sizes
-    for scalar_type in scalar_types:
-        if num_elements >= 2:
-            # vec1 + scalar, scalar + vec1, vec1 + vec1
-            vec1 = get_vec_type(1)
-            lower(stub, vec1, scalar_type)(lowering_fn)
-            lower(stub, scalar_type, vec1)(lowering_fn)
-            lower(stub, vec1, vec1)(lowering_fn)
-
-        if num_elements >= 3:
-            vec1, vec2 = get_vec_type(1), get_vec_type(2)
-            # vec2 + scalar, scalar + vec2
-            lower(stub, vec2, scalar_type)(lowering_fn)
-            lower(stub, scalar_type, vec2)(lowering_fn)
-            # vec1 + vec2, vec2 + vec1
-            lower(stub, vec1, vec2)(lowering_fn)
-            lower(stub, vec2, vec1)(lowering_fn)
-            # vec1 + scalar + scalar, scalar + vec1 + scalar, scalar + scalar + vec1
-            lower(stub, vec1, scalar_type, scalar_type)(lowering_fn)
-            lower(stub, scalar_type, vec1, scalar_type)(lowering_fn)
-            lower(stub, scalar_type, scalar_type, vec1)(lowering_fn)
-            # vec1 + vec1 + scalar, etc.
-            lower(stub, vec1, vec1, scalar_type)(lowering_fn)
-            lower(stub, vec1, scalar_type, vec1)(lowering_fn)
-            lower(stub, scalar_type, vec1, vec1)(lowering_fn)
-            # vec1 + vec1 + vec1
-            lower(stub, vec1, vec1, vec1)(lowering_fn)
-
-        if num_elements >= 4:
-            vec1, vec2, vec3 = get_vec_type(1), get_vec_type(2), get_vec_type(3)
-            # vec3 + scalar, scalar + vec3
-            lower(stub, vec3, scalar_type)(lowering_fn)
-            lower(stub, scalar_type, vec3)(lowering_fn)
-            # vec2 + vec2
-            lower(stub, vec2, vec2)(lowering_fn)
-            # vec2 + scalar + scalar, scalar + vec2 + scalar, scalar + scalar + vec2
-            lower(stub, vec2, scalar_type, scalar_type)(lowering_fn)
-            lower(stub, scalar_type, vec2, scalar_type)(lowering_fn)
-            lower(stub, scalar_type, scalar_type, vec2)(lowering_fn)
-            # vec1 + vec3, vec3 + vec1
-            lower(stub, vec1, vec3)(lowering_fn)
-            lower(stub, vec3, vec1)(lowering_fn)
-            # vec2 + vec1 + scalar, etc.
-            lower(stub, vec2, vec1, scalar_type)(lowering_fn)
-            lower(stub, vec2, scalar_type, vec1)(lowering_fn)
-            lower(stub, vec1, vec2, scalar_type)(lowering_fn)
-            lower(stub, vec1, scalar_type, vec2)(lowering_fn)
-            lower(stub, scalar_type, vec2, vec1)(lowering_fn)
-            lower(stub, scalar_type, vec1, vec2)(lowering_fn)
-            # vec1 + vec1 + vec2, etc.
-            lower(stub, vec1, vec1, vec2)(lowering_fn)
-            lower(stub, vec1, vec2, vec1)(lowering_fn)
-            lower(stub, vec2, vec1, vec1)(lowering_fn)
-            # vec1 + vec1 + scalar + scalar, etc. (various 4-arg patterns)
-            lower(stub, vec1, vec1, scalar_type, scalar_type)(lowering_fn)
-            lower(stub, vec1, scalar_type, vec1, scalar_type)(lowering_fn)
-            lower(stub, vec1, scalar_type, scalar_type, vec1)(lowering_fn)
-            lower(stub, scalar_type, vec1, vec1, scalar_type)(lowering_fn)
-            lower(stub, scalar_type, vec1, scalar_type, vec1)(lowering_fn)
-            lower(stub, scalar_type, scalar_type, vec1, vec1)(lowering_fn)
-            # vec1 + vec1 + vec1 + scalar, etc.
-            lower(stub, vec1, vec1, vec1, scalar_type)(lowering_fn)
-            lower(stub, vec1, vec1, scalar_type, vec1)(lowering_fn)
-            lower(stub, vec1, scalar_type, vec1, vec1)(lowering_fn)
-            lower(stub, scalar_type, vec1, vec1, vec1)(lowering_fn)
-            # vec1 + vec1 + vec1 + vec1
-            lower(stub, vec1, vec1, vec1, vec1)(lowering_fn)
+# One generic registration per vector-type instead of enumerating
+# every permutation of scalar/vector argument types.
+for vec_type in _vector_types:
+    _raw_lower(vec_type, types.VarArg(types.Any))(_constructor_lowering)
 
 
 # Register attribute access lowerings
@@ -236,122 +118,118 @@ lower_getattr(VectorType, "z")(_make_attr_lowering("z"))
 lower_getattr(VectorType, "w")(_make_attr_lowering("w"))
 
 
-# Also register lowerings for numba-cuda's stub classes
-def _register_numba_cuda_stubs():
-    """Register lowerings for numba-cuda's vector type stubs."""
-    try:
-        from numba_cuda_mlir.numba_cuda.stubs import (
-            _vector_type_stubs as numba_cuda_stubs,
-        )
-    except ImportError:
-        return
+def _make_vector_binop_lowering(op):
+    iop, fop = _get_mlir_bin_op_for_operator(op)
 
-    from numba_cuda_mlir.cuda.vector_types import vector_type_stubs_by_name
+    def binop_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
+        lhs = lower_ctx.load_var(args[0])
+        rhs = lower_ctx.load_var(args[1])
 
-    for nc_stub in numba_cuda_stubs:
-        name = nc_stub.__name__
-        our_stub = vector_type_stubs_by_name.get(name)
-        if our_stub is None:
-            continue
+        lhs_type = lower_ctx.get_numba_type(args[0].name)
+        rhs_type = lower_ctx.get_numba_type(args[1].name)
 
-        num_elements = our_stub._num_elements
-        lowering_fn = make_constructor_lowering(our_stub)
+        target_type = lower_ctx.get_numba_type(target.name)
+        mlir_target_type = to_mlir_type(target_type)
+        elem_type = mlir_target_type.element_type
 
-        # Register for various argument patterns (same as above)
-        int_types = [
-            types.int8,
-            types.int16,
-            types.int32,
-            types.int64,
-            types.Integer,
-            types.IntegerLiteral,
-        ]
-        for int_type in int_types:
-            lower(nc_stub, *([int_type] * num_elements))(lowering_fn)
-            lower(nc_stub, int_type)(lowering_fn)
+        if isinstance(lhs_type, VectorType):
+            if not isinstance(rhs_type, VectorType):
+                # rhs is scalar, broadcast it
+                rhs_val = convert(rhs, elem_type)
+                rhs = vector.broadcast(mlir_target_type, rhs_val)
+            else:
+                rhs = convert(rhs, mlir_target_type)
+            lhs = convert(lhs, mlir_target_type)
+        else:
+            # lhs is scalar, broadcast it
+            lhs_val = convert(lhs, elem_type)
+            lhs = vector.broadcast(mlir_target_type, lhs_val)
+            rhs = convert(rhs, mlir_target_type)
 
-        uint_types = [types.uint8, types.uint16, types.uint32, types.uint64]
-        for uint_type in uint_types:
-            lower(nc_stub, *([uint_type] * num_elements))(lowering_fn)
-            lower(nc_stub, uint_type)(lowering_fn)
+        if isinstance(elem_type, ir.IntegerType):
+            result = iop(lhs, rhs)
+        else:
+            result = fop(lhs, rhs)
 
-        float_types_list = [types.float32, types.float64, types.Float]
-        for float_type in float_types_list:
-            lower(nc_stub, *([float_type] * num_elements))(lowering_fn)
-            lower(nc_stub, float_type)(lowering_fn)
+        lower_ctx.store_var(target, result)
 
-        lower(nc_stub, *([types.boolean] * num_elements))(lowering_fn)
-
-        # Vector copy/conversion
-        for other_stub in _vector_type_stubs:
-            if other_stub._num_elements == num_elements:
-                other_vec_type = VectorType(
-                    getattr(types, other_stub._base_type_name),
-                    (other_stub._num_elements,),
-                )
-                lower(nc_stub, other_vec_type)(lowering_fn)
-
-        # Mixed vector+scalar patterns (same as for our stubs)
-        base_type_name = our_stub._base_type_name
-        base_type = getattr(types, base_type_name)
-        scalar_types = (
-            [base_type, types.Float] if "float" in base_type_name else [base_type, types.Integer]
-        )
-
-        def get_vec_type(n, base_ty=base_type):
-            return VectorType(base_ty, (n,))
-
-        for scalar_type in scalar_types:
-            if num_elements >= 2:
-                vec1 = get_vec_type(1)
-                lower(nc_stub, vec1, scalar_type)(lowering_fn)
-                lower(nc_stub, scalar_type, vec1)(lowering_fn)
-                lower(nc_stub, vec1, vec1)(lowering_fn)
-
-            if num_elements >= 3:
-                vec1, vec2 = get_vec_type(1), get_vec_type(2)
-                lower(nc_stub, vec2, scalar_type)(lowering_fn)
-                lower(nc_stub, scalar_type, vec2)(lowering_fn)
-                lower(nc_stub, vec1, vec2)(lowering_fn)
-                lower(nc_stub, vec2, vec1)(lowering_fn)
-                lower(nc_stub, vec1, scalar_type, scalar_type)(lowering_fn)
-                lower(nc_stub, scalar_type, vec1, scalar_type)(lowering_fn)
-                lower(nc_stub, scalar_type, scalar_type, vec1)(lowering_fn)
-                lower(nc_stub, vec1, vec1, scalar_type)(lowering_fn)
-                lower(nc_stub, vec1, scalar_type, vec1)(lowering_fn)
-                lower(nc_stub, scalar_type, vec1, vec1)(lowering_fn)
-                lower(nc_stub, vec1, vec1, vec1)(lowering_fn)
-
-            if num_elements >= 4:
-                vec1, vec2, vec3 = get_vec_type(1), get_vec_type(2), get_vec_type(3)
-                lower(nc_stub, vec3, scalar_type)(lowering_fn)
-                lower(nc_stub, scalar_type, vec3)(lowering_fn)
-                lower(nc_stub, vec2, vec2)(lowering_fn)
-                lower(nc_stub, vec2, scalar_type, scalar_type)(lowering_fn)
-                lower(nc_stub, scalar_type, vec2, scalar_type)(lowering_fn)
-                lower(nc_stub, scalar_type, scalar_type, vec2)(lowering_fn)
-                lower(nc_stub, vec1, vec3)(lowering_fn)
-                lower(nc_stub, vec3, vec1)(lowering_fn)
-                lower(nc_stub, vec2, vec1, scalar_type)(lowering_fn)
-                lower(nc_stub, vec2, scalar_type, vec1)(lowering_fn)
-                lower(nc_stub, vec1, vec2, scalar_type)(lowering_fn)
-                lower(nc_stub, vec1, scalar_type, vec2)(lowering_fn)
-                lower(nc_stub, scalar_type, vec2, vec1)(lowering_fn)
-                lower(nc_stub, scalar_type, vec1, vec2)(lowering_fn)
-                lower(nc_stub, vec1, vec1, vec2)(lowering_fn)
-                lower(nc_stub, vec1, vec2, vec1)(lowering_fn)
-                lower(nc_stub, vec2, vec1, vec1)(lowering_fn)
-                lower(nc_stub, vec1, vec1, scalar_type, scalar_type)(lowering_fn)
-                lower(nc_stub, vec1, scalar_type, vec1, scalar_type)(lowering_fn)
-                lower(nc_stub, vec1, scalar_type, scalar_type, vec1)(lowering_fn)
-                lower(nc_stub, scalar_type, vec1, vec1, scalar_type)(lowering_fn)
-                lower(nc_stub, scalar_type, vec1, scalar_type, vec1)(lowering_fn)
-                lower(nc_stub, scalar_type, scalar_type, vec1, vec1)(lowering_fn)
-                lower(nc_stub, vec1, vec1, vec1, scalar_type)(lowering_fn)
-                lower(nc_stub, vec1, vec1, scalar_type, vec1)(lowering_fn)
-                lower(nc_stub, vec1, scalar_type, vec1, vec1)(lowering_fn)
-                lower(nc_stub, scalar_type, vec1, vec1, vec1)(lowering_fn)
-                lower(nc_stub, vec1, vec1, vec1, vec1)(lowering_fn)
+    return binop_lowering
 
 
-_register_numba_cuda_stubs()
+for op in [
+    operator.add,
+    operator.iadd,
+    operator.sub,
+    operator.isub,
+    operator.mul,
+    operator.imul,
+    operator.truediv,
+    operator.itruediv,
+    operator.floordiv,
+    operator.ifloordiv,
+    operator.mod,
+    operator.imod,
+]:
+    _raw_lower(op, VectorType, VectorType)(_make_vector_binop_lowering(op))
+    _raw_lower(op, VectorType, types.Number)(_make_vector_binop_lowering(op))
+    _raw_lower(op, types.Number, VectorType)(_make_vector_binop_lowering(op))
+
+
+def _make_vector_unary_lowering(op):
+    def unary_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
+        val = lower_ctx.load_var(args[0])
+
+        target_type = lower_ctx.get_numba_type(target.name)
+        mlir_target_type = to_mlir_type(target_type)
+        elem_type = mlir_target_type.element_type
+
+        val = convert(val, mlir_target_type)
+
+        if op == operator.neg:
+            if isinstance(elem_type, ir.IntegerType):
+                zero = arith.constant(elem_type, 0)
+                zero_vec = vector.broadcast(mlir_target_type, zero)
+                result = arith.subi(zero_vec, val)
+            else:
+                result = arith.negf(val)
+        elif op == abs:
+            if isinstance(elem_type, ir.IntegerType):
+                from numba_cuda_mlir._mlir.dialects import math
+
+                result = math.absi(val)
+            else:
+                from numba_cuda_mlir._mlir.dialects import math
+
+                result = math.absf(val)
+        else:
+            raise NotImplementedError(f"Unary operator {op} not implemented for vector types")
+
+        lower_ctx.store_var(target, result)
+
+    return unary_lowering
+
+
+_raw_lower(operator.neg, VectorType)(_make_vector_unary_lowering(operator.neg))
+_raw_lower(abs, VectorType)(_make_vector_unary_lowering(abs))
+
+
+@_raw_lower(complex, VectorType)
+def _complex_from_vector_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
+    """Lowering for complex(vector_type)."""
+    target_type = lower_ctx.get_numba_type(target.name)
+    mlir_target_type = lower_ctx.get_mlir_type(target_type)
+
+    val = lower_ctx.load_var(args[0])
+
+    real = vector.extract(val, [], [0])
+    imag = vector.extract(val, [], [1])
+
+    real = convert(real, mlir_target_type.element_type)
+    imag = convert(imag, mlir_target_type.element_type)
+
+    result = complex_dialect.create_(
+        complex=mlir_target_type,
+        real=real,
+        imaginary=imag,
+    )
+    lower_ctx.store_var(target, result)

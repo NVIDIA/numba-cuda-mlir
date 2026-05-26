@@ -15,7 +15,7 @@ import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda.core import errors
 
-from numba_cuda_mlir.extending import overload
+from numba_cuda_mlir.extending import overload, typing_registry
 from numba_cuda_mlir.testing import NumbaCUDATestCase
 import pytest
 
@@ -167,7 +167,6 @@ class TestSSA(SSABaseTest):
 
         self.check_func(foo, np.array([1, 2]), np.array([1, 2]))
 
-    @pytest.mark.xfail(True, reason="Typing error")
     def test_unhandled_undefined(self):
         @numba_cuda_mlir.cuda.jit
         def function1(arg1, arg2, arg3, arg4, arg5):
@@ -295,7 +294,7 @@ class TestReportedSSAIssues(SSABaseTest):
 
             result[0] = s
 
-        @overload(overload_this)
+        @overload(overload_this, typing_registry=typing_registry)
         def ol(a):
             return overload_this
 
@@ -322,7 +321,7 @@ class TestReportedSSAIssues(SSABaseTest):
                 b = b[0]
             return b
 
-        @overload(overload_this)
+        @overload(overload_this, typing_registry=typing_registry)
         def ol(a, b=None):
             b_is_tuple = isinstance(b, (types.Tuple, types.UniTuple))
 

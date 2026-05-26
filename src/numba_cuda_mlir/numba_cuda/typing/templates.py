@@ -820,6 +820,9 @@ class _OverloadFunctionTemplate(AbstractTemplate):
         # Make dispatcher
         jitdecor = jitter(**self._jit_options)
         disp = jitdecor(pyfunc)
+        typing_registry = getattr(type(self), "_typing_registry", None)
+        if typing_registry is not None:
+            disp.targetdescr.typing_context.install_registry(typing_registry)
         # Make sure that the implementation can be fully compiled
         disp_type = types.Dispatcher(disp)
         disp_type.get_call_type(self.context, args, kws)
@@ -892,6 +895,7 @@ def make_overload_template(
     strict,
     inline,
     prefer_literal=False,
+    base=_OverloadFunctionTemplate,
     **kwargs,
 ):
     """
@@ -900,7 +904,6 @@ def make_overload_template(
     """
     func_name = getattr(func, "__name__", str(func))
     name = "OverloadTemplate_%s" % (func_name,)
-    base = _OverloadFunctionTemplate
     dct = dict(
         key=func,
         _overload_func=staticmethod(overload_func),
@@ -930,6 +933,7 @@ class _TemplateTargetHelperMixin:
         -------
         reg : a registry suitable for the current target.
         """
+        from numba_cuda_mlir.numba_cuda.core.imputils import builtin_registry
         from numba_cuda_mlir.numba_cuda.descriptor import cuda_target
 
         tgtctx = cuda_target.target_context
@@ -979,9 +983,11 @@ class _TemplateTargetHelperMixin:
         #
         # Comment / code left in from upstream:
         #
-        # In case the target has swapped, e.g. cuda borrowing cpu, refresh to
-        # populate.
-        tgtctx.refresh()
+        # If the target context has not been populated yet, register overload
+        # lowerings into the builtin registry. The regular target refresh will
+        # install it later without recursively refreshing during typing.
+        if not tgtctx._registries:
+            return builtin_registry
         # =====================================================================
 
         # Pick a registry in which to install intrinsics

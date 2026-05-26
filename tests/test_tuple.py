@@ -34,14 +34,16 @@ def test_tuple_builtin_hetero_tuple():
     ],
 )
 def test_tuple_concat(x, y):
+    from numba_cuda_mlir.cuda.experimental import consteval
+
     expected = x + y
     n = len(expected)
     r = np.zeros(n, dtype=np.float64)
 
-    @cuda.jit(experimental_ast_transforms=True)
+    @cuda.jit
     def k(r, x, y):
         t = x + y
-        for i in cuda.consteval(range(n)):
+        for i in consteval(range(n)):
             r[i] = t[i]
 
     k[1, 1](r, x, y)
@@ -229,6 +231,26 @@ def test_tuple_of_array_scalar_tuple():
     f[1, 1](r, x)
     expected = [0, 2, 10, 4, 3]
     np.testing.assert_array_equal(r, expected)
+
+
+def test_tuple_multi_assign_from_device_function():
+    @cuda.jit(device=True)
+    def two_tuple_returns(cond):
+        if cond:
+            return (1, 2, 3)
+        return (4, 5, 6)
+
+    @cuda.jit
+    def kernel(out, n):
+        t = two_tuple_returns(n > 0)
+        out[0] = t[0]
+
+    out = cuda.device_array((1,), dtype=np.int64)
+    kernel[1, 1](out, 1)
+    assert out.copy_to_host()[0] == 1
+
+    kernel[1, 1](out, -1)
+    assert out.copy_to_host()[0] == 4
 
 
 if __name__ == "__main__":

@@ -143,6 +143,22 @@ def test_cuda_vector_float32x4_basic():
     np.testing.assert_allclose(arr, [2.0, 4.0, 6.0, 8.0])
 
 
+def test_cuda_vector_constructor_from_multidimensional_vector():
+    @cuda.jit
+    def kernel(arr_in, arr_out):
+        vec = cuda.vector.load(arr_in, (0, 0), (2, 2))
+        constructed = cuda.float32x4(vec)
+        arr_out[0] = constructed.x
+        arr_out[1] = constructed.y
+        arr_out[2] = constructed.z
+        arr_out[3] = constructed.w
+
+    arr_in = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+    arr_out = np.zeros(4, dtype=np.float32)
+    kernel[1, 1](arr_in, arr_out)
+    np.testing.assert_allclose(arr_out, [1.0, 2.0, 3.0, 4.0])
+
+
 def test_cuda_vector_int32x4_basic():
     """Test basic int32x4 construction and attribute access."""
 
@@ -220,6 +236,20 @@ def test_cuda_vector_alias_float4():
     np.testing.assert_allclose(arr, [5.0, 6.0, 7.0, 8.0])
 
 
+def test_cuda_vector_alias_half2():
+    """Test C-style alias half2 -> float16x2."""
+
+    @cuda.jit
+    def kernel(arr):
+        v = cuda.half2(1.5, 2.5)
+        arr[0] = v.x
+        arr[1] = v.y
+
+    arr = np.zeros(2, dtype=np.float16)
+    kernel[1, 1](arr)
+    np.testing.assert_allclose(arr, [1.5, 2.5])
+
+
 def test_cuda_vector_alias_int2():
     """Test C-style alias int2 -> int32x2."""
 
@@ -268,6 +298,10 @@ def test_cuda_vector_closure_capture():
 @pytest.mark.parametrize(
     "vec_type,num_elements,dtype",
     [
+        (cuda.float16x1, 1, np.float16),
+        (cuda.float16x2, 2, np.float16),
+        (cuda.float16x3, 3, np.float16),
+        (cuda.float16x4, 4, np.float16),
         (cuda.float32x1, 1, np.float32),
         (cuda.float32x2, 2, np.float32),
         (cuda.float32x3, 3, np.float32),

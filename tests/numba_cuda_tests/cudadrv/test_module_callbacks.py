@@ -69,6 +69,37 @@ class TestModuleCallbacksBasic(NumbaCUDATestCase):
         del kernel
         self.assertEqual(counter, 0)
 
+    def test_decldevice_callback_preserves_prior_link_item(self):
+        counter = 0
+
+        def setup(object_code):
+            self.assertTrue(is_valid_module_object(object_code))
+            nonlocal counter
+            counter += 1
+
+        linked_function = CUSource(
+            """
+extern "C" __device__
+int add_one(int *out, int a)
+{
+  *out = a + 1;
+  return 0;
+}
+"""
+        )
+        callback = CUSource("", setup_callback=setup)
+        add_one = cuda.declare_device("add_one", "int32(int32)", link=[linked_function, callback])
+
+        @cuda.jit(output="ltoir")
+        def kernel(out):
+            out[0] = add_one(41)
+
+        out = np.zeros(1, np.int32)
+        kernel[1, 1](out)
+
+        self.assertEqual(out[0], 42)
+        self.assertEqual(counter, 1)
+
     def test_different_argtypes(self):
         counter = 0
         setup_seen = set()

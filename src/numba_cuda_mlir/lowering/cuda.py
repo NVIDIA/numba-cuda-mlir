@@ -1,6 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from itertools import batched
+import sys
+
+if sys.version_info >= (3, 12):
+    from itertools import batched
+else:
+    from itertools import islice
+
+    def batched(iterable, n):
+        it = iter(iterable)
+        while batch := tuple(islice(it, n)):
+            yield batch
+
+
 from numba_cuda_mlir._mlir.extras.meta import region_op
 import operator
 from numba_cuda_mlir.cuda.misc.special import literal_unroll, literally
@@ -30,9 +42,9 @@ from numba_cuda_mlir.mlir_lowering import MLIRLower
 from numba_cuda_mlir._mlir.dialects import arith, func, memref, gpu, nvvm, llvm
 from numba_cuda_mlir._mlir.extras import types as T
 import numba_cuda_mlir._mlir.ir as ir
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower = registry.lower
 lower_getattr = registry.lower_getattr
 lower_getattr_generic = registry.lower_getattr_generic
@@ -54,9 +66,6 @@ from numba_cuda_mlir.numba_cuda.extending import (
 from typing import Any
 from numba_cuda_mlir.logging import trace
 import numpy as np
-from numba_cuda_mlir.lowering.mlir.memref import (
-    memref_alloc,
-)
 from numba_cuda_mlir.numba_cuda.typing.templates import ConcreteTemplate
 from numba_cuda_mlir.numba_cuda import stubs as cuda_stubs
 
@@ -290,43 +299,31 @@ def cuda_static_shared_memory(lower: MLIRLower, target, static_shape, dtype, ali
 
 
 @lower(cuda.shared.array, types.Number)
-@lower(cuda.shared.array, types.Number, types.NumberClass)
-@lower(cuda.shared.array, types.Number, types.DType)
+@lower(cuda.shared.array, types.Number, types.DTypeSpec)
 @lower(cuda.shared.array, types.Number, types.StringLiteral)
-@lower(cuda.shared.array, types.Number, types.NumberClass, types.Number)
-@lower(cuda.shared.array, types.Number, types.DType, types.Number)
+@lower(cuda.shared.array, types.Number, types.DTypeSpec, types.Number)
 @lower(cuda.shared.array, types.Number, types.StringLiteral, types.Number)
-@lower(cuda.shared.array, types.Number, types.NumberClass, types.IntegerLiteral)
-@lower(cuda.shared.array, types.Number, types.DType, types.IntegerLiteral)
+@lower(cuda.shared.array, types.Number, types.DTypeSpec, types.IntegerLiteral)
 @lower(cuda.shared.array, types.Number, types.StringLiteral, types.IntegerLiteral)
-@lower(cuda.shared.array, types.Number, types.NumberClass, types.NoneType)
-@lower(cuda.shared.array, types.Number, types.DType, types.NoneType)
+@lower(cuda.shared.array, types.Number, types.DTypeSpec, types.NoneType)
 @lower(cuda.shared.array, types.Number, types.StringLiteral, types.NoneType)
 @lower(cuda.shared.array, types.UniTuple)
-@lower(cuda.shared.array, types.UniTuple, types.NumberClass)
-@lower(cuda.shared.array, types.UniTuple, types.DType)
+@lower(cuda.shared.array, types.UniTuple, types.DTypeSpec)
 @lower(cuda.shared.array, types.UniTuple, types.StringLiteral)
-@lower(cuda.shared.array, types.UniTuple, types.NumberClass, types.Number)
-@lower(cuda.shared.array, types.UniTuple, types.DType, types.Number)
+@lower(cuda.shared.array, types.UniTuple, types.DTypeSpec, types.Number)
 @lower(cuda.shared.array, types.UniTuple, types.StringLiteral, types.Number)
-@lower(cuda.shared.array, types.UniTuple, types.NumberClass, types.IntegerLiteral)
-@lower(cuda.shared.array, types.UniTuple, types.DType, types.IntegerLiteral)
+@lower(cuda.shared.array, types.UniTuple, types.DTypeSpec, types.IntegerLiteral)
 @lower(cuda.shared.array, types.UniTuple, types.StringLiteral, types.IntegerLiteral)
-@lower(cuda.shared.array, types.UniTuple, types.NumberClass, types.NoneType)
-@lower(cuda.shared.array, types.UniTuple, types.DType, types.NoneType)
+@lower(cuda.shared.array, types.UniTuple, types.DTypeSpec, types.NoneType)
 @lower(cuda.shared.array, types.UniTuple, types.StringLiteral, types.NoneType)
 @lower(cuda.shared.array, types.Tuple)
-@lower(cuda.shared.array, types.Tuple, types.NumberClass)
-@lower(cuda.shared.array, types.Tuple, types.DType)
+@lower(cuda.shared.array, types.Tuple, types.DTypeSpec)
 @lower(cuda.shared.array, types.Tuple, types.StringLiteral)
-@lower(cuda.shared.array, types.Tuple, types.NumberClass, types.Number)
-@lower(cuda.shared.array, types.Tuple, types.DType, types.Number)
+@lower(cuda.shared.array, types.Tuple, types.DTypeSpec, types.Number)
 @lower(cuda.shared.array, types.Tuple, types.StringLiteral, types.Number)
-@lower(cuda.shared.array, types.Tuple, types.NumberClass, types.IntegerLiteral)
-@lower(cuda.shared.array, types.Tuple, types.DType, types.IntegerLiteral)
+@lower(cuda.shared.array, types.Tuple, types.DTypeSpec, types.IntegerLiteral)
 @lower(cuda.shared.array, types.Tuple, types.StringLiteral, types.IntegerLiteral)
-@lower(cuda.shared.array, types.Tuple, types.NumberClass, types.NoneType)
-@lower(cuda.shared.array, types.Tuple, types.DType, types.NoneType)
+@lower(cuda.shared.array, types.Tuple, types.DTypeSpec, types.NoneType)
 @lower(cuda.shared.array, types.Tuple, types.StringLiteral, types.NoneType)
 def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
     shape, dtype, alignas = _extract_shape_and_dtype(*args, **dict(kwargs))
@@ -383,36 +380,27 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
     lower.store_var(target, array)
 
 
-@lower(cuda.local_array, types.Tuple, types.NumberClass, types.Number)
-@lower(cuda.local_array, types.Number, types.NumberClass, types.Number)
-@lower(cuda.local_array, types.Tuple, types.NumberClass)
-@lower(cuda.local_array, types.Number, types.NumberClass)
+@lower(cuda.local_array, types.Tuple, types.DTypeSpec, types.Number)
+@lower(cuda.local_array, types.Number, types.DTypeSpec, types.Number)
+@lower(cuda.local_array, types.Tuple, types.DTypeSpec)
+@lower(cuda.local_array, types.Number, types.DTypeSpec)
 @lower(cuda.local_array, types.Tuple, types.StringLiteral)
 @lower(cuda.local_array, types.Number, types.StringLiteral)
-@lower(cuda.local_array, types.Tuple, types.NumberClass, types.NoneType)
-@lower(cuda.local_array, types.Number, types.NumberClass, types.NoneType)
+@lower(cuda.local_array, types.Tuple, types.DTypeSpec, types.NoneType)
+@lower(cuda.local_array, types.Number, types.DTypeSpec, types.NoneType)
 @lower(cuda.local_array, types.Tuple, types.StringLiteral, types.NoneType)
 @lower(cuda.local_array, types.Number, types.StringLiteral, types.NoneType)
-@lower(cuda.local_array, types.UniTuple, types.NumberClass)
+@lower(cuda.local_array, types.UniTuple, types.DTypeSpec)
 @lower(cuda.local_array, types.UniTuple, types.StringLiteral)
-@lower(cuda.local_array, types.UniTuple, types.NumberClass, types.Number)
-@lower(cuda.local_array, types.UniTuple, types.NumberClass, types.NoneType)
+@lower(cuda.local_array, types.UniTuple, types.DTypeSpec, types.Number)
+@lower(cuda.local_array, types.UniTuple, types.DTypeSpec, types.NoneType)
 @lower(cuda.local_array, types.UniTuple, types.StringLiteral, types.NoneType)
-@lower(cuda.local.array, types.Tuple, types.NumberClass, types.Number)
-@lower(cuda.local.array, types.Number, types.NumberClass, types.Number)
-@lower(cuda.local.array, types.Tuple, types.NumberClass)
-@lower(cuda.local.array, types.Number, types.NumberClass)
-@lower(cuda.local.array, types.Tuple, types.StringLiteral)
-@lower(cuda.local.array, types.Number, types.StringLiteral)
-@lower(cuda.local.array, types.Tuple, types.NumberClass, types.NoneType)
-@lower(cuda.local.array, types.Number, types.NumberClass, types.NoneType)
-@lower(cuda.local.array, types.Tuple, types.StringLiteral, types.NoneType)
-@lower(cuda.local.array, types.Number, types.StringLiteral, types.NoneType)
-@lower(cuda.local.array, types.UniTuple, types.NumberClass)
-@lower(cuda.local.array, types.UniTuple, types.StringLiteral)
-@lower(cuda.local.array, types.UniTuple, types.NumberClass, types.Number)
-@lower(cuda.local.array, types.UniTuple, types.NumberClass, types.NoneType)
-@lower(cuda.local.array, types.UniTuple, types.StringLiteral, types.NoneType)
+@lower(cuda.local_array, types.Tuple, types.DTypeSpec, types.IntegerLiteral)
+@lower(cuda.local_array, types.Number, types.DTypeSpec, types.IntegerLiteral)
+@lower(cuda.local_array, types.Tuple, types.StringLiteral, types.IntegerLiteral)
+@lower(cuda.local_array, types.Number, types.StringLiteral, types.IntegerLiteral)
+@lower(cuda.local_array, types.UniTuple, types.DTypeSpec, types.IntegerLiteral)
+@lower(cuda.local_array, types.UniTuple, types.StringLiteral, types.IntegerLiteral)
 def cuda_local_array(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
     shape, dtype, alignas = _extract_shape_and_dtype(*args, **dict(kwargs))
     shape_op: tuple[ir.Value | int, ...] | ir.Value | int = lower.load_var(shape)

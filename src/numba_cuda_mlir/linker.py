@@ -20,6 +20,7 @@ class Linker(_Linker):
         debug: bool = False,
         lineinfo: bool = False,
         optimize_unused_variables: bool = True,
+        variables_used: str | tuple[str, ...] | list[str] | None = None,
         optimization_level: int = 3,
         ptxas_options: str | None = None,
         max_registers: int | None = None,
@@ -42,6 +43,7 @@ class Linker(_Linker):
             prec_sqrt=prec_sqrt,
             fma=fma,
             optimize_unused_variables=optimize_unused_variables,
+            variables_used=variables_used,
             optimization_level=optimization_level,
             ptxas_options=ptxas_options,
         )
@@ -49,8 +51,12 @@ class Linker(_Linker):
         self._numba_cuda_mlir_temp_ptx_files: list[str] = []
         self._ltoirs: dict[int, bytes] = {}
 
-    def recreate_with_lto(self, lto: bool = True) -> Self:
-        """Recreate the linker, re-adding all object codes from raw bytes."""
+    def recreate_with_lto(self, lto: bool = True, ltoir_only: bool = False) -> Self:
+        """Recreate the linker, re-adding all object codes from raw bytes.
+
+        When *ltoir_only* is True, only LTOIR objects are copied (useful for
+        diagnostic ``-ptx`` links that require all inputs to be LTOIR).
+        """
         existing = list(getattr(self, "_object_codes", []))
         new_linker = Linker(
             cc=self.cc,
@@ -65,18 +71,21 @@ class Linker(_Linker):
             debug=self._debug,
             lineinfo=self.lineinfo,
             optimize_unused_variables=self._optimize_unused_variables,
+            variables_used=self.variables_used,
             optimization_level=self._optimization_level,
             ptxas_options=self._ptxas_options,
             max_registers=self.max_registers,
         )
         for obj in existing:
-            code_type = getattr(obj, "_code_type", None)
+            code_type = getattr(obj, "code_type", None)
+            if ltoir_only and code_type != "ltoir":
+                continue
             if code_type == "ptx":
-                new_linker.add_ptx(obj._module)
+                new_linker.add_ptx(obj.code)
             elif code_type == "cubin":
-                new_linker.add_cubin(obj._module)
+                new_linker.add_cubin(obj.code)
             elif code_type == "ltoir":
-                new_linker.add_ltoir(obj._module)
+                new_linker.add_ltoir(obj.code)
             else:
                 new_linker._object_codes.append(obj)
         new_linker._ltoirs = dict(self._ltoirs)

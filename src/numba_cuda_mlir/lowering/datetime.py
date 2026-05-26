@@ -8,9 +8,9 @@ from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.np import npdatetime_helpers
 
 from numba_cuda_mlir.lowering_utilities import convert
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower = registry.lower
 
 # datetime64 and timedelta64 are i64 under the hood, so all ops are integer ops.

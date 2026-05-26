@@ -20,9 +20,9 @@ from numba_cuda_mlir._mlir.dialects import (
 )
 from numba_cuda_mlir._mlir.extras import types as T
 import numba_cuda_mlir._mlir.ir as ir
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower = registry.lower
 from numba_cuda_mlir.logging import trace
 from numba_cuda_mlir.lowering_utilities import (

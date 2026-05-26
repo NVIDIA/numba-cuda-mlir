@@ -3,17 +3,15 @@
 from numba_cuda_mlir.errors import ForceLiteralArg
 import operator
 import numpy as np
-from numba_cuda_mlir.numba_cuda.typing import typeof
 from numba_cuda_mlir.numba_cuda.typing.templates import (
-    CallableTemplate,
     AttributeTemplate,
-    ConcreteTemplate,
     AbstractTemplate,
-    Registry,
     signature,
 )
 from numba_cuda_mlir import types
 from numba_cuda_mlir.numba_cuda.typing import npydecl
+from numba_cuda_mlir.numba_cuda.typing.npydecl import parse_dtype
+from numba_cuda_mlir.lowering_utilities import type_conversions
 from numba_cuda_mlir.numba_cuda.np.unsafe.ndarray import to_fixed_tuple
 
 registry = npydecl.registry
@@ -850,8 +848,6 @@ class LenTemplate(AbstractTemplate):
 # NumPy Array Methods
 # ============================================================================
 
-from numba_cuda_mlir.numba_cuda.typing.templates import AttributeTemplate
-
 
 @registry.register_attr
 class ArrayAttributeTemplate(AttributeTemplate):
@@ -990,8 +986,9 @@ class NumpyArrayViewMethodTemplate(AbstractTemplate):
         if len(args) == 1:
             arr = self.this
             dtype = args[0]
-            # Return array with potentially different dtype
-            return signature(arr, dtype, recvr=self.this)
+            element_type = dtype.dtype if isinstance(dtype, types.DTypeSpec) else dtype
+            ret = types.Array(element_type, arr.ndim, arr.layout)
+            return signature(ret, dtype, recvr=self.this)
         return None
 
 
@@ -1217,8 +1214,6 @@ class OperatorTruedivTemplate(AbstractTemplate):
         lhs, rhs = args
 
         if isinstance(lhs, types.Array) or isinstance(rhs, types.Array):
-            from numba_cuda_mlir.lower import type_conversions
-
             lhs_ndim = lhs.ndim if isinstance(lhs, types.Array) else 0
             rhs_ndim = rhs.ndim if isinstance(rhs, types.Array) else 0
             target_ndim = max(lhs_ndim, rhs_ndim)

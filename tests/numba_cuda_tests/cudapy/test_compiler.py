@@ -679,7 +679,6 @@ class TestCompile(NumbaCUDATestCase):
 
         cuda.compile(wrapper, wrapper_sig.args, output="ltoir")
 
-    @pytest.mark.xfail(True, reason="Issue with Optional type")
     def test_compile_CABI_calling_device_function_returning_optional(self):
         # Exercise a CABI caller invoking a Numba ABI callee that can return
         # None through Optional[int32]
@@ -747,9 +746,13 @@ def _is_sm_100():
     return _get_device_compute_capability() == (10, 0)
 
 
+def _is_sm_120_with_ctk_12_9():
+    return _get_device_compute_capability() == (12, 0) and nvrtc._get_nvrtc_version() == (12, 9)
+
+
 _xfail_launch_bounds = pytest.mark.xfail(
-    _is_sm_100() and nvvm.NVVM().get_version() < (13, 2),
-    reason="libnvvm before CUDA 13.2 does not emit .maxntid for sm_100",
+    (_is_sm_100() and nvvm.NVVM().get_version() < (13, 2)) or _is_sm_120_with_ctk_12_9(),
+    reason="libnvvm omits .maxntid for sm_100 before CUDA 13.2 or sm_120 with CUDA 12.9",
 )
 
 

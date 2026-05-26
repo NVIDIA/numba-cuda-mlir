@@ -4,8 +4,9 @@
  */
 #pragma once
 
-#include "ref_ptr.h"
 #include <Python.h>
+
+#include "ref_ptr.h"
 #include <optional>
 
 #if PY_MAJOR_VERSION >= 3 && PY_MINOR_VERSION >= 13

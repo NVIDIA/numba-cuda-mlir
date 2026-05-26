@@ -12,6 +12,8 @@ from numba_cuda_mlir.numba_cuda.testing import (
     skip_if_nvjitlink_missing,
 )
 from numba_cuda_mlir.testing import NumbaCUDATestCase
+from numba_cuda_mlir.linker import Linker as NumbaCudaMLIRLinker
+from numba_cuda_mlir.numba_cuda.cudadrv import driver as cuda_driver
 from numba_cuda_mlir.numba_cuda.cudadrv.driver import _Linker, LinkerError
 from numba_cuda_mlir.numba_cuda import require_context
 from numba_cuda_mlir.numba_cuda import void, float64, int64, int32, float32
@@ -130,6 +132,75 @@ class TestLinker(NumbaCUDATestCase):
         """Simply go through the constructor and destructor"""
         linker = _Linker(max_registers=0, cc=(7, 5))
         del linker
+
+    def test_variables_used_linker_option(self):
+        linker = _Linker(
+            max_registers=0,
+            cc=(7, 5),
+            variables_used=["retained_global", "another_global"],
+        )
+
+        self.assertEqual(linker.variables_used, ["retained_global", "another_global"])
+        self.assertEqual(
+            linker._get_linker_options(ptx=False).variables_used,
+            ["retained_global", "another_global"],
+        )
+
+        linker.variables_used = "updated_global"
+
+        self.assertEqual(linker.variables_used, "updated_global")
+        self.assertEqual(
+            linker._get_linker_options(ptx=False).variables_used,
+            "updated_global",
+        )
+
+    def test_variables_used_passed_to_cuda_core_linker(self):
+        captured = {}
+
+        class FakeCudaCoreLinker:
+            def __init__(self, *object_codes, options):
+                captured["object_codes"] = object_codes
+                captured["options"] = options
+
+            def link(self, kind):
+                captured["kind"] = kind
+                return object()
+
+            def get_info_log(self):
+                return ""
+
+            def get_error_log(self):
+                return ""
+
+            def close(self):
+                captured["closed"] = True
+
+        linker = _Linker(
+            max_registers=0,
+            cc=(7, 5),
+            variables_used=["retained_global"],
+        )
+
+        with unittest.mock.patch.object(cuda_driver, "Linker", FakeCudaCoreLinker):
+            linker.complete()
+
+        self.assertEqual(captured["options"].variables_used, ["retained_global"])
+        self.assertEqual(captured["kind"], "cubin")
+        self.assertTrue(captured["closed"])
+
+    def test_public_linker_preserves_variables_used_when_recreated_with_lto(self):
+        linker = NumbaCudaMLIRLinker(
+            cc=(7, 5),
+            variables_used=["retained_global"],
+        )
+
+        recreated = linker.recreate_with_lto()
+
+        self.assertEqual(recreated.variables_used, ["retained_global"])
+        self.assertEqual(
+            recreated._get_linker_options(ptx=False).variables_used,
+            ["retained_global"],
+        )
 
     def _test_linking(self, eager):
         global bar  # must be a global; other it is recognized as a freevar

@@ -4,9 +4,9 @@
 
 import operator
 from numba_cuda_mlir.lowering_utilities import convert
-from numba_cuda_mlir.mlir_lowering_registry import MLIRLoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
-registry = MLIRLoweringRegistry()
+registry = LoweringRegistry()
 lower = registry.lower
 from numba_cuda_mlir.numba_cuda.types.ext_types import bfloat16 as bf16
 from numba_cuda_mlir.numba_cuda import types

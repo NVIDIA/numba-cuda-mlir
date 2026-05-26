@@ -19,6 +19,8 @@ add_library(MLIRModernToNVVM SHARED
   ModernBridge.cpp
 )
 
+separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND "${LLVM_DEFINITIONS}")
+
 target_include_directories(MLIRModernToNVVM
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -26,12 +28,19 @@ target_include_directories(MLIRModernToNVVM
     ${LLVM_INCLUDE_DIRS}
     ${MLIR_INCLUDE_DIRS}
 )
-target_compile_definitions(MLIRModernToNVVM PRIVATE ${LLVM_DEFINITIONS})
+target_compile_options(MLIRModernToNVVM PRIVATE ${LLVM_DEFINITIONS_LIST})
 target_link_libraries(MLIRModernToNVVM
   PRIVATE
-    MLIRCAPIIR
-    MLIRCAPIRegisterEverything
-    MLIRCAPITarget
+    MLIRIR
+    MLIRParser
+    MLIRBuiltinToLLVMIRTranslation
+    MLIRGPUDialect
+    MLIRGPUToLLVMIRTranslation
+    MLIRLLVMDialect
+    MLIRLLVMToLLVMIRTranslation
+    MLIRNVVMDialect
+    MLIRNVVMToLLVMIRTranslation
+    MLIRTargetLLVMIRExport
     LLVMCore
     LLVMBitWriter
     LLVMSupport

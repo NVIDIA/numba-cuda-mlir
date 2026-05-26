@@ -4,52 +4,41 @@
  */
 #include "ModernBridge.h"
 
-#include "mlir-c/IR.h"
-#include "mlir-c/RegisterEverything.h"
-#include "mlir-c/Target/LLVMIR.h"
-#include "llvm-c/BitWriter.h"
-#include "llvm-c/Core.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/DialectRegistry.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/OwningOpRef.h"
+#include "mlir/Parser/Parser.h"
+#include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Dialect/GPU/GPUToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Dialect/NVVM/NVVMToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Export.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Bitcode/BitcodeWriter.h"
+#include "llvm/IR/Attributes.h"
+#include "llvm/IR/CallingConv.h"
+#include "llvm/IR/Constants.h"
+#include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/InlineAsm.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/Metadata.h"
+#include "llvm/IR/Module.h"
+#include "llvm/IR/Type.h"
+#include "llvm/IR/Value.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace {
-
-struct MlirContextOwner {
-    MlirContext value{nullptr};
-    ~MlirContextOwner() {
-        if (value.ptr)
-            mlirContextDestroy(value);
-    }
-};
-
-struct MlirOperationOwner {
-    MlirOperation value{nullptr};
-    ~MlirOperationOwner() {
-        if (value.ptr)
-            mlirOperationDestroy(value);
-    }
-};
-
-struct LLVMContextOwner {
-    LLVMContextRef value = nullptr;
-    ~LLVMContextOwner() {
-        if (value)
-            LLVMContextDispose(value);
-    }
-};
-
-struct LLVMModuleOwner {
-    LLVMModuleRef value = nullptr;
-    ~LLVMModuleOwner() {
-        if (value)
-            LLVMDisposeModule(value);
-    }
-};
 
 static void set_error(char **error_out, const std::string &message) {
     if (!error_out)
@@ -77,221 +66,201 @@ static bool copy_bytes(const char *data, size_t size, char **out,
     return true;
 }
 
-static bool dump_module_to_stderr(LLVMModuleRef mod, char **error_out) {
-    char *ir_text = LLVMPrintModuleToString(mod);
-    if (!ir_text) {
-        set_error(error_out, "LLVMPrintModuleToString failed");
+static bool dump_module_to_stderr(llvm::Module &mod, char **error_out) {
+    std::string ir_text;
+    llvm::raw_string_ostream os(ir_text);
+    mod.print(os, nullptr);
+    os.flush();
+    if (ir_text.empty()) {
+        set_error(error_out, "LLVM module print produced no output");
         return false;
     }
     std::fprintf(stderr, "=============== LLVM IR ===============\n\n%s\n\n",
-                 ir_text);
-    LLVMDisposeMessage(ir_text);
+                 ir_text.c_str());
     return true;
 }
 
-static bool serialize_module(LLVMModuleRef mod, char **out, size_t *out_len,
+static bool serialize_module(llvm::Module &mod, char **out, size_t *out_len,
                              char **error_out) {
-    LLVMMemoryBufferRef bitcode = LLVMWriteBitcodeToMemoryBuffer(mod);
-    if (bitcode) {
-        bool ok = copy_bytes(LLVMGetBufferStart(bitcode),
-                             LLVMGetBufferSize(bitcode), out, out_len,
-                             error_out);
-        LLVMDisposeMemoryBuffer(bitcode);
-        return ok;
-    }
-
-    char *ir_text = LLVMPrintModuleToString(mod);
-    if (!ir_text) {
-        set_error(error_out,
-                  "LLVMWriteBitcodeToMemoryBuffer and LLVMPrintModuleToString failed");
+    llvm::SmallVector<char, 0> bitcode;
+    llvm::raw_svector_ostream os(bitcode);
+    llvm::WriteBitcodeToFile(mod, os);
+    if (bitcode.empty()) {
+        set_error(error_out, "LLVM bitcode serialization produced no output");
         return false;
     }
-    bool ok = copy_bytes(ir_text, std::strlen(ir_text), out, out_len,
-                         error_out);
-    LLVMDisposeMessage(ir_text);
-    return ok;
+    return copy_bytes(bitcode.data(), bitcode.size(), out, out_len, error_out);
 }
 
-static std::vector<LLVMValueRef> collect_call_users(LLVMValueRef fn) {
-    std::vector<LLVMValueRef> calls;
-    for (LLVMUseRef use = LLVMGetFirstUse(fn); use; use = LLVMGetNextUse(use)) {
-        LLVMValueRef user = LLVMGetUser(use);
-        if (LLVMIsACallInst(user) && LLVMGetCalledValue(user) == fn)
-            calls.push_back(user);
+static std::vector<llvm::CallBase *> collect_call_users(llvm::Function *fn) {
+    std::vector<llvm::CallBase *> calls;
+    for (llvm::Use &use : fn->uses()) {
+        auto *call = llvm::dyn_cast<llvm::CallBase>(use.getUser());
+        if (!call)
+            continue;
+        if (call->getCalledOperand()->stripPointerCasts() == fn)
+            calls.push_back(call);
     }
     return calls;
 }
 
-static LLVMValueRef get_or_add_function(LLVMModuleRef mod, const char *name,
-                                        LLVMTypeRef ty) {
-    LLVMValueRef fn = LLVMGetNamedFunction(mod, name);
-    if (!fn)
-        fn = LLVMAddFunction(mod, name, ty);
-    return fn;
+static llvm::Function *get_or_add_function(llvm::Module &mod,
+                                           llvm::StringRef name,
+                                           llvm::FunctionType *ty) {
+    if (llvm::Function *fn = mod.getFunction(name))
+        return fn;
+    return llvm::Function::Create(ty, llvm::GlobalValue::ExternalLinkage,
+                                  name, mod);
 }
 
 static void replace_intrinsic_with_asm(
-    LLVMModuleRef mod, LLVMContextRef ctx, const char *intrinsic_name,
-    LLVMTypeRef fn_ty, const char *asm_str, const char *constraints,
-    bool has_side_effects) {
-    LLVMValueRef old_fn = LLVMGetNamedFunction(mod, intrinsic_name);
+    llvm::Module &mod, llvm::LLVMContext &ctx, llvm::StringRef intrinsic_name,
+    llvm::FunctionType *fn_ty, llvm::StringRef asm_str,
+    llvm::StringRef constraints, bool has_side_effects) {
+    llvm::Function *old_fn = mod.getFunction(intrinsic_name);
     if (!old_fn)
         return;
 
-    LLVMValueRef inline_asm = LLVMGetInlineAsm(
-        fn_ty, asm_str, std::strlen(asm_str), constraints,
-        std::strlen(constraints), has_side_effects, false,
-        LLVMInlineAsmDialectATT, false);
+    llvm::InlineAsm *inline_asm =
+        llvm::InlineAsm::get(fn_ty, asm_str, constraints, has_side_effects,
+                             false, llvm::InlineAsm::AD_ATT, false);
 
-    bool returns_value =
-        LLVMGetTypeKind(LLVMGetReturnType(fn_ty)) != LLVMVoidTypeKind;
+    bool returns_value = !fn_ty->getReturnType()->isVoidTy();
 
-    LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
-    for (LLVMValueRef call : collect_call_users(old_fn)) {
-        LLVMPositionBuilderBefore(builder, call);
-        unsigned total_operands = LLVMGetNumOperands(call);
-        unsigned num_args = total_operands > 0 ? total_operands - 1 : 0;
-        std::vector<LLVMValueRef> args(num_args);
-        for (unsigned i = 0; i < num_args; ++i)
-            args[i] = LLVMGetOperand(call, i);
-        LLVMValueRef result = LLVMBuildCall2(
-            builder, fn_ty, inline_asm, num_args ? args.data() : nullptr,
-            num_args, "");
+    llvm::IRBuilder<> builder(ctx);
+    for (llvm::CallBase *call : collect_call_users(old_fn)) {
+        builder.SetInsertPoint(call);
+        std::vector<llvm::Value *> args;
+        args.reserve(call->arg_size());
+        for (llvm::Use &arg : call->args())
+            args.push_back(arg.get());
+
+        llvm::CallInst *result =
+            builder.CreateCall(fn_ty, inline_asm, args, "");
         if (returns_value)
-            LLVMReplaceAllUsesWith(call, result);
-        LLVMInstructionEraseFromParent(call);
+            call->replaceAllUsesWith(result);
+        call->eraseFromParent();
     }
-    LLVMDisposeBuilder(builder);
 }
 
-static void adapt_barrier_sync(LLVMModuleRef mod, LLVMContextRef ctx) {
-    LLVMValueRef old_fn = LLVMGetNamedFunction(
-        mod, "llvm.nvvm.barrier.cta.sync.aligned.all");
+static void adapt_barrier_sync(llvm::Module &mod, llvm::LLVMContext &ctx) {
+    llvm::Function *old_fn =
+        mod.getFunction("llvm.nvvm.barrier.cta.sync.aligned.all");
     if (!old_fn)
         return;
 
-    LLVMTypeRef void_ty = LLVMVoidTypeInContext(ctx);
-    LLVMTypeRef i32_ty = LLVMInt32TypeInContext(ctx);
+    llvm::Type *void_ty = llvm::Type::getVoidTy(ctx);
+    llvm::Type *i32_ty = llvm::Type::getInt32Ty(ctx);
 
-    LLVMTypeRef barrier0_fn_ty = LLVMFunctionType(void_ty, nullptr, 0, false);
-    LLVMValueRef barrier0_fn =
+    llvm::FunctionType *barrier0_fn_ty =
+        llvm::FunctionType::get(void_ty, {}, false);
+    llvm::Function *barrier0_fn =
         get_or_add_function(mod, "llvm.nvvm.barrier0", barrier0_fn_ty);
 
-    LLVMTypeRef bar_sync_param = i32_ty;
-    LLVMTypeRef bar_sync_fn_ty =
-        LLVMFunctionType(void_ty, &bar_sync_param, 1, false);
-    LLVMValueRef bar_sync_fn =
+    llvm::FunctionType *bar_sync_fn_ty =
+        llvm::FunctionType::get(void_ty, {i32_ty}, false);
+    llvm::Function *bar_sync_fn =
         get_or_add_function(mod, "llvm.nvvm.bar.sync", bar_sync_fn_ty);
 
-    LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
-    for (LLVMValueRef call : collect_call_users(old_fn)) {
-        LLVMPositionBuilderBefore(builder, call);
-        LLVMValueRef arg = LLVMGetOperand(call, 0);
-        bool is_zero =
-            LLVMIsAConstantInt(arg) && LLVMConstIntGetZExtValue(arg) == 0;
-        if (is_zero) {
-            LLVMBuildCall2(builder, barrier0_fn_ty, barrier0_fn, nullptr, 0,
-                           "");
-        } else {
-            LLVMBuildCall2(builder, bar_sync_fn_ty, bar_sync_fn, &arg, 1, "");
-        }
-        LLVMInstructionEraseFromParent(call);
+    llvm::IRBuilder<> builder(ctx);
+    for (llvm::CallBase *call : collect_call_users(old_fn)) {
+        builder.SetInsertPoint(call);
+        llvm::Value *arg = call->getArgOperand(0);
+        auto *constant = llvm::dyn_cast<llvm::ConstantInt>(arg);
+        if (constant && constant->isZero())
+            builder.CreateCall(barrier0_fn_ty, barrier0_fn, {});
+        else
+            builder.CreateCall(bar_sync_fn_ty, bar_sync_fn, {arg});
+        call->eraseFromParent();
     }
-    LLVMDisposeBuilder(builder);
 }
 
-static void adapt_barrier_reduction(LLVMModuleRef mod, LLVMContextRef ctx) {
+static void adapt_barrier_reduction(llvm::Module &mod,
+                                    llvm::LLVMContext &ctx) {
     const char *ops[] = {"and", "or", "popc"};
 
-    LLVMTypeRef i1_ty = LLVMInt1TypeInContext(ctx);
-    LLVMTypeRef i32_ty = LLVMInt32TypeInContext(ctx);
-
-    LLVMTypeRef new_param = i32_ty;
-    LLVMTypeRef new_fn_ty = LLVMFunctionType(i32_ty, &new_param, 1, false);
+    llvm::Type *i1_ty = llvm::Type::getInt1Ty(ctx);
+    llvm::Type *i32_ty = llvm::Type::getInt32Ty(ctx);
+    llvm::FunctionType *new_fn_ty =
+        llvm::FunctionType::get(i32_ty, {i32_ty}, false);
 
     for (const char *op : ops) {
-        char old_name[128];
-        std::snprintf(old_name, sizeof(old_name),
-                      "llvm.nvvm.barrier.cta.red.%s.aligned.all", op);
-        char new_name[128];
-        std::snprintf(new_name, sizeof(new_name), "llvm.nvvm.barrier0.%s",
-                      op);
+        std::string old_name =
+            "llvm.nvvm.barrier.cta.red." + std::string(op) + ".aligned.all";
+        std::string new_name = "llvm.nvvm.barrier0." + std::string(op);
 
-        LLVMValueRef old_fn = LLVMGetNamedFunction(mod, old_name);
+        llvm::Function *old_fn = mod.getFunction(old_name);
         if (!old_fn)
             continue;
 
-        LLVMValueRef new_fn = get_or_add_function(mod, new_name, new_fn_ty);
-        bool returns_i1 = std::strcmp(op, "and") == 0 ||
-                          std::strcmp(op, "or") == 0;
+        llvm::Function *new_fn =
+            get_or_add_function(mod, new_name, new_fn_ty);
+        bool returns_i1 =
+            std::strcmp(op, "and") == 0 || std::strcmp(op, "or") == 0;
 
-        LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
-        for (LLVMValueRef call : collect_call_users(old_fn)) {
-            LLVMPositionBuilderBefore(builder, call);
-            LLVMValueRef pred = LLVMGetOperand(call, 1);
-            LLVMValueRef pred_i32 = LLVMBuildZExt(builder, pred, i32_ty, "");
-            LLVMValueRef new_call =
-                LLVMBuildCall2(builder, new_fn_ty, new_fn, &pred_i32, 1, "");
+        llvm::IRBuilder<> builder(ctx);
+        for (llvm::CallBase *call : collect_call_users(old_fn)) {
+            builder.SetInsertPoint(call);
+            llvm::Value *pred = call->getArgOperand(1);
+            llvm::Value *pred_i32 = builder.CreateZExt(pred, i32_ty, "");
+            llvm::CallInst *new_call =
+                builder.CreateCall(new_fn_ty, new_fn, {pred_i32}, "");
             if (returns_i1) {
-                LLVMValueRef result_i1 =
-                    LLVMBuildTrunc(builder, new_call, i1_ty, "");
-                LLVMReplaceAllUsesWith(call, result_i1);
+                llvm::Value *result_i1 =
+                    builder.CreateTrunc(new_call, i1_ty, "");
+                call->replaceAllUsesWith(result_i1);
             } else {
-                LLVMReplaceAllUsesWith(call, new_call);
+                call->replaceAllUsesWith(new_call);
             }
-            LLVMInstructionEraseFromParent(call);
+            call->eraseFromParent();
         }
-        LLVMDisposeBuilder(builder);
     }
 }
 
-static void adapt_inline_asm_intrinsics(LLVMModuleRef mod,
-                                        LLVMContextRef ctx) {
-    LLVMTypeRef void_ty = LLVMVoidTypeInContext(ctx);
-    LLVMTypeRef i32_ty = LLVMInt32TypeInContext(ctx);
-    LLVMTypeRef ptr_ty = LLVMPointerTypeInContext(ctx, 0);
+static void adapt_inline_asm_intrinsics(llvm::Module &mod,
+                                        llvm::LLVMContext &ctx) {
+    llvm::Type *void_ty = llvm::Type::getVoidTy(ctx);
+    llvm::Type *i32_ty = llvm::Type::getInt32Ty(ctx);
+    llvm::Type *ptr_ty = llvm::PointerType::get(ctx, 0);
 
-    LLVMTypeRef ns_param = i32_ty;
     replace_intrinsic_with_asm(
         mod, ctx, "llvm.nvvm.nanosleep",
-        LLVMFunctionType(void_ty, &ns_param, 1, false), "nanosleep.u32 $0;",
-        "r", true);
+        llvm::FunctionType::get(void_ty, {i32_ty}, false),
+        "nanosleep.u32 $0;", "r", true);
 
     replace_intrinsic_with_asm(
         mod, ctx, "llvm.stacksave.p0",
-        LLVMFunctionType(ptr_ty, nullptr, 0, false), "stacksave.u64 $0;",
+        llvm::FunctionType::get(ptr_ty, {}, false), "stacksave.u64 $0;",
         "=l", true);
 
-    LLVMTypeRef sr_param = ptr_ty;
     replace_intrinsic_with_asm(
         mod, ctx, "llvm.stackrestore.p0",
-        LLVMFunctionType(void_ty, &sr_param, 1, false), "stackrestore.u64 $0;",
-        "l", true);
+        llvm::FunctionType::get(void_ty, {ptr_ty}, false),
+        "stackrestore.u64 $0;", "l", true);
 
-    LLVMTypeRef mapa_params[] = {ptr_ty, i32_ty};
     replace_intrinsic_with_asm(
         mod, ctx, "llvm.nvvm.mapa",
-        LLVMFunctionType(ptr_ty, mapa_params, 2, false),
+        llvm::FunctionType::get(ptr_ty, {ptr_ty, i32_ty}, false),
         "mapa.u64 $0, $1, $2;", "=l,l,r", false);
 }
 
-static void adapt_atomicrmw(LLVMModuleRef mod, LLVMContextRef ctx) {
-    LLVMTypeRef float_ty = LLVMFloatTypeInContext(ctx);
-    LLVMTypeRef double_ty = LLVMDoubleTypeInContext(ctx);
-    LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
+static void adapt_atomicrmw(llvm::Module &mod, llvm::LLVMContext &ctx) {
+    llvm::Type *float_ty = llvm::Type::getFloatTy(ctx);
+    llvm::Type *double_ty = llvm::Type::getDoubleTy(ctx);
+    llvm::IRBuilder<> builder(ctx);
 
-    auto lower_fadd = [&](LLVMValueRef inst) {
-        LLVMTypeRef val_ty = LLVMTypeOf(inst);
+    auto lower_fadd = [&](llvm::AtomicRMWInst *inst) {
+        llvm::Type *val_ty = inst->getType();
         if (val_ty != float_ty && val_ty != double_ty)
             return;
 
-        LLVMValueRef ptr = LLVMGetOperand(inst, 0);
-        LLVMValueRef val = LLVMGetOperand(inst, 1);
-        LLVMTypeRef ptr_ty = LLVMTypeOf(ptr);
+        llvm::Value *ptr = inst->getPointerOperand();
+        llvm::Value *val = inst->getValOperand();
+        llvm::Type *ptr_ty = ptr->getType();
 
         bool is_f32 = val_ty == float_ty;
-        const char *constraints = is_f32 ? "=f,l,f" : "=d,l,d";
-        unsigned addrspace = LLVMGetPointerAddressSpace(ptr_ty);
+        llvm::StringRef constraints = is_f32 ? "=f,l,f" : "=d,l,d";
+        unsigned addrspace = inst->getPointerAddressSpace();
         const char *space =
             addrspace == 3 ? "shared." : addrspace == 1 ? "global." : "";
 
@@ -299,166 +268,174 @@ static void adapt_atomicrmw(LLVMModuleRef mod, LLVMContextRef ctx) {
         std::snprintf(asm_str, sizeof(asm_str), "atom.%sadd.%s $0, [$1], $2;",
                       space, is_f32 ? "f32" : "f64");
 
-        LLVMTypeRef asm_params[] = {ptr_ty, val_ty};
-        LLVMTypeRef asm_fn_ty =
-            LLVMFunctionType(val_ty, asm_params, 2, false);
-        LLVMValueRef inline_asm = LLVMGetInlineAsm(
-            asm_fn_ty, asm_str, std::strlen(asm_str), constraints,
-            std::strlen(constraints), true, false, LLVMInlineAsmDialectATT,
-            false);
+        llvm::FunctionType *asm_fn_ty =
+            llvm::FunctionType::get(val_ty, {ptr_ty, val_ty}, false);
+        llvm::InlineAsm *inline_asm =
+            llvm::InlineAsm::get(asm_fn_ty, asm_str, constraints, true,
+                                 false, llvm::InlineAsm::AD_ATT, false);
 
-        LLVMPositionBuilderBefore(builder, inst);
-        LLVMValueRef args[] = {ptr, val};
-        LLVMValueRef asm_call =
-            LLVMBuildCall2(builder, asm_fn_ty, inline_asm, args, 2, "");
-        LLVMReplaceAllUsesWith(inst, asm_call);
-        LLVMInstructionEraseFromParent(inst);
+        builder.SetInsertPoint(inst);
+        llvm::CallInst *asm_call =
+            builder.CreateCall(asm_fn_ty, inline_asm, {ptr, val}, "");
+        inst->replaceAllUsesWith(asm_call);
+        inst->eraseFromParent();
     };
 
-    for (LLVMValueRef fn = LLVMGetFirstFunction(mod); fn;
-         fn = LLVMGetNextFunction(fn)) {
-        for (LLVMBasicBlockRef bb = LLVMGetFirstBasicBlock(fn); bb;
-             bb = LLVMGetNextBasicBlock(bb)) {
-            LLVMValueRef inst = LLVMGetFirstInstruction(bb);
-            while (inst) {
-                LLVMValueRef next = LLVMGetNextInstruction(inst);
-                if (LLVMIsAAtomicRMWInst(inst)) {
-                    LLVMAtomicRMWBinOp binop = LLVMGetAtomicRMWBinOp(inst);
-                    if (binop == LLVMAtomicRMWBinOpFMinimum)
-                        LLVMSetAtomicRMWBinOp(inst, LLVMAtomicRMWBinOpFMin);
-                    else if (binop == LLVMAtomicRMWBinOpFMaximum)
-                        LLVMSetAtomicRMWBinOp(inst, LLVMAtomicRMWBinOpFMax);
-                    else if (binop == LLVMAtomicRMWBinOpFAdd)
-                        lower_fadd(inst);
+    for (llvm::Function &fn : mod) {
+        for (llvm::BasicBlock &bb : fn) {
+            for (auto it = bb.begin(); it != bb.end();) {
+                llvm::Instruction *inst = &*it++;
+                auto *atomic = llvm::dyn_cast<llvm::AtomicRMWInst>(inst);
+                if (!atomic)
+                    continue;
+                switch (atomic->getOperation()) {
+                case llvm::AtomicRMWInst::FMinimum:
+                    atomic->setOperation(llvm::AtomicRMWInst::FMin);
+                    break;
+                case llvm::AtomicRMWInst::FMaximum:
+                    atomic->setOperation(llvm::AtomicRMWInst::FMax);
+                    break;
+                case llvm::AtomicRMWInst::FAdd:
+                    lower_fadd(atomic);
+                    break;
+                default:
+                    break;
                 }
-                inst = next;
             }
         }
     }
-    LLVMDisposeBuilder(builder);
 }
 
-static void adapt_trunc(LLVMModuleRef mod, LLVMContextRef ctx) {
-    LLVMTypeRef float_ty = LLVMFloatTypeInContext(ctx);
-    LLVMTypeRef double_ty = LLVMDoubleTypeInContext(ctx);
-    LLVMTypeRef f32_fn_ty = LLVMFunctionType(float_ty, &float_ty, 1, false);
-    LLVMTypeRef f64_fn_ty = LLVMFunctionType(double_ty, &double_ty, 1, false);
+static void adapt_trunc(llvm::Module &mod, llvm::LLVMContext &ctx) {
+    llvm::Type *float_ty = llvm::Type::getFloatTy(ctx);
+    llvm::Type *double_ty = llvm::Type::getDoubleTy(ctx);
+    llvm::FunctionType *f32_fn_ty =
+        llvm::FunctionType::get(float_ty, {float_ty}, false);
+    llvm::FunctionType *f64_fn_ty =
+        llvm::FunctionType::get(double_ty, {double_ty}, false);
 
     struct Mapping {
         const char *intrinsic;
         const char *libdevice;
-        LLVMTypeRef ty;
+        llvm::Type *ty;
     };
     Mapping mappings[] = {
         {"llvm.trunc.f64", "__nv_trunc", double_ty},
         {"llvm.trunc.f32", "__nv_truncf", float_ty},
-        {"llvm.trunc.f16", "__nv_truncf", LLVMHalfTypeInContext(ctx)},
-        {"llvm.trunc.bf16", "__nv_truncf", LLVMBFloatTypeInContext(ctx)},
+        {"llvm.trunc.f16", "__nv_truncf", llvm::Type::getHalfTy(ctx)},
+        {"llvm.trunc.bf16", "__nv_truncf", llvm::Type::getBFloatTy(ctx)},
     };
 
-    LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
-    for (auto &mapping : mappings) {
-        LLVMValueRef old_fn = LLVMGetNamedFunction(mod, mapping.intrinsic);
+    llvm::IRBuilder<> builder(ctx);
+    for (const Mapping &mapping : mappings) {
+        llvm::Function *old_fn = mod.getFunction(mapping.intrinsic);
         if (!old_fn)
             continue;
 
         bool is_f64 = mapping.ty == double_ty;
         bool promote = mapping.ty != float_ty && !is_f64;
-        LLVMTypeRef lib_fn_ty = is_f64 ? f64_fn_ty : f32_fn_ty;
-        LLVMValueRef lib_fn =
+        llvm::FunctionType *lib_fn_ty = is_f64 ? f64_fn_ty : f32_fn_ty;
+        llvm::Function *lib_fn =
             get_or_add_function(mod, mapping.libdevice, lib_fn_ty);
 
-        for (LLVMValueRef call : collect_call_users(old_fn)) {
-            LLVMPositionBuilderBefore(builder, call);
-            LLVMValueRef arg = LLVMGetOperand(call, 0);
+        for (llvm::CallBase *call : collect_call_users(old_fn)) {
+            builder.SetInsertPoint(call);
+            llvm::Value *arg = call->getArgOperand(0);
             if (promote)
-                arg = LLVMBuildFPExt(builder, arg, float_ty, "");
-            LLVMValueRef result =
-                LLVMBuildCall2(builder, lib_fn_ty, lib_fn, &arg, 1, "");
+                arg = builder.CreateFPExt(arg, float_ty, "");
+            llvm::CallInst *result =
+                builder.CreateCall(lib_fn_ty, lib_fn, {arg}, "");
+            llvm::Value *final_result = result;
             if (promote)
-                result = LLVMBuildFPTrunc(builder, result, mapping.ty, "");
-            LLVMReplaceAllUsesWith(call, result);
-            LLVMInstructionEraseFromParent(call);
+                final_result = builder.CreateFPTrunc(result, mapping.ty, "");
+            call->replaceAllUsesWith(final_result);
+            call->eraseFromParent();
         }
     }
-    LLVMDisposeBuilder(builder);
 }
 
-static void adapt_nvvm_annotations(LLVMModuleRef mod, LLVMContextRef ctx) {
-    if (LLVMGetNamedMetadataNumOperands(mod, "nvvm.annotations") > 0)
-        return;
+static void adapt_nvvm_annotations(llvm::Module &mod,
+                                   llvm::LLVMContext &ctx) {
+    if (llvm::NamedMDNode *existing = mod.getNamedMetadata("nvvm.annotations"))
+        if (existing->getNumOperands() > 0)
+            return;
 
-    std::vector<LLVMValueRef> kernel_fns;
-    for (LLVMValueRef fn = LLVMGetFirstFunction(mod); fn;
-         fn = LLVMGetNextFunction(fn)) {
-        if (LLVMGetFunctionCallConv(fn) == LLVMPTXKernelCallConv)
-            kernel_fns.push_back(fn);
+    std::vector<llvm::Function *> kernel_fns;
+    for (llvm::Function &fn : mod) {
+        if (fn.getCallingConv() == llvm::CallingConv::PTX_Kernel)
+            kernel_fns.push_back(&fn);
     }
     if (kernel_fns.empty())
         return;
 
-    LLVMTypeRef i32_ty = LLVMInt32TypeInContext(ctx);
-    LLVMTypeRef ptr_ty = LLVMPointerTypeInContext(ctx, 0);
-    LLVMMetadataRef kernel_str = LLVMMDStringInContext2(ctx, "kernel", 6);
-    LLVMValueRef one = LLVMConstInt(i32_ty, 1, false);
+    llvm::Type *i32_ty = llvm::Type::getInt32Ty(ctx);
+    llvm::Type *ptr_ty = llvm::PointerType::get(ctx, 0);
+    llvm::Metadata *kernel_str = llvm::MDString::get(ctx, "kernel");
+    llvm::Constant *one = llvm::ConstantInt::get(i32_ty, 1);
+    llvm::NamedMDNode *annotations =
+        mod.getOrInsertNamedMetadata("nvvm.annotations");
 
-    for (LLVMValueRef fn : kernel_fns) {
-        LLVMMetadataRef md_ops[] = {LLVMValueAsMetadata(fn), kernel_str,
-                                    LLVMValueAsMetadata(one)};
-        LLVMMetadataRef node = LLVMMDNodeInContext2(ctx, md_ops, 3);
-        LLVMAddNamedMetadataOperand(mod, "nvvm.annotations",
-                                    LLVMMetadataAsValue(ctx, node));
+    std::vector<llvm::Constant *> used_fns;
+    used_fns.reserve(kernel_fns.size());
+    for (llvm::Function *fn : kernel_fns) {
+        llvm::MDNode *node = llvm::MDNode::get(
+            ctx, {llvm::ValueAsMetadata::get(fn), kernel_str,
+                  llvm::ValueAsMetadata::get(one)});
+        annotations->addOperand(node);
+        used_fns.push_back(fn);
     }
 
-    uint64_t n = kernel_fns.size();
-    LLVMTypeRef arr_ty = LLVMArrayType2(ptr_ty, n);
-    LLVMValueRef used = LLVMAddGlobal(mod, arr_ty, "llvm.used");
-    LLVMSetLinkage(used, LLVMAppendingLinkage);
-    LLVMSetSection(used, "llvm.metadata");
-    LLVMSetInitializer(used, LLVMConstArray2(ptr_ty, kernel_fns.data(), n));
+    llvm::ArrayType *arr_ty = llvm::ArrayType::get(ptr_ty, used_fns.size());
+    auto *used = new llvm::GlobalVariable(
+        mod, arr_ty, false, llvm::GlobalValue::AppendingLinkage,
+        llvm::ConstantArray::get(arr_ty, used_fns), "llvm.used");
+    used->setSection("llvm.metadata");
 }
 
-static void adapt_nvvmir_version(LLVMModuleRef mod, LLVMContextRef ctx) {
-    if (LLVMGetNamedMetadataNumOperands(mod, "nvvmir.version") > 0)
-        return;
+static void adapt_nvvmir_version(llvm::Module &mod, llvm::LLVMContext &ctx) {
+    if (llvm::NamedMDNode *existing = mod.getNamedMetadata("nvvmir.version"))
+        if (existing->getNumOperands() > 0)
+            return;
 
-    LLVMTypeRef i32_ty = LLVMInt32TypeInContext(ctx);
-    LLVMValueRef two = LLVMConstInt(i32_ty, 2, false);
-    LLVMValueRef zero = LLVMConstInt(i32_ty, 0, false);
-
-    LLVMMetadataRef ops[] = {LLVMValueAsMetadata(two),
-                             LLVMValueAsMetadata(zero)};
-    LLVMMetadataRef node = LLVMMDNodeInContext2(ctx, ops, 2);
-    LLVMAddNamedMetadataOperand(mod, "nvvmir.version",
-                                LLVMMetadataAsValue(ctx, node));
+    llvm::Type *i32_ty = llvm::Type::getInt32Ty(ctx);
+    llvm::Metadata *two =
+        llvm::ValueAsMetadata::get(llvm::ConstantInt::get(i32_ty, 2));
+    llvm::Metadata *zero =
+        llvm::ValueAsMetadata::get(llvm::ConstantInt::get(i32_ty, 0));
+    llvm::MDNode *node = llvm::MDNode::get(ctx, {two, zero});
+    mod.getOrInsertNamedMetadata("nvvmir.version")->addOperand(node);
 }
 
-static void adapt_debug_info_version(LLVMModuleRef mod, LLVMContextRef ctx) {
-    unsigned num_flags =
-        LLVMGetNamedMetadataNumOperands(mod, "llvm.module.flags");
-    if (num_flags == 0)
+static void adapt_debug_info_version(llvm::Module &mod,
+                                     llvm::LLVMContext &ctx) {
+    llvm::NamedMDNode *flags = mod.getNamedMetadata("llvm.module.flags");
+    if (!flags)
         return;
 
-    std::vector<LLVMValueRef> flags(num_flags);
-    LLVMGetNamedMetadataOperands(mod, "llvm.module.flags", flags.data());
+    for (llvm::MDNode *flag : flags->operands()) {
+        if (flag->getNumOperands() < 3)
+            continue;
 
-    for (LLVMValueRef flag : flags) {
-        if (LLVMGetMDNodeNumOperands(flag) < 3)
+        auto *behavior = llvm::dyn_cast_or_null<llvm::ConstantAsMetadata>(
+            flag->getOperand(0).get());
+        auto *key = llvm::dyn_cast_or_null<llvm::MDString>(
+            flag->getOperand(1).get());
+        if (!behavior || !key || key->getString() != "Debug Info Version")
             continue;
-        LLVMValueRef ops[3];
-        LLVMGetMDNodeOperands(flag, ops);
-        unsigned key_len;
-        const char *key = LLVMGetMDString(ops[1], &key_len);
-        if (!key || std::string_view(key, key_len) != "Debug Info Version")
+
+        auto *behavior_value =
+            llvm::dyn_cast<llvm::ConstantInt>(behavior->getValue());
+        if (!behavior_value ||
+            behavior_value->getZExtValue() != llvm::Module::Warning)
             continue;
-        if (LLVMConstIntGetZExtValue(ops[0]) != LLVMModuleFlagBehaviorWarning)
-            continue;
-        LLVMValueRef one = LLVMConstInt(LLVMInt32TypeInContext(ctx), 1, false);
-        LLVMReplaceMDNodeOperandWith(flag, 0, LLVMValueAsMetadata(one));
+
+        llvm::Metadata *one = llvm::ValueAsMetadata::get(
+            llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 1));
+        flag->replaceOperandWith(0, one);
     }
 }
 
-static void adapt_for_libnvvm(LLVMModuleRef mod, LLVMContextRef ctx) {
+static void adapt_for_libnvvm(llvm::Module &mod, llvm::LLVMContext &ctx) {
     adapt_barrier_sync(mod, ctx);
     adapt_barrier_reduction(mod, ctx);
     adapt_inline_asm_intrinsics(mod, ctx);
@@ -469,84 +446,62 @@ static void adapt_for_libnvvm(LLVMModuleRef mod, LLVMContextRef ctx) {
     adapt_debug_info_version(mod, ctx);
 }
 
-static void downgrade_lifetime(LLVMModuleRef mod, LLVMContextRef) {
+static void downgrade_lifetime(llvm::Module &mod) {
     const char *names[] = {"llvm.lifetime.start.p0", "llvm.lifetime.end.p0"};
     for (const char *name : names) {
-        LLVMValueRef fn = LLVMGetNamedFunction(mod, name);
-        if (!fn || LLVMCountParams(fn) == 2)
+        llvm::Function *fn = mod.getFunction(name);
+        if (!fn || fn->arg_size() == 2)
             continue;
-        for (LLVMValueRef call : collect_call_users(fn))
-            LLVMInstructionEraseFromParent(call);
-        LLVMDeleteFunction(fn);
+        for (llvm::CallBase *call : collect_call_users(fn))
+            call->eraseFromParent();
+        if (fn->use_empty())
+            fn->eraseFromParent();
     }
 }
 
-static void downgrade_attributes(LLVMModuleRef mod, LLVMContextRef,
-                                 int ctk_major, int) {
-    static const char nocup_name[] = "nocreateundeforpoison";
-    static const char captures_name[] = "captures";
-    unsigned nocup_kind =
-        LLVMGetEnumAttributeKindForName(nocup_name, sizeof(nocup_name) - 1);
-    unsigned captures_kind = LLVMGetEnumAttributeKindForName(
-        captures_name, sizeof(captures_name) - 1);
+static void downgrade_attributes(llvm::Module &mod, int ctk_major) {
+    llvm::Attribute::AttrKind nocup_kind =
+        llvm::Attribute::getAttrKindFromName("nocreateundeforpoison");
+    llvm::Attribute::AttrKind captures_kind =
+        llvm::Attribute::getAttrKindFromName("captures");
     bool downgrade_captures = ctk_major < 13;
 
-    auto process = [&](LLVMValueRef fn, unsigned idx) {
-        unsigned count = LLVMGetAttributeCountAtIndex(fn, idx);
-        if (count == 0)
-            return;
-
-        std::vector<LLVMAttributeRef> attrs(count);
-        LLVMGetAttributesAtIndex(fn, idx, attrs.data());
-
-        for (LLVMAttributeRef attr : attrs) {
-            if (!LLVMIsEnumAttribute(attr))
-                continue;
-            unsigned kind = LLVMGetEnumAttributeKind(attr);
-            if (kind == nocup_kind && nocup_kind != 0)
-                LLVMRemoveEnumAttributeAtIndex(fn, idx, kind);
-            else if (downgrade_captures && kind == captures_kind &&
-                     captures_kind != 0)
-                LLVMRemoveEnumAttributeAtIndex(fn, idx, kind);
-        }
+    auto process = [&](llvm::Function &fn, unsigned idx) {
+        if (nocup_kind != llvm::Attribute::None &&
+            fn.hasAttributeAtIndex(idx, nocup_kind))
+            fn.removeAttributeAtIndex(idx, nocup_kind);
+        if (downgrade_captures && captures_kind != llvm::Attribute::None &&
+            fn.hasAttributeAtIndex(idx, captures_kind))
+            fn.removeAttributeAtIndex(idx, captures_kind);
     };
 
-    for (LLVMValueRef fn = LLVMGetFirstFunction(mod); fn;
-         fn = LLVMGetNextFunction(fn)) {
-        unsigned n = LLVMCountParams(fn);
-        for (unsigned i = 0; i <= n; ++i)
+    for (llvm::Function &fn : mod) {
+        for (unsigned i = 0; i <= fn.arg_size(); ++i)
             process(fn, i);
-        process(fn, ~0U);
+        process(fn, llvm::AttributeList::FunctionIndex);
     }
 }
 
-static void downgrade_grid_constant(LLVMModuleRef mod, LLVMContextRef ctx) {
-    for (LLVMValueRef fn = LLVMGetFirstFunction(mod); fn;
-         fn = LLVMGetNextFunction(fn)) {
-        if (LLVMGetFunctionCallConv(fn) != LLVMPTXKernelCallConv)
+static void downgrade_grid_constant(llvm::Module &mod,
+                                    llvm::LLVMContext &ctx) {
+    llvm::NamedMDNode *annotations =
+        mod.getOrInsertNamedMetadata("nvvm.annotations");
+    llvm::Type *i32_ty = llvm::Type::getInt32Ty(ctx);
+
+    for (llvm::Function &fn : mod) {
+        if (fn.getCallingConv() != llvm::CallingConv::PTX_Kernel)
             continue;
 
-        unsigned n = LLVMCountParams(fn);
-        std::vector<LLVMValueRef> gc_indices;
-        LLVMTypeRef i32_ty = LLVMInt32TypeInContext(ctx);
-
-        for (unsigned i = 0; i < n; ++i) {
-            unsigned idx = i + 1;
-            unsigned count = LLVMGetAttributeCountAtIndex(fn, idx);
-            if (count == 0)
-                continue;
-
-            std::vector<LLVMAttributeRef> attrs(count);
-            LLVMGetAttributesAtIndex(fn, idx, attrs.data());
-
-            for (LLVMAttributeRef attr : attrs) {
-                if (!LLVMIsStringAttribute(attr))
+        std::vector<llvm::Metadata *> gc_indices;
+        for (unsigned i = 0; i < fn.arg_size(); ++i) {
+            unsigned idx = i + llvm::AttributeList::FirstArgIndex;
+            llvm::AttributeSet attrs = fn.getAttributes().getAttributes(idx);
+            for (llvm::Attribute attr : attrs) {
+                if (!attr.isStringAttribute())
                     continue;
-                unsigned key_len;
-                const char *key = LLVMGetStringAttributeKind(attr, &key_len);
-                if (key && std::string_view(key, key_len) ==
-                               "nvvm.grid_constant") {
-                    gc_indices.push_back(LLVMConstInt(i32_ty, idx, false));
+                if (attr.getKindAsString() == "nvvm.grid_constant") {
+                    gc_indices.push_back(llvm::ValueAsMetadata::get(
+                        llvm::ConstantInt::get(i32_ty, idx)));
                     break;
                 }
             }
@@ -555,47 +510,23 @@ static void downgrade_grid_constant(LLVMModuleRef mod, LLVMContextRef ctx) {
         if (gc_indices.empty())
             continue;
 
-        std::vector<LLVMMetadataRef> idx_md(gc_indices.size());
-        for (size_t i = 0; i < gc_indices.size(); ++i)
-            idx_md[i] = LLVMValueAsMetadata(gc_indices[i]);
-        LLVMMetadataRef idx_node =
-            LLVMMDNodeInContext2(ctx, idx_md.data(), idx_md.size());
-
-        LLVMMetadataRef md_ops[] = {
-            LLVMValueAsMetadata(fn),
-            LLVMMDStringInContext2(ctx, "grid_constant", 13), idx_node};
-        LLVMMetadataRef node = LLVMMDNodeInContext2(ctx, md_ops, 3);
-        LLVMAddNamedMetadataOperand(mod, "nvvm.annotations",
-                                    LLVMMetadataAsValue(ctx, node));
+        llvm::MDNode *idx_node = llvm::MDNode::get(ctx, gc_indices);
+        llvm::MDNode *node = llvm::MDNode::get(
+            ctx, {llvm::ValueAsMetadata::get(&fn),
+                  llvm::MDString::get(ctx, "grid_constant"), idx_node});
+        annotations->addOperand(node);
     }
 }
 
-static void downgrade_for_libnvvm(LLVMModuleRef mod, LLVMContextRef ctx,
-                                  int ctk_major, int ctk_minor) {
-    downgrade_lifetime(mod, ctx);
-    downgrade_attributes(mod, ctx, ctk_major, ctk_minor);
+static void downgrade_for_libnvvm(llvm::Module &mod, llvm::LLVMContext &ctx,
+                                  int ctk_major, int) {
+    downgrade_lifetime(mod);
+    downgrade_attributes(mod, ctk_major);
     downgrade_grid_constant(mod, ctx);
 }
 
-static bool initialize_mlir_context(MlirContextOwner &context,
-                                    char **error_out) {
-    MlirDialectRegistry registry = mlirDialectRegistryCreate();
-    if (!registry.ptr) {
-        set_error(error_out, "mlirDialectRegistryCreate failed");
-        return false;
-    }
-
-    mlirRegisterAllDialects(registry);
-    context.value = mlirContextCreateWithRegistry(registry, false);
-    mlirDialectRegistryDestroy(registry);
-
-    if (!context.value.ptr) {
-        set_error(error_out, "mlirContextCreateWithRegistry failed");
-        return false;
-    }
-
-    mlirRegisterAllLLVMTranslations(context.value);
-    mlirContextLoadAllAvailableDialects(context.value);
+static bool initialize_mlir_context(mlir::MLIRContext &context) {
+    context.loadAllAvailableDialects();
     return true;
 }
 
@@ -617,46 +548,55 @@ mlir_modern_to_nvvm_translate_for_libnvvm(
         return 1;
     }
 
-    MlirContextOwner mlir_context;
-    if (!initialize_mlir_context(mlir_context, error_out))
-        return 1;
-
-    MlirOperationOwner mlir_op;
-    mlir_op.value = mlirOperationCreateParse(
-        mlir_context.value, mlirStringRefCreate(mlir_text, mlir_text_len),
-        mlirStringRefCreateFromCString("numba-cuda-mlir-gpu-module.mlir"));
-    if (mlirOperationIsNull(mlir_op.value)) {
-        set_error(error_out, "failed to parse MLIR gpu.module");
-        return 1;
-    }
-    if (!mlirOperationVerify(mlir_op.value)) {
-        set_error(error_out, "MLIR gpu.module verification failed");
+    mlir::DialectRegistry registry;
+    mlir::registerBuiltinDialectTranslation(registry);
+    mlir::registerGPUDialectTranslation(registry);
+    mlir::registerLLVMDialectTranslation(registry);
+    mlir::registerNVVMDialectTranslation(registry);
+    mlir::MLIRContext mlir_context(registry);
+    if (!initialize_mlir_context(mlir_context)) {
+        set_error(error_out, "failed to initialize MLIR context");
         return 1;
     }
 
-    LLVMContextOwner llvm_context;
-    llvm_context.value = LLVMContextCreate();
-    if (!llvm_context.value) {
-        set_error(error_out, "LLVMContextCreate failed");
+    std::string diagnostics;
+    mlir_context.getDiagEngine().registerHandler([&](mlir::Diagnostic &diag) {
+        llvm::raw_string_ostream os(diagnostics);
+        diag.print(os);
+        os << '\n';
+        return mlir::success();
+    });
+
+    mlir::ParserConfig parser_config(&mlir_context, true);
+    mlir::OwningOpRef<mlir::Operation *> mlir_op =
+        mlir::parseSourceString<mlir::Operation *>(
+            llvm::StringRef(mlir_text, mlir_text_len), parser_config,
+            "numba-cuda-mlir-gpu-module.mlir");
+    if (!mlir_op) {
+        set_error(error_out, diagnostics.empty()
+                                 ? "failed to parse MLIR gpu.module"
+                                 : diagnostics);
         return 1;
     }
 
-    LLVMModuleOwner llvm_module;
-    llvm_module.value =
-        mlirTranslateModuleToLLVMIR(mlir_op.value, llvm_context.value);
-    if (!llvm_module.value) {
-        set_error(error_out, "mlirTranslateModuleToLLVMIR failed");
+    llvm::LLVMContext llvm_context;
+    std::unique_ptr<llvm::Module> llvm_module =
+        mlir::translateModuleToLLVMIR(mlir_op.get(), llvm_context,
+                                      "numba-cuda-mlir-gpu-module");
+    if (!llvm_module) {
+        set_error(error_out, diagnostics.empty()
+                                 ? "mlir::translateModuleToLLVMIR failed"
+                                 : diagnostics);
         return 1;
     }
 
-    if (dump_llvmir && !dump_module_to_stderr(llvm_module.value, error_out))
+    if (dump_llvmir && !dump_module_to_stderr(*llvm_module, error_out))
         return 1;
 
-    adapt_for_libnvvm(llvm_module.value, llvm_context.value);
-    downgrade_for_libnvvm(llvm_module.value, llvm_context.value, ctk_major,
-                          ctk_minor);
+    adapt_for_libnvvm(*llvm_module, llvm_context);
+    downgrade_for_libnvvm(*llvm_module, llvm_context, ctk_major, ctk_minor);
 
-    return serialize_module(llvm_module.value, out, out_len, error_out) ? 0 : 1;
+    return serialize_module(*llvm_module, out, out_len, error_out) ? 0 : 1;
 }
 
 extern "C" MLIR_MODERN_TO_NVVM_EXPORT void

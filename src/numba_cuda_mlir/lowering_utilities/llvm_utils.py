@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import ctypes
+import itertools
 import os
 
 NVPTX64_DATALAYOUT = "e-i64:64-i128:128-v16:16-v32:32-n16:32:64-S128"
@@ -42,6 +43,7 @@ MODERN_TO_NVVM_BRIDGE_LIB_PATH = _find_modern_to_nvvm_bridge_lib()
 
 _capi = None
 _modern_to_nvvm_bridge = None
+_modern_bridge_dump_counter = itertools.count()
 
 
 def _load_capi_library(path: str, label: str):
@@ -111,6 +113,30 @@ def _op_to_raw_ptr(op):
     return ptr
 
 
+def _maybe_dump_modern_bridge_mlir(gpu_module_text):
+    target = os.environ.get("NUMBA_CUDA_MLIR_DUMP_MODERN_BRIDGE_MLIR")
+    if not target:
+        return
+
+    if target.lower() in {"1", "true", "yes", "stderr"}:
+        import sys
+
+        print(
+            f"=============== Modern bridge MLIR ===============\n\n{gpu_module_text}\n",
+            file=sys.stderr,
+        )
+        return
+
+    from pathlib import Path
+
+    path = Path(target)
+    if path.exists() and path.is_dir():
+        name = f"modern-bridge-{os.getpid()}-{next(_modern_bridge_dump_counter)}.mlir"
+        path = path / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(gpu_module_text, encoding="utf-8")
+
+
 def translate_to_llvmir(op):
     """Translate an MLIR gpu.module operation to an LLVMModuleRef.
 
@@ -135,6 +161,7 @@ def translate_to_llvmir(op):
 def translate_gpu_module_to_libnvvm_ir(gpu_module_text, ctk_major, ctk_minor, dump=False):
     """Translate gpu.module text to libnvvm-compatible LLVM bitcode bytes."""
     lib = _get_modern_to_nvvm_bridge()
+    _maybe_dump_modern_bridge_mlir(gpu_module_text)
     mlir_bytes = gpu_module_text.encode("utf-8")
     out = ctypes.c_void_p()
     out_len = ctypes.c_size_t()

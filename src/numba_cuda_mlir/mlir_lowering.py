@@ -2169,6 +2169,18 @@ extern "C" __global__ void
             else:
                 raise InternalCompilerError("literal_unroll expects exactly 1 argument")
 
+        # An ``exc = SomeException("msg")`` assignment is left behind when
+        # ``raise SomeException("msg")`` gets rewritten into a ``StaticRaise``
+        # by ``RewriteConstRaises``: the original ``Raise`` instruction is
+        # replaced but the exception-constructor call site is preserved. There
+        # is no MLIR-level work to do here (the actual error is signalled by
+        # the subsequent ``StaticRaise`` lowering writing the error-code
+        # global), so just record a placeholder so future lookups treat the
+        # variable as lowered.
+        if isinstance(fn_value, type) and issubclass(fn_value, BaseException):
+            self.store_var(target, fn_value)
+            return
+
         if builder := self.get_registered_builder(fn, signature):
             builder_args = args if isinstance(builder, DeferredLowering) else call_args
             builder(self, target, builder_args, kws)

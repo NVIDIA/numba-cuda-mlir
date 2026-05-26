@@ -353,7 +353,7 @@ PY
     cp "${capi_import_lib}" "${LLVM_MODERN_INSTALL}/lib/MLIRPythonCAPI.lib"
   fi
 
-  build_modern_llvm_c_dll "${install_mlir_libs}"
+  build_modern_to_nvvm_bridge "${install_mlir_libs}"
 
   local smoke_install_root
   smoke_install_root="$(cmake_path "${LLVM_MODERN_INSTALL}")"
@@ -401,7 +401,7 @@ if os.name == "nt" and hasattr(os, "add_dll_directory"):
 for name in (
     "nanobind-numba_cuda_mlir.dll",
     "MLIRPythonSupport-numba_cuda_mlir.dll",
-    "LLVM-C-modern.dll",
+    "MLIRModernToNVVM.dll",
     "MLIRPythonCAPI.dll",
 ):
     path = mlir_libs / name
@@ -422,130 +422,38 @@ log("Modern MLIR Python artifact smoke import passed")
 PY
 }
 
-build_modern_llvm_c_dll() {
+build_modern_to_nvvm_bridge() {
   local install_mlir_libs="$1"
-  local modern_lib_dir="${LLVM_MODERN_INSTALL}/lib"
-  local libs_rsp="${LLVM_MODERN_BUILD}/llvm-c-modern-libs.rsp"
-  local exports_file="${LLVM_MODERN_BUILD}/LLVM-C-modern.exports"
-  local def_file="${LLVM_MODERN_BUILD}/LLVM-C-modern.def"
-  local link_rsp="${LLVM_MODERN_BUILD}/llvm-c-modern-link.rsp"
-  local llvm_c_dll="${install_mlir_libs}/LLVM-C-modern.dll"
-  local llvm_c_import_lib="${install_mlir_libs}/LLVM-C-modern.lib"
-  local required_exports_script="${REPO_ROOT}/ci/tools/extract-llvm-capi-symbols.py"
-  local required_exports_source="${REPO_ROOT}/cext/launcher/llvm_downgrade.cpp"
-  local required_llvm_c_exports=()
-  mapfile -t required_llvm_c_exports < <(
-    "${PYTHON}" "${required_exports_script}" "${required_exports_source}"
-  )
-  if [[ "${#required_llvm_c_exports[@]}" -eq 0 ]]; then
-    echo "ERROR: no required LLVM C API exports found in ${required_exports_source}" >&2
-    exit 1
-  fi
-  local windows_system_libs=(
-    winhttp.lib
-    crypt32.lib
-    psapi.lib
-    shell32.lib
-    ole32.lib
-    uuid.lib
-    advapi32.lib
-    ws2_32.lib
-    ntdll.lib
-  )
-  local cmake_cache="${LLVM_MODERN_BUILD}/CMakeCache.txt"
-  local link_tool
-  local dumpbin_tool
-  link_tool="$(resolve_msvc_linker "${cmake_cache}")"
-  dumpbin_tool="$(resolve_dumpbin_tool "${link_tool}")"
+  local bridge_build="${LLVM_MODERN_BUILD}/mlir-modern-to-nvvm-build"
+  local bridge_source="${REPO_ROOT}/cext/mlir-modern"
 
-  local llvm_libs=()
-  mapfile -t llvm_libs < <(
-    find "${modern_lib_dir}" -maxdepth 1 -type f -name 'LLVM*.lib' ! -name 'LLVM-C.lib' ! -name 'LLVM-C-modern.lib' ! -name 'LLVM.lib' | sort
-  )
-  if [[ "${#llvm_libs[@]}" -eq 0 ]]; then
-    echo "ERROR: no LLVM static/import libs found under ${modern_lib_dir}" >&2
-    exit 1
-  fi
-  : > "${libs_rsp}"
-  for lib_path in "${llvm_libs[@]}"; do
-    printf '%s\n' "$(cmake_path "${lib_path}")" >> "${libs_rsp}"
-  done
+  cmake -G Ninja \
+    -S "$(cmake_path "${bridge_source}")" \
+    -B "$(cmake_path "${bridge_build}")" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="$(cmake_path "${LLVM_MODERN_INSTALL}")" \
+    -DMLIR_DIR="$(cmake_path "${LLVM_MODERN_INSTALL}/lib/cmake/mlir")" \
+    -DLLVM_DIR="$(cmake_path "${LLVM_MODERN_INSTALL}/lib/cmake/llvm")" \
+    -DCMAKE_C_COMPILER=cl \
+    -DCMAKE_CXX_COMPILER=cl
+  cmake --build "$(cmake_path "${bridge_build}")" \
+    --target MLIRModernToNVVM MLIRModernToNVVMSmoke -j "${PARALLEL}"
+  ctest --test-dir "$(cmake_path "${bridge_build}")" --output-on-failure
 
-  {
-    for symbol in "${required_llvm_c_exports[@]}"; do
-      printf '%s\n' "${symbol}"
-    done
-  } > "${exports_file}"
-  {
-    printf 'LIBRARY LLVM-C-modern\n'
-    printf 'EXPORTS\n'
-    for symbol in "${required_llvm_c_exports[@]}"; do
-      printf '%s\n' "${symbol}"
-    done
-  } > "${def_file}"
-
-  mkdir -p "${install_mlir_libs}"
-
-  local stub_obj="${LLVM_MODERN_BUILD}/llvm-c-modern-stub.obj"
-  pushd "${LLVM_MODERN_BUILD}" > /dev/null
-  printf 'int _fltused = 0;\n' > llvm-c-modern-stub.c
-  cl -nologo -c -O2 -MD -Follvm-c-modern-stub.obj llvm-c-modern-stub.c
-  popd > /dev/null
-
-  {
-    printf '/NOLOGO\n'
-    printf '/DLL\n'
-    printf '/MACHINE:X64\n'
-    printf '/OUT:%s\n' "$(cmake_path "${llvm_c_dll}")"
-    printf '/IMPLIB:%s\n' "$(cmake_path "${llvm_c_import_lib}")"
-    printf '/DEF:%s\n' "$(cmake_path "${def_file}")"
-    for symbol in "${required_llvm_c_exports[@]}"; do
-      printf '/INCLUDE:%s\n' "${symbol}"
-    done
-    printf '%s\n' "$(cmake_path "${stub_obj}")"
-    while IFS= read -r lib_path; do
-      [[ -z "${lib_path}" ]] && continue
-      printf '%s\n' "${lib_path}"
-    done < "${libs_rsp}"
-    for system_lib in "${windows_system_libs[@]}"; do
-      printf '%s\n' "${system_lib}"
-    done
-  } > "${link_rsp}"
-
-  if debug_enabled; then
-    echo "=== LLVM-C-modern link response file (last 20 lines) ==="
-    tail -n 20 "${link_rsp}"
-  fi
-
-  if ! "${link_tool}" @"$(cmake_path "${link_rsp}")"; then
-    echo "ERROR: failed to link ${llvm_c_dll}" >&2
-    echo "=== LLVM-C-modern link response file (last 20 lines) ===" >&2
-    tail -n 20 "${link_rsp}" >&2 || true
+  local bridge_dll
+  bridge_dll="$(find "${bridge_build}" -type f -name 'MLIRModernToNVVM.dll' -print -quit)"
+  if [[ -z "${bridge_dll}" || ! -f "${bridge_dll}" ]]; then
+    echo "ERROR: failed to produce MLIRModernToNVVM.dll under ${bridge_build}" >&2
     exit 1
   fi
 
-  if [[ ! -f "${llvm_c_dll}" ]]; then
-    echo "ERROR: failed to produce ${llvm_c_dll}" >&2
-    exit 1
-  fi
+  cp "${bridge_dll}" "${install_mlir_libs}/"
 
-  local dumpbin_rsp="${LLVM_MODERN_BUILD}/dumpbin-modern-exports.rsp"
-  local dumpbin_exports="${LLVM_MODERN_BUILD}/LLVM-C-modern.dumpbin.exports"
-  printf '/NOLOGO\n/EXPORTS\n%s\n' "$(cmake_path "${llvm_c_dll}")" > "${dumpbin_rsp}"
-  if ! "${dumpbin_tool}" @"$(cmake_path "${dumpbin_rsp}")" > "${dumpbin_exports}"; then
-    echo "ERROR: failed to inspect exports from ${llvm_c_dll}" >&2
-    echo "DLL size: $(ls -la "${llvm_c_dll}" 2>&1)"
-    head -40 "${dumpbin_exports}" >&2 || true
-    exit 1
+  local bridge_import_lib
+  bridge_import_lib="$(find "${bridge_build}" -type f -name 'MLIRModernToNVVM.lib' -print -quit)"
+  if [[ -n "${bridge_import_lib}" && -f "${bridge_import_lib}" ]]; then
+    cp "${bridge_import_lib}" "${install_mlir_libs}/"
   fi
-  for symbol in "${required_llvm_c_exports[@]}"; do
-    if ! grep -q "${symbol}" "${dumpbin_exports}"; then
-      echo "ERROR: ${llvm_c_dll} does not export ${symbol}" >&2
-      echo "DLL size: $(ls -la "${llvm_c_dll}" 2>&1)"
-      head -40 "${dumpbin_exports}" >&2 || true
-      exit 1
-    fi
-  done
 }
 
 step "Validate Windows build prerequisites" check_prereqs

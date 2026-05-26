@@ -45,7 +45,7 @@ runs:
           expected=(
             "${mlir_libs}/_mlir.${{ inputs.llvm-py-tag }}-win_amd64.pyd"
             "${mlir_libs}/MLIRPythonCAPI.dll"
-            "${mlir_libs}/LLVM-C-modern.dll"
+            "${mlir_libs}/MLIRModernToNVVM.dll"
           )
         else
           expected=(
@@ -55,7 +55,7 @@ runs:
         for path in "${expected[@]}"; do
           if [[ ! -f "${path}" ]]; then
             echo "Expected LLVM Modern artifact not found: ${path}" >&2
-            find llvm-modern-install -maxdepth 5 -type f | sort >&2 || true
+            find llvm-modern-install -maxdepth 8 -type f | sort >&2 || true
             exit 1
           fi
         done

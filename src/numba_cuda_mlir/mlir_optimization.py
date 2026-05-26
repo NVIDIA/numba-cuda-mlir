@@ -19,6 +19,7 @@ from numba_cuda_mlir.lowering_utilities.llvm_utils import (
     NVPTX64_DATALAYOUT,
     NVPTX64_TRIPLE,
     translate_to_llvmir,
+    translate_gpu_module_to_libnvvm_ir,
     dump_llvmir,
 )
 from numba_cuda_mlir.numba_cuda.core.errors import UnsupportedError
@@ -269,7 +270,6 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
 def _prepare_llvm_ir(module, dump=False) -> bytes:
     """Translate gpu.module to LLVM IR and apply libnvvm compatibility downgrades."""
     from numba_cuda_mlir._mlir.dialects import gpu
-    from numba_cuda_mlir._cext import downgrade_for_libnvvm
     from numba_cuda_mlir.tools import get_cuda_runtime_version
 
     gpu_modules = [op for op in module.body if isinstance(op, gpu.GPUModuleOp)]
@@ -279,13 +279,20 @@ def _prepare_llvm_ir(module, dump=False) -> bytes:
     gpu_mod = gpu_modules[0]
     gpu_mod.operation.attributes["llvm.data_layout"] = ir.StringAttr.get(NVPTX64_DATALAYOUT)
     gpu_mod.operation.attributes["llvm.target_triple"] = ir.StringAttr.get(NVPTX64_TRIPLE)
+    ctk_major, ctk_minor = get_cuda_runtime_version()
+
+    if os.name == "nt":
+        return translate_gpu_module_to_libnvvm_ir(
+            str(gpu_mod.operation), ctk_major, ctk_minor, dump=dump
+        )
+
+    from numba_cuda_mlir._cext import downgrade_for_libnvvm
 
     llvm_mod, llvm_ctx = translate_to_llvmir(gpu_mod.operation)
 
     if dump:
         print(f"=============== LLVM IR ===============\n\n{dump_llvmir(llvm_mod)}\n\n")
 
-    ctk_major, ctk_minor = get_cuda_runtime_version()
     return downgrade_for_libnvvm(llvm_mod, llvm_ctx, ctk_major, ctk_minor, LLVM_C_LIB_PATH)
 
 

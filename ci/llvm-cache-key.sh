@@ -58,8 +58,10 @@ case "${kind}" in
             win-64)
                 build_hash="$(hash_inputs \
                     "${SCRIPT_DIR}/build-windows.sh" \
-                    "${SCRIPT_DIR}/tools/extract-llvm-capi-symbols.py" \
-                    "${SCRIPT_DIR}/../cext/launcher/llvm_downgrade.cpp" \
+                    "${SCRIPT_DIR}/../cext/mlir-modern/CMakeLists.txt" \
+                    "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridge.cpp" \
+                    "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridgeSmoke.cpp" \
+                    "${SCRIPT_DIR}/../cext/mlir-modern/include/ModernBridge.h" \
                     "${SCRIPT_DIR}/windows-llvm-container-build.ps1" \
                     "${SCRIPT_DIR}/windows-devcontainer.env")"
                 echo "llvm-modern-windows-$(cache_arch "${host_platform}")-${py_tag}-${version_short}-${build_hash}"

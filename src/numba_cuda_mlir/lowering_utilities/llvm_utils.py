@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 import ctypes
 import os
-from types import SimpleNamespace
 
 NVPTX64_DATALAYOUT = "e-i64:64-i128:128-v16:16-v32:32-n16:32:64-S128"
 NVPTX64_TRIPLE = "nvptx64-nvidia-cuda"
@@ -20,14 +19,29 @@ def _find_llvm_c_lib():
 
     d = os.path.dirname(libs.__file__)
     if os.name == "nt":
-        return os.path.join(d, "LLVM-C-modern.dll")
+        return None
     return os.path.join(d, "libMLIRPythonCAPI.so")
+
+
+def _find_modern_to_nvvm_bridge_lib():
+    import numba_cuda_mlir._mlir._mlir_libs as libs
+
+    d = os.path.dirname(libs.__file__)
+    if os.name == "nt":
+        name = "MLIRModernToNVVM.dll"
+    elif os.uname().sysname == "Darwin":
+        name = "libMLIRModernToNVVM.dylib"
+    else:
+        name = "libMLIRModernToNVVM.so"
+    return os.path.join(d, name)
 
 
 MLIR_CAPI_LIB_PATH = _find_mlir_capi_lib()
 LLVM_C_LIB_PATH = _find_llvm_c_lib()
+MODERN_TO_NVVM_BRIDGE_LIB_PATH = _find_modern_to_nvvm_bridge_lib()
 
 _capi = None
+_modern_to_nvvm_bridge = None
 
 
 def _load_capi_library(path: str, label: str):
@@ -41,44 +55,48 @@ def _get_capi():
     if _capi is not None:
         return _capi
     if os.name == "nt":
-        mlir = _load_capi_library(MLIR_CAPI_LIB_PATH, "MLIR Python C API")
-        llvm = _load_capi_library(LLVM_C_LIB_PATH, "LLVM C API")
-        mlir.mlirTranslateModuleToLLVMIR.restype = ctypes.c_void_p
-        mlir.mlirTranslateModuleToLLVMIR.argtypes = [
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-        ]
-        llvm.LLVMContextCreate.restype = ctypes.c_void_p
-        llvm.LLVMContextCreate.argtypes = []
-        llvm.LLVMPrintModuleToString.restype = ctypes.c_void_p
-        llvm.LLVMPrintModuleToString.argtypes = [ctypes.c_void_p]
-        llvm.LLVMDisposeMessage.restype = None
-        llvm.LLVMDisposeMessage.argtypes = [ctypes.c_void_p]
-        llvm.LLVMContextDispose.restype = None
-        llvm.LLVMContextDispose.argtypes = [ctypes.c_void_p]
-        _capi = SimpleNamespace(
-            LLVMContextCreate=llvm.LLVMContextCreate,
-            LLVMContextDispose=llvm.LLVMContextDispose,
-            LLVMPrintModuleToString=llvm.LLVMPrintModuleToString,
-            LLVMDisposeMessage=llvm.LLVMDisposeMessage,
-            mlirTranslateModuleToLLVMIR=mlir.mlirTranslateModuleToLLVMIR,
+        raise RuntimeError(
+            "direct MLIR-to-LLVM pointer translation is not supported on Windows; "
+            "use the MLIRModernToNVVM bridge"
         )
-    else:
-        _capi = _load_capi_library(MLIR_CAPI_LIB_PATH, "MLIR/LLVM Python C API")
-        _capi.LLVMContextCreate.restype = ctypes.c_void_p
-        _capi.LLVMContextCreate.argtypes = []
-        _capi.mlirTranslateModuleToLLVMIR.restype = ctypes.c_void_p
-        _capi.mlirTranslateModuleToLLVMIR.argtypes = [
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-        ]
-        _capi.LLVMPrintModuleToString.restype = ctypes.c_void_p
-        _capi.LLVMPrintModuleToString.argtypes = [ctypes.c_void_p]
-        _capi.LLVMDisposeMessage.restype = None
-        _capi.LLVMDisposeMessage.argtypes = [ctypes.c_void_p]
-        _capi.LLVMContextDispose.restype = None
-        _capi.LLVMContextDispose.argtypes = [ctypes.c_void_p]
+    _capi = _load_capi_library(MLIR_CAPI_LIB_PATH, "MLIR/LLVM Python C API")
+    _capi.LLVMContextCreate.restype = ctypes.c_void_p
+    _capi.LLVMContextCreate.argtypes = []
+    _capi.mlirTranslateModuleToLLVMIR.restype = ctypes.c_void_p
+    _capi.mlirTranslateModuleToLLVMIR.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    ]
+    _capi.LLVMPrintModuleToString.restype = ctypes.c_void_p
+    _capi.LLVMPrintModuleToString.argtypes = [ctypes.c_void_p]
+    _capi.LLVMDisposeMessage.restype = None
+    _capi.LLVMDisposeMessage.argtypes = [ctypes.c_void_p]
+    _capi.LLVMContextDispose.restype = None
+    _capi.LLVMContextDispose.argtypes = [ctypes.c_void_p]
     return _capi
+
+
+def _get_modern_to_nvvm_bridge():
+    global _modern_to_nvvm_bridge
+    if _modern_to_nvvm_bridge is not None:
+        return _modern_to_nvvm_bridge
+
+    lib = _load_capi_library(MODERN_TO_NVVM_BRIDGE_LIB_PATH, "MLIR modern to NVVM bridge")
+    lib.mlir_modern_to_nvvm_translate_for_libnvvm.restype = ctypes.c_int
+    lib.mlir_modern_to_nvvm_translate_for_libnvvm.argtypes = [
+        ctypes.c_char_p,
+        ctypes.c_size_t,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    lib.mlir_modern_to_nvvm_free.restype = None
+    lib.mlir_modern_to_nvvm_free.argtypes = [ctypes.c_void_p]
+    _modern_to_nvvm_bridge = lib
+    return lib
 
 
 def _op_to_raw_ptr(op):
@@ -112,6 +130,42 @@ def translate_to_llvmir(op):
         capi.LLVMContextDispose(llvm_ctx)
         raise RuntimeError("mlirTranslateModuleToLLVMIR failed")
     return llvm_mod, llvm_ctx
+
+
+def translate_gpu_module_to_libnvvm_ir(gpu_module_text, ctk_major, ctk_minor, dump=False):
+    """Translate gpu.module text to libnvvm-compatible LLVM bitcode bytes."""
+    lib = _get_modern_to_nvvm_bridge()
+    mlir_bytes = gpu_module_text.encode("utf-8")
+    out = ctypes.c_void_p()
+    out_len = ctypes.c_size_t()
+    err_out = ctypes.c_void_p()
+
+    rc = lib.mlir_modern_to_nvvm_translate_for_libnvvm(
+        mlir_bytes,
+        len(mlir_bytes),
+        ctk_major,
+        ctk_minor,
+        int(bool(dump)),
+        ctypes.byref(out),
+        ctypes.byref(out_len),
+        ctypes.byref(err_out),
+    )
+
+    if rc != 0:
+        msg = (
+            ctypes.string_at(err_out).decode("utf-8", errors="replace")
+            if err_out.value
+            else "unknown error"
+        )
+        if err_out.value:
+            lib.mlir_modern_to_nvvm_free(err_out)
+        raise RuntimeError(f"MLIR modern to NVVM bridge failed: {msg}")
+
+    try:
+        return ctypes.string_at(out, out_len.value)
+    finally:
+        if out.value:
+            lib.mlir_modern_to_nvvm_free(out)
 
 
 def dump_llvmir(llvm_mod_ptr):

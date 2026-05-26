@@ -1007,12 +1007,21 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     targetdescr = mlir_target
 
     def __init__(self, py_func, targetoptions=None):
+        from numba_cuda_mlir.mlir_compiler import get_compiler_class
+
         if targetoptions is None:
             targetoptions = {}
         # AST transforms now happen at compile time (in compile_mlir) when we
         # have the signature (argtypes) available. This allows consteval to
         # access argument types and target options.
         super().__init__(py_func, targetoptions=targetoptions)
+
+        # ``Dispatcher.__init__`` constructs ``self._compiler`` with
+        # ``pipeline_class=None``. We need to set the pipeline class for
+        # _OverloadFunctionTemplate.generic() to use it when an overload is
+        # created with inline="always".
+        self._compiler.pipeline_class = get_compiler_class(targetoptions)
+
         self._c = _cext.KernelDispatcher(
             self._compile,
             get_constant_args(py_func),

@@ -67,7 +67,7 @@ def _require_lowering_registry(decorator_name, registry):
 class _NumbaCudaMlirOverloadFunctionTemplate(_OverloadFunctionTemplate):
     def _get_jit_decorator(self):
         from numba_cuda_mlir import cuda
-        from numba_cuda_mlir.mlir_compiler import _get_compiler_class
+        from numba_cuda_mlir.mlir_compiler import get_compiler_class
 
         def jit_with_mlir_pipeline(**jit_options):
             jit_decorator = cuda.jit(**jit_options)
@@ -76,7 +76,7 @@ class _NumbaCudaMlirOverloadFunctionTemplate(_OverloadFunctionTemplate):
                 disp = jit_decorator(pyfunc)
                 fcomp = getattr(disp, "_compiler", None)
                 if fcomp is not None and getattr(fcomp, "pipeline_class", None) is None:
-                    fcomp.pipeline_class = _get_compiler_class(disp.targetoptions)
+                    fcomp.pipeline_class = get_compiler_class(disp.targetoptions)
                 return disp
 
             return decorate

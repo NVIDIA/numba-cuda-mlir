@@ -207,7 +207,7 @@ class MLIRBackend(LoweringPass):
         return True
 
 
-def _get_compiler_class(targetoptions: Dict[str, Any]):
+def get_compiler_class(targetoptions: Dict[str, Any]):
     class MLIRCompiler(CompilerBase):
         def define_pipelines(self):
             dpb = DefaultPassBuilder
@@ -362,7 +362,7 @@ def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
             return_type=return_type,
             flags=flags,
             locals={},
-            pipeline_class=_get_compiler_class(targetoptions),
+            pipeline_class=get_compiler_class(targetoptions),
         )
 
     cres.metadata["targetoptions"] = targetoptions

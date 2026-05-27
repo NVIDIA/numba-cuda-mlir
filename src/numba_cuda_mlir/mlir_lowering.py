@@ -700,6 +700,25 @@ extern "C" __global__ void
 
                 collect_var_assign_count_from_inst(inst)
 
+    def _tuple_element_types(self, tuple_type):
+        if isinstance(tuple_type, types.UniTuple):
+            return [tuple_type.dtype] * tuple_type.count
+        return list(tuple_type.types)
+
+    def _allocate_stack_slot_for_type(self, var_type):
+        if isinstance(var_type, types.BaseTuple):
+            return tuple(
+                self._allocate_stack_slot_for_type(elem_type)
+                for elem_type in self._tuple_element_types(var_type)
+            )
+
+        mlir_type = self.get_mlir_type(var_type)
+        if not _is_valid_memref_element_type(mlir_type):
+            return self.alloca(mlir_type, count=1)
+
+        memref_type = ir.MemRefType.get(shape=[1], element_type=mlir_type)
+        return memref.alloca(memref=memref_type, dynamic_sizes=[], symbol_operands=[])
+
     def allocate_stack_space_for_vars_with_multiple_assigns(self, var_assign_count):
         trace()
         for var_name, count in var_assign_count.items():
@@ -717,7 +736,7 @@ extern "C" __global__ void
                     )
                     continue
                 if isinstance(var_type, types.BaseTuple):
-                    self.var_assign_count[var_name] = 1
+                    self.varmap[var_name] = self._allocate_stack_slot_for_type(var_type)
                     continue
                 mlir_type = self.get_mlir_type(var_type)
 
@@ -2822,6 +2841,16 @@ extern "C" __global__ void
         """Decref a multi-assign variable by loading from its stack slot,
         then zero-filling the slot to prevent double-free on subsequent dels."""
         slot = self.varmap[name]
+        self._decref_stack_slot(var_type, slot)
+
+    def _decref_stack_slot(self, var_type, slot):
+        if isinstance(var_type, types.BaseTuple):
+            assert isinstance(slot, tuple)
+            for elem_type, elem_slot in zip(self._tuple_element_types(var_type), slot):
+                if self.nrt.type_has_nrt_meminfo(elem_type):
+                    self._decref_stack_slot(elem_type, elem_slot)
+            return
+
         mlir_type = self.get_mlir_type(var_type)
         if isinstance(slot.type, MemRefType):
             old = memref.load(memref=slot, indices=[index_of(0)])
@@ -3152,6 +3181,25 @@ extern "C" __global__ void
         result = self.lower_literal_if_needed(result, numba_type)
         return result
 
+    def _load_stack_slot(self, var_type, slot):
+        if isinstance(var_type, types.BaseTuple):
+            assert isinstance(slot, tuple)
+            return tuple(
+                self._load_stack_slot(elem_type, elem_slot)
+                for elem_type, elem_slot in zip(self._tuple_element_types(var_type), slot)
+            )
+
+        if isinstance(slot.type, MemRefType):
+            trace("")
+            index = index_of(0)
+            trace("index=%s", index)
+            loadOp = memref.load(memref=slot, indices=[index])
+            trace("loadOp=%s", loadOp)
+            return loadOp
+
+        trace("Loading %s from LLVM stack slot", type(var_type).__name__)
+        return llvm.load(res=self.get_mlir_type(var_type), addr=slot)
+
     def _load_var(self, var: numba_ir.Var) -> Any:
         """
         Load the value from the given numba variable.
@@ -3171,22 +3219,14 @@ extern "C" __global__ void
             var_type = self.get_numba_type(var.name)
             slot = self.varmap[var.name]
 
-            # UniTuple multi-assign: load each element and return as a Python tuple.
-            if isinstance(var_type, types.UniTuple):
+            # UniTuple multi-assign uses a packed memref; heterogeneous
+            # BaseTuple multi-assign uses per-element stack slots.
+            if isinstance(var_type, types.UniTuple) and not isinstance(slot, tuple):
                 return tuple(
                     memref.load(memref=slot, indices=[index_of(i)]) for i in range(var_type.count)
                 )
 
-            if isinstance(slot.type, MemRefType):
-                trace("")
-                index = index_of(0)
-                trace("index=%s", index)
-                loadOp = memref.load(memref=slot, indices=[index])
-                trace("loadOp=%s", loadOp)
-                return loadOp
-
-            trace("Loading %s from LLVM stack slot", type(var_type).__name__)
-            return llvm.load(res=self.get_mlir_type(var_type), addr=slot)
+            return self._load_stack_slot(var_type, slot)
         elif var.name in self._debug_forced_alloca:
             # variable forced to memref.alloca for debug info.
             return memref.load(memref=self.varmap[var.name], indices=[index_of(0)])
@@ -3241,6 +3281,32 @@ extern "C" __global__ void
         llvm.store(value=arith.constant(T.i8(), tag), addr=self._poly_dbg_byte_ptr(slot, 0))
         llvm.store(value=mlir_value, addr=self._poly_dbg_byte_ptr(slot, offset_bytes))
 
+    def _store_stack_slot(self, var_type, slot, value):
+        if isinstance(var_type, types.BaseTuple):
+            assert isinstance(slot, tuple)
+            assert isinstance(value, (tuple, list))
+            for elem_type, elem_slot, elem_value in zip(
+                self._tuple_element_types(var_type), slot, value
+            ):
+                self._store_stack_slot(elem_type, elem_slot, elem_value)
+            return
+
+        if isinstance(var_type, types.Optional) and not isinstance(value, (ir.Value, ir.OpView)):
+            value = self._cast_to_optional(types.NoneType("none"), var_type, None)
+
+        if self.nrt.type_has_nrt_meminfo(var_type) and isinstance(value, ir.Value):
+            if isinstance(slot.type, MemRefType):
+                old = memref.load(memref=slot, indices=[index_of(0)])
+            else:
+                old = llvm.load(res=self.get_mlir_type(var_type), addr=slot)
+            self.decref(var_type, old)
+
+        if isinstance(slot.type, MemRefType):
+            memref.store(value=value, memref=slot, indices=[index_of(0)])
+        else:
+            trace("Storing %s to LLVM stack slot", type(var_type).__name__)
+            llvm.store(value=value, addr=slot)
+
     def store_var(self, var, value):
         """
         Store the value (MLIR Op) into the given variable.
@@ -3259,32 +3325,15 @@ extern "C" __global__ void
             slot = self.varmap[var.name]
             var_type = self.get_numba_type(var.name)
 
-            # UniTuple multi-assign: store each element into the memref.
-            if isinstance(var_type, types.UniTuple) and isinstance(value, (tuple, list)):
+            # UniTuple multi-assign uses a packed memref; heterogeneous
+            # BaseTuple multi-assign uses per-element stack slots.
+            if isinstance(var_type, types.UniTuple) and not isinstance(slot, tuple):
+                assert isinstance(value, (tuple, list))
                 for i, elem in enumerate(value):
                     memref.store(value=elem, memref=slot, indices=[index_of(i)])
                 return
 
-            # Optional multi-assign receiving a NoneType placeholder:
-            # construct the Optional None struct before storing.
-            if isinstance(var_type, types.Optional) and not isinstance(
-                value, (ir.Value, ir.OpView)
-            ):
-                value = self._cast_to_optional(types.NoneType("none"), var_type, None)
-
-            # Decref the old value before overwriting
-            if self.nrt.type_has_nrt_meminfo(var_type) and isinstance(value, ir.Value):
-                if isinstance(slot.type, MemRefType):
-                    old = memref.load(memref=slot, indices=[index_of(0)])
-                else:
-                    old = llvm.load(res=self.get_mlir_type(var_type), addr=slot)
-                self.decref(var_type, old)
-
-            if isinstance(slot.type, MemRefType):
-                memref.store(value=value, memref=slot, indices=[index_of(0)])
-            else:
-                trace("Storing %s to LLVM stack slot", type(var_type).__name__)
-                llvm.store(value=value, addr=slot)
+            self._store_stack_slot(var_type, slot, value)
         else:
             # the value can be safely stored in register,
             # register the value in varmap

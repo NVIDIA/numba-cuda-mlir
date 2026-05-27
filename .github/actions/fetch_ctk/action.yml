@@ -56,8 +56,8 @@ runs:
       uses: ./.github/actions/install_unix_deps
       continue-on-error: false
       with:
-        dependencies: "zstd curl xz-utils jq"
-        dependent_exes: "zstd curl xz jq"
+        dependencies: "zstd curl xz-utils"
+        dependent_exes: "zstd curl xz"
 
     - name: Download CTK cache
       id: ctk-get-cache
@@ -91,6 +91,14 @@ runs:
           echo "Unsupported host platform: ${{ inputs.host-platform }}"
           exit 1
         fi
+        if command -v python >/dev/null 2>&1; then
+          PYTHON_EXE=python
+        elif command -v python3 >/dev/null 2>&1; then
+          PYTHON_EXE=python3
+        else
+          echo "ERROR: python or python3 is required to parse the CTK redistrib JSON" >&2
+          exit 1
+        fi
         function extract() {
           if [[ "$1" == *.zip ]]; then
             ZIP_TMP="${CACHE_TMP_DIR}/.zip_extract"
@@ -114,9 +122,11 @@ runs:
             curl -LSs $1 -o $2
           }
           CTK_COMPONENT=$1
-          CTK_COMPONENT_REL_PATH="$(curl -fsSL "$CTK_JSON_URL" |
-              jq -er --arg component "$CTK_COMPONENT" --arg subdir "$CTK_SUBDIR" \
-                '.[$component][$subdir].relative_path')"
+          CTK_COMPONENT_REL_PATH="$(
+            curl -fsSL "$CTK_JSON_URL" |
+              "$PYTHON_EXE" -c 'import json, sys; component, subdir = sys.argv[1:3]; data = json.load(sys.stdin); entry = data.get(component, {}).get(subdir, {}).get("relative_path"); sys.exit(f"missing CTK redistrib entry for {component}/{subdir}") if entry is None else print(entry)' \
+                "$CTK_COMPONENT" "$CTK_SUBDIR"
+          )"
           CTK_COMPONENT_URL="${CTK_BASE_URL}/${CTK_COMPONENT_REL_PATH}"
           CTK_COMPONENT_COMPONENT_FILENAME="$(basename $CTK_COMPONENT_REL_PATH)"
           download $CTK_COMPONENT_URL $CTK_COMPONENT_COMPONENT_FILENAME

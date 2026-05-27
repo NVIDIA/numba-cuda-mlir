@@ -52,7 +52,7 @@ def _xfail_windows_llvm70_vector_path(reason):
                 return fn(*args, **kwargs)
             try:
                 fn(*args, **kwargs)
-            except Exception:
+            except AssertionError:
                 pytest.xfail(reason)
             pytest.fail(f"XPASS(strict): {reason}")
 

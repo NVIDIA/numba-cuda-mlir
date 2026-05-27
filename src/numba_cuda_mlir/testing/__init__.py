@@ -12,7 +12,6 @@ import os
 from numba_cuda_mlir._mlir.ir import Module, Operation
 from typing import Iterable, Union
 import sys
-import shutil
 
 # For legacy Numba-CUDA filecheck test cases
 from filecheck.matcher import Matcher
@@ -61,17 +60,6 @@ def run_in_subprocess(code: str, timeout: int = 60) -> tuple[str, str]:
         tmp.close()
         os.unlink(tmp.name)
     return proc.stdout, proc.stderr
-
-
-def get_filecheck_path():
-    for filecheck_name in ("FileCheck", "filecheck"):
-        path = Path(sys.prefix) / "bin" / filecheck_name
-        if path.exists():
-            return path
-        found = shutil.which(filecheck_name)
-        if found and Path(found).exists():
-            return found
-    return None
 
 
 def filecheck_with_comments(module):

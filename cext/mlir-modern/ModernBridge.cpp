@@ -449,17 +449,13 @@ static void adapt_debug_info_version(llvm::Module &mod,
 }
 
 static void adapt_for_libnvvm(llvm::Module &mod, llvm::LLVMContext &ctx) {
-    adapt_barrier_sync(mod, ctx);
-    adapt_barrier_reduction(mod, ctx);
-    adapt_inline_asm_intrinsics(mod, ctx);
-    adapt_atomicrmw(mod, ctx);
-    adapt_trunc(mod, ctx);
-    adapt_nvvm_annotations(mod, ctx);
-    adapt_nvvmir_version(mod, ctx);
-    adapt_debug_info_version(mod, ctx);
+#define LIBNVVM_COMPAT_ADAPT_PASS(name) name(mod, ctx);
+#include "../libnvvm_compat_passes.def"
+#undef LIBNVVM_COMPAT_ADAPT_PASS
 }
 
-static void downgrade_lifetime(llvm::Module &mod) {
+static void downgrade_lifetime(llvm::Module &mod, llvm::LLVMContext &, int,
+                               int) {
     const char *names[] = {"llvm.lifetime.start.p0", "llvm.lifetime.end.p0"};
     for (const char *name : names) {
         llvm::Function *fn = mod.getFunction(name);
@@ -472,7 +468,8 @@ static void downgrade_lifetime(llvm::Module &mod) {
     }
 }
 
-static void downgrade_attributes(llvm::Module &mod, int ctk_major) {
+static void downgrade_attributes(llvm::Module &mod, llvm::LLVMContext &,
+                                 int ctk_major, int) {
     llvm::Attribute::AttrKind nocup_kind =
         llvm::Attribute::getAttrKindFromName("nocreateundeforpoison");
     llvm::Attribute::AttrKind captures_kind =
@@ -496,7 +493,7 @@ static void downgrade_attributes(llvm::Module &mod, int ctk_major) {
 }
 
 static void downgrade_grid_constant(llvm::Module &mod,
-                                    llvm::LLVMContext &ctx) {
+                                    llvm::LLVMContext &ctx, int, int) {
     llvm::NamedMDNode *annotations =
         mod.getOrInsertNamedMetadata("nvvm.annotations");
     llvm::Type *i32_ty = llvm::Type::getInt32Ty(ctx);
@@ -532,10 +529,10 @@ static void downgrade_grid_constant(llvm::Module &mod,
 }
 
 static void downgrade_for_libnvvm(llvm::Module &mod, llvm::LLVMContext &ctx,
-                                  int ctk_major, int) {
-    downgrade_lifetime(mod);
-    downgrade_attributes(mod, ctk_major);
-    downgrade_grid_constant(mod, ctx);
+                                  int ctk_major, int ctk_minor) {
+#define LIBNVVM_COMPAT_DOWNGRADE_PASS(name) name(mod, ctx, ctk_major, ctk_minor);
+#include "../libnvvm_compat_passes.def"
+#undef LIBNVVM_COMPAT_DOWNGRADE_PASS
 }
 
 static bool initialize_mlir_context(mlir::MLIRContext &context) {

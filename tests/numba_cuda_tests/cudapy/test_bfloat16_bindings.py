@@ -13,7 +13,11 @@ import operator
 import pytest
 
 pytestmark = pytest.mark.skipif(
-    sys.platform == "win32", reason="bfloat16 tests are disabled on Windows"
+    sys.platform == "win32",
+    reason=(
+        "bfloat16 tests are disabled on Windows due to flaky behavior in the "
+        "current lowering path through truncf/extf"
+    ),
 )
 
 from numba_cuda_mlir.numba_cuda.types import (

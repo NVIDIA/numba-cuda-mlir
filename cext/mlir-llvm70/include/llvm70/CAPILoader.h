@@ -33,10 +33,13 @@ public:
   create(llvm::StringRef libPath) {
 #ifdef _WIN32
     HMODULE handle = nullptr;
+    bool ownsHandle = true;
     std::string path = libPath.str();
     if (path.empty()) {
-      GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+      GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                             GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                          reinterpret_cast<LPCSTR>(&CAPILoader::create), &handle);
+      ownsHandle = false;
       path = "<current module>";
     } else {
       handle = LoadLibraryA(path.c_str());
@@ -57,6 +60,7 @@ public:
     loader->handle = reinterpret_cast<void *>(handle);
     loader->path = libPath.str();
 #ifdef _WIN32
+    loader->ownsHandle = ownsHandle;
     if (loader->path.empty())
       loader->path = "<current module>";
 #endif

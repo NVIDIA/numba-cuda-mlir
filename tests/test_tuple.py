@@ -253,5 +253,29 @@ def test_tuple_multi_assign_from_device_function():
     assert out.copy_to_host()[0] == 4
 
 
+def test_hetero_tuple_multi_assign_from_inlined_device_function():
+    @cuda.jit(device=True, forceinline=True)
+    def strides(flag, ld, m, k):
+        shape = (m, k)
+        if flag:
+            return (ld * shape[1], 1, ld)
+        return (ld * shape[0], ld, 1)
+
+    @cuda.jit
+    def kernel(out, flag):
+        r = strides(flag, 2, 7, 3)
+        out[0] = r[0]
+        out[1] = r[1]
+        out[2] = r[2]
+
+    out = cuda.device_array((3,), dtype=np.int64)
+
+    kernel[1, 1](out, True)
+    np.testing.assert_array_equal(out.copy_to_host(), [6, 1, 2])
+
+    kernel[1, 1](out, False)
+    np.testing.assert_array_equal(out.copy_to_host(), [14, 2, 1])
+
+
 if __name__ == "__main__":
     test_tuple_concat((1, 2), (3, 4, 5))

@@ -152,6 +152,8 @@ def _(ty: ir.Type | ir.FunctionType) -> types.Type | typing.Signature:
 def _(obj: type) -> types.Type:
     if ctypes._SimpleCData in obj.mro():
         return ctypes_type_to_numba_type(obj)
+    if issubclass(obj, np.generic):
+        return np_dtype_to_numba_dtype(np.dtype(obj))
     raise NotImplementedError(f"Not implemented for type {obj}")
 
 
@@ -177,8 +179,6 @@ def ctypes_type_to_numba_type(obj: ctypes._SimpleCData) -> types.Type:
             return types.int64
         case ctypes.c_ulong:
             return types.uint64
-        case ctypes.c_float16:
-            return types.float16
         case ctypes.c_float:
             return types.float32
         case ctypes.c_double:
@@ -203,7 +203,7 @@ def _(obj: type) -> ir.Type:
     mro = obj.mro()
     if ctypes._SimpleCData in mro:
         return ctypes_type_to_mlir_type(obj)
-    elif obj.__module__ == "numpy":
+    elif issubclass(obj, np.generic):
         return np_dtype_to_mlir_type(obj)
     raise NotImplementedError(f"Not implemented for type {obj}")
 

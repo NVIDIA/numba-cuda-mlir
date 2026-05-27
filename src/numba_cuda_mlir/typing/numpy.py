@@ -60,8 +60,6 @@ class NumpyEmptyTemplate(AbstractTemplate):
         # Handle dtype
         if isinstance(dtype, types.DTypeSpec):
             element_type = dtype.dtype
-        elif isinstance(dtype, types.NumberClass):
-            element_type = dtype.dtype
         else:
             element_type = dtype
 
@@ -88,8 +86,6 @@ class NumpyZerosTemplate(AbstractTemplate):
             return None
 
         if isinstance(dtype, types.DTypeSpec):
-            element_type = dtype.dtype
-        elif isinstance(dtype, types.NumberClass):
             element_type = dtype.dtype
         else:
             element_type = dtype
@@ -118,8 +114,6 @@ class NumpyOnesTemplate(AbstractTemplate):
 
         if isinstance(dtype, types.DTypeSpec):
             element_type = dtype.dtype
-        elif isinstance(dtype, types.NumberClass):
-            element_type = dtype.dtype
         else:
             element_type = dtype
 
@@ -147,8 +141,6 @@ class NumpyFullTemplate(AbstractTemplate):
             return None
 
         if isinstance(dtype, types.DTypeSpec):
-            element_type = dtype.dtype
-        elif isinstance(dtype, types.NumberClass):
             element_type = dtype.dtype
         else:
             element_type = dtype

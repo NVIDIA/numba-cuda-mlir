@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Run the cuda-gdb test suite. A local CTK setup includes the cuda_gdb component.
+# CUDA_PATH (set by fetch_ctk/action.yml) is used to locate the cuda-gdb binary.
+
+set -euo pipefail
+
+: "${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR:?NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR must be set by ci/tools/env-vars}"
+: "${LOCAL_CTK:?LOCAL_CTK must be set by the workflow}"
+: "${TEST_CUDA_MAJOR:?TEST_CUDA_MAJOR must be set by ci/tools/env-vars}"
+: "${TEST_CUDA_MINOR:?TEST_CUDA_MINOR must be set by ci/tools/env-vars}"
+: "${CUDA_PATH:?CUDA_PATH must be set by .github/actions/fetch_ctk (cuda_gdb component required)}"
+
+CUDA_GDB_BINARY="${CUDA_PATH}/bin/cuda-gdb"
+if [[ ! -f "${CUDA_GDB_BINARY}" ]]; then
+  echo "ERROR: cuda-gdb not found at ${CUDA_GDB_BINARY}"
+  echo "Make sure the 'cuda_gdb' component was included when fetching the CTK."
+  exit 1
+fi
+
+echo "cuda-gdb binary: ${CUDA_GDB_BINARY}"
+"${CUDA_GDB_BINARY}" --version
+
+echo "Installing numba-cuda-mlir wheel"
+wheels=("${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR}"/*.whl)
+if [[ ${#wheels[@]} -ne 1 || ! -e "${wheels[0]}" ]]; then
+  echo "Expected exactly one numba-cuda-mlir wheel in ${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR}, found ${#wheels[@]}"
+  printf '%s\n' "${wheels[@]}"
+  exit 1
+fi
+wheel="${wheels[0]}"
+
+pip install "${wheel}" --group "test-cu${TEST_CUDA_MAJOR}" \
+  "cuda-bindings==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*" \
+  "cuda-core[cu${TEST_CUDA_MAJOR}]"
+
+echo "Running cuda-gdb tests"
+export NUMBA_CUDA_MLIR_GDB_BINARY="${CUDA_GDB_BINARY}"
+export NUMBA_CUDA_MLIR_ICE_FULL_TB=1
+pytest tests/test_cuda_gdb.py -v --tb=short

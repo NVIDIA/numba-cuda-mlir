@@ -955,7 +955,11 @@ extern "C" __global__ void
         elif hasattr(free_var.value, "__cuda_array_interface__"):
             self.lower_captured_array_to_memref(target, free_var.value)
         else:
-            self.store_var(target, free_var.value)
+            target_type = self.get_numba_type(target.name)
+            if isinstance(target_type, types.DTypeSpec):
+                self.store_var(target, self._materialize_type_token(target_type))
+            else:
+                self.store_var(target, free_var.value)
 
     def lower_captured_array_to_memref(self, target, pyval):
         """Build an MLIR memref value from __cuda_array_interface__ metadata.
@@ -1178,7 +1182,7 @@ extern "C" __global__ void
             )
         elif hasattr(glob.value, "__cuda_array_interface__"):
             self.lower_captured_array_to_memref(target, glob.value)
-        elif isinstance(target_type, types.NumberClass) and isinstance(glob.value, types.Type):
+        elif isinstance(target_type, types.DTypeSpec):
             self.store_var(target, self._materialize_type_token(target_type))
         else:
             self.store_var(target, glob.value)
@@ -1199,7 +1203,7 @@ extern "C" __global__ void
                 self.store_var(target, var_value)
             case str() | bytes():
                 self.store_var(target, var_value)
-            case types.Type() if isinstance(self.get_numba_type(target.name), types.NumberClass):
+            case _ if isinstance(self.get_numba_type(target.name), types.DTypeSpec):
                 target_type = self.get_numba_type(target.name)
                 self.store_var(target, self._materialize_type_token(target_type))
             case None:

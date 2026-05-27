@@ -133,11 +133,11 @@ class StructModel(DataModel):
         return self._models
 
 
-@register_model(types.NumberClass)
-class NumpyDataTypeModel(PrimitiveModel):
+@register_model(types.DTypeSpec)
+class DTypeSpecModel(PrimitiveModel):
     """
-    Convert from a Numba NumberClass type instance
-    into the MLIR type that this NumberClass instance represents.
+    Convert from a Numba DTypeSpec type instance
+    into the MLIR type that this DTypeSpec instance represents.
     For example, a NumberClass instance
         class(float64)
     is converted into a F64Type in MLIR.

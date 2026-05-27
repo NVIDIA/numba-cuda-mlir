@@ -36,14 +36,8 @@ inference, see Numba's `NBEP 5: Type Inference
 <https://numba.readthedocs.io/en/stable/proposals/type-inference.html>`_
 document.
 
-The pages below cover each part of the API in turn. A separate dialect primer
-and a tabular operation listing are provided so that authors of low-level
-extensions can find what they need quickly.
-
 .. toctree::
    :maxdepth: 2
 
    high-level.rst
    low-level.rst
-   mlir-dialects.rst
-   mlir-ops.rst

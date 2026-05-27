@@ -27,8 +27,7 @@ The lowering half of this API differs significantly from Numba's. Numba's
 lowering callbacks receive an ``llvmlite.ir.IRBuilder`` and emit LLVM IR.
 Numba-CUDA-MLIR's lowering callbacks receive an MLIR builder
 (:py:class:`numba_cuda_mlir.mlir_lowering.MLIRLower`) and emit MLIR through
-the bindings in :py:mod:`numba_cuda_mlir._mlir`. The :doc:`MLIR dialect
-primer <mlir-dialects>` covers the dialects most often used.
+the bindings in :py:mod:`numba_cuda_mlir._mlir`.
 
 Typing
 ------
@@ -282,8 +281,6 @@ implementations. The methods most commonly used inside lowerings are:
      - The enclosing ``gpu.module`` operation; needed when declaring external
        functions or device intrinsics.
 
-For a fuller listing including less-used builder methods, see
-:doc:`mlir-ops`.
 
 Helpers in ``lowering_utilities``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -511,6 +508,3 @@ This means you can freely mix the two tiers. A common pattern is:
   operations that need direct MLIR emission — for example calling a
   libdevice routine, emitting inline PTX, or wrapping an aggregate type
   field access.
-
-See :doc:`mlir-dialects` for an overview of the MLIR dialects most often
-reached for from a lowering, and :doc:`mlir-ops` for a tabular reference.

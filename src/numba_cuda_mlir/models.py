@@ -228,7 +228,7 @@ class StoragePrimitiveModel(PrimitiveModel):
         return self._data_type
 
     def get_argument_type(self):
-        return self.get_data_type()
+        return self.get_value_type()
 
     def get_return_type(self):
         return self.get_data_type()
@@ -239,7 +239,9 @@ class StoragePrimitiveModel(PrimitiveModel):
         return value_to_storage(self.fe_type, value)
 
     def as_argument(self, builder, value):
-        return self.as_data(builder, value)
+        from numba_cuda_mlir.lowering_utilities import convert
+
+        return convert(value, self.get_value_type())
 
     def as_return(self, builder, value):
         return self.as_data(builder, value)
@@ -250,7 +252,9 @@ class StoragePrimitiveModel(PrimitiveModel):
         return storage_to_value(self.fe_type, value)
 
     def from_argument(self, builder, value):
-        return self.from_data(builder, value)
+        from numba_cuda_mlir.lowering_utilities import convert
+
+        return convert(value, self.get_value_type())
 
     def from_return(self, builder, value):
         return self.from_data(builder, value)

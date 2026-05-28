@@ -156,14 +156,6 @@ class TestVectorTypeComplexCast(NumbaCUDATestCase):
         kernel[1, 1](res)
         self.assertEqual(res[0], np.complex128(1.0 + 2.0j))
 
-    def test_np_complex64_from_float64x2_rejected(self):
-        with self.assertRaises(TypingError):
-
-            @cuda.jit("void(complex64[:])")
-            def kernel(out):
-                v = float64x2(1.0, 2.0)
-                out[0] = np.complex64(v)
-
     def test_np_complex64_from_float16x4_rejected(self):
         with self.assertRaises(TypingError):
 

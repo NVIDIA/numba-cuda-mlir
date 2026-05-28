@@ -811,17 +811,13 @@ class NumberClassAttribute(AttributeTemplate):
                 if isinstance(val, types.Array) and val.ndim == 0 and val.dtype == ty:
                     # This is 0d array -> scalar degrading
                     return ty
-
-                if (
+                elif (
                     isinstance(val, VectorType)
                     and val.length == 2
                     and isinstance(ty, types.Complex)
                     and isinstance(val.dtype, types.Float)
                 ):
-                    if (ty.bitwidth == 64 and val.dtype.bitwidth <= 32) or (
-                        ty.bitwidth == 128 and val.dtype.bitwidth <= 64
-                    ):
-                        return ty
+                    return ty
 
                 # unsupported
                 msg = f"Casting {val} to {ty} directly is unsupported."

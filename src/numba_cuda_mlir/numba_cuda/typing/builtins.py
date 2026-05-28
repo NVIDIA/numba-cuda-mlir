@@ -788,7 +788,7 @@ class NumberClassAttribute(AttributeTemplate):
         """
         ty = classty.instance_type
 
-        def typer(val):
+        def typer_real(val):
             if isinstance(val, (types.BaseTuple, types.Sequence)):
                 # Array constructor, e.g. np.int32([1, 2])
                 fnty = self.context.resolve_value_type(np.array)
@@ -816,6 +816,22 @@ class NumberClassAttribute(AttributeTemplate):
                         # array casts are supported a different way.
                         msg += f" Try doing '<array>.astype(np.{ty})' instead"
                     raise errors.TypingError(msg)
+
+        def typer_complex(val, imag):
+            if ty in types.complex_domain:
+                if isinstance(val, types.Number) and isinstance(imag, types.Number):
+                    return ty
+                else:
+                    raise errors.TypingError(
+                        f"Casting {val}, {imag} to {ty} directly is unsupported."
+                    )
+            else:
+                raise errors.TypingError(f"Constructor for {ty} only takes 1 argument.")
+
+        def typer(val, imag=None):
+            if imag is None:
+                return typer_real(val)
+            return typer_complex(val, imag)
 
         return types.Function(make_callable_template(key=ty, typer=typer))
 

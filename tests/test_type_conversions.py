@@ -15,11 +15,17 @@ from numba_cuda_mlir.lowering_utilities.type_conversions import to_numba_type
 @pytest.mark.parametrize(
     "np_type, numba_type",
     [
+        (np.float16, types.float16),
         (np.float32, types.float32),
         (np.float64, types.float64),
-        (np.float16, types.float16),
+        (np.int8, types.int8),
+        (np.int16, types.int16),
         (np.int32, types.int32),
         (np.int64, types.int64),
+        (np.uint8, types.uint8),
+        (np.uint16, types.uint16),
+        (np.uint32, types.uint32),
+        (np.uint64, types.uint64),
         (np.complex64, types.complex64),
         (np.complex128, types.complex128),
     ],
@@ -35,6 +41,7 @@ def test_numpy_scalar_type_conversion(np_type, numba_type):
         (np.float32, types.float32),
         (np.float64, types.float64),
         (np.int32, types.int32),
+        (np.uint32, types.uint32),
     ],
 )
 def test_numpy_dtype_conversion(np_type, numba_type):
@@ -47,7 +54,16 @@ def test_numpy_dtype_conversion(np_type, numba_type):
     [
         (ctypes.c_float, types.float32),
         (ctypes.c_double, types.float64),
+        (ctypes.c_int8, types.int8),
+        (ctypes.c_int16, types.int16),
         (ctypes.c_int32, types.int32),
+        (ctypes.c_int64, types.int64),
+        (ctypes.c_uint8, types.uint8),
+        (ctypes.c_uint16, types.uint16),
+        (ctypes.c_uint32, types.uint32),
+        (ctypes.c_uint64, types.uint64),
+        (np.complex64, types.complex64),
+        (np.complex128, types.complex128),
     ],
 )
 def test_ctypes_conversion(ctype, numba_type):

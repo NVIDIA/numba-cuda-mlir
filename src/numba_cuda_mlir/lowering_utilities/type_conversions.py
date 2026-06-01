@@ -456,6 +456,14 @@ def np_dtype_to_numba_dtype(dtype: np.dtype) -> types.Type:
             return types.int32
         case np.int64:
             return types.int64
+        case np.uint8:
+            return types.uint8
+        case np.uint16:
+            return types.uint16
+        case np.uint32:
+            return types.uint32
+        case np.uint64:
+            return types.uint64
         case np.complex64:
             return types.complex64
         case np.complex128:

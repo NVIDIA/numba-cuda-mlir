@@ -109,18 +109,19 @@ jobs:
           name: llvm-modern-install-${{ matrix.py-tag }}-${{ inputs.host-platform }}
           path: llvm-modern-install/
 
-  build-llvm-modern-windows:
-    name: LLVM Modern Windows (${{ matrix.py-tag }})
+  build-llvm-windows:
+    name: ${{ matrix.name }}
     if: ${{ inputs.host-platform == 'win-64' }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { python-version: "3.11", py-tag: cp311 }
-          - { python-version: "3.12", py-tag: cp312 }
-          - { python-version: "3.13", py-tag: cp313 }
-          - { python-version: "3.14", py-tag: cp314 }
-          - { python-version: "3.14t", py-tag: cp314t }
+          - { name: "LLVM Modern Windows (cp311)", mode: modern, python-version: "3.11",  py-tag: cp311,  install-dir: llvm-modern-install, container-name: llvm-modern-cp311 }
+          - { name: "LLVM Modern Windows (cp312)", mode: modern, python-version: "3.12",  py-tag: cp312,  install-dir: llvm-modern-install, container-name: llvm-modern-cp312 }
+          - { name: "LLVM Modern Windows (cp313)", mode: modern, python-version: "3.13",  py-tag: cp313,  install-dir: llvm-modern-install, container-name: llvm-modern-cp313 }
+          - { name: "LLVM Modern Windows (cp314)", mode: modern, python-version: "3.14",  py-tag: cp314,  install-dir: llvm-modern-install, container-name: llvm-modern-cp314 }
+          - { name: "LLVM Modern Windows (cp314t)", mode: modern, python-version: "3.14t", py-tag: cp314t, install-dir: llvm-modern-install, container-name: llvm-modern-cp314t }
+          - { name: "LLVM 7 Windows", mode: llvm7, python-version: "3.12", install-dir: llvm7-install, container-name: llvm7-build }
     runs-on: windows-amd64-cpu16
     timeout-minutes: 120
     env:
@@ -135,18 +136,25 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
           role-duration-seconds: 43200
 
-      - name: Compute cache key
-        id: cache-key
+      - name: Compute LLVM metadata
+        id: llvm-metadata
         run: |
-          KEY="$(bash ci/llvm-cache-key.sh modern "${{ inputs.host-platform }}" "${{ matrix.py-tag }}")"
+          if [[ "${{ matrix.mode }}" == "modern" ]]; then
+            KEY="$(bash ci/llvm-cache-key.sh modern "${{ inputs.host-platform }}" "${{ matrix.py-tag }}")"
+            ARTIFACT_NAME="llvm-modern-install-${{ matrix.py-tag }}-${{ inputs.host-platform }}"
+          else
+            KEY="$(bash ci/llvm-cache-key.sh llvm7 "${{ inputs.host-platform }}")"
+            ARTIFACT_NAME="llvm7-install-${{ inputs.host-platform }}"
+          fi
           echo "key=${KEY}" >> "$GITHUB_OUTPUT"
+          echo "artifact-name=${ARTIFACT_NAME}" >> "$GITHUB_OUTPUT"
 
-      - name: Restore or check LLVM Modern GHA cache
+      - name: Restore or check LLVM GHA cache
         id: gha-cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
-          path: llvm-modern-install/
-          key: ${{ steps.cache-key.outputs.key }}
+          path: ${{ matrix.install-dir }}/
+          key: ${{ steps.llvm-metadata.outputs.key }}
 
       - name: Pull devcontainer image
         if: steps.gha-cache.outputs.cache-hit != 'true'
@@ -156,10 +164,12 @@ jobs:
           Import-EnvFile ci/windows-devcontainer.env
           docker pull $env:WINDOWS_DEVCONTAINER_IMAGE
 
-      - name: Build modern LLVM in devcontainer
+      - name: Build LLVM in devcontainer
         if: steps.gha-cache.outputs.cache-hit != 'true'
         shell: pwsh
         env:
+          BUILD_MODE: ${{ matrix.mode }}
+          CONTAINER_NAME: ${{ matrix.container-name }}
           PYTHON_VERSION: ${{ matrix.python-version }}
         run: |
           . ./ci/windows-common.ps1
@@ -167,38 +177,39 @@ jobs:
           $src = (Resolve-Path "${{ github.workspace }}").Path
           $img = $env:WINDOWS_DEVCONTAINER_IMAGE
           $py = $env:PYTHON_VERSION
-          $cname = "llvm-modern-${{ matrix.py-tag }}"
+          $mode = $env:BUILD_MODE
+          $cname = $env:CONTAINER_NAME
           docker run --rm --name $cname --isolation=process `
             --mount "type=bind,source=$src,target=C:\workspace" `
             --workdir C:\workspace `
             --env "PARALLEL=${{ env.PARALLEL }}" `
             $img `
-            powershell -NoProfile -ExecutionPolicy Bypass -File C:\workspace\ci\windows-llvm-container-build.ps1 -PythonVersion $py -Mode modern
+            powershell -NoProfile -ExecutionPolicy Bypass -File C:\workspace\ci\windows-llvm-container-build.ps1 -PythonVersion $py -Mode $mode
           if ($LASTEXITCODE -ne 0) {
-            throw "Modern LLVM build container failed with exit code $LASTEXITCODE"
+            throw "$mode LLVM build container failed with exit code $LASTEXITCODE"
           }
 
-      - name: Verify LLVM Modern install
+      - name: Verify LLVM install
         if: steps.gha-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          $install = "${{ github.workspace }}\llvm-modern-install"
+          $install = "${{ github.workspace }}\${{ matrix.install-dir }}"
           if (-not (Test-Path $install)) {
-            throw "LLVM Modern install not found at $install"
+            throw "LLVM install not found at $install"
           }
 
-      - name: Save LLVM Modern to GHA cache
+      - name: Save LLVM to GHA cache
         if: steps.gha-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
-          path: llvm-modern-install/
-          key: ${{ steps.cache-key.outputs.key }}
+          path: ${{ matrix.install-dir }}/
+          key: ${{ steps.llvm-metadata.outputs.key }}
 
-      - name: Upload LLVM Modern artifacts
+      - name: Upload LLVM artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: llvm-modern-install-${{ matrix.py-tag }}-${{ inputs.host-platform }}
-          path: llvm-modern-install/
+          name: ${{ steps.llvm-metadata.outputs.artifact-name }}
+          path: ${{ matrix.install-dir }}/
 
   build-llvm7:
     name: LLVM 7
@@ -268,84 +279,6 @@ jobs:
             ci/build-llvm7.sh
             source ci/llvm-cache.sh && cache_upload "$CACHE_KEY" llvm7-install
           fi
-
-      - name: Save LLVM 7 to GHA cache
-        if: steps.gha-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: llvm7-install/
-          key: ${{ steps.cache-key.outputs.key }}
-
-      - name: Upload LLVM 7 artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: llvm7-install-${{ inputs.host-platform }}
-          path: llvm7-install/
-
-  build-llvm7-windows:
-    name: LLVM 7 Windows
-    if: ${{ inputs.host-platform == 'win-64' }}
-    runs-on: windows-amd64-cpu16
-    timeout-minutes: 120
-    env:
-      PARALLEL: "16"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          role-duration-seconds: 43200
-
-      - name: Compute cache key
-        id: cache-key
-        run: |
-          KEY="$(bash ci/llvm-cache-key.sh llvm7 "${{ inputs.host-platform }}")"
-          echo "key=${KEY}" >> "$GITHUB_OUTPUT"
-
-      - name: Restore or check LLVM 7 GHA cache
-        id: gha-cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: llvm7-install/
-          key: ${{ steps.cache-key.outputs.key }}
-
-      - name: Pull devcontainer image
-        if: steps.gha-cache.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          . ./ci/windows-common.ps1
-          Import-EnvFile ci/windows-devcontainer.env
-          docker pull $env:WINDOWS_DEVCONTAINER_IMAGE
-
-      - name: Build LLVM 7 in devcontainer
-        if: steps.gha-cache.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          . ./ci/windows-common.ps1
-          Import-EnvFile ci/windows-devcontainer.env
-          $src = (Resolve-Path "${{ github.workspace }}").Path
-          $img = $env:WINDOWS_DEVCONTAINER_IMAGE
-          docker run --rm --name llvm7-build --isolation=process `
-            --mount "type=bind,source=$src,target=C:\workspace" `
-            --workdir C:\workspace `
-            --env "PARALLEL=${{ env.PARALLEL }}" `
-            $img `
-            powershell -NoProfile -ExecutionPolicy Bypass -File C:\workspace\ci\windows-llvm-container-build.ps1 -PythonVersion 3.12 -Mode llvm7
-          if ($LASTEXITCODE -ne 0) {
-            throw "LLVM 7 build container failed with exit code $LASTEXITCODE"
-          }
-
-      - name: Verify LLVM 7 install
-        if: steps.gha-cache.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          $install = "${{ github.workspace }}\llvm7-install"
-          if (-not (Test-Path $install)) {
-            throw "LLVM 7 install not found at $install"
-          }
 
       - name: Save LLVM 7 to GHA cache
         if: steps.gha-cache.outputs.cache-hit != 'true'

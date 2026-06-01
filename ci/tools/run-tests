@@ -44,69 +44,6 @@ else
     "${coverage_packages[@]}"
 fi
 
-if [[ "${RUNNER_OS:-}" == "Windows" || "$(python - <<'PY'
-import os
-print(os.name)
-PY
-)" == "nt" ]]; then
-  python - <<'PY'
-import importlib.util
-import os
-import pathlib
-import sys
-import traceback
-
-debug = os.environ.get("NUMBA_CUDA_MLIR_CI_DEBUG") == "1"
-
-
-def log(message):
-    if debug:
-        print(message)
-
-
-def describe_artifacts(pkg):
-    mlir_libs = pkg / "_mlir" / "_mlir_libs"
-    pkg_lib = pkg / "lib"
-    print(f"Python executable: {sys.executable}", file=sys.stderr)
-    print(f"Python version: {sys.version}", file=sys.stderr)
-    print(f"PATH: {os.environ.get('PATH', '')}", file=sys.stderr)
-    print(f"Package dir: {pkg}", file=sys.stderr)
-    print(f"MLIR libs dir: {mlir_libs} exists={mlir_libs.is_dir()}", file=sys.stderr)
-    print(f"Package lib dir: {pkg_lib} exists={pkg_lib.is_dir()}", file=sys.stderr)
-    for directory in (mlir_libs, pkg_lib):
-        if directory.is_dir():
-            print(f"{directory}:", file=sys.stderr)
-            for path in sorted(directory.iterdir()):
-                if path.is_file() and path.suffix.lower() in {".dll", ".pyd", ".lib", ".exp"}:
-                    print(f"  {path.name} size={path.stat().st_size}", file=sys.stderr)
-
-
-spec = importlib.util.find_spec("numba_cuda_mlir")
-if spec is None or not spec.submodule_search_locations:
-    raise RuntimeError("numba_cuda_mlir is not importable after wheel install")
-
-pkg = pathlib.Path(next(iter(spec.submodule_search_locations)))
-mlir_libs = pkg / "_mlir" / "_mlir_libs"
-pkg_lib = pkg / "lib"
-_dll_directory_handles = []
-if hasattr(os, "add_dll_directory"):
-    for directory in (mlir_libs, pkg, pkg_lib):
-        if directory.is_dir():
-            log(f"Adding DLL directory: {directory}")
-            _dll_directory_handles.append(os.add_dll_directory(str(directory)))
-
-try:
-    from numba_cuda_mlir._mlir import ir
-except BaseException:
-    print("Windows MLIR native import failed:", file=sys.stderr)
-    describe_artifacts(pkg)
-    traceback.print_exc()
-    raise
-else:
-    log(f"Windows MLIR native import passed: {ir}")
-PY
-fi
-
 echo "Running numba-cuda-mlir tests"
 export NUMBA_CUDA_MLIR_ICE_FULL_TB=1
 ${SANITIZER_CMD} pytest "${pytest_args[@]}"

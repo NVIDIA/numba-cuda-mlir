@@ -52,17 +52,11 @@ $parallel = if ($env:PARALLEL) { $env:PARALLEL } else { '16' }
 $pythonForBash = ($pythonExe -replace '\\', '/')
 $modeArg = $Mode
 
-$bashCmd = @"
-set -euo pipefail
-cd '$repoRootUnix'
-chmod +x ci/*.sh || true
-export PYTHON="$pythonForBash"
-export PARALLEL="$parallel"
-ci/build-windows.sh $modeArg
-"@
+$env:PYTHON = $pythonForBash
+$env:PARALLEL = $parallel
 
 Write-Host "Running build via bash (PARALLEL=$parallel, Mode=$modeArg)"
-& $bash -lc $bashCmd
+& $bash -lc "cd '$repoRootUnix' && bash ci/build-windows-driver.sh '$modeArg'"
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

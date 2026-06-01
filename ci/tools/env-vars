@@ -16,14 +16,10 @@ if [[ ${#} -ne 1 ]]; then
 fi
 
 PYTHON_VERSION_FORMATTED=$(echo "${PY_VER}" | tr -d '.')
+REPO_DIR=$(pwd)
+TOOLS_PATH="${REPO_DIR}/ci/tools"
 
-if [[ "${HOST_PLATFORM}" == linux* ]]; then
-  REPO_DIR=$(pwd)
-  TOOLS_PATH="${REPO_DIR}/ci/tools"
-elif [[ "${HOST_PLATFORM}" == win* ]]; then
-  REPO_DIR=$(pwd)
-  TOOLS_PATH="${REPO_DIR}/ci/tools"
-else
+if [[ "${HOST_PLATFORM}" != linux* && "${HOST_PLATFORM}" != win* ]]; then
   echo "Unsupported host platform: ${HOST_PLATFORM}"
   exit 1
 fi

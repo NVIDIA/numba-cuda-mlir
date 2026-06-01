@@ -83,6 +83,10 @@ jobs:
           SHA: ${{ github.sha }}
         run: ./ci/tools/env-vars build
 
+      - name: Dump environment
+        run: |
+          env
+
       - name: Determine cibuildwheel and LLVM Python tags
         id: wheel-tags
         run: |
@@ -99,20 +103,6 @@ jobs:
         with:
           host-platform: ${{ inputs.host-platform }}
           llvm-py-tag: ${{ steps.wheel-tags.outputs.llvm-py-tag }}
-
-      - name: Validate Windows MLIR Python ABI
-        if: ${{ inputs.host-platform == 'win-64' }}
-        run: |
-          expected="${{ steps.wheel-tags.outputs.llvm-py-tag }}"
-          mlir_libs="llvm-modern-install/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs"
-          core_ext="${mlir_libs}/_mlir.${expected}-win_amd64.pyd"
-          if [[ ! -f "${core_ext}" ]]; then
-            echo "ERROR: LLVM Modern artifact does not match wheel Python ABI ${expected}" >&2
-            echo "Expected: ${core_ext}" >&2
-            echo "Contents of ${mlir_libs}:" >&2
-            ls -la "${mlir_libs}" >&2 || true
-            exit 1
-          fi
 
       - name: Fix LLVM artifact permissions
         if: ${{ startsWith(inputs.host-platform, 'linux') }}

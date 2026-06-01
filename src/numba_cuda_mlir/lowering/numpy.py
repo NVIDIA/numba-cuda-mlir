@@ -5015,3 +5015,12 @@ def make_array_nditer(builder, target, args, kws):
 
     iter_obj = NdIterIterObject(builder, array_values, ndim)
     builder.store_var(target, iter_obj)
+
+
+@lower("number.item", types.Boolean)
+@lower("number.item", types.Number)
+def number_item_impl(builder, target, args, kws):
+    """
+    The no-op .item() method on booleans and numbers.
+    """
+    builder.store_var(target, builder.load_var(args[0]))

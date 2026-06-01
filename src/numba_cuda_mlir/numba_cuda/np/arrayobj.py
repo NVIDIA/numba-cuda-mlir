@@ -4624,31 +4624,6 @@ def numpy_empty_nd(tyctx, ty_shape, ty_dtype, ty_retty_ref):
     return sig, codegen
 
 
-@overload(np.empty)
-def ol_np_empty(shape, dtype=float):
-    _check_const_str_dtype("empty", dtype)
-    if (
-        dtype is float
-        or (isinstance(dtype, types.Function) and dtype.typing_key is float)
-        or is_nonelike(dtype)
-    ):  # default
-        nb_dtype = types.double
-    else:
-        nb_dtype = ty_parse_dtype(dtype)
-
-    ndim = ty_parse_shape(shape)
-    if nb_dtype is not None and ndim is not None:
-        retty = types.Array(dtype=nb_dtype, ndim=ndim, layout="C")
-
-        def impl(shape, dtype=float):
-            return numpy_empty_nd(shape, dtype, retty)
-
-        return impl
-    else:
-        msg = f"Cannot parse input types to function np.empty({shape}, {dtype})"
-        raise errors.TypingError(msg)
-
-
 @intrinsic
 def numpy_empty_like_nd(tyctx, ty_prototype, ty_dtype, ty_retty_ref):
     ty_retty = ty_retty_ref.instance_type

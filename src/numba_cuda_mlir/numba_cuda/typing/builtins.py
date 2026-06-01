@@ -27,6 +27,8 @@ from numba_cuda_mlir.numba_cuda.extending import (
     make_attribute_wrapper,
 )
 
+from numba_cuda_mlir.type_defs.vector_types import VectorType
+
 registry = Registry()
 infer = registry.register
 infer_global = registry.register_global
@@ -788,7 +790,7 @@ class NumberClassAttribute(AttributeTemplate):
         """
         ty = classty.instance_type
 
-        def typer(val):
+        def typer_real(val):
             if isinstance(val, (types.BaseTuple, types.Sequence)):
                 # Array constructor, e.g. np.int32([1, 2])
                 fnty = self.context.resolve_value_type(np.array)
@@ -809,13 +811,36 @@ class NumberClassAttribute(AttributeTemplate):
                 if isinstance(val, types.Array) and val.ndim == 0 and val.dtype == ty:
                     # This is 0d array -> scalar degrading
                     return ty
+                elif (
+                    isinstance(val, VectorType)
+                    and val.length == 2
+                    and isinstance(ty, types.Complex)
+                    and isinstance(val.dtype, types.Float)
+                ):
+                    return ty
+
+                # unsupported
+                msg = f"Casting {val} to {ty} directly is unsupported."
+                if isinstance(val, types.Array):
+                    # array casts are supported a different way.
+                    msg += f" Try doing '<array>.astype(np.{ty})' instead"
+                raise errors.TypingError(msg)
+
+        def typer_complex(val, imag):
+            if ty in types.complex_domain:
+                if isinstance(val, types.Number) and isinstance(imag, types.Number):
+                    return ty
                 else:
-                    # unsupported
-                    msg = f"Casting {val} to {ty} directly is unsupported."
-                    if isinstance(val, types.Array):
-                        # array casts are supported a different way.
-                        msg += f" Try doing '<array>.astype(np.{ty})' instead"
-                    raise errors.TypingError(msg)
+                    raise errors.TypingError(
+                        f"Casting {val}, {imag} to {ty} directly is unsupported."
+                    )
+            else:
+                raise errors.TypingError(f"Constructor for {ty} only takes 1 argument.")
+
+        def typer(val, imag=None):
+            if imag is None:
+                return typer_real(val)
+            return typer_complex(val, imag)
 
         return types.Function(make_callable_template(key=ty, typer=typer))
 

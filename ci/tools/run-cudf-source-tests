@@ -96,11 +96,11 @@ if [[ ! -e "${ENV_BIN}/nvidia-smi" ]]; then
   fi
 fi
 
-# --- Build pylibcudf and cudf from source ---
-# The conda env already provides libcudf, librmm, and rmm (with Cython pxd
-# files) from rapidsai-nightly. We only build the Python layers from source.
-echo "Building pylibcudf and cudf from source..."
-conda run -n "${CONDA_ENV_NAME}" bash -c "cd ${CUDF_DIR} && bash build.sh pylibcudf cudf"
+# --- Build cudf from source ---
+# The conda env already provides libcudf, pylibcudf, librmm, and rmm from
+# rapidsai-nightly. We only build the cudf Python package from source.
+echo "Building cudf from source..."
+conda run -n "${CONDA_ENV_NAME}" bash -c "cd ${CUDF_DIR} && bash build.sh cudf"
 
 # --- Install numba-cuda-mlir wheel ---
 echo "Installing numba-cuda-mlir wheel into conda env..."

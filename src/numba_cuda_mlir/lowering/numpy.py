@@ -2655,15 +2655,23 @@ def np_multiply_array_lower(builder, target, args, kwargs):
 
 @lower(np.divide, types.Number, types.Number)
 def np_divide_scalar_lower(builder, target, args, kwargs):
-    """Lower np.divide for scalars"""
-    assert len(args) == 2, "np.divide expects 2 arguments"
+    """Lower np.divide for scalars."""
+
     lhs = builder.load_var(args[0])
     rhs = builder.load_var(args[1])
-    result = (
-        arith.divf(lhs, rhs)
-        if isinstance(builder.get_numba_type(target.name), types.Float)
-        else arith.divsi(lhs, rhs)
-    )
+    target_type = builder.get_numba_type(target.name)
+
+    if isinstance(target_type, types.Float):
+        # Convert operands to the target type so mixed-type calls like
+        # ``np.divide(float64, int64)`` provide float operands as required by
+        # ``arith.divf``.
+        target_mlir_type = builder.get_mlir_type(target_type)
+        lhs = convert(lhs, target_mlir_type)
+        rhs = convert(rhs, target_mlir_type)
+        result = arith.divf(lhs, rhs)
+    else:
+        result = arith.divsi(lhs, rhs)
+
     builder.store_var(target, result)
 
 

@@ -168,6 +168,9 @@ def is_complex_type(mlir_type):
     return isinstance(mlir_type, ir.ComplexType)
 
 
+# Complex values lower as MLIR complex scalars in SSA, but pointer and record
+# storage paths address them as literal LLVM {real, imag} structs. Keep the
+# conversions shared so those independent lowering paths use the same layout.
 def get_llvm_struct_for_complex(complex_type):
     elem_type = complex_type.element_type
     return llvm.StructType.get_literal([elem_type, elem_type])

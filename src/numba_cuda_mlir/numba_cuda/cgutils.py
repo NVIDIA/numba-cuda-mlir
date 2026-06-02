@@ -9,23 +9,25 @@ import collections
 from contextlib import contextmanager, ExitStack
 import functools
 
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda import config, utils, debuginfo
 import numba_cuda_mlir.numba_cuda.datamodel
 
 
-bool_t = ir.IntType(1)
-int8_t = ir.IntType(8)
-int32_t = ir.IntType(32)
-intp_t = ir.IntType(utils.MACHINE_BITS)
-voidptr_t = int8_t.as_pointer()
+# llvmlite type aliases discarded on the MLIR path (used only by dead codegen)
+bool_t = None
+int8_t = None
+int32_t = None
+intp_t = None
+voidptr_t = None
 
-true_bit = bool_t(1)
-false_bit = bool_t(0)
-true_byte = int8_t(1)
-false_byte = int8_t(0)
+# llvmlite constants discarded on the MLIR path (used only by dead codegen)
+true_bit = None
+false_bit = None
+true_byte = None
+false_byte = None
 
 
 def as_bool_bit(builder, value):

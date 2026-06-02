@@ -4,7 +4,7 @@
 import os
 import sys
 
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 
 from numba_cuda_mlir.numba_cuda import types, config
 from numba_cuda_mlir.numba_cuda.core import errors

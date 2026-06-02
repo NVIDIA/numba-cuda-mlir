@@ -7,10 +7,11 @@ from numba_cuda_mlir.numba_cuda import itanium_mangler
 from numba_cuda_mlir.numba_cuda.core import imputils
 from collections import namedtuple
 
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 
-int32_t = ir.IntType(32)
-int64_t = ir.IntType(64)
+# llvmlite type aliases discarded on the MLIR path (used only by dead codegen)
+int32_t = None
+int64_t = None
 errcode_t = int32_t
 
 
@@ -38,7 +39,8 @@ Status = namedtuple(
 
 
 def _const_int(code):
-    return ir.Constant(errcode_t, code)
+    # llvmlite error-code constant discarded on the MLIR path
+    return None
 
 
 RETCODE_OK = _const_int(0)

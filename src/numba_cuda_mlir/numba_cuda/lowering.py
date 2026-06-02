@@ -6,7 +6,7 @@ import operator
 import warnings
 from functools import partial
 
-from llvmlite import ir as llvm_ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir as llvm_ir
 
 from numba_cuda_mlir.numba_cuda import HAS_NUMBA
 from numba_cuda_mlir.numba_cuda.core import ir

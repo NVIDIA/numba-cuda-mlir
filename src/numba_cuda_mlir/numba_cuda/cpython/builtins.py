@@ -8,7 +8,7 @@ from functools import reduce
 import numpy as np
 import operator
 
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 
 from numba_cuda_mlir.numba_cuda.core.imputils import (
     call_getiter,

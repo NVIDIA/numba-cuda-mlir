@@ -9,7 +9,7 @@ import math
 from collections import namedtuple
 import operator
 
-import llvmlite.ir
+from numba_cuda_mlir.numba_cuda import _llvmlite_removed as llvmlite
 import numpy as np
 
 from numba_cuda_mlir.numba_cuda import types

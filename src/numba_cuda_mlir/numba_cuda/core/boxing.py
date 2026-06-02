@@ -5,7 +5,7 @@
 Boxing and unboxing of native Numba values to / from CPython objects.
 """
 
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 
 from numba_cuda_mlir.numba_cuda import types, cgutils
 from numba_cuda_mlir.numba_cuda.core.pythonapi import box, unbox, reflect, NativeValue

@@ -13,7 +13,7 @@ from ctypes import c_void_p, c_int, POINTER, c_char_p, c_size_t, byref, c_char
 
 import threading
 
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 
 from .error import NvvmError, NvvmSupportError, NvvmWarning
 from .libs import get_libdevice, open_libdevice, open_cudalib

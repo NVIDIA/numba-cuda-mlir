@@ -20,6 +20,7 @@ from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir import types
 from numba_cuda_mlir.numba_cuda.datamodel.models import PrimitiveModel, DataModel
 from numba_cuda_mlir.numba_cuda.datamodel.registry import DataModelManager, register
+from numba_cuda_mlir.numba_cuda.types import misc as nb_types_misc
 from numba_cuda_mlir.numba_cuda.types.ext_types import GridGroup as GridGroupClass
 from numba_cuda_mlir.type_defs import float_types
 from numba_cuda_mlir.numba_cuda.types.containers import StarArgTuple, StarArgUniTuple
@@ -286,6 +287,7 @@ class GridGroupModel(PrimitiveModel):
 @register_model(types.Function)
 @register_model(types.Module)
 @register_model(types.NoneType)
+@register_model(types.DType)
 class OpaqueModel(PrimitiveModel):
     """Passed as opaque pointers"""
 
@@ -334,6 +336,8 @@ class TupleModel(PrimitiveModel):
 
 @register_model(types.CPointer)
 @register_model(types.RawPointer)
+@register_model(nb_types_misc.MemInfoPointer)
+@register_model(nb_types_misc.PyObject)
 class CPointerModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
         from numba_cuda_mlir._mlir.dialects import llvm
@@ -363,32 +367,24 @@ class StringLiteralModel(PrimitiveModel):
 
 
 @register_model(types.UnicodeType)
-class UnicodeTypeModel(PrimitiveModel):
-    """Runtime unicode string type matching numba-cuda's UnicodeModel.
-
-    The struct layout is:
-      (data: ptr, length: i64, kind: i32, is_ascii: u32,
-       hash: i64, meminfo: ptr, parent: ptr)
-    """
-
-    _fields = ("data", "length", "kind", "is_ascii", "hash", "meminfo", "parent")
+class UnicodeTypeModel(StructModel):
+    """Runtime unicode string type matching numba-cuda's UnicodeModel."""
 
     def __init__(self, dmm, fe_type):
         import sys
+        from numba_cuda_mlir.numba_cuda import types as nb_types
 
-        hash_width = sys.hash_info.width
-        be_type = llvm.StructType.get_literal(
-            [
-                llvm.PointerType.get(),  # data (voidptr)
-                ir.IntegerType.get_signless(64),  # length (intp)
-                ir.IntegerType.get_signless(32),  # kind (int32)
-                ir.IntegerType.get_signless(32),  # is_ascii (uint32)
-                ir.IntegerType.get_signless(hash_width),  # hash (_Py_hash_t)
-                llvm.PointerType.get(),  # meminfo
-                llvm.PointerType.get(),  # parent
-            ]
-        )
-        super().__init__(dmm, fe_type, be_type)
+        _Py_hash_t = getattr(nb_types, "int%s" % sys.hash_info.width)
+        members = [
+            ("data", nb_types.voidptr),
+            ("length", nb_types.intp),
+            ("kind", nb_types.int32),
+            ("is_ascii", nb_types.uint32),
+            ("hash", _Py_hash_t),
+            ("meminfo", nb_types.MemInfoPointer(nb_types.voidptr)),
+            ("parent", nb_types.pyobject),
+        ]
+        super().__init__(dmm, fe_type, members)
 
     def has_nrt_meminfo(self):
         return True

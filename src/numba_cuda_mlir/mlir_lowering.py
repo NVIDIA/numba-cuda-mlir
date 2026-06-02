@@ -39,6 +39,7 @@ from numba_cuda_mlir.lowering_utilities import (
     RangeObject,
     ArrayIterObject,
     UniTupleIterObject,
+    NdIterIterObject,
     IterResult,
     get_or_insert_function,
     user_signature_to_external_abi_signature,
@@ -513,6 +514,9 @@ extern "C" __global__ void
             argtypes = [self.get_argument_type(argtype) for argtype in flat_argtypes]
             flat_restypes = self._flatten_type(self.fndesc.restype)
             restypes = [self.get_return_type(rt) for rt in flat_restypes]
+            # Opaque types (DType, Function, Module, ...) lower to MLIR NoneType
+            # and have no runtime representation, so the function returns void.
+            restypes = [rt for rt in restypes if not isinstance(rt, ir.NoneType)]
             if not restypes:
                 mlir_funcOp_type = ir.FunctionType.get(argtypes, [])
             else:
@@ -1196,7 +1200,13 @@ extern "C" __global__ void
         var_value = self.load_var(var)
 
         match var_value:
-            case RangeObject() | ArrayIterObject() | UniTupleIterObject() | IterResult():
+            case (
+                RangeObject()
+                | ArrayIterObject()
+                | UniTupleIterObject()
+                | NdIterIterObject()
+                | IterResult()
+            ):
                 self.store_var(target, var_value)
             case tuple():
                 target_type = self.get_numba_type(target.name)
@@ -1423,7 +1433,7 @@ extern "C" __global__ void
         if isinstance(iter_obj, RangeObject):
             iternext = iter_obj.next()
             self.store_var(target, iternext)
-        elif isinstance(iter_obj, (ArrayIterObject, UniTupleIterObject)):
+        elif isinstance(iter_obj, (ArrayIterObject, UniTupleIterObject, NdIterIterObject)):
             iternext = iter_obj.next()
             self.store_var(target, iternext)
         else:
@@ -1440,6 +1450,13 @@ extern "C" __global__ void
             if not isinstance(ro, RangeObject):
                 raise InternalCompilerError(f"Range object not found for value {value.name}")
             self.store_var(target, ro)
+        elif isinstance(value_type, types.NumpyNdIterType):
+            iter_obj = self.load_var(value)
+            if not isinstance(iter_obj, NdIterIterObject):
+                raise InternalCompilerError(
+                    f"NdIter object not found for value {value.name}: got {type(iter_obj)}"
+                )
+            self.store_var(target, iter_obj)
         elif isinstance(value_type, types.Array) and value_type.ndim == 1:
             array = self.load_var(value)
             element_type = self.get_mlir_type(value_type.dtype)
@@ -1988,7 +2005,8 @@ extern "C" __global__ void
             has_arrays = any(isinstance(arg_ty, types.Array) for arg_ty in signature.args)
             if has_arrays:
                 return None
-            full_sig, maybe_builder = fn._defn(self, *signature.args)
+            tyctx = self.context.typing_context
+            full_sig, maybe_builder = fn._defn(tyctx, *signature.args)
             if maybe_builder and self._assume_builder_is_usable_for_mlir(maybe_builder):
                 return maybe_builder
 
@@ -2177,6 +2195,31 @@ extern "C" __global__ void
                 return
             else:
                 raise InternalCompilerError("literal_unroll expects exactly 1 argument")
+
+        # An ``exc = SomeException("msg")`` assignment is left behind when
+        # ``raise SomeException("msg")`` gets rewritten into a ``StaticRaise``
+        # by ``RewriteConstRaises``: the original ``Raise`` instruction is
+        # replaced but the exception-constructor call site is preserved. There
+        # is no MLIR-level work to do here (the actual error is signalled by
+        # the subsequent ``StaticRaise`` lowering writing the error-code
+        # global), so just record a placeholder so future lookups treat the
+        # variable as lowered.
+        if isinstance(fn_value, type) and issubclass(fn_value, BaseException):
+            self.store_var(target, fn_value)
+            return
+
+        # Handle ``next(it)`` on a recognised iterator object by advancing the
+        # iterator and yielding its value, mirroring CPython's ``it.__next__()``
+        # semantics. We skip the StopIteration check here: callers in nopython
+        # mode are expected to have already guarded against empty iterators.
+        if fn_value is next and len(args) == 1:
+            iter_obj = self.load_var(args[0])
+            if isinstance(
+                iter_obj, (RangeObject, ArrayIterObject, UniTupleIterObject, NdIterIterObject)
+            ):
+                iternext = iter_obj.next()
+                self.store_var(target, iternext.value)
+                return
 
         if builder := self.get_registered_builder(fn, signature):
             builder_args = args if isinstance(builder, DeferredLowering) else call_args
@@ -2978,7 +3021,9 @@ extern "C" __global__ void
         value = return_inst.value
         value_type = self.get_numba_type(value.name)
         return_ctor = gpu.ReturnOp if isinstance(self.mlir_funcOp, gpu.GPUFuncOp) else func.ReturnOp
-        if isinstance(value_type, types.NoneType):
+        if isinstance(value_type, types.NoneType) or isinstance(
+            self.get_mlir_type(value_type), ir.NoneType
+        ):
             return_ctor([])
         else:
             value = self.load_var(value)

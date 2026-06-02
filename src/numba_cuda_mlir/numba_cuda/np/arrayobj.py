@@ -4624,31 +4624,6 @@ def numpy_empty_nd(tyctx, ty_shape, ty_dtype, ty_retty_ref):
     return sig, codegen
 
 
-@overload(np.empty)
-def ol_np_empty(shape, dtype=float):
-    _check_const_str_dtype("empty", dtype)
-    if (
-        dtype is float
-        or (isinstance(dtype, types.Function) and dtype.typing_key is float)
-        or is_nonelike(dtype)
-    ):  # default
-        nb_dtype = types.double
-    else:
-        nb_dtype = ty_parse_dtype(dtype)
-
-    ndim = ty_parse_shape(shape)
-    if nb_dtype is not None and ndim is not None:
-        retty = types.Array(dtype=nb_dtype, ndim=ndim, layout="C")
-
-        def impl(shape, dtype=float):
-            return numpy_empty_nd(shape, dtype, retty)
-
-        return impl
-    else:
-        msg = f"Cannot parse input types to function np.empty({shape}, {dtype})"
-        raise errors.TypingError(msg)
-
-
 @intrinsic
 def numpy_empty_like_nd(tyctx, ty_prototype, ty_dtype, ty_retty_ref):
     ty_retty = ty_retty_ref.instance_type
@@ -4984,102 +4959,6 @@ def generate_getitem_setitem_with_axis(ndim, kind):
     exec(fn, globals())
     fn = globals()[f"_{kind}"]
     return register_jitable(fn)
-
-
-@overload(np.take)
-@overload_method(types.Array, "take")
-def numpy_take(a, indices, axis=None):
-    if cgutils.is_nonelike(axis):
-        if isinstance(a, types.Array) and isinstance(indices, types.Integer):
-
-            def take_impl(a, indices, axis=None):
-                if indices > (a.size - 1) or indices < -a.size:
-                    raise IndexError("Index out of bounds")
-                return a.ravel()[indices]
-
-            return take_impl
-
-        if isinstance(a, types.Array) and isinstance(indices, types.Array):
-            F_order = indices.layout == "F"
-
-            def take_impl(a, indices, axis=None):
-                ret = np.empty(indices.size, dtype=a.dtype)
-                if F_order:
-                    walker = indices.copy()  # get C order
-                else:
-                    walker = indices
-                it = np.nditer(walker)
-                i = 0
-                flat = a.ravel()
-                for x in it:
-                    if x > (a.size - 1) or x < -a.size:
-                        raise IndexError("Index out of bounds")
-                    ret[i] = flat[x]
-                    i = i + 1
-                return ret.reshape(indices.shape)
-
-            return take_impl
-
-        if isinstance(a, types.Array) and isinstance(indices, (types.List, types.BaseTuple)):
-
-            def take_impl(a, indices, axis=None):
-                convert = np.array(indices)
-                return np.take(a, convert)
-
-            return take_impl
-    else:
-        if isinstance(a, types.Array) and isinstance(indices, types.Integer):
-            t = (0,) * (a.ndim - 1)
-
-            # np.squeeze is too hard to implement in Numba as the tuple "t"
-            # needs to be allocated beforehand we don't know it's size until
-            # code gets executed.
-            @register_jitable
-            def _squeeze(r, axis):
-                tup = tuple(t)
-                j = 0
-                assert axis < len(r.shape) and r.shape[axis] == 1, r.shape
-                for idx in range(len(r.shape)):
-                    s = r.shape[idx]
-                    if idx != axis:
-                        tup = tuple_setitem(tup, j, s)
-                        j += 1
-                return r.reshape(tup)
-
-            def take_impl(a, indices, axis=None):
-                r = np.take(a, (indices,), axis=axis)
-                if a.ndim == 1:
-                    return r[0]
-                if axis < 0:
-                    axis += a.ndim
-                return _squeeze(r, axis)
-
-            return take_impl
-
-        if isinstance(a, types.Array) and isinstance(
-            indices, (types.Array, types.List, types.BaseTuple)
-        ):
-            ndim = a.ndim
-
-            _getitem = generate_getitem_setitem_with_axis(ndim, "getitem")
-            _setitem = generate_getitem_setitem_with_axis(ndim, "setitem")
-
-            def take_impl(a, indices, axis=None):
-                if axis < 0:
-                    axis += a.ndim
-
-                if axis < 0 or axis >= a.ndim:
-                    msg = f"axis {axis} is out of bounds for array of dimension {a.ndim}"
-                    raise ValueError(msg)
-
-                shape = tuple_setitem(a.shape, axis, len(indices))
-                out = np.empty(shape, dtype=a.dtype)
-                for i in range(len(indices)):
-                    y = _getitem(a, indices[i], axis)
-                    _setitem(out, i, axis, y)
-                return out
-
-            return take_impl
 
 
 def _arange_dtype(*args):

@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import math
+
 from numba_cuda_mlir.numba_cuda.typing.templates import (
     AbstractTemplate,
     AttributeTemplate,
@@ -8,6 +9,7 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
     signature,
 )
 from numba_cuda_mlir.numba_cuda import types
+from numba_cuda_mlir.numba_cuda.types.ext_types import Bfloat16
 
 registry = Registry()
 
@@ -25,9 +27,11 @@ def _make_unary_math_template(key, return_type_fn=None):
                        If None, returns the same type as input.
     """
 
+    acceptable = (types.Integer, types.Float, Bfloat16)
+
     class UnaryMathTemplate(AbstractTemplate):
         def generic(self, args, kws):
-            if len(args) == 1 and isinstance(args[0], (types.Integer, types.Float)):
+            if len(args) == 1 and isinstance(args[0], acceptable):
                 return_type = return_type_fn(args[0]) if return_type_fn else args[0]
                 return signature(return_type, args[0])
 

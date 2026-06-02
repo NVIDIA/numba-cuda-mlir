@@ -1367,6 +1367,115 @@ class ArrayIterObject:
         return IterResult(current_value, is_valid)
 
 
+def _make_zero_d_subview(array_mr: ir.Value, multi_idx: list[ir.Value]) -> ir.Value:
+    """Build a rank-0 memref view at `multi_idx` of `array_mr`.
+
+    All elements of multi_idx must be IndexType values; their count must equal
+    the rank of array_mr.  The sizes and strides are passed as the integer 1
+    (not as SSA values) so MLIR sees them as static and can rank-reduce the
+    result to rank 0.
+    """
+    source_type: ir.MemRefType = array_mr.type
+    dyn_stride = ir.ShapedType.get_dynamic_stride_or_offset()
+    result_type = ir.MemRefType.get(
+        shape=[],
+        element_type=source_type.element_type,
+        layout=ir.StridedLayoutAttr.get(dyn_stride, []),
+        memory_space=source_type.memory_space,
+    )
+    rank = source_type.rank
+    return memref.subview(
+        array_mr,
+        offsets=multi_idx,
+        sizes=[1] * rank,
+        strides=[1] * rank,
+        result_type=result_type,
+    )
+
+
+@dataclass
+class NdIterIterObject:
+    """
+    Iterator state for ``np.nditer`` over one or more arrays.
+
+    Each call to ``next()`` yields either a rank-0 memref view of the current
+    element (single-array case) or a tuple of rank-0 views (multi-array case).
+    Iteration proceeds in C order over the broadcast shape.
+    """
+
+    def __init__(
+        self,
+        lower,
+        arrays: list[ir.Value],
+        ndim: int,
+        broadcast_shape: list[ir.Value] | None = None,
+    ):
+        # arrays may have differing rank when broadcasting; broadcast_shape
+        # is the iteration shape (length == ndim, all IndexType values).
+        # When all arrays are the same shape, callers may pass None and the
+        # shape is taken from the first array.
+        self._arrays = list(arrays)
+        self._ndim = ndim
+        if broadcast_shape is None:
+            broadcast_shape = [memref.dim(arrays[0], index_of(d)) for d in range(ndim)]
+        self._shape = list(broadcast_shape)
+        with lower.alloca_insertion_point():
+            self._index_memref = memref.alloca(T.memref(1, T.i64()), [], [])
+        memref.store(int_of(0, ty=T.i64()), self._index_memref, [index_of(0)])
+        # Total element count = product of broadcast shape.
+        if ndim == 0:
+            size_i64 = int_of(1, ty=T.i64())
+        else:
+            size_idx = self._shape[0]
+            for d in range(1, ndim):
+                size_idx = arith.muli(size_idx, self._shape[d])
+            size_i64 = arith.index_cast(out=T.i64(), in_=size_idx)
+        with lower.alloca_insertion_point():
+            self._size_memref = memref.alloca(T.memref(1, T.i64()), [], [])
+        memref.store(size_i64, self._size_memref, [index_of(0)])
+
+    @property
+    def index(self) -> ir.Value:
+        return memref.load(self._index_memref, [index_of(0)])
+
+    @property
+    def size(self) -> ir.Value:
+        return memref.load(self._size_memref, [index_of(0)])
+
+    def _unravel_c_order(self, linear_idx_i64: ir.Value) -> list[ir.Value]:
+        """Convert linear index (i64) to a list of IndexType per-dim indices, C order."""
+        if self._ndim == 0:
+            return []
+        if self._ndim == 1:
+            return [index_of(linear_idx_i64)]
+        per_dim_i64 = [None] * self._ndim
+        remaining = linear_idx_i64
+        for d in reversed(range(self._ndim)):
+            dim_size_i64 = arith.index_cast(out=T.i64(), in_=self._shape[d])
+            per_dim_i64[d] = arith.remsi(lhs=remaining, rhs=dim_size_i64)
+            remaining = arith.divsi(lhs=remaining, rhs=dim_size_i64)
+        return [index_of(v) for v in per_dim_i64]
+
+    def next(self) -> IterResult:
+        one_i64 = int_of(1, ty=T.i64())
+        current_index = self.index
+        size = self.size
+        is_valid = arith.cmpi(predicate=arith.CmpIPredicate.slt, lhs=current_index, rhs=size)
+
+        multi_idx = self._unravel_c_order(current_index)
+        views = [_make_zero_d_subview(arr, multi_idx) for arr in self._arrays]
+
+        next_index = arith.addi(lhs=current_index, rhs=one_i64)
+        updated_index = arith.select(
+            condition=is_valid, true_value=next_index, false_value=current_index
+        )
+        memref.store(updated_index, self._index_memref, [index_of(0)])
+
+        if len(views) == 1:
+            return IterResult(views[0], is_valid)
+        return IterResult(tuple(views), is_valid)
+
+
 def _types_match(ty1, ty2, exact=False):
     if exact:
         return ty1 == ty2
@@ -1471,6 +1580,8 @@ def constant(
             return value
         case int(), ir.IntegerType():
             return arith.constant(ty, value=value)
+        case int(), ir.IndexType():
+            return arith.constant(ty, value=value)
         case float(), ir.FloatType():
             return arith.constant(ty, value=value)
         case bool(), None:
@@ -1485,6 +1596,8 @@ def constant(
         case ir.Value(), _:
             return convert(value, ty)
         case _, ir.IntegerType():
+            return arith.constant(ty, value=int(value))
+        case _, ir.IndexType():
             return arith.constant(ty, value=int(value))
         case _, ir.FloatType():
             return arith.constant(ty, value=float(value))
@@ -1633,3 +1746,8 @@ def try_extract_constant(
             return try_extract_constant(opview.operands[0])
         case _:
             return None
+
+
+def is_nonelike(ty):
+    """returns if 'ty' is none"""
+    return ty is None or isinstance(ty, types.NoneType) or isinstance(ty, types.Omitted)

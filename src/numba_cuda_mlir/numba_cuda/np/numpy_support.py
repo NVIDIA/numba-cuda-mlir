@@ -156,6 +156,13 @@ def _from_dtype_impl(dtype_cached):
     if result is not None:
         return result
 
+    if (
+        ml_dtypes is not None
+        and getattr(dtype, "name", None) == "bfloat16"
+        and getattr(dtype, "itemsize", None) == 2
+    ):
+        return types.bfloat16
+
     if (char := getattr(dtype, "char", None)) is not None:
         if char in "SU":
             return _from_str_dtype(dtype)

@@ -12,7 +12,10 @@ import numpy as np
 
 from .cudadrv import devicearray, devices, driver
 from numba_cuda_mlir.numba_cuda.core import config
-from numba_cuda_mlir.numba_cuda.api_util import prepare_shape_strides_dtype
+from numba_cuda_mlir.numba_cuda.api_util import (
+    prepare_shape_strides_dtype,
+    resolve_cuda_array_interface_dtype,
+)
 
 # NDarray device helper
 
@@ -41,7 +44,8 @@ def from_cuda_array_interface(desc, owner=None, sync=True):
     shape = desc["shape"]
     strides = desc.get("strides")
 
-    shape, strides, dtype = prepare_shape_strides_dtype(shape, strides, desc["typestr"], order="C")
+    dtype = resolve_cuda_array_interface_dtype(desc["typestr"], getattr(owner, "dtype", None))
+    shape, strides, dtype = prepare_shape_strides_dtype(shape, strides, dtype, order="C")
     size = driver.memory_size_from_info(shape, strides, dtype.itemsize)
 
     cudevptr_class = driver.binding.CUdeviceptr

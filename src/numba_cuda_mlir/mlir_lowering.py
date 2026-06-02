@@ -9,6 +9,7 @@ import operator
 from typing import Any, Callable, Sequence
 import numpy as np
 from numba_cuda_mlir.numba_cuda import typing, utils
+from numba_cuda_mlir.numba_cuda import types as numba_types
 from numba_cuda_mlir.numba_cuda.core import targetconfig, errors
 from numba_cuda_mlir.numba_cuda.core import ir as numba_ir
 from numba_cuda_mlir.numba_cuda import dispatcher

@@ -3,8 +3,6 @@
 
 import re
 from functools import cached_property
-import llvmlite.binding as ll
-from llvmlite import ir
 import warnings
 import importlib.util
 import numpy as np
@@ -275,9 +273,9 @@ class CUDATargetContext(BaseContext):
 
     @property
     def target_data(self):
-        if self._target_data is None:
-            self._target_data = ll.create_target_data(nvvm.NVVM().data_layout)
-        return self._target_data
+        # The MLIR pipeline does not use an llvmlite TargetData; this property
+        # is only reachable on the dead llvmlite codegen path.
+        raise NotImplementedError("CUDATargetContext.target_data is not available on the MLIR path")
 
     def build_list(self, builder, list_type, items):
         """
@@ -316,89 +314,26 @@ class CUDATargetContext(BaseContext):
         return self.fndesc.call_conv
 
     def make_constant_array(self, builder, aryty, arr):
-        """
-        Unlike the parent version.  This returns a a pointer in the constant
-        addrspace.
-        """
-
-        # Ensure we have a contiguous buffer with non-negative strides. views with
-        # negative strides must be materialized so that the
-        # constant bytes and the data pointer/strides are consistent.
-        if any(s < 0 for s in arr.strides) or not (
-            arr.flags.c_contiguous or arr.flags.f_contiguous
-        ):
-            arr = np.ascontiguousarray(arr)
-
-        lmod = builder.module
-
-        constvals = [self.get_constant(types.byte, i) for i in iter(arr.tobytes(order="A"))]
-        constaryty = ir.ArrayType(ir.IntType(8), len(constvals))
-        constary = ir.Constant(constaryty, constvals)
-
-        addrspace = nvvm.ADDRSPACE_CONSTANT
-        gv = cgutils.add_global_variable(lmod, constary.type, "_cudapy_cmem", addrspace=addrspace)
-        gv.linkage = "internal"
-        gv.global_constant = True
-        gv.initializer = constary
-
-        # Preserve the underlying alignment
-        lldtype = self.get_data_type(aryty.dtype)
-        align = self.get_abi_sizeof(lldtype)
-        gv.align = 2 ** (align - 1).bit_length()
-
-        # Convert to generic address-space
-        ptrty = ir.PointerType(ir.IntType(8))
-        genptr = builder.addrspacecast(gv, ptrty, "generic")
-
-        # Create array object
-        ary = self.make_array(aryty)(self, builder)
-        kshape = [self.get_constant(types.intp, s) for s in arr.shape]
-        kstrides = [self.get_constant(types.intp, s) for s in arr.strides]
-        self.populate_array(
-            ary,
-            data=builder.bitcast(genptr, ary.data.type),
-            shape=kshape,
-            strides=kstrides,
-            itemsize=ary.itemsize,
-            parent=ary.parent,
-            meminfo=None,
+        # Builds an llvmlite constant array global; only reachable on the dead
+        # llvmlite codegen path. The MLIR pipeline materializes constant arrays
+        # itself, so this is never called.
+        raise NotImplementedError(
+            "CUDATargetContext.make_constant_array is not available on the MLIR path"
         )
 
-        return ary._getvalue()
-
     def insert_const_string(self, mod, string):
-        """
-        Unlike the parent version.  This returns a a pointer in the constant
-        addrspace.
-        """
-        text = cgutils.make_bytearray(string.encode("utf-8") + b"\x00")
-        name = "$".join(["__conststring__", itanium_mangler.mangle_identifier(string)])
-        # Try to reuse existing global
-        gv = mod.globals.get(name)
-        if gv is None:
-            # Not defined yet
-            gv = cgutils.add_global_variable(
-                mod, text.type, name, addrspace=nvvm.ADDRSPACE_CONSTANT
-            )
-            gv.linkage = "internal"
-            gv.global_constant = True
-            gv.initializer = text
-
-        # Cast to a i8* pointer
-        charty = gv.type.pointee.element
-        return gv.bitcast(charty.as_pointer(nvvm.ADDRSPACE_CONSTANT))
+        # Builds an llvmlite constant string global; only reachable on the dead
+        # llvmlite codegen path.
+        raise NotImplementedError(
+            "CUDATargetContext.insert_const_string is not available on the MLIR path"
+        )
 
     def insert_string_const_addrspace(self, builder, string):
-        """
-        Insert a constant string in the constant addresspace and return a
-        generic i8 pointer to the data.
-
-        This function attempts to deduplicate.
-        """
-        lmod = builder.module
-        gv = self.insert_const_string(lmod, string)
-        charptrty = ir.PointerType(ir.IntType(8))
-        return builder.addrspacecast(gv, charptrty, "generic")
+        # Builds an llvmlite constant string global; only reachable on the dead
+        # llvmlite codegen path.
+        raise NotImplementedError(
+            "CUDATargetContext.insert_string_const_addrspace is not available on the MLIR path"
+        )
 
     def optimize_function(self, func):
         """Run O1 function passes"""

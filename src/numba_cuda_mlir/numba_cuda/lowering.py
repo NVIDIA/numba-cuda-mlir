@@ -18,7 +18,6 @@ from numba_cuda_mlir.numba_cuda.core import (
     callconv,
     config,
     generators,
-    removerefctpass,
 )
 
 from numba_cuda_mlir.numba_cuda.core.errors import (
@@ -240,12 +239,6 @@ class BaseLower:
 
         if config.DUMP_LLVM:
             utils.dump_llvm(self.fndesc, self.module)
-
-        # Special optimization to remove NRT on functions that do not need it.
-        if self.context.enable_nrt and self.generator_info is None:
-            removerefctpass.remove_unnecessary_nrt_usage(
-                self.function, context=self.context, fndesc=self.fndesc
-            )
 
         # Run target specific post lowering transformation
         self.context.post_lowering(self.module, self.library)

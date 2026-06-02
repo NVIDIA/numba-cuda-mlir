@@ -1628,7 +1628,7 @@ extern "C" __global__ void
 
         folded_argtypes, call_vars, call_argtypes = self._fold_dispatcher_call_args(fn, args, kws)
         func_name = generate_mangled_name(fn.py_func.__qualname__, call_argtypes)
-        cres = fn.compile(folded_argtypes)
+        cres = fn._compile_as_device_callee(folded_argtypes)
 
         if callee_linker := cres.metadata.get("linker"):
             self.linker.merge_ltoirs_from(callee_linker)

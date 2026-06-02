@@ -1496,6 +1496,67 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         sig = typing.signature(return_type, *args)
         return self.compile(sig)
 
+    def _compile_device_callee(self, sig):
+        """Compile enough of a device function to inline/link it into a kernel.
+
+        Device callees are cloned from their MLIR into the parent module, so
+        eagerly finalizing every callee to cubin only adds linker work and
+        retained cubin metadata that the parent compilation does not use.
+        """
+        from numba_cuda_mlir import mlir_compiler
+        from numba_cuda_mlir.compiler import CompileResult
+
+        argtypes, return_type = sigutils.normalize_signature(sig)
+
+        if argtypes in self.overloads:
+            return self.overloads[argtypes]
+
+        self._resolve_target_options()
+        self._cache_misses[argtypes] += 1
+
+        self._is_compiling = True
+        try:
+            with self._compile_profiler():
+                cres = mlir_compiler.compile_mlir(
+                    self.py_func,
+                    return_type,
+                    argtypes,
+                    targetoptions=self.targetoptions,
+                )
+
+            cres.target_context.insert_user_function(cres.entry_point, cres.fndesc, [cres.library])
+        finally:
+            self._is_compiling = False
+
+        for cb in cres.metadata.get("setup_callbacks", []):
+            if cb not in self._module_setup_callbacks:
+                self._module_setup_callbacks.append(cb)
+        for cb in cres.metadata.get("teardown_callbacks", []):
+            if cb not in self._module_teardown_callbacks:
+                self._module_teardown_callbacks.append(cb)
+
+        wrapped = CompileResult(cres)
+        self.overloads[argtypes] = wrapped
+        return wrapped
+
+    def _compile_as_device_callee(self, sig):
+        """Compile this dispatcher through the lightweight device-callee path."""
+        opts = self.targetoptions.copy()
+        opts["device"] = True
+        opts["lto"] = False
+        opts["output"] = "ptx"
+        if self.targetoptions.get("device", False):
+            self.targetoptions.update(opts)
+            return self._compile_device_callee(sig)
+
+        if not hasattr(self, "_device_dispatcher") or self._device_dispatcher.targetoptions != opts:
+            self._device_dispatcher = MLIRDispatcher(self.py_func, targetoptions=opts)
+        cres = self._device_dispatcher._compile_device_callee(sig)
+        argtypes, _ = sigutils.normalize_signature(sig)
+        if argtypes not in self.overloads:
+            self.overloads[argtypes] = cres
+        return cres
+
     def inspect_lto_ptx(self, args=None):
         if args is None:
             return {sig: self.inspect_lto_ptx(sig) for sig in self.overloads}
@@ -1639,7 +1700,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         pysig, args = self._compiler.fold_argument_types(args, kws)
         kws = {}
         if self._can_compile:
-            self.compile_device(tuple(args))
+            self._compile_as_device_callee(tuple(args))
         func_name = self.py_func.__name__
         name = "CallTemplate({0})".format(func_name)
         call_template = typing.make_concrete_template(

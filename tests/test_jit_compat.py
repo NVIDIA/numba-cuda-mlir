@@ -136,7 +136,7 @@ def test_dispatcher_resource_methods(method, min_val):
 
 
 def test_compile_device():
-    """Test compile_device method works."""
+    """Test compile_device and internal callee compilation work."""
 
     @cuda.jit(device=True)
     def device_func(x):
@@ -144,6 +144,13 @@ def test_compile_device():
 
     result = device_func.compile_device((types.int32,))
     assert result is not None
+
+    @cuda.jit(device=True)
+    def callee_func(x):
+        return x * 2
+
+    callee_result = callee_func._compile_as_device_callee((types.int32,))
+    assert callee_result.metadata.get("cubin") is None
 
 
 # --- Operator is/is_not Lowering ---

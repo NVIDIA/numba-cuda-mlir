@@ -26,9 +26,14 @@ _INT_LITERAL_BITS = 64
 _POINTER_BITS = 64
 
 
+def _mlir_string_attr(value):
+    value = str(value).replace("\\", "/").replace('"', '\\"')
+    return f'"{value}"'
+
+
 def _basic_di_type(name, bits, encoding):
     return (
-        f'#llvm.di_basic_type<tag = DW_TAG_base_type, name = "{name}", '
+        f"#llvm.di_basic_type<tag = DW_TAG_base_type, name = {_mlir_string_attr(name)}, "
         f"sizeInBits = {bits}, encoding = DW_ATE_{encoding}>"
     )
 
@@ -62,17 +67,17 @@ def _complex_di_type(name, float_bits):
     float_type = _basic_di_type(f"float{float_bits}", float_bits, "float")
     real_member = (
         f"#llvm.di_derived_type<tag = DW_TAG_member, "
-        f'name = "real", baseType = {float_type}, '
+        f"name = {_mlir_string_attr('real')}, baseType = {float_type}, "
         f"sizeInBits = {float_bits}, offsetInBits = 0>"
     )
     imag_member = (
         f"#llvm.di_derived_type<tag = DW_TAG_member, "
-        f'name = "imag", baseType = {float_type}, '
+        f"name = {_mlir_string_attr('imag')}, baseType = {float_type}, "
         f"sizeInBits = {float_bits}, offsetInBits = {float_bits}>"
     )
     return (
         f"#llvm.di_composite_type<tag = DW_TAG_structure_type, "
-        f'name = "{name}", sizeInBits = {float_bits * 2}, '
+        f"name = {_mlir_string_attr(name)}, sizeInBits = {float_bits * 2}, "
         f"elements = {real_member}, {imag_member}>"
     )
 
@@ -89,7 +94,7 @@ def _derived_di_type(
 ):
     params = [f"tag = {tag}"]
     if name is not None:
-        params.append(f'name = "{name}"')
+        params.append(f"name = {_mlir_string_attr(name)}")
     if base_type is not None:
         params.append(f"baseType = {base_type}")
     if size_bits is not None:
@@ -115,13 +120,13 @@ def _composite_di_type(
 ):
     params = [f"tag = {tag}"]
     if name is not None:
-        params.append(f'name = "{name}"')
+        params.append(f"name = {_mlir_string_attr(name)}")
     if base_type is not None:
         params.append(f"baseType = {base_type}")
     if size_bits is not None:
         params.append(f"sizeInBits = {size_bits}")
     if identifier is not None:
-        params.append(f'identifier = "{identifier}"')
+        params.append(f"identifier = {_mlir_string_attr(identifier)}")
     if discriminator is not None:
         params.append(f"discriminator = {discriminator}")
     if elements:
@@ -480,13 +485,15 @@ class DIBuilder:
         # Caller guarantees at least one of debug or lineinfo is True.
         emission = "DebugDirectivesOnly" if line_only else "Full"
 
-        self._di_file_str = f'#llvm.di_file<"{filename}" in "{directory}">'
+        self._di_file_str = (
+            f"#llvm.di_file<{_mlir_string_attr(filename)} in {_mlir_string_attr(directory)}>"
+        )
         self._di_cu_str = (
             f"#llvm.di_compile_unit<"
             f"id = distinct[0]<>, "
             f"sourceLanguage = DW_LANG_C_plus_plus, "
             f"file = {self._di_file_str}, "
-            f'producer = "clang (numba-cuda-mlir)", '
+            f"producer = {_mlir_string_attr('clang (numba-cuda-mlir)')}, "
             f"isOptimized = {str(opt).lower()}, "
             f"emissionKind = {emission}"
             f">"
@@ -498,12 +505,12 @@ class DIBuilder:
             f"id = distinct[1]<>, "
             f"compileUnit = {self._di_cu_str}, "
             f"scope = {self._di_file_str}, "
-            f'name = "{func_name}", '
+            f"name = {_mlir_string_attr(func_name)}, "
             f"file = {self._di_file_str}, "
             f"type = {self._di_subroutine_type_str}, "
             f"line = {loc.line}, "
             f"scopeLine = {loc.line}, "
-            f'subprogramFlags = "{subprogram_flags}"'
+            f"subprogramFlags = {_mlir_string_attr(subprogram_flags)}"
             f">"
         )
 
@@ -533,7 +540,7 @@ class DIBuilder:
             var_str = (
                 f"#llvm.di_local_variable<"
                 f"scope = {self._di_sp_str}, "
-                f'name = "{var.name}"{arg_field}, '
+                f"name = {_mlir_string_attr(var.name)}{arg_field}, "
                 f"file = {self._di_file_str}, "
                 f"line = {var.line}, "
                 f"type = {var.type_str}"

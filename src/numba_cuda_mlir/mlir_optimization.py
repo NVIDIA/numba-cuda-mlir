@@ -15,10 +15,11 @@ from numba_cuda_mlir.numba_cuda.cudadrv.nvvm import CompilationUnit
 from numba_cuda_mlir.logging import trace
 from numba_cuda_mlir.mlir.util import find_ops
 from numba_cuda_mlir.lowering_utilities.llvm_utils import (
-    MLIR_CAPI_LIB_PATH,
+    LLVM_C_LIB_PATH,
     NVPTX64_DATALAYOUT,
     NVPTX64_TRIPLE,
     translate_to_llvmir,
+    translate_gpu_module_to_libnvvm_ir,
     dump_llvmir,
 )
 from numba_cuda_mlir.memory_management.rtsys import rtsys
@@ -106,6 +107,8 @@ def _needs_llvm70_path(cc: str) -> bool:
 
 
 _llvm70_capi = None
+# Keep AddDllDirectory handles alive while the CAPI DLL is loaded.
+_llvm70_dll_dirs = []
 
 
 def _get_llvm70_capi():
@@ -115,7 +118,19 @@ def _get_llvm70_capi():
 
     from numba_cuda_mlir.tools import get_llvm70_capi_path
 
-    lib = ctypes.CDLL(get_llvm70_capi_path())
+    capi_path = get_llvm70_capi_path()
+    if not os.path.isfile(capi_path):
+        raise FileNotFoundError(f"LLVM70 C API bridge not found at {capi_path}")
+    if os.name == "nt":
+        import numba_cuda_mlir._mlir._mlir_libs as _mlir_libs
+
+        _llvm70_dll_dirs.extend(
+            os.add_dll_directory(dll_dir)
+            for dll_dir in {os.path.dirname(capi_path), _mlir_libs.__path__[0]}
+            if os.path.isdir(dll_dir)
+        )
+
+    lib = ctypes.CDLL(capi_path)
     lib.llvm70_translate_gpu_module_from_op.restype = ctypes.c_int
     lib.llvm70_translate_gpu_module_from_op.argtypes = [
         ctypes.c_void_p,  # raw_op (Operation*)
@@ -174,12 +189,22 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
 
     libllvm = os.environ.get("LIBLLVM7", "")
     if not libllvm:
-        bundled = os.path.join(os.path.dirname(__file__), "lib", "libLLVM-7.so")
-        if os.path.isfile(bundled):
-            libllvm = os.path.realpath(bundled)
+        bundled_dir = os.path.join(os.path.dirname(__file__), "lib")
+        if os.name == "nt":
+            bundled_names = ("LLVM-C.dll", "LLVM.dll")
+        else:
+            bundled_names = ("libLLVM-7.so",)
+        for bundled_name in bundled_names:
+            bundled = os.path.join(bundled_dir, bundled_name)
+            if os.path.isfile(bundled):
+                libllvm = os.path.realpath(bundled)
+                break
 
     if not libllvm:
-        raise RuntimeError("LLVM70 path requires libLLVM-7.so. Set LIBLLVM7=/path/to/libLLVM-7.so")
+        hint = "Set LIBLLVM7=/path/to/libLLVM-7.so"
+        if os.name == "nt":
+            hint = "Set LIBLLVM7=/path/to/LLVM-C.dll (or /path/to/LLVM.dll)"
+        raise RuntimeError(f"LLVM70 path requires an LLVM 7 runtime library. {hint}")
 
     libnvvm = _get_libnvvm_path().decode()
     libdevice = get_libdevice()
@@ -221,10 +246,17 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
     return result
 
 
-def _prepare_llvm_ir(module, dump=False) -> bytes:
+def _operation_to_text(operation, *, preserve_debug_info=False) -> str:
+    if not preserve_debug_info:
+        return str(operation)
+    with StringIO() as sb:
+        operation.print(enable_debug_info=True, file=sb)
+        return sb.getvalue()
+
+
+def _prepare_llvm_ir(module, dump=False, preserve_debug_info=False) -> bytes:
     """Translate gpu.module to LLVM IR and apply libnvvm compatibility downgrades."""
     from numba_cuda_mlir._mlir.dialects import gpu
-    from numba_cuda_mlir._cext import downgrade_for_libnvvm
     from numba_cuda_mlir.tools import get_cuda_runtime_version
 
     gpu_modules = [op for op in module.body if isinstance(op, gpu.GPUModuleOp)]
@@ -234,14 +266,25 @@ def _prepare_llvm_ir(module, dump=False) -> bytes:
     gpu_mod = gpu_modules[0]
     gpu_mod.operation.attributes["llvm.data_layout"] = ir.StringAttr.get(NVPTX64_DATALAYOUT)
     gpu_mod.operation.attributes["llvm.target_triple"] = ir.StringAttr.get(NVPTX64_TRIPLE)
+    ctk_major, ctk_minor = get_cuda_runtime_version()
+
+    if os.name == "nt":
+        return translate_gpu_module_to_libnvvm_ir(
+            _operation_to_text(gpu_mod.operation, preserve_debug_info=preserve_debug_info),
+            ctk_major,
+            ctk_minor,
+            dump=dump,
+            emit_text_ir=preserve_debug_info,
+        )
+
+    from numba_cuda_mlir._cext import downgrade_for_libnvvm
 
     llvm_mod, llvm_ctx = translate_to_llvmir(gpu_mod.operation)
 
     if dump:
         print(f"=============== LLVM IR ===============\n\n{dump_llvmir(llvm_mod)}\n\n")
 
-    ctk_major, ctk_minor = get_cuda_runtime_version()
-    return downgrade_for_libnvvm(llvm_mod, llvm_ctx, ctk_major, ctk_minor, MLIR_CAPI_LIB_PATH)
+    return downgrade_for_libnvvm(llvm_mod, llvm_ctx, ctk_major, ctk_minor, LLVM_C_LIB_PATH)
 
 
 def _nvvm_options(cc: str, target_options=None, **extra) -> dict:
@@ -304,7 +347,12 @@ def get_ptx(cres, target_options=None) -> str:
         if _needs_llvm70_path(cc):
             ptx = _call_llvm70_capi(module, target_options)
         else:
-            llvm_ir = _prepare_llvm_ir(module, dump=target_options.get("dump_llvmir", False))
+            llvm_ir = _prepare_llvm_ir(
+                module,
+                dump=target_options.get("dump_llvmir", False),
+                preserve_debug_info=target_options.get("debug", False)
+                or target_options.get("lineinfo", False),
+            )
             from numba_cuda_mlir.numba_cuda.cudadrv.nvvm import LibDevice
 
             libdevice = LibDevice()
@@ -521,7 +569,12 @@ def optimize(cres):
         if use_llvm70:
             llvm_ir = None
         else:
-            llvm_ir = _prepare_llvm_ir(module, dump=target_options.get("dump_llvmir", False))
+            llvm_ir = _prepare_llvm_ir(
+                module,
+                dump=target_options.get("dump_llvmir", False),
+                preserve_debug_info=target_options.get("debug", False)
+                or target_options.get("lineinfo", False),
+            )
 
         linker = cres.metadata["linker"].recreate_with_lto()
 

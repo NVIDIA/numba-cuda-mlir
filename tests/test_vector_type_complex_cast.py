@@ -9,6 +9,8 @@ from numba_cuda_mlir.errors import TypingError
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir import types
 
+from numba_cuda_mlir.cuda.vector_types import float32x2, float16x2, float16x4, float64x2
+
 
 class TestVectorTypeComplexCast(NumbaCUDATestCase):
     def test_vector_to_complex(self):
@@ -103,8 +105,6 @@ class TestVectorTypeComplexCast(NumbaCUDATestCase):
         self.assertEqual(res64[1], 4.5)
 
     def test_float64x2_setitem_complex128_array(self):
-        from numba_cuda_mlir.cuda.vector_types import float64x2
-
         @cuda.jit
         def kernel(matrix, out):
             smem = cuda.shared.array(shape=(1,), dtype=float64x2)
@@ -115,3 +115,51 @@ class TestVectorTypeComplexCast(NumbaCUDATestCase):
         out = np.zeros(1, dtype=np.complex128)
         kernel[1, 1](matrix, out)
         np.testing.assert_equal(out[0], matrix[0])
+
+    def test_np_complex64_from_float32x2(self):
+        @cuda.jit("void(complex64[:])")
+        def kernel(out):
+            v = float32x2(1.0, 2.0)
+            out[0] = np.complex64(v) / 4.0
+
+        res = np.zeros(1, dtype=np.complex64)
+        kernel[1, 1](res)
+        self.assertEqual(res[0], np.complex64(0.25 + 0.5j))
+
+    def test_np_complex64_from_float16x2_widens(self):
+        @cuda.jit("void(complex64[:])")
+        def kernel(out):
+            v = float16x2(np.float16(1.0), np.float16(2.0))
+            out[0] = np.complex64(v)
+
+        res = np.zeros(1, dtype=np.complex64)
+        kernel[1, 1](res)
+        self.assertEqual(res[0], np.complex64(1.0 + 2.0j))
+
+    def test_np_complex128_from_float64x2(self):
+        @cuda.jit("void(complex128[:])")
+        def kernel(out):
+            v = float64x2(1.0, 2.0)
+            out[0] = np.complex128(v) / 4.0
+
+        res = np.zeros(1, dtype=np.complex128)
+        kernel[1, 1](res)
+        self.assertEqual(res[0], np.complex128(0.25 + 0.5j))
+
+    def test_np_complex128_from_float32x2_widens(self):
+        @cuda.jit("void(complex128[:])")
+        def kernel(out):
+            v = float32x2(1.0, 2.0)
+            out[0] = np.complex128(v)
+
+        res = np.zeros(1, dtype=np.complex128)
+        kernel[1, 1](res)
+        self.assertEqual(res[0], np.complex128(1.0 + 2.0j))
+
+    def test_np_complex64_from_float16x4_rejected(self):
+        with self.assertRaises(TypingError):
+
+            @cuda.jit("void(complex64[:])")
+            def kernel(out):
+                v = float16x4(np.float16(1.0), np.float16(2.0), np.float16(3.0), np.float16(4.0))
+                out[0] = np.complex64(v)

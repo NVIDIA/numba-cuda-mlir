@@ -213,12 +213,9 @@ _raw_lower(operator.neg, VectorType)(_make_vector_unary_lowering(operator.neg))
 _raw_lower(abs, VectorType)(_make_vector_unary_lowering(abs))
 
 
-@_raw_lower(complex, VectorType)
-def _complex_from_vector_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
-    """Lowering for complex(vector_type)."""
+def _vector_to_complex_cast(lower_ctx: MLIRLower, target, args: list[Any]):
     target_type = lower_ctx.get_numba_type(target.name)
     mlir_target_type = lower_ctx.get_mlir_type(target_type)
-
     val = lower_ctx.load_var(args[0])
 
     real = vector.extract(val, [], [0])
@@ -233,3 +230,21 @@ def _complex_from_vector_lowering(lower_ctx: MLIRLower, target, args: list[Any],
         imaginary=imag,
     )
     lower_ctx.store_var(target, result)
+
+
+@_raw_lower(complex, VectorType)
+def _complex_from_vector_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
+    """Lowering for complex(vector_type)."""
+    _vector_to_complex_cast(lower_ctx, target, args)
+
+
+@_raw_lower(types.NumberClass, VectorType)
+def _number_class_from_vector_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
+    """Lowering for np.complex64(vec2) / np.complex128(vec2)."""
+    target_type = lower_ctx.get_numba_type(target.name)
+    if not isinstance(target_type, types.Complex):
+        raise NotImplementedError(
+            f"NumberClass({target_type})(VectorType) lowering only supports Complex targets"
+        )
+
+    _vector_to_complex_cast(lower_ctx, target, args)

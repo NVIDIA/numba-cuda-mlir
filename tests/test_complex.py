@@ -93,3 +93,23 @@ def test_shared_memory_complex_real_imag(complex_dtype, float_dtype):
 
     np.testing.assert_allclose(out_real, inp.real)
     np.testing.assert_allclose(out_imag, inp.imag)
+
+
+@pytest.mark.parametrize(
+    "complex_type",
+    [
+        np.complex64,
+        np.complex128,
+        complex,
+    ],
+)
+def test_complex_constructor_2args(complex_type):
+    @cuda.jit
+    def kernel(out):
+        out[0] = complex_type(1.5, -2.5)
+
+    dtype = np.complex128 if complex_type is complex else complex_type
+    out = np.zeros(1, dtype=dtype)
+    kernel[1, 1](out)
+
+    np.testing.assert_equal(out[0], complex_type(1.5 - 2.5j))

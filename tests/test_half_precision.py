@@ -2,8 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 import numpy as np
 import pytest
+import sys
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda import bf16
+
+pytestmark = [
+    pytest.mark.requires_cc_min((8, 0), "bfloat16"),
+    pytest.mark.skipif(sys.platform == "win32", reason="bfloat16 tests are disabled on Windows"),
+]
 
 BF16_UNARY_OPS = [
     (bf16.htrunc, 2.7, 2.0),

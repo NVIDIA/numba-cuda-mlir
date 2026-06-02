@@ -43,6 +43,7 @@ SQRT2 = 1.414213562373095048801688724209698079
 
 
 @lower(complex, types.Number, types.Number)
+@lower(types.NumberClass, types.Number, types.Number)
 def complex_constructor_2args_cg(mlir_lower, target, args, kwargs):
     """Code generator for complex(real, imag) constructor."""
     assert not kwargs, "complex constructor does not accept keyword arguments"

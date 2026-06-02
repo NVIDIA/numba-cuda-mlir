@@ -30,4 +30,5 @@ Contents
    :maxdepth: 2
 
    user/index.rst
+   extending/index.rst
    reference/index.rst

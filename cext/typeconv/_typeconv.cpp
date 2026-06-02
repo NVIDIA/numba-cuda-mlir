@@ -3,6 +3,7 @@
 
 #include "Python.h"
 #include "typeconv.hpp"
+#include <limits>
 
 extern "C" {
 
@@ -92,26 +93,36 @@ select_overload(PyObject* self, PyObject* args)
 
     Py_ssize_t sigsz = PySequence_Size(sigtup);
     Py_ssize_t ovsz = PySequence_Size(ovsigstup);
-
-    Type *sig = new Type[sigsz];
-    Type *ovsigs = new Type[ovsz * sigsz];
-
-    for (int i = 0; i < sigsz; ++i) {
-        sig[i] = Type(PyNumber_AsSsize_t(PySequence_Fast_GET_ITEM(sigtup,
-                                                                  i), NULL));
+    if (sigsz < 0 || ovsz < 0) {
+        return NULL;
+    }
+    if (sigsz > std::numeric_limits<int>::max() ||
+        ovsz > std::numeric_limits<int>::max()) {
+        PyErr_SetString(PyExc_ValueError, "too many overload candidates");
+        return NULL;
     }
 
-    for (int i = 0; i < ovsz; ++i) {
+    int sigsz_int = static_cast<int>(sigsz);
+    int ovsz_int = static_cast<int>(ovsz);
+
+    Type *sig = new Type[static_cast<size_t>(sigsz_int)];
+    Type *ovsigs = new Type[static_cast<size_t>(ovsz_int) * sigsz_int];
+
+    for (int i = 0; i < sigsz_int; ++i) {
+        sig[i] = Type(static_cast<int>(
+            PyNumber_AsSsize_t(PySequence_Fast_GET_ITEM(sigtup, i), NULL)));
+    }
+
+    for (int i = 0; i < ovsz_int; ++i) {
         PyObject *cursig = PySequence_Fast_GET_ITEM(ovsigstup, i);
-        for (int j = 0; j < sigsz; ++j) {
-            long tid = PyNumber_AsSsize_t(PySequence_Fast_GET_ITEM(cursig,
-                                                                   j), NULL);
-            ovsigs[i * sigsz + j] = Type(tid);
+        for (int j = 0; j < sigsz_int; ++j) {
+            Py_ssize_t tid = PyNumber_AsSsize_t(PySequence_Fast_GET_ITEM(cursig, j), NULL);
+            ovsigs[i * sigsz_int + j] = Type(static_cast<int>(tid));
         }
     }
 
     int selected = -42;
-    int matches = tm->selectOverload(sig, ovsigs, selected, sigsz, ovsz,
+    int matches = tm->selectOverload(sig, ovsigs, selected, sigsz_int, ovsz_int,
                                      (bool) allow_unsafe,
                                      (bool) exact_match_required);
 

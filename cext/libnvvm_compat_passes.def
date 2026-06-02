@@ -1,0 +1,22 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Shared pass order for the linked LLVM C++ and dynamically loaded LLVM C API
+// libnvvm compatibility implementations. The pass bodies remain API-specific.
+
+#ifdef LIBNVVM_COMPAT_ADAPT_PASS
+LIBNVVM_COMPAT_ADAPT_PASS(adapt_barrier_sync)
+LIBNVVM_COMPAT_ADAPT_PASS(adapt_barrier_reduction)
+LIBNVVM_COMPAT_ADAPT_PASS(adapt_inline_asm_intrinsics)
+LIBNVVM_COMPAT_ADAPT_PASS(adapt_atomicrmw)
+LIBNVVM_COMPAT_ADAPT_PASS(adapt_trunc)
+LIBNVVM_COMPAT_ADAPT_PASS(adapt_nvvm_annotations)
+LIBNVVM_COMPAT_ADAPT_PASS(adapt_nvvmir_version)
+LIBNVVM_COMPAT_ADAPT_PASS(adapt_debug_info_version)
+#endif
+
+#ifdef LIBNVVM_COMPAT_DOWNGRADE_PASS
+LIBNVVM_COMPAT_DOWNGRADE_PASS(downgrade_lifetime)
+LIBNVVM_COMPAT_DOWNGRADE_PASS(downgrade_attributes)
+LIBNVVM_COMPAT_DOWNGRADE_PASS(downgrade_grid_constant)
+#endif

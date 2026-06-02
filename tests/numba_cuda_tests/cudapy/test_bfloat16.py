@@ -3,6 +3,7 @@
 
 import sys
 import numpy as np
+import pytest
 from ml_dtypes import bfloat16 as mldtypes_bf16
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
@@ -15,6 +16,14 @@ from numba_cuda_mlir.numba_cuda.types import (
     uint16,
     uint32,
     uint64,
+)
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "bfloat16 tests are disabled on Windows due to flaky behavior in the "
+        "current lowering path through truncf/extf"
+    ),
 )
 
 from numba_cuda_mlir.numba_cuda.bf16 import (

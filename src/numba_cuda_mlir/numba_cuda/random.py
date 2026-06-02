@@ -10,13 +10,23 @@ from numba_cuda_mlir.numba_cuda import (
     uint32,
     int64,
     uint64,
-    HAS_NUMBA,
 )
 from numba_cuda_mlir.numba_cuda.np.numpy_support import from_dtype
 from numba_cuda_mlir.numba_cuda import config
 
-if HAS_NUMBA:
-    from numba import jit
+
+def jit(*args, **kwargs):
+    # The host-side RNG-state helpers below were CPU-numba @jit functions.
+    # numba-cuda-mlir is standalone and does not depend on numba; this RNG
+    # support is unsupported, so jit degrades to a no-op (plain Python).
+    if len(args) == 1 and callable(args[0]) and not kwargs:
+        return args[0]
+
+    def decorator(func):
+        return func
+
+    return decorator
+
 
 import numpy as np
 

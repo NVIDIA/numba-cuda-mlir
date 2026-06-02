@@ -6,7 +6,6 @@ import numpy as np
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.testing import NumbaCUDATestCase
-from llvmlite import ir
 import pytest
 
 

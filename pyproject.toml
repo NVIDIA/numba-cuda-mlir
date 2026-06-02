@@ -22,7 +22,6 @@ license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "numpy",
-    "llvmlite",
     "typing-extensions; python_version < '3.12'",
     "cuda-bindings>=12.9.1,<14.0.0",
     "cuda-core>=0.5.1,<2.0.0",

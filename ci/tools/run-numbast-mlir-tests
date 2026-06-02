@@ -50,7 +50,8 @@ python -m pip install \
   "ast_canopy==0.9.0" \
   click \
   jinja2 \
-  pyyaml
+  pyyaml \
+  llvmlite
 
 echo "Installing Numbast from ${NUMBAST_CHECKOUT}"
 python -m pip install --no-deps "${NUMBAST_CHECKOUT}/numbast"

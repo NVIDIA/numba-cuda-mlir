@@ -67,8 +67,8 @@ jobs:
         uses: ./.github/actions/install_unix_deps
         continue-on-error: false
         with:
-          dependencies: "bzip2 ca-certificates git jq wget libgl1 libegl1"
-          dependent_exes: "bzip2 git jq wget"
+          dependencies: "bzip2 ca-certificates git jq wget libgl1 libegl1 python3"
+          dependent_exes: "bzip2 git jq wget python3"
 
       - name: Checkout Numbast
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2

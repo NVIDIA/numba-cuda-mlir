@@ -163,21 +163,21 @@ def ctypes_type_to_numba_type(obj: ctypes._SimpleCData) -> types.Type:
             return types.ptr
         case ctypes.c_bool:
             return types.bool
-        case ctypes.c_byte:
+        case ctypes.c_int8:
             return types.int8
-        case ctypes.c_ubyte:
+        case ctypes.c_uint8:
             return types.uint8
-        case ctypes.c_short:
+        case ctypes.c_int16:
             return types.int16
-        case ctypes.c_ushort:
+        case ctypes.c_uint16:
             return types.uint16
-        case ctypes.c_int:
+        case ctypes.c_int32:
             return types.int32
-        case ctypes.c_uint:
+        case ctypes.c_uint32:
             return types.uint32
-        case ctypes.c_long:
+        case ctypes.c_int64:
             return types.int64
-        case ctypes.c_ulong:
+        case ctypes.c_uint64:
             return types.uint64
         case ctypes.c_float:
             return types.float32
@@ -221,22 +221,26 @@ def ctypes_type_to_mlir_type(obj: ctypes._SimpleCData) -> ir.Type:
             return llvm.PointerType.get()
         case ctypes.c_bool:
             return T.bool()
-        case ctypes.c_byte:
+        case ctypes.c_int8:
             return T.i8()
-        case ctypes.c_ubyte:
+        case ctypes.c_uint8:
             return T.ui8()
-        case ctypes.c_short | ctypes.c_int16 | ctypes.c_short:
+        case ctypes.c_int16:
             return T.i16()
-        case ctypes.c_int | ctypes.c_int32 | ctypes.c_int:
-            return T.i32()
         case ctypes.c_uint16:
             return T.i16()
-        case ctypes.c_uint32 | ctypes.c_uint:
+        case ctypes.c_int32:
             return T.i32()
-        case ctypes.c_uint64 | ctypes.c_ulong:
+        case ctypes.c_uint32:
+            return T.i32()
+        case ctypes.c_int64:
             return T.i64()
-        case ctypes.c_long | ctypes.c_int64 | ctypes.c_long:
+        case ctypes.c_uint64:
             return T.i64()
+        case ctypes.c_float:
+            return T.f32()
+        case ctypes.c_double:
+            return T.f64()
         case ctypes.POINTER():
             raise NotImplementedError(f"Not implemented for type {type(obj)}")
         case _:

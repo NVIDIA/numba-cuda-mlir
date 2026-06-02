@@ -62,6 +62,8 @@ def test_numpy_dtype_conversion(np_type, numba_type):
         (ctypes.c_uint16, types.uint16),
         (ctypes.c_uint32, types.uint32),
         (ctypes.c_uint64, types.uint64),
+        (ctypes.c_longlong, types.int64),
+        (ctypes.c_ulonglong, types.uint64),
         (np.complex64, types.complex64),
         (np.complex128, types.complex128),
     ],

@@ -432,9 +432,6 @@ class _EnvReloader:
         # Disable CUDA support
         DISABLE_CUDA = _readenv("NUMBA_DISABLE_CUDA", int, int(MACHINE_BITS == 32))
 
-        # Enable CUDA simulator
-        ENABLE_CUDASIM = _readenv("NUMBA_ENABLE_CUDASIM", int, 0)
-
         # CUDA logging level
         # Any level name from the *logging* module.  Case insensitive.
         # Defaults to CRITICAL if not set or invalid.

@@ -10,7 +10,6 @@ import numpy as np
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.testing import NumbaCUDATestCase
 from numba_cuda_mlir.numba_cuda.testing import (
-    skip_on_cudasim,
     skip_if_external_memmgr,
 )
 from numba_cuda_mlir.numba_cuda.tests.support import captured_stderr
@@ -22,7 +21,6 @@ def _flush_pending_deallocs(deallocs):
     deallocs.clear()
 
 
-@skip_on_cudasim("not supported on CUDASIM")
 class TestDeallocation(NumbaCUDATestCase):
     @skip_if_external_memmgr("Deallocation specific to Numba memory management")
     def test_max_pending_count(self):

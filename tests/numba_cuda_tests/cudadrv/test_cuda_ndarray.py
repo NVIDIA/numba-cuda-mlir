@@ -8,7 +8,6 @@ import unittest
 from numba_cuda_mlir.numba_cuda.cudadrv import devicearray
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.testing import IS_NUMPY_2, NumbaCUDATestCase
-from numba_cuda_mlir.numba_cuda.testing import skip_on_cudasim
 
 import pytest
 
@@ -140,7 +139,6 @@ class TestCudaNDArray(NumbaCUDATestCase):
         gpumem.copy_to_host(array)
         np.testing.assert_array_equal(array, original * 2)
 
-    @skip_on_cudasim("This works in the simulator")
     def test_devicearray_transpose_wrongdim(self):
         gpumem = cuda.to_device(np.array(np.arange(12)).reshape(3, 4, 1))
 
@@ -357,7 +355,6 @@ class TestCudaNDArray(NumbaCUDATestCase):
             d.copy_to_device(cuda.to_device(arr)[::2])
         self.assertEqual(devicearray.errmsg_contiguous_buffer, str(e.exception))
 
-    @skip_on_cudasim("DeviceNDArray class not present in simulator")
     def test_devicearray_relaxed_strides(self):
         # From the reproducer in Issue #6824.
 
@@ -384,56 +381,48 @@ class TestCudaNDArray(NumbaCUDATestCase):
             self.assertEqual(arr.flags["C_CONTIGUOUS"], d_arr.flags["C_CONTIGUOUS"])
             self.assertEqual(arr.flags["F_CONTIGUOUS"], d_arr.flags["F_CONTIGUOUS"])
 
-    @skip_on_cudasim("Typing not done in the simulator")
     def test_devicearray_typing_order_simple_c(self):
         # C-order 1D array
         a = np.zeros(10, order="C")
         d = cuda.to_device(a)
         self.assertEqual(d._numba_type_.layout, "C")
 
-    @skip_on_cudasim("Typing not done in the simulator")
     def test_devicearray_typing_order_simple_f(self):
         # F-order array that is also C layout.
         a = np.zeros(10, order="F")
         d = cuda.to_device(a)
         self.assertEqual(d._numba_type_.layout, "C")
 
-    @skip_on_cudasim("Typing not done in the simulator")
     def test_devicearray_typing_order_2d_c(self):
         # C-order 2D array
         a = np.zeros((2, 10), order="C")
         d = cuda.to_device(a)
         self.assertEqual(d._numba_type_.layout, "C")
 
-    @skip_on_cudasim("Typing not done in the simulator")
     def test_devicearray_typing_order_2d_f(self):
         # F-order array that can only be F layout
         a = np.zeros((2, 10), order="F")
         d = cuda.to_device(a)
         self.assertEqual(d._numba_type_.layout, "F")
 
-    @skip_on_cudasim("Typing not done in the simulator")
     def test_devicearray_typing_order_noncontig_slice_c(self):
         # Non-contiguous slice of C-order array
         a = np.zeros((5, 5), order="C")
         d = cuda.to_device(a)[:, 2]
         self.assertEqual(d._numba_type_.layout, "A")
 
-    @skip_on_cudasim("Typing not done in the simulator")
     def test_devicearray_typing_order_noncontig_slice_f(self):
         # Non-contiguous slice of F-order array
         a = np.zeros((5, 5), order="F")
         d = cuda.to_device(a)[2, :]
         self.assertEqual(d._numba_type_.layout, "A")
 
-    @skip_on_cudasim("Typing not done in the simulator")
     def test_devicearray_typing_order_contig_slice_c(self):
         # Contiguous slice of C-order array
         a = np.zeros((5, 5), order="C")
         d = cuda.to_device(a)[2, :]
         self.assertEqual(d._numba_type_.layout, "C")
 
-    @skip_on_cudasim("Typing not done in the simulator")
     def test_devicearray_typing_order_contig_slice_f(self):
         # Contiguous slice of F-order array - is both C- and F-contiguous, so
         # types as 'C' layout
@@ -441,7 +430,6 @@ class TestCudaNDArray(NumbaCUDATestCase):
         d = cuda.to_device(a)[:, 2]
         self.assertEqual(d._numba_type_.layout, "C")
 
-    @skip_on_cudasim("Typing not done in the simulator")
     def test_devicearray_typing_order_broadcasted(self):
         # Broadcasted array, similar to that used for passing scalars to ufuncs
         a = np.broadcast_to(np.array([1]), (10,))
@@ -454,7 +442,6 @@ class TestCudaNDArray(NumbaCUDATestCase):
         got = np.asarray(dary)
         self.assertEqual(got.dtype, dary.dtype)
 
-    @skip_on_cudasim("DeviceNDArray class not present in simulator")
     def test_issue_8477(self):
         # Ensure that we can copy a zero-length device array to a zero-length
         # host array when the strides of the device and host arrays differ -
@@ -503,14 +490,12 @@ class TestArrayMethod(NumbaCUDATestCase):
         host_array = np.array(dev_array, dtype=dtype)
         np.testing.assert_equal(host_array, dev_array.copy_to_host().astype(dtype))
 
-    @skip_on_cudasim("Simulator does not use __array__()")
     @unittest.skipUnless(IS_NUMPY_2, "NumPy 1.x does not pass copy kwarg")
     def test_np_array_copy_false(self):
         dev_array = cuda.to_device(np.asarray([1.0, 2.0, 3.0]))
         with self.assertRaisesRegex(ValueError, "`copy=False` is not"):
             np.array(dev_array, copy=False)
 
-    @skip_on_cudasim("Simulator does not use __array__()")
     @unittest.skipUnless(IS_NUMPY_2, "NumPy 1.x does not pass copy kwarg")
     def test_np_array_copy_true(self):
         dev_array = cuda.to_device(np.asarray([1.0, 2.0, 3.0]))
@@ -607,7 +592,6 @@ class TestCoreContiguous(NumbaCUDATestCase):
         view = np.zeros(shape, order="F")[::2, ::2]
         self._test_against_array_core(view)
 
-    @skip_on_cudasim("Simulator cannot use cuda.core Buffer")
     def test_kernel_with_buffer(self):
         from cuda.core import Buffer
 
@@ -625,7 +609,6 @@ class TestCoreContiguous(NumbaCUDATestCase):
         func(buf, out)
         assert out[0] == n
 
-    @skip_on_cudasim("Simulator cannot use cuda.core SMV")
     def test_kernel_with_strided_memory_view(self):
         from cuda.core.utils import StridedMemoryView
 

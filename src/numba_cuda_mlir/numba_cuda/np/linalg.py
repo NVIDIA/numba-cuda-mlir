@@ -7,7 +7,7 @@ Implementation of linear algebra operations.
 import contextlib
 import warnings
 
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 
 import numpy as np
 import operator
@@ -25,13 +25,14 @@ from numba_cuda_mlir.numba_cuda.core.errors import (
 from .arrayobj import make_array, array_copy
 from numba_cuda_mlir.numba_cuda.np import numpy_support as np_support
 
-ll_char = ir.IntType(8)
-ll_char_p = ll_char.as_pointer()
-ll_void_p = ll_char_p
-ll_intc = ir.IntType(32)
-ll_intc_p = ll_intc.as_pointer()
+# llvmlite type aliases discarded on the MLIR path (used only by dead codegen)
+ll_char = None
+ll_char_p = None
+ll_void_p = None
+ll_intc = None
+ll_intc_p = None
 intp_t = cgutils.intp_t
-ll_intp_p = intp_t.as_pointer()
+ll_intp_p = None
 
 
 # fortran int type, this needs to match the F_INT C declaration in

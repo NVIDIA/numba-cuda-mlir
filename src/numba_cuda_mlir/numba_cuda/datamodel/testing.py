@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
-from llvmlite import ir
-from llvmlite import binding as ll
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import binding as ll
 
 from numba_cuda_mlir.numba_cuda import datamodel
 import unittest

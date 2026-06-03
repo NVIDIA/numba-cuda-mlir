@@ -13,7 +13,7 @@ import copyreg
 
 import pickle
 from numba_cuda_mlir.numba_cuda import cloudpickle
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 
 
 #

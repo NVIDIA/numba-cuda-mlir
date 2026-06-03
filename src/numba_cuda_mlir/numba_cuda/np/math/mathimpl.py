@@ -10,8 +10,8 @@ import operator
 import sys
 import numpy as np
 
-import llvmlite.ir
-from llvmlite.ir import Constant
+from numba_cuda_mlir.numba_cuda import _llvmlite_removed as llvmlite
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import Constant
 
 from numba_cuda_mlir.numba_cuda.core.imputils import impl_ret_untracked
 from numba_cuda_mlir.numba_cuda import types

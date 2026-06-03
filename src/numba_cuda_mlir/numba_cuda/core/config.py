@@ -18,9 +18,6 @@ except ImportError:
     _HAVE_YAML = False
 
 
-import llvmlite.binding as ll
-
-
 IS_WIN32 = sys.platform.startswith("win32")
 IS_OSX = sys.platform.startswith("darwin")
 MACHINE_BITS = tuple.__itemsize__ * 8
@@ -384,8 +381,10 @@ class _EnvReloader:
                 # There are various performance issues with AVX and LLVM
                 # on some CPUs (list at
                 # http://llvm.org/bugs/buglist.cgi?quicksearch=avx).
-                # For now we'd rather disable it, since it can pessimize code
-                cpu_name = CPU_NAME or ll.get_host_cpu_name()
+                # For now we'd rather disable it, since it can pessimize code.
+                # Host CPU detection (llvmlite) is irrelevant on the CUDA/MLIR
+                # path, so we skip it; this flag is a host (CPU-target) concern.
+                cpu_name = CPU_NAME or ""
                 disabled_cpus = {
                     "corei7-avx",
                     "core-avx-i",

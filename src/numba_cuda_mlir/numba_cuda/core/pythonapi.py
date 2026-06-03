@@ -6,8 +6,8 @@ import contextlib
 import hashlib
 import sys
 
-from llvmlite import ir
-from llvmlite.ir import Constant
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import Constant
 
 import ctypes
 

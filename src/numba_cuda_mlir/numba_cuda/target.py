@@ -22,7 +22,6 @@ from numba_cuda_mlir.numba_cuda import (
     itanium_mangler,
     compiler,
     codegen,
-    ufuncs,
     typing,
 )
 from numba_cuda_mlir.numba_cuda.debuginfo import CUDADIBuilder
@@ -344,7 +343,14 @@ class CUDATargetContext(BaseContext):
         # fpm.finalize()
 
     def get_ufunc_info(self, ufunc_key):
-        return ufuncs.get_ufunc_info(ufunc_key)
+        # The ufunc loop -> llvmlite codegen table (numba_cuda.ufuncs) only fed
+        # the vendored numpy ufunc lowering (_KernelImpl), which is filtered out
+        # on the MLIR path. Ufunc loop *typing* uses np.ufunc_db instead, and
+        # ufuncs are lowered by numba_cuda_mlir.lowering.numpy. Reaching here
+        # means dead vendored ufunc codegen ran.
+        raise NotImplementedError(
+            "CUDATargetContext.get_ufunc_info is not available on the MLIR path"
+        )
 
     def _compile_subroutine_no_cache(self, builder, impl, sig, locals=None, flags=None):
         # Overrides numba.core.base.BaseContext._compile_subroutine_no_cache().

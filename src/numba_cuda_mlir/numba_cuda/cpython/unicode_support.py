@@ -11,16 +11,25 @@ same name in CPython.
 from collections import namedtuple
 from enum import IntEnum
 
-from numba_cuda_mlir.numba_cuda import _llvmlite_removed as llvmlite
 import numpy as np
 
 from numba_cuda_mlir.numba_cuda import types
-from numba_cuda_mlir.numba_cuda import cgutils
-from numba_cuda_mlir.numba_cuda.core.imputils import impl_ret_untracked
 
 from numba_cuda_mlir.numba_cuda.extending import overload, register_jitable
 from numba_cuda_mlir.numba_cuda.extending import intrinsic
 from numba_cuda_mlir.numba_cuda.core.errors import TypingError
+
+
+# The two @intrinsic accessors below bind to the numba_gettyperecord /
+# numba_get_PyUnicode_ExtendedCase C helpers via llvmlite. That codegen is
+# filtered out on the MLIR path, so it is a shared tombstone; the typing (the
+# returned signatures) and the pure-Python @register_jitable character-property
+# functions are retained.
+def _dead_codegen(context, builder, signature, args):
+    raise NotImplementedError(
+        "this intrinsic's vendored llvmlite codegen is not used on the MLIR path"
+    )
+
 
 # This is equivalent to the struct `_PyUnicode_TypeRecord defined in CPython's
 # Objects/unicodectype.c
@@ -92,42 +101,6 @@ def _gettyperecord_impl(typingctx, codepoint):
     if not isinstance(codepoint, types.Integer):
         raise TypingError("codepoint must be an integer")
 
-    def details(context, builder, signature, args):
-        ll_void = context.get_value_type(types.void)
-        ll_Py_UCS4 = context.get_value_type(_Py_UCS4)
-        ll_intc = context.get_value_type(types.intc)
-        ll_intc_ptr = ll_intc.as_pointer()
-        ll_uchar = context.get_value_type(types.uchar)
-        ll_uchar_ptr = ll_uchar.as_pointer()
-        ll_ushort = context.get_value_type(types.ushort)
-        ll_ushort_ptr = ll_ushort.as_pointer()
-        fnty = llvmlite.ir.FunctionType(
-            ll_void,
-            [
-                ll_Py_UCS4,  # code
-                ll_intc_ptr,  # upper
-                ll_intc_ptr,  # lower
-                ll_intc_ptr,  # title
-                ll_uchar_ptr,  # decimal
-                ll_uchar_ptr,  # digit
-                ll_ushort_ptr,  # flags
-            ],
-        )
-        fn = cgutils.get_or_insert_function(builder.module, fnty, name="numba_gettyperecord")
-        upper = cgutils.alloca_once(builder, ll_intc, name="upper")
-        lower = cgutils.alloca_once(builder, ll_intc, name="lower")
-        title = cgutils.alloca_once(builder, ll_intc, name="title")
-        decimal = cgutils.alloca_once(builder, ll_uchar, name="decimal")
-        digit = cgutils.alloca_once(builder, ll_uchar, name="digit")
-        flags = cgutils.alloca_once(builder, ll_ushort, name="flags")
-
-        byref = [upper, lower, title, decimal, digit, flags]
-        builder.call(fn, [args[0]] + byref)
-        buf = list(map(builder.load, byref))
-
-        res = context.make_tuple(builder, signature.return_type, tuple(buf))
-        return impl_ret_untracked(context, builder, signature.return_type, res)
-
     tupty = types.NamedTuple(
         [
             types.intc,
@@ -140,7 +113,7 @@ def _gettyperecord_impl(typingctx, codepoint):
         typerecord,
     )
     sig = tupty(_Py_UCS4)
-    return sig, details
+    return sig, _dead_codegen
 
 
 @overload(_PyUnicode_gettyperecord)
@@ -176,17 +149,8 @@ def _PyUnicode_ExtendedCase(typingctx, index):
     if not isinstance(index, types.Integer):
         raise TypingError("Expected an index")
 
-    def details(context, builder, signature, args):
-        ll_Py_UCS4 = context.get_value_type(_Py_UCS4)
-        ll_intc = context.get_value_type(types.intc)
-        fnty = llvmlite.ir.FunctionType(ll_Py_UCS4, [ll_intc])
-        fn = cgutils.get_or_insert_function(
-            builder.module, fnty, name="numba_get_PyUnicode_ExtendedCase"
-        )
-        return builder.call(fn, [args[0]])
-
     sig = _Py_UCS4(types.intc)
-    return sig, details
+    return sig, _dead_codegen
 
 
 # The following functions are replications of the functions with the same name

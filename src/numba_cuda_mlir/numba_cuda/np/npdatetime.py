@@ -19,7 +19,7 @@ from numba_cuda_mlir.numba_cuda.core.imputils import (
     lower_cast,
     Registry,
 )
-from numba_cuda_mlir.numba_cuda.np import npdatetime_helpers, numpy_support, npyfuncs
+from numba_cuda_mlir.numba_cuda.np import npdatetime_helpers, numpy_support
 from numba_cuda_mlir.numba_cuda.extending import overload_method
 from numba_cuda_mlir.numba_cuda.core.config import IS_32BITS
 from numba_cuda_mlir.numba_cuda.core.errors import LoweringError
@@ -841,12 +841,6 @@ def _cast_to_timedelta(context, builder, val):
         with els:
             builder.store(builder.fptosi(val, TIMEDELTA64), temp)
     return builder.load(temp)
-
-
-@lower(np.isnat, types.NPDatetime)
-@lower(np.isnat, types.NPTimedelta)
-def _np_isnat_impl(context, builder, sig, args):
-    return npyfuncs.np_datetime_isnat_impl(context, builder, sig, args)
 
 
 @lower_cast(types.NPDatetime, types.Integer)

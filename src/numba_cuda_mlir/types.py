@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir.numba_cuda.types import (
     BaseTuple,
+    BaseNamedTuple,
     BoundFunction,
     Optional,
     Poison,

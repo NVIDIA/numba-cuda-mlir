@@ -14,6 +14,7 @@ from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core import errors
 from numba_cuda_mlir.numba_cuda import utils
 from numba_cuda_mlir.numba_cuda.np import numpy_support
+from numba_cuda_mlir.numba_cuda.api_util import resolve_cuda_array_interface_dtype
 
 from cuda.core import Buffer
 from cuda.core.utils import StridedMemoryView
@@ -67,7 +68,7 @@ def typeof_impl(val, c):
     # Numba's own DeviceNDArray is handled above via _numba_type_.
     cai = getattr(val, "__cuda_array_interface__", None)
     if cai is not None:
-        tp = _typeof_cuda_array_interface(cai, c)
+        tp = _typeof_cuda_array_interface(cai, c, getattr(val, "dtype", None))
         if tp is not None:
             return tp
 
@@ -366,11 +367,12 @@ def _typeof_dlpack(val, c):
 
 
 @functools.lru_cache
-def _numba_dtype_from_str(typestr):
-    return numpy_support.from_dtype(np.dtype(typestr))
+def _numba_dtype_from_str(typestr, owner_dtype=None):
+    dtype = resolve_cuda_array_interface_dtype(typestr, owner_dtype)
+    return numpy_support.from_dtype(dtype)
 
 
-def _typeof_cuda_array_interface(val, c):
+def _typeof_cuda_array_interface(val, c, owner_dtype=None):
     """
     Determine the type of a __cuda_array_interface__ object.
 
@@ -378,7 +380,7 @@ def _typeof_cuda_array_interface(val, c):
     Array Interface. These are typed as regular Array types, with lowering
     handled in numba.cuda.np.arrayobj.
     """
-    dtype = _numba_dtype_from_str(val["typestr"])
+    dtype = _numba_dtype_from_str(val["typestr"], owner_dtype)
     shape = val["shape"]
     strides = val.get("strides")
     _, readonly = val["data"]

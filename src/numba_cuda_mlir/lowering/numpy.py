@@ -769,7 +769,7 @@ class Slice:
         self.start: ir.Value = (
             lowering_utilities.convert(start, T.index())
             if start is not None
-            else arith.constant(result=T.index(), value=0)
+            else arith.index_cast(arith.constant(result=T.i64(), value=0), to=T.index())
         )
         # Handle None for stop (e.g., x[2:] has stop=None meaning end of array)
         if isinstance(stop, ir.NoneType):
@@ -1098,7 +1098,7 @@ def lower_array_slice_getitem(builder, target, args, kwargs):
     slice = builder.load_var(args[1])
     start, stop, step = slice.start, slice.stop, slice.step
     if start is None:
-        start = index_of(0)
+        start = arith.index_cast(arith.constant(result=T.i64(), value=0), to=T.index())
     if stop is None:
         stop = memref.dim(mr, index_of(0))
     if step is None:

@@ -61,7 +61,6 @@ class TestCudaArrayArg(NumbaCUDATestCase):
         for i in range(len(r2)):
             self.assertEqual(r2[i], x[i + len(r1)])
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_namedunituple(self):
         @numba_cuda_mlir.cuda.jit
         def f(r, x):
@@ -76,7 +75,6 @@ class TestCudaArrayArg(NumbaCUDATestCase):
         self.assertEqual(r[0], x.x)
         self.assertEqual(r[1], x.y)
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_namedtuple(self):
         @numba_cuda_mlir.cuda.jit
         def f(r1, r2, x):

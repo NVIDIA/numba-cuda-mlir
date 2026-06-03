@@ -95,7 +95,21 @@ def test_hetero_tuple_arg():
     np.testing.assert_array_equal(r2, x[3:])
 
 
-@pytest.mark.xfail(reason="namedtuple NYI")
+def test_captured_namedtuple_getattr():
+    Prec = namedtuple("Prec", ["a", "b"])
+    prec = Prec(np.float32, np.float64)
+    r = np.zeros(1, dtype=np.float32)
+
+    @cuda.jit
+    def f(r):
+        tmp = cuda.local.array(1, prec.a)
+        tmp[0] = 1
+        r[0] = tmp[0]
+
+    f[1, 1](r)
+    assert r[0] == np.float32(1)
+
+
 @pytest.mark.parametrize(
     "Point, vals, dtypes",
     [

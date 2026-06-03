@@ -231,8 +231,6 @@ class CUDATargetContext(BaseContext):
         from . import (
             cudaimpl,
             fp16,
-            printimpl,
-            libdeviceimpl,
             mathimpl as cuda_mathimpl,
             vector_types,
             bf16,
@@ -241,8 +239,6 @@ class CUDATargetContext(BaseContext):
 
         self.install_registry(cudaimpl.registry)
         self.install_registry(cffiimpl.registry)
-        self.install_registry(printimpl.registry)
-        self.install_registry(libdeviceimpl.registry)
         self.install_registry(cmathimpl.registry)
         self.install_registry(mathimpl.registry)
         self.install_registry(numbers.registry)

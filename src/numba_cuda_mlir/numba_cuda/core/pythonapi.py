@@ -115,6 +115,23 @@ class NativeValue:
         self.cleanup = cleanup
 
 
+# Fallback box/unbox handlers. These build llvmlite IR and only run on the dead
+# vendored Lower (object-mode) path; the MLIR path does not box/unbox PyObjects.
+# They used to live in core/boxing.py (a vendoring artifact, now removed); kept
+# here so to_native_value/from_native_value still resolve their default handler.
+def unbox_unsupported(typ, obj, c):
+    c.pyapi.err_set_string("PyExc_TypeError", "can't unbox {!r} type".format(typ))
+    res = c.context.get_constant_null(typ)
+    return NativeValue(res, is_error=cgutils.true_bit)
+
+
+def box_unsupported(typ, val, c):
+    msg = "cannot convert native %s to Python object" % (typ,)
+    c.pyapi.err_set_string("PyExc_TypeError", msg)
+    res = c.pyapi.get_null_object()
+    return res
+
+
 class EnvironmentManager:
     def __init__(self, pyapi, env, env_body, env_ptr):
         assert isinstance(env, lowering.Environment)
@@ -1448,8 +1465,6 @@ class PythonAPI:
         Unbox the Python object as the given Numba type.
         A NativeValue instance is returned.
         """
-        from numba_cuda_mlir.numba_cuda.core.boxing import unbox_unsupported
-
         impl = _unboxers.lookup(typ.__class__, unbox_unsupported)
         c = _UnboxContext(self.context, self.builder, self)
         return impl(typ, obj, c)
@@ -1467,8 +1482,6 @@ class PythonAPI:
         pointer is returned (NULL if an error occurred).
         This method steals any native (NRT) reference embedded in *val*.
         """
-        from numba_cuda_mlir.numba_cuda.core.boxing import box_unsupported
-
         impl = _boxers.lookup(typ.__class__, box_unsupported)
 
         c = _BoxContext(self.context, self.builder, self, env_manager)

@@ -132,7 +132,6 @@ def load_cuda_target_registration_modules():
         numbers,
         slicing,
         iterators,
-        listobj,
         unicode,
         charseq,
         cmathimpl,
@@ -156,7 +155,6 @@ def load_cuda_target_registration_modules():
         numbers,
         slicing,
         iterators,
-        listobj,
         unicode,
         charseq,
         cmathimpl,
@@ -209,7 +207,6 @@ class CUDATargetContext(BaseContext):
             numbers,
             slicing,
             iterators,
-            listobj,
             unicode,
             charseq,
             cmathimpl,
@@ -249,7 +246,6 @@ class CUDATargetContext(BaseContext):
         self.install_registry(fp8.target_registry)
         self.install_registry(slicing.registry)
         self.install_registry(iterators.registry)
-        self.install_registry(listobj.registry)
         self.install_registry(unicode.registry)
         self.install_registry(charseq.registry)
         self.install_registry(tupleobj.registry)
@@ -271,14 +267,6 @@ class CUDATargetContext(BaseContext):
         # The MLIR pipeline does not use an llvmlite TargetData; this property
         # is only reachable on the dead llvmlite codegen path.
         raise NotImplementedError("CUDATargetContext.target_data is not available on the MLIR path")
-
-    def build_list(self, builder, list_type, items):
-        """
-        Build a list from the Numba *list_type* and its initial *items*.
-        """
-        from numba_cuda_mlir.numba_cuda.cpython import listobj
-
-        return listobj.build_list(self, builder, list_type, items)
 
     @cached_property
     def nonconst_module_attrs(self):

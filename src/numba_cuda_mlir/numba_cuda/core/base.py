@@ -45,7 +45,6 @@ from numba_cuda_mlir.numba_cuda import (
 )
 from numba_cuda_mlir.numba_cuda.core import errors
 from numba_cuda_mlir.numba_cuda.core.compiler_lock import global_compiler_lock
-from numba_cuda_mlir.numba_cuda.core.pythonapi import PythonAPI
 from numba_cuda_mlir.numba_cuda.core.imputils import (
     user_function,
     user_generator,

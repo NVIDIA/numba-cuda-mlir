@@ -41,8 +41,6 @@ from numba_cuda_mlir.numba_cuda.np.arrayobj import (
     store_item,
     _empty_nd_impl,
 )
-from numba_cuda_mlir.numba_cuda.np.linalg import ensure_blas
-
 from numba_cuda_mlir.numba_cuda.extending import intrinsic
 from numba_cuda_mlir.numba_cuda.core.errors import (
     RequireLiteralValue,
@@ -57,16 +55,9 @@ registry = Registry("np.arraymath")
 lower = registry.lower
 
 
-def _check_blas():
-    # Checks if a BLAS is available so e.g. dot will work
-    try:
-        ensure_blas()
-    except ImportError:
-        return False
-    return True
-
-
-_HAVE_BLAS = _check_blas()
+# No CPU BLAS on the CUDA device path (the vendored np.linalg BLAS wrappers have
+# been removed), so np.dot etc. fall back to the pure-Python implementations.
+_HAVE_BLAS = False
 
 
 @intrinsic

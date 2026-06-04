@@ -12,7 +12,7 @@ from numba_cuda_mlir.numba_cuda.core import (
     errors,
 )
 from numba_cuda_mlir.numba_cuda.core import ir
-from numba_cuda_mlir.numba_cuda import typing, types, lowering
+from numba_cuda_mlir.numba_cuda import typing, types
 from numba_cuda_mlir.numba_cuda.core.compiler_machinery import (
     FunctionPass,
     LoweringPass,

@@ -17,7 +17,7 @@ from numba_cuda_mlir.numba_cuda.core.errors import (
 )
 from numba_cuda_mlir.numba_cuda.core.interpreter import Interpreter
 
-from numba_cuda_mlir.numba_cuda import cgutils, typing, lowering, nvvmutils, utils
+from numba_cuda_mlir.numba_cuda import cgutils, typing, nvvmutils, utils
 from numba_cuda_mlir.numba_cuda.api import get_current_device
 from numba_cuda_mlir.numba_cuda.codegen import ExternalCodeLibrary
 

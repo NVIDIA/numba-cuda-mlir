@@ -562,7 +562,10 @@ class CUDANativeLowering(BaseNativeLowering):
 
     @property
     def lowering_class(self):
-        return lowering.CUDALower
+        # The vendored llvmlite CUDALower is dead on the MLIR path (kernels are
+        # lowered by MLIRLower, not by this pass). Returning None so the dead
+        # CUDALower class can be removed; if this pass ever ran it would fail loudly.
+        return None
 
 
 class CUDABytecodeInterpreter(Interpreter):

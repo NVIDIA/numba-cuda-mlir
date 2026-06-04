@@ -382,7 +382,10 @@ class NativeLowering(BaseNativeLowering):
 
     @property
     def lowering_class(self):
-        return lowering.Lower
+        # The vendored llvmlite Lower is dead on the MLIR path (kernels are
+        # lowered by MLIRLower, not by this pass). Returning None so the dead
+        # Lower class can be removed; if this pass ever ran it would fail loudly.
+        return None
 
 
 @register_pass(mutates_CFG=False, analysis_only=True)

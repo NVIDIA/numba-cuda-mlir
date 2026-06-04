@@ -1012,7 +1012,13 @@ class BaseContext:
         raise NotImplementedError
 
     def get_python_api(self, builder):
-        return PythonAPI(self, builder)
+        # PythonAPI is llvmlite PyObject C-API codegen, dead on the MLIR path
+        # (only reached from filtered-out object-mode codegen). Raise so the
+        # dead PythonAPI class can be removed; reaching here means a live path
+        # tried to use the CPython C-API, which is unsupported on device.
+        raise NotImplementedError(
+            "get_python_api / the CPython C-API is not available on the MLIR path"
+        )
 
     def sentry_record_alignment(self, rectyp, attr):
         """

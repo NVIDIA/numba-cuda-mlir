@@ -51,6 +51,14 @@ def make_vector_types():
         vec_type = VectorType(base_type, nelem)
         vector_types_by_name[vec_type.name] = vec_type
 
+        # Add explicitly aligned variants for 4-element 64-bit types
+        if nelem == 4 and prefix in ("int64", "uint64", "float64"):
+            vec_type_16a = VectorType(base_type, nelem, alignment=16)
+            vector_types_by_name[vec_type_16a.name] = vec_type_16a
+
+            vec_type_32a = VectorType(base_type, nelem, alignment=32)
+            vector_types_by_name[vec_type_32a.name] = vec_type_32a
+
     return vector_types_by_name
 
 
@@ -79,6 +87,15 @@ def make_vector_type_aliases(vector_types_by_name):
             target_name = f"{base_type_prefix}x{nelem}"
             if target_name in vector_types_by_name:
                 vector_types_by_alias[alias_name] = vector_types_by_name[target_name]
+
+                # Add aliases for explicitly aligned types
+                if nelem == 4 and base_type_prefix in ("int64", "uint64", "float64"):
+                    vector_types_by_alias[f"{alias_name}_16a"] = vector_types_by_name[
+                        f"{target_name}_16a"
+                    ]
+                    vector_types_by_alias[f"{alias_name}_32a"] = vector_types_by_name[
+                        f"{target_name}_32a"
+                    ]
 
     return vector_types_by_alias
 

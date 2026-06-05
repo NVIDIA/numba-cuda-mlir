@@ -33,7 +33,11 @@ class _VectorTypeTestInfo:
 
 
 def _vector_types():
-    return [_VectorTypeTestInfo(vec_type) for vec_type in _cuda_vector_types]
+    return [
+        _VectorTypeTestInfo(vec_type)
+        for vec_type in _cuda_vector_types
+        if "_16a" not in vec_type.name and "_32a" not in vec_type.name
+    ]
 
 
 def _is_windows_llvm70_vector_path():

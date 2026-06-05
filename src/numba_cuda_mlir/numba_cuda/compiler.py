@@ -17,7 +17,7 @@ from numba_cuda_mlir.numba_cuda.core.errors import (
 )
 from numba_cuda_mlir.numba_cuda.core.interpreter import Interpreter
 
-from numba_cuda_mlir.numba_cuda import cgutils, typing, nvvmutils, utils
+from numba_cuda_mlir.numba_cuda import cgutils, typing, utils
 from numba_cuda_mlir.numba_cuda.api import get_current_device
 from numba_cuda_mlir.numba_cuda.codegen import ExternalCodeLibrary
 
@@ -999,70 +999,13 @@ def kernel_fixup(kernel, debug):
 
 
 def add_exception_store_helper(kernel):
-    # Create global variables for exception state
-
-    def define_error_gv(postfix):
-        name = kernel.name + postfix
-        gv = cgutils.add_global_variable(kernel.module, ir.IntType(32), name)
-        gv.initializer = ir.Constant(gv.type.pointee, None)
-        return gv
-
-    gv_exc = define_error_gv("__errcode__")
-    gv_tid = []
-    gv_ctaid = []
-    for i in "xyz":
-        gv_tid.append(define_error_gv("__tid%s__" % i))
-        gv_ctaid.append(define_error_gv("__ctaid%s__" % i))
-
-    # Create exception store helper function
-
-    helper_name = kernel.name + "__exc_helper__"
-    helper_type = ir.FunctionType(ir.VoidType(), (ir.IntType(32),))
-    helper_func = ir.Function(kernel.module, helper_type, helper_name)
-
-    block = helper_func.append_basic_block(name="entry")
-    builder = ir.IRBuilder(block)
-
-    # Implement status check / exception store logic
-
-    status_code = helper_func.args[0]
-    call_conv = CUDACallConv(cuda_target.target_context)
-    status = call_conv._get_return_status(builder, status_code)
-
-    # Check error status
-    with cgutils.if_likely(builder, status.is_ok):
-        builder.ret_void()
-
-    with builder.if_then(builder.not_(status.is_python_exc)):
-        # User exception raised
-        old = ir.Constant(gv_exc.type.pointee, None)
-
-        # Use atomic cmpxchg to prevent rewriting the error status
-        # Only the first error is recorded
-
-        xchg = builder.cmpxchg(gv_exc, old, status.code, "monotonic", "monotonic")
-        changed = builder.extract_value(xchg, 1)
-
-        # If the xchange is successful, save the thread ID.
-        sreg = nvvmutils.SRegBuilder(builder)
-        with builder.if_then(changed):
-            for (
-                dim,
-                ptr,
-            ) in zip("xyz", gv_tid):
-                val = sreg.tid(dim)
-                builder.store(val, ptr)
-
-            for (
-                dim,
-                ptr,
-            ) in zip("xyz", gv_ctaid):
-                val = sreg.ctaid(dim)
-                builder.store(val, ptr)
-
-    builder.ret_void()
-
-    return helper_func
+    # Built the llvmlite exception-store helper (error-code global + per-thread
+    # id capture via nvvmutils.SRegBuilder) for the vendored llvmlite kernel
+    # fixup path. That path is dead on the MLIR path (kernels are MLIR modules
+    # lowered by MLIRLower), so this is a dead stub.
+    raise NotImplementedError(
+        "add_exception_store_helper (vendored llvmlite kernel fixup) is not used on the MLIR path"
+    )
 
 
 def compile_all(

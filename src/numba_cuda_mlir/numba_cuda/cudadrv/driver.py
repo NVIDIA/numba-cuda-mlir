@@ -2287,9 +2287,7 @@ class _Linker:
                 raise TypeError("Expected path to file or a LinkableCode object")
 
             if path_or_code.kind == "cu":
-                self._pending_cu.append(
-                    ("linkable", path_or_code, path_or_code.name, self.lto)
-                )
+                self._pending_cu.append(("linkable", path_or_code, path_or_code.name, self.lto))
             else:
                 if ignore_nonlto:
                     warn_and_return = False

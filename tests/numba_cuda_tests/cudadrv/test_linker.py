@@ -629,6 +629,5 @@ __device__ int foo(int x) {
         self.assertIs(recreated._object_codes[0], fake_obj)
 
 
-
 if __name__ == "__main__":
     unittest.main()

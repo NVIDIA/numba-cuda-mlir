@@ -190,6 +190,13 @@
 
 
 <li class="nav-item ">
+  <a class="nav-link nav-internal" href="extending/index.html">
+    Extension API
+  </a>
+</li>
+
+
+<li class="nav-item ">
   <a class="nav-link nav-internal" href="reference/index.html">
     Reference documentation
   </a>
@@ -330,6 +337,13 @@
 
 
 <li class="nav-item ">
+  <a class="nav-link nav-internal" href="extending/index.html">
+    Extension API
+  </a>
+</li>
+
+
+<li class="nav-item ">
   <a class="nav-link nav-internal" href="reference/index.html">
     Reference documentation
   </a>
@@ -397,6 +411,11 @@
 <li class="toctree-l2"><a class="reference internal" href="user/profiling.html">Profiling</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="extending/index.html">Extension API</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="extending/high-level.html">High-level extension API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="extending/low-level.html">Low-level extension API</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="reference/index.html">Reference documentation</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="reference/compilation.html">Compilation API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="reference/kernel.html">CUDA Kernel API</a></li>
@@ -445,7 +464,9 @@
  | <a href="#G"><strong>G</strong></a>
  | <a href="#I"><strong>I</strong></a>
  | <a href="#L"><strong>L</strong></a>
+ | <a href="#M"><strong>M</strong></a>
  | <a href="#N"><strong>N</strong></a>
+ | <a href="#O"><strong>O</strong></a>
  | <a href="#R"><strong>R</strong></a>
  | <a href="#S"><strong>S</strong></a>
  | <a href="#T"><strong>T</strong></a>
@@ -917,6 +938,10 @@
       <li><a href="reference/host.html#numba.cuda.cudadrv.driver.Device.id">id (numba.cuda.cudadrv.driver.Device attribute)</a>
 </li>
   </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="extending/high-level.html#numba_cuda_mlir.extending.intrinsic">intrinsic() (in module numba_cuda_mlir.extending)</a>
+</li>
+  </ul></td>
 </tr></table>
 
 <h2 id="L">L</h2>
@@ -924,6 +949,19 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="reference/kernel.html#numba_cuda_mlir.cuda.laneid">laneid (numba_cuda_mlir.cuda attribute)</a>
 </li>
+  </ul></td>
+</tr></table>
+
+<h2 id="M">M</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li>
+    module
+
+      <ul>
+        <li><a href="extending/high-level.html#module-numba_cuda_mlir.extending">numba_cuda_mlir.extending</a>
+</li>
+      </ul></li>
   </ul></td>
 </tr></table>
 
@@ -1622,8 +1660,6 @@
         <li><a href="reference/types.html#numba_cuda_mlir.cuda.bf16.htanh">built-in function</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     numba_cuda_mlir.cuda.bf16.htanh_approx()
 
@@ -1631,6 +1667,8 @@
         <li><a href="reference/types.html#numba_cuda_mlir.cuda.bf16.htanh_approx">built-in function</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     numba_cuda_mlir.cuda.bf16.htrunc()
 
@@ -2319,13 +2357,38 @@
         <li><a href="reference/types.html#numba_cuda_mlir.cuda.types.bfloat16">built-in function</a>
 </li>
       </ul></li>
+      <li>
+    numba_cuda_mlir.extending
+
+      <ul>
+        <li><a href="extending/high-level.html#module-numba_cuda_mlir.extending">module</a>
+</li>
+      </ul></li>
       <li><a href="user/cuda_ffi.html#index-1">NUMBA_CUDA_NVRTC_EXTRA_SEARCH_PATHS</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="O">O</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="extending/high-level.html#numba_cuda_mlir.extending.overload">overload() (in module numba_cuda_mlir.extending)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="extending/high-level.html#numba_cuda_mlir.extending.overload_attribute">overload_attribute() (in module numba_cuda_mlir.extending)</a>
+</li>
+      <li><a href="extending/high-level.html#numba_cuda_mlir.extending.overload_method">overload_method() (in module numba_cuda_mlir.extending)</a>
 </li>
   </ul></td>
 </tr></table>
 
 <h2 id="R">R</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="extending/high-level.html#numba_cuda_mlir.extending.register_jitable">register_jitable() (in module numba_cuda_mlir.extending)</a>
+</li>
+  </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="reference/host.html#numba.cuda.cudadrv.driver.Device.reset">reset() (numba.cuda.cudadrv.driver.Device method)</a>
 </li>
@@ -2348,6 +2411,10 @@
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="reference/kernel.html#numba_cuda_mlir.cuda.threadIdx">threadIdx (numba_cuda_mlir.cuda attribute)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="extending/high-level.html#numba_cuda_mlir.extending.type_callable">type_callable() (in module numba_cuda_mlir.extending)</a>
 </li>
   </ul></td>
 </tr></table>

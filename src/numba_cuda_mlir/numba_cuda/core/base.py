@@ -366,9 +366,14 @@ class BaseContext:
 
     @cached_property
     def nrt(self):
-        from numba_cuda_mlir.numba_cuda.memory_management.nrt_context import NRTContext
-
-        return NRTContext(self, self.enable_nrt)
+        # The vendored NRTContext builds llvmlite NRT incref/decref/alloc IR and
+        # is dead on the MLIR path: MLIRLower uses its own MLIRNRTContext, and
+        # the only target-context .nrt accesses are from filtered-out vendored
+        # codegen. Raise so the dead NRTContext can be removed.
+        raise NotImplementedError(
+            "BaseContext.nrt (vendored NRTContext) is not available on the MLIR path; "
+            "MLIRLower uses MLIRNRTContext"
+        )
 
     def subtarget(self, **kws):
         obj = copy.copy(self)  # shallow copy

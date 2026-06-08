@@ -9,7 +9,6 @@ import math
 from collections import namedtuple
 import operator
 
-from numba_cuda_mlir.numba_cuda import _llvmlite_removed as llvmlite
 import numpy as np
 
 from numba_cuda_mlir.numba_cuda import types
@@ -3138,14 +3137,9 @@ def _np_round_float(typingctx, val):
     sig = val(val)
 
     def codegen(context, builder, sig, args):
-        [val] = args
-        tp = sig.args[0]
-        llty = context.get_value_type(tp)
-        module = builder.module
-        fnty = llvmlite.ir.FunctionType(llty, [llty])
-        fn = cgutils.get_or_insert_function(module, fnty, _np_round_intrinsic(tp))
-        res = builder.call(fn, (val,))
-        return impl_ret_untracked(context, builder, sig.return_type, res)
+        # Built an llvmlite call to the np_round intrinsic; filtered out on the
+        # MLIR path (rounding is lowered by numba_cuda_mlir.lowering), dead.
+        raise NotImplementedError("_np_round_float codegen is not used on the MLIR path")
 
     return sig, codegen
 

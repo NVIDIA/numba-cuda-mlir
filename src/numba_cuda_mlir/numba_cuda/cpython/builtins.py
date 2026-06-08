@@ -8,8 +8,6 @@ from functools import reduce
 import numpy as np
 import operator
 
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
-
 from numba_cuda_mlir.numba_cuda.core.imputils import (
     call_getiter,
     call_iternext,
@@ -28,6 +26,10 @@ from numba_cuda_mlir.numba_cuda.core.errors import (
     RequireLiteralValue,
 )
 from numba_cuda_mlir.numba_cuda.typing.templates import AbstractTemplate, signature
+
+# Several @lower codegen here (const eq/ne, round, get_type_min/max_value) built
+# llvmlite IR and are filtered out on the MLIR path; neutered to raise this.
+_DEAD_CODEGEN_MSG = "this builtins llvmlite codegen is not used on the MLIR path"
 from numba_cuda_mlir.numba_cuda.typing.templates import infer_global
 from numba_cuda_mlir.numba_cuda.misc.special import literal_unroll
 from numba_cuda_mlir.numba_cuda.typing.asnumbatype import as_numba_type
@@ -125,24 +127,14 @@ def bool_is_impl(context, builder, sig, args):
 @lower(operator.eq, types.Literal, types.Literal)
 @lower(operator.eq, types.IntegerLiteral, types.IntegerLiteral)
 def const_eq_impl(context, builder, sig, args):
-    arg1, arg2 = sig.args
-    val = 0
-    if arg1.literal_value == arg2.literal_value:
-        val = 1
-    res = ir.Constant(ir.IntType(1), val)
-    return impl_ret_untracked(context, builder, sig.return_type, res)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 # keep types.IntegerLiteral, as otherwise there's ambiguity between this and int_ne_impl
 @lower(operator.ne, types.Literal, types.Literal)
 @lower(operator.ne, types.IntegerLiteral, types.IntegerLiteral)
 def const_ne_impl(context, builder, sig, args):
-    arg1, arg2 = sig.args
-    val = 0
-    if arg1.literal_value != arg2.literal_value:
-        val = 1
-    res = ir.Constant(ir.IntType(1), val)
-    return impl_ret_untracked(context, builder, sig.return_type, res)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def gen_non_eq(val):
@@ -276,15 +268,7 @@ def _round_intrinsic(tp):
 
 @lower(round, types.Float)
 def round_impl_unary(context, builder, sig, args):
-    fltty = sig.args[0]
-    llty = context.get_value_type(fltty)
-    module = builder.module
-    fnty = ir.FunctionType(llty, [llty])
-    fn = cgutils.get_or_insert_function(module, fnty, _round_intrinsic(fltty))
-    res = builder.call(fn, args)
-    # unary round() returns an int
-    res = builder.fptosi(res, context.get_value_type(sig.return_type))
-    return impl_ret_untracked(context, builder, sig.return_type, res)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 @lower(round, types.Float, types.Integer)
@@ -549,57 +533,13 @@ class MinValInfer(AbstractTemplate):
 @lower(get_type_min_value, types.NumberClass)
 @lower(get_type_min_value, types.DType)
 def lower_get_type_min_value(context, builder, sig, args):
-    typ = sig.args[0].dtype
-
-    if isinstance(typ, types.Integer):
-        bw = typ.bitwidth
-        lty = ir.IntType(bw)
-        val = typ.minval
-        res = ir.Constant(lty, val)
-    elif isinstance(typ, types.Float):
-        bw = typ.bitwidth
-        if bw == 32:
-            lty = ir.FloatType()
-        elif bw == 64:
-            lty = ir.DoubleType()
-        else:
-            raise NotImplementedError("llvmlite only supports 32 and 64 bit floats")
-        npty = getattr(np, "float{}".format(bw))  # noqa: F841
-        res = ir.Constant(lty, -np.inf)
-    elif isinstance(typ, (types.NPDatetime, types.NPTimedelta)):
-        bw = 64
-        lty = ir.IntType(bw)
-        val = types.int64.minval + 1  # minval is NaT, so minval + 1 is the smallest value
-        res = ir.Constant(lty, val)
-    return impl_ret_untracked(context, builder, lty, res)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 @lower(get_type_max_value, types.NumberClass)
 @lower(get_type_max_value, types.DType)
 def lower_get_type_max_value(context, builder, sig, args):
-    typ = sig.args[0].dtype
-
-    if isinstance(typ, types.Integer):
-        bw = typ.bitwidth
-        lty = ir.IntType(bw)
-        val = typ.maxval
-        res = ir.Constant(lty, val)
-    elif isinstance(typ, types.Float):
-        bw = typ.bitwidth
-        if bw == 32:
-            lty = ir.FloatType()
-        elif bw == 64:
-            lty = ir.DoubleType()
-        else:
-            raise NotImplementedError("llvmlite only supports 32 and 64 bit floats")
-        npty = getattr(np, "float{}".format(bw))  # noqa: F841
-        res = ir.Constant(lty, np.inf)
-    elif isinstance(typ, (types.NPDatetime, types.NPTimedelta)):
-        bw = 64
-        lty = ir.IntType(bw)
-        val = types.int64.maxval
-        res = ir.Constant(lty, val)
-    return impl_ret_untracked(context, builder, lty, res)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 # -----------------------------------------------------------------------------

@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 from collections import namedtuple
 from warnings import warn, catch_warnings, simplefilter
 import copy
@@ -910,94 +909,11 @@ def compile_cuda(
 
 
 def kernel_fixup(kernel, debug):
-    if debug:
-        exc_helper = add_exception_store_helper(kernel)
-
-    # Pass 1 - replace:
-    #
-    #    ret <value>
-    #
-    # with:
-    #
-    #    exc_helper(<value>)
-    #    ret void
-
-    for block in kernel.blocks:
-        for inst in block.instructions:
-            if isinstance(inst, ir.Ret):
-                old_ret = block.instructions.pop()
-                block.terminator = None
-
-                # The original return's metadata will be set on the new
-                # instructions in order to preserve debug info
-                metadata = old_ret.metadata
-
-                builder = ir.IRBuilder(block)
-                if debug:
-                    status_code = old_ret.operands[0]
-                    exc_helper_call = builder.call(exc_helper, (status_code,))
-                    exc_helper_call.metadata = metadata
-
-                new_ret = builder.ret_void()
-                new_ret.metadata = old_ret.metadata
-
-                # Need to break out so we don't carry on modifying what we are
-                # iterating over. There can only be one return in a block
-                # anyway.
-                break
-
-    # Pass 2: remove stores of null pointer to return value argument pointer
-
-    return_value = kernel.args[0]
-
-    for block in kernel.blocks:
-        # Find all stores first
-        remove_list = [
-            inst
-            for inst in block.instructions
-            if (isinstance(inst, ir.StoreInstr) and inst.operands[1] == return_value)
-        ]
-
-        # Remove all stores
-        for to_remove in remove_list:
-            block.instructions.remove(to_remove)
-
-    # Replace non-void return type with void return type and remove return
-    # value
-
-    if isinstance(kernel.type, ir.PointerType):
-        new_type = ir.PointerType(ir.FunctionType(ir.VoidType(), kernel.type.pointee.args[1:]))
-    else:
-        new_type = ir.FunctionType(ir.VoidType(), kernel.type.args[1:])
-
-    kernel.type = new_type
-    kernel.return_value = ir.ReturnValue(kernel, ir.VoidType())
-    kernel.args = kernel.args[1:]
-
-    # If debug metadata is present, fix the return type to void by replacing
-    # the first element of the types tuple with null (representing void).
-
-    if kernel_metadata := getattr(kernel, "metadata", None):
-        if dbg_metadata := kernel_metadata.get("dbg", None):
-            for name, value in dbg_metadata.operands:
-                if name == "type":
-                    type_metadata = value
-                    for tm_name, tm_value in type_metadata.operands:
-                        if tm_name == "types":
-                            types = tm_value
-                            ret_type = ir.Constant(ir.MetaDataType(), None)
-                            types.operands = (ret_type,) + types.operands[1:]
-                            if config.DUMP_LLVM:
-                                types._clear_string_cache()
-
-    # Mark as a kernel for NVVM
-
-    nvvm.set_cuda_kernel(kernel)
-
-    if config.DUMP_LLVM:
-        print(f"LLVM DUMP: Post kernel fixup {kernel.name}".center(80, "-"))
-        print(kernel.module)
-        print("=" * 80)
+    # Rewrote a vendored llvmlite kernel function (return-value handling, void
+    # return-type conversion, nvvm.annotations marking) on an llvmlite module.
+    # Dead on the MLIR path: kernels are MLIR modules lowered/finalized by the
+    # MLIR pipeline. Only the vendored llvmlite dispatch reaches here.
+    raise NotImplementedError("kernel_fixup (vendored llvmlite) is not used on the MLIR path")
 
 
 def add_exception_store_helper(kernel):

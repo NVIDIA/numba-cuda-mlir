@@ -1206,7 +1206,7 @@ iteration.</p>
 </pre></div>
 </div>
 </div>
-<p>This passes a <a class="reference external" href="https://numba.readthedocs.io/en/latest/user/troubleshoot.html#debugging-cuda-python-code" title="(in Numba v0.66)"><span class="xref std std-ref">CUDA memory check test</span></a>, which
+<p>This passes a <a class="reference external" href="https://numba.readthedocs.io/en/latest/user/troubleshoot.html#debugging-cuda-python-code" title="(in Numba v0.67)"><span class="xref std std-ref">CUDA memory check test</span></a>, which
 can help with debugging. Running the code above produces the following output:</p>
 <div class="highlight-none notranslate"><div class="highlight"><pre><span></span>$ python fast_matmul.py
 [[ 6.  6.  6.  6.]
@@ -1333,7 +1333,7 @@ an array.</p>
 </div>
 </div>
 <p>To set up an example using the kernel and passing a pointer as an integer, we
-create a device array in the usual way, then use the <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda/cuda_array_interface.html#cuda-array-interface" title="(in Numba v0.66)"><span class="xref std std-ref">CUDA Array Interface</span></a> to obtain the pointer for the purpose of this example.
+create a device array in the usual way, then use the <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda/cuda_array_interface.html#cuda-array-interface" title="(in Numba v0.67)"><span class="xref std std-ref">CUDA Array Interface</span></a> to obtain the pointer for the purpose of this example.
 However, the pointer could have been provided from anywhere - for example, from
 another library that doesn’t support the CUDA Array Interface, or from
 <code class="docutils literal notranslate"><span class="pre">cudaMalloc</span></code> in a C / C++ program, etc..</p>

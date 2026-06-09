@@ -539,7 +539,7 @@ the number of thread blocks and the number of threads per block
 times with different block sizes or grid sizes).</p></li>
 </ul>
 <p>At first sight, writing a CUDA kernel with Numba CUDA MLIR looks very much like
-writing a <a class="reference external" href="https://numba.readthedocs.io/en/latest/glossary.html#term-JIT-function" title="(in Numba v0.66)"><span class="xref std std-term">JIT function</span></a> for the CPU with Numba:</p>
+writing a <a class="reference external" href="https://numba.readthedocs.io/en/latest/glossary.html#term-JIT-function" title="(in Numba v0.67)"><span class="xref std std-term">JIT function</span></a> for the CPU with Numba:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">increment_by_one</span><span class="p">(</span><span class="n">an_array</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -567,7 +567,7 @@ instantiation is done by taking the compiled kernel function
 <li><p>Running the kernel, by passing it the input array (and any separate
 output arrays if necessary). Kernels run asynchronously: launches queue their
 execution on the device and then return immediately.  You can use
-<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/host.html#numba.cuda.synchronize" title="(in Numba v0.66)"><code class="xref py py-func docutils literal notranslate"><span class="pre">cuda.synchronize()</span></code></a> to wait for all previous
+<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/host.html#numba.cuda.synchronize" title="(in Numba v0.67)"><code class="xref py py-func docutils literal notranslate"><span class="pre">cuda.synchronize()</span></code></a> to wait for all previous
 kernel launches to finish executing.</p></li>
 </ul>
 <div class="admonition note">

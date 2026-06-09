@@ -297,6 +297,8 @@ class TestExtendingLinkage(NumbaCUDATestCase):
                 )
                 builder.store_var(target, result)
 
+            extending.refresh_registries()
+
             @numba_cuda_mlir.cuda.jit(lto=lto)
             def use_external_add(r, x, y):
                 r[0] = external_add(x[0], y[0])

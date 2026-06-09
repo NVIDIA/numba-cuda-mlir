@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from numba_cuda_mlir import cuda, extending, types, testing
+from numba_cuda_mlir import compiler, cuda, extending, types, testing
 from numba_cuda_mlir.models import PrimitiveModel, register_model
 from numba_cuda_mlir.numba_cuda.extending import overload as numba_cuda_overload
 from numba_cuda_mlir.numba_cuda.extending import typeof_impl
@@ -259,6 +259,52 @@ def test_overload_attribute():
     out = np.zeros(1, dtype=np.int64)
     kernel[1, 1](arr, out)
     assert out[0] == 20
+
+
+def test_overload_attribute_string_literal_compare_is_folded():
+    """String-valued overload_attribute results stay compile-time literals."""
+
+    class Dummy:
+        pass
+
+    class DummyType(types.Type):
+        def __init__(self):
+            super().__init__(name="Dummy")
+
+    @typeof_impl.register(Dummy)
+    def typeof_dummy(val, c):
+        return DummyType()
+
+    @register_model(DummyType)
+    class DummyModel(PrimitiveModel):
+        def __init__(self, dmm, fe_type):
+            from numba_cuda_mlir._mlir.extras import types as T
+
+            super().__init__(dmm, fe_type, T.i8())
+
+    @extending.overload_attribute(
+        DummyType,
+        "arrangement",
+        inline="always",
+        typing_registry=extending.typing_registry,
+        lowering_registry=extending.lowering_registry,
+    )
+    def dummy_arrangement(dummy):
+        def get(dummy):
+            return "col_major"
+
+        return get
+
+    dummy = Dummy()
+
+    @cuda.jit
+    def kernel(out):
+        out[0] = dummy.arrangement == "col_major"
+
+    mlir = compiler.compile_mlir(kernel, types.void(types.boolean[:]))
+    assert "__numba_cuda_mlir_str_" not in mlir
+    assert "scf.for" not in mlir
+    assert "arith.constant true" in mlir
 
 
 def test_overload_method_with_args():

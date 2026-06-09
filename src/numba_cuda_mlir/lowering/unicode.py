@@ -54,8 +54,8 @@ def _unicode_eq_lower(builder, target, args, kwargs):
         materialize_string_constant_if_needed,
     )
 
-    lhs_raw = builder.load_var(args[0])
-    rhs_raw = builder.load_var(args[1])
+    lhs_raw = builder._load_var(args[0])
+    rhs_raw = builder._load_var(args[1])
 
     if isinstance(lhs_raw, str) and isinstance(rhs_raw, str):
         result = arith.constant(result=T.bool(), value=(lhs_raw == rhs_raw))

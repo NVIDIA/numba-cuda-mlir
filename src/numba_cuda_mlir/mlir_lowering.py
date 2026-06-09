@@ -1194,6 +1194,15 @@ extern "C" __global__ void
     def lower_var_assign(self, target, var):
         trace()
         assert self.var_lowered(var), f"Var {var.name} not found in varmap."
+        source_type = self.get_numba_type(var.name)
+        target_type = self.get_numba_type(target.name)
+        if (
+            source_type == target_type
+            and isinstance(source_type, (types.StringLiteral, types.Bytes))
+            and isinstance(var_value := self._load_var(var), (str, bytes))
+        ):
+            self.store_var(target, var_value)
+            return
         var_value = self.load_var(var)
 
         match var_value:
@@ -1211,8 +1220,6 @@ extern "C" __global__ void
                 self.store_var(target, var_value)
             case ir.NoneType():
                 self.store_var(target, var_value)
-            case str() | bytes():
-                self.store_var(target, var_value)
             case _ if isinstance(self.get_numba_type(target.name), types.DTypeSpec):
                 target_type = self.get_numba_type(target.name)
                 self.store_var(target, self._materialize_type_token(target_type))
@@ -1220,8 +1227,6 @@ extern "C" __global__ void
                 target_type = self.get_numba_type(target.name)
                 self.store_var(target, self.get_mlir_type(target_type))
             case _:
-                source_type = self.get_numba_type(var.name)
-                target_type = self.get_numba_type(target.name)
                 if source_type == target_type:
                     if isinstance(var_value, ir.Value):
                         value_op = self.mlir_convert(var_value, self.get_mlir_type(target_type))

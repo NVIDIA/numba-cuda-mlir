@@ -157,6 +157,11 @@ class _NumbaCudaMlirOverloadAttributeTemplate(_OverloadAttributeTemplate):
 
         @selected_lowering_registry.lower_getattr(key, attr)
         def getattr_impl(context, builder, target, value):
+            target_type = builder.get_numba_type(target.name)
+            if isinstance(target_type, types.Literal):
+                builder.store_var(target, target_type.literal_value)
+                return
+
             value_type = builder.get_numba_type(value.name)
             disp = cls._find_overload_dispatcher(context.typing_context, value_type)
             if disp is None:

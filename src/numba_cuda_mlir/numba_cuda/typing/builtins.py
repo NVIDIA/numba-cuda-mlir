@@ -555,7 +555,7 @@ class Contains(AbstractTemplate):
         assert not kws
         (seq, val) = args
 
-        if isinstance(seq, (types.Sequence)):
+        if isinstance(seq, types.Sequence) and isinstance(val, (types.Number, types.Boolean)):
             return signature(types.boolean, seq, val)
 
 

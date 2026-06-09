@@ -200,7 +200,7 @@ def _drop_shared_gep_no_wrap_flags(module: ir.Module):
     worklist = []
 
     def collect(op):
-        if op.operation.name == "llvm.getelementptr" and str(op.results[0].type) == "!llvm.ptr<3>":
+        if op.operation.name == "llvm.getelementptr" and _is_shared_llvm_ptr(op.results[0].type):
             worklist.append(op)
         for region in op.operation.regions:
             for block in region.blocks:

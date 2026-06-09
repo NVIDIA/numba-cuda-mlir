@@ -75,6 +75,15 @@ jobs:
       host-platform: linux-aarch64
     secrets: inherit
 
+  build-llvm-windows:
+    needs:
+      - should-skip
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+    uses: ./.github/workflows/build-llvm.yml
+    with:
+      host-platform: win-64
+    secrets: inherit
+
   # WARNING: make sure all of the build jobs are in sync
   build-linux-64:
     needs:
@@ -105,6 +114,25 @@ jobs:
       matrix:
         host-platform:
           - linux-aarch64
+    name: Build ${{ matrix.host-platform }}
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+    uses: ./.github/workflows/build-wheel.yml
+    with:
+      host-platform: ${{ matrix.host-platform }}
+      cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
+      prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
+
+  # WARNING: make sure all of the build jobs are in sync
+  build-windows:
+    needs:
+      - ci-vars
+      - should-skip
+      - build-llvm-windows
+    strategy:
+      fail-fast: false
+      matrix:
+        host-platform:
+          - win-64
     name: Build ${{ matrix.host-platform }}
     if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
     uses: ./.github/workflows/build-wheel.yml
@@ -149,6 +177,23 @@ jobs:
       build-type: pull-request
       host-platform: ${{ matrix.host-platform }}
 
+  test-windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        host-platform:
+          - win-64
+    name: Test ${{ matrix.host-platform }}
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read  # This is required for actions/checkout
+    needs:
+      - build-windows
+    uses: ./.github/workflows/test-wheel-windows.yml
+    with:
+      build-type: pull-request
+      host-platform: ${{ matrix.host-platform }}
+
   test-expensive-linux-64:
     name: Expensive Test linux-64
     if: ${{ github.repository_owner == 'nvidia' }}
@@ -171,16 +216,51 @@ jobs:
     with:
       host-platform: linux-aarch64
 
-  # ============== old CI jobs (ci.yaml & pr.yaml) ==============
+  test-cudf-source-linux-64:
+    name: cudf source Test linux-64
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read
+    needs:
+      - build-linux-64
+    uses: ./.github/workflows/test-cudf-source-linux.yml
+    with:
+      host-platform: linux-64
 
-  pre-commit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
-      - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd
-        with:
-          extra_args: --all-files --show-diff-on-failure
+  test-cudf-source-linux-aarch64:
+    name: cudf source Test linux-aarch64
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read
+    needs:
+      - build-linux-aarch64
+    uses: ./.github/workflows/test-cudf-source-linux.yml
+    with:
+      host-platform: linux-aarch64
+
+  test-numbast-mlir-linux-64:
+    name: Numbast MLIR Test linux-64
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read
+    needs:
+      - build-linux-64
+    uses: ./.github/workflows/test-numbast-mlir-linux.yml
+    with:
+      host-platform: linux-64
+
+  test-numbast-mlir-linux-aarch64:
+    name: Numbast MLIR Test linux-aarch64
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read
+    needs:
+      - build-linux-aarch64
+    uses: ./.github/workflows/test-numbast-mlir-linux.yml
+    with:
+      host-platform: linux-aarch64
+
+  # ============== old CI jobs (ci.yaml & pr.yaml) ==============
 
   build-docs:
     needs:
@@ -190,6 +270,7 @@ jobs:
     permissions:
       actions: read
       contents: write
+      pull-requests: write  # required for sticky PR comment (doc preview link)
     uses: ./.github/workflows/build-docs.yml
     with:
       host-platform: linux-64
@@ -218,9 +299,13 @@ jobs:
     needs:
       - test-linux-64
       - test-linux-aarch64
+      - test-windows
       - test-expensive-linux-64
       - test-expensive-linux-aarch64
-      - pre-commit
+      - test-cudf-source-linux-64
+      - test-cudf-source-linux-aarch64
+      - test-numbast-mlir-linux-64
+      - test-numbast-mlir-linux-aarch64
       - build-docs
       # - coverage-report
       # - test-simulator
@@ -243,7 +328,9 @@ jobs:
           # failing job(s) will timeout causing a cancellation here and the
           # build to succeed which we don't want (originally this was just
           # 'exit 0')
-          if ${{ needs.test-linux-64.result == 'cancelled' ||
+          if ${{ needs.test-windows.result == 'cancelled' ||
+                 needs.test-windows.result == 'failure' ||
+                 needs.test-linux-64.result == 'cancelled' ||
                  needs.test-linux-64.result == 'failure' ||
                  needs.test-linux-aarch64.result == 'cancelled' ||
                  needs.test-linux-aarch64.result == 'failure' ||
@@ -251,8 +338,14 @@ jobs:
                  needs.test-expensive-linux-64.result == 'failure' ||
                  needs.test-expensive-linux-aarch64.result == 'cancelled' ||
                  needs.test-expensive-linux-aarch64.result == 'failure' ||
-                 needs.pre-commit.result == 'cancelled' ||
-                 needs.pre-commit.result == 'failure' ||
+                 needs.test-cudf-source-linux-64.result == 'cancelled' ||
+                 needs.test-cudf-source-linux-64.result == 'failure' ||
+                 needs.test-cudf-source-linux-aarch64.result == 'cancelled' ||
+                 needs.test-cudf-source-linux-aarch64.result == 'failure' ||
+                 needs.test-numbast-mlir-linux-64.result == 'cancelled' ||
+                 needs.test-numbast-mlir-linux-64.result == 'failure' ||
+                 needs.test-numbast-mlir-linux-aarch64.result == 'cancelled' ||
+                 needs.test-numbast-mlir-linux-aarch64.result == 'failure' ||
                  needs.build-docs.result == 'cancelled' ||
                  needs.build-docs.result == 'failure' }}; then
           #        needs.coverage-report.result == 'cancelled' ||

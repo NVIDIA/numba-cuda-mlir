@@ -5,8 +5,8 @@
 Support for lowering generators.
 """
 
-import llvmlite.ir
-from llvmlite.ir import Constant, IRBuilder
+from numba_cuda_mlir.numba_cuda import _llvmlite_removed as llvmlite
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import Constant, IRBuilder
 
 from numba_cuda_mlir.numba_cuda import types, config, cgutils
 from numba_cuda_mlir.numba_cuda.core.funcdesc import FunctionDescriptor

@@ -4,7 +4,28 @@
 from functools import partial
 from collections import deque
 
-from llvmlite import ir
+
+class _LLVMLiteRemoved:
+    """Tombstone standing in for the removed ``llvmlite.ir`` module.
+
+    These data models describe how front-end types map onto llvmlite IR types.
+    On the MLIR compilation path that mapping is provided instead by
+    ``numba_cuda_mlir.models`` (MLIR-typed); the models here are still
+    instantiated during MLIR type inference, but only their structural
+    information (fields, member types, NRT flags) is used - the llvmlite
+    ``be_type`` they would build is discarded. The eager type construction has
+    therefore been replaced by ``None``; the remaining builder-based (codegen)
+    methods are dead and raise here, since llvmlite is no longer a dependency.
+    """
+
+    def __getattr__(self, name):
+        raise NotImplementedError(
+            "llvmlite has been removed; llvmlite IR is not available on the "
+            f"MLIR path (attempted to use llvmlite.ir.{name})"
+        )
+
+
+ir = _LLVMLiteRemoved()
 
 from numba_cuda_mlir.numba_cuda.datamodel.registry import register_default
 from numba_cuda_mlir.numba_cuda import types
@@ -167,7 +188,8 @@ class OmittedArgDataModel(DataModel):
 
     # Omitted arguments are using a dummy value type
     def get_value_type(self):
-        return ir.LiteralStructType([])
+        # llvmlite value type discarded on the MLIR path
+        return None
 
     # Omitted arguments don't produce any LLVM function argument.
     def get_argument_type(self):
@@ -184,14 +206,13 @@ class OmittedArgDataModel(DataModel):
 @register_default(types.Boolean)
 @register_default(types.BooleanLiteral)
 class BooleanModel(DataModel):
-    _bit_type = ir.IntType(1)
-    _byte_type = ir.IntType(8)
-
     def get_value_type(self):
-        return self._bit_type
+        # llvmlite value type discarded on the MLIR path
+        return None
 
     def get_data_type(self):
-        return self._byte_type
+        # llvmlite data type discarded on the MLIR path
+        return None
 
     def get_return_type(self):
         return self.get_data_type()
@@ -338,11 +359,9 @@ class OpaqueModel(PrimitiveModel):
     Passed as opaque pointers
     """
 
-    _ptr_type = ir.IntType(8).as_pointer()
-
     def __init__(self, dmm, fe_type):
-        be_type = self._ptr_type
-        super().__init__(dmm, fe_type, be_type)
+        # llvmlite be_type (i8*) discarded on the MLIR path
+        super().__init__(dmm, fe_type, None)
 
 
 @register_default(types.MemInfoPointer)
@@ -361,20 +380,15 @@ class MemInfoModel(OpaqueModel):
 @register_default(types.IntegerLiteral)
 class IntegerModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = ir.IntType(fe_type.bitwidth)
-        super().__init__(dmm, fe_type, be_type)
+        # llvmlite be_type discarded on the MLIR path
+        super().__init__(dmm, fe_type, None)
 
 
 @register_default(types.Float)
 class FloatModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
-        if fe_type == types.float32:
-            be_type = ir.FloatType()
-        elif fe_type == types.float64:
-            be_type = ir.DoubleType()
-        else:
-            raise NotImplementedError(fe_type)
-        super().__init__(dmm, fe_type, be_type)
+        # llvmlite be_type discarded on the MLIR path
+        super().__init__(dmm, fe_type, None)
 
 
 @register_default(types.CPointer)
@@ -382,8 +396,8 @@ class PointerModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
         self._pointee_model = dmm.lookup(fe_type.dtype)
         self._pointee_be_type = self._pointee_model.get_data_type()
-        be_type = self._pointee_be_type.as_pointer()
-        super().__init__(dmm, fe_type, be_type)
+        # llvmlite be_type discarded on the MLIR path
+        super().__init__(dmm, fe_type, None)
 
 
 @register_default(types.EphemeralPointer)
@@ -406,7 +420,8 @@ class EphemeralPointerModel(PointerModel):
 class EphemeralArrayModel(PointerModel):
     def __init__(self, dmm, fe_type):
         super().__init__(dmm, fe_type)
-        self._data_type = ir.ArrayType(self._pointee_be_type, self._fe_type.count)
+        # llvmlite data type discarded on the MLIR path
+        self._data_type = None
 
     def get_data_type(self):
         return self._data_type
@@ -428,13 +443,8 @@ class EphemeralArrayModel(PointerModel):
 @register_default(types.ExternalFunctionPointer)
 class ExternalFuncPointerModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
-        sig = fe_type.sig
-        # Since the function is non-Numba, there is no adaptation
-        # of arguments and return value, hence get_value_type().
-        retty = dmm.lookup(sig.return_type).get_value_type()
-        args = [dmm.lookup(t).get_value_type() for t in sig.args]
-        be_type = ir.PointerType(ir.FunctionType(retty, args))
-        super().__init__(dmm, fe_type, be_type)
+        # llvmlite be_type (function pointer) discarded on the MLIR path
+        super().__init__(dmm, fe_type, None)
 
 
 @register_default(types.UniTuple)
@@ -445,8 +455,9 @@ class UniTupleModel(DataModel):
         super().__init__(dmm, fe_type)
         self._elem_model = dmm.lookup(fe_type.dtype)
         self._count = len(fe_type)
-        self._value_type = ir.ArrayType(self._elem_model.get_value_type(), self._count)
-        self._data_type = ir.ArrayType(self._elem_model.get_data_type(), self._count)
+        # llvmlite value/data types discarded on the MLIR path
+        self._value_type = None
+        self._data_type = None
 
     def get_value_type(self):
         return self._value_type
@@ -535,14 +546,12 @@ class StructModel(CompositeModel):
         return self._members[pos]
 
     def get_value_type(self):
-        if self._value_type is None:
-            self._value_type = ir.LiteralStructType([t.get_value_type() for t in self._models])
-        return self._value_type
+        # llvmlite struct value type discarded on the MLIR path
+        return None
 
     def get_data_type(self):
-        if self._data_type is None:
-            self._data_type = ir.LiteralStructType([t.get_data_type() for t in self._models])
-        return self._data_type
+        # llvmlite struct data type discarded on the MLIR path
+        return None
 
     def get_argument_type(self):
         return tuple([t.get_argument_type() for t in self._models])
@@ -905,8 +914,8 @@ class NestedArrayModel(ArrayModel):
         """Return the LLVM type representation for the storage of
         the nestedarray.
         """
-        ret = ir.ArrayType(self._be_type, self._fe_type.nitems)
-        return ret
+        # llvmlite storage type discarded on the MLIR path
+        return None
 
 
 @register_default(types.Optional)
@@ -948,8 +957,9 @@ class RecordModel(CompositeModel):
     def __init__(self, dmm, fe_type):
         super().__init__(dmm, fe_type)
         self._models = [self._dmm.lookup(t) for _, t in fe_type.members]
-        self._be_type = ir.ArrayType(ir.IntType(8), fe_type.size)
-        self._be_ptr_type = self._be_type.as_pointer()
+        # llvmlite be_type ([N x i8] / i8*) discarded on the MLIR path
+        self._be_type = None
+        self._be_ptr_type = None
 
     def get_value_type(self):
         """Passed around as reference to underlying data"""
@@ -990,8 +1000,8 @@ class RecordModel(CompositeModel):
 class UnicodeCharSeq(DataModel):
     def __init__(self, dmm, fe_type):
         super().__init__(dmm, fe_type)
-        charty = ir.IntType(numpy_support.sizeof_unicode_char * 8)
-        self._be_type = ir.ArrayType(charty, fe_type.count)
+        # llvmlite be_type discarded on the MLIR path
+        self._be_type = None
 
     def get_value_type(self):
         return self._be_type
@@ -1022,8 +1032,8 @@ class UnicodeCharSeq(DataModel):
 class CharSeq(DataModel):
     def __init__(self, dmm, fe_type):
         super().__init__(dmm, fe_type)
-        charty = ir.IntType(8)
-        self._be_type = ir.ArrayType(charty, fe_type.count)
+        # llvmlite be_type discarded on the MLIR path
+        self._be_type = None
 
     def get_value_type(self):
         return self._be_type
@@ -1109,8 +1119,8 @@ class SliceModel(StructModel):
 @register_default(types.NPTimedelta)
 class NPDatetimeModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = ir.IntType(64)
-        super().__init__(dmm, fe_type, be_type)
+        # llvmlite be_type discarded on the MLIR path
+        super().__init__(dmm, fe_type, None)
 
 
 @register_default(types.ArrayIterator)
@@ -1168,17 +1178,11 @@ class GeneratorModel(CompositeModel):
         ]
         self._state_models = [self._dmm.lookup(t) for t in fe_type.state_types]
 
-        self._args_be_type = ir.LiteralStructType([t.get_data_type() for t in self._arg_models])
-        self._state_be_type = ir.LiteralStructType([t.get_data_type() for t in self._state_models])
-        # The whole generator closure
-        self._be_type = ir.LiteralStructType(
-            [
-                self._dmm.lookup(types.int32).get_value_type(),
-                self._args_be_type,
-                self._state_be_type,
-            ]
-        )
-        self._be_ptr_type = self._be_type.as_pointer()
+        # llvmlite be_types (generator closure struct) discarded on the MLIR path
+        self._args_be_type = None
+        self._state_be_type = None
+        self._be_type = None
+        self._be_ptr_type = None
 
     def get_value_type(self):
         """
@@ -1316,10 +1320,12 @@ class DeferredStructModel(CompositeModel):
         self.actual_fe_type = fe_type.get()
 
     def get_value_type(self):
-        return ir.global_context.get_identified_type(self.typename + ".value")
+        # llvmlite identified-struct type discarded on the MLIR path
+        return None
 
     def get_data_type(self):
-        return ir.global_context.get_identified_type(self.typename + ".data")
+        # llvmlite identified-struct type discarded on the MLIR path
+        return None
 
     def get_argument_type(self):
         return self._actual_model.get_argument_type()

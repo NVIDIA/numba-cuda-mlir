@@ -16,7 +16,7 @@ from numba_cuda_mlir.numba_cuda.core.imputils import lower_builtin
 from pathlib import Path
 from numba_cuda_mlir.mlir_optimization import optimize
 from numba_cuda_mlir.numba_cuda.codegen import ExternalCodeLibrary
-from numba_cuda_mlir.numba_cuda.compiler import compile_all, sigutils
+from numba_cuda_mlir.numba_cuda.compiler import sigutils
 from numba_cuda_mlir.descriptor import mlir_target
 from numba_cuda_mlir.numba_cuda.core import funcdesc
 from numba_cuda_mlir.logging import trace
@@ -424,6 +424,10 @@ def compile(
         return optimized.metadata.get("ltoir"), optimized.signature.return_type
     else:
         return optimized.ptx, optimized.signature.return_type
+
+
+def compile_all(*args, **kwargs):
+    raise NotImplementedError("To be implemented")
 
 
 def compile_result(pyfunc, sig=None):

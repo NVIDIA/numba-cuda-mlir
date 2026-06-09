@@ -3,7 +3,6 @@
 
 import numba_cuda_mlir
 from numba_cuda_mlir.testing import NumbaCUDATestCase
-import llvmlite
 from numba_cuda_mlir.numba_cuda import types
 import pytest
 
@@ -453,10 +452,11 @@ array_types: tuple[tuple[types.Type, str]] = (
 class TestCudaDebugInfoTypes(NumbaCUDATestCase):
     @pytest.mark.xfail(True, reason="Uses inspect_llvm")
     def test_ditypes(self):
-        llvmlite_minor_version = int(llvmlite.__version__.split(".")[1])
+        # llvmlite has been removed; the MLIR path translates through a modern
+        # LLVM, corresponding to the post-llvmlite-0.45 debug metadata format.
         prefixes = (
             "CHECK",
-            ("CHECK-LLVMLITE-LE44" if llvmlite_minor_version <= 44 else "CHECK-LLVMLITE-GE45"),
+            "CHECK-LLVMLITE-GE45",
         )
 
         def sanitize_name(name: str) -> str:

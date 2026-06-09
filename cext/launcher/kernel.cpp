@@ -14,6 +14,7 @@
 #include <dlpack.h>
 
 #include <cassert>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <unordered_map>
@@ -22,6 +23,10 @@
 #include <optional>
 #include <string>
 #include <utility>
+
+#ifdef _WIN32
+#include <malloc.h>
+#endif
 
 namespace {
 
@@ -51,6 +56,25 @@ PyTypeObject* g_enum_Enum_type;
 constexpr uint8_t BYTE_BITWIDTH = 8;
 
 constexpr const char* ERROR_CODE_GLOBAL_NAME = "__numba_cuda_mlir_error_code";
+
+void* allocate_aligned_storage(size_t alignment, size_t size) {
+#ifdef _WIN32
+    return _aligned_malloc(size, alignment);
+#else
+    void* ptr = nullptr;
+    if (posix_memalign(&ptr, alignment, size) != 0)
+        return nullptr;
+    return ptr;
+#endif
+}
+
+void free_aligned_storage(void* ptr) {
+#ifdef _WIN32
+    _aligned_free(ptr);
+#else
+    free(ptr);
+#endif
+}
 
 // Forward declarations
 class CudaLibrary;
@@ -304,8 +328,41 @@ union CudaArg {
     int64_t i64;
     float f32;
     double f64;
-    struct { float real32; float imag32; };  // For complex64 (packed into 8 bytes)
+    struct {
+        float real32;
+        float imag32;
+    } complex64;  // For complex64 (packed into 8 bytes)
 };
+
+CudaArg cuda_arg_device_ptr(void* ptr) {
+    CudaArg arg = {};
+    arg.device_ptr = ptr;
+    return arg;
+}
+
+CudaArg cuda_arg_u16(uint16_t value) {
+    CudaArg arg = {};
+    arg.u16 = value;
+    return arg;
+}
+
+CudaArg cuda_arg_i64(int64_t value) {
+    CudaArg arg = {};
+    arg.i64 = value;
+    return arg;
+}
+
+CudaArg cuda_arg_f32(float value) {
+    CudaArg arg = {};
+    arg.f32 = value;
+    return arg;
+}
+
+CudaArg cuda_arg_f64(double value) {
+    CudaArg arg = {};
+    arg.f64 = value;
+    return arg;
+}
 
 // Metadata describing where each argument's data is stored in the flat cuargs vector
 struct ArgMetadata {
@@ -339,7 +396,7 @@ struct LaunchHelper {
     ~LaunchHelper() {
         for (void* ptr : aligned_tma_descriptors) {
             if (ptr)
-                free(ptr);
+                free_aligned_storage(ptr);
         }
         for (const auto& info : record_copies) {
             if (info.device_ptr)
@@ -816,14 +873,14 @@ Status extract_cuda_array(PyObject* pyobj, LaunchHelper& helper) {
 
     // Store in flat cuargs vector: ptr, ptr, offset, shapes..., strides...
     size_t start_idx = helper.cuargs.size();
-    helper.cuargs.push_back({.device_ptr = data_ptr});  // allocated ptr
-    helper.cuargs.push_back({.device_ptr = data_ptr});  // aligned ptr
-    helper.cuargs.push_back({.i64 = 0});  // offset
-    for (int64_t shape : shapes) {
-        helper.cuargs.push_back({.i64 = shape});
+    helper.cuargs.push_back(cuda_arg_device_ptr(data_ptr));  // allocated ptr
+    helper.cuargs.push_back(cuda_arg_device_ptr(data_ptr));  // aligned ptr
+    helper.cuargs.push_back(cuda_arg_i64(0));  // offset
+    for (int64_t dim : shapes) {
+        helper.cuargs.push_back(cuda_arg_i64(dim));
     }
     for (int64_t stride : strides_vec) {
-        helper.cuargs.push_back({.i64 = stride});
+        helper.cuargs.push_back(cuda_arg_i64(stride));
     }
 
     helper.arg_metadata.push_back({ArgMetadata::Kind::Array, start_idx, static_cast<size_t>(ndim)});
@@ -873,14 +930,14 @@ Status extract_dlpack_common(PyObject* dlpack_capsule, LaunchHelper& helper) {
 
     // Store in flat cuargs vector: ptr, ptr, offset, shapes..., strides...
     size_t start_idx = helper.cuargs.size();
-    helper.cuargs.push_back({.device_ptr = data_ptr});  // allocated ptr
-    helper.cuargs.push_back({.device_ptr = data_ptr});  // aligned ptr
-    helper.cuargs.push_back({.i64 = 0});  // offset
-    for (int64_t shape : shapes) {
-        helper.cuargs.push_back({.i64 = shape});
+    helper.cuargs.push_back(cuda_arg_device_ptr(data_ptr));  // allocated ptr
+    helper.cuargs.push_back(cuda_arg_device_ptr(data_ptr));  // aligned ptr
+    helper.cuargs.push_back(cuda_arg_i64(0));  // offset
+    for (int64_t dim : shapes) {
+        helper.cuargs.push_back(cuda_arg_i64(dim));
     }
     for (int64_t stride : strides_vec) {
-        helper.cuargs.push_back({.i64 = stride});
+        helper.cuargs.push_back(cuda_arg_i64(stride));
     }
 
     helper.arg_metadata.push_back({ArgMetadata::Kind::Array, start_idx, static_cast<size_t>(ndim)});
@@ -940,7 +997,7 @@ inline Status extract_np_datetime(PyObject* pyobj, bool is_constant, LaunchHelpe
     if (PyErr_Occurred()) return ErrorRaised;
 
     size_t start_idx = helper.cuargs.size();
-    helper.cuargs.push_back({.i64 = value});
+    helper.cuargs.push_back(cuda_arg_i64(value));
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 0});
 
     if (is_constant)
@@ -954,7 +1011,7 @@ inline Status extract_py_long(PyObject* pyobj, bool is_constant, LaunchHelper& h
     if (PyErr_Occurred()) return ErrorRaised;
 
     size_t start_idx = helper.cuargs.size();
-    helper.cuargs.push_back({.i64 = value});
+    helper.cuargs.push_back(cuda_arg_i64(value));
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 0});
 
     if (is_constant)
@@ -976,14 +1033,14 @@ inline Status extract_py_enum(PyObject* pyobj, bool is_constant, LaunchHelper& h
         int64_t value = pylong_as<int64_t>(value_attr);
         Py_DECREF(value_attr);
         if (PyErr_Occurred()) return ErrorRaised;
-        helper.cuargs.push_back({.i64 = value});
+        helper.cuargs.push_back(cuda_arg_i64(value));
         if (is_constant)
             helper.constants.push_back(ConstantArg(value));
     } else {
         double value = PyFloat_AsDouble(value_attr);
         Py_DECREF(value_attr);
         if (PyErr_Occurred()) return ErrorRaised;
-        helper.cuargs.push_back({.f64 = value});
+        helper.cuargs.push_back(cuda_arg_f64(value));
         if (is_constant)
             helper.constants.push_back(ConstantArg(value));
     }
@@ -1022,8 +1079,8 @@ Status extract_tma_descriptor(PyObject* pyobj, LaunchHelper& helper) {
   const size_t TMA_DESCRIPTOR_SIZE = 128;
 
   // Allocate 128-byte aligned storage
-  void* aligned_ptr = nullptr;
-  if (posix_memalign(&aligned_ptr, 128, TMA_DESCRIPTOR_SIZE) != 0) {
+  void* aligned_ptr = allocate_aligned_storage(128, TMA_DESCRIPTOR_SIZE);
+  if (!aligned_ptr) {
     return raise(PyExc_MemoryError, "Failed to allocate aligned memory for TMA descriptor");
   }
 
@@ -1034,7 +1091,7 @@ Status extract_tma_descriptor(PyObject* pyobj, LaunchHelper& helper) {
   helper.aligned_tma_descriptors.push_back(aligned_ptr);
 
   // Store the aligned pointer
-  helper.cuargs.push_back({.device_ptr = aligned_ptr});
+  helper.cuargs.push_back(cuda_arg_device_ptr(aligned_ptr));
   helper.arg_metadata.push_back(
       {ArgMetadata::Kind::TMADescriptor, helper.cuargs.size() - 1, 0});
 
@@ -1045,7 +1102,7 @@ void extract_py_float(PyObject* pyobj, bool is_constant, LaunchHelper& helper) {
     double value = PyFloat_AS_DOUBLE(pyobj);
 
     size_t start_idx = helper.cuargs.size();
-    helper.cuargs.push_back({.f64 = value});
+    helper.cuargs.push_back(cuda_arg_f64(value));
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 0});
 
     if (is_constant)
@@ -1062,14 +1119,14 @@ static uint16_t double_to_f16_bits(double d) {
     uint32_t mant = fbits & 0x7FFFFF;
 
     if (exp == 128) {
-        return sign | 0x7C00 | (mant ? ((mant >> 13) | 1) : 0);
+        return static_cast<uint16_t>(sign | 0x7C00 | (mant ? ((mant >> 13) | 1) : 0));
     } else if (exp > 15) {
-        return sign | 0x7C00;
+        return static_cast<uint16_t>(sign | 0x7C00);
     } else if (exp > -15) {
-        return sign | ((uint16_t)(exp + 15) << 10) | (uint16_t)(mant >> 13);
+        return static_cast<uint16_t>(sign | ((uint16_t)(exp + 15) << 10) | (uint16_t)(mant >> 13));
     } else if (exp >= -24) {
         mant |= 0x800000;
-        return sign | (uint16_t)(mant >> (-exp - 14 + 23));
+        return static_cast<uint16_t>(sign | (uint16_t)(mant >> (-exp - 14 + 23)));
     }
     return sign;
 }
@@ -1080,7 +1137,7 @@ Status extract_np_float16(PyObject* pyobj, bool is_constant, LaunchHelper& helpe
     double value = PyFloat_AS_DOUBLE(py_float.get());
 
     size_t start_idx = helper.cuargs.size();
-    helper.cuargs.push_back({.u16 = double_to_f16_bits(value)});
+    helper.cuargs.push_back(cuda_arg_u16(double_to_f16_bits(value)));
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 0});
 
     if (is_constant)
@@ -1094,7 +1151,7 @@ void extract_np_float32(PyObject* pyobj, bool is_constant, LaunchHelper& helper)
     float value = (float)PyFloat_AsDouble(pyobj);
 
     size_t start_idx = helper.cuargs.size();
-    helper.cuargs.push_back({.f32 = value});
+    helper.cuargs.push_back(cuda_arg_f32(value));
     // Use ndim=3 to indicate this is a 32-bit float (distinguish from 64-bit which uses ndim=0)
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 3});
 
@@ -1109,8 +1166,8 @@ void extract_py_complex(PyObject* pyobj, bool is_constant, LaunchHelper& helper)
     double imag = PyComplex_ImagAsDouble(pyobj);
 
     size_t start_idx = helper.cuargs.size();
-    helper.cuargs.push_back({.f64 = real});
-    helper.cuargs.push_back({.f64 = imag});
+    helper.cuargs.push_back(cuda_arg_f64(real));
+    helper.cuargs.push_back(cuda_arg_f64(imag));
     // Complex128 is 2 f64 scalars, use ndim=2 to indicate complex128 (2 doubles)
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 2});
 
@@ -1142,8 +1199,8 @@ void extract_np_complex64(PyObject* pyobj, bool is_constant, LaunchHelper& helpe
     // PTX expects one parameter pointing to 8 contiguous bytes
     size_t start_idx = helper.cuargs.size();
     CudaArg arg = {};
-    arg.real32 = real;
-    arg.imag32 = imag;
+    arg.complex64.real32 = real;
+    arg.complex64.imag32 = imag;
     helper.cuargs.push_back(arg);
     // ndim=1 indicates complex64 (one 8-byte entry containing two f32)
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 1});
@@ -1223,7 +1280,7 @@ Status extract_numpy_void(PyObject* pyobj, LaunchHelper& helper) {
 
     // Store the device pointer
     size_t start_idx = helper.cuargs.size();
-    helper.cuargs.push_back({.device_ptr = reinterpret_cast<void*>(device_ptr)});
+    helper.cuargs.push_back(cuda_arg_device_ptr(reinterpret_cast<void*>(device_ptr)));
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 0});
 
     return OK;
@@ -1264,7 +1321,7 @@ Status extract_device_record(PyObject* pyobj, LaunchHelper& helper) {
                                 reinterpret_cast<CUdeviceptr>(device_ptr));
 
     size_t start_idx = helper.cuargs.size();
-    helper.cuargs.push_back({.device_ptr = device_ptr});
+    helper.cuargs.push_back(cuda_arg_device_ptr(device_ptr));
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 0});
     return OK;
 }
@@ -1280,7 +1337,7 @@ Status extract_cuda_args(PyObject* const* pyargs, size_t num_pyargs,
 
     // Free old TMA descriptor allocations from previous launch
     for (void* ptr : helper.aligned_tma_descriptors) {
-        if (ptr) free(ptr);
+        if (ptr) free_aligned_storage(ptr);
     }
     helper.aligned_tma_descriptors.clear();
 
@@ -1697,7 +1754,7 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
         // Clean up any leftover state from previous (non-scalar) launches
         // since LaunchHelper is reused from a freelist.
         for (void* ptr : helper->aligned_tma_descriptors) {
-            if (ptr) free(ptr);
+            if (ptr) free_aligned_storage(ptr);
         }
         helper->aligned_tma_descriptors.clear();
         for (const auto& info : helper->record_copies) {
@@ -1960,12 +2017,7 @@ int KernelDispatcher_init(PyObject* self, PyObject* args, PyObject* kwargs) {
 
 
 PyTypeObject KernelDispatcher_type = {
-    .tp_name = "numba_cuda_mlir._cext.KernelDispatcher",
-    .tp_basicsize = sizeof(PythonWrapper<KernelDispatcher>),
-    .tp_dealloc = pywrapper_dealloc<KernelDispatcher>,
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_init = KernelDispatcher_init,
-    .tp_new = pywrapper_new<KernelDispatcher>,
+    PyVarObject_HEAD_INIT(nullptr, 0)
 };
 
 Result<Grid> parse_grid(PyObject* tuple) {
@@ -2099,15 +2151,7 @@ int LaunchConfiguration_init(PyObject* self, PyObject* args, PyObject* kwargs) {
 }
 
 PyTypeObject LaunchConfiguration_type = {
-    .tp_name = "numba_cuda_mlir._cext.LaunchConfiguration",
-    .tp_basicsize = sizeof(PythonWrapper<LaunchConfiguration>),
-    .tp_dealloc = pywrapper_dealloc<LaunchConfiguration>,
-    .tp_vectorcall_offset = offsetof(PythonWrapper<LaunchConfiguration>, object)
-                            + offsetof(LaunchConfiguration, vectorcall),
-    .tp_call = LaunchConfiguration_call,
-    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_VECTORCALL,
-    .tp_init = LaunchConfiguration_init,
-    .tp_new = pywrapper_new<LaunchConfiguration>,
+    PyVarObject_HEAD_INIT(nullptr, 0)
 };
 
 
@@ -2242,6 +2286,24 @@ Status kernel_init(PyObject* m) {
     try_get_numba_globals();
     try_get_cuda_core_globals();
     try_get_enum_globals();
+
+    KernelDispatcher_type.tp_name = "numba_cuda_mlir._cext.KernelDispatcher";
+    KernelDispatcher_type.tp_basicsize = sizeof(PythonWrapper<KernelDispatcher>);
+    KernelDispatcher_type.tp_dealloc = pywrapper_dealloc<KernelDispatcher>;
+    KernelDispatcher_type.tp_flags = Py_TPFLAGS_DEFAULT;
+    KernelDispatcher_type.tp_init = KernelDispatcher_init;
+    KernelDispatcher_type.tp_new = pywrapper_new<KernelDispatcher>;
+
+    LaunchConfiguration_type.tp_name = "numba_cuda_mlir._cext.LaunchConfiguration";
+    LaunchConfiguration_type.tp_basicsize = sizeof(PythonWrapper<LaunchConfiguration>);
+    LaunchConfiguration_type.tp_dealloc = pywrapper_dealloc<LaunchConfiguration>;
+    LaunchConfiguration_type.tp_vectorcall_offset =
+        static_cast<Py_ssize_t>(offsetof(PythonWrapper<LaunchConfiguration>, object)
+                                + offsetof(LaunchConfiguration, vectorcall));
+    LaunchConfiguration_type.tp_call = LaunchConfiguration_call;
+    LaunchConfiguration_type.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_VECTORCALL;
+    LaunchConfiguration_type.tp_init = LaunchConfiguration_init;
+    LaunchConfiguration_type.tp_new = pywrapper_new<LaunchConfiguration>;
 
     if (PyType_Ready(&KernelDispatcher_type) < 0)
         return ErrorRaised;

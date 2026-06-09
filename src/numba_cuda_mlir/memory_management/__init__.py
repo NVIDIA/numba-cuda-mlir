@@ -5,14 +5,13 @@
 Memory management module for numba_cuda_mlir.
 
 This module provides NRT (Numba Runtime) support including:
-- Compiling NRT CUDA sources to LTOIR for linking with numba_cuda_mlir kernels
+- MLIR-emitted NRT device functions (nrt_mlir.py)
 - Runtime system (rtsys) for managing device-side memory allocator state
 - Configuration for NRT enablement and statistics
 """
 
 from numba_cuda_mlir.memory_management.nrt import (
     get_include,
-    compile_nrt_ltoir,
     needs_nrt_linking,
     NRT_FUNCTIONS,
 )
@@ -28,9 +27,8 @@ from numba_cuda_mlir.memory_management.rtsys import (
 )
 
 __all__ = [
-    # NRT LTOIR compilation
+    # NRT utilities
     "get_include",
-    "compile_nrt_ltoir",
     "needs_nrt_linking",
     "NRT_FUNCTIONS",
     # Configuration

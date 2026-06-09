@@ -8,12 +8,10 @@ from io import StringIO
 import re
 from textwrap import dedent
 import inspect
+import os
 from numba_cuda_mlir._mlir.ir import Module, Operation
-from subprocess import PIPE, Popen, run
 from typing import Iterable, Union
-import tempfile
 import sys
-import shutil
 
 # For legacy Numba-CUDA filecheck test cases
 from filecheck.matcher import Matcher
@@ -27,21 +25,41 @@ import enum
 import math
 import numpy as np
 import pytest
+import subprocess
+import tempfile
 import unittest
 
 np_version = tuple(map(int, np.__version__.split(".")[:2]))
 IS_NUMPY_2 = np_version >= (2, 0)
 
 
-def get_filecheck_path():
-    for filecheck_name in ("FileCheck", "filecheck"):
-        path = Path(sys.prefix) / "bin" / filecheck_name
-        if path.exists():
-            return path
-        found = shutil.which(filecheck_name)
-        if found and Path(found).exists():
-            return found
-    return None
+def captured_output(capfd) -> str:
+    captured = capfd.readouterr()
+    return captured.out + captured.err
+
+
+def run_in_subprocess(code: str, timeout: int = 60) -> tuple[str, str]:
+    """Run Python code in a subprocess and return stdout/stderr."""
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".py", encoding="utf-8", delete=False)
+    try:
+        tmp.write(dedent(code))
+        tmp.close()
+        proc = subprocess.run(
+            [sys.executable, "-u", tmp.name],
+            timeout=timeout,
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as e:
+        raise AssertionError(
+            f"process failed with code {e.returncode:d}:\n"
+            f"stdout:\n{e.stdout}\n\nstderr:\n{e.stderr}"
+        ) from e
+    finally:
+        tmp.close()
+        os.unlink(tmp.name)
+    return proc.stdout, proc.stderr
 
 
 def filecheck_with_comments(module):
@@ -57,22 +75,21 @@ def filecheck_with_comments(module):
     fun = inspect.currentframe().f_back.f_code
     _, lnum = inspect.findsource(fun)
     fun_with_checks = inspect.getsource(fun)
+    check_content = ("\n" * lnum + fun_with_checks).replace("\r\n", "\n")
 
-    filecheck_path = get_filecheck_path()
-    assert filecheck_path is not None, "couldn't find FileCheck"
-    with tempfile.NamedTemporaryFile() as tmp:
-        tmp.write(("\n" * lnum + fun_with_checks).encode())
-        tmp.flush()
-        p = Popen(
-            [filecheck_path, tmp.name],
-            stdout=PIPE,
-            stdin=PIPE,
-            stderr=PIPE,
-        )
-        out, err = map(lambda o: o.decode(), p.communicate(input=op.encode()))
-        if p.returncode:
-            err = err.replace(tmp.name, inspect.getfile(fun))
-            raise ValueError(f"\n{err}")
+    opts = Options(match_filename="-", check_prefixes=["CHECK"])
+    input_file = FInput(fname="-", content=op)
+    parser = Parser(opts, StringIO(check_content), *pattern_for_opts(opts))
+    matcher = Matcher(opts, input_file, parser)
+    matcher.stderr = StringIO()
+    try:
+        result = matcher.run()
+    except AssertionError as e:
+        err = matcher.stderr.getvalue()
+        raise ValueError(f"\n{err}") from e
+    if result != 0:
+        err = matcher.stderr.getvalue()
+        raise ValueError(f"\n{err}")
 
 
 def filecheck(checks: str, actual: str | bytes | ir.Module):
@@ -80,34 +97,18 @@ def filecheck(checks: str, actual: str | bytes | ir.Module):
         actual = str(actual)
     if isinstance(actual, bytes):
         actual = actual.decode()
-    checks = dedent(checks)
+    checks = dedent(checks).replace("\r\n", "\n")
+    actual = actual.replace("\r\n", "\n")
 
-    filecheck_path = get_filecheck_path()
-    assert filecheck_path is not None, "couldn't find FileCheck"
-
-    with tempfile.NamedTemporaryFile(mode="w", delete=False) as tmp:
-        tmp.write(checks)
-        tmp.flush()
-        tmp_name = tmp.name
-
-    try:
-        p = Popen(
-            [
-                filecheck_path,
-                tmp_name,
-            ],
-            stdout=PIPE,
-            stdin=PIPE,
-            stderr=PIPE,
-        )
-        out, err = p.communicate(input=actual.encode())
-        out = out.decode()
-        err = err.decode()
-
-        if p.returncode != 0:
-            raise ValueError(f"\n{out}\n{err}")
-    finally:
-        Path(tmp_name).unlink(missing_ok=True)
+    opts = Options(match_filename="-", check_prefixes=["CHECK"])
+    input_file = FInput(fname="-", content=actual)
+    parser = Parser(opts, StringIO(checks), *pattern_for_opts(opts))
+    matcher = Matcher(opts, input_file, parser)
+    matcher.stderr = StringIO()
+    result = matcher.run()
+    if result != 0:
+        err = matcher.stderr.getvalue()
+        raise ValueError(f"\n{err}")
 
 
 # From legacy Numba-CUDA testsuite

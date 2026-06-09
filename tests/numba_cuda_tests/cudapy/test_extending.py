@@ -1,16 +1,20 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
+from numba_cuda_mlir import extending
 from numba_cuda_mlir.testing import NumbaCUDATestCase
-from llvmlite import ir
 
 import numpy as np
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir import extending
 
+from numba_cuda_mlir._mlir import ir as mlir_ir
+from numba_cuda_mlir._mlir.dialects import func
+from numba_cuda_mlir.lowering_utilities import convert, get_or_insert_function
 from numba_cuda_mlir.numba_cuda import types
 
+import functools
 import inspect
 import math
 import pickle
@@ -26,7 +30,7 @@ from numba_cuda_mlir.numba_cuda.cudaimpl import lower_attr as cuda_lower_attr
 from numba_cuda_mlir.numba_cuda.core import errors
 from numba_cuda_mlir.numba_cuda.errors import LoweringError
 
-from numba_cuda_mlir.numba_cuda.extending import (
+from numba_cuda_mlir.extending import (
     type_callable,
     lower_builtin,
     overload,
@@ -34,11 +38,16 @@ from numba_cuda_mlir.numba_cuda.extending import (
     intrinsic,
     _Intrinsic,
     register_jitable,
-    core_models,
-    typeof_impl,
     register_model,
+    typeof_impl,
     make_attribute_wrapper,
+    typing_registry as extending_typing_registry,
 )
+from numba_cuda_mlir.models import StructModel
+
+overload = functools.partial(overload, typing_registry=extending_typing_registry)
+overload_method = functools.partial(overload_method, typing_registry=extending_typing_registry)
+register_jitable = functools.partial(register_jitable, typing_registry=extending_typing_registry)
 
 
 class Interval:
@@ -91,13 +100,13 @@ def type_interval(context):
 
 
 @register_model(IntervalType)
-class IntervalModel(core_models.StructModel):
+class IntervalModel(StructModel):
     def __init__(self, dmm, fe_type):
         members = [
             ("lo", types.float64),
             ("hi", types.float64),
         ]
-        core_models.StructModel.__init__(self, dmm, fe_type, members)
+        super().__init__(dmm, fe_type, members)
 
 
 make_attribute_wrapper(IntervalType, "lo", "lo")
@@ -240,7 +249,6 @@ class TestExtending(NumbaCUDATestCase):
 
 
 class TestExtendingLinkage(NumbaCUDATestCase):
-    @pytest.mark.xfail(True, reason="NVVM verify error")
     @pytest.mark.numba_cuda_test_binaries("a", "cubin", "cu", "fatbin", "o", "ptx", "ltoir")
     def test_extension_adds_linkable_code(self):
         binaries = self.numba_cuda_test_binaries
@@ -276,12 +284,18 @@ class TestExtendingLinkage(NumbaCUDATestCase):
                 return typer
 
             @lower_builtin(external_add, types.uint32, types.uint32)
-            def lower_external_add(context, builder, sig, args):
-                context.active_code_library.add_linking_file(code_object)
-                i32 = ir.IntType(32)
-                fnty = ir.FunctionType(i32, [i32, i32])
-                fn = cgutils.get_or_insert_function(builder.module, fnty, "add_cabi")
-                return builder.call(fn, args)
+            def lower_external_add(builder, target, args, kwargs):
+                builder.link_external_item(code_object)
+                i32 = builder.get_mlir_type(types.uint32)
+                fnty = mlir_ir.FunctionType.get([i32, i32], [i32])
+                fn = get_or_insert_function("add_cabi", fnty, builder.mlir_gpu_module)
+                operands = [convert(arg, i32) for arg in builder.load_vars(args)]
+                result = func.call(
+                    result=[i32],
+                    callee=fn.name.value,
+                    operands_=operands,
+                )
+                builder.store_var(target, result)
 
             @numba_cuda_mlir.cuda.jit(lto=lto)
             def use_external_add(r, x, y):
@@ -595,7 +609,6 @@ class TestHighLevelExtending(NumbaCUDATestCase):
         self.assertIn("use of VAR_KEYWORD (e.g. **kwargs) is unsupported", msg)
         self.assertIn("offending argument name is '**kws'", msg)
 
-    @pytest.mark.xfail(True, reason="Typing error")
     def test_overload_method_kwargs(self):
         # Issue #3489
         @overload_method(types.Array, "foo")

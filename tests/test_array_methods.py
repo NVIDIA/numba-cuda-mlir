@@ -20,8 +20,7 @@ def test_slicing():
     assert output[0] == expect, f"output: {output} != {expect}"
 
 
-@pytest.mark.xfail
-def tests_array_view():
+def test_array_view():
     @cuda.jit(dump=False)
     def reinterpret_array_type(
         byte_arr: cuda.DeviceNDArray, start: int, stop: int, output: cuda.DeviceNDArray
@@ -86,10 +85,6 @@ def test_array_view_custom_dtype():
     def _typeof_my(val, c):
         return nb_types.NumberClass(nb_types.int64)
 
-    @to_mlir_type.register(_MyBoxedDtype)
-    def _my_to_mlir(val):
-        return T.i64()
-
     @cuda.jit
     def kernel(arr):
         v = arr.view(my_dtype)
@@ -106,4 +101,4 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.DEBUG)
     # test_slicing()
-    tests_array_view()
+    test_array_view()

@@ -208,11 +208,6 @@ def unituple_contains_cg(builder, target, args, kwargs):
     builder.store_var(target, bool_of(result))
 
 
-@intrinsic
-def unituple_contains(typingctx, tup: types.UniTuple, item: types.Number):
-    return types.bool(tup), unituple_contains_cg
-
-
 for exc_type in (
     ArithmeticError,
     AssertionError,
@@ -335,30 +330,6 @@ def lower_broadcasted_binary(builder, target, args, kwargs):
     builder.store_var(target, result)
 
 
-@intrinsic
-def broadcasted_uniform_binary_intrinsic(typingctx, op, a, b):
-    """
-    Broadcastable binary operation where the result type's element type
-    and shape are coerced from the two operands.
-    operator.add _would_ be a valid use of this, but math.pow would _not_ be,
-    because it is not uniform.
-    """
-    match a, b:
-        case (types.Array() as arr, types.Number() as n) | (
-            types.Number() as n,
-            types.Array() as arr,
-        ):
-            ety = numpy_implicit_type_promotion(arr.dtype, n)
-            retty = arr.copy(dtype=ety, ndim=arr.ndim)
-            return retty(a, b), lower_broadcasted_binary
-        case types.Array() as arr1, types.Array() as arr2:
-            ety = numpy_implicit_type_promotion(arr1.dtype, arr2.dtype)
-            retty = arr1.copy(dtype=ety, ndim=max(arr1.ndim, arr2.ndim))
-            return retty(a, b), lower_broadcasted_binary
-        case _:
-            raise NotImplementedError(f"Not implemented for types {type(a)} and {type(b)}")
-
-
 @ufunc_registry.register(operator.floordiv)
 @lower(operator.floordiv, types.Array, types.Array)
 def lower_broadcasted_floor_division(builder, target, args, kwargs):
@@ -440,44 +411,6 @@ def lower_broadcasted_div(builder, target, args, kwargs):
 
     result = tensor_to_memref(casted_div)
     builder.store_var(target, result)
-
-
-@intrinsic
-def broadcasted_div_intrinsic(typingctx, a, b):
-    arr = a if isinstance(a, types.Array) else b
-    res_dt = arr.dtype
-    bw = max(res_dt.bitwidth, 32)
-    res_dt = type_conversions.float_of_width(bw)
-    resty = arr.copy(dtype=res_dt)
-    return resty(a, b), lower_broadcasted_div
-
-
-@intrinsic
-def broadcasted_floor_division_intrinsic(typingctx, a, b):
-    arr = a if isinstance(a, types.Array) else b
-    res_dt = arr.dtype
-    bw = res_dt.bitwidth
-    res_dt = type_conversions.integer_of_width(bw)
-    resty = arr.copy(dtype=res_dt)
-    return resty(a, b), lower_broadcasted_floor_division
-
-
-@intrinsic
-def broadcasted_pow_intrinsic(typingctx, op, a, b):
-    match a, b:
-        case (types.Array() as arr, types.Number() as n) | (
-            types.Number() as n,
-            types.Array() as arr,
-        ):
-            ety = numpy_implicit_type_promotion(arr.dtype, n)
-            retty = arr.copy(dtype=ety, ndim=arr.ndim)
-            return retty(a, b), lower_broadcasted_binary
-        case types.Array() as arr1, types.Array() as arr2:
-            ety = numpy_implicit_type_promotion(arr1.dtype, arr2.dtype)
-            retty = arr1.copy(dtype=ety, ndim=max(arr1.ndim, arr2.ndim))
-            return retty(a, b), lower_broadcasted_binary
-        case _:
-            raise NotImplementedError(f"Not implemented for types {type(a)} and {type(b)}")
 
 
 @lower(int, types.Number)
@@ -800,6 +733,21 @@ def operator_is_none_none_lower(builder, target, args, kwargs):
     builder.store_var(target, result)
 
 
+@lower(operator.is_, types.Optional, types.NoneType)
+@lower(operator.is_, types.NoneType, types.Optional)
+def operator_is_optional_none_lower(builder, target, args, kwargs):
+    """Lower 'optional_val is None' - check valid bit is false."""
+    from numba_cuda_mlir.mlir.dialect_exts import llvm
+
+    lhs_type = builder.get_numba_type(args[0].name)
+    opt_arg = args[0] if isinstance(lhs_type, types.Optional) else args[1]
+    opt_val = builder.load_var(opt_arg)
+    i1 = ir.IntegerType.get_signless(1)
+    valid = llvm.extractvalue(i1, opt_val, [1])
+    result = arith.xori(valid, arith.constant(i1, 1))
+    builder.store_var(target, result)
+
+
 @lower(operator.is_, types.Boolean, types.Literal)
 @lower(operator.is_, types.Literal, types.Boolean)
 def operator_is_bool_literal_lower(builder, target, args, kwargs):
@@ -839,6 +787,20 @@ def operator_is_not_none_none_lower(builder, target, args, kwargs):
     """Lower 'None is not None' - always False."""
     result = arith.constant(result=ir.IntegerType.get_signless(1), value=False)
     builder.store_var(target, result)
+
+
+@lower(operator.is_not, types.Optional, types.NoneType)
+@lower(operator.is_not, types.NoneType, types.Optional)
+def operator_is_not_optional_none_lower(builder, target, args, kwargs):
+    """Lower 'optional_val is not None' - check valid bit is true."""
+    from numba_cuda_mlir.mlir.dialect_exts import llvm
+
+    lhs_type = builder.get_numba_type(args[0].name)
+    opt_arg = args[0] if isinstance(lhs_type, types.Optional) else args[1]
+    opt_val = builder.load_var(opt_arg)
+    i1 = ir.IntegerType.get_signless(1)
+    valid = llvm.extractvalue(i1, opt_val, [1])
+    builder.store_var(target, valid)
 
 
 @lower(operator.is_not, types.Boolean, types.Literal)

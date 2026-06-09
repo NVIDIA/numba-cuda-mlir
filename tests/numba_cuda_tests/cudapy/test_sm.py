@@ -190,6 +190,21 @@ class TestSharedMemory(NumbaCUDATestCase):
         expected = np.array([1, 2], dtype=np.int32)
         self._test_dynshared_slice(slice_read, arr, expected)
 
+    def test_dynshared_slice_implicit_start(self):
+        @numba_cuda_mlir.cuda.jit
+        def slice_implicit_start(x):
+            dynsmem = cuda.shared.array(0, dtype=np.float32)
+            sm = dynsmem[:4]
+            i = cuda.threadIdx.x
+            sm[i] = np.float32(1.0)
+            x[i] = sm[i]
+
+        arr = np.zeros(4, dtype=np.float32)
+        expected = np.ones(4, dtype=np.float32)
+        nshared = arr.size * arr.dtype.itemsize
+        slice_implicit_start[1, 4, 0, nshared](arr)
+        np.testing.assert_array_equal(expected, arr)
+
     def test_dynshared_slice_diff_sizes(self):
         # Test reading values from disjoint slices of dynamic shared memory
         # with different sizes

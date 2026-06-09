@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Run Numbast's experimental MLIR backend tests against the just-built
+# numba-cuda-mlir wheel.
+
+set -euo pipefail
+
+: "${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR:?NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR must be set by ci/tools/env-vars}"
+: "${NUMBAST_CHECKOUT:?NUMBAST_CHECKOUT must point to a Numbast checkout}"
+: "${LOCAL_CTK:?LOCAL_CTK must be set by the workflow}"
+: "${TEST_CUDA_MAJOR:?TEST_CUDA_MAJOR must be set by ci/tools/env-vars}"
+: "${TEST_CUDA_MINOR:?TEST_CUDA_MINOR must be set by ci/tools/env-vars}"
+
+NUMBAST_MLIR_TEST_DIR="${NUMBAST_CHECKOUT}/numbast/src/numbast/experimental/mlir"
+if [[ ! -d "${NUMBAST_MLIR_TEST_DIR}" ]]; then
+  echo "Expected Numbast MLIR tests at ${NUMBAST_MLIR_TEST_DIR}"
+  exit 1
+fi
+
+echo "Installing numba-cuda-mlir wheel"
+wheels=("${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR}"/*.whl)
+if [[ ${#wheels[@]} -ne 1 || ! -e "${wheels[0]}" ]]; then
+  echo "Expected exactly one numba-cuda-mlir wheel in ${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR}, found ${#wheels[@]}"
+  printf '%s\n' "${wheels[@]}"
+  exit 1
+fi
+wheel="${wheels[0]}"
+
+CUDA_BINDINGS_SPEC="cuda-bindings==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*"
+if [[ "${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}" == "12.2" ]]; then
+  CUDA_BINDINGS_SPEC="cuda-bindings>=12.9.1,<13.0.0"
+fi
+
+python -m pip install --upgrade pip
+if [[ "${LOCAL_CTK}" == 1 ]]; then
+  python -m pip install "${wheel}" --group "test-cu${TEST_CUDA_MAJOR}" \
+    "${CUDA_BINDINGS_SPEC}" "cuda-core[cu${TEST_CUDA_MAJOR}]"
+else
+  python -m pip install "${wheel}[cu${TEST_CUDA_MAJOR}]" --group "test-cu${TEST_CUDA_MAJOR}" \
+    "${CUDA_BINDINGS_SPEC}" "cuda-core[cu${TEST_CUDA_MAJOR}]" \
+    "cuda-toolkit[cccl,cudart]==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*"
+fi
+
+echo "Installing Numbast dependencies"
+python -m pip install \
+  "ast_canopy==0.9.0" \
+  click \
+  jinja2 \
+  pyyaml \
+  llvmlite
+
+echo "Installing Numbast from ${NUMBAST_CHECKOUT}"
+python -m pip install --no-deps "${NUMBAST_CHECKOUT}/numbast"
+
+echo "Checking numba-cuda-mlir and Numbast MLIR imports"
+python - <<'PY'
+import importlib.metadata
+
+import numba_cuda_mlir
+import numbast.experimental.mlir
+
+print(f"numba_cuda_mlir {numba_cuda_mlir.__version__}")
+print(f"numbast {importlib.metadata.version('numbast')}")
+PY
+
+echo "Running Numbast experimental MLIR tests"
+export NUMBA_CUDA_MLIR_ICE_FULL_TB=1
+pytest "${NUMBAST_MLIR_TEST_DIR}" \
+  -v \
+  --tb=short \
+  --junit-xml=numbast-mlir-junit-results.xml \
+  -o addopts= \
+  --import-mode=importlib \
+  "$@"

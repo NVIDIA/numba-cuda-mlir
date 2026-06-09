@@ -2,11 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir.numba_cuda.types import (
     BaseTuple,
+    BaseNamedTuple,
     BoundFunction,
+    Optional,
     Poison,
     UnicodeType,
     UnionType,
     Boolean,
+    PyObject,
     StringLiteral,
     BooleanLiteral,
     IntegerLiteral,
@@ -14,6 +17,7 @@ from numba_cuda_mlir.numba_cuda.types import (
     NumberClass,
     NPDatetime,
     NPTimedelta,
+    NumpyNdIterType,
     RangeType,
     RangeIteratorType,
     DType,
@@ -22,6 +26,7 @@ from numba_cuda_mlir.numba_cuda.types import (
     Any,
     Literal,
     string,
+    Bytes,
     Function,
     Integer,
     Number,
@@ -29,6 +34,7 @@ from numba_cuda_mlir.numba_cuda.types import (
     Module,
     Type,
     NoneType,
+    MemInfoPointer,
     float16,
     float32,
     float64,
@@ -70,6 +76,7 @@ from numba_cuda_mlir.numba_cuda.types import (
     uintp,
     intp,
     voidptr,
+    unicode_type,
     CPointer,
     RawPointer,
     Array,
@@ -80,6 +87,8 @@ from numba_cuda_mlir.numba_cuda.types import (
     # Record/struct types
     Record,
     NestedArray,
+    RecursiveCall,
+    Omitted,
 )
 from numba_cuda_mlir.numba_cuda.typing import Signature, signature
 from numba_cuda_mlir.type_defs.aggregate_types import AggregateType, UnionType
@@ -179,6 +188,10 @@ _FP8_ATTRS = (
 
 
 def __getattr__(name):
+    if name == "VectorTypeClass":
+        from numba_cuda_mlir.typing.cuda_vector_types import VectorTypeClass
+
+        return VectorTypeClass
     if name not in _FP8_ATTRS:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     import sys

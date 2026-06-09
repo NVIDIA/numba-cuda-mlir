@@ -95,7 +95,21 @@ def test_hetero_tuple_arg():
     np.testing.assert_array_equal(r2, x[3:])
 
 
-@pytest.mark.xfail(reason="namedtuple NYI")
+def test_captured_namedtuple_getattr():
+    Prec = namedtuple("Prec", ["a", "b"])
+    prec = Prec(np.float32, np.float64)
+    r = np.zeros(1, dtype=np.float32)
+
+    @cuda.jit
+    def f(r):
+        tmp = cuda.local.array(1, prec.a)
+        tmp[0] = 1
+        r[0] = tmp[0]
+
+    f[1, 1](r)
+    assert r[0] == np.float32(1)
+
+
 @pytest.mark.parametrize(
     "Point, vals, dtypes",
     [
@@ -231,6 +245,50 @@ def test_tuple_of_array_scalar_tuple():
     f[1, 1](r, x)
     expected = [0, 2, 10, 4, 3]
     np.testing.assert_array_equal(r, expected)
+
+
+def test_tuple_multi_assign_from_device_function():
+    @cuda.jit(device=True)
+    def two_tuple_returns(cond):
+        if cond:
+            return (1, 2, 3)
+        return (4, 5, 6)
+
+    @cuda.jit
+    def kernel(out, n):
+        t = two_tuple_returns(n > 0)
+        out[0] = t[0]
+
+    out = cuda.device_array((1,), dtype=np.int64)
+    kernel[1, 1](out, 1)
+    assert out.copy_to_host()[0] == 1
+
+    kernel[1, 1](out, -1)
+    assert out.copy_to_host()[0] == 4
+
+
+def test_hetero_tuple_multi_assign_from_inlined_device_function():
+    @cuda.jit(device=True, forceinline=True)
+    def strides(flag, ld, m, k):
+        shape = (m, k)
+        if flag:
+            return (ld * shape[1], 1, ld)
+        return (ld * shape[0], ld, 1)
+
+    @cuda.jit
+    def kernel(out, flag):
+        r = strides(flag, 2, 7, 3)
+        out[0] = r[0]
+        out[1] = r[1]
+        out[2] = r[2]
+
+    out = cuda.device_array((3,), dtype=np.int64)
+
+    kernel[1, 1](out, True)
+    np.testing.assert_array_equal(out.copy_to_host(), [6, 1, 2])
+
+    kernel[1, 1](out, False)
+    np.testing.assert_array_equal(out.copy_to_host(), [14, 2, 1])
 
 
 if __name__ == "__main__":

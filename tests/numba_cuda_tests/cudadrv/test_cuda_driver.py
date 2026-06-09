@@ -22,6 +22,7 @@ from cuda.core import (
 )
 
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir.numba_cuda._compat import CUDA_CORE_GE_1_0
 from numba_cuda_mlir.numba_cuda.cudadrv import devices, nvrtc
 from numba_cuda_mlir.testing import NumbaCUDATestCase
 from numba_cuda_mlir.numba_cuda.testing import cc_X_or_above, skip_on_cudasim
@@ -110,12 +111,20 @@ class TestCudaDriver(NumbaCUDATestCase):
 
         ptr = memory.device_ctypes_pointer
 
-        config = LaunchConfig(
-            grid=(1, 1, 1),
-            block=(100, 1, 1),
-            shmem_size=0,
-            cooperative_launch=False,
-        )
+        if CUDA_CORE_GE_1_0:
+            config = LaunchConfig(
+                grid=(1, 1, 1),
+                block=(100, 1, 1),
+                shmem_size=0,
+                is_cooperative=False,
+            )
+        else:
+            config = LaunchConfig(
+                grid=(1, 1, 1),
+                block=(100, 1, 1),
+                shmem_size=0,
+                cooperative_launch=False,
+            )
         exp_stream = ExperimentalStream.from_handle(0)
         launch(exp_stream, config, function.kernel, ptr)
 
@@ -141,12 +150,20 @@ class TestCudaDriver(NumbaCUDATestCase):
 
             ptr = memory.device_ctypes_pointer
 
-            config = LaunchConfig(
-                grid=(1, 1, 1),
-                block=(100, 1, 1),
-                shmem_size=0,
-                cooperative_launch=False,
-            )
+            if CUDA_CORE_GE_1_0:
+                config = LaunchConfig(
+                    grid=(1, 1, 1),
+                    block=(100, 1, 1),
+                    shmem_size=0,
+                    is_cooperative=False,
+                )
+            else:
+                config = LaunchConfig(
+                    grid=(1, 1, 1),
+                    block=(100, 1, 1),
+                    shmem_size=0,
+                    cooperative_launch=False,
+                )
             # Convert numba Stream to ExperimentalStream
             launch(_to_core_stream(stream), config, function.kernel, ptr)
 
@@ -176,12 +193,20 @@ class TestCudaDriver(NumbaCUDATestCase):
 
             ptr = memory.device_ctypes_pointer
 
-            config = LaunchConfig(
-                grid=(1, 1, 1),
-                block=(100, 1, 1),
-                shmem_size=0,
-                cooperative_launch=False,
-            )
+            if CUDA_CORE_GE_1_0:
+                config = LaunchConfig(
+                    grid=(1, 1, 1),
+                    block=(100, 1, 1),
+                    shmem_size=0,
+                    is_cooperative=False,
+                )
+            else:
+                config = LaunchConfig(
+                    grid=(1, 1, 1),
+                    block=(100, 1, 1),
+                    shmem_size=0,
+                    cooperative_launch=False,
+                )
             launch(stream, config, function.kernel, ptr)
 
             device_to_host(array, memory, sizeof(array), stream=stream)

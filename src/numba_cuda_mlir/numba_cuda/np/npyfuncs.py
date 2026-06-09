@@ -9,7 +9,7 @@ Python builtins
 
 import math
 
-import llvmlite.ir
+from numba_cuda_mlir.numba_cuda import _llvmlite_removed as llvmlite
 import numpy as np
 
 from numba_cuda_mlir.numba_cuda.extending import overload

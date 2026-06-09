@@ -5,7 +5,7 @@
 Implement slices and various slice computations.
 """
 
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda import cgutils
 from numba_cuda_mlir.numba_cuda.core.imputils import impl_ret_untracked, Registry

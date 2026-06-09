@@ -6,8 +6,8 @@ import operator
 import math
 import struct
 
-from llvmlite import ir
-import llvmlite.binding as ll
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import binding as ll
 
 from numba_cuda_mlir.numba_cuda.core.imputils import Registry
 from numba_cuda_mlir.numba_cuda.typing.npydecl import parse_dtype

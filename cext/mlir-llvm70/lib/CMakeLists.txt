@@ -10,6 +10,7 @@ add_library(LLVM70Translate
 )
 
 add_dependencies(LLVM70Translate LLVM70OpsIncGen)
+configure_llvm70_target(LLVM70Translate)
 
 target_include_directories(LLVM70Translate PUBLIC
   ${LLVM70_SOURCE_DIR}/include
@@ -19,6 +20,9 @@ target_include_directories(LLVM70Translate PUBLIC
 set_target_properties(LLVM70Translate PROPERTIES
   POSITION_INDEPENDENT_CODE ON
 )
+if(MSVC)
+  target_compile_options(LLVM70Translate PRIVATE /wd4706)
+endif()
 
 target_link_libraries(LLVM70Translate
   PUBLIC
@@ -40,13 +44,33 @@ install(TARGETS LLVM70Translate DESTINATION lib)
 # raw Operation* passing without text roundtrip.
 add_library(MLIRToLLVM70 SHARED CAPI.cpp)
 add_dependencies(MLIRToLLVM70 LLVM70OpsIncGen)
+configure_llvm70_target(MLIRToLLVM70)
 target_include_directories(MLIRToLLVM70 PRIVATE
   ${LLVM70_SOURCE_DIR}/include
   ${LLVM70_BINARY_DIR}/include
 )
-target_link_libraries(MLIRToLLVM70 PRIVATE LLVM70Translate ${CMAKE_DL_LIBS})
+if(WIN32)
+  set_target_properties(MLIRToLLVM70 PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+endif()
+if(MSVC)
+  target_compile_options(MLIRToLLVM70 PRIVATE /wd4706)
+endif()
 
-if(LLVM70_MLIR_PYTHON_CAPI)
+if(MSVC AND LLVM70_MLIR_PYTHON_CAPI)
+  message(STATUS "MLIRToLLVM70: linking against ${LLVM70_MLIR_PYTHON_CAPI}")
+  target_link_libraries(MLIRToLLVM70 PRIVATE
+    ${LLVM70_MLIR_PYTHON_CAPI}
+    LLVM70Translate
+    ${CMAKE_DL_LIBS}
+  )
+  # MLIRPythonCAPI.dll exports MLIR support symbols that are also present in
+  # the static MLIR libraries pulled in by the C++ bridge.
+  target_link_options(MLIRToLLVM70 PRIVATE /FORCE:MULTIPLE)
+else()
+  target_link_libraries(MLIRToLLVM70 PRIVATE LLVM70Translate ${CMAKE_DL_LIBS})
+endif()
+
+if(LLVM70_MLIR_PYTHON_CAPI AND NOT MSVC)
   message(STATUS "MLIRToLLVM70: linking against ${LLVM70_MLIR_PYTHON_CAPI}")
   target_link_libraries(MLIRToLLVM70 PRIVATE ${LLVM70_MLIR_PYTHON_CAPI})
 endif()

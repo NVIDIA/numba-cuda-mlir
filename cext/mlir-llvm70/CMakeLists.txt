@@ -21,9 +21,34 @@ include(AddLLVM)
 include(AddMLIR)
 include(HandleLLVMOptions)
 
+set(LLVM70_COMPILE_OPTIONS)
+set(LLVM70_COMPILE_DEFINITIONS)
+
 if(NOT LLVM_ENABLE_RTTI)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
+  if(MSVC)
+    list(APPEND LLVM70_COMPILE_OPTIONS /GR-)
+  else()
+    list(APPEND LLVM70_COMPILE_OPTIONS -fno-rtti)
+  endif()
 endif()
+
+if(MSVC)
+  list(APPEND LLVM70_COMPILE_OPTIONS /EHsc)
+  list(APPEND LLVM70_COMPILE_DEFINITIONS _SILENCE_NONFLOATING_COMPLEX_DEPRECATION_WARNING)
+  # Windows wheels load MLIR Python and MLIRToLLVM70 as separate DLLs.  MLIR's
+  # fallback TypeIDs keep registered op/type/interface IDs consistent across
+  # those DSOs when both are compiled with this define.
+  list(APPEND LLVM70_COMPILE_DEFINITIONS MLIR_USE_FALLBACK_TYPE_IDS=1)
+endif()
+
+if(WIN32)
+  list(APPEND LLVM70_COMPILE_DEFINITIONS NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
+function(configure_llvm70_target target)
+  target_compile_options(${target} PRIVATE ${LLVM70_COMPILE_OPTIONS})
+  target_compile_definitions(${target} PRIVATE ${LLVM70_COMPILE_DEFINITIONS})
+endfunction()
 
 include_directories(${LLVM_INCLUDE_DIRS})
 include_directories(${MLIR_INCLUDE_DIRS})

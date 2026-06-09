@@ -18,9 +18,9 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
     signature,
 )
 from numba_cuda_mlir import types
-from numba_cuda_mlir.type_defs.cuda_types import (
-    CUTensorMapType,
-    CUTensorMapStorageType,
+from numba_cuda_mlir.cuda.vector_types import (
+    vector_types_by_name,
+    vector_types_by_alias,
 )
 
 from numba_cuda_mlir.numba_cuda import cudadecl
@@ -245,14 +245,11 @@ class GenericArrayTemplate(CallableTemplate):
 
                     raise RequireLiteralValue("alignment must be a constant integer")
 
-            # Parse dtype - handle DTypeSpec, TypeRef, StringLiteral, and NumberClass
+            # Parse dtype - handle DTypeSpec, TypeRef, and StringLiteral
             if isinstance(dtype, types.DTypeSpec):
                 nb_dtype = dtype.dtype
             elif isinstance(dtype, types.TypeRef):
                 nb_dtype = dtype.instance_type
-            elif isinstance(dtype, types.NumberClass):
-                # NumberClass wraps a numeric type (e.g., types.float16 -> NumberClass(float16))
-                nb_dtype = dtype.dtype
             elif isinstance(dtype, types.StringLiteral):
                 import numpy as np
                 from numba_cuda_mlir.numba_cuda.core.errors import TypingError
@@ -651,17 +648,12 @@ class Cuda_stub_resolver(cudadecl.CudaModuleTemplate, AttributeTemplate):
         return types.Module(cg)
 
     def generic_resolve(self, mod, attr):
-        # Handle vector type constructors (float64x4, float32x2, int32x4, etc.)
-        from numba_cuda_mlir.cuda.vector_types import (
-            vector_type_stubs_by_name,
-            vector_type_stubs_by_alias,
-        )
-        from numba_cuda_mlir.typing.cuda_vector_types import make_constructor_template
+        from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 
-        stub = vector_type_stubs_by_name.get(attr) or vector_type_stubs_by_alias.get(attr)
+        # Handle vector type constructors (float64x4, float32x2, int32x4, etc.)
+        stub = vector_types_by_name.get(attr) or vector_types_by_alias.get(attr)
         if stub is not None:
-            template = make_constructor_template(stub)
-            return types.Function(template)
+            return typeof(stub)
 
         return None
 

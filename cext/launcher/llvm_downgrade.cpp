@@ -4,7 +4,11 @@
  */
 #include "llvm_downgrade.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <dlfcn.h>
+#endif
 #include <cstring>
 #include <string_view>
 #include <vector>
@@ -170,26 +174,42 @@ LLVM_CAPI_OPTIONAL(DECLARE_FN)
 
 static void* g_mlir_lib_handle;
 
+static void* load_symbol(void* handle, const char* name) {
+#ifdef _WIN32
+    return reinterpret_cast<void*>(
+        GetProcAddress(reinterpret_cast<HMODULE>(handle), name));
+#else
+    return dlsym(handle, name);
+#endif
+}
+
 Status load_mlir_capi(const char* lib_path) {
     if (g_mlir_lib_handle)
         return OK;
 
+#ifdef _WIN32
+    g_mlir_lib_handle = LoadLibraryA(lib_path);
+    if (!g_mlir_lib_handle)
+        return raise(PyExc_RuntimeError, "Failed to load %s: error %lu",
+                     lib_path, GetLastError());
+#else
     g_mlir_lib_handle = dlopen(lib_path, RTLD_NOW | RTLD_GLOBAL);
     if (!g_mlir_lib_handle)
         return raise(PyExc_RuntimeError, "Failed to load %s: %s",
                      lib_path, dlerror());
+#endif
 
 #define LOAD_REQUIRED(ret, name, args) \
-    g_##name = reinterpret_cast<name##_fn>(dlsym(g_mlir_lib_handle, #name)); \
+    g_##name = reinterpret_cast<name##_fn>(load_symbol(g_mlir_lib_handle, #name)); \
     if (!g_##name) \
         return raise(PyExc_RuntimeError, \
-                     "Symbol '%s' not found in libMLIRPythonCAPI.so", #name);
+                     "Symbol '%s' not found in %s", #name, lib_path);
 
     LLVM_CAPI_REQUIRED(LOAD_REQUIRED)
 #undef LOAD_REQUIRED
 
 #define LOAD_OPTIONAL(ret, name, args) \
-    g_##name = reinterpret_cast<name##_fn>(dlsym(g_mlir_lib_handle, #name));
+    g_##name = reinterpret_cast<name##_fn>(load_symbol(g_mlir_lib_handle, #name));
 
     LLVM_CAPI_OPTIONAL(LOAD_OPTIONAL)
 #undef LOAD_OPTIONAL
@@ -588,14 +608,9 @@ static void adapt_debug_info_version(LLVMModuleRef mod, LLVMContextRef ctx) {
 }
 
 static void adapt_for_libnvvm(LLVMModuleRef mod, LLVMContextRef ctx) {
-    adapt_barrier_sync(mod, ctx);
-    adapt_barrier_reduction(mod, ctx);
-    adapt_inline_asm_intrinsics(mod, ctx);
-    adapt_atomicrmw(mod, ctx);
-    adapt_trunc(mod, ctx);
-    adapt_nvvm_annotations(mod, ctx);
-    adapt_nvvmir_version(mod, ctx);
-    adapt_debug_info_version(mod, ctx);
+#define LIBNVVM_COMPAT_ADAPT_PASS(name) name(mod, ctx);
+#include "../libnvvm_compat_passes.def"
+#undef LIBNVVM_COMPAT_ADAPT_PASS
 }
 
 // ===================================================================
@@ -605,7 +620,7 @@ static void adapt_for_libnvvm(LLVMModuleRef mod, LLVMContextRef ctx) {
 // Strip lifetime intrinsics -- MLIR emits them with a 1-arg signature (ptr)
 // but libnvvm expects the 2-arg form (i64, ptr). Just remove them.
 // They're optimization hints with minimal impact on GPU code.
-static void downgrade_lifetime(LLVMModuleRef mod, LLVMContextRef ctx) {
+static void downgrade_lifetime(LLVMModuleRef mod, LLVMContextRef, int, int) {
     const char* names[] = {"llvm.lifetime.start.p0", "llvm.lifetime.end.p0"};
     for (const char* name : names) {
         LLVMValueRef fn = g_LLVMGetNamedFunction(mod, name);
@@ -619,8 +634,8 @@ static void downgrade_lifetime(LLVMModuleRef mod, LLVMContextRef ctx) {
 // Strip enum attributes not recognized by libnvvm's parser:
 //   nocreateundeforpoison -> strip  (LLVM 23, rejected by all current libnvvm)
 //   captures(...)         -> strip  (CTK < 13.0 only; LLVM 23 enum attr kind)
-static void downgrade_attributes(LLVMModuleRef mod, LLVMContextRef ctx,
-                                 int ctk_major, int ctk_minor) {
+static void downgrade_attributes(LLVMModuleRef mod, LLVMContextRef,
+                                 int ctk_major, int) {
     static const char nocup_name[] = "nocreateundeforpoison";
     static const char captures_name[] = "captures";
     unsigned nocup_kind = g_LLVMGetEnumAttributeKindForName(
@@ -659,7 +674,8 @@ static void downgrade_attributes(LLVMModuleRef mod, LLVMContextRef ctx,
 // with "nvvm.grid_constant" string attribute. libnvvm's LLVM may not honor
 // the string attribute form and instead requires the metadata:
 //   !{ptr @fn, !"grid_constant", !{i32 1, i32 2}}  (1-based param indices)
-static void downgrade_grid_constant(LLVMModuleRef mod, LLVMContextRef ctx) {
+static void downgrade_grid_constant(LLVMModuleRef mod, LLVMContextRef ctx, int,
+                                    int) {
     for (LLVMValueRef fn = g_LLVMGetFirstFunction(mod); fn;
          fn = g_LLVMGetNextFunction(fn)) {
         if (g_LLVMGetFunctionCallConv(fn) != LLVMPTXKernelCallConv)
@@ -712,9 +728,9 @@ static void downgrade_grid_constant(LLVMModuleRef mod, LLVMContextRef ctx) {
 // whose libnvvm accepts the syntax.
 static void downgrade_for_libnvvm(LLVMModuleRef mod, LLVMContextRef ctx,
                                   int ctk_major, int ctk_minor) {
-    downgrade_lifetime(mod, ctx); // All current CTKs need this
-    downgrade_attributes(mod, ctx, ctk_major, ctk_minor); // CTK < 13.0 only
-    downgrade_grid_constant(mod, ctx); // All current CTKs need this
+#define LIBNVVM_COMPAT_DOWNGRADE_PASS(name) name(mod, ctx, ctk_major, ctk_minor);
+#include "../libnvvm_compat_passes.def"
+#undef LIBNVVM_COMPAT_DOWNGRADE_PASS
 }
 
 // ---------------------------------------------------------------------------

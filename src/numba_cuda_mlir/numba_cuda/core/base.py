@@ -9,8 +9,30 @@ from itertools import permutations, takewhile
 from contextlib import contextmanager
 from functools import cached_property
 
-from llvmlite import ir as llvmir
-from llvmlite.ir import Constant
+
+class _LLVMLiteRemoved:
+    """Tombstone standing in for the removed ``llvmlite.ir`` module.
+
+    ``BaseContext`` is the live base class for the MLIR target context, but the
+    MLIR path emits code via MLIR rather than llvmlite. The llvmlite types and
+    constants built in the methods below are dead (codegen-only); any actual
+    use raises, since llvmlite is no longer a dependency.
+    """
+
+    def __getattr__(self, name):
+        raise NotImplementedError(
+            "llvmlite has been removed; llvmlite IR is not available on the "
+            f"MLIR path (attempted to use llvmlite.ir.{name})"
+        )
+
+    def __call__(self, *args, **kwargs):
+        raise NotImplementedError(
+            "llvmlite has been removed; llvmlite IR is not available on the MLIR path"
+        )
+
+
+llvmir = _LLVMLiteRemoved()
+Constant = _LLVMLiteRemoved()
 
 from numba_cuda_mlir.numba_cuda.core import imputils, targetconfig, funcdesc
 from numba_cuda_mlir.numba_cuda import (
@@ -32,7 +54,9 @@ from numba_cuda_mlir.numba_cuda.core.imputils import (
     RegistryLoader,
 )
 
-GENERIC_POINTER = llvmir.PointerType(llvmir.IntType(8))
+# The real i8* type is only needed on the dead llvmlite codegen path; it is
+# discarded on the MLIR path.
+GENERIC_POINTER = None
 PYOBJECT = GENERIC_POINTER
 void_ptr = GENERIC_POINTER
 

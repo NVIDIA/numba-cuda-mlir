@@ -150,7 +150,13 @@ def get_type_width(ty: ir.Type) -> int:
         case ir.FloatType():
             return ty.width
         case ir.ComplexType():
-            return ir.ComplexType(ty).element_type.width
+            return 2 * ir.ComplexType(ty).element_type.width
+        case ir.VectorType():
+            vt = ir.VectorType(ty)
+            count = 1
+            for d in vt.shape:
+                count *= d
+            return count * get_type_width(vt.element_type)
         case _:
             raise NotImplementedError(f"Not implemented for type {ty}")
 
@@ -226,7 +232,11 @@ def _(a: ir.Type, b: ir.Type) -> ir.Type:
             ty = T.f32() if larger_width == 32 else T.f64()
             return ty
         case (ir.ComplexType(), _) | (_, ir.ComplexType()):
-            larger_width = max(get_type_width(a), get_type_width(b))
+
+            def _scalar_width(t: ir.Type) -> int:
+                return t.element_type.width if isinstance(t, ir.ComplexType) else get_type_width(t)
+
+            larger_width = max(_scalar_width(a), _scalar_width(b))
             elem = T.f32() if larger_width <= 32 else T.f64()
             return T.complex(elem)
         case _:
@@ -322,25 +332,30 @@ def _get_mlir_bin_op_for_operator(op):
                 functools.partial(arith.cmpi, arith.CmpIPredicate.ne),
                 functools.partial(arith.cmpf, arith.CmpFPredicate.UNE),
             )
-        case operator.add:
+        case operator.add | operator.iadd:
             return (
                 functools.partial(arith.addi),
                 functools.partial(arith.addf),
             )
-        case operator.sub:
+        case operator.sub | operator.isub:
             return (
                 functools.partial(arith.subi),
                 functools.partial(arith.subf),
             )
-        case operator.mul:
+        case operator.mul | operator.imul:
             return (
                 functools.partial(arith.muli),
                 functools.partial(arith.mulf),
             )
-        case operator.truediv | operator.floordiv | operator.itruediv:
+        case operator.truediv | operator.floordiv | operator.itruediv | operator.ifloordiv:
             return (
                 functools.partial(arith.divsi),
                 functools.partial(arith.divf),
+            )
+        case operator.mod | operator.imod:
+            return (
+                functools.partial(arith.remsi),
+                functools.partial(arith.remf),
             )
         case _:
             raise NotImplementedError(f"Not implemented for operator {op}")
@@ -606,6 +621,34 @@ def unverified_basic_mlir_convert(
             else:
                 trace("value_type.width < target_type.width, extending")
                 return arith.extf(out=target_type, in_=value)
+        case ir.VectorType() as vt1, ir.VectorType() as vt2 if vt1.shape == vt2.shape:
+            # We can use arith ops to convert vectors element-wise
+            elem1 = vt1.element_type
+            elem2 = vt2.element_type
+            if isinstance(elem1, ir.FloatType) and isinstance(elem2, ir.FloatType):
+                if elem1.width > elem2.width:
+                    return arith.truncf(out=target_type, in_=value)
+                else:
+                    return arith.extf(out=target_type, in_=value)
+            elif isinstance(elem1, ir.IntegerType) and isinstance(elem2, ir.IntegerType):
+                if elem1.width > elem2.width:
+                    return arith.trunci(out=target_type, in_=value)
+                else:
+                    return arith.extsi(out=target_type, in_=value)
+            elif isinstance(elem1, ir.IntegerType) and isinstance(elem2, ir.FloatType):
+                return (
+                    arith.sitofp(out=target_type, in_=value)
+                    if elem1.width > 1
+                    else arith.uitofp(out=target_type, in_=value)
+                )
+            elif isinstance(elem1, ir.FloatType) and isinstance(elem2, ir.IntegerType):
+                return (
+                    arith.fptosi(out=target_type, in_=value)
+                    if elem2.width > 1
+                    else arith.fptoui(out=target_type, in_=value)
+                )
+            else:
+                raise NotImplementedError(f"Vector conversion not implemented: {vt1} to {vt2}")
         case ir.IntegerType(), ir.FloatType():
             return (
                 arith.sitofp(out=target_type, in_=value)
@@ -1019,19 +1062,24 @@ class UniTupleIterObject:
 
         current_index = self.index
         is_valid = arith.cmpi(predicate=arith.CmpIPredicate.slt, lhs=current_index, rhs=count)
+        safe_index = arith.select(
+            condition=is_valid,
+            true_value=current_index,
+            false_value=int_of(0, ty=T.i64()),
+        )
 
         if self._uses_llvm:
             elem_ptr = llvm.getelementptr(
                 llvm.PointerType.get(),
                 self._tuple_storage,
-                [current_index],
+                [safe_index],
                 [GEP_DYNAMIC_INDEX],
                 self._element_type,
                 None,
             )
             current_value = llvm.load(res=self._element_type, addr=elem_ptr)
         else:
-            index_as_index = arith.index_cast(out=ir.IndexType.get(), in_=current_index)
+            index_as_index = arith.index_cast(out=ir.IndexType.get(), in_=safe_index)
             current_value = memref.load(self._tuple_storage, [index_as_index])
 
         next_index = arith.addi(lhs=current_index, rhs=one)
@@ -1087,6 +1135,115 @@ class ArrayIterObject:
         memref.store(updated_index, self._index_memref, [index_of(0)])
 
         return IterResult(current_value, is_valid)
+
+
+def _make_zero_d_subview(array_mr: ir.Value, multi_idx: list[ir.Value]) -> ir.Value:
+    """Build a rank-0 memref view at `multi_idx` of `array_mr`.
+
+    All elements of multi_idx must be IndexType values; their count must equal
+    the rank of array_mr.  The sizes and strides are passed as the integer 1
+    (not as SSA values) so MLIR sees them as static and can rank-reduce the
+    result to rank 0.
+    """
+    source_type: ir.MemRefType = array_mr.type
+    dyn_stride = ir.ShapedType.get_dynamic_stride_or_offset()
+    result_type = ir.MemRefType.get(
+        shape=[],
+        element_type=source_type.element_type,
+        layout=ir.StridedLayoutAttr.get(dyn_stride, []),
+        memory_space=source_type.memory_space,
+    )
+    rank = source_type.rank
+    return memref.subview(
+        array_mr,
+        offsets=multi_idx,
+        sizes=[1] * rank,
+        strides=[1] * rank,
+        result_type=result_type,
+    )
+
+
+@dataclass
+class NdIterIterObject:
+    """
+    Iterator state for ``np.nditer`` over one or more arrays.
+
+    Each call to ``next()`` yields either a rank-0 memref view of the current
+    element (single-array case) or a tuple of rank-0 views (multi-array case).
+    Iteration proceeds in C order over the broadcast shape.
+    """
+
+    def __init__(
+        self,
+        lower,
+        arrays: list[ir.Value],
+        ndim: int,
+        broadcast_shape: list[ir.Value] | None = None,
+    ):
+        # arrays may have differing rank when broadcasting; broadcast_shape
+        # is the iteration shape (length == ndim, all IndexType values).
+        # When all arrays are the same shape, callers may pass None and the
+        # shape is taken from the first array.
+        self._arrays = list(arrays)
+        self._ndim = ndim
+        if broadcast_shape is None:
+            broadcast_shape = [memref.dim(arrays[0], index_of(d)) for d in range(ndim)]
+        self._shape = list(broadcast_shape)
+        with lower.alloca_insertion_point():
+            self._index_memref = memref.alloca(T.memref(1, T.i64()), [], [])
+        memref.store(int_of(0, ty=T.i64()), self._index_memref, [index_of(0)])
+        # Total element count = product of broadcast shape.
+        if ndim == 0:
+            size_i64 = int_of(1, ty=T.i64())
+        else:
+            size_idx = self._shape[0]
+            for d in range(1, ndim):
+                size_idx = arith.muli(size_idx, self._shape[d])
+            size_i64 = arith.index_cast(out=T.i64(), in_=size_idx)
+        with lower.alloca_insertion_point():
+            self._size_memref = memref.alloca(T.memref(1, T.i64()), [], [])
+        memref.store(size_i64, self._size_memref, [index_of(0)])
+
+    @property
+    def index(self) -> ir.Value:
+        return memref.load(self._index_memref, [index_of(0)])
+
+    @property
+    def size(self) -> ir.Value:
+        return memref.load(self._size_memref, [index_of(0)])
+
+    def _unravel_c_order(self, linear_idx_i64: ir.Value) -> list[ir.Value]:
+        """Convert linear index (i64) to a list of IndexType per-dim indices, C order."""
+        if self._ndim == 0:
+            return []
+        if self._ndim == 1:
+            return [index_of(linear_idx_i64)]
+        per_dim_i64 = [None] * self._ndim
+        remaining = linear_idx_i64
+        for d in reversed(range(self._ndim)):
+            dim_size_i64 = arith.index_cast(out=T.i64(), in_=self._shape[d])
+            per_dim_i64[d] = arith.remsi(lhs=remaining, rhs=dim_size_i64)
+            remaining = arith.divsi(lhs=remaining, rhs=dim_size_i64)
+        return [index_of(v) for v in per_dim_i64]
+
+    def next(self) -> IterResult:
+        one_i64 = int_of(1, ty=T.i64())
+        current_index = self.index
+        size = self.size
+        is_valid = arith.cmpi(predicate=arith.CmpIPredicate.slt, lhs=current_index, rhs=size)
+
+        multi_idx = self._unravel_c_order(current_index)
+        views = [_make_zero_d_subview(arr, multi_idx) for arr in self._arrays]
+
+        next_index = arith.addi(lhs=current_index, rhs=one_i64)
+        updated_index = arith.select(
+            condition=is_valid, true_value=next_index, false_value=current_index
+        )
+        memref.store(updated_index, self._index_memref, [index_of(0)])
+
+        if len(views) == 1:
+            return IterResult(views[0], is_valid)
+        return IterResult(tuple(views), is_valid)
 
 
 def _types_match(ty1, ty2, exact=False):
@@ -1193,6 +1350,8 @@ def constant(
             return value
         case int(), ir.IntegerType():
             return arith.constant(ty, value=value)
+        case int(), ir.IndexType():
+            return arith.constant(ty, value=value)
         case float(), ir.FloatType():
             return arith.constant(ty, value=value)
         case bool(), None:
@@ -1207,6 +1366,8 @@ def constant(
         case ir.Value(), _:
             return convert(value, ty)
         case _, ir.IntegerType():
+            return arith.constant(ty, value=int(value))
+        case _, ir.IndexType():
             return arith.constant(ty, value=int(value))
         case _, ir.FloatType():
             return arith.constant(ty, value=float(value))
@@ -1354,3 +1515,8 @@ def try_extract_constant(
             return try_extract_constant(opview.operands[0])
         case _:
             return None
+
+
+def is_nonelike(ty):
+    """returns if 'ty' is none"""
+    return ty is None or isinstance(ty, types.NoneType) or isinstance(ty, types.Omitted)

@@ -8,8 +8,8 @@ Implementation of operations on numpy timedelta64.
 import numpy as np
 import operator
 
-import llvmlite.ir
-from llvmlite.ir import Constant
+from numba_cuda_mlir.numba_cuda import _llvmlite_removed as llvmlite
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import Constant
 
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda import cgutils
@@ -24,9 +24,10 @@ from numba_cuda_mlir.numba_cuda.extending import overload_method
 from numba_cuda_mlir.numba_cuda.core.config import IS_32BITS
 from numba_cuda_mlir.numba_cuda.core.errors import LoweringError
 
-# datetime64 and timedelta64 use the same internal representation
-DATETIME64 = TIMEDELTA64 = llvmlite.ir.IntType(64)
-NAT = Constant(TIMEDELTA64, npdatetime_helpers.NAT)
+# datetime64 and timedelta64 use the same internal representation;
+# llvmlite type/constant discarded on the MLIR path (used only by dead codegen)
+DATETIME64 = TIMEDELTA64 = None
+NAT = None
 
 TIMEDELTA_BINOP_SIG = (types.NPTimedelta,) * 2
 
@@ -119,18 +120,11 @@ def are_not_nat(builder, vals):
     return pred
 
 
-normal_year_months = create_constant_array(
-    TIMEDELTA64, [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-)
-leap_year_months = create_constant_array(
-    TIMEDELTA64, [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-)
-normal_year_months_acc = create_constant_array(
-    TIMEDELTA64, [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
-)
-leap_year_months_acc = create_constant_array(
-    TIMEDELTA64, [0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335]
-)
+# llvmlite constant arrays discarded on the MLIR path (used only by dead codegen)
+normal_year_months = None
+leap_year_months = None
+normal_year_months_acc = None
+leap_year_months_acc = None
 
 
 @lower_constant(types.NPDatetime)

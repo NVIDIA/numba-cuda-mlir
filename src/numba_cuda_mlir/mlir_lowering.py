@@ -8,6 +8,7 @@ import operator
 from typing import Any, Callable, Sequence
 import numpy as np
 from numba_cuda_mlir.numba_cuda import typing, utils
+from numba_cuda_mlir.numba_cuda import types as numba_types
 from numba_cuda_mlir.numba_cuda.core import targetconfig, errors
 from numba_cuda_mlir.numba_cuda.core import ir as numba_ir
 from numba_cuda_mlir.numba_cuda import dispatcher
@@ -15,7 +16,7 @@ from numba_cuda_mlir.numba_cuda.core import analysis
 from numba_cuda_mlir.numba_cuda.extending import _Intrinsic
 
 from numba_cuda_mlir.numba_cuda.core.environment import Environment
-from numba_cuda_mlir.numba_cuda import types
+from numba_cuda_mlir import types
 from numba_cuda_mlir.numba_cuda.datamodel.models import ArrayModel
 from numba_cuda_mlir.annotations import Builder, AnyCallable, PS
 from numba_cuda_mlir.errors import InternalCompilerError, ensure_verifies
@@ -37,6 +38,7 @@ from numba_cuda_mlir.lowering_utilities import (
     RangeObject,
     ArrayIterObject,
     UniTupleIterObject,
+    NdIterIterObject,
     IterResult,
     get_or_insert_function,
     user_signature_to_external_abi_signature,
@@ -63,6 +65,8 @@ from numba_cuda_mlir._mlir.dialects import (
     scf,
     nvvm,
     gpu,
+    complex as complex_dialect,
+    vector as vector_dialect,
 )
 
 from numba_cuda_mlir.logging import trace
@@ -178,7 +182,7 @@ class MLIRLower(object):
         self._setup_callbacks = []
         self._teardown_callbacks = []
         for link_file in link_files:
-            self._link_external_item(link_file)
+            self.link_external_item(link_file)
 
         self._capi_sym_name = None
         if capi := self.targetoptions.get("capi", False):
@@ -280,7 +284,7 @@ class MLIRLower(object):
                 continue
             # UnionType is used here as a DI/tag container only;
             # the lowered value is stored in a shared canonical slot.
-            poly_types[name] = types.UnionType(type_set)
+            poly_types[name] = numba_types.UnionType(type_set)
         return poly_types
 
     @staticmethod
@@ -514,6 +518,9 @@ extern "C" __global__ void
             argtypes = [self.get_mlir_type(argtype) for argtype in flat_argtypes]
             flat_restypes = self._flatten_type(self.fndesc.restype)
             restypes = [self.get_mlir_type(rt) for rt in flat_restypes]
+            # Opaque types (DType, Function, Module, ...) lower to MLIR NoneType
+            # and have no runtime representation, so the function returns void.
+            restypes = [rt for rt in restypes if not isinstance(rt, ir.NoneType)]
             if not restypes:
                 mlir_funcOp_type = ir.FunctionType.get(argtypes, [])
             else:
@@ -701,12 +708,43 @@ extern "C" __global__ void
 
                 collect_var_assign_count_from_inst(inst)
 
+    def _tuple_element_types(self, tuple_type):
+        if isinstance(tuple_type, types.UniTuple):
+            return [tuple_type.dtype] * tuple_type.count
+        return list(tuple_type.types)
+
+    def _allocate_stack_slot_for_type(self, var_type):
+        if isinstance(var_type, types.BaseTuple):
+            return tuple(
+                self._allocate_stack_slot_for_type(elem_type)
+                for elem_type in self._tuple_element_types(var_type)
+            )
+
+        mlir_type = self.get_mlir_type(var_type)
+        if not _is_valid_memref_element_type(mlir_type):
+            return self.alloca(mlir_type, count=1)
+
+        memref_type = ir.MemRefType.get(shape=[1], element_type=mlir_type)
+        return memref.alloca(memref=memref_type, dynamic_sizes=[], symbol_operands=[])
+
     def allocate_stack_space_for_vars_with_multiple_assigns(self, var_assign_count):
         trace()
         for var_name, count in var_assign_count.items():
             if count > 1:
                 var_type = self.get_numba_type(var_name)
                 if isinstance(var_type, types.NoneType):
+                    continue
+                if isinstance(var_type, types.UniTuple):
+                    elem_mlir_type = self.get_mlir_type(var_type.dtype)
+                    memref_type = ir.MemRefType.get(
+                        shape=[var_type.count], element_type=elem_mlir_type
+                    )
+                    self.varmap[var_name] = memref.alloca(
+                        memref=memref_type, dynamic_sizes=[], symbol_operands=[]
+                    )
+                    continue
+                if isinstance(var_type, types.BaseTuple):
+                    self.varmap[var_name] = self._allocate_stack_slot_for_type(var_type)
                     continue
                 mlir_type = self.get_mlir_type(var_type)
 
@@ -874,8 +912,20 @@ extern "C" __global__ void
         exc_class = static_raise_inst.exc_class
         error_code = KERNEL_ERROR_CODES.get(exc_class, 4)  # Default to RuntimeError
         self.set_error_code(error_code)
-        return_block = self.blkmap[max(self.blkmap.keys())]
-        cf.br([], return_block)
+
+        # Branch to the highest-offset Return block if available.
+        return_offsets = [
+            offset
+            for offset, block in self.blocks.items()
+            if block.body and isinstance(block.body[-1], numba_ir.Return)
+        ]
+        if return_offsets:
+            cf.br([], self.blkmap[max(return_offsets)])
+            return
+
+        # Terminate the current block if no reachable Return block is found.
+        return_ctor = gpu.ReturnOp if isinstance(self.mlir_funcOp, gpu.GPUFuncOp) else func.ReturnOp
+        return_ctor([])
 
     def lower_assign(self, assign_inst):
         """
@@ -905,11 +955,19 @@ extern "C" __global__ void
         trace("target: %s, free_var: %s", target, free_var)
         if free_var.value is None:
             target_type = self.get_numba_type(target.name)
-            self.store_var(target, self.get_mlir_type(target_type))
+            if isinstance(target_type, types.Optional):
+                none_val = self._cast_to_optional(types.NoneType("none"), target_type, None)
+                self.store_var(target, none_val)
+            else:
+                self.store_var(target, self.get_mlir_type(target_type))
         elif hasattr(free_var.value, "__cuda_array_interface__"):
             self.lower_captured_array_to_memref(target, free_var.value)
         else:
-            self.store_var(target, free_var.value)
+            target_type = self.get_numba_type(target.name)
+            if isinstance(target_type, types.DTypeSpec):
+                self.store_var(target, self._materialize_type_token(target_type))
+            else:
+                self.store_var(target, free_var.value)
 
     def lower_captured_array_to_memref(self, target, pyval):
         """Build an MLIR memref value from __cuda_array_interface__ metadata.
@@ -1014,11 +1072,15 @@ extern "C" __global__ void
         trace()
         target_type = self.get_numba_type(target.name)
         if const.value is None:
-            # for NoneType const, there is no 1-on-1 mapping between
-            # numba instruction and MLIR op. Therefore, we register the
-            # MLIR type in the varmap to unblock lowering of other
-            # numba instruction (i.e, assign this NoneType variable to other variables)
-            self.store_var(target, self.get_mlir_type(target_type))
+            if isinstance(target_type, types.Optional):
+                none_val = self._cast_to_optional(types.NoneType("none"), target_type, None)
+                self.store_var(target, none_val)
+            else:
+                # for NoneType const, there is no 1-on-1 mapping between
+                # numba instruction and MLIR op. Therefore, we register the
+                # MLIR type in the varmap to unblock lowering of other
+                # numba instruction (i.e, assign this NoneType variable to other variables)
+                self.store_var(target, self.get_mlir_type(target_type))
         elif isinstance(const.value, (bool, int, float, np.number)):
             value = const.value
             mlir_type = self.get_mlir_type(target_type)
@@ -1059,22 +1121,34 @@ extern "C" __global__ void
 
             complex_cg(self, target, [const.value.real, const.value.imag], {})
         elif isinstance(const.value, tuple):
-            memref_allocaOp = memref.alloca(
-                memref=self.get_mlir_type(target_type),
-                dynamic_sizes=[],
-                symbol_operands=[],
-            )
-            for i in range(len(const.value)):
-                memref_index = arith.constant(result=ir.IndexType.get(), value=i)
-                value = arith.constant(
-                    result=self.get_mlir_type(target_type.dtype), value=const.value[i]
+            if isinstance(target_type, types.BaseTuple):
+                elem_types = (
+                    [target_type.dtype] * target_type.count
+                    if isinstance(target_type, types.UniTuple)
+                    else list(target_type.types)
                 )
-                memref.store(
-                    value=value,
-                    memref=memref_allocaOp,
-                    indices=[memref_index],
+                values = tuple(
+                    arith.constant(result=self.get_mlir_type(et), value=v)
+                    for v, et in zip(const.value, elem_types)
                 )
-            self.store_var(target, memref_allocaOp)
+                self.store_var(target, values)
+            else:
+                memref_allocaOp = memref.alloca(
+                    memref=self.get_mlir_type(target_type),
+                    dynamic_sizes=[],
+                    symbol_operands=[],
+                )
+                for i in range(len(const.value)):
+                    memref_index = arith.constant(result=ir.IndexType.get(), value=i)
+                    value = arith.constant(
+                        result=self.get_mlir_type(target_type.dtype), value=const.value[i]
+                    )
+                    memref.store(
+                        value=value,
+                        memref=memref_allocaOp,
+                        indices=[memref_index],
+                    )
+                self.store_var(target, memref_allocaOp)
         elif isinstance(const.value, (str, bytes)):
             self.store_var(target, const.value)
         else:
@@ -1084,7 +1158,11 @@ extern "C" __global__ void
         trace()
         target_type = self.get_numba_type(target.name)
         if glob.value is None:
-            self.store_var(target, self.get_mlir_type(target_type))
+            if isinstance(target_type, types.Optional):
+                none_val = self._cast_to_optional(types.NoneType("none"), target_type, None)
+                self.store_var(target, none_val)
+            else:
+                self.store_var(target, self.get_mlir_type(target_type))
             return
         if isinstance(glob.value, (bool, int, float, np.number)):
             mlir_type = self.get_mlir_type(target_type)
@@ -1112,6 +1190,8 @@ extern "C" __global__ void
             )
         elif hasattr(glob.value, "__cuda_array_interface__"):
             self.lower_captured_array_to_memref(target, glob.value)
+        elif isinstance(target_type, types.DTypeSpec):
+            self.store_var(target, self._materialize_type_token(target_type))
         else:
             self.store_var(target, glob.value)
 
@@ -1121,7 +1201,13 @@ extern "C" __global__ void
         var_value = self.load_var(var)
 
         match var_value:
-            case RangeObject() | ArrayIterObject() | UniTupleIterObject() | IterResult():
+            case (
+                RangeObject()
+                | ArrayIterObject()
+                | UniTupleIterObject()
+                | NdIterIterObject()
+                | IterResult()
+            ):
                 self.store_var(target, var_value)
             case tuple():
                 target_type = self.get_numba_type(target.name)
@@ -1131,6 +1217,9 @@ extern "C" __global__ void
                 self.store_var(target, var_value)
             case str() | bytes():
                 self.store_var(target, var_value)
+            case _ if isinstance(self.get_numba_type(target.name), types.DTypeSpec):
+                target_type = self.get_numba_type(target.name)
+                self.store_var(target, self._materialize_type_token(target_type))
             case None:
                 target_type = self.get_numba_type(target.name)
                 self.store_var(target, self.get_mlir_type(target_type))
@@ -1164,6 +1253,8 @@ extern "C" __global__ void
 
     def lower_literal_if_needed(self, value: ir.Value | np.ndarray, numba_type=None) -> ir.Value:
         match value:
+            case types.Type() if isinstance(numba_type, types.DTypeSpec):
+                return self._materialize_type_token(numba_type)
             case tuple():
                 return tuple(map(self.lower_literal_if_needed, value))
             case np.ndarray():
@@ -1339,7 +1430,7 @@ extern "C" __global__ void
         if isinstance(iter_obj, RangeObject):
             iternext = iter_obj.next()
             self.store_var(target, iternext)
-        elif isinstance(iter_obj, (ArrayIterObject, UniTupleIterObject)):
+        elif isinstance(iter_obj, (ArrayIterObject, UniTupleIterObject, NdIterIterObject)):
             iternext = iter_obj.next()
             self.store_var(target, iternext)
         else:
@@ -1356,6 +1447,13 @@ extern "C" __global__ void
             if not isinstance(ro, RangeObject):
                 raise InternalCompilerError(f"Range object not found for value {value.name}")
             self.store_var(target, ro)
+        elif isinstance(value_type, types.NumpyNdIterType):
+            iter_obj = self.load_var(value)
+            if not isinstance(iter_obj, NdIterIterObject):
+                raise InternalCompilerError(
+                    f"NdIter object not found for value {value.name}: got {type(iter_obj)}"
+                )
+            self.store_var(target, iter_obj)
         elif isinstance(value_type, types.Array) and value_type.ndim == 1:
             array = self.load_var(value)
             element_type = self.get_mlir_type(value_type.dtype)
@@ -1473,6 +1571,53 @@ extern "C" __global__ void
 
         raise NotImplementedError(f"lowering getitem {target} = {value}[{index}]")
 
+    def _fold_dispatcher_call_args(
+        self,
+        fn: dispatcher._DispatcherBase,
+        args: list[numba_ir.Var],
+        kws: list[tuple[str, numba_ir.Var]] | None = None,
+    ) -> tuple[tuple[types.Type, ...], list[numba_ir.Var], tuple[types.Type, ...]]:
+        """Fold kwargs/defaults for a dispatcher call.
+
+        Numba represents omitted defaults as ``types.Omitted`` in the callee
+        signature.  The MLIR ABI excludes those arguments, so return both the
+        folded compile signature and the concrete operand vars that should be
+        emitted at the call site.
+        """
+        if kws is None:
+            kws = []
+
+        argtypes = tuple(self.get_numba_type(arg.name) for arg in args)
+        kwarg_types = {name: self.get_numba_type(value.name) for name, value in kws}
+        pysig, folded_argtypes = fn._compiler.fold_argument_types(argtypes, kwarg_types)
+
+        kwarg_vars = dict(kws)
+
+        def normal_handler(index, param, value):
+            return value
+
+        def default_handler(index, param, default):
+            return None
+
+        def stararg_handler(index, param, values):
+            return tuple(values)
+
+        folded_vars = typing.fold_arguments(
+            pysig,
+            tuple(args),
+            kwarg_vars,
+            normal_handler,
+            default_handler,
+            stararg_handler,
+        )
+        call_vars = [
+            var
+            for var, argty in zip(folded_vars, folded_argtypes)
+            if var is not None and not _is_omitted_arg(argty)
+        ]
+        call_argtypes = tuple(argty for argty in folded_argtypes if not _is_omitted_arg(argty))
+        return tuple(folded_argtypes), call_vars, call_argtypes
+
     def build_user_defined_function_call(
         self,
         target: numba_ir.Var,
@@ -1482,14 +1627,6 @@ extern "C" __global__ void
     ):
         if kws is None:
             kws = []
-        target_type = self.get_numba_type(target.name)
-
-        # TODO: Here named arguments are simply considered as positional arguments
-        argtypes = tuple(
-            [self.get_numba_type(arg.name) for arg in args]
-            + [self.get_numba_type(value.name) for (name, value) in kws]
-        )
-        func_name = generate_mangled_name(fn.py_func.__qualname__, argtypes)
 
         from numba_cuda_mlir.descriptor import MLIRDispatcher
 
@@ -1510,7 +1647,9 @@ extern "C" __global__ void
                 fn._device_dispatcher = MLIRDispatcher(fn.py_func, targetoptions=opts)
             fn = fn._device_dispatcher
 
-        cres = fn.compile(argtypes)
+        folded_argtypes, call_vars, call_argtypes = self._fold_dispatcher_call_args(fn, args, kws)
+        func_name = generate_mangled_name(fn.py_func.__qualname__, call_argtypes)
+        cres = fn._compile_as_device_callee(folded_argtypes)
 
         if callee_linker := cres.metadata.get("linker"):
             self.linker.merge_ltoirs_from(callee_linker)
@@ -1550,11 +1689,12 @@ extern "C" __global__ void
         assert callee, f"Could not find callee function {func_name} in the module."
 
         callee_function_type = callee.function_type.value.results
+        callee_inputs = callee.function_type.value.inputs
+        operands = [convert(val, ty) for val, ty in zip(self.load_vars(call_vars), callee_inputs)]
         call_results = func.call(
             result=callee_function_type,
             callee=callee.name.value,
-            operands_=[self.load_var(arg) for arg in args]
-            + [self.load_var(value) for (name, value) in kws],
+            operands_=operands,
         )
 
         target_type = self.get_numba_type(target.name)
@@ -1687,16 +1827,14 @@ extern "C" __global__ void
         from numba_cuda_mlir import cuda
         from numba_cuda_mlir.lowering_utilities import link
 
-        argtypes = tuple(
-            [self.get_numba_type(arg.name) for arg in args]
-            + [self.get_numba_type(value.name) for (name, value) in kws]
-        )
-
         py_func = overload_disp.py_func
         cuda_func = cuda.jit(device=True)(py_func)
+        folded_argtypes, call_vars, call_argtypes = self._fold_dispatcher_call_args(
+            cuda_func, args, kws
+        )
         unique_qualname = f"{py_func.__qualname__}_{id(overload_disp)}"
-        func_name = generate_mangled_name(unique_qualname, argtypes)
-        cres = cuda_func.compile(argtypes, abi_info={"abi_name": func_name})
+        func_name = generate_mangled_name(unique_qualname, call_argtypes)
+        cres = cuda_func.compile(folded_argtypes, abi_info={"abi_name": func_name})
 
         if callee_linker := cres.metadata.get("linker"):
             self.linker.merge_ltoirs_from(callee_linker)
@@ -1719,7 +1857,9 @@ extern "C" __global__ void
             )
 
         callee_type = get_func_type(callee)
-        call_args = [convert(val, ty) for val, ty in zip(self.load_vars(args), callee_type.inputs)]
+        call_args = [
+            convert(val, ty) for val, ty in zip(self.load_vars(call_vars), callee_type.inputs)
+        ]
         call_result = func.call(
             result=callee_type.results,
             callee=callee.name.value,
@@ -1777,6 +1917,9 @@ extern "C" __global__ void
         ty = self.get_numba_type(var.name)
         if isinstance(ty, types.NumberClass):
             return types.NumberClass
+
+        if isinstance(ty, types.VectorTypeClass):
+            return ty.instance_type
         if isinstance(ty, types.Function):
             if self.var_lowered(var):
                 fn = self.load_var(var)
@@ -1825,7 +1968,8 @@ extern "C" __global__ void
             has_arrays = any(isinstance(arg_ty, types.Array) for arg_ty in signature.args)
             if has_arrays:
                 return None
-            full_sig, maybe_builder = fn._defn(self, *signature.args)
+            tyctx = self.context.typing_context
+            full_sig, maybe_builder = fn._defn(tyctx, *signature.args)
             if maybe_builder:
                 return maybe_builder
 
@@ -1844,9 +1988,10 @@ extern "C" __global__ void
             )
 
         for link_item in fn_value.link:
-            self._link_external_item(link_item)
+            self.link_external_item(link_item)
 
-    def _link_external_item(self, link_item):
+    def link_external_item(self, link_item):
+        """Register an external code object with the active linker."""
         key = self._external_link_item_key(link_item)
         if key in self._linked_external_items:
             return
@@ -2013,6 +2158,31 @@ extern "C" __global__ void
                 return
             else:
                 raise InternalCompilerError("literal_unroll expects exactly 1 argument")
+
+        # An ``exc = SomeException("msg")`` assignment is left behind when
+        # ``raise SomeException("msg")`` gets rewritten into a ``StaticRaise``
+        # by ``RewriteConstRaises``: the original ``Raise`` instruction is
+        # replaced but the exception-constructor call site is preserved. There
+        # is no MLIR-level work to do here (the actual error is signalled by
+        # the subsequent ``StaticRaise`` lowering writing the error-code
+        # global), so just record a placeholder so future lookups treat the
+        # variable as lowered.
+        if isinstance(fn_value, type) and issubclass(fn_value, BaseException):
+            self.store_var(target, fn_value)
+            return
+
+        # Handle ``next(it)`` on a recognised iterator object by advancing the
+        # iterator and yielding its value, mirroring CPython's ``it.__next__()``
+        # semantics. We skip the StopIteration check here: callers in nopython
+        # mode are expected to have already guarded against empty iterators.
+        if fn_value is next and len(args) == 1:
+            iter_obj = self.load_var(args[0])
+            if isinstance(
+                iter_obj, (RangeObject, ArrayIterObject, UniTupleIterObject, NdIterIterObject)
+            ):
+                iternext = iter_obj.next()
+                self.store_var(target, iternext.value)
+                return
 
         if builder := self.get_registered_builder(fn, signature):
             builder_args = args if isinstance(builder, DeferredLowering) else call_args
@@ -2207,13 +2377,102 @@ extern "C" __global__ void
         Otherwise, falls back to ``mlir_convert`` for built-in MLIR type
         conversions (e.g. int widening, float promotion).
         """
+        # Optional type casts handled directly with LLVM struct ops.
+        if isinstance(target_type, types.Optional):
+            return self._cast_to_optional(source_type, target_type, value)
+        if isinstance(source_type, types.Optional):
+            return self._cast_from_optional(source_type, target_type, value)
+
         try:
             cast_impl = self.context._casts.find((source_type, target_type))
         except errors.NumbaNotImplementedError:
             cast_impl = None
         if cast_impl is not None and self._is_extension_cast(cast_impl):
             return cast_impl(self.context, self, source_type, target_type, value)
+        if isinstance(source_type, types.BaseTuple) and isinstance(target_type, types.BaseTuple):
+            return self._lower_tuple_cast(source_type, target_type, value)
         return self.mlir_convert(value, self.get_mlir_type(target_type))
+
+    def _tuple_element_types(self, tuple_type):
+        if isinstance(tuple_type, types.UniTuple):
+            return (tuple_type.dtype,) * tuple_type.count
+        return tuple_type.types
+
+    def _lower_tuple_cast(self, source_type, target_type, value):
+        if not isinstance(value, tuple):
+            raise InternalCompilerError(
+                f"Cannot cast tuple value stored as {type(value)} from {source_type} "
+                f"to {target_type}."
+            )
+        source_types = self._tuple_element_types(source_type)
+        target_types = self._tuple_element_types(target_type)
+        if len(source_types) != len(target_types) or len(value) != len(target_types):
+            raise InternalCompilerError(
+                f"Cannot cast tuple with mismatched arity from {source_type} to {target_type}."
+            )
+        result = []
+        for source_elem_type, target_elem_type, elem in zip(source_types, target_types, value):
+            if source_elem_type == target_elem_type:
+                result.append(elem)
+            else:
+                result.append(self.lower_cast(source_elem_type, target_elem_type, elem))
+        return tuple(result)
+
+    def _materialize_type_token(self, target_type):
+        if isinstance(target_type, types.DTypeSpec):
+            return self._zero_value_for_type(self.get_mlir_type(target_type.dtype))
+        raise InternalCompilerError(f"Cannot materialize type token for {target_type}.")
+
+    def _zero_value_for_type(self, mlir_type):
+        if isinstance(mlir_type, (ir.IntegerType, ir.IndexType)):
+            return arith.constant(result=mlir_type, value=0)
+        if isinstance(mlir_type, (ir.FloatType, ir.F16Type, ir.BF16Type)):
+            return arith.constant(result=mlir_type, value=0.0)
+        if isinstance(mlir_type, ir.ComplexType):
+            zero = self._zero_value_for_type(mlir_type.element_type)
+            return complex_dialect.create_(complex=mlir_type, real=zero, imaginary=zero)
+        if isinstance(mlir_type, ir.VectorType):
+            zero = self._zero_value_for_type(mlir_type.element_type)
+            return vector_dialect.broadcast(mlir_type, zero)
+        if str(mlir_type).startswith("!llvm."):
+            return llvm.mlir_undef(res=mlir_type)
+        raise InternalCompilerError(f"Cannot materialize zero value for {mlir_type}.")
+
+    def _cast_to_optional(self, source_type, target_type, value):
+        """Cast T or NoneType to Optional(T)."""
+        opt_mlir_type = self.get_mlir_type(target_type)
+        i1 = ir.IntegerType.get_signless(1)
+        if isinstance(source_type, types.NoneType):
+            desc = llvm.UndefOp(opt_mlir_type).result
+            desc = llvm.insertvalue(
+                container=desc,
+                value=arith.constant(i1, 0),
+                position=ir.DenseI64ArrayAttr.get([1]),
+            )
+            return desc
+        inner_value = value
+        if source_type != target_type.type:
+            inner_value = self.mlir_convert(value, self.get_mlir_type(target_type.type))
+        desc = llvm.UndefOp(opt_mlir_type).result
+        desc = llvm.insertvalue(
+            container=desc,
+            value=inner_value,
+            position=ir.DenseI64ArrayAttr.get([0]),
+        )
+        desc = llvm.insertvalue(
+            container=desc,
+            value=arith.constant(i1, 1),
+            position=ir.DenseI64ArrayAttr.get([1]),
+        )
+        return desc
+
+    def _cast_from_optional(self, source_type, target_type, value):
+        """Cast Optional(T) to T (unwrap, assuming valid)."""
+        inner_mlir_type = self.get_mlir_type(source_type.type)
+        data = llvm.extractvalue(inner_mlir_type, value, [0])
+        if source_type.type != target_type:
+            data = self.mlir_convert(data, self.get_mlir_type(target_type))
+        return data
 
     def get_getattr_builder(self, target, value, attr):
         target_type = self.get_numba_type(target.name)
@@ -2288,6 +2547,13 @@ extern "C" __global__ void
                 container=struct_val,
                 position=ir.DenseI64ArrayAttr.get([field_idx]),
             )
+            self.incref(target_type, result)
+            self.store_var(target, result)
+            return
+
+        if isinstance(value_type, types.BaseNamedTuple) and attr in value_type.fields:
+            index = value_type.fields.index(attr)
+            result = self.load_var(value)[index]
             self.incref(target_type, result)
             self.store_var(target, result)
             return
@@ -2550,6 +2816,22 @@ extern "C" __global__ void
         if builder := self.get_registered_builder(operator.setitem, signature):
             builder(self, None, [target, index, value], [])
             return
+        # If value is Optional, unwrap it and retry with the inner type.
+        value_type = self.get_numba_type(value.name)
+        if isinstance(value_type, types.Optional):
+            unwrapped_types = list(arg_types)
+            unwrapped_types[-1] = value_type.type
+            sig2 = types.Any(*unwrapped_types)
+            if builder := self.get_registered_builder(operator.setitem, sig2):
+                mlir_val = self.load_var(value)
+                inner = self._cast_from_optional(value_type, value_type.type, mlir_val)
+                tmp_var = numba_ir.Var(
+                    scope=value.scope, name=f"$optional_unwrap_{value.name}", loc=value.loc
+                )
+                self.fndesc.typemap[tmp_var.name] = value_type.type
+                self.store_var(tmp_var, inner)
+                builder(self, None, [target, index, tmp_var], [])
+                return
 
     def lower_branch(self, branch_inst):
         """
@@ -2587,6 +2869,16 @@ extern "C" __global__ void
         """Decref a multi-assign variable by loading from its stack slot,
         then zero-filling the slot to prevent double-free on subsequent dels."""
         slot = self.varmap[name]
+        self._decref_stack_slot(var_type, slot)
+
+    def _decref_stack_slot(self, var_type, slot):
+        if isinstance(var_type, types.BaseTuple):
+            assert isinstance(slot, tuple)
+            for elem_type, elem_slot in zip(self._tuple_element_types(var_type), slot):
+                if self.nrt.type_has_nrt_meminfo(elem_type):
+                    self._decref_stack_slot(elem_type, elem_slot)
+            return
+
         mlir_type = self.get_mlir_type(var_type)
         if isinstance(slot.type, MemRefType):
             old = memref.load(memref=slot, indices=[index_of(0)])
@@ -2683,10 +2975,14 @@ extern "C" __global__ void
         value = return_inst.value
         value_type = self.get_numba_type(value.name)
         return_ctor = gpu.ReturnOp if isinstance(self.mlir_funcOp, gpu.GPUFuncOp) else func.ReturnOp
-        if isinstance(value_type, types.NoneType):
+        if isinstance(value_type, types.NoneType) or isinstance(
+            self.get_mlir_type(value_type), ir.NoneType
+        ):
             return_ctor([])
         else:
             value = self.load_var(value)
+            if isinstance(value_type, types.DTypeSpec) and isinstance(value, types.Type):
+                value = self._materialize_type_token(value_type)
             if isinstance(value, tuple):
                 return_ctor(list(value))
             else:
@@ -2915,6 +3211,25 @@ extern "C" __global__ void
         result = self.lower_literal_if_needed(result, numba_type)
         return result
 
+    def _load_stack_slot(self, var_type, slot):
+        if isinstance(var_type, types.BaseTuple):
+            assert isinstance(slot, tuple)
+            return tuple(
+                self._load_stack_slot(elem_type, elem_slot)
+                for elem_type, elem_slot in zip(self._tuple_element_types(var_type), slot)
+            )
+
+        if isinstance(slot.type, MemRefType):
+            trace("")
+            index = index_of(0)
+            trace("index=%s", index)
+            loadOp = memref.load(memref=slot, indices=[index])
+            trace("loadOp=%s", loadOp)
+            return loadOp
+
+        trace("Loading %s from LLVM stack slot", type(var_type).__name__)
+        return llvm.load(res=self.get_mlir_type(var_type), addr=slot)
+
     def _load_var(self, var: numba_ir.Var) -> Any:
         """
         Load the value from the given numba variable.
@@ -2934,16 +3249,14 @@ extern "C" __global__ void
             var_type = self.get_numba_type(var.name)
             slot = self.varmap[var.name]
 
-            if isinstance(slot.type, MemRefType):
-                trace("")
-                index = index_of(0)
-                trace("index=%s", index)
-                loadOp = memref.load(memref=slot, indices=[index])
-                trace("loadOp=%s", loadOp)
-                return loadOp
+            # UniTuple multi-assign uses a packed memref; heterogeneous
+            # BaseTuple multi-assign uses per-element stack slots.
+            if isinstance(var_type, types.UniTuple) and not isinstance(slot, tuple):
+                return tuple(
+                    memref.load(memref=slot, indices=[index_of(i)]) for i in range(var_type.count)
+                )
 
-            trace("Loading %s from LLVM stack slot", type(var_type).__name__)
-            return llvm.load(res=self.get_mlir_type(var_type), addr=slot)
+            return self._load_stack_slot(var_type, slot)
         elif var.name in self._debug_forced_alloca:
             # variable forced to memref.alloca for debug info.
             return memref.load(memref=self.varmap[var.name], indices=[index_of(0)])
@@ -2998,6 +3311,32 @@ extern "C" __global__ void
         llvm.store(value=arith.constant(T.i8(), tag), addr=self._poly_dbg_byte_ptr(slot, 0))
         llvm.store(value=mlir_value, addr=self._poly_dbg_byte_ptr(slot, offset_bytes))
 
+    def _store_stack_slot(self, var_type, slot, value):
+        if isinstance(var_type, types.BaseTuple):
+            assert isinstance(slot, tuple)
+            assert isinstance(value, (tuple, list))
+            for elem_type, elem_slot, elem_value in zip(
+                self._tuple_element_types(var_type), slot, value
+            ):
+                self._store_stack_slot(elem_type, elem_slot, elem_value)
+            return
+
+        if isinstance(var_type, types.Optional) and not isinstance(value, (ir.Value, ir.OpView)):
+            value = self._cast_to_optional(types.NoneType("none"), var_type, None)
+
+        if self.nrt.type_has_nrt_meminfo(var_type) and isinstance(value, ir.Value):
+            if isinstance(slot.type, MemRefType):
+                old = memref.load(memref=slot, indices=[index_of(0)])
+            else:
+                old = llvm.load(res=self.get_mlir_type(var_type), addr=slot)
+            self.decref(var_type, old)
+
+        if isinstance(slot.type, MemRefType):
+            memref.store(value=value, memref=slot, indices=[index_of(0)])
+        else:
+            trace("Storing %s to LLVM stack slot", type(var_type).__name__)
+            llvm.store(value=value, addr=slot)
+
     def store_var(self, var, value):
         """
         Store the value (MLIR Op) into the given variable.
@@ -3016,23 +3355,21 @@ extern "C" __global__ void
             slot = self.varmap[var.name]
             var_type = self.get_numba_type(var.name)
 
-            # Decref the old value before overwriting
-            if self.nrt.type_has_nrt_meminfo(var_type) and isinstance(value, ir.Value):
-                if isinstance(slot.type, MemRefType):
-                    old = memref.load(memref=slot, indices=[index_of(0)])
-                else:
-                    old = llvm.load(res=self.get_mlir_type(var_type), addr=slot)
-                self.decref(var_type, old)
+            # UniTuple multi-assign uses a packed memref; heterogeneous
+            # BaseTuple multi-assign uses per-element stack slots.
+            if isinstance(var_type, types.UniTuple) and not isinstance(slot, tuple):
+                assert isinstance(value, (tuple, list))
+                for i, elem in enumerate(value):
+                    memref.store(value=elem, memref=slot, indices=[index_of(i)])
+                return
 
-            if isinstance(slot.type, MemRefType):
-                memref.store(value=value, memref=slot, indices=[index_of(0)])
-            else:
-                trace("Storing %s to LLVM stack slot", type(var_type).__name__)
-                llvm.store(value=value, addr=slot)
+            self._store_stack_slot(var_type, slot, value)
         else:
             # the value can be safely stored in register,
             # register the value in varmap
-            assert not self.var_lowered(var), f"Var {var.name} already defined in varmap."
+            assert not self.var_lowered(var) or isinstance(
+                self.get_numba_type(var.name), types.BaseTuple
+            ), f"Var {var.name} already defined in varmap."
             numba_type = self._get_numba_type_for_dbg_var(var.name)
             if (
                 self._debug_full
@@ -3108,11 +3445,11 @@ extern "C" __global__ void
             case types.CharSeq():
                 return ir.Type.parse(f"!llvm.array<{ty.count} x i8>")
             case types.UnicodeCharSeq():
-                import numpy as np
-
                 char_bits = np.dtype("U1").itemsize * 8
                 return ir.Type.parse(f"!llvm.array<{ty.count} x i{char_bits}>")
             case _:
+                if isinstance(ty, types.DTypeSpec):
+                    return self.get_mlir_type(ty.dtype)
                 try:
                     return self.context.get_value_type(ty)
                 except KeyError as e:

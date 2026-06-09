@@ -12,8 +12,14 @@
 
 static PyModuleDef module_def = {
     PyModuleDef_HEAD_INIT,
-    .m_name = "numba_cuda_mlir._cext",
-    .m_size = 0,
+    "numba_cuda_mlir._cext",
+    nullptr,
+    0,
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
 };
 
 PyMODINIT_FUNC PyInit__cext() {

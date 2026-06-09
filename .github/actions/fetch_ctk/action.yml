@@ -30,32 +30,34 @@ runs:
       shell: bash --noprofile --norc -xeuo pipefail {0}
       run: |
         # Pre-process the component list to ensure hash uniqueness
-        CTK_CACHE_COMPONENTS=${{ inputs.cuda-components }}
-        # Conditionally strip out libnvjitlink for CUDA versions < 12
         CUDA_MAJOR_VER="$(cut -d '.' -f 1 <<< ${{ inputs.cuda-version }})"
-        if [[ "$CUDA_MAJOR_VER" -lt 12 ]]; then
-          CTK_CACHE_COMPONENTS="${CTK_CACHE_COMPONENTS//libnvjitlink/}"
-        fi
-        # Conditionally strip out cuda_crt and libnvvm for CUDA versions < 13
-        CUDA_MAJOR_VER="$(cut -d '.' -f 1 <<< ${{ inputs.cuda-version }})"
-        if [[ "$CUDA_MAJOR_VER" -lt 13 ]]; then
-          CTK_CACHE_COMPONENTS="${CTK_CACHE_COMPONENTS//cuda_crt/}"
-          CTK_CACHE_COMPONENTS="${CTK_CACHE_COMPONENTS//libnvvm/}"
-        fi
-        # Cleanup stray commas after removing components
-        CTK_CACHE_COMPONENTS="${CTK_CACHE_COMPONENTS//,,/,}"
+        IFS=',' read -ra REQUESTED_COMPONENTS <<< "${{ inputs.cuda-components }}"
+        FILTERED_COMPONENTS=()
+        for component in "${REQUESTED_COMPONENTS[@]}"; do
+          component="${component//[[:space:]]/}"
+          [[ -n "${component}" ]] || continue
+          if [[ "${component}" == "libnvjitlink" && "${CUDA_MAJOR_VER}" -lt 12 ]]; then
+            continue
+          fi
+          if [[ "${component}" =~ ^(cuda_crt|libnvvm)$ && "${CUDA_MAJOR_VER}" -lt 13 ]]; then
+            continue
+          fi
+          FILTERED_COMPONENTS+=("${component}")
+        done
+        CTK_CACHE_COMPONENTS="$(IFS=,; echo "${FILTERED_COMPONENTS[*]}")"
 
-        HASH=$(echo -n "${CTK_CACHE_COMPONENTS}" | sha256sum | awk '{print $1}')
-        echo "CTK_CACHE_KEY=mini-ctk-${{ inputs.cuda-version }}-${{ inputs.host-platform }}-$HASH" >> $GITHUB_ENV
-        echo "CTK_CACHE_FILENAME=mini-ctk-${{ inputs.cuda-version }}-${{ inputs.host-platform }}-$HASH.tar.gz" >> $GITHUB_ENV
-        echo "CTK_CACHE_COMPONENTS=${CTK_CACHE_COMPONENTS}" >> $GITHUB_ENV
+        HASH=$(printf '%s' "${CTK_CACHE_COMPONENTS}" | sha256sum | awk '{print $1}')
+        echo "CTK_CACHE_KEY=mini-ctk-${{ inputs.cuda-version }}-${{ inputs.host-platform }}-$HASH" >> "$GITHUB_ENV"
+        echo "CTK_CACHE_FILENAME=mini-ctk-${{ inputs.cuda-version }}-${{ inputs.host-platform }}-$HASH.tar.gz" >> "$GITHUB_ENV"
+        echo "CTK_CACHE_COMPONENTS=${CTK_CACHE_COMPONENTS}" >> "$GITHUB_ENV"
 
     - name: Install dependencies
+      if: ${{ startsWith(inputs.host-platform, 'linux') }}
       uses: ./.github/actions/install_unix_deps
       continue-on-error: false
       with:
-        dependencies: "zstd curl xz-utils"
-        dependent_exes: "zstd curl xz"
+        dependencies: "zstd curl xz-utils jq"
+        dependent_exes: "zstd curl xz jq"
 
     - name: Download CTK cache
       id: ctk-get-cache
@@ -83,12 +85,36 @@ runs:
           CTK_SUBDIR="linux-x86_64"
         elif [[ "${{ inputs.host-platform }}" == "linux-aarch64" ]]; then
           CTK_SUBDIR="linux-sbsa"
+        elif [[ "${{ inputs.host-platform }}" == "win-64" ]]; then
+          CTK_SUBDIR="windows-x86_64"
         else
           echo "Unsupported host platform: ${{ inputs.host-platform }}"
           exit 1
         fi
+        if command -v python >/dev/null 2>&1; then
+          PYTHON_EXE=python
+        elif command -v python3 >/dev/null 2>&1; then
+          PYTHON_EXE=python3
+        else
+          echo "ERROR: python or python3 is required to parse the CTK redistrib JSON" >&2
+          exit 1
+        fi
         function extract() {
-          tar -xvf $1 -C $CACHE_TMP_DIR --strip-components=1
+          if [[ "$1" == *.zip ]]; then
+            ZIP_TMP="${CACHE_TMP_DIR}/.zip_extract"
+            mkdir -p "${ZIP_TMP}"
+            python -m zipfile -e "$1" "${ZIP_TMP}"
+            shopt -s dotglob nullglob
+            ZIP_ROOTS=("${ZIP_TMP}"/*)
+            if [[ ${#ZIP_ROOTS[@]} -ne 1 ]]; then
+              echo "Expected one top-level directory in $1, found ${#ZIP_ROOTS[@]}"
+              exit 1
+            fi
+            cp -r "${ZIP_ROOTS[0]}"/* "${CACHE_TMP_DIR}"
+            rm -rf "${ZIP_TMP}"
+          else
+            tar -xvf $1 -C $CACHE_TMP_DIR --strip-components=1
+          fi
         }
         function populate_cuda_path() {
           # take the component name as a argument
@@ -96,8 +122,11 @@ runs:
             curl -LSs $1 -o $2
           }
           CTK_COMPONENT=$1
-          CTK_COMPONENT_REL_PATH="$(curl -s $CTK_JSON_URL |
-              python -c "import sys, json; print(json.load(sys.stdin)['${CTK_COMPONENT}']['${CTK_SUBDIR}']['relative_path'])")"
+          CTK_COMPONENT_REL_PATH="$(
+            curl -fsSL "$CTK_JSON_URL" |
+              "$PYTHON_EXE" -c 'import json, sys; component, subdir = sys.argv[1:3]; data = json.load(sys.stdin); entry = data.get(component, {}).get(subdir, {}).get("relative_path"); sys.exit(f"missing CTK redistrib entry for {component}/{subdir}") if entry is None else print(entry)' \
+                "$CTK_COMPONENT" "$CTK_SUBDIR"
+          )"
           CTK_COMPONENT_URL="${CTK_BASE_URL}/${CTK_COMPONENT_REL_PATH}"
           CTK_COMPONENT_COMPONENT_FILENAME="$(basename $CTK_COMPONENT_REL_PATH)"
           download $CTK_COMPONENT_URL $CTK_COMPONENT_COMPONENT_FILENAME
@@ -164,7 +193,14 @@ runs:
       run: |
         # mimics actual CTK installation
         CUDA_PATH=$(realpath "${{ inputs.cuda-path }}")
-        echo "${CUDA_PATH}/bin" >> $GITHUB_PATH
-        echo "LD_LIBRARY_PATH=${CUDA_PATH}/lib64:${LD_LIBRARY_PATH:-}" >> $GITHUB_ENV
-        echo "CUDA_PATH=${CUDA_PATH}" >> $GITHUB_ENV
-        echo "CUDA_HOME=${CUDA_PATH}" >> $GITHUB_ENV
+        if [[ "${{ inputs.host-platform }}" == win* ]]; then
+          CUDA_PATH_WIN=$(cygpath -w "${CUDA_PATH}")
+          echo "${CUDA_PATH_WIN}\\bin" >> $GITHUB_PATH
+          echo "CUDA_PATH=${CUDA_PATH_WIN}" >> $GITHUB_ENV
+          echo "CUDA_HOME=${CUDA_PATH_WIN}" >> $GITHUB_ENV
+        else
+          echo "${CUDA_PATH}/bin" >> $GITHUB_PATH
+          echo "LD_LIBRARY_PATH=${CUDA_PATH}/lib64:${LD_LIBRARY_PATH:-}" >> $GITHUB_ENV
+          echo "CUDA_PATH=${CUDA_PATH}" >> $GITHUB_ENV
+          echo "CUDA_HOME=${CUDA_PATH}" >> $GITHUB_ENV
+        fi

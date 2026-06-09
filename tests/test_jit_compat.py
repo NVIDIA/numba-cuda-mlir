@@ -136,7 +136,7 @@ def test_dispatcher_resource_methods(method, min_val):
 
 
 def test_compile_device():
-    """Test compile_device method works."""
+    """Test compile_device and internal callee compilation work."""
 
     @cuda.jit(device=True)
     def device_func(x):
@@ -144,6 +144,13 @@ def test_compile_device():
 
     result = device_func.compile_device((types.int32,))
     assert result is not None
+
+    @cuda.jit(device=True)
+    def callee_func(x):
+        return x * 2
+
+    callee_result = callee_func._compile_as_device_callee((types.int32,))
+    assert callee_result.metadata.get("cubin") is None
 
 
 # --- Operator is/is_not Lowering ---
@@ -201,6 +208,25 @@ def test_none_is_not_none():
     arr = cuda.device_array(1, dtype=np.int32)
     kernel[1, 1](arr)
     assert arr.copy_to_host()[0] == 0
+
+
+def test_optional_return_from_device_function():
+    @cuda.jit(device=True)
+    def maybe_value(cond):
+        if cond:
+            return 42
+        return None
+
+    @cuda.jit
+    def kernel(out, n):
+        v = maybe_value(n > 0)
+        if v is not None:
+            out[0] = v
+
+    out = cuda.device_array((1,), dtype=np.int64)
+    out.copy_to_device(np.array([0], dtype=np.int64))
+    kernel[1, 1](out, 1)
+    assert out.copy_to_host()[0] == 42
 
 
 @pytest.mark.parametrize(

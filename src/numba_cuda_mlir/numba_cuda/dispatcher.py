@@ -15,11 +15,12 @@ import uuid
 import re
 from warnings import warn
 
-from cuda.core import launch, LaunchConfig
+from cuda.core import LaunchConfig, launch
 
 from numba_cuda_mlir.numba_cuda.core import errors
 from numba_cuda_mlir.numba_cuda import serialize, utils
 from numba_cuda_mlir import numba_cuda as cuda
+from numba_cuda_mlir.numba_cuda._compat import CUDA_CORE_GE_1_0
 
 from numba_cuda_mlir.numba_cuda.np import numpy_support
 from numba_cuda_mlir.numba_cuda.core.compiler_lock import global_compiler_lock
@@ -52,7 +53,7 @@ from numba_cuda_mlir.numba_cuda.errors import (
 )
 from numba_cuda_mlir.numba_cuda.cudadrv.linkable_code import LinkableCode
 from numba_cuda_mlir.numba_cuda.cudadrv.devices import get_context
-from numba_cuda_mlir.numba_cuda.memory_management.nrt import rtsys, NRT_LIBRARY
+from numba_cuda_mlir.numba_cuda.memory_management.nrt import rtsys
 import numba_cuda_mlir.numba_cuda.core.event as ev
 
 # from numba_cuda_mlir.numba_cuda.cext import _dispatcher
@@ -254,9 +255,6 @@ class _Kernel(serialize.ReduceMixin):
                     if file.nrt:
                         link_nrt = True
                         break
-
-        if link_nrt:
-            link.append(NRT_LIBRARY)
 
     @property
     def library(self):
@@ -488,12 +486,20 @@ class _Kernel(serialize.ReduceMixin):
             self._prepare_args(t, v, stream, retr, kernelargs)
 
         # Invoke kernel
-        config = LaunchConfig(
-            grid=griddim,
-            block=blockdim,
-            shmem_size=sharedmem,
-            cooperative_launch=self.cooperative,
-        )
+        if CUDA_CORE_GE_1_0:
+            config = LaunchConfig(
+                grid=griddim,
+                block=blockdim,
+                shmem_size=sharedmem,
+                is_cooperative=self.cooperative,
+            )
+        else:
+            config = LaunchConfig(
+                grid=griddim,
+                block=blockdim,
+                shmem_size=sharedmem,
+                cooperative_launch=self.cooperative,
+            )
         kernel = cufunc.kernel
         launch(stream, config, kernel, *kernelargs)
 

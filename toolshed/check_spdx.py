@@ -41,6 +41,9 @@ def has_spdx_or_is_empty(filepath):
 def main(args):
     assert args, "filepaths expected to be passed from pre-commit"
 
+    if "--fix" in args:
+        del args[args.index("--fix")]
+
     ignore_spec = load_spdx_ignore()
 
     returncode = 0

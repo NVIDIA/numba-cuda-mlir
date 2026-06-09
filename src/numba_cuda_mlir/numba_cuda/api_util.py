@@ -8,6 +8,21 @@ import numpy as np
 import functools
 
 
+def resolve_cuda_array_interface_dtype(typestr, owner_dtype=None):
+    dtype = np.dtype(typestr)
+    if owner_dtype is None:
+        return dtype
+
+    try:
+        owner_dtype = np.dtype(owner_dtype)
+    except TypeError:
+        return dtype
+
+    if owner_dtype.itemsize == dtype.itemsize:
+        return owner_dtype
+    return dtype
+
+
 def prepare_shape_strides_dtype(shape, strides, dtype, order):
     dtype = np.dtype(dtype)
     if isinstance(shape, (float, np.floating)):

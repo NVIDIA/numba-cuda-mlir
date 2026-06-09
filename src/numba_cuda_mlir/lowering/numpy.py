@@ -5,6 +5,7 @@ import functools
 import operator
 from numba_cuda_mlir import lowering_utilities
 from numba_cuda_mlir.descriptor import MLIRTargetContext
+from numba_cuda_mlir.extending import overload, overload_method, typing_registry
 from numba_cuda_mlir.errors import InternalCompilerError, ensure_verifies
 from numba_cuda_mlir.mlir_lowering import MLIRLower
 from numba_cuda_mlir.mlir.dialect_exts import memref, scf, arith, tensor
@@ -13,7 +14,6 @@ from numba_cuda_mlir._mlir.dialects import (
     builtin,
     math as math_dialect,
     llvm,
-    shape,
     tensor,
     memref as memref_dialect,
     complex as complex_dialect,
@@ -22,16 +22,17 @@ from numba_cuda_mlir._mlir.dialects import (
 from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
+from numba_cuda_mlir.type_defs.vector_types import VectorType
+from numba_cuda_mlir.numba_cuda.np.npyimpl import _make_dtype_object
 
 registry = LoweringRegistry()
 lower = registry.lower
 lower_getattr = registry.lower_getattr
 lower_getattr_generic = registry.lower_getattr_generic
 lower_constant = registry.lower_constant
-from numba_cuda_mlir import numba_cuda as cuda
 from numba_cuda_mlir.numba_cuda import types
 import numba_cuda_mlir.numba_cuda.core.ir as numba_ir
-from numba_cuda_mlir.numba_cuda.types.ext_types import Dim3
+from numba_cuda_mlir.numba_cuda.core import errors
 from typing import Any, cast
 from numba_cuda_mlir.logging import trace
 import numpy as np
@@ -48,6 +49,8 @@ from numba_cuda_mlir.lowering_utilities import (
     index_of,
     set_error_code_if_zero,
     try_extract_constant,
+    NdIterIterObject,
+    is_nonelike,
 )
 from numba_cuda_mlir.mlir_lowering import KERNEL_ERROR_CODES
 from numba_cuda_mlir.lowering_utilities.linalg_lowering import (
@@ -91,9 +94,9 @@ def lower_get_size(
     array: numba_ir.Var,
 ):
     array = builder.load_var(array)
-    size = array.type.rank
-    dims = [memref.dim(array, index_of(i)) for i in range(array.type.rank)]
-    size = functools.reduce(operator.mul, dims)
+    rank = array.type.rank
+    dims = [memref.dim(array, index_of(i)) for i in range(rank)]
+    size = functools.reduce(operator.mul, dims, index_of(1))
     builder.store_var(target, size)
 
 
@@ -103,63 +106,47 @@ def _lower_array_complex_real_imag(builder, target, array_var, attr):
     For a complex array in memory: [real0, imag0, real1, imag1, ...]
     .real returns a float view at offset 0 with stride 2
     .imag returns a float view at offset 1 with stride 2
+    Uses memref.reinterpret_cast to preserve the source memory space
     """
     complex_array = builder.load_var(array_var)
     array_type = complex_array.type
     rank = array_type.rank
+    float_type = array_type.element_type.element_type
 
-    # Get the data pointer from the complex array
-    ptr_as_index = memref_dialect.extract_aligned_pointer_as_index(complex_array)
-    i64 = ir.IntegerType.get_signless(64)
-    ptr_i64 = arith_dialect.index_cast(i64, ptr_as_index)
+    dyn = ir.ShapedType.get_dynamic_size()
+    dyn_s = ir.ShapedType.get_dynamic_stride_or_offset()
 
-    # For imag, offset by sizeof(float_element)
-    if attr == "imag":
-        complex_elem = array_type.element_type
-        float_width = complex_elem.element_type.width  # 32 or 64
-        byte_offset = float_width // 8  # 4 or 8
-        ptr_i64 = arith_dialect.addi(ptr_i64, arith_dialect.constant(i64, byte_offset))
+    target_mr_type = ir.MemRefType.get(
+        shape=[dyn] * rank,
+        element_type=float_type,
+        layout=ir.StridedLayoutAttr.get(dyn_s, [dyn_s] * rank),
+        memory_space=array_type.memory_space,
+    )
 
-    ptr = llvm.inttoptr(llvm.PointerType.get(), ptr_i64)
+    retyped = builtin.unrealized_conversion_cast([target_mr_type], [complex_array])
 
-    # Get original sizes from the complex array
-    sizes_i64 = []
-    for i in range(rank):
-        dim_val = memref_dialect.dim(complex_array, arith_dialect.constant(ir.IndexType.get(), i))
-        sizes_i64.append(convert(dim_val, i64))
-
-    # Strides: each complex element is 2 floats, so multiply strides by 2
     md = memref_dialect.extract_strided_metadata(complex_array)
-    strides_i64 = []
-    two = arith_dialect.constant(i64, 2)
-    for i in range(rank):
-        original_stride = md[2 + rank + i]
-        stride_i64 = convert(original_stride, i64)
-        strides_i64.append(arith_dialect.muli(stride_i64, two))
+    src_offset = md[1]
+    sizes = list(md[2 : 2 + rank])
+    strides = list(md[2 + rank : 2 + 2 * rank])
 
-    # Build the LLVM struct descriptor for the new float memref
-    struct_type = ir.Type.parse(
-        f"!llvm.struct<(ptr, ptr, i64, array<{rank} x i64>, array<{rank} x i64>)>"
+    # Each complex element spans 2 floats in memory.
+    two = index_of(2)
+    new_offset = arith.muli(src_offset, two)
+    if attr == "imag":
+        new_offset = arith.addi(new_offset, index_of(1))
+    new_strides = [arith.muli(s, two) for s in strides]
+
+    result = memref_dialect.reinterpret_cast(
+        target_mr_type,
+        retyped,
+        offsets=[new_offset],
+        sizes=sizes,
+        strides=new_strides,
+        static_offsets=[dyn_s],
+        static_sizes=[dyn] * rank,
+        static_strides=[dyn_s] * rank,
     )
-    i64c = lambda v: arith_dialect.constant(i64, v)
-    ins = lambda d, v, *p: llvm.insertvalue(
-        container=d, value=v, position=ir.DenseI64ArrayAttr.get(list(p))
-    )
-
-    desc = llvm.UndefOp(struct_type).result
-    desc = ins(desc, ptr, 0)  # allocPtr
-    desc = ins(desc, ptr, 1)  # alignedPtr
-    desc = ins(desc, i64c(0), 2)  # offset
-    for i, s in enumerate(sizes_i64):
-        desc = ins(desc, s, 3, i)
-    for i, s in enumerate(strides_i64):
-        desc = ins(desc, s, 4, i)
-
-    # Get the target memref type from the Numba type system
-    target_numba_type = builder.get_numba_type(target.name)
-    memref_type = builder.get_mlir_type(target_numba_type)
-
-    result = builtin.unrealized_conversion_cast([memref_type], [desc])
     builder.store_var(target, result)
 
 
@@ -428,7 +415,7 @@ def np_all_cg(builder, target, args, kwargs):
     region = reduce_op.combiner
     block = region.blocks.append(array.type.element_type, T.bool())
     with ir.InsertionPoint(block):
-        from numba_cuda_mlir.lowering_utilities import not_equal, or_, and_, constant
+        from numba_cuda_mlir.lowering_utilities import not_equal, and_, constant
 
         in_arg, out_arg = block.arguments
         result = not_equal(in_arg, constant(0.0, dtype))
@@ -579,6 +566,196 @@ def lower_array_sum_getattr(
     mlir_lower.store_var(target, DeferredMethodCall(array, np_sum_cg))
 
 
+def _array_item_cg(builder, target, args, kwargs):
+    """Lower ``arr.item()``. Implemented for size-1 arrays only."""
+    assert not kwargs, "array.item() takes no keyword arguments"
+
+    if len(args) != 1:
+        raise NotImplementedError(
+            f"array.item() with positional indices is not implemented; got {len(args) - 1} indices"
+        )
+    array_var = args[0]
+    array = builder.load_var(array_var)
+    rank = array.type.rank
+    indices = [index_of(0)] * rank
+    value = memref.load(array, indices)
+    builder.store_var(target, value)
+
+
+@lower_getattr(types.Array, "item")
+def lower_array_item_getattr(
+    _: MLIRTargetContext,
+    mlir_lower: MLIRLower,
+    target: numba_ir.Var,
+    array: numba_ir.Var,
+):
+    mlir_lower.store_var(target, DeferredMethodCall(array, _array_item_cg))
+
+
+def _array_ravel_cg(builder, target, args, kwargs):
+    """Lower ``arr.ravel()`` as a 1-D view over ``arr``'s existing storage -
+    implements the non-copying case of ravel only.
+
+    A non-copying flat view is only well-defined when the source is
+    C-contiguous, so we reject any other layout."""
+
+    # ``memref.reshape`` would be the obvious tool, but it requires the source
+    # to have an identity affine map. The ``types.Array`` data model maps
+    # every array to a memref with a dynamic strided layout, so we use
+    # ``memref.reinterpret_cast`` to produce a 1-D view of length
+    # ``prod(shape)`` with unit stride.
+
+    assert not kwargs, "array.ravel() takes no keyword arguments"
+    if len(args) != 1:
+        raise NotImplementedError(
+            f"array.ravel() with positional arguments is not implemented; got {len(args) - 1}"
+        )
+    array_var = args[0]
+    array_ty = builder.get_numba_type(array_var)
+    if array_ty.layout != "C":
+        raise errors.TypingError(
+            f"array.ravel() requires a C-contiguous array, got layout {array_ty.layout!r}"
+        )
+
+    src = builder.load_var(array_var)
+    src_type: ir.MemRefType = src.type
+    ndim = src_type.rank
+
+    md = memref_dialect.extract_strided_metadata(src)
+    src_offset = md[1]
+    src_sizes = list(md[2 : 2 + ndim])
+
+    if ndim == 0:
+        total_size = index_of(1)
+    else:
+        total_size = src_sizes[0]
+        for s in src_sizes[1:]:
+            total_size = arith.muli(total_size, s)
+
+    result_type = builder.get_mlir_type(builder.get_numba_type(target))
+    dyn = ir.ShapedType.get_dynamic_size()
+    dyn_s = ir.ShapedType.get_dynamic_stride_or_offset()
+    reshaped = memref_dialect.reinterpret_cast(
+        result_type,
+        src,
+        offsets=[src_offset],
+        sizes=[total_size],
+        strides=[index_of(1)],
+        static_offsets=[dyn_s],
+        static_sizes=[dyn],
+        static_strides=[dyn_s],
+    )
+    builder.store_var(target, reshaped)
+
+
+@lower_getattr(types.Array, "ravel")
+def lower_array_ravel_getattr(
+    _: MLIRTargetContext,
+    mlir_lower: MLIRLower,
+    target: numba_ir.Var,
+    array: numba_ir.Var,
+):
+    mlir_lower.store_var(target, DeferredMethodCall(array, _array_ravel_cg))
+
+
+@overload(np.take, typing_registry=typing_registry)
+@overload_method(types.Array, "take", typing_registry=typing_registry)
+def numpy_take(a, indices, axis=None):
+    # Moved from numba_cuda - not all branches will be fully supported in
+    # numba-cuda-mlir
+    if is_nonelike(axis):
+        if isinstance(a, types.Array) and isinstance(indices, types.Integer):
+
+            def take_impl(a, indices, axis=None):
+                if indices > (a.size - 1) or indices < -a.size:
+                    raise IndexError("Index out of bounds")
+                return a.ravel()[indices]
+
+            return take_impl
+
+        if isinstance(a, types.Array) and isinstance(indices, types.Array):
+            F_order = indices.layout == "F"
+
+            def take_impl(a, indices, axis=None):
+                ret = np.empty(indices.size, dtype=a.dtype)
+                if F_order:
+                    walker = indices.copy()  # get C order
+                else:
+                    walker = indices
+                it = np.nditer(walker)
+                i = 0
+                flat = a.ravel()
+                for x in it:
+                    if x > (a.size - 1) or x < -a.size:
+                        raise IndexError("Index out of bounds")
+                    ret[i] = flat[x]
+                    i = i + 1
+                return ret.reshape(indices.shape)
+
+            return take_impl
+
+        if isinstance(a, types.Array) and isinstance(indices, (types.List, types.BaseTuple)):
+
+            def take_impl(a, indices, axis=None):
+                convert = np.array(indices)
+                return np.take(a, convert)
+
+            return take_impl
+    else:
+        if isinstance(a, types.Array) and isinstance(indices, types.Integer):
+            t = (0,) * (a.ndim - 1)
+
+            # np.squeeze is too hard to implement in Numba as the tuple "t"
+            # needs to be allocated beforehand we don't know it's size until
+            # code gets executed.
+            @register_jitable
+            def _squeeze(r, axis):
+                tup = tuple(t)
+                j = 0
+                assert axis < len(r.shape) and r.shape[axis] == 1, r.shape
+                for idx in range(len(r.shape)):
+                    s = r.shape[idx]
+                    if idx != axis:
+                        tup = tuple_setitem(tup, j, s)
+                        j += 1
+                return r.reshape(tup)
+
+            def take_impl(a, indices, axis=None):
+                r = np.take(a, (indices,), axis=axis)
+                if a.ndim == 1:
+                    return r[0]
+                if axis < 0:
+                    axis += a.ndim
+                return _squeeze(r, axis)
+
+            return take_impl
+
+        if isinstance(a, types.Array) and isinstance(
+            indices, (types.Array, types.List, types.BaseTuple)
+        ):
+            ndim = a.ndim
+
+            _getitem = generate_getitem_setitem_with_axis(ndim, "getitem")
+            _setitem = generate_getitem_setitem_with_axis(ndim, "setitem")
+
+            def take_impl(a, indices, axis=None):
+                if axis < 0:
+                    axis += a.ndim
+
+                if axis < 0 or axis >= a.ndim:
+                    msg = f"axis {axis} is out of bounds for array of dimension {a.ndim}"
+                    raise ValueError(msg)
+
+                shape = tuple_setitem(a.shape, axis, len(indices))
+                out = np.empty(shape, dtype=a.dtype)
+                for i in range(len(indices)):
+                    y = _getitem(a, indices[i], axis)
+                    _setitem(out, i, axis, y)
+                return out
+
+            return take_impl
+
+
 class Slice:
     def __init__(
         self,
@@ -592,7 +769,7 @@ class Slice:
         self.start: ir.Value = (
             lowering_utilities.convert(start, T.index())
             if start is not None
-            else arith.constant(result=T.index(), value=0)
+            else arith.index_cast(arith.constant(result=T.i64(), value=0), to=T.index())
         )
         # Handle None for stop (e.g., x[2:] has stop=None meaning end of array)
         if isinstance(stop, ir.NoneType):
@@ -921,7 +1098,7 @@ def lower_array_slice_getitem(builder, target, args, kwargs):
     slice = builder.load_var(args[1])
     start, stop, step = slice.start, slice.stop, slice.step
     if start is None:
-        start = index_of(0)
+        start = arith.index_cast(arith.constant(result=T.i64(), value=0), to=T.index())
     if stop is None:
         stop = memref.dim(mr, index_of(0))
     if step is None:
@@ -956,20 +1133,132 @@ def lower_array_slice_getitem(builder, target, args, kwargs):
     builder.store_var(target, mr)
 
 
+def _idx_c(value: int) -> ir.Value:
+    return arith.constant(result=T.index(), value=value)
+
+
+def _view_transform_axis(
+    sizes: list[ir.Value],
+    strides: list[ir.Value],
+    axis: int,
+    old_size: int,
+    new_size: int,
+) -> tuple[list[ir.Value], list[ir.Value]]:
+    new_sizes = list(sizes)
+    new_strides = list(strides)
+    if new_size < old_size:
+        ratio = old_size // new_size
+        new_sizes[axis] = arith.muli(sizes[axis], _idx_c(ratio))
+    else:
+        bytelen = arith.muli(sizes[axis], _idx_c(old_size))
+        new_sizes[axis] = arith.divsi(bytelen, _idx_c(new_size))
+    for j in range(len(strides)):
+        if j == axis:
+            new_strides[j] = _idx_c(1)
+        else:
+            byte_stride = arith.muli(strides[j], _idx_c(old_size))
+            new_strides[j] = arith.divsi(byte_stride, _idx_c(new_size))
+    return new_sizes, new_strides
+
+
 def lower_array_view_cg(builder, target, args, kwargs):
     _self, dtype = [builder.load_var(arg) for arg in args]
-    dtype = lowering_utilities.to_mlir_type(dtype)
     mr_ty: ir.MemRefType = _self.type
     assert mr_ty.has_rank, "NYI: unranked memrefs"
 
-    if mr_ty.element_type == dtype:
+    new_dtype = lowering_utilities.to_mlir_type(dtype)
+    old_dtype = mr_ty.element_type
+
+    if old_dtype == new_dtype:
         builder.store_var(target, _self)
         return
 
-    target_numba_type = builder.get_numba_type(target.name)
-    memref_type = builder.get_mlir_type(target_numba_type)
-    result = builtin.unrealized_conversion_cast([memref_type], [_self])
-    builder.store_var(target, result)
+    new_dtype_bytes = lowering_utilities.get_type_width(new_dtype) // 8
+    old_dtype_bytes = lowering_utilities.get_type_width(old_dtype) // 8
+
+    rank = mr_ty.rank
+    if rank == 0:
+        raise ValueError(f"Cannot .view() a 0-d array (target {target.name!r})")
+
+    target_ty = builder.get_numba_type(target.name)
+    target_mr = builder.get_mlir_type(target_ty)
+    layout = target_ty.layout
+
+    # To support shared memory, memory space must be propagated with the memref
+    target_mr = ir.MemRefType.get(
+        shape=target_mr.shape,
+        element_type=target_mr.element_type,
+        layout=target_mr.layout,
+        memory_space=mr_ty.memory_space,
+    )
+    retyped = builtin.unrealized_conversion_cast([target_mr], [_self])
+
+    if old_dtype_bytes == new_dtype_bytes:
+        builder.store_var(target, retyped)
+        return
+
+    md = memref_dialect.extract_strided_metadata(_self)
+    offset_e = md[1]
+    sizes = list(md[2 : 2 + rank])
+    strides = list(md[2 + rank : 2 + 2 * rank])
+
+    new_offset = arith.divsi(
+        arith.muli(offset_e, _idx_c(old_dtype_bytes)),
+        _idx_c(new_dtype_bytes),
+    )
+
+    def _reinterpret(axis: int) -> ir.Value:
+        new_sizes, new_strides = _view_transform_axis(
+            sizes,
+            strides,
+            axis,
+            old_dtype_bytes,
+            new_dtype_bytes,
+        )
+
+        dyn = ir.ShapedType.get_dynamic_size()
+        dyn_s = ir.ShapedType.get_dynamic_stride_or_offset()
+        return memref_dialect.reinterpret_cast(
+            target_mr,
+            retyped,
+            offsets=[new_offset],
+            sizes=new_sizes,
+            strides=new_strides,
+            static_offsets=[dyn_s],
+            static_sizes=[dyn] * rank,
+            static_strides=[dyn_s] * rank,
+        )
+
+    # ====================
+    # "C", "F" and "A" with rank 1 layouts
+    # ====================
+
+    if layout in ("C", "F") or rank == 1:
+        axis = (rank - 1) if (layout == "C" or rank == 1) else 0
+        builder.store_var(target, _reinterpret(axis))
+        return
+
+    # ====================
+    # "A" layout with rank >= 2
+    # ====================
+
+    error_memref = builder._get_or_create_error_global()
+    one_idx = _idx_c(1)
+
+    def _dispatch(axis_idx: int) -> ir.Value:
+        if axis_idx < 0:
+            if error_memref is not None:
+                set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+            return retyped
+        is_contig = arith.cmpi(arith.CmpIPredicate.eq, strides[axis_idx], one_idx)
+        if_op = scf.IfOp(is_contig, results_=[target_mr], has_else=True)
+        with ir.InsertionPoint(if_op.then_block):
+            scf.yield_([_reinterpret(axis_idx)])
+        with ir.InsertionPoint(if_op.else_block):
+            scf.yield_([_dispatch(axis_idx - 1)])
+        return if_op.results[0]
+
+    builder.store_var(target, _dispatch(rank - 1))
 
 
 @lower_getattr(types.Array, "view")
@@ -1141,6 +1430,7 @@ def lower_charseq_array_setitem_string(builder: MLIRLower, target, args, kwargs)
 @lower(operator.setitem, types.Array, types.Integer, types.NPDatetime)
 @lower(operator.setitem, types.Array, types.Integer, types.NPTimedelta)
 @lower(operator.setitem, types.Array, types.Integer, Record)
+@lower(operator.setitem, types.Array, types.Integer, VectorType)
 def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
     trace()
 
@@ -2365,15 +2655,23 @@ def np_multiply_array_lower(builder, target, args, kwargs):
 
 @lower(np.divide, types.Number, types.Number)
 def np_divide_scalar_lower(builder, target, args, kwargs):
-    """Lower np.divide for scalars"""
-    assert len(args) == 2, "np.divide expects 2 arguments"
+    """Lower np.divide for scalars."""
+
     lhs = builder.load_var(args[0])
     rhs = builder.load_var(args[1])
-    result = (
-        arith.divf(lhs, rhs)
-        if isinstance(builder.get_numba_type(target.name), types.Float)
-        else arith.divsi(lhs, rhs)
-    )
+    target_type = builder.get_numba_type(target.name)
+
+    if isinstance(target_type, types.Float):
+        # Convert operands to the target type so mixed-type calls like
+        # ``np.divide(float64, int64)`` provide float operands as required by
+        # ``arith.divf``.
+        target_mlir_type = builder.get_mlir_type(target_type)
+        lhs = convert(lhs, target_mlir_type)
+        rhs = convert(rhs, target_mlir_type)
+        result = arith.divf(lhs, rhs)
+    else:
+        result = arith.divsi(lhs, rhs)
+
     builder.store_var(target, result)
 
 
@@ -2437,6 +2735,43 @@ def np_ceil_array_lower(builder, target, args, kwargs):
         return convert(result, target_mlir_type)
 
     create_elementwise_op(builder, target, args, kwargs, ceil_fn, "np.ceil")
+
+
+@lower(np.isnan, types.Number)
+def np_isnan_scalar_lower(builder, target, args, kwargs):
+    """Lower np.isnan for scalars.
+
+    Integers are never NaN; floats use ``math.isnan``. ``arith.cmpf`` with the
+    UNO predicate would also work (``NaN`` is the only value where ``v != v``),
+    but using the math dialect mirrors the existing ``math.isnan`` lowering.
+    """
+    assert len(args) == 1, "np.isnan expects 1 argument"
+    assert not kwargs, "np.isnan does not accept keyword arguments"
+    value = builder.load_var(args[0])
+    arg_ty = builder.get_numba_type(args[0].name)
+    if isinstance(arg_ty, (types.Integer, types.Boolean)):
+        result = arith.constant(T.bool(), False)
+    else:
+        result = math_dialect.isnan(value)
+    builder.store_var(target, result)
+
+
+@lower(np.isnan, types.Array)
+def np_isnan_array_lower(builder, target, args, kwargs):
+    """Lower np.isnan element-wise over an array."""
+
+    def isnan_fn(
+        input_element_type,
+        target_element_type,
+        input_mlir_type,
+        target_mlir_type,
+        in_elem,
+    ):
+        if isinstance(input_element_type, (types.Integer, types.Boolean)):
+            return arith.constant(T.bool(), False)
+        return math_dialect.isnan(in_elem)
+
+    create_elementwise_op(builder, target, args, kwargs, isnan_fn, "np.isnan")
 
 
 @lower(np.floor, types.Number)
@@ -4622,3 +4957,70 @@ def numpy_empty_like_nd_lower(builder, target, args, kwargs):
         )
 
     builder.store_var(target, alloca_op.memref)
+
+
+@lower(_make_dtype_object, types.StringLiteral)
+def make_dtype_object_cg(builder, target, args, kws):
+    target_type = builder.get_numba_type(target.name)
+    builder.store_var(target, builder._materialize_type_token(target_type))
+
+
+@overload(np.dtype, typing_registry=typing_registry)
+def numpy_dtype(dtype, align=False, copy=False):
+    """Provide an implementation so that numpy.dtype function can be lowered."""
+    if isinstance(dtype, (types.Literal, types.functions.NumberClass)):
+
+        def imp(dtype, align=False, copy=False):
+            return _make_dtype_object(dtype)
+
+        return imp
+    else:
+        raise errors.NumbaTypeError("unknown dtype descriptor: {}".format(dtype))
+
+
+@lower(np.nditer, types.Any)
+def make_array_nditer(builder, target, args, kws):
+    if len(args) != 1:
+        raise NotImplementedError(
+            f"np.nditer expects exactly one positional argument, got {len(args)}"
+        )
+    operand_var = args[0]
+    operand_ty = builder.get_numba_type(operand_var.name)
+
+    if isinstance(operand_ty, types.BaseTuple):
+        member_tys = list(operand_ty)
+        if not all(isinstance(t, types.Array) for t in member_tys):
+            raise NotImplementedError(
+                "np.nditer over tuples currently requires all members to be Arrays; "
+                f"got {member_tys}"
+            )
+        if len({t.ndim for t in member_tys}) > 1:
+            raise NotImplementedError(
+                "np.nditer with broadcasting across different-rank inputs is not "
+                "yet supported in the MLIR backend"
+            )
+        tup = builder.load_var(operand_var)
+        if isinstance(tup, (tuple, list)):
+            array_values = list(tup)
+        else:
+            raise NotImplementedError(
+                f"Expected tuple storage for np.nditer tuple input, got {type(tup)}"
+            )
+        ndim = member_tys[0].ndim
+    elif isinstance(operand_ty, types.Array):
+        array_values = [builder.load_var(operand_var)]
+        ndim = operand_ty.ndim
+    else:
+        raise NotImplementedError(f"np.nditer not implemented for {operand_ty!r}")
+
+    iter_obj = NdIterIterObject(builder, array_values, ndim)
+    builder.store_var(target, iter_obj)
+
+
+@lower("number.item", types.Boolean)
+@lower("number.item", types.Number)
+def number_item_impl(builder, target, args, kws):
+    """
+    The no-op .item() method on booleans and numbers.
+    """
+    builder.store_var(target, builder.load_var(args[0]))

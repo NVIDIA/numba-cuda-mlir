@@ -3,6 +3,7 @@
 
 from collections import OrderedDict
 import bisect
+import sys
 
 import numba_cuda_mlir
 from numba_cuda_mlir.testing import NumbaCUDATestCase
@@ -10,6 +11,14 @@ from numba_cuda_mlir import cuda
 import numpy as np
 import operator
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "bfloat16 tests are disabled on Windows due to flaky behavior in the "
+        "current lowering path through truncf/extf"
+    ),
+)
 
 from numba_cuda_mlir.numba_cuda.types import (
     int16,

@@ -9,6 +9,7 @@ from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir.mlir.dialect_exts import llvm
 
 from numba_cuda_mlir.extending import (
+    overload,
     overload_method,
     register_jitable,
     typing_registry as extending_typing_registry,
@@ -18,10 +19,23 @@ from numba_cuda_mlir.lowering_utilities import GEP_DYNAMIC_INDEX, true, false
 
 from numba_cuda_mlir.numba_cuda.cpython.unicode import (
     _malloc_string,
-    _set_code_point,
     _get_code_point,
     _kind_to_byte_width,
+    set_uint8,
+    set_uint16,
+    set_uint32,
+    deref_uint8,
+    deref_uint16,
+    deref_uint32,
 )
+
+from numba_cuda_mlir.numba_cuda.core.pythonapi import (
+    PY_UNICODE_1BYTE_KIND,
+    PY_UNICODE_2BYTE_KIND,
+    PY_UNICODE_4BYTE_KIND,
+)
+
+from numba_cuda_mlir.numba_cuda.core import errors
 
 import numpy as np
 
@@ -32,19 +46,24 @@ lower = registry.lower
 def _unicode_eq_lower(builder, target, args, kwargs):
     """Lower unicode_type == unicode_type / StringLiteral.
 
-    Compares length first, then byte-by-byte (ASCII/kind=1).
+    Constant-folds when both values are known Python strings at compile time.
+    Otherwise compares length first, then byte-by-byte (ASCII/kind=1).
     Uses select + for loop (no scf.if with results needed).
     """
     from numba_cuda_mlir.lowering_utilities.string import (
         materialize_string_constant_if_needed,
     )
 
-    lhs_val = materialize_string_constant_if_needed(
-        builder.mlir_gpu_module, builder.load_var(args[0])
-    )
-    rhs_val = materialize_string_constant_if_needed(
-        builder.mlir_gpu_module, builder.load_var(args[1])
-    )
+    lhs_raw = builder.load_var(args[0])
+    rhs_raw = builder.load_var(args[1])
+
+    if isinstance(lhs_raw, str) and isinstance(rhs_raw, str):
+        result = arith.constant(result=T.bool(), value=(lhs_raw == rhs_raw))
+        builder.store_var(target, result)
+        return
+
+    lhs_val = materialize_string_constant_if_needed(builder.mlir_gpu_module, lhs_raw)
+    rhs_val = materialize_string_constant_if_needed(builder.mlir_gpu_module, rhs_raw)
 
     # Extract lengths (field 1)
     lhs_len = llvm.extractvalue(T.i64(), lhs_val, [1])
@@ -155,3 +174,46 @@ def unicode_lower(data):
         return res
 
     return impl
+
+
+@overload(len, typing_registry=extending_typing_registry)
+def unicode_len(s):
+    if isinstance(s, types.UnicodeType):
+
+        def len_impl(s):
+            return s._length
+
+        return len_impl
+
+
+@register_jitable(_nrt=False, typing_registry=extending_typing_registry)
+def _set_code_point(a, i, ch):
+    # WARNING: This method is very dangerous:
+    #   * Assumes that data contents can be changed (only allowed for new
+    #     strings)
+    #   * Assumes that the kind of unicode string is sufficiently wide to
+    #     accept ch.  Will truncate ch to make it fit.
+    #   * Assumes that i is within the valid boundaries of the function
+    if a._kind == PY_UNICODE_1BYTE_KIND:
+        set_uint8(a._data, i, ch)
+    elif a._kind == PY_UNICODE_2BYTE_KIND:
+        set_uint16(a._data, i, ch)
+    elif a._kind == PY_UNICODE_4BYTE_KIND:
+        set_uint32(a._data, i, ch)
+    else:
+        raise AssertionError("Unexpected unicode representation in _set_code_point")
+
+
+# Disable RefCt for performance.
+@register_jitable(_nrt=False, typing_registry=extending_typing_registry)
+def _get_code_point(a, i):
+    if a._kind == PY_UNICODE_1BYTE_KIND:
+        return deref_uint8(a._data, i)
+    elif a._kind == PY_UNICODE_2BYTE_KIND:
+        return deref_uint16(a._data, i)
+    elif a._kind == PY_UNICODE_4BYTE_KIND:
+        return deref_uint32(a._data, i)
+    else:
+        # there's also a wchar kind, but that's one of the above,
+        # so skipping for this example
+        return 0

@@ -16,6 +16,10 @@ if [[ ${#wheels[@]} -ne 1 || ! -e "${wheels[0]}" ]]; then
   exit 1
 fi
 wheel="${wheels[0]}"
+pip_wheel="${wheel}"
+if command -v cygpath >/dev/null 2>&1; then
+  pip_wheel="$(cygpath -w "${wheel}")"
+fi
 
 coverage_packages=()
 pytest_args=(-v --tb=short -W ignore::UserWarning --ignore=tests/benchmarks -n auto --dist loadscope)
@@ -30,17 +34,18 @@ if [[ "${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}" == "12.2" ]]; then
 fi
 
 if [[ "${LOCAL_CTK}" == 1 ]]; then
-  pip install "${wheel}" --group "test-cu${TEST_CUDA_MAJOR}" \
+  pip install "${pip_wheel}" --group "test-cu${TEST_CUDA_MAJOR}" \
     "${CUDA_BINDINGS_SPEC}" "cuda-core[cu${TEST_CUDA_MAJOR}]" \
     "${coverage_packages[@]}"
 else
-  pip install "${wheel}[cu${TEST_CUDA_MAJOR}]" --group "test-cu${TEST_CUDA_MAJOR}" \
+  pip install "${pip_wheel}[cu${TEST_CUDA_MAJOR}]" --group "test-cu${TEST_CUDA_MAJOR}" \
     "${CUDA_BINDINGS_SPEC}" "cuda-core[cu${TEST_CUDA_MAJOR}]" \
     "cuda-toolkit[cccl,cudart]==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*" \
     "${coverage_packages[@]}"
 fi
 
 echo "Running numba-cuda-mlir tests"
+export NUMBA_CUDA_MLIR_ICE_FULL_TB=1
 ${SANITIZER_CMD} pytest "${pytest_args[@]}"
 
 if [[ "${NUMBA_CUDA_MLIR_COVERAGE:-0}" == "1" ]]; then

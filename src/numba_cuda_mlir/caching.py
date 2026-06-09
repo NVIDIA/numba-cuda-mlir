@@ -106,6 +106,18 @@ class MLIRCacheImpl(CacheImpl):
         return True
 
 
+def _targetoptions_cache_key(targetoptions):
+    lto_explicit = targetoptions.get("_lto_explicit", False)
+    output_explicit = targetoptions.get("_output_explicit", False)
+    lto_key = targetoptions.get("lto") if lto_explicit else None
+    return (
+        ("lto", lto_key),
+        ("lto_explicit", lto_explicit),
+        ("output", targetoptions.get("output", "ptx")),
+        ("output_explicit", output_explicit),
+    )
+
+
 class MLIRCache(Cache):
     """
     Cache for MLIR-compiled CUDA kernels.
@@ -126,11 +138,7 @@ class MLIRCache(Cache):
         from numba_cuda_mlir.tools import resolve_gpu_target
 
         gpu_target = resolve_gpu_target(targetoptions)
-        option_key = (
-            ("lto", targetoptions.get("lto")),
-            ("output", targetoptions.get("output", "ptx")),
-            ("chip", gpu_target["chip"]),
-        )
+        option_key = (*_targetoptions_cache_key(targetoptions), ("chip", gpu_target["chip"]))
         return (*key, option_key)
 
 

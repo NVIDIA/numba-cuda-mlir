@@ -5,6 +5,7 @@
 import types
 
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir.caching import _targetoptions_cache_key
 from numba_cuda_mlir.mlir_lowering import MLIRLower
 
 
@@ -251,3 +252,34 @@ def test_lowering_preserves_callback_ptx_for_later_external_link_item(monkeypatc
     assert lower.targetoptions["output"] == "ptx"
     assert lower._linker_config["lto"] is False
     assert linkers[-1].link_items == [callback_item, "external.cu"]
+
+
+def test_cache_key_uses_lto_intent_for_implicit_lto():
+    targetoptions = {
+        "lto": False,
+        "output": "ptx",
+        "_lto_explicit": False,
+        "_output_explicit": False,
+    }
+    key_before_lowering = _targetoptions_cache_key(targetoptions)
+
+    targetoptions["lto"] = True
+
+    assert _targetoptions_cache_key(targetoptions) == key_before_lowering
+
+
+def test_cache_key_keeps_explicit_lto_false_distinct():
+    explicit_false = {
+        "lto": False,
+        "output": "ptx",
+        "_lto_explicit": True,
+        "_output_explicit": False,
+    }
+    implicit = {
+        "lto": False,
+        "output": "ptx",
+        "_lto_explicit": False,
+        "_output_explicit": False,
+    }
+
+    assert _targetoptions_cache_key(explicit_false) != _targetoptions_cache_key(implicit)

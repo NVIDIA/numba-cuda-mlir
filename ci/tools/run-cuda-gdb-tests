@@ -41,4 +41,4 @@ pip install "${wheel}" --group "test-cu${TEST_CUDA_MAJOR}" \
 echo "Running cuda-gdb tests"
 export NUMBA_CUDA_MLIR_GDB_BINARY="${CUDA_GDB_BINARY}"
 export NUMBA_CUDA_MLIR_ICE_FULL_TB=1
-pytest tests/test_cuda_gdb.py -v --tb=short
+pytest tests/test_cuda_gdb.py -v --tb=short --junit-xml=cuda-gdb-junit-results.xml

@@ -40,9 +40,11 @@ def _run_under_cuda_gdb(
     """Write *python_src* to a temporary file and invoke cuda-gdb in batch
     mode, passing each line of *gdb_commands* as a separate ``-ex`` argument.
     """
-    ex_args = [
-        arg for raw in gdb_commands.splitlines() if (line := raw.strip()) for arg in ("-ex", line)
-    ]
+    ex_args = []
+    for raw in gdb_commands.splitlines():
+        line = raw.strip()
+        if line:
+            ex_args.extend(("-ex", line))
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".py", prefix="ncm_gdb_test_", delete=False
     ) as f:

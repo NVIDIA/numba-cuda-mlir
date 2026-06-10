@@ -192,6 +192,13 @@
 </li>
 
 
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../extending/index.html">
+    Extension API
+  </a>
+</li>
+
+
 <li class="nav-item current active">
   <a class="nav-link nav-internal" href="index.html">
     Reference documentation
@@ -336,6 +343,13 @@
 </li>
 
 
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../extending/index.html">
+    Extension API
+  </a>
+</li>
+
+
 <li class="nav-item current active">
   <a class="nav-link nav-internal" href="index.html">
     Reference documentation
@@ -402,6 +416,11 @@
 <li class="toctree-l2"><a class="reference internal" href="../user/cuda_compilation.html">Compiling Python functions for use with other languages</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/callconv.html">CUDA device call conventions</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/profiling.html">Profiling</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../extending/index.html">Extension API</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../extending/high-level.html">High-level extension API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../extending/low-level.html">Low-level extension API</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Reference documentation</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
@@ -496,7 +515,7 @@ system has an associated CUDA context, and Numba presently allows only one conte
 per thread. For further details on CUDA Contexts, refer to the <a class="reference external" href="http://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__CTX.html">CUDA Driver API
 Documentation on Context Management</a> and the
 <a class="reference external" href="http://docs.nvidia.com/cuda/cuda-c-programming-guide/#context">CUDA C Programming Guide Context Documentation</a>. CUDA Contexts
-are instances of the <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/host.html#numba.cuda.cudadrv.driver.Context" title="(in Numba v0.66)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Context</span></code></a> class:</p>
+are instances of the <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/host.html#numba.cuda.cudadrv.driver.Context" title="(in Numba v0.67)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Context</span></code></a> class:</p>
 <p>The following functions can be used to get or select the context:</p>
 <p>The following functions affect the current context:</p>
 </section>
@@ -518,7 +537,7 @@ device ID.</p>
 </dd></dl>
 
 <p>Getting a device through <a class="reference internal" href="#numba.cuda.gpus" title="numba.cuda.gpus"><code class="xref py py-attr docutils literal notranslate"><span class="pre">numba.cuda.gpus</span></code></a> always provides an instance of
-<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/host.html#numba.cuda.cudadrv.devices._DeviceContextManager" title="(in Numba v0.66)"><code class="xref py py-class docutils literal notranslate"><span class="pre">numba.cuda.cudadrv.devices._DeviceContextManager</span></code></a>, which acts as a
+<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/host.html#numba.cuda.cudadrv.devices._DeviceContextManager" title="(in Numba v0.67)"><code class="xref py py-class docutils literal notranslate"><span class="pre">numba.cuda.cudadrv.devices._DeviceContextManager</span></code></a>, which acts as a
 context manager for the selected device:</p>
 <p>One may also select a context and device or get the current device using the
 following three functions:</p>
@@ -582,7 +601,7 @@ and the created event can be queried to determine if it has been reached. For
 further information, see the <a class="reference external" href="http://docs.nvidia.com/cuda/cuda-c-programming-guide/#events">CUDA C Programming Guide Events section</a>.</p>
 <p>The following functions are used for creating and measuring the time between
 events:</p>
-<p>Events are instances of the <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/host.html#numba.cuda.cudadrv.driver.Event" title="(in Numba v0.66)"><code class="xref py py-class docutils literal notranslate"><span class="pre">numba.cuda.cudadrv.driver.Event</span></code></a> class:</p>
+<p>Events are instances of the <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/host.html#numba.cuda.cudadrv.driver.Event" title="(in Numba v0.67)"><code class="xref py py-class docutils literal notranslate"><span class="pre">numba.cuda.cudadrv.driver.Event</span></code></a> class:</p>
 </section>
 </section>
 <section id="stream-management">
@@ -604,7 +623,7 @@ environment variable <code class="docutils literal notranslate"><span class="pre
 <a class="reference internal" href="envvars.html#numba-envvars-gpu-support"><span class="std std-ref">CUDA Environment Variables section</span></a>).
 Regardless of this setting, the objects representing the legacy and per-thread
 default streams can be constructed using the functions below.</p>
-<p>Streams are instances of <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/host.html#numba.cuda.cudadrv.driver.Stream" title="(in Numba v0.66)"><code class="xref py py-class docutils literal notranslate"><span class="pre">numba.cuda.cudadrv.driver.Stream</span></code></a>:</p>
+<p>Streams are instances of <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/host.html#numba.cuda.cudadrv.driver.Stream" title="(in Numba v0.67)"><code class="xref py py-class docutils literal notranslate"><span class="pre">numba.cuda.cudadrv.driver.Stream</span></code></a>:</p>
 <p>To create a new stream:</p>
 <p>To get the default stream:</p>
 <p>To get the default stream with an explicit choice of whether it is the legacy

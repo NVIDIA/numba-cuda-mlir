@@ -193,6 +193,13 @@
 
 
 <li class="nav-item ">
+  <a class="nav-link nav-internal" href="../extending/index.html">
+    Extension API
+  </a>
+</li>
+
+
+<li class="nav-item ">
   <a class="nav-link nav-internal" href="../reference/index.html">
     Reference documentation
   </a>
@@ -337,6 +344,13 @@
 
 
 <li class="nav-item ">
+  <a class="nav-link nav-internal" href="../extending/index.html">
+    Extension API
+  </a>
+</li>
+
+
+<li class="nav-item ">
   <a class="nav-link nav-internal" href="../reference/index.html">
     Reference documentation
   </a>
@@ -402,6 +416,11 @@
 <li class="toctree-l2"><a class="reference internal" href="cuda_compilation.html">Compiling Python functions for use with other languages</a></li>
 <li class="toctree-l2"><a class="reference internal" href="callconv.html">CUDA device call conventions</a></li>
 <li class="toctree-l2"><a class="reference internal" href="profiling.html">Profiling</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../extending/index.html">Extension API</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../extending/high-level.html">High-level extension API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../extending/low-level.html">Low-level extension API</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../reference/index.html">Reference documentation</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -494,7 +513,7 @@ model, division by zero raises no exception and instead produces a result of
 <code class="docutils literal notranslate"><span class="pre">inf</span></code>, <code class="docutils literal notranslate"><span class="pre">-inf</span></code> or <code class="docutils literal notranslate"><span class="pre">nan</span></code>. This differs from the normal Python error model,
 in which division by zero raises a <code class="docutils literal notranslate"><span class="pre">ZeroDivisionError</span></code>.</p>
 <p>When debug is enabled (by passing <code class="docutils literal notranslate"><span class="pre">debug=True</span></code> to the
-<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.jit" title="(in Numba v0.66)"><code class="xref py py-func docutils literal notranslate"><span class="pre">&#64;cuda.jit</span></code></a> decorator), the Python error model is used.
+<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.jit" title="(in Numba v0.67)"><code class="xref py py-func docutils literal notranslate"><span class="pre">&#64;cuda.jit</span></code></a> decorator), the Python error model is used.
 This allows division-by-zero errors during kernel execution to be identified.</p>
 </section>
 <section id="constructs">
@@ -511,13 +530,13 @@ constraints:</p>
 <ul class="simple">
 <li><p>They can only be used in kernels, not in device functions.</p></li>
 <li><p>They only have an effect when <code class="docutils literal notranslate"><span class="pre">debug=True</span></code> is passed to the
-<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.jit" title="(in Numba v0.66)"><code class="xref py py-func docutils literal notranslate"><span class="pre">&#64;cuda.jit</span></code></a> decorator. This is similar to the behavior
+<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.jit" title="(in Numba v0.67)"><code class="xref py py-func docutils literal notranslate"><span class="pre">&#64;cuda.jit</span></code></a> decorator. This is similar to the behavior
 of the <code class="docutils literal notranslate"><span class="pre">assert</span></code> keyword in CUDA C/C++, which is ignored unless compiling
 with device debug turned on.</p></li>
 </ul>
 <p>Printing of strings, integers, and floats is supported, but printing is an
 asynchronous operation - in order to ensure that all output is printed after a
-kernel launch, it is necessary to call <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/host.html#numba.cuda.synchronize" title="(in Numba v0.66)"><code class="xref py py-func docutils literal notranslate"><span class="pre">numba.cuda.synchronize()</span></code></a>. Eliding
+kernel launch, it is necessary to call <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/host.html#numba.cuda.synchronize" title="(in Numba v0.67)"><code class="xref py py-func docutils literal notranslate"><span class="pre">numba.cuda.synchronize()</span></code></a>. Eliding
 the call to <code class="docutils literal notranslate"><span class="pre">synchronize</span></code> is acceptable, but output from a kernel may appear
 during other later driver operations (e.g. subsequent kernel launches, memory
 transfers, etc.), or fail to appear before the program execution completes. Up
@@ -579,7 +598,7 @@ which explicitly states when stack overflow has occurred.</p>
 <li><p>tuple</p></li>
 <li><p>Enum, IntEnum</p></li>
 </ul>
-<p>See <a class="reference external" href="https://numba.readthedocs.io/en/latest/reference/pysupported.html#pysupported-builtin-types" title="(in Numba v0.66)"><span class="xref std std-ref">nopython built-in types</span></a>.</p>
+<p>See <a class="reference external" href="https://numba.readthedocs.io/en/latest/reference/pysupported.html#pysupported-builtin-types" title="(in Numba v0.67)"><span class="xref std std-ref">nopython built-in types</span></a>.</p>
 <p>There is also some very limited support for character sequences (bytes and
 unicode strings) used in NumPy arrays.</p>
 </section>

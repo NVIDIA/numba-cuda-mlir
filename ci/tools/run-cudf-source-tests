@@ -88,7 +88,7 @@ fi
 
 echo "Ensuring libcudf is installed with cmake config..."
 mamba install -n "${CONDA_ENV_NAME}" -c rapidsai-nightly -c conda-forge \
-  libcudf "cuda-version=${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}" --no-update-deps -y
+  libcudf "cuda-version=${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}" -y
 
 # Ensure nvidia-smi is accessible inside conda env
 ENV_BIN="${MAMBA_DIR}/envs/${CONDA_ENV_NAME}/bin"

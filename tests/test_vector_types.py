@@ -24,6 +24,35 @@ def test_vector_load_store_1d():
     filecheck_with_comments(mlir)
 
 
+def test_vector_load_store_1d_float16_unaligned():
+    @cuda.jit
+    def kernel(arr_in, arr_out):
+        i = cuda.threadIdx.x * 4
+        vec = cuda.vector.load(arr_in, i, 4)
+        cuda.vector.store(arr_out, i, vec)
+
+    arr_in = np.arange(32, dtype=np.float16)
+    arr_out = np.zeros(32, dtype=np.float16)
+    kernel[1, 8](arr_in, arr_out)
+    np.testing.assert_array_equal(arr_in, arr_out)
+
+
+def test_vector_load_store_1d_bool_unaligned():
+    @cuda.jit
+    def kernel(arr_in, arr_out):
+        i = cuda.threadIdx.x * 4
+        vec = cuda.vector.load(arr_in, i, 4)
+        cuda.vector.store(arr_out, i, vec)
+
+    arr_in = np.array(
+        [True, False, True, True, False, False, True, False],
+        dtype=np.bool_,
+    )
+    arr_out = np.zeros(8, dtype=np.bool_)
+    kernel[1, 2](arr_in, arr_out)
+    np.testing.assert_array_equal(arr_in, arr_out)
+
+
 def test_vector_load_store_aligned():
     """Test aligned vector load/store generates vectorized PTX."""
 
@@ -46,8 +75,8 @@ def test_vector_load_store_aligned():
     (ptx,) = kernel.inspect_ptx().values()
     filecheck(
         r"""
-        CHECK: ld.global.{{(v[24]\.[bf][0-9]+|b32)}}
-        CHECK: st.global.v{{[24]}}.{{[bf]}}{{[0-9]+}}
+        CHECK: ld.global.{{(v[24]\.([bf][0-9]+|u16|u32)|b32)}}
+        CHECK: st.global.v{{[24]}}.{{([bf][0-9]+|u16|u32)}}
         """,
         ptx,
     )

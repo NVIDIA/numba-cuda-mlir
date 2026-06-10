@@ -177,19 +177,7 @@ class CUDATestCase(TestCase):
             self.fail(f"FileCheck failed:\n{matcher.stderr.getvalue()}\n\n" + dump_instructions)
 
 
-def skip_on_cudasim(reason):
-    """Skip this test if running on the CUDA simulator"""
-    assert isinstance(reason, str)
-    return unittest.skipIf(config.ENABLE_CUDASIM, reason)
-
-
 skip_on_standalone_numba_cuda = unittest.skipUnless(HAS_NUMBA, "requires base numba install")
-
-
-def skip_unless_cudasim(reason):
-    """Skip this test if running on CUDA hardware"""
-    assert isinstance(reason, str)
-    return unittest.skipUnless(config.ENABLE_CUDASIM, reason)
 
 
 def skip_unless_conda_cudatoolkit(reason):
@@ -272,9 +260,6 @@ def _get_device_compute_capability():
 
 
 def cc_X_or_above(major, minor):
-    if config.ENABLE_CUDASIM:
-        return True
-
     cc = _get_device_compute_capability()
     return cc is not None and cc >= (major, minor)
 
@@ -299,16 +284,7 @@ def skip_unless_cc_90(fn):
     return unittest.skipUnless(cc_X_or_above(9, 0), "requires cc >= 9.0")(fn)
 
 
-def xfail_unless_cudasim(fn):
-    if config.ENABLE_CUDASIM:
-        return fn
-    else:
-        return unittest.expectedFailure(fn)
-
-
 def cudadevrt_missing():
-    if config.ENABLE_CUDASIM:
-        return False
     try:
         path = libs.get_cudalib("cudadevrt", static=True)
         libs.check_static_lib(path)
@@ -331,9 +307,6 @@ def _is_nvjitlink_13_1_and_sm_120():
 
     sm_120 refers to compute capability 12.0, represented as the tuple (12, 0).
     """
-    if config.ENABLE_CUDASIM:
-        return False
-
     try:
         from cuda.bindings import nvjitlink
 

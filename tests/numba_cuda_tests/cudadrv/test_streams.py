@@ -10,7 +10,6 @@ import numpy as np
 
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.testing import NumbaCUDATestCase
-from numba_cuda_mlir.numba_cuda.testing import skip_on_cudasim
 
 
 def with_asyncio_loop(f):
@@ -27,7 +26,6 @@ def with_asyncio_loop(f):
 
 
 @unittest.skip("Disabled temporarily due to Issue #317")
-@skip_on_cudasim("CUDA Driver API unsupported in the simulator")
 class TestCudaStream(NumbaCUDATestCase):
     def test_add_callback(self):
         def callback(stream, status, event):

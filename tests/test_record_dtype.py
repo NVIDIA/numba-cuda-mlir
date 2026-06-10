@@ -24,6 +24,8 @@ recordwitharray = np.dtype([("g", np.int32), ("h", np.float32, 2)], align=True)
 
 recordwith2darray = np.dtype([("i", np.int32), ("j", np.float32, (3, 2))])
 
+recordwithvaluestorage = np.dtype([("h", np.float16), ("flag", np.bool_)], align=True)
+
 
 class TestRecordTypeModel:
     """Test that Record types can be converted to MLIR types."""
@@ -233,6 +235,23 @@ class TestRecordFieldAccess:
         read_a[1, 1](arr, out)
         result = out.copy_to_host()
         np.testing.assert_almost_equal(result[0], 3.14159)
+
+    @pytest.mark.skipif(not cuda.is_available(), reason="CUDA not available")
+    def test_static_setitem_value_storage_fields(self):
+        """Test record['field'] assignment for fields with distinct storage types."""
+
+        @cuda.jit
+        def set_fields(ary):
+            ary[0]["h"] = np.float16(1.5)
+            ary[0]["flag"] = True
+            ary[1]["h"] = np.float16(2.5)
+            ary[1]["flag"] = False
+
+        arr = cuda.to_device(np.zeros(2, dtype=recordwithvaluestorage))
+        set_fields[1, 1](arr)
+        result = arr.copy_to_host()
+        np.testing.assert_allclose(result["h"], np.array([1.5, 2.5], dtype=np.float16))
+        np.testing.assert_array_equal(result["flag"], np.array([True, False]))
 
 
 @pytest.mark.skip(reason="Causes memory errors")

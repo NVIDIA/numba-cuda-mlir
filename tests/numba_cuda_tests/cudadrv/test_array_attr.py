@@ -7,7 +7,6 @@ import numpy as np
 
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.testing import NumbaCUDATestCase
-from numba_cuda_mlir.numba_cuda.testing import skip_on_cudasim
 
 
 class TestArrayAttr(NumbaCUDATestCase):
@@ -58,7 +57,6 @@ class TestArrayAttr(NumbaCUDATestCase):
             self.assertEqual(flat.ndim, 1)
             self.assertPreciseEqual(expect, flat)
 
-    @skip_on_cudasim("CUDA Array Interface is not supported in the simulator")
     def test_ravel_stride_1d(self):
         ary = np.arange(60)
         dary = cuda.to_device(ary)
@@ -93,7 +91,6 @@ class TestArrayAttr(NumbaCUDATestCase):
             self.assertEqual(flat.ndim, 1)
             self.assertPreciseEqual(expect, flat)
 
-    @skip_on_cudasim("CUDA Array Interface is not supported in the simulator")
     def test_ravel_stride_c(self):
         ary = np.arange(60)
         reshaped = ary.reshape(2, 5, 2, 3)
@@ -118,7 +115,6 @@ class TestArrayAttr(NumbaCUDATestCase):
             self.assertEqual(flat.ndim, 1)
             self.assertPreciseEqual(expect, flat)
 
-    @skip_on_cudasim("CUDA Array Interface is not supported in the simulator")
     def test_ravel_stride_f(self):
         ary = np.arange(60)
         reshaped = np.asfortranarray(ary.reshape(2, 5, 2, 3))

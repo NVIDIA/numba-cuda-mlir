@@ -22,6 +22,7 @@ from numba_cuda_mlir._mlir.dialects import (
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir._mlir.dialects import arith as arith_dialect
+from numba_cuda_mlir.lowering_utilities import storage_itemsize_bytes
 
 
 def _is_complex_type(mlir_type):
@@ -158,13 +159,15 @@ def lower_record_getattr(
     else:
         # Scalar field - load directly
         field_mlir_type = builder.get_mlir_type(field_numba_type)
+        field_storage_type = builder.get_storage_type(field_numba_type)
         if _is_complex_type(field_mlir_type):
             # Complex types: load as LLVM struct, then convert to complex
             struct_type = _get_llvm_struct_for_complex(field_mlir_type)
             struct_val = llvm.load(struct_type, field_ptr)
             result = _llvm_struct_to_complex(struct_val, field_mlir_type)
         else:
-            result = llvm.load(field_mlir_type, field_ptr)
+            stored = llvm.load(field_storage_type, field_ptr)
+            result = builder.from_storage(field_numba_type, stored)
 
     builder.store_var(target, result)
     trace("Stored Record field '%s' into %s", attr, target.name)
@@ -225,6 +228,7 @@ def lower_record_setattr(
     else:
         # Scalar field - store directly
         field_mlir_type = builder.get_mlir_type(field_numba_type)
+        field_storage_type = builder.get_storage_type(field_numba_type)
 
         # Convert value to field type if needed
         value = convert(value, field_mlir_type)
@@ -232,6 +236,8 @@ def lower_record_setattr(
         if _is_complex_type(field_mlir_type):
             # Complex types: convert to LLVM struct before storing
             value = _complex_to_llvm_struct(value)
+        else:
+            value = builder.as_storage(field_numba_type, value)
 
         llvm.store(value, field_ptr)
 
@@ -248,8 +254,9 @@ def _store_nested_array_field(builder, field_ptr, value, nested_type, value_type
     """
     trace("Storing into nested array field: %s", nested_type)
 
-    elem_size = nested_type.dtype.bitwidth // 8
+    elem_size = storage_itemsize_bytes(nested_type.dtype)
     elem_mlir_type = builder.get_mlir_type(nested_type.dtype)
+    elem_storage_type = builder.get_storage_type(nested_type.dtype)
 
     # Determine if source is memref or LLVM pointer
     is_source_memref = isinstance(value.type, ir.MemRefType)
@@ -299,6 +306,7 @@ def _store_nested_array_field(builder, field_ptr, value, nested_type, value_type
             # Convert indices to index type for memref.load
             memref_indices = [arith.index_cast(T.index(), idx) for idx in indices]
             src_elem = memref_dialect.load(value, memref_indices)
+            src_elem = builder.from_storage(nested_type.dtype, src_elem)
         elif is_source_llvm_ptr:
             # Linear byte offset for source (row-major, contiguous)
             src_byte_offset = arith.muli(linear_i64, arith_dialect.constant(T.i64(), elem_size))
@@ -310,7 +318,8 @@ def _store_nested_array_field(builder, field_ptr, value, nested_type, value_type
                 T.i8(),
                 None,
             )
-            src_elem = llvm.load(elem_mlir_type, src_elem_ptr)
+            src_stored = llvm.load(elem_storage_type, src_elem_ptr)
+            src_elem = builder.from_storage(nested_type.dtype, src_stored)
         else:
             raise NotImplementedError(
                 f"Cannot store from source type {value.type} into nested array"
@@ -335,6 +344,8 @@ def _store_nested_array_field(builder, field_ptr, value, nested_type, value_type
         # Handle complex types
         if _is_complex_type(elem_mlir_type):
             src_elem = _complex_to_llvm_struct(src_elem)
+        else:
+            src_elem = builder.as_storage(nested_type.dtype, src_elem)
 
         llvm.store(src_elem, dst_elem_ptr)
         scf.yield_([])
@@ -374,13 +385,15 @@ def lower_record_static_getitem_str(builder, target, args, kwargs):
         result = _load_nested_array_field(builder, field_ptr, field_numba_type, record_type)
     else:
         field_mlir_type = builder.get_mlir_type(field_numba_type)
+        field_storage_type = builder.get_storage_type(field_numba_type)
         if _is_complex_type(field_mlir_type):
             # Complex types: load as LLVM struct, then convert to complex
             struct_type = _get_llvm_struct_for_complex(field_mlir_type)
             struct_val = llvm.load(struct_type, field_ptr)
             result = _llvm_struct_to_complex(struct_val, field_mlir_type)
         else:
-            result = llvm.load(field_mlir_type, field_ptr)
+            stored = llvm.load(field_storage_type, field_ptr)
+            result = builder.from_storage(field_numba_type, stored)
 
     builder.store_var(target, result)
 
@@ -423,12 +436,14 @@ def lower_record_static_getitem_int(builder, target, args, kwargs):
         result = _load_nested_array_field(builder, field_ptr, field_numba_type, record_type)
     else:
         field_mlir_type = builder.get_mlir_type(field_numba_type)
+        field_storage_type = builder.get_storage_type(field_numba_type)
         if _is_complex_type(field_mlir_type):
             struct_type = _get_llvm_struct_for_complex(field_mlir_type)
             struct_val = llvm.load(struct_type, field_ptr)
             result = _llvm_struct_to_complex(struct_val, field_mlir_type)
         else:
-            result = llvm.load(field_mlir_type, field_ptr)
+            stored = llvm.load(field_storage_type, field_ptr)
+            result = builder.from_storage(field_numba_type, stored)
 
     builder.store_var(target, result)
 
@@ -465,10 +480,13 @@ def lower_record_static_setitem_str(builder, target, args, kwargs):
         _store_nested_array_field(builder, field_ptr, value, field_numba_type, value_type)
     else:
         field_mlir_type = builder.get_mlir_type(field_numba_type)
+        field_storage_type = builder.get_storage_type(field_numba_type)
         value = convert(value, field_mlir_type)
         if _is_complex_type(field_mlir_type):
             # Complex types: convert to LLVM struct before storing
             value = _complex_to_llvm_struct(value)
+        else:
+            value = builder.as_storage(field_numba_type, value)
         llvm.store(value, field_ptr)
 
 

@@ -10,7 +10,7 @@ import functools
 
 def resolve_cuda_array_interface_dtype(typestr, owner_dtype=None):
     dtype = np.dtype(typestr)
-    if owner_dtype is None:
+    if dtype.char != "V" or owner_dtype is None:
         return dtype
 
     try:
@@ -18,9 +18,17 @@ def resolve_cuda_array_interface_dtype(typestr, owner_dtype=None):
     except TypeError:
         return dtype
 
-    if owner_dtype.itemsize == dtype.itemsize:
-        return owner_dtype
-    return dtype
+    if owner_dtype.itemsize != dtype.itemsize:
+        return dtype
+
+    from numba_cuda_mlir.numba_cuda.core import errors
+    from numba_cuda_mlir.numba_cuda.np import numpy_support
+
+    try:
+        numpy_support.from_dtype(owner_dtype)
+    except errors.NumbaError:
+        return dtype
+    return owner_dtype
 
 
 def prepare_shape_strides_dtype(shape, strides, dtype, order):

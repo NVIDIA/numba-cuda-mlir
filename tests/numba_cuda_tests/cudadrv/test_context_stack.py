@@ -6,7 +6,6 @@ import unittest
 import pytest
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.testing import NumbaCUDATestCase
-from numba_cuda_mlir.numba_cuda.testing import skip_on_cudasim
 from numba_cuda_mlir.numba_cuda.cudadrv import driver
 
 
@@ -54,7 +53,6 @@ class TestContextAPI(NumbaCUDATestCase):
         self.assertLessEqual(mem.free, mem.total)
 
     @unittest.skipIf(len(cuda.gpus) < 2, "need more than 1 gpus")
-    @skip_on_cudasim("CUDA HW required")
     def test_forbidden_context_switch(self):
         # Cannot switch context inside a `cuda.require_context`
         @cuda.require_context
@@ -79,7 +77,6 @@ class TestContextAPI(NumbaCUDATestCase):
         self.assertEqual(int(devid), 1)
 
 
-@skip_on_cudasim("CUDA HW required")
 class TestContextLeak(NumbaCUDATestCase):
     """Regression tests for context leaks from the gpu context manager."""
 
@@ -123,7 +120,6 @@ class TestContextLeak(NumbaCUDATestCase):
             )
 
 
-@skip_on_cudasim("CUDA HW required")
 class Test3rdPartyContext(NumbaCUDATestCase):
     def tearDown(self):
         super().tearDown()

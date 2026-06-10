@@ -192,6 +192,32 @@ def to_mlir_type(obj):
     raise TypeError(f"No conversion found for type {type(obj)}")
 
 
+def to_mlir_storage_type(obj):
+    from numba_cuda_mlir.models import mlir_data_manager
+
+    if isinstance(obj, types.Type):
+        return mlir_data_manager.lookup(obj).get_data_type()
+    if isinstance(obj, np.dtype):
+        return mlir_data_manager.lookup(to_numba_type(obj)).get_data_type()
+    return to_mlir_type(obj)
+
+
+def to_mlir_argument_type(obj):
+    from numba_cuda_mlir.models import mlir_data_manager
+
+    if isinstance(obj, types.Type):
+        return mlir_data_manager.lookup(obj).get_argument_type()
+    return to_mlir_type(obj)
+
+
+def to_mlir_return_type(obj):
+    from numba_cuda_mlir.models import mlir_data_manager
+
+    if isinstance(obj, types.Type):
+        return mlir_data_manager.lookup(obj).get_return_type()
+    return to_mlir_type(obj)
+
+
 @to_mlir_type.register(ir.Value)
 def _(val: ir.Value) -> ir.Type:
     """Extract the MLIR type from an MLIR Value (including ScalarValue)."""
@@ -368,7 +394,9 @@ def _(ty: types.Type) -> ir.Type:
             # is not a valid memref element type
             if isinstance(ty.dtype, Record):
                 return ir.MemRefType.get([dyn] * ty.ndim, T.i8(), layout=layout)
-            dtype = to_mlir_type(ty.dtype)
+            from numba_cuda_mlir.models import mlir_data_manager
+
+            dtype = mlir_data_manager.lookup(ty.dtype).get_data_type()
             return ir.MemRefType.get([dyn] * ty.ndim, dtype, layout=layout)
         case types.AggregateType():
             st = llvm.StructType.get_identified(ty.name)

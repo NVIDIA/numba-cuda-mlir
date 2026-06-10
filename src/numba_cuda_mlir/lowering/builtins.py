@@ -11,10 +11,13 @@ from numba_cuda_mlir.lowering_utilities import (
     constant,
     numpy_implicit_type_promotion,
     memref_to_tensor,
+    memref_to_value_tensor,
+    value_tensor_to_storage_memref,
     broadcast_shapes_for_binary_op,
     index_of,
     tensor_to_memref,
     simple_scalar_conversion_op,
+    expensive_coerce_tensor_type,
     try_extract_constant,
 )
 from numba_cuda_mlir.logging import trace
@@ -258,28 +261,34 @@ def lower_not(builder, target, args, kwargs):
 
 def lower_broadcasted_binary(builder, target, args, kwargs):
     from numba_cuda_mlir._mlir.dialects import linalg, shape, tensor
-    from numba_cuda_mlir.lowering_utilities import (
-        index_of,
-        broadcast_shapes_for_binary_op,
-        tensor_to_memref,
-    )
+    from numba_cuda_mlir.lowering_utilities import index_of, tensor_to_memref
 
-    args = [builder.load_var(arg) for arg in args]
-    trace("args=%s", args)
-    dtype = builder.get_mlir_type(target)
-    dtype = T.tensor(*dtype.shape, dtype.element_type)
-    etype = dtype.element_type
+    arg_vars = args
+    op = builder.load_var(arg_vars[0])
+    lhs = builder.load_var(arg_vars[1])
+    rhs = builder.load_var(arg_vars[2])
+    lhs_type = builder.get_numba_type(arg_vars[1].name)
+    rhs_type = builder.get_numba_type(arg_vars[2].name)
+    target_type = builder.get_numba_type(target.name)
+    result_element_type = builder.get_value_type(target_type.dtype)
 
-    op, lhs, rhs = args
+    if isinstance(lhs_type, types.Array):
+        lhs = memref_to_value_tensor(lhs_type, lhs)
+    if isinstance(rhs_type, types.Array):
+        rhs = memref_to_value_tensor(rhs_type, rhs)
+
     lhs, rhs = broadcast_shapes_for_binary_op(lhs, rhs, builder)
+    lhs = expensive_coerce_tensor_type(lhs, result_element_type)
+    rhs = expensive_coerce_tensor_type(rhs, result_element_type)
 
     sh = shape.shape_of(lhs)
     dims = [shape.get_extent(sh, index_of(i)) for i in range(lhs.type.rank)]
-    empty = tensor.empty(sizes=dims, element_type=etype)
+    dtype = T.tensor(*lhs.type.shape, result_element_type)
+    empty = tensor.empty(sizes=dims, element_type=result_element_type)
 
     lhs_conv, rhs_conv = (
-        simple_scalar_conversion_op(lhs.type.element_type, etype),
-        simple_scalar_conversion_op(rhs.type.element_type, etype),
+        simple_scalar_conversion_op(lhs.type.element_type, result_element_type),
+        simple_scalar_conversion_op(rhs.type.element_type, result_element_type),
     )
     lhs_etype, rhs_etype = lhs.type.element_type, rhs.type.element_type
 
@@ -288,25 +297,25 @@ def lower_broadcasted_binary(builder, target, args, kwargs):
         inputs=[lhs, rhs],
         init=empty,
     )
-    def binop(lhs: lhs_etype, rhs: rhs_etype, init: etype):
+    def binop(lhs: lhs_etype, rhs: rhs_etype, init: result_element_type):
         lhs, rhs = lhs_conv(lhs), rhs_conv(rhs)
         match op:
             case operator.sub:
                 return (
                     arith.subi(lhs, rhs)
-                    if isinstance(etype, ir.IntegerType)
+                    if isinstance(result_element_type, ir.IntegerType)
                     else arith.subf(lhs, rhs)
                 )
             case operator.add:
                 return (
                     arith.addi(lhs, rhs)
-                    if isinstance(etype, ir.IntegerType)
+                    if isinstance(result_element_type, ir.IntegerType)
                     else arith.addf(lhs, rhs)
                 )
             case operator.mul:
                 return (
                     arith.muli(lhs, rhs)
-                    if isinstance(etype, ir.IntegerType)
+                    if isinstance(result_element_type, ir.IntegerType)
                     else arith.mulf(lhs, rhs)
                 )
             case operator.truediv | operator.itruediv:
@@ -326,7 +335,7 @@ def lower_broadcasted_binary(builder, target, args, kwargs):
             case _:
                 raise NotImplementedError(f"Not implemented for operator {op}")
 
-    result = tensor_to_memref(binop)
+    result = value_tensor_to_storage_memref(target_type, binop)
     builder.store_var(target, result)
 
 
@@ -337,39 +346,48 @@ def lower_broadcasted_floor_division(builder, target, args, kwargs):
 
     trace()
 
-    # Use tensor types for linalg operations
-    dtype = builder.get_mlir_type(target)
-    etype = dtype.element_type
-    dtype = T.tensor(*dtype.shape, etype)
-    if isinstance(etype, ir.FloatType):
-        etype = type_conversions.integer_of_width(etype.width)
-        etype = type_conversions.to_mlir_type(etype)
-        dtype = T.tensor(*dtype.shape, etype)
+    target_type = builder.get_numba_type(target.name)
+    result_value_type = builder.get_value_type(target_type.dtype)
+    compute_type = result_value_type
+    if isinstance(result_value_type, ir.FloatType):
+        compute_type = type_conversions.integer_of_width(result_value_type.width)
+        compute_type = type_conversions.to_mlir_type(compute_type)
 
-    # Convert inputs to tensors and broadcast shapes
-    lhs, rhs = [builder.load_var(arg) for arg in args]
-    lhs, rhs = memref_to_tensor(lhs), memref_to_tensor(rhs)
+    lhs_arg, rhs_arg = args
+    lhs_type = builder.get_numba_type(lhs_arg.name)
+    rhs_type = builder.get_numba_type(rhs_arg.name)
+    lhs = builder.load_var(lhs_arg)
+    rhs = builder.load_var(rhs_arg)
+    if isinstance(lhs_type, types.Array):
+        lhs = memref_to_value_tensor(lhs_type, lhs)
+    if isinstance(rhs_type, types.Array):
+        rhs = memref_to_value_tensor(rhs_type, rhs)
+
     lhs, rhs = broadcast_shapes_for_binary_op(lhs, rhs, builder)
+    lhs = expensive_coerce_tensor_type(lhs, compute_type)
+    rhs = expensive_coerce_tensor_type(rhs, compute_type)
     sh = shape.shape_of(lhs)
     dims = [shape.get_extent(sh, index_of(i)) for i in range(lhs.type.rank)]
-    empty = tensor.empty(sizes=dims, element_type=dtype.element_type)
+    result_type = T.tensor(*lhs.type.shape, result_value_type)
+    empty = tensor.empty(sizes=dims, element_type=result_value_type)
 
     lhs_conv, rhs_conv = (
-        simple_scalar_conversion_op(lhs.type.element_type, etype),
-        simple_scalar_conversion_op(rhs.type.element_type, etype),
+        simple_scalar_conversion_op(lhs.type.element_type, compute_type),
+        simple_scalar_conversion_op(rhs.type.element_type, compute_type),
     )
     lhs_etype, rhs_etype = lhs.type.element_type, rhs.type.element_type
 
     @linalg.map(
-        result=[dtype],
+        result=[result_type],
         inputs=[lhs, rhs],
         init=empty,
     )
-    def casted_div(lhs: lhs_etype, rhs: rhs_etype, init: etype):
+    def casted_div(lhs: lhs_etype, rhs: rhs_etype, init: result_value_type):
         lhs, rhs = lhs_conv(lhs), rhs_conv(rhs)
-        return arith.divsi(lhs, rhs)
+        result = arith.divsi(lhs, rhs)
+        return convert(result, result_value_type)
 
-    result = tensor_to_memref(casted_div)
+    result = value_tensor_to_storage_memref(target_type, casted_div)
     builder.store_var(target, result)
 
 
@@ -380,36 +398,44 @@ def lower_broadcasted_div(builder, target, args, kwargs):
 
     trace()
 
-    # Use tensor types for linalg operations
-    dtype = builder.get_mlir_type(target)
-    dtype = T.tensor(*dtype.shape, dtype.element_type)
-    etype = dtype.element_type
-    assert isinstance(etype, ir.FloatType)
+    target_type = builder.get_numba_type(target.name)
+    result_value_type = builder.get_value_type(target_type.dtype)
+    assert isinstance(result_value_type, ir.FloatType)
 
-    # Convert inputs to tensors and broadcast shapes
-    lhs, rhs = [builder.load_var(arg) for arg in args]
-    lhs, rhs = memref_to_tensor(lhs), memref_to_tensor(rhs)
+    lhs_arg, rhs_arg = args
+    lhs_type = builder.get_numba_type(lhs_arg.name)
+    rhs_type = builder.get_numba_type(rhs_arg.name)
+    lhs = builder.load_var(lhs_arg)
+    rhs = builder.load_var(rhs_arg)
+    if isinstance(lhs_type, types.Array):
+        lhs = memref_to_value_tensor(lhs_type, lhs)
+    if isinstance(rhs_type, types.Array):
+        rhs = memref_to_value_tensor(rhs_type, rhs)
+
     lhs, rhs = broadcast_shapes_for_binary_op(lhs, rhs, builder)
+    lhs = expensive_coerce_tensor_type(lhs, result_value_type)
+    rhs = expensive_coerce_tensor_type(rhs, result_value_type)
     sh = shape.shape_of(lhs)
     dims = [shape.get_extent(sh, index_of(i)) for i in range(lhs.type.rank)]
-    empty = tensor.empty(sizes=dims, element_type=dtype.element_type)
+    result_type = T.tensor(*lhs.type.shape, result_value_type)
+    empty = tensor.empty(sizes=dims, element_type=result_value_type)
 
     lhs_conv, rhs_conv = (
-        simple_scalar_conversion_op(lhs.type.element_type, etype),
-        simple_scalar_conversion_op(rhs.type.element_type, etype),
+        simple_scalar_conversion_op(lhs.type.element_type, result_value_type),
+        simple_scalar_conversion_op(rhs.type.element_type, result_value_type),
     )
     lhs_etype, rhs_etype = lhs.type.element_type, rhs.type.element_type
 
     @linalg.map(
-        result=[dtype],
+        result=[result_type],
         inputs=[lhs, rhs],
         init=empty,
     )
-    def casted_div(lhs: lhs_etype, rhs: rhs_etype, init: etype):
+    def casted_div(lhs: lhs_etype, rhs: rhs_etype, init: result_value_type):
         lhs, rhs = lhs_conv(lhs), rhs_conv(rhs)
         return arith.divf(lhs, rhs)
 
-    result = tensor_to_memref(casted_div)
+    result = value_tensor_to_storage_memref(target_type, casted_div)
     builder.store_var(target, result)
 
 

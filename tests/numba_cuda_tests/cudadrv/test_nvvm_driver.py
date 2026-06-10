@@ -5,10 +5,8 @@ import unittest
 
 from numba_cuda_mlir.numba_cuda.cudadrv import nvrtc, nvvm
 from numba_cuda_mlir.numba_cuda.cudadrv.nvvm import LibDevice, NvvmError, NVVM
-from numba_cuda_mlir.numba_cuda.testing import skip_on_cudasim
 
 
-@skip_on_cudasim("NVVM Driver unsupported in the simulator")
 class TestNvvmDriver(unittest.TestCase):
     def get_nvvmir(self):
         versions = NVVM().get_ir_version()
@@ -57,7 +55,6 @@ class TestNvvmDriver(unittest.TestCase):
             self._test_nvvm_support(arch=arch)
 
 
-@skip_on_cudasim("NVVM Driver unsupported in the simulator")
 class TestLibDevice(unittest.TestCase):
     def test_libdevice_load(self):
         # Test that constructing LibDevice gives a bitcode file

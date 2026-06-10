@@ -2402,6 +2402,7 @@ class _Linker:
         # (fixed in cuda-python PR #989, released in cuda-core v0.4.0)
         lto_flag = True if self._has_ltoir else None
         ptx_flag = True if (self._has_ltoir and ptx) else None
+        opt_level = self._optimization_level if (not lto_flag or ptx) else 0
         options = LinkerOptions(
             max_register_count=self.max_registers,
             lineinfo=self.lineinfo,
@@ -2416,8 +2417,10 @@ class _Linker:
             prec_sqrt=self._prec_sqrt,
             fma=self._fma,
             variables_used=self.variables_used,
-            optimize_unused_variables=self._optimize_unused_variables,
-            optimization_level=self._optimization_level,
+            optimize_unused_variables=(
+                self._optimize_unused_variables if self.variables_used else None
+            ),
+            optimization_level=opt_level,
             ptxas_options=self._ptxas_options,
         )
         return options

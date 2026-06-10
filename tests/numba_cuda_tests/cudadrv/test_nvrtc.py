@@ -4,10 +4,8 @@
 import unittest
 
 from numba_cuda_mlir.numba_cuda.cudadrv import nvrtc
-from numba_cuda_mlir.numba_cuda.testing import skip_on_cudasim
 
 
-@skip_on_cudasim("NVVM Driver unsupported in the simulator")
 class TestArchOption(unittest.TestCase):
     def test_get_arch_option(self):
         # Test returning the nearest lowest arch.

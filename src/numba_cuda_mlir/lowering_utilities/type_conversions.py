@@ -152,6 +152,8 @@ def _(ty: ir.Type | ir.FunctionType) -> types.Type | typing.Signature:
 def _(obj: type) -> types.Type:
     if ctypes._SimpleCData in obj.mro():
         return ctypes_type_to_numba_type(obj)
+    if issubclass(obj, np.generic):
+        return np_dtype_to_numba_dtype(np.dtype(obj))
     raise NotImplementedError(f"Not implemented for type {obj}")
 
 
@@ -161,24 +163,22 @@ def ctypes_type_to_numba_type(obj: ctypes._SimpleCData) -> types.Type:
             return types.ptr
         case ctypes.c_bool:
             return types.bool
-        case ctypes.c_byte:
+        case ctypes.c_int8:
             return types.int8
-        case ctypes.c_ubyte:
+        case ctypes.c_uint8:
             return types.uint8
-        case ctypes.c_short:
+        case ctypes.c_int16:
             return types.int16
-        case ctypes.c_ushort:
+        case ctypes.c_uint16:
             return types.uint16
-        case ctypes.c_int:
+        case ctypes.c_int32:
             return types.int32
-        case ctypes.c_uint:
+        case ctypes.c_uint32:
             return types.uint32
-        case ctypes.c_long:
+        case ctypes.c_int64:
             return types.int64
-        case ctypes.c_ulong:
+        case ctypes.c_uint64:
             return types.uint64
-        case ctypes.c_float16:
-            return types.float16
         case ctypes.c_float:
             return types.float32
         case ctypes.c_double:
@@ -192,6 +192,32 @@ def to_mlir_type(obj):
     raise TypeError(f"No conversion found for type {type(obj)}")
 
 
+def to_mlir_storage_type(obj):
+    from numba_cuda_mlir.models import mlir_data_manager
+
+    if isinstance(obj, types.Type):
+        return mlir_data_manager.lookup(obj).get_data_type()
+    if isinstance(obj, np.dtype):
+        return mlir_data_manager.lookup(to_numba_type(obj)).get_data_type()
+    return to_mlir_type(obj)
+
+
+def to_mlir_argument_type(obj):
+    from numba_cuda_mlir.models import mlir_data_manager
+
+    if isinstance(obj, types.Type):
+        return mlir_data_manager.lookup(obj).get_argument_type()
+    return to_mlir_type(obj)
+
+
+def to_mlir_return_type(obj):
+    from numba_cuda_mlir.models import mlir_data_manager
+
+    if isinstance(obj, types.Type):
+        return mlir_data_manager.lookup(obj).get_return_type()
+    return to_mlir_type(obj)
+
+
 @to_mlir_type.register(ir.Value)
 def _(val: ir.Value) -> ir.Type:
     """Extract the MLIR type from an MLIR Value (including ScalarValue)."""
@@ -203,7 +229,7 @@ def _(obj: type) -> ir.Type:
     mro = obj.mro()
     if ctypes._SimpleCData in mro:
         return ctypes_type_to_mlir_type(obj)
-    elif obj.__module__ == "numpy":
+    elif issubclass(obj, np.generic):
         return np_dtype_to_mlir_type(obj)
     raise NotImplementedError(f"Not implemented for type {obj}")
 
@@ -221,22 +247,26 @@ def ctypes_type_to_mlir_type(obj: ctypes._SimpleCData) -> ir.Type:
             return llvm.PointerType.get()
         case ctypes.c_bool:
             return T.bool()
-        case ctypes.c_byte:
+        case ctypes.c_int8:
             return T.i8()
-        case ctypes.c_ubyte:
+        case ctypes.c_uint8:
             return T.ui8()
-        case ctypes.c_short | ctypes.c_int16 | ctypes.c_short:
+        case ctypes.c_int16:
             return T.i16()
-        case ctypes.c_int | ctypes.c_int32 | ctypes.c_int:
-            return T.i32()
         case ctypes.c_uint16:
             return T.i16()
-        case ctypes.c_uint32 | ctypes.c_uint:
+        case ctypes.c_int32:
             return T.i32()
-        case ctypes.c_uint64 | ctypes.c_ulong:
+        case ctypes.c_uint32:
+            return T.i32()
+        case ctypes.c_int64:
             return T.i64()
-        case ctypes.c_long | ctypes.c_int64 | ctypes.c_long:
+        case ctypes.c_uint64:
             return T.i64()
+        case ctypes.c_float:
+            return T.f32()
+        case ctypes.c_double:
+            return T.f64()
         case ctypes.POINTER():
             raise NotImplementedError(f"Not implemented for type {type(obj)}")
         case _:
@@ -364,7 +394,9 @@ def _(ty: types.Type) -> ir.Type:
             # is not a valid memref element type
             if isinstance(ty.dtype, Record):
                 return ir.MemRefType.get([dyn] * ty.ndim, T.i8(), layout=layout)
-            dtype = to_mlir_type(ty.dtype)
+            from numba_cuda_mlir.models import mlir_data_manager
+
+            dtype = mlir_data_manager.lookup(ty.dtype).get_data_type()
             return ir.MemRefType.get([dyn] * ty.ndim, dtype, layout=layout)
         case types.AggregateType():
             st = llvm.StructType.get_identified(ty.name)
@@ -456,6 +488,14 @@ def np_dtype_to_numba_dtype(dtype: np.dtype) -> types.Type:
             return types.int32
         case np.int64:
             return types.int64
+        case np.uint8:
+            return types.uint8
+        case np.uint16:
+            return types.uint16
+        case np.uint32:
+            return types.uint32
+        case np.uint64:
+            return types.uint64
         case np.complex64:
             return types.complex64
         case np.complex128:

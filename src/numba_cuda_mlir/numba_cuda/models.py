@@ -3,7 +3,25 @@
 
 import functools
 
-from llvmlite import ir
+
+class _LLVMLiteRemoved:
+    """Tombstone standing in for the removed ``llvmlite.ir`` module.
+
+    These CUDA data models are instantiated during MLIR type inference, but the
+    llvmlite ``be_type`` they would build is discarded (the MLIR-typed models
+    live in ``numba_cuda_mlir.models``). The eager type construction has been
+    replaced by ``None``; any remaining use raises, since llvmlite is no longer
+    a dependency.
+    """
+
+    def __getattr__(self, name):
+        raise NotImplementedError(
+            "llvmlite has been removed; llvmlite IR is not available on the "
+            f"MLIR path (attempted to use llvmlite.ir.{name})"
+        )
+
+
+ir = _LLVMLiteRemoved()
 
 from numba_cuda_mlir.numba_cuda.datamodel.registry import DataModelManager, register
 from numba_cuda_mlir.numba_cuda.datamodel import PrimitiveModel
@@ -33,22 +51,17 @@ class Dim3Model(StructModel):
 @register_model(GridGroup)
 class GridGroupModel(models.PrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = ir.IntType(64)
-        super().__init__(dmm, fe_type, be_type)
+        # llvmlite be_type discarded on the MLIR path
+        super().__init__(dmm, fe_type, None)
 
 
 @register_model(types.Float)
 class FloatModel(models.PrimitiveModel):
     def __init__(self, dmm, fe_type):
-        if fe_type == types.float16:
-            be_type = ir.IntType(16)
-        elif fe_type == types.float32:
-            be_type = ir.FloatType()
-        elif fe_type == types.float64:
-            be_type = ir.DoubleType()
-        else:
+        if fe_type not in (types.float16, types.float32, types.float64):
             raise NotImplementedError(fe_type)
-        super().__init__(dmm, fe_type, be_type)
+        # llvmlite be_type discarded on the MLIR path
+        super().__init__(dmm, fe_type, None)
 
 
 register_model(CUDADispatcher)(models.OpaqueModel)
@@ -57,5 +70,5 @@ register_model(CUDADispatcher)(models.OpaqueModel)
 @register_model(Bfloat16)
 class _model___nv_bfloat16(PrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = ir.IntType(16)
-        super().__init__(dmm, fe_type, be_type)
+        # llvmlite be_type discarded on the MLIR path
+        super().__init__(dmm, fe_type, None)

@@ -29,3 +29,4 @@ src/numba_cuda_mlir/_mlir
 _build/
 llvm-modern-install/
 llvm7-install/
+.venv

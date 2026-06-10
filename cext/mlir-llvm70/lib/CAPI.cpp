@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
+#include <string>
 
 static constexpr const char *kDefaultDataLayout =
     "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32"
@@ -20,6 +21,14 @@ static constexpr const char *kDefaultDataLayout =
 
 static void fatalErrorHandler(void *, const char *reason, bool) {
   throw std::runtime_error(reason ? reason : "unknown fatal error");
+}
+
+static char *copyCString(const char *message) {
+#ifdef _WIN32
+  return _strdup(message);
+#else
+  return strdup(message);
+#endif
 }
 
 extern "C" {
@@ -40,14 +49,24 @@ int llvm70_translate_gpu_module_from_op(
   *err_out = nullptr;
 
   if (!raw_op) {
-    *err_out = strdup("null Operation*");
+    *err_out = copyCString("null Operation*");
     return 1;
   }
 
   auto *op = static_cast<mlir::Operation *>(raw_op);
   auto gpuMod = mlir::dyn_cast<mlir::gpu::GPUModuleOp>(op);
   if (!gpuMod) {
-    *err_out = strdup("Operation is not a gpu.module");
+    std::string msg = "Operation is not a gpu.module";
+    std::string opName = op->getName().getStringRef().str();
+    if (!opName.empty()) {
+      msg += " (operation name: " + opName + ")";
+      if (opName == mlir::gpu::GPUModuleOp::getOperationName()) {
+        msg += "; operation name matches gpu.module, which suggests an MLIR "
+               "registered-operation TypeID mismatch between MLIRToLLVM70 "
+               "and MLIRPythonCAPI";
+      }
+    }
+    *err_out = copyCString(msg.c_str());
     return 1;
   }
 
@@ -73,14 +92,14 @@ int llvm70_translate_gpu_module_from_op(
 
     if (!ptxOrErr) {
       std::string msg = llvm::toString(ptxOrErr.takeError());
-      *err_out = strdup(msg.c_str());
+      *err_out = copyCString(msg.c_str());
       return 1;
     }
 
     const std::string &ptx = *ptxOrErr;
     *out = static_cast<char *>(malloc(ptx.size()));
     if (!*out) {
-      *err_out = strdup("malloc failed");
+      *err_out = copyCString("malloc failed");
       return 1;
     }
     memcpy(*out, ptx.data(), ptx.size());
@@ -88,11 +107,11 @@ int llvm70_translate_gpu_module_from_op(
     return 0;
   } catch (const std::exception &e) {
     llvm::remove_fatal_error_handler();
-    *err_out = strdup(e.what());
+    *err_out = copyCString(e.what());
     return 1;
   } catch (...) {
     llvm::remove_fatal_error_handler();
-    *err_out = strdup("unknown exception");
+    *err_out = copyCString("unknown exception");
     return 1;
   }
 }

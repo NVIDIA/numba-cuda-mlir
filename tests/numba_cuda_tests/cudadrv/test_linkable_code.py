@@ -6,11 +6,9 @@ import pytest
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda.cudadrv.linkable_code import LinkableCode
 from numba_cuda_mlir.testing import NumbaCUDATestCase
-from numba_cuda_mlir.numba_cuda.testing import skip_on_cudasim
 
 
 class TestLinkableCode(NumbaCUDATestCase):
-    @skip_on_cudasim(reason="Simulator does not support linkable code")
     @pytest.mark.numba_cuda_test_binaries("a", "cubin", "cu", "fatbin", "o", "ptx", "ltoir")
     def test_linkable_code_from_path_or_obj(self):
         binaries = self.numba_cuda_test_binaries

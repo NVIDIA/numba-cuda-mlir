@@ -14,7 +14,7 @@ const char* get_cuda_error(CUresult res) {
     return str ? str : "Unknown error";
 }
 
-PyObject* get_max_grid_size(PyObject *self, PyObject *args) {
+PyObject* get_max_grid_size(PyObject*, PyObject *args) {
     int device_id;
     if (!PyArg_ParseTuple(args, "i", &device_id))
         return NULL;
@@ -37,7 +37,7 @@ PyObject* get_max_grid_size(PyObject *self, PyObject *args) {
     return Py_BuildValue("(iii)", max_grid_size[0], max_grid_size[1], max_grid_size[2]);
 }
 
-PyObject* get_compute_capability(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+PyObject* get_compute_capability(PyObject*, PyObject*) {
     int major, minor;
     CUdevice dev;
     CUresult res = g_cuDeviceGet(&dev, 0);

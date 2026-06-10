@@ -40,12 +40,15 @@ export CMAKE_C_COMPILER_LAUNCHER="$(which sccache)"
 export CMAKE_CXX_COMPILER_LAUNCHER="$(which sccache)"
 
 # Configure
-# MLIR_PYTHON_PACKAGE_PREFIX bakes "numba_cuda_mlir._mlir." into all compiled .so
-#   files, so bindings expect numba_cuda_mlir._mlir.ir (not mlir.ir) at runtime.
+# MLIR_PYTHON_PACKAGE_PREFIX bakes "numba_cuda_mlir._mlir." into all compiled
+#   extension modules, so bindings expect numba_cuda_mlir._mlir.ir (not mlir.ir)
+#   at runtime.
 # MLIR_BINDINGS_PYTHON_INSTALL_PREFIX controls on-disk install path.
 # MLIR_BINDINGS_PYTHON_NB_DOMAIN isolates nanobind typeids from other
 #   MLIR-based projects that may coexist in the same process.
 # See: https://github.com/llvm/llvm-project/pull/171775
+python_executable="$($PYTHON -c 'import sys; print(sys.executable)')"
+python_root="$(dirname "${python_executable}")"
 
 cmake_args=(
     -G Ninja
@@ -61,11 +64,18 @@ cmake_args=(
     -DLLVM_INCLUDE_BENCHMARKS=OFF
     -DLLVM_INCLUDE_DOCS=OFF
     -DMLIR_ENABLE_BINDINGS_PYTHON=ON
+    -DMLIR_PYTHON_PACKAGE_PREFIX="numba_cuda_mlir._mlir"
     -DCMAKE_CXX_FLAGS="-DMLIR_PYTHON_PACKAGE_PREFIX=numba_cuda_mlir._mlir."
     -DMLIR_BINDINGS_PYTHON_INSTALL_PREFIX="python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir"
     -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=numba_cuda_mlir
+    -DMLIR_PYTHON_STUBGEN_ENABLED=OFF
     -DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON
-    -DPython3_EXECUTABLE="$($PYTHON -c 'import sys; print(sys.executable)')"
+    -DPython_ROOT_DIR="${python_root}"
+    -DPython_EXECUTABLE="${python_executable}"
+    -DPython_FIND_REGISTRY=NEVER
+    -DPython3_ROOT_DIR="${python_root}"
+    -DPython3_EXECUTABLE="${python_executable}"
+    -DPython3_FIND_REGISTRY=NEVER
 )
 
 cmake "${cmake_args[@]}"

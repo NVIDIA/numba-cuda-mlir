@@ -6,6 +6,8 @@ import sys
 import os
 from functools import cached_property, lru_cache
 
+from numba_cuda_mlir.typing import unicode
+
 if sys.version_info >= (3, 12):
     from typing import override
 else:
@@ -29,6 +31,7 @@ from numba_cuda_mlir.numba_cuda import serialize, typing
 from numba_cuda_mlir.numba_cuda.core.base import BaseContext
 from numba_cuda_mlir.numba_cuda.core.callconv import MinimalCallConv
 from numba_cuda_mlir.numba_cuda.cudadrv.devicearray import DeviceNDArrayBase
+from numba_cuda_mlir.numba_cuda.np import numpy_support
 from numba_cuda_mlir.numba_cuda.core.descriptors import TargetDescriptor
 from numba_cuda_mlir.numba_cuda.core.compiler_lock import global_compiler_lock
 from numba_cuda_mlir.numba_cuda.dispatcher import Dispatcher
@@ -129,6 +132,149 @@ def _flatten_arg(arg, out):
         out.append(arg)
 
 
+def _cuda_array_interface(arg):
+    return getattr(arg, "__cuda_array_interface__", None)
+
+
+def _validate_cuda_array_interface(cai):
+    version = cai.get("version")
+    if version is not None and 1 <= version and cai.get("mask") is not None:
+        raise NotImplementedError("Masked arrays are not supported")
+
+
+def _sync_cuda_array_interface_stream(arg):
+    if isinstance(arg, DeviceNDArrayBase):
+        return
+
+    cai = _cuda_array_interface(arg)
+    if cai is None:
+        return
+
+    _validate_cuda_array_interface(cai)
+    stream_ptr = cai.get("stream")
+    if stream_ptr is None or not cuda_config.CUDA_ARRAY_INTERFACE_SYNC:
+        return
+
+    from numba_cuda_mlir.numba_cuda.cudadrv import devices
+
+    devices.get_context().create_external_stream(stream_ptr).synchronize()
+
+
+def _array_shape(arg):
+    shape = getattr(arg, "shape", None)
+    if shape is not None:
+        return tuple(shape)
+
+    cai = _cuda_array_interface(arg)
+    if cai is not None:
+        return tuple(cai["shape"])
+
+    return None
+
+
+def _array_dtype(arg, ty=None):
+    dtype = getattr(arg, "dtype", None)
+    if dtype is not None:
+        return np.dtype(dtype)
+
+    cai = _cuda_array_interface(arg)
+    if cai is not None:
+        return np.dtype(cai["typestr"])
+
+    if isinstance(ty, types.Array):
+        return numpy_support.as_dtype(ty.dtype)
+
+    raise AttributeError(f"{type(arg).__name__!r} object has no dtype metadata")
+
+
+def _array_strides(arg):
+    strides = getattr(arg, "strides", None)
+    if strides is not None:
+        return tuple(strides)
+
+    cai = _cuda_array_interface(arg)
+    if cai is not None:
+        strides = cai.get("strides")
+        if strides is not None:
+            return tuple(strides)
+
+    return None
+
+
+def _array_layout(arg, ty=None):
+    """Return the Numba array layout key for array-like runtime arguments."""
+    ndim = getattr(arg, "ndim", None)
+    if ndim is None:
+        shape = _array_shape(arg)
+        if shape is None:
+            if isinstance(ty, types.Array):
+                return ty.layout
+            shape = ()
+        ndim = len(shape)
+    if ndim == 0:
+        return "C"
+
+    strides = _array_strides(arg)
+    if strides is None:
+        return "C"
+
+    shape = _array_shape(arg)
+    itemsize = _array_dtype(arg, ty).itemsize
+
+    c_stride = itemsize
+    c_strides = []
+    for extent in reversed(shape):
+        c_strides.append(c_stride)
+        c_stride *= extent
+    c_strides = tuple(reversed(c_strides))
+    if tuple(strides) == c_strides:
+        return "C"
+
+    f_stride = itemsize
+    f_strides = []
+    for extent in shape:
+        f_strides.append(f_stride)
+        f_stride *= extent
+    if tuple(strides) == tuple(f_strides):
+        return "F"
+
+    return "A"
+
+
+def _array_readonly(arg, ty=None):
+    cai = _cuda_array_interface(arg)
+    if cai is not None:
+        _, readonly = cai["data"]
+        return bool(readonly)
+
+    flags = getattr(arg, "flags", None)
+    if flags is not None:
+        writeable = getattr(flags, "writeable", None)
+        if writeable is None:
+            writeable = flags["WRITEABLE"]
+        return not writeable
+
+    if isinstance(ty, types.Array):
+        return not ty.mutable
+
+    return False
+
+
+def _array_cache_key(arg, ty):
+    """Return metadata that determines whether a cached array type is reusable."""
+    dtype = _array_dtype(arg, ty)
+    ndim = getattr(arg, "ndim", None)
+    if ndim is None:
+        shape = _array_shape(arg)
+        if shape is None:
+            ndim = ty.ndim
+        else:
+            ndim = len(shape)
+    layout = _array_layout(arg, ty)
+    readonly = _array_readonly(arg, ty)
+    return (dtype, ndim, layout, readonly)
+
+
 def _raise_as_cuda_error(e):
     """Convert RuntimeError from C++ launcher to cuda.core CUDAError."""
     try:
@@ -161,7 +307,7 @@ class _ArgMarshaller:
         self._extensions = extensions or []
         self._dispatcher = dispatcher
         self._sig_cache = {}  # {type_key: (argtypes, fast_ok)}
-        self._array_sig_cache = {}  # {type_key: (argtypes, ((idx, dtype_num, ndim), ...))}
+        self._array_sig_cache = {}  # {type_key: [(argtypes, ((idx, array_key), ...))]}
 
     def _maybe_copy_to_device_item(self, arg):
         if isinstance(arg, DeviceNDArrayBase):
@@ -212,11 +358,11 @@ class _ArgMarshaller:
                     self._callbacks.append(copy_back)
                 return device_arg
             case _ if hasattr(arg, "__cuda_array_interface__") and not isinstance(arg, np.ndarray):
-                # Third-party objects implementing __cuda_array_interface__.
-                # Convert to DeviceNDArray so typeof() works.
-                from numba_cuda_mlir.numba_cuda.api import from_cuda_array_interface
-
-                return from_cuda_array_interface(arg.__cuda_array_interface__, owner=arg)
+                # The C++ launcher can consume CUDA Array Interface objects
+                # directly. Keep the original object so repeated CuPy/foreign
+                # array launches do not rebuild DeviceNDArray wrappers.
+                _sync_cuda_array_interface_stream(arg)
+                return arg
             case np.ndarray() if hasattr(arg, "__cuda_array_interface__"):
                 return arg
             case np.ndarray():
@@ -314,17 +460,19 @@ class _ArgMarshaller:
 
                 # Array values keep the same Python class across many dtypes.
                 # Reuse cached argtypes only when the Numba array type is stable.
-                array_entry = self._array_sig_cache.get(type_key)
-                if array_entry is not None:
-                    cached_argtypes, array_checks = array_entry
-                    ok = True
-                    for idx, dtype, ndim in array_checks:
-                        a = args[idx]
-                        if a.dtype != dtype or a.ndim != ndim:
-                            ok = False
-                            break
-                    if ok:
-                        return self._launch(cached_argtypes, args)
+                array_entries = self._array_sig_cache.get(type_key)
+                if array_entries is not None:
+                    for cached_argtypes, array_checks in array_entries:
+                        ok = True
+                        for idx, array_key in array_checks:
+                            a = args[idx]
+                            if _array_cache_key(a, cached_argtypes[idx]) != array_key:
+                                ok = False
+                                break
+                        if ok:
+                            for idx, _ in array_checks:
+                                _sync_cuda_array_interface_stream(args[idx])
+                            return self._launch(cached_argtypes, args)
 
         reversed_ext = self._extensions[::-1] if has_ext else None
         copy_item = self._maybe_copy_to_device_item
@@ -389,12 +537,16 @@ class _ArgMarshaller:
 
                 # Only cache already-device array launches. Host arrays and
                 # wrappers need per-launch copy/copyback setup.
-                if has_arrays and all_pass_through and type_key not in self._array_sig_cache:
+                if has_arrays and all_pass_through:
                     array_checks = []
                     for i, ct in enumerate(coerced_types):
                         if isinstance(ct, types.Array):
-                            array_checks.append((i, args[i].dtype, args[i].ndim))
-                    self._array_sig_cache[type_key] = (list(coerced_types), tuple(array_checks))
+                            array_checks.append((i, _array_cache_key(args[i], ct)))
+                    array_checks = tuple(array_checks)
+                    entries = self._array_sig_cache.setdefault(type_key, [])
+                    if not any(checks == array_checks for _, checks in entries):
+                        entries.append((list(coerced_types), array_checks))
+                        del entries[:-8]
 
         return result
 
@@ -482,6 +634,8 @@ class MLIRTypingContext(typing.BaseContext):
         from numba_cuda_mlir.numba_cuda.typing.templates import builtin_registry
         from numba_cuda_mlir.numba_cuda.target import load_cuda_target_registration_modules
 
+        from numba_cuda_mlir.typing.unicode import registry as unicode_registry
+
         load_cuda_target_registration_modules()
         register_bf16_globals()
         register_fp8_globals()
@@ -500,6 +654,7 @@ class MLIRTypingContext(typing.BaseContext):
         self.install_registry(exotic_float_typing_registry)
         self.install_registry(vector_registry)
         self.install_registry(cuda_vector_types_registry)
+        self.install_registry(unicode_registry)
 
         # Install numba-cuda registries after numba_cuda_mlir ones
         self.install_registry(cuda_registry)
@@ -680,6 +835,8 @@ class MLIRTargetContext(BaseContext):
         from numba_cuda_mlir.lowering.datetime import (
             registry as datetime_lowering_registry,
         )
+
+        import numba_cuda_mlir.lowering.cpython  # noqa: F401
 
         # Install registries in order (foundational first, specialized last)
         self.install_registry(builtins_lowering_registry)
@@ -1000,12 +1157,21 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     targetdescr = mlir_target
 
     def __init__(self, py_func, targetoptions=None):
+        from numba_cuda_mlir.mlir_compiler import get_compiler_class
+
         if targetoptions is None:
             targetoptions = {}
         # AST transforms now happen at compile time (in compile_mlir) when we
         # have the signature (argtypes) available. This allows consteval to
         # access argument types and target options.
         super().__init__(py_func, targetoptions=targetoptions)
+
+        # ``Dispatcher.__init__`` constructs ``self._compiler`` with
+        # ``pipeline_class=None``. We need to set the pipeline class for
+        # _OverloadFunctionTemplate.generic() to use it when an overload is
+        # created with inline="always".
+        self._compiler.pipeline_class = get_compiler_class(targetoptions)
+
         self._c = _cext.KernelDispatcher(
             self._compile,
             get_constant_args(py_func),
@@ -1496,6 +1662,67 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         sig = typing.signature(return_type, *args)
         return self.compile(sig)
 
+    def _compile_device_callee(self, sig):
+        """Compile enough of a device function to inline/link it into a kernel.
+
+        Device callees are cloned from their MLIR into the parent module, so
+        eagerly finalizing every callee to cubin only adds linker work and
+        retained cubin metadata that the parent compilation does not use.
+        """
+        from numba_cuda_mlir import mlir_compiler
+        from numba_cuda_mlir.compiler import CompileResult
+
+        argtypes, return_type = sigutils.normalize_signature(sig)
+
+        if argtypes in self.overloads:
+            return self.overloads[argtypes]
+
+        self._resolve_target_options()
+        self._cache_misses[argtypes] += 1
+
+        self._is_compiling = True
+        try:
+            with self._compile_profiler():
+                cres = mlir_compiler.compile_mlir(
+                    self.py_func,
+                    return_type,
+                    argtypes,
+                    targetoptions=self.targetoptions,
+                )
+
+            cres.target_context.insert_user_function(cres.entry_point, cres.fndesc, [cres.library])
+        finally:
+            self._is_compiling = False
+
+        for cb in cres.metadata.get("setup_callbacks", []):
+            if cb not in self._module_setup_callbacks:
+                self._module_setup_callbacks.append(cb)
+        for cb in cres.metadata.get("teardown_callbacks", []):
+            if cb not in self._module_teardown_callbacks:
+                self._module_teardown_callbacks.append(cb)
+
+        wrapped = CompileResult(cres)
+        self.overloads[argtypes] = wrapped
+        return wrapped
+
+    def _compile_as_device_callee(self, sig):
+        """Compile this dispatcher through the lightweight device-callee path."""
+        opts = self.targetoptions.copy()
+        opts["device"] = True
+        opts["lto"] = False
+        opts["output"] = "ptx"
+        if self.targetoptions.get("device", False):
+            self.targetoptions.update(opts)
+            return self._compile_device_callee(sig)
+
+        if not hasattr(self, "_device_dispatcher") or self._device_dispatcher.targetoptions != opts:
+            self._device_dispatcher = MLIRDispatcher(self.py_func, targetoptions=opts)
+        cres = self._device_dispatcher._compile_device_callee(sig)
+        argtypes, _ = sigutils.normalize_signature(sig)
+        if argtypes not in self.overloads:
+            self.overloads[argtypes] = cres
+        return cres
+
     def inspect_lto_ptx(self, args=None):
         if args is None:
             return {sig: self.inspect_lto_ptx(sig) for sig in self.overloads}
@@ -1639,7 +1866,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         pysig, args = self._compiler.fold_argument_types(args, kws)
         kws = {}
         if self._can_compile:
-            self.compile_device(tuple(args))
+            self._compile_as_device_callee(tuple(args))
         func_name = self.py_func.__name__
         name = "CallTemplate({0})".format(func_name)
         call_template = typing.make_concrete_template(

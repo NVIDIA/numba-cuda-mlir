@@ -91,7 +91,11 @@ static std::string resolveLibNVVMPath(LLVM70TargetAttr target,
     return env;
   if (!toolkitPath.empty()) {
     llvm::SmallString<256> p(toolkitPath);
+#ifdef _WIN32
+    llvm::sys::path::append(p, "nvvm", "bin", "nvvm64_40_0.dll");
+#else
     llvm::sys::path::append(p, "nvvm", "lib64", "libnvvm.so");
+#endif
     return std::string(p);
   }
   return {};

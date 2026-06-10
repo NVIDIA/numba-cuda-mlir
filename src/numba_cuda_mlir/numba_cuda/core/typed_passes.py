@@ -37,13 +37,6 @@ from numba_cuda_mlir.numba_cuda.core import postproc, rewrites, funcdesc, config
 from numba_cuda_mlir.numba_cuda.core.options import InlineOptions
 
 
-try:
-    # llvmlite < 0.45
-    from llvmlite.binding import passmanagers
-except ImportError:
-    # llvmlite >= 0.45
-    from llvmlite.binding import newpassmanagers as passmanagers
-
 # Outputs of type inference pass
 _TypingResults = namedtuple(
     "_TypingResults",
@@ -319,7 +312,6 @@ class BaseNativeLowering(abc.ABC, LoweringPass):
         calltypes = state.calltypes
         flags = state.flags
         metadata = state.metadata
-        pre_stats = passmanagers.dump_refprune_stats()
 
         call_conv = state.call_conv
         if call_conv is None:
@@ -378,13 +370,6 @@ class BaseNativeLowering(abc.ABC, LoweringPass):
                 cfunc = targetctx.get_executable(library, fndesc, env)
                 targetctx.insert_user_function(cfunc, fndesc, [library])
                 state["cr"] = _LowerResult(fndesc, call_helper, cfunc=cfunc, env=env)
-
-            # capture pruning stats
-            post_stats = passmanagers.dump_refprune_stats()
-            metadata["prune_stats"] = post_stats - pre_stats
-
-            # Save the LLVM pass timings
-            metadata["llvm_pass_timings"] = library.recorded_timings
         return True
 
 

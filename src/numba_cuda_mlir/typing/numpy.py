@@ -17,6 +17,10 @@ from numba_cuda_mlir.numba_cuda.np.unsafe.ndarray import to_fixed_tuple
 registry = npydecl.registry
 
 
+def _dtype_arg(args, kws, pos, default):
+    return args[pos] if len(args) > pos else kws.get("dtype", default)
+
+
 @registry.register_global(to_fixed_tuple)
 class ToFixedTupleTemplate(AbstractTemplate):
     """Typing template for to_fixed_tuple(array, length)"""
@@ -47,7 +51,7 @@ class NumpyEmptyTemplate(AbstractTemplate):
             return None
 
         shape = args[0]
-        dtype = args[1] if len(args) > 1 else types.float64
+        dtype = _dtype_arg(args, kws, 1, types.float64)
 
         # Determine dimensionality from shape
         if isinstance(shape, types.Integer):
@@ -59,8 +63,6 @@ class NumpyEmptyTemplate(AbstractTemplate):
 
         # Handle dtype
         if isinstance(dtype, types.DTypeSpec):
-            element_type = dtype.dtype
-        elif isinstance(dtype, types.NumberClass):
             element_type = dtype.dtype
         else:
             element_type = dtype
@@ -78,7 +80,7 @@ class NumpyZerosTemplate(AbstractTemplate):
             return None
 
         shape = args[0]
-        dtype = args[1] if len(args) > 1 else types.float64
+        dtype = _dtype_arg(args, kws, 1, types.float64)
 
         if isinstance(shape, types.Integer):
             ndim = 1
@@ -88,8 +90,6 @@ class NumpyZerosTemplate(AbstractTemplate):
             return None
 
         if isinstance(dtype, types.DTypeSpec):
-            element_type = dtype.dtype
-        elif isinstance(dtype, types.NumberClass):
             element_type = dtype.dtype
         else:
             element_type = dtype
@@ -107,7 +107,7 @@ class NumpyOnesTemplate(AbstractTemplate):
             return None
 
         shape = args[0]
-        dtype = args[1] if len(args) > 1 else types.float64
+        dtype = _dtype_arg(args, kws, 1, types.float64)
 
         if isinstance(shape, types.Integer):
             ndim = 1
@@ -117,8 +117,6 @@ class NumpyOnesTemplate(AbstractTemplate):
             return None
 
         if isinstance(dtype, types.DTypeSpec):
-            element_type = dtype.dtype
-        elif isinstance(dtype, types.NumberClass):
             element_type = dtype.dtype
         else:
             element_type = dtype
@@ -137,7 +135,7 @@ class NumpyFullTemplate(AbstractTemplate):
 
         shape = args[0]
         value = args[1]
-        dtype = args[2] if len(args) > 2 else types.float64
+        dtype = _dtype_arg(args, kws, 2, types.float64)
 
         if isinstance(shape, types.Integer):
             ndim = 1
@@ -147,8 +145,6 @@ class NumpyFullTemplate(AbstractTemplate):
             return None
 
         if isinstance(dtype, types.DTypeSpec):
-            element_type = dtype.dtype
-        elif isinstance(dtype, types.NumberClass):
             element_type = dtype.dtype
         else:
             element_type = dtype

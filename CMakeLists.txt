@@ -11,16 +11,25 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(ALLOW_WARNINGS "Don't treat warnings as errors" OFF)
 if (NOT ALLOW_WARNINGS)
-    add_compile_options(-Werror)
+    if(MSVC)
+        add_compile_options(/WX)
+    else()
+        add_compile_options(-Werror)
+    endif()
 endif()
 
-add_compile_options(-Wall)
+if(MSVC)
+    add_compile_options(/W4)
+else()
+    add_compile_options(-Wall)
+endif()
 
 find_package(Python REQUIRED COMPONENTS Interpreter Development.Module)
 
 add_custom_target(devinstall
-    COMMAND ln -fs "${CMAKE_BINARY_DIR}/cext/launcher/lib_cext.so"
-            ${CMAKE_SOURCE_DIR}/src/numba_cuda_mlir/_cext.so)
+    COMMAND ${CMAKE_COMMAND} -E create_symlink
+            "$<TARGET_FILE:_cext>"
+            "${CMAKE_SOURCE_DIR}/src/numba_cuda_mlir/$<TARGET_FILE_NAME:_cext>")
 
 if (DLPACK_PATH)
     set(dlpack_INCLUDE_DIR "${DLPACK_PATH}/include/dlpack")

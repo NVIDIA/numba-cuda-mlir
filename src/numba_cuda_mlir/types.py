@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir.numba_cuda.types import (
     BaseTuple,
+    BaseNamedTuple,
     BoundFunction,
     Optional,
     Poison,
@@ -16,6 +17,7 @@ from numba_cuda_mlir.numba_cuda.types import (
     NumberClass,
     NPDatetime,
     NPTimedelta,
+    NumpyNdIterType,
     RangeType,
     RangeIteratorType,
     DType,
@@ -24,6 +26,7 @@ from numba_cuda_mlir.numba_cuda.types import (
     Any,
     Literal,
     string,
+    Bytes,
     Function,
     Integer,
     Number,

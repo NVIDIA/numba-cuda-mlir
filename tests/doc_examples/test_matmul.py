@@ -10,11 +10,9 @@ Contents in this file are referenced from the sphinx-generated docs.
 "magictoken" is used for markers as beginning and ending of example text.
 """
 
-from numba.cuda.testing import skip_on_cudasim
 from numba.cuda.tests.support import captured_stdout
 
 
-@skip_on_cudasim("cudasim doesn't support cuda import at non-top-level")
 def test_matmul():
     """Test of matrix multiplication on various cases."""
     # Prevent output from this test showing up when running the test suite

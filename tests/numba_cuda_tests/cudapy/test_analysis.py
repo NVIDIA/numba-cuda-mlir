@@ -1091,7 +1091,6 @@ class TestBranchPrunePostSemanticConstRewrites(TestBranchPruneBase):
 
         self.assertIn("Unknown attribute 'as_integer_ratio'", str(e.exception))
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_ndim_not_on_array(self):
         FakeArray = collections.namedtuple("FakeArray", ["ndim"])
         fa = FakeArray(ndim=2)

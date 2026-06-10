@@ -85,10 +85,6 @@ def test_array_view_custom_dtype():
     def _typeof_my(val, c):
         return nb_types.NumberClass(nb_types.int64)
 
-    @to_mlir_type.register(_MyBoxedDtype)
-    def _my_to_mlir(val):
-        return T.i64()
-
     @cuda.jit
     def kernel(arr):
         v = arr.view(my_dtype)

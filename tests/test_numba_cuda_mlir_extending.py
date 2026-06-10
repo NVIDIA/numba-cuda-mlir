@@ -261,6 +261,51 @@ def test_overload_attribute():
     assert out[0] == 20
 
 
+def test_overload_attribute_returns_string_literal():
+    """String-literal attribute overloads can be returned from device functions."""
+
+    from numba_cuda_mlir._mlir.extras import types as T
+
+    class Dummy:
+        pass
+
+    class DummyType(types.Type):
+        def __init__(self):
+            super().__init__(name="Dummy")
+
+    dummy_type = DummyType()
+
+    @typeof_impl.register(Dummy)
+    def typeof_dummy(val, c):
+        return dummy_type
+
+    class DummyModel(PrimitiveModel):
+        def __init__(self, dmm, fe_type):
+            super().__init__(dmm, fe_type, T.i8())
+
+    register_model(DummyType)(DummyModel)
+
+    @extending.overload_attribute(
+        DummyType,
+        "arrangement",
+        inline="always",
+        typing_registry=extending.typing_registry,
+        lowering_registry=extending.lowering_registry,
+    )
+    def ol_arrangement(dummy):
+        return lambda dummy: "col_major"
+
+    dummy = Dummy()
+
+    @cuda.jit
+    def kernel(out):
+        out[0] = 1 if dummy.arrangement == "col_major" else 0
+
+    out = np.zeros(1, dtype=np.int32)
+    kernel[1, 1](out)
+    assert out[0] == 1
+
+
 def test_overload_method_with_args():
     """overload_method with arguments beyond self."""
 

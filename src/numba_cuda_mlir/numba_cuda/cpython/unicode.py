@@ -5,7 +5,7 @@ import sys
 import operator
 
 import numpy as np
-from llvmlite.ir import IntType, Constant
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import IntType, Constant
 
 from numba_cuda_mlir.numba_cuda.cgutils import is_nonelike
 from numba_cuda_mlir.numba_cuda.extending import (

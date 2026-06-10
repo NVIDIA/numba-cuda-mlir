@@ -1,0 +1,206 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: "CI: Test wheels (Windows)"
+
+on:
+  workflow_call:
+    inputs:
+      build-type:
+        type: string
+        required: true
+      host-platform:
+        type: string
+        required: true
+      test-script:
+        type: string
+        default: "run-tests"
+      matrix_filter:
+        type: string
+        default: "."
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -xeuo pipefail {0}
+
+jobs:
+  compute-matrix:
+    runs-on: ubuntu-latest
+    env:
+      BUILD_TYPE: ${{ inputs.build-type }}
+      ARCH: ${{ (inputs.host-platform == 'win-64' && 'amd64') }}
+    outputs:
+      MATRIX: ${{ steps.compute-matrix.outputs.MATRIX }}
+    steps:
+      - name: Checkout ${{ github.event.repository.name }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Validate Test Type
+        run: |
+          if [[ "$BUILD_TYPE" != "pull-request" ]] && [[ "$BUILD_TYPE" != "nightly" ]] && [[ "$BUILD_TYPE" != "branch" ]]; then
+              echo "Invalid build type! Must be one of 'nightly', 'pull-request', or 'branch'."
+              exit 1
+          fi
+
+      - name: Compute Python Test Matrix
+        id: compute-matrix
+        run: |
+          MATRIX_TYPE="${BUILD_TYPE}"
+          if [[ "${MATRIX_TYPE}" == "branch" ]]; then
+            MATRIX_TYPE="nightly"
+          fi
+
+          TEST_MATRIX=$(yq -o json ".windows[\"${MATRIX_TYPE}\"] | map(select(.ARCH == \"${ARCH}\"))" ci/test-matrix.yml)
+          MATRIX=$(echo "$TEST_MATRIX" | jq -c '${{ inputs.matrix_filter }} | if (. | length) > 0 then {include: .} else "Error: Empty matrix\n" | halt_error(1) end')
+
+          echo "MATRIX=${MATRIX}" | tee --append "${GITHUB_OUTPUT}"
+
+  test:
+    name: py${{ matrix.PY_VER }}, ${{ matrix.CUDA_VER }}, ${{ (matrix.LOCAL_CTK == '1' && 'local') || 'wheels' }}, ${{ matrix.GPU }} (${{ matrix.DRIVER_MODE }})
+    needs: compute-matrix
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix: ${{ fromJSON(needs.compute-matrix.outputs.MATRIX) }}
+    runs-on: "windows-${{ matrix.ARCH }}-gpu-${{ matrix.GPU }}-${{ matrix.DRIVER }}-${{ matrix.GPU_COUNT }}"
+    if: ${{ github.repository_owner == 'nvidia' && !cancelled() }}
+    steps:
+      - name: Checkout ${{ github.event.repository.name }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+        continue-on-error: true
+        with:
+          enable-apt: true
+
+      - name: Update driver
+        shell: pwsh
+        env:
+          DRIVER_MODE: ${{ matrix.DRIVER_MODE }}
+          GPU_TYPE: ${{ matrix.GPU }}
+        run: |
+          ci/tools/install_gpu_driver.ps1
+
+      - name: Ensure GPU is working
+        shell: pwsh
+        run: |
+          nvidia-smi
+
+          $mode_output = nvidia-smi | Select-String -Pattern "${{ matrix.DRIVER_MODE }}"
+          Write-Output "Driver mode check: $mode_output"
+          if ("$mode_output" -eq "") {
+            Write-Error "Switching to driver mode ${{ matrix.DRIVER_MODE }} failed!"
+            exit 1
+          }
+          Write-Output "Driver mode verified: ${{ matrix.DRIVER_MODE }}"
+
+      - name: Set environment variables
+        env:
+          CUDA_VER: ${{ matrix.CUDA_VER }}
+          HOST_PLATFORM: ${{ inputs.host-platform }}
+          LOCAL_CTK: ${{ matrix.LOCAL_CTK }}
+          PY_VER: ${{ matrix.PY_VER }}
+          SHA: ${{ github.sha }}
+        run: ./ci/tools/env-vars test
+
+      - name: Download numba-cuda-mlir build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: ${{ env.NUMBA_CUDA_MLIR_CUDA_ARTIFACT_NAME }}
+          path: dist
+
+      - name: Display structure of downloaded numba-cuda-mlir artifacts
+        run: ls -lahR "$NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR"
+
+      - name: Determine LLVM Python tag
+        id: wheel-tags
+        run: |
+          PY_VER_FMT=$(echo "${{ matrix.PY_VER }}" | tr -d '.')
+          echo "LLVM_PY_TAG=cp${PY_VER_FMT}" >> "$GITHUB_ENV"
+          echo "llvm-py-tag=cp${PY_VER_FMT}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore LLVM artifacts
+        uses: ./.github/actions/restore_llvm_artifacts
+        with:
+          host-platform: ${{ inputs.host-platform }}
+          llvm-py-tag: ${{ steps.wheel-tags.outputs.llvm-py-tag }}
+
+      - name: Set up Python ${{ matrix.PY_VER }}
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: ${{ matrix.PY_VER }}
+
+      - name: Set up mini CTK
+        if: ${{ matrix.LOCAL_CTK == '1' }}
+        uses: ./.github/actions/fetch_ctk
+        continue-on-error: false
+        with:
+          host-platform: ${{ inputs.host-platform }}
+          cuda-version: ${{ matrix.CUDA_VER }}
+          cuda-components: "cuda_nvcc,cuda_cudart,cuda_crt,libnvvm,cuda_nvrtc,cuda_cccl,libnvjitlink,cuda_cuobjdump"
+
+      - name: Resolve devcontainer image
+        env:
+          CUDA_VER: ${{ matrix.CUDA_VER }}
+        run: |
+          cuda_major_minor="$(cut -d '.' -f 1,2 <<< "${CUDA_VER}")"
+          case "${cuda_major_minor}" in
+            12.*|13.*) ;;
+            *) echo "Unsupported Windows devcontainer CUDA version: ${CUDA_VER}" >&2; exit 1 ;;
+          esac
+          image="rapidsai/devcontainers:26.06-cuda${cuda_major_minor}-cl14.44"
+          echo "WINDOWS_TEST_DEVCONTAINER_IMAGE=${image}" >> "$GITHUB_ENV"
+          echo "Resolved Windows test devcontainer image: ${image}"
+
+      - name: Pull devcontainer image
+        shell: pwsh
+        run: |
+          docker pull $env:WINDOWS_TEST_DEVCONTAINER_IMAGE
+
+      - name: Run numba-cuda-mlir tests in devcontainer
+        shell: pwsh
+        env:
+          CUDA_VER: ${{ matrix.CUDA_VER }}
+          LOCAL_CTK: ${{ matrix.LOCAL_CTK }}
+          PY_VER: ${{ matrix.PY_VER }}
+          TEST_SCRIPT: ${{ inputs.test-script }}
+        run: |
+          switch ($env:TEST_SCRIPT) {
+            'run-tests' { }
+            'run-coverage-tests' { }
+            default { throw "Unsupported test script: $env:TEST_SCRIPT" }
+          }
+
+          $src = (Resolve-Path "${{ github.workspace }}").Path
+          $img = $env:WINDOWS_TEST_DEVCONTAINER_IMAGE
+          $dockerArgs = @(
+            'run',
+            '--rm',
+            '--isolation=process',
+            '--device',
+            'class/5B45201D-F2F2-4F3B-85BB-30FF1F953599',
+            '--mount',
+            "type=bind,source=$src,target=C:\workspace",
+            '--workdir',
+            'C:\workspace',
+            $img,
+            'powershell',
+            '-NoProfile',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-File',
+            'C:\workspace\ci\windows-run-tests-container.ps1',
+            '-PythonVersion',
+            $env:PY_VER,
+            '-CudaVersion',
+            $env:CUDA_VER,
+            '-LocalCtk',
+            $env:LOCAL_CTK,
+            '-TestScript',
+            $env:TEST_SCRIPT
+          )
+          & docker @dockerArgs
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows test container failed with exit code $LASTEXITCODE"
+          }

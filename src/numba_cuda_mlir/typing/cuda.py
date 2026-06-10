@@ -245,14 +245,11 @@ class GenericArrayTemplate(CallableTemplate):
 
                     raise RequireLiteralValue("alignment must be a constant integer")
 
-            # Parse dtype - handle DTypeSpec, TypeRef, StringLiteral, and NumberClass
+            # Parse dtype - handle DTypeSpec, TypeRef, and StringLiteral
             if isinstance(dtype, types.DTypeSpec):
                 nb_dtype = dtype.dtype
             elif isinstance(dtype, types.TypeRef):
                 nb_dtype = dtype.instance_type
-            elif isinstance(dtype, types.NumberClass):
-                # NumberClass wraps a numeric type (e.g., types.float16 -> NumberClass(float16))
-                nb_dtype = dtype.dtype
             elif isinstance(dtype, types.StringLiteral):
                 import numpy as np
                 from numba_cuda_mlir.numba_cuda.core.errors import TypingError

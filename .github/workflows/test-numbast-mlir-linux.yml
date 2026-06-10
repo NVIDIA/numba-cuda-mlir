@@ -67,14 +67,14 @@ jobs:
         uses: ./.github/actions/install_unix_deps
         continue-on-error: false
         with:
-          dependencies: "bzip2 ca-certificates git jq wget libgl1 libegl1"
-          dependent_exes: "bzip2 git jq wget"
+          dependencies: "bzip2 ca-certificates git jq wget libgl1 libegl1 python3"
+          dependent_exes: "bzip2 git jq wget python3"
 
       - name: Checkout Numbast
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           repository: NVIDIA/numbast
-          ref: f779d7d7f834a7e8b411b4d0bfe6c2fb36a58859
+          ref: c53c87c9d210a14a11d824e52f7b7e4fa51545f0
           path: numbast-checkout
           fetch-depth: 0
           persist-credentials: false

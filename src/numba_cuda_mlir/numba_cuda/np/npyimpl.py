@@ -8,7 +8,7 @@ Implementation of functions in the Numpy package.
 import itertools
 from collections import namedtuple
 
-import llvmlite.ir as ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 
 import numpy as np
 import operator

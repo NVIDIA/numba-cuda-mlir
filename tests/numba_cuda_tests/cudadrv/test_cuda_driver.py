@@ -25,7 +25,7 @@ from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda._compat import CUDA_CORE_GE_1_0
 from numba_cuda_mlir.numba_cuda.cudadrv import devices, nvrtc
 from numba_cuda_mlir.testing import NumbaCUDATestCase
-from numba_cuda_mlir.numba_cuda.testing import cc_X_or_above, skip_on_cudasim
+from numba_cuda_mlir.numba_cuda.testing import cc_X_or_above
 from numba_cuda_mlir.numba_cuda.tests.support import override_config
 from numba_cuda_mlir.numba_cuda import types
 
@@ -83,7 +83,6 @@ ptx2 = """
 """
 
 
-@skip_on_cudasim("CUDA Driver API unsupported in the simulator")
 class TestCudaDriver(NumbaCUDATestCase):
     def setUp(self):
         super().setUp()
@@ -420,7 +419,6 @@ class TestDevice(NumbaCUDATestCase):
         self.assertRegex(dev.uuid, uuid_format)
 
 
-@skip_on_cudasim("CUDA asm unsupported in the simulator")
 class TestAcceleratedArchitecture(NumbaCUDATestCase):
     @pytest.mark.skipif(
         not cc_X_or_above(9, 0) or cc_X_or_above(10, 0),

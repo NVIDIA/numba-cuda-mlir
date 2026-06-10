@@ -75,6 +75,15 @@ jobs:
       host-platform: linux-aarch64
     secrets: inherit
 
+  build-llvm-windows:
+    needs:
+      - should-skip
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+    uses: ./.github/workflows/build-llvm.yml
+    with:
+      host-platform: win-64
+    secrets: inherit
+
   # WARNING: make sure all of the build jobs are in sync
   build-linux-64:
     needs:
@@ -105,6 +114,25 @@ jobs:
       matrix:
         host-platform:
           - linux-aarch64
+    name: Build ${{ matrix.host-platform }}
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
+    uses: ./.github/workflows/build-wheel.yml
+    with:
+      host-platform: ${{ matrix.host-platform }}
+      cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
+      prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
+
+  # WARNING: make sure all of the build jobs are in sync
+  build-windows:
+    needs:
+      - ci-vars
+      - should-skip
+      - build-llvm-windows
+    strategy:
+      fail-fast: false
+      matrix:
+        host-platform:
+          - win-64
     name: Build ${{ matrix.host-platform }}
     if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
     uses: ./.github/workflows/build-wheel.yml
@@ -145,6 +173,23 @@ jobs:
     needs:
       - build-linux-aarch64
     uses: ./.github/workflows/test-wheel-linux.yml
+    with:
+      build-type: pull-request
+      host-platform: ${{ matrix.host-platform }}
+
+  test-windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        host-platform:
+          - win-64
+    name: Test ${{ matrix.host-platform }}
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read  # This is required for actions/checkout
+    needs:
+      - build-windows
+    uses: ./.github/workflows/test-wheel-windows.yml
     with:
       build-type: pull-request
       host-platform: ${{ matrix.host-platform }}
@@ -284,6 +329,7 @@ jobs:
     needs:
       - test-linux-64
       - test-linux-aarch64
+      - test-windows
       - test-expensive-linux-64
       - test-expensive-linux-aarch64
       - test-cudf-source-linux-64
@@ -314,7 +360,9 @@ jobs:
           # failing job(s) will timeout causing a cancellation here and the
           # build to succeed which we don't want (originally this was just
           # 'exit 0')
-          if ${{ needs.test-linux-64.result == 'cancelled' ||
+          if ${{ needs.test-windows.result == 'cancelled' ||
+                 needs.test-windows.result == 'failure' ||
+                 needs.test-linux-64.result == 'cancelled' ||
                  needs.test-linux-64.result == 'failure' ||
                  needs.test-linux-aarch64.result == 'cancelled' ||
                  needs.test-linux-aarch64.result == 'failure' ||

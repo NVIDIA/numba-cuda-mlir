@@ -41,6 +41,6 @@ Status cuda_loader_init();
 
 
 #define DECLARE_CUDA_FUNC_EXTERN(name, _cuda_version) \
-    extern typeof(name)* g_##name;
+    extern decltype(&name) g_##name;
 
 FOREACH_CUDA_FUNCTION_TO_LOAD(DECLARE_CUDA_FUNC_EXTERN)

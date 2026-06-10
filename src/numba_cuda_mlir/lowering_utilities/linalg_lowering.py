@@ -7,10 +7,13 @@ from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir.lowering_utilities import (
     memref_to_tensor,
     tensor_to_memref,
+    memref_to_value_tensor,
+    value_tensor_to_storage_memref,
     set_error_code_if_zero,
     convert,
     mul,
     add,
+    expensive_coerce_tensor_type,
 )
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.mlir_lowering import KERNEL_ERROR_CODES
@@ -53,27 +56,23 @@ def lower_matmul(mlir_lower, target, target_type, args):
             scf.yield_([])
 
     result_dims = [lhs_dims[0], rhs_dims[1]]
+    element_type = mlir_lower.get_value_type(target_type.dtype)
 
-    memref_type = mlir_lower.get_mlir_type(target_type)
-    result_memref = memref.alloc(
-        memref=memref_type,
-        dynamic_sizes=result_dims,
-        symbol_operands=[],
-    )
+    lhs_tensor = memref_to_value_tensor(lhs_type, mlir_lower.load_var(lhs))
+    rhs_tensor = memref_to_value_tensor(rhs_type, mlir_lower.load_var(rhs))
+    lhs_tensor = expensive_coerce_tensor_type(lhs_tensor, element_type)
+    rhs_tensor = expensive_coerce_tensor_type(rhs_tensor, element_type)
 
-    lhs_tensor = memref_to_tensor(mlir_lower.load_var(lhs))
-    rhs_tensor = memref_to_tensor(mlir_lower.load_var(rhs))
-    result_tensor = memref_to_tensor(result_memref)
+    result_tensor = tensor.empty(sizes=result_dims, element_type=element_type)
 
     # Initialize result tensor with zeros
-    element_type = mlir_lower.get_mlir_type(target_type.dtype)
     zero_value = 0.0 if isinstance(target_type.dtype, types.Float) else 0
     zero = arith.constant(result=element_type, value=zero_value)
     result_tensor = linalg.fill(zero, outs=[result_tensor])
 
     matmul_result = linalg.matmul(lhs_tensor, rhs_tensor, outs=[result_tensor])
 
-    mlir_lower.store_var(target, tensor_to_memref(matmul_result))
+    mlir_lower.store_var(target, value_tensor_to_storage_memref(target_type, matmul_result))
 
 
 def get_array_dims(mlir_lower, arg, arg_type):
@@ -94,7 +93,7 @@ def broadcast_tensor(mlir_lower, input_tensor, input_dims, target_ndim, target_s
 
     # Create empty output tensor
     empty = tensor.empty(
-        sizes=target_shape, element_type=mlir_lower.get_mlir_type(target_type.dtype)
+        sizes=target_shape, element_type=mlir_lower.get_value_type(target_type.dtype)
     )
 
     def build_nested_tensor_broadcast_loops(tensor_arg, indices_so_far, dim_idx):
@@ -125,7 +124,7 @@ def broadcast_tensor(mlir_lower, input_tensor, input_dims, target_ndim, target_s
 
             # Extract value from input tensor
             extracted_value = tensor.extract(tensor=input_tensor, indices=input_indices)
-            converted_value = convert(extracted_value, mlir_lower.get_mlir_type(target_type.dtype))
+            converted_value = convert(extracted_value, mlir_lower.get_value_type(target_type.dtype))
 
             # Insert into output tensor
             return tensor.insert(scalar=converted_value, dest=tensor_arg, indices=indices_so_far)
@@ -164,11 +163,12 @@ def broadcast_if_needed(
     broadcast_dims,
     target_type,
 ):
-    if tensor_ndim == result_ndim and target_type.dtype == tensor_arg.type.element_type:
+    target_element_type = mlir_lower.get_value_type(target_type.dtype)
+    if tensor_ndim == result_ndim and tensor_arg.type.element_type == target_element_type:
         broadcast_op = scf.IfOp(
             shape.shape_eq([tensor_shape, broadcast_shape]),
             results_=[tensor_arg.type],
-            hasElse=True,
+            has_else=True,
         )
         with ir.InsertionPoint(broadcast_op.then_block):
             scf.yield_([tensor_arg])
@@ -214,48 +214,29 @@ def lower_np_binop(mlir_lower, target, target_type, args, linalg_op):
 
     lhs_type = mlir_lower.get_numba_type(args[0].name)
     rhs_type = mlir_lower.get_numba_type(args[1].name)
+    element_type = mlir_lower.get_value_type(target_type.dtype)
 
     if isinstance(lhs_type, types.Number):
         # Scalar + Array case
         rhs_dims, rhs_ndim = get_array_dims(mlir_lower, args[1], rhs_type)
-        scalar_value = mlir_lower.load_var(args[0])
-        empty = tensor.empty(
-            sizes=rhs_dims, element_type=mlir_lower.get_mlir_type(target_type.dtype)
-        )
+        scalar_value = convert(mlir_lower.load_var(args[0]), element_type)
+        empty = tensor.empty(sizes=rhs_dims, element_type=element_type)
         lhs_broadcast = linalg.fill(scalar_value, outs=[empty])
-        if rhs_type.dtype != target_type.dtype:
-            type_converted_memref = memref.alloc(
-                memref=mlir_lower.get_mlir_type(target_type),
-                dynamic_sizes=rhs_dims,
-                symbol_operands=[],
-            )
-            rhs_broadcast = linalg.copy(
-                memref_to_tensor(mlir_lower.load_var(args[1])),
-                outs=[memref_to_tensor(type_converted_memref)],
-            )
-        else:
-            rhs_broadcast = memref_to_tensor(mlir_lower.load_var(args[1]))
+        rhs_broadcast = expensive_coerce_tensor_type(
+            memref_to_value_tensor(rhs_type, mlir_lower.load_var(args[1])),
+            element_type,
+        )
         broadcast_dims = rhs_dims
     elif isinstance(rhs_type, types.Number):
         # Array + Scalar case
         lhs_dims, lhs_ndim = get_array_dims(mlir_lower, args[0], lhs_type)
-        scalar_value = mlir_lower.load_var(args[1])
-        empty = tensor.empty(
-            sizes=lhs_dims, element_type=mlir_lower.get_mlir_type(target_type.dtype)
-        )
+        scalar_value = convert(mlir_lower.load_var(args[1]), element_type)
+        empty = tensor.empty(sizes=lhs_dims, element_type=element_type)
         rhs_broadcast = linalg.fill(scalar_value, outs=[empty])
-        if lhs_type.dtype != target_type.dtype:
-            type_converted_memref = memref.alloc(
-                memref=mlir_lower.get_mlir_type(target_type),
-                dynamic_sizes=lhs_dims,
-                symbol_operands=[],
-            )
-            lhs_broadcast = linalg.copy(
-                memref_to_tensor(mlir_lower.load_var(args[0])),
-                outs=[memref_to_tensor(type_converted_memref)],
-            )
-        else:
-            lhs_broadcast = memref_to_tensor(mlir_lower.load_var(args[0]))
+        lhs_broadcast = expensive_coerce_tensor_type(
+            memref_to_value_tensor(lhs_type, mlir_lower.load_var(args[0])),
+            element_type,
+        )
         broadcast_dims = lhs_dims
     else:
         # Array + Array case with broadcasting
@@ -263,8 +244,8 @@ def lower_np_binop(mlir_lower, target, target_type, args, linalg_op):
         rhs_dims, rhs_ndim = get_array_dims(mlir_lower, args[1], rhs_type)
         result_ndim = max(lhs_ndim, rhs_ndim)
 
-        lhs_tensor = memref_to_tensor(mlir_lower.load_var(args[0]))
-        rhs_tensor = memref_to_tensor(mlir_lower.load_var(args[1]))
+        lhs_tensor = memref_to_value_tensor(lhs_type, mlir_lower.load_var(args[0]))
+        rhs_tensor = memref_to_value_tensor(rhs_type, mlir_lower.load_var(args[1]))
 
         lhs_shape = shape.shape_of(lhs_tensor)
         rhs_shape = shape.shape_of(rhs_tensor)
@@ -310,12 +291,13 @@ def lower_np_binop(mlir_lower, target, target_type, args, linalg_op):
             target_type,
         )
 
-    element_type = mlir_lower.get_mlir_type(target_type.dtype)
+    lhs_broadcast = expensive_coerce_tensor_type(lhs_broadcast, element_type)
+    rhs_broadcast = expensive_coerce_tensor_type(rhs_broadcast, element_type)
     empty = tensor.empty(sizes=broadcast_dims, element_type=element_type)
 
     result_tensor = linalg_op(lhs_broadcast, rhs_broadcast, outs=[empty])
 
-    mlir_lower.store_var(target, tensor_to_memref(result_tensor))
+    mlir_lower.store_var(target, value_tensor_to_storage_memref(target_type, result_tensor))
 
 
 def lower_transpose(mlir_lower, target, array):
@@ -333,7 +315,7 @@ def lower_transpose(mlir_lower, target, array):
 
     empty_tensor = tensor.empty(
         sizes=list(reversed(dims)),
-        element_type=mlir_lower.get_mlir_type(input_type.dtype),
+        element_type=mlir_lower.get_storage_type(input_type.dtype),
     )
     transpose_op = linalg.transpose(
         input=input_tensor,
@@ -361,31 +343,33 @@ def lower_linalg_dot(mlir_lower, target, target_type, args):
 
 
 def lower_linalg_scalar_array_dot(mlir_lower, target, target_type, args):
-    lhs_ndim = mlir_lower.get_numba_type(args[0].name).ndim
+    lhs_type = mlir_lower.get_numba_type(args[0].name)
+    rhs_type = mlir_lower.get_numba_type(args[1].name)
+    lhs_ndim = lhs_type.ndim
 
     if lhs_ndim == 0:
-        scalar_type = mlir_lower.get_numba_type(args[0].name)
-        scalar_value = tensor.extract(
-            tensor=memref_to_tensor(mlir_lower.load_var(args[0])), indices=[]
-        )
-        array_tensor = memref_to_tensor(mlir_lower.load_var(args[1]))
+        scalar_type = lhs_type.dtype
+        scalar_tensor = memref_to_value_tensor(lhs_type, mlir_lower.load_var(args[0]))
+        scalar_value = tensor.extract(tensor=scalar_tensor, indices=[])
+        array_type = rhs_type
+        array_tensor = memref_to_value_tensor(array_type, mlir_lower.load_var(args[1]))
         n = memref.dim(
             source=mlir_lower.load_var(args[1]),
             index=arith.constant(result=ir.IndexType.get(), value=0),
         )
     else:
-        scalar_type = mlir_lower.get_numba_type(args[1].name)
-        scalar_value = tensor.extract(
-            tensor=memref_to_tensor(mlir_lower.load_var(args[1])), indices=[]
-        )
-        array_tensor = memref_to_tensor(mlir_lower.load_var(args[0]))
+        scalar_type = rhs_type.dtype
+        scalar_tensor = memref_to_value_tensor(rhs_type, mlir_lower.load_var(args[1]))
+        scalar_value = tensor.extract(tensor=scalar_tensor, indices=[])
+        array_type = lhs_type
+        array_tensor = memref_to_value_tensor(array_type, mlir_lower.load_var(args[0]))
         n = memref.dim(
             source=mlir_lower.load_var(args[0]),
             index=arith.constant(result=ir.IndexType.get(), value=0),
         )
 
     # Create result tensor with same shape as array
-    element_type = mlir_lower.get_mlir_type(target_type.dtype)
+    element_type = mlir_lower.get_value_type(target_type.dtype)
     empty_tensor = tensor.empty(sizes=[n], element_type=element_type)
 
     index_type = ir.IndexType.get()
@@ -395,21 +379,24 @@ def lower_linalg_scalar_array_dot(mlir_lower, target, target_type, args):
 
     # Type convert arguments if needed
     if scalar_type != target_type.dtype:
-        scalar_value = convert(scalar_value, mlir_lower.get_mlir_type(target_type.dtype))
+        scalar_value = convert(scalar_value, element_type)
 
-    if target_type.dtype != array_tensor.type.element_type:
-        array_tensor = linalg.copy(array_tensor, outs=[empty_tensor])
+    array_tensor = expensive_coerce_tensor_type(array_tensor, element_type)
 
     @tensor.generate(empty_tensor.type, dynamic_extents=target_extracts)
     def generate_scalar_array_dot(i1: index_type):
         return mul(scalar_value, tensor.extract(array_tensor, [i1]))
 
-    mlir_lower.store_var(target, tensor_to_memref(generate_scalar_array_dot))
+    mlir_lower.store_var(
+        target, value_tensor_to_storage_memref(target_type, generate_scalar_array_dot)
+    )
 
 
 def lower_linalg_nd_1d_dot(mlir_lower, target, target_type, args):
-    lhs_ndim = mlir_lower.get_numba_type(args[0].name).ndim
-    rhs_ndim = mlir_lower.get_numba_type(args[1].name).ndim
+    lhs_type = mlir_lower.get_numba_type(args[0].name)
+    rhs_type = mlir_lower.get_numba_type(args[1].name)
+    lhs_ndim = lhs_type.ndim
+    rhs_ndim = rhs_type.ndim
 
     # Ensure lhs is N-dimensional and rhs is 1D
     assert lhs_ndim > 1 and rhs_ndim == 1, (
@@ -441,16 +428,16 @@ def lower_linalg_nd_1d_dot(mlir_lower, target, target_type, args):
     result_dims = lhs_dims[:-1]
 
     # Create result memref
-    element_type = mlir_lower.get_mlir_type(target_type.dtype)
+    element_type = mlir_lower.get_value_type(target_type.dtype)
     result_memref = memref.alloc(
         memref=mlir_lower.get_mlir_type(target_type),
         dynamic_sizes=result_dims,
         symbol_operands=[],
     )
 
-    # Convert inputs to tensors
-    lhs_tensor = memref_to_tensor(mlir_lower.load_var(args[0]))
-    rhs_tensor = memref_to_tensor(mlir_lower.load_var(args[1]))
+    # Convert inputs to source-level value tensors
+    lhs_tensor = memref_to_value_tensor(lhs_type, mlir_lower.load_var(args[0]))
+    rhs_tensor = memref_to_value_tensor(rhs_type, mlir_lower.load_var(args[1]))
 
     # Create nested loops to compute dot product
     def build_nested_dot_loops(result_memref, indices_so_far, dim_idx):
@@ -499,7 +486,8 @@ def lower_linalg_nd_1d_dot(mlir_lower, target, target_type, args):
 
             # Store the result from the parallel operation
             final_sum = parallel_op.results[0]
-            memref.store(value=final_sum, memref=result_memref, indices=indices_so_far)
+            stored_sum = mlir_lower.as_storage(target_type.dtype, final_sum)
+            memref.store(value=stored_sum, memref=result_memref, indices=indices_so_far)
             return
 
         # Create loop for current dimension
@@ -523,8 +511,10 @@ def lower_linalg_nd_1d_dot(mlir_lower, target, target_type, args):
 
 
 def lower_linalg_nd_md_dot(mlir_lower, target, target_type, args):
-    lhs_ndim = mlir_lower.get_numba_type(args[0].name).ndim
-    rhs_ndim = mlir_lower.get_numba_type(args[1].name).ndim
+    lhs_type = mlir_lower.get_numba_type(args[0].name)
+    rhs_type = mlir_lower.get_numba_type(args[1].name)
+    lhs_ndim = lhs_type.ndim
+    rhs_ndim = rhs_type.ndim
 
     # Get dimensions
     lhs_dims = []
@@ -552,23 +542,16 @@ def lower_linalg_nd_md_dot(mlir_lower, target, target_type, args):
     result_dims = lhs_dims[:-1] + rhs_dims[:-2] + [rhs_dims[-1]]
 
     # Create result memref
-    element_type = mlir_lower.get_mlir_type(target_type.dtype)
+    element_type = mlir_lower.get_value_type(target_type.dtype)
     result_memref = memref.alloc(
         memref=mlir_lower.get_mlir_type(target_type),
         dynamic_sizes=result_dims,
         symbol_operands=[],
     )
 
-    # Initialize result with zeros
-    zero = arith.constant(
-        result=element_type, value=0.0 if isinstance(element_type, ir.FloatType) else 0
-    )
-    result_tensor = linalg.fill(zero, outs=[memref_to_tensor(result_memref)])
-    result_memref = tensor_to_memref(result_tensor)
-
-    # Convert inputs to tensors
-    lhs_tensor = memref_to_tensor(mlir_lower.load_var(args[0]))
-    rhs_tensor = memref_to_tensor(mlir_lower.load_var(args[1]))
+    # Convert inputs to source-level value tensors
+    lhs_tensor = memref_to_value_tensor(lhs_type, mlir_lower.load_var(args[0]))
+    rhs_tensor = memref_to_value_tensor(rhs_type, mlir_lower.load_var(args[1]))
 
     # Create nested loops to compute dot product
     def build_nested_dot_loops(result_memref, indices_so_far, dim_idx):
@@ -618,7 +601,8 @@ def lower_linalg_nd_md_dot(mlir_lower, target, target_type, args):
 
             # Store the result from the parallel operation
             final_sum = parallel_op.results[0]
-            memref.store(value=final_sum, memref=result_memref, indices=indices_so_far)
+            stored_sum = mlir_lower.as_storage(target_type.dtype, final_sum)
+            memref.store(value=stored_sum, memref=result_memref, indices=indices_so_far)
             return
 
         # Create loop for current dimension
@@ -642,14 +626,16 @@ def lower_linalg_nd_md_dot(mlir_lower, target, target_type, args):
 
 
 def lower_linalg_dot_vector(mlir_lower, target, target_type, args):
-    lhs_ndim = mlir_lower.get_numba_type(args[0].name).ndim
-    rhs_ndim = mlir_lower.get_numba_type(args[1].name).ndim
+    lhs_type = mlir_lower.get_numba_type(args[0].name)
+    rhs_type = mlir_lower.get_numba_type(args[1].name)
+    lhs_ndim = lhs_type.ndim
+    rhs_ndim = rhs_type.ndim
 
     c0 = arith.constant(result=ir.IndexType.get(), value=0)
     c1 = arith.constant(result=ir.IndexType.get(), value=1)
 
-    lhs_tensor = memref_to_tensor(mlir_lower.load_var(args[0]))
-    rhs_tensor = memref_to_tensor(mlir_lower.load_var(args[1]))
+    lhs_tensor = memref_to_value_tensor(lhs_type, mlir_lower.load_var(args[0]))
+    rhs_tensor = memref_to_value_tensor(rhs_type, mlir_lower.load_var(args[1]))
 
     if lhs_ndim == 0 and rhs_ndim == 0:
         lhs_value = tensor.extract(tensor=lhs_tensor, indices=[])
@@ -668,7 +654,7 @@ def lower_linalg_dot_vector(mlir_lower, target, target_type, args):
                 set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
                 scf.yield_([])
 
-        element_type = mlir_lower.get_mlir_type(target_type)
+        element_type = mlir_lower.get_value_type(target_type)
         empty = tensor.empty(sizes=[c1, c1], element_type=element_type)
 
         zero = arith.constant(

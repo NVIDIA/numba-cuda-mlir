@@ -20,8 +20,15 @@ from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir import types
 from numba_cuda_mlir.numba_cuda.datamodel.models import PrimitiveModel, DataModel
 from numba_cuda_mlir.numba_cuda.datamodel.registry import DataModelManager, register
+from numba_cuda_mlir.numba_cuda.types import misc as nb_types_misc
 from numba_cuda_mlir.numba_cuda.types.ext_types import GridGroup as GridGroupClass
 from numba_cuda_mlir.type_defs import float_types
+from numba_cuda_mlir.numba_cuda.types.containers import (
+    NamedTuple,
+    NamedUniTuple,
+    StarArgTuple,
+    StarArgUniTuple,
+)
 
 
 class ContextAwareDataModelManager(DataModelManager):
@@ -63,6 +70,66 @@ mlir_data_manager = ContextAwareDataModelManager()
 
 register_model = functools.partial(register, mlir_data_manager)
 
+_float_integer_storage_map_cache = None
+_float_integer_storage_map_context_id = None
+
+
+def get_float_integer_storage_map() -> dict[str, int]:
+    """Return `{str(mlir_float_type): integer_storage_bit_width}` for scalar types
+    whose MLIR value type is floating-point but memory/ABI storage is an integer."""
+    global _float_integer_storage_map_cache, _float_integer_storage_map_context_id
+
+    try:
+        current_ctx = ir.Context.current
+    except ValueError:
+        current_ctx = None
+
+    if (
+        _float_integer_storage_map_cache is not None
+        and current_ctx is not None
+        and id(current_ctx) == _float_integer_storage_map_context_id
+    ):
+        return _float_integer_storage_map_cache
+
+    from numba_cuda_mlir.numba_cuda.types.ext_types import bfloat16
+
+    probes = (
+        types.float16,
+        types.float32,
+        types.float64,
+        types.bf16,
+        bfloat16,
+        types.f4E2M1FN,
+        types.f6E2M3FN,
+        types.f6E3M2FN,
+        types.f8E3M4,
+        types.f8E4M3B11FNUZ,
+        types.f8E4M3FN,
+        types.f8E4M3FNUZ,
+        types.f8E4M3,
+        types.f8E5M2FNUZ,
+        types.f8E5M2,
+        types.f8E8M0FNU,
+        types.tf32,
+    )
+
+    result: dict[str, int] = {}
+    for fetype in probes:
+        try:
+            model = mlir_data_manager.lookup(fetype)
+            vt = model.get_value_type()
+            dt = model.get_data_type()
+            if isinstance(vt, ir.FloatType) and isinstance(dt, IntegerType):
+                result[str(vt)] = dt.width
+        except (NotImplementedError, ValueError, KeyError, TypeError):
+            continue
+
+    if current_ctx is not None:
+        _float_integer_storage_map_cache = result
+        _float_integer_storage_map_context_id = id(current_ctx)
+
+    return result
+
 
 class StructModel(DataModel):
     """Vendored struct model backed by MLIR LLVM dialect types."""
@@ -74,42 +141,67 @@ class StructModel(DataModel):
         else:
             self._fields = self._members = ()
         self._models = tuple([self._dmm.lookup(t) for t in self._members])
-        field_types = [model.get_value_type() for model in self._models]
-        self.be_type = llvm.StructType.get_literal(field_types)
+        self._value_type = None
+        self._data_type = None
+        self.be_type = self.get_value_type()
 
     def get_member_fe_type(self, name):
         pos = self.get_field_position(name)
         return self._members[pos]
 
     def get_value_type(self):
-        return self.be_type
+        if self._value_type is None:
+            self._value_type = llvm.StructType.get_literal(
+                [model.get_value_type() for model in self._models]
+            )
+        return self._value_type
 
     def get_data_type(self):
-        return self.be_type
+        if self._data_type is None:
+            self._data_type = llvm.StructType.get_literal(
+                [model.get_data_type() for model in self._models]
+            )
+        return self._data_type
 
     def get_argument_type(self):
-        return self.get_value_type()
+        return self.get_data_type()
 
     def get_return_type(self):
-        return self.get_value_type()
+        return self.get_data_type()
+
+    def _as(self, methname, builder, value, out_type):
+        out = llvm.UndefOp(out_type).result
+        for i, model in enumerate(self._models):
+            field = llvm.extractvalue(model.get_value_type(), value, [i])
+            converted = getattr(model, methname)(builder, field)
+            out = llvm.insertvalue(out, converted, [i])
+        return out
+
+    def _from(self, methname, builder, value):
+        out = llvm.UndefOp(self.get_value_type()).result
+        for i, model in enumerate(self._models):
+            field = llvm.extractvalue(model.get_data_type(), value, [i])
+            converted = getattr(model, methname)(builder, field)
+            out = llvm.insertvalue(out, converted, [i])
+        return out
 
     def as_data(self, builder, value):
-        return value
+        return self._as("as_data", builder, value, self.get_data_type())
 
     def as_argument(self, builder, value):
-        return value
+        return self.as_data(builder, value)
 
     def as_return(self, builder, value):
-        return value
+        return self.as_data(builder, value)
 
     def from_data(self, builder, value):
-        return value
+        return self._from("from_data", builder, value)
 
     def from_argument(self, builder, value):
-        return value
+        return self.from_data(builder, value)
 
     def from_return(self, builder, value):
-        return value
+        return self.from_data(builder, value)
 
     def get_field_position(self, field):
         try:
@@ -133,11 +225,53 @@ class StructModel(DataModel):
         return self._models
 
 
+class StoragePrimitiveModel(PrimitiveModel):
+    def __init__(self, dmm, fe_type, value_type, data_type):
+        super().__init__(dmm, fe_type, value_type)
+        self._data_type = data_type
+
+    def get_data_type(self):
+        return self._data_type
+
+    def get_argument_type(self):
+        return self.get_value_type()
+
+    def get_return_type(self):
+        return self.get_data_type()
+
+    def as_data(self, builder, value):
+        from numba_cuda_mlir.lowering_utilities import value_to_storage
+
+        return value_to_storage(self.fe_type, value)
+
+    def as_argument(self, builder, value):
+        from numba_cuda_mlir.lowering_utilities import convert
+
+        return convert(value, self.get_value_type())
+
+    def as_return(self, builder, value):
+        return self.as_data(builder, value)
+
+    def from_data(self, builder, value):
+        from numba_cuda_mlir.lowering_utilities import storage_to_value
+
+        return storage_to_value(self.fe_type, value)
+
+    def from_argument(self, builder, value):
+        from numba_cuda_mlir.lowering_utilities import convert
+
+        return convert(value, self.get_value_type())
+
+    def from_return(self, builder, value):
+        return self.from_data(builder, value)
+
+
+@register_model(types.DTypeSpec)
 @register_model(types.NumberClass)
-class NumpyDataTypeModel(PrimitiveModel):
+class DTypeSpecModel(PrimitiveModel):
     """
-    Convert from a Numba NumberClass type instance
-    into the MLIR type that this NumberClass instance represents.
+    Convert from a Numba DTypeSpec type instance
+    into the MLIR type that this DTypeSpec instance represents.
     For example, a NumberClass instance
         class(float64)
     is converted into a F64Type in MLIR.
@@ -158,6 +292,7 @@ class GridGroupModel(PrimitiveModel):
 @register_model(types.Function)
 @register_model(types.Module)
 @register_model(types.NoneType)
+@register_model(types.DType)
 class OpaqueModel(PrimitiveModel):
     """Passed as opaque pointers"""
 
@@ -167,19 +302,48 @@ class OpaqueModel(PrimitiveModel):
 
 
 @register_model(types.Tuple)
+@register_model(NamedTuple)
+@register_model(StarArgTuple)
 class TupleModel(PrimitiveModel):
-    """
-    Assumption: Every element of the tuple type can resolve into
-    the same MLIR type.
-    """
+    """Tuple values are represented as Python tuples of MLIR values."""
 
     def __init__(self, dmm, fe_type):
-        be_type = tuple(map(lambda t: dmm.lookup(t).get_value_type(), fe_type.types))
+        self._models = tuple(dmm.lookup(t) for t in fe_type.types)
+        be_type = tuple(model.get_value_type() for model in self._models)
         super().__init__(dmm, fe_type, be_type)
+
+    def get_data_type(self):
+        return tuple(model.get_data_type() for model in self._models)
+
+    def get_argument_type(self):
+        return tuple(model.get_argument_type() for model in self._models)
+
+    def get_return_type(self):
+        return self.get_data_type()
+
+    def as_data(self, builder, value):
+        return tuple(model.as_data(builder, v) for model, v in zip(self._models, value))
+
+    def from_data(self, builder, value):
+        return tuple(model.from_data(builder, v) for model, v in zip(self._models, value))
+
+    def as_argument(self, builder, value):
+        return tuple(model.as_argument(builder, v) for model, v in zip(self._models, value))
+
+    def from_argument(self, builder, value):
+        return tuple(model.from_argument(builder, v) for model, v in zip(self._models, value))
+
+    def as_return(self, builder, value):
+        return self.as_data(builder, value)
+
+    def from_return(self, builder, value):
+        return self.from_data(builder, value)
 
 
 @register_model(types.CPointer)
 @register_model(types.RawPointer)
+@register_model(nb_types_misc.MemInfoPointer)
+@register_model(nb_types_misc.PyObject)
 class CPointerModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
         from numba_cuda_mlir._mlir.dialects import llvm
@@ -204,34 +368,29 @@ class StringLiteralModel(PrimitiveModel):
         be_type = llvm.PointerType.get()
         super().__init__(dmm, fe_type, be_type)
 
+    def get_return_type(self):
+        return self._dmm.lookup(types.unicode_type).get_value_type()
+
 
 @register_model(types.UnicodeType)
-class UnicodeTypeModel(PrimitiveModel):
-    """Runtime unicode string type matching numba-cuda's UnicodeModel.
-
-    The struct layout is:
-      (data: ptr, length: i64, kind: i32, is_ascii: u32,
-       hash: i64, meminfo: ptr, parent: ptr)
-    """
-
-    _fields = ("data", "length", "kind", "is_ascii", "hash", "meminfo", "parent")
+class UnicodeTypeModel(StructModel):
+    """Runtime unicode string type matching numba-cuda's UnicodeModel."""
 
     def __init__(self, dmm, fe_type):
         import sys
+        from numba_cuda_mlir.numba_cuda import types as nb_types
 
-        hash_width = sys.hash_info.width
-        be_type = llvm.StructType.get_literal(
-            [
-                llvm.PointerType.get(),  # data (voidptr)
-                ir.IntegerType.get_signless(64),  # length (intp)
-                ir.IntegerType.get_signless(32),  # kind (int32)
-                ir.IntegerType.get_signless(32),  # is_ascii (uint32)
-                ir.IntegerType.get_signless(hash_width),  # hash (_Py_hash_t)
-                llvm.PointerType.get(),  # meminfo
-                llvm.PointerType.get(),  # parent
-            ]
-        )
-        super().__init__(dmm, fe_type, be_type)
+        _Py_hash_t = getattr(nb_types, "int%s" % sys.hash_info.width)
+        members = [
+            ("data", nb_types.voidptr),
+            ("length", nb_types.intp),
+            ("kind", nb_types.int32),
+            ("is_ascii", nb_types.uint32),
+            ("hash", _Py_hash_t),
+            ("meminfo", nb_types.MemInfoPointer(nb_types.voidptr)),
+            ("parent", nb_types.pyobject),
+        ]
+        super().__init__(dmm, fe_type, members)
 
     def has_nrt_meminfo(self):
         return True
@@ -274,11 +433,41 @@ class UnicodeCharSeqModel(PrimitiveModel):
 
 
 @register_model(types.UniTuple)
+@register_model(NamedUniTuple)
+@register_model(StarArgUniTuple)
 class UniTupleModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
-        ele_ty = dmm.lookup(fe_type.dtype).get_value_type()
+        self._elem_model = dmm.lookup(fe_type.dtype)
+        ele_ty = self._elem_model.get_value_type()
         be_type = (ele_ty,) * fe_type.count
         super().__init__(dmm, fe_type, be_type)
+
+    def get_data_type(self):
+        return (self._elem_model.get_data_type(),) * self.fe_type.count
+
+    def get_argument_type(self):
+        return (self._elem_model.get_argument_type(),) * self.fe_type.count
+
+    def get_return_type(self):
+        return self.get_data_type()
+
+    def as_data(self, builder, value):
+        return tuple(self._elem_model.as_data(builder, v) for v in value)
+
+    def from_data(self, builder, value):
+        return tuple(self._elem_model.from_data(builder, v) for v in value)
+
+    def as_argument(self, builder, value):
+        return tuple(self._elem_model.as_argument(builder, v) for v in value)
+
+    def from_argument(self, builder, value):
+        return tuple(self._elem_model.from_argument(builder, v) for v in value)
+
+    def as_return(self, builder, value):
+        return self.as_data(builder, value)
+
+    def from_return(self, builder, value):
+        return self.from_data(builder, value)
 
 
 @register_model(types.Optional)
@@ -330,7 +519,7 @@ class ArrayModel(PrimitiveModel):
             super().__init__(dmm, fe_type, be_type)
             return
 
-        ele_ty = dmm.lookup(fe_type.dtype).get_value_type()
+        ele_ty = dmm.lookup(fe_type.dtype).get_data_type()
         shape = [ShapedType.get_dynamic_size() for _ in range(fe_type.ndim)]
 
         # Create strided layout with all dynamic strides
@@ -352,10 +541,9 @@ class ArrayModel(PrimitiveModel):
 
 @register_model(types.Boolean)
 @register_model(types.BooleanLiteral)
-class BooleanModel(PrimitiveModel):
+class BooleanModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = IntegerType.get_signless(1)
-        super().__init__(dmm, fe_type, be_type)
+        super().__init__(dmm, fe_type, IntegerType.get_signless(1), IntegerType.get_signless(8))
 
 
 from numba_cuda_mlir.type_defs.vector_types import VectorType
@@ -364,7 +552,8 @@ from numba_cuda_mlir.type_defs.vector_types import VectorType
 @register_model(VectorType)
 class VectorTypeModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
-        ele_ty = dmm.lookup(fe_type.dtype).get_value_type()
+        self._elem_model = dmm.lookup(fe_type.dtype)
+        ele_ty = self._elem_model.get_value_type()
         be_type = ir.VectorType.get(list(fe_type.shape), ele_ty)
         super().__init__(dmm, fe_type, be_type)
 
@@ -378,25 +567,26 @@ class DatetimeModel(PrimitiveModel):
 
 @register_model(types.Integer)
 @register_model(types.IntegerLiteral)
-class IntegerModel(PrimitiveModel):
+class IntegerModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
         be_type = IntegerType.get_signless(fe_type.bitwidth)
-        super().__init__(dmm, fe_type, be_type)
+        super().__init__(dmm, fe_type, be_type, be_type)
 
 
 @register_model(types.Float)
-class FloatModel(PrimitiveModel):
+class FloatModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
         match fe_type.bitwidth:
             case 16:
-                be_type = F16Type.get()
+                super().__init__(dmm, fe_type, F16Type.get(), T.i16())
             case 32:
-                be_type = F32Type.get()
+                f32 = F32Type.get()
+                super().__init__(dmm, fe_type, f32, f32)
             case 64:
-                be_type = F64Type.get()
+                f64 = F64Type.get()
+                super().__init__(dmm, fe_type, f64, f64)
             case _:
                 raise ValueError(f"Cannot convert type {str(fe_type)} to MLIR type.")
-        super().__init__(dmm, fe_type, be_type)
 
 
 @register_model(types.Complex)
@@ -431,10 +621,9 @@ class RangeIteratorModel(PrimitiveModel):
 
 
 @register_model(float_types.BFloat16Type)
-class BFloat16TypeModel(PrimitiveModel):
+class BFloat16TypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = T.bf16()
-        super().__init__(dmm, fe_type, be_type)
+        super().__init__(dmm, fe_type, T.bf16(), T.i16())
 
 
 # Register model for numba-cuda's Bfloat16 type
@@ -442,102 +631,87 @@ from numba_cuda_mlir.numba_cuda.types.ext_types import Bfloat16
 
 
 @register_model(Bfloat16)
-class NumbaCudaBfloat16Model(PrimitiveModel):
+class NumbaCudaBfloat16Model(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = T.bf16()
-        super().__init__(dmm, fe_type, be_type)
+        super().__init__(dmm, fe_type, T.bf16(), T.i16())
 
 
 @register_model(float_types.NVFP4Type)
 class NVFP4TypeModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
-        raise NotImplementedError("NYI")
-        be_type = T.nvfp4()
-        super().__init__(dmm, fe_type, be_type)
+        raise NotImplementedError("nvfp4 has no MLIR value type in this build")
 
 
 @register_model(float_types.Float4E2M1FNType)
-class Float4E2M1FNTypeModel(PrimitiveModel):
+class Float4E2M1FNTypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = T.f4E2M1FN()
-        super().__init__(dmm, fe_type, be_type)
+        super().__init__(dmm, fe_type, T.f4E2M1FN(), T.i8())
 
 
 @register_model(float_types.Float6E2M3FNType)
-class Float6E2M3FNTypeModel(PrimitiveModel):
+class Float6E2M3FNTypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = T.f6E2M3FN()
-        super().__init__(dmm, fe_type, be_type)
+        super().__init__(dmm, fe_type, T.f6E2M3FN(), T.i8())
 
 
 @register_model(float_types.Float6E3M2FNType)
-class Float6E3M2FNTypeModel(PrimitiveModel):
+class Float6E3M2FNTypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = T.f6E3M2FN()
-        super().__init__(dmm, fe_type, be_type)
+        super().__init__(dmm, fe_type, T.f6E3M2FN(), T.i8())
 
 
 @register_model(float_types.Float8E3M4Type)
-class Float8E3M4TypeModel(PrimitiveModel):
+class Float8E3M4TypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = T.f8E3M4()
-        super().__init__(dmm, fe_type, be_type)
+        super().__init__(dmm, fe_type, T.f8E3M4(), T.i8())
 
 
 @register_model(float_types.Float8E4M3B11FNUZType)
-class Float8E4M3B11FNUZTypeModel(PrimitiveModel):
+class Float8E4M3B11FNUZTypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = T.f8E4M3B11FNUZ()
-        super().__init__(dmm, fe_type, be_type)
+        super().__init__(dmm, fe_type, T.f8E4M3B11FNUZ(), T.i8())
 
 
 @register_model(float_types.Float8E4M3FNType)
-class Float8E4M3FNTypeModel(PrimitiveModel):
+class Float8E4M3FNTypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = T.f8E4M3FN()
-        super().__init__(dmm, fe_type, be_type)
+        super().__init__(dmm, fe_type, T.f8E4M3FN(), T.i8())
 
 
 @register_model(float_types.Float8E4M3FNUZType)
-class Float8E4M3FNUZTypeModel(PrimitiveModel):
+class Float8E4M3FNUZTypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = ir.Float8E4M3FNUZType.get()
-        super().__init__(dmm, fe_type, be_type)
+        super().__init__(dmm, fe_type, ir.Float8E4M3FNUZType.get(), T.i8())
 
 
 @register_model(float_types.Float8E4M3Type)
-class Float8E4M3TypeModel(PrimitiveModel):
+class Float8E4M3TypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = T.f8E4M3()
-        super().__init__(dmm, fe_type, be_type)
+        super().__init__(dmm, fe_type, T.f8E4M3(), T.i8())
 
 
 @register_model(float_types.Float8E5M2FNUZType)
-class Float8E5M2FNUZTypeModel(PrimitiveModel):
+class Float8E5M2FNUZTypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = ir.Float8E5M2FNUZType.get()
-        super().__init__(dmm, fe_type, be_type)
+        super().__init__(dmm, fe_type, ir.Float8E5M2FNUZType.get(), T.i8())
 
 
 @register_model(float_types.Float8E5M2Type)
-class Float8E5M2TypeModel(PrimitiveModel):
+class Float8E5M2TypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = T.f8E5M2()
-        super().__init__(dmm, fe_type, be_type)
+        super().__init__(dmm, fe_type, T.f8E5M2(), T.i8())
 
 
 @register_model(float_types.Float8E8M0FNUType)
-class Float8E8M0FNUTypeModel(PrimitiveModel):
+class Float8E8M0FNUTypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = T.f8E8M0FNU()
-        super().__init__(dmm, fe_type, be_type)
+        super().__init__(dmm, fe_type, T.f8E8M0FNU(), T.i8())
 
 
 @register_model(float_types.FloatTF32Type)
-class FloatTF32TypeModel(PrimitiveModel):
+class FloatTF32TypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = T.tf32()
-        super().__init__(dmm, fe_type, be_type)
+        super().__init__(dmm, fe_type, T.tf32(), T.i32())
 
 
 @register_model(types.AggregateType)
@@ -681,22 +855,19 @@ def register_fp8_models():
     )
 
     @register_model(type(_type_fp8_e5m2))
-    class FP8E5M2Model(PrimitiveModel):
+    class FP8E5M2Model(StoragePrimitiveModel):
         def __init__(self, dmm, fe_type):
-            be_type = T.f8E5M2()
-            super().__init__(dmm, fe_type, be_type)
+            super().__init__(dmm, fe_type, T.f8E5M2(), T.i8())
 
     @register_model(type(_type_fp8_e4m3))
-    class FP8E4M3Model(PrimitiveModel):
+    class FP8E4M3Model(StoragePrimitiveModel):
         def __init__(self, dmm, fe_type):
-            be_type = T.f8E4M3FN()
-            super().__init__(dmm, fe_type, be_type)
+            super().__init__(dmm, fe_type, T.f8E4M3FN(), T.i8())
 
     @register_model(type(_type_fp8_e8m0))
-    class FP8E8M0Model(PrimitiveModel):
+    class FP8E8M0Model(StoragePrimitiveModel):
         def __init__(self, dmm, fe_type):
-            be_type = T.f8E8M0FNU()
-            super().__init__(dmm, fe_type, be_type)
+            super().__init__(dmm, fe_type, T.f8E8M0FNU(), T.i8())
 
     @register_model(bfloat16_raw_class)
     class Bfloat16RawModel(PrimitiveModel):

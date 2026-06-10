@@ -6,8 +6,7 @@ import os
 from contextlib import contextmanager
 from enum import IntEnum
 
-import llvmlite
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core import config
 from numba_cuda_mlir.numba_cuda import cgutils
@@ -20,24 +19,9 @@ from numba_cuda_mlir.numba_cuda.types.ext_types import GridGroup
 from cuda.bindings import runtime
 
 
-# Check if CUDA Toolkit and llvmlite support polymorphic debug info
-def _get_llvmlite_version():
-    """Get llvmlite version as tuple (major, minor)."""
-    try:
-        version_str = llvmlite.__version__
-        # Parse version string like "0.46.0" or "0.46.0dev"
-        parts = version_str.split(".")
-        if len(parts) < 2:
-            return (0, 0)
-        major = int(parts[0])
-        minor = int(parts[1])
-        return (major, minor)
-    except (IndexError, AttributeError, ValueError):
-        return (0, 0)
-
-
+# Check if the CUDA Toolkit supports polymorphic debug info
 def _check_polymorphic_debug_info_support():
-    """Check if CTK and llvmlite support polymorphic debug info.
+    """Check if the CTK supports polymorphic debug info.
 
     Returns:
         tuple: (supported: bool, use_typed_const: bool)
@@ -52,15 +36,14 @@ def _check_polymorphic_debug_info_support():
     ctk_minor = (ctk_version_number % 1000) // 10
     ctk_version = (ctk_major, ctk_minor)
 
-    llvmlite_version = _get_llvmlite_version()
-
     # Support not available with CTK 13.1 or older
     if ctk_version <= (13, 1):
         return (False, False)
 
-    # llvmlite > 0.45: use typed constant
-    # llvmlite <= 0.45: use node reference
-    use_typed_const = llvmlite_version > (0, 45)
+    # This used to be gated on the llvmlite version (typed constant for
+    # llvmlite > 0.45, node reference otherwise). The MLIR path translates
+    # through a modern LLVM, which corresponds to the typed-constant format.
+    use_typed_const = True
     return (True, use_typed_const)
 
 

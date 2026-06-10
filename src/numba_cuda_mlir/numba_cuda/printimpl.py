@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 from functools import singledispatch
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda import cgutils
 from numba_cuda_mlir.numba_cuda.core.errors import NumbaWarning
@@ -14,7 +14,8 @@ from warnings import warn
 registry = Registry("printimpl")
 lower = registry.lower
 
-voidptr = ir.PointerType(ir.IntType(8))
+# llvmlite type discarded on the MLIR path (used only by dead codegen)
+voidptr = None
 
 
 # NOTE: we don't use @lower here since print_item() doesn't return a LLVM value

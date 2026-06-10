@@ -5,7 +5,7 @@ import collections
 import warnings
 from functools import cached_property
 
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 
 from .abstract import DTypeSpec, IteratorType, MutableSequence, Number, Type
 from .common import Buffer, Opaque, SimpleIteratorType

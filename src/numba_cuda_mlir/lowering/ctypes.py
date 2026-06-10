@@ -14,6 +14,7 @@ from numba_cuda_mlir.lowering_utilities import (
     i64_of,
     DeferredLowering,
     index_of,
+    storage_itemsize_bytes,
 )
 from numba_cuda_mlir._mlir.dialects import llvm, arith, memref
 from numba_cuda_mlir.logging import trace
@@ -99,10 +100,10 @@ def lower_pointer_setitem(builder, target, args, kwargs):
             f"Cannot set item on pointer of type {nb_type}, must cast to a typed pointer first"
         )
     idx = convert(idx, T.i64())
-    ele_ty = to_mlir_type(ele_ty)
-    value = convert(value, ele_ty)
+    storage_ty = builder.get_storage_type(ele_ty)
+    value = builder.as_storage(ele_ty, value)
     elementptr = llvm.getelementptr(
-        llvm.PointerType.get(), ptr, [idx], [llvm_kDynamic], ele_ty, None
+        llvm.PointerType.get(), ptr, [idx], [llvm_kDynamic], storage_ty, None
     )
     llvm.store(value, elementptr)
 
@@ -118,12 +119,13 @@ def lower_pointer_getitem(builder, target, args, kwargs):
             f"Cannot get item on pointer of type {nb_type}, must cast to a typed pointer first"
         )
     idx = convert(idx, T.i64())
-    ele_ty = to_mlir_type(ele_ty)
+    storage_ty = builder.get_storage_type(ele_ty)
     elementptr = llvm.getelementptr(
-        llvm.PointerType.get(), ptr, [idx], [llvm_kDynamic], ele_ty, None
+        llvm.PointerType.get(), ptr, [idx], [llvm_kDynamic], storage_ty, None
     )
     # Load the value from the computed address
-    value = llvm.load(ele_ty, elementptr)
+    value = llvm.load(storage_ty, elementptr)
+    value = builder.from_storage(nb_type.dtype, value)
     builder.incref(nb_type.dtype, value)
     builder.store_var(target, value)
 
@@ -139,11 +141,10 @@ def lower_pointer_add(builder, target, args, kwargs):
         raise TypeError(
             f"Cannot add to pointer of type {nb_type}, must cast to a typed pointer first"
         )
-    ele_ty = to_mlir_type(ele_ty)
-    w = ele_ty.width
+    w = storage_itemsize_bytes(ele_ty)
     num = convert(num, T.i64())
     ptri = llvm.ptrtoint(res=T.i64(), arg=ptr)
-    ptri += num * w / 8
+    ptri += num * w
     ptr = llvm.inttoptr(ptr.type, ptri)
     builder.store_var(target, ptr)
 
@@ -159,11 +160,10 @@ def lower_pointer_sub(builder, target, args, kwargs):
         raise TypeError(
             f"Cannot subtract from pointer of type {nb_type}, must cast to a typed pointer first"
         )
-    ele_ty = to_mlir_type(ele_ty)
-    w = ele_ty.width
+    w = storage_itemsize_bytes(ele_ty)
     num = convert(num, T.i64())
     ptri = llvm.ptrtoint(res=T.i64(), arg=ptr)
-    ptri -= num * w / 8
+    ptri -= num * w
     ptr = llvm.inttoptr(ptr.type, ptri)
     builder.store_var(target, ptr)
 
@@ -192,12 +192,23 @@ class DeferredFFIFromBuffer(DeferredLowering):
         from numba_cuda_mlir.lowering_utilities import get_type_width
 
         array_value = builder.load_var(args[0])
+        mr_type = ir.MemRefType(array_value.type)
+
+        if mr_type.memory_space is not None:
+            generic_mr_type = ir.MemRefType.get(
+                shape=mr_type.shape,
+                element_type=mr_type.element_type,
+                layout=mr_type.layout,
+            )
+            array_value = memref.memory_space_cast(dest=generic_mr_type, source=array_value)
+            mr_type = ir.MemRefType(array_value.type)
+
         ptr_as_index = memref.extract_aligned_pointer_as_index(array_value)
 
         md = memref.extract_strided_metadata(array_value)
         offset = index_of(md[1])
 
-        elem_type = ir.MemRefType(array_value.type).element_type
+        elem_type = mr_type.element_type
         elem_bytes = get_type_width(elem_type) // 8
 
         byte_offset = arith.muli(

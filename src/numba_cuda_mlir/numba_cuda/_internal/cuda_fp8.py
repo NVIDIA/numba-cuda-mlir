@@ -12,6 +12,10 @@
 
 
 # Imports:
+# Keep type annotations lazy: prepare_ir_types() is annotated with the
+# (now-removed) llvmlite ir.Type, which must not be evaluated at import.
+from __future__ import annotations
+
 from numba_cuda_mlir.numba_cuda.typing.templates import ConcreteTemplate
 from numba_cuda_mlir.numba_cuda.types import float16
 from numba_cuda_mlir.numba_cuda.types import IntEnumMember
@@ -19,7 +23,7 @@ from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.extending import make_attribute_wrapper
 from numba_cuda_mlir.numba_cuda.types import bool_
 from numba_cuda_mlir.numba_cuda.types import uint64
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 from cuda.bindings.runtime import cudaRoundMode
 from numba_cuda_mlir.numba_cuda.typing.templates import Registry as TypingRegistry
 from numba_cuda_mlir.numba_cuda.types import uint32
@@ -98,7 +102,7 @@ shim_obj = CUSource(shim_stream)
 
 from numba_cuda_mlir.numba_cuda.target import CUDATargetContext
 
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 
 
 def prepare_ir_types(context: CUDATargetContext, argtys: list[ir.Type]) -> list[ir.Type]:
@@ -126,7 +130,7 @@ def prepare_ir_types(context: CUDATargetContext, argtys: list[ir.Type]) -> list[
 
 from numba_cuda_mlir.numba_cuda import types, cgutils
 
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 
 
 class BaseCallConv:

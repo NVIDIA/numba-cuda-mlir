@@ -85,6 +85,11 @@ if [[ ! -d "${MAMBA_DIR}/envs/${CONDA_ENV_NAME}" ]]; then
   mamba env create -f "${ENV_YAML}" -n "${CONDA_ENV_NAME}" "python=${PY_VER}" -y
 fi
 
+
+echo "Ensuring libcudf is installed with cmake config..."
+mamba install -n "${CONDA_ENV_NAME}" -c rapidsai-nightly -c conda-forge \
+  libcudf "cuda-version=${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}" --no-update-deps -y
+
 # Ensure nvidia-smi is accessible inside conda env
 ENV_BIN="${MAMBA_DIR}/envs/${CONDA_ENV_NAME}/bin"
 if [[ ! -e "${ENV_BIN}/nvidia-smi" ]]; then
@@ -94,15 +99,13 @@ if [[ ! -e "${ENV_BIN}/nvidia-smi" ]]; then
   fi
 fi
 
-# --- Build cudf from source ---
-echo "Building cudf from source..."
-RAPIDS_INDEX="https://pypi.nvidia.com"
-conda run -n "${CONDA_ENV_NAME}" bash -c "cd ${CUDF_DIR}/python/cudf && pip wheel --no-deps --extra-index-url ${RAPIDS_INDEX} -w /tmp/cudf-wheel . && pip install --no-deps /tmp/cudf-wheel/cudf-*.whl"
-
-# --- Install numba-cuda-mlir wheel ---
+# mlir wheel
 echo "Installing numba-cuda-mlir wheel into conda env..."
 EXTRAS="cu${TEST_CUDA_MAJOR}"
 conda run -n "${CONDA_ENV_NAME}" pip install "${wheel}[${EXTRAS}]"
+
+# source build
+conda run -n "${CONDA_ENV_NAME}" bash -c "cd ${CUDF_DIR} && bash build.sh cudf"
 conda run -n "${CONDA_ENV_NAME}" pip list
 
 # --- Run cudf UDF tests ---

@@ -487,7 +487,7 @@ recommended for use in new code.</p>
 <h3>Data Transfer<a class="headerlink" href="#data-transfer" title="Link to this heading">#</a></h3>
 <p>The following APIs to manually control transfer of host arrays to the device:</p>
 <p>In addition to the device arrays, Numba CUDA MLIR can consume any object that
-implements the <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda/cuda_array_interface.html#cuda-array-interface" title="(in Numba v0.66)"><span class="xref std std-ref">CUDA Array Interface</span></a>. These objects
+implements the <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda/cuda_array_interface.html#cuda-array-interface" title="(in Numba v0.67)"><span class="xref std std-ref">CUDA Array Interface</span></a>. These objects
 also can be manually converted into a Numba device array by creating a view of
 the GPU buffer using the following APIs:</p>
 </section>
@@ -497,7 +497,7 @@ the GPU buffer using the following APIs:</p>
 called in host code, not within kernels.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>DeviceNDArray defines the <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda/cuda_array_interface.html#cuda-array-interface" title="(in Numba v0.66)"><span class="xref std std-ref">cuda array interface</span></a>.</p>
+<p>DeviceNDArray defines the <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda/cuda_array_interface.html#cuda-array-interface" title="(in Numba v0.67)"><span class="xref std std-ref">cuda array interface</span></a>.</p>
 </div>
 </section>
 <section id="pinned-memory">
@@ -552,7 +552,7 @@ at global scope).</p></li>
 </ol>
 </div></blockquote>
 <p>The definition must result in a Python <code class="docutils literal notranslate"><span class="pre">int</span></code> (i.e. not a NumPy scalar or other
-scalar / integer-like type). <em>type</em> is a <a class="reference external" href="https://numba.readthedocs.io/en/latest/reference/types.html#numba-types" title="(in Numba v0.66)"><span class="xref std std-ref">Numba type</span></a> of the
+scalar / integer-like type). <em>type</em> is a <a class="reference external" href="https://numba.readthedocs.io/en/latest/reference/types.html#numba-types" title="(in Numba v0.67)"><span class="xref std std-ref">Numba type</span></a> of the
 elements needing to be stored in the array. The returned array-like object can be
 read and written to like any normal device array (e.g. through indexing).</p>
 <p>A common pattern is to have each thread populate one element in the
@@ -671,7 +671,7 @@ at global scope).</p></li>
 </ol>
 </div></blockquote>
 <p>The definition must result in a Python <code class="docutils literal notranslate"><span class="pre">int</span></code> (i.e. not a NumPy scalar or other
-scalar / integer-like type). <em>type</em> is a <a class="reference external" href="https://numba.readthedocs.io/en/latest/reference/types.html#numba-types" title="(in Numba v0.66)"><span class="xref std std-ref">Numba type</span></a>
+scalar / integer-like type). <em>type</em> is a <a class="reference external" href="https://numba.readthedocs.io/en/latest/reference/types.html#numba-types" title="(in Numba v0.67)"><span class="xref std std-ref">Numba type</span></a>
 of the elements needing to be stored in the array. The array is private to
 the current thread. An array-like object is returned which can be read and
 written to like any standard array (e.g. through indexing).</p>
@@ -699,7 +699,7 @@ creating an array in constant memory is through the use of:</p>
 <span id="id1"></span><h2>Deallocation Behavior<a class="headerlink" href="#deallocation-behavior" title="Link to this heading">#</a></h2>
 <p>This section describes the deallocation behaviour of Numba CUDA MLIR’s internal
 memory management. If an External Memory Management Plugin is in use (see
-<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda/external-memory.html#cuda-emm-plugin" title="(in Numba v0.66)"><span>External Memory Management (EMM) Plugin interface</span></a>), then deallocation behaviour may differ; you may refer
+<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda/external-memory.html#cuda-emm-plugin" title="(in Numba v0.67)"><span>External Memory Management (EMM) Plugin interface</span></a>), then deallocation behaviour may differ; you may refer
 to the documentation for the EMM Plugin to understand its deallocation
 behaviour.</p>
 <p>Deallocation of all CUDA resources are tracked on a per-context basis.

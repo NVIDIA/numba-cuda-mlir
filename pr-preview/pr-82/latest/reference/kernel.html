@@ -525,7 +525,7 @@ so this will cause a <code class="docutils literal notranslate"><span class="pre
 recommended that data is copied to the device prior to kernel launch and
 copied back as required, or that <a class="reference internal" href="../user/memory.html#cuda-managed-memory"><span class="std std-ref">managed memory</span></a>
 is used.</p></li>
-<li><p>Any object that exposes the <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda/cuda_array_interface.html#cuda-array-interface" title="(in Numba v0.66)"><span class="xref std std-ref">CUDA Array Interface</span></a> will be treated as a device array and handled
+<li><p>Any object that exposes the <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda/cuda_array_interface.html#cuda-array-interface" title="(in Numba v0.67)"><span class="xref std std-ref">CUDA Array Interface</span></a> will be treated as a device array and handled
 accordingly.</p></li>
 </ul>
 </li>
@@ -552,7 +552,7 @@ from within a CUDA Kernel.</p>
 <dd><p>The thread indices in the current thread block, accessed through the
 attributes <code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code>, and <code class="docutils literal notranslate"><span class="pre">z</span></code>. Each index is an integer spanning the
 range from 0 inclusive to the corresponding value of the attribute in
-<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.blockDim" title="(in Numba v0.66)"><code class="xref py py-attr docutils literal notranslate"><span class="pre">numba.cuda.blockDim</span></code></a> exclusive.</p>
+<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.blockDim" title="(in Numba v0.67)"><code class="xref py py-attr docutils literal notranslate"><span class="pre">numba.cuda.blockDim</span></code></a> exclusive.</p>
 </dd></dl>
 
 <dl class="py attribute">
@@ -561,7 +561,7 @@ range from 0 inclusive to the corresponding value of the attribute in
 <dd><p>The block indices in the grid of thread blocks, accessed through the
 attributes <code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code>, and <code class="docutils literal notranslate"><span class="pre">z</span></code>. Each index is an integer spanning the
 range from 0 inclusive to the corresponding value of the attribute in
-<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.gridDim" title="(in Numba v0.66)"><code class="xref py py-attr docutils literal notranslate"><span class="pre">numba.cuda.gridDim</span></code></a> exclusive.</p>
+<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.gridDim" title="(in Numba v0.67)"><code class="xref py py-attr docutils literal notranslate"><span class="pre">numba.cuda.gridDim</span></code></a> exclusive.</p>
 </dd></dl>
 
 <dl class="py attribute">
@@ -583,7 +583,7 @@ if they belong to different blocks (i.e. each block is “full”).</p>
 <dt class="sig sig-object py" id="numba_cuda_mlir.cuda.laneid">
 <span class="sig-prename descclassname"><span class="pre">numba_cuda_mlir.cuda.</span></span><span class="sig-name descname"><span class="pre">laneid</span></span><a class="headerlink" href="#numba_cuda_mlir.cuda.laneid" title="Link to this definition">#</a></dt>
 <dd><p>The thread index in the current warp, as an integer spanning the range
-from 0 inclusive to the <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.warpsize" title="(in Numba v0.66)"><code class="xref py py-attr docutils literal notranslate"><span class="pre">numba.cuda.warpsize</span></code></a> exclusive.</p>
+from 0 inclusive to the <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.warpsize" title="(in Numba v0.67)"><code class="xref py py-attr docutils literal notranslate"><span class="pre">numba.cuda.warpsize</span></code></a> exclusive.</p>
 </dd></dl>
 
 <dl class="py attribute">
@@ -826,7 +826,7 @@ thread-block. Falling to do so may result in undefined behavior.</p>
 <dd class="field-odd"><p>The current grid group</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.cg.GridGroup" title="(in Numba v0.66)">numba.cuda.cg.GridGroup</a></p>
+<dd class="field-even"><p><a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.cg.GridGroup" title="(in Numba v0.67)">numba.cuda.cg.GridGroup</a></p>
 </dd>
 </dl>
 </dd></dl>
@@ -835,7 +835,7 @@ thread-block. Falling to do so may result in undefined behavior.</p>
 <dt class="sig sig-object py" id="numba_cuda_mlir.cuda.cg.GridGroup">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">numba_cuda_mlir.cuda.cg.</span></span><span class="sig-name descname"><span class="pre">GridGroup</span></span><a class="headerlink" href="#numba_cuda_mlir.cuda.cg.GridGroup" title="Link to this definition">#</a></dt>
 <dd><p>A grid group. Users should not construct a GridGroup directly - instead, get
-the current grid group using <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.cg.this_grid" title="(in Numba v0.66)"><code class="xref py py-func docutils literal notranslate"><span class="pre">cg.this_grid()</span></code></a>.</p>
+the current grid group using <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.cg.this_grid" title="(in Numba v0.67)"><code class="xref py py-func docutils literal notranslate"><span class="pre">cg.this_grid()</span></code></a>.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="numba_cuda_mlir.cuda.cg.GridGroup.sync">
 <span class="sig-name descname"><span class="pre">sync</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#numba_cuda_mlir.cuda.cg.GridGroup.sync" title="Link to this definition">#</a></dt>

@@ -91,6 +91,36 @@ def test_broadcasted_binary_ops(op, dt1, dt2):
     assert np.allclose(expect, a), f"{expect=} != {a=}"
 
 
+@pytest.mark.parametrize(
+    "op,expected",
+    [
+        (operator.eq, True),
+        (operator.ne, False),
+        (operator.lt, False),
+        (operator.le, True),
+        (operator.gt, False),
+        (operator.ge, True),
+    ],
+)
+def test_int32_negative_compared_to_negative_int_literal(op, expected):
+    @cuda.jit
+    def kernel(neg_a, lit_a, out):
+        # neg_a[0] is int32(-1); -1 below is a Python int literal that
+        # promotes to int64. The coerce helper widens neg_a to int64 to
+        # match; this must use signed extension.
+        out[0] = op(neg_a[0], -1)
+
+    neg = np.array([-1], dtype=np.int32)
+    lit = np.array([-1], dtype=np.int64)
+    out = np.zeros(1, dtype=np.bool_)
+    dn = cuda.to_device(neg)
+    dl = cuda.to_device(lit)
+    do = cuda.to_device(out)
+    kernel[1, 1](dn, dl, do)
+    out = do.copy_to_host()
+    assert bool(out[0]) is expected, f"int32(-1) {op.__name__} -1 -> {bool(out[0])} (expected {expected})"
+
+
 if __name__ == "__main__":
     import logging
 

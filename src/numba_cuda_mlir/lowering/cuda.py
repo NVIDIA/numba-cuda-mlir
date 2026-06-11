@@ -295,6 +295,8 @@ shmem_id = 0
 def cuda_static_shared_memory(lower: MLIRLower, target, static_shape, dtype, alignas):
     global shmem_id
     shape = tuple(static_shape)
+    if not shape or shape == (0,):
+        shape = (0,)
     dtype = lower.get_storage_type(_resolve_numba_dtype(lower, dtype))
     mspace = ir.Attribute.parse("#gpu.address_space<workgroup>")
     ty = T.memref(*shape, element_type=dtype, memory_space=mspace)

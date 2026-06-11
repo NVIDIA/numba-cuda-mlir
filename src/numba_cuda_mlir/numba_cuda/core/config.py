@@ -339,13 +339,13 @@ class _EnvReloader:
         DEBUG_INLINE_CLOSURE = _readenv("NUMBA_DEBUG_INLINE_CLOSURE", int, 0)
 
         # Force dump of LLVM IR
-        DUMP_LLVM = _readenv("NUMBA_DUMP_LLVM", int, DEBUG)
+        DUMP_LLVM = 1
 
         # Force dump of Function optimized LLVM IR
         DUMP_FUNC_OPT = _readenv("NUMBA_DUMP_FUNC_OPT", int, DEBUG)
 
         # Force dump of Optimized LLVM IR
-        DUMP_OPTIMIZED = _readenv("NUMBA_DUMP_OPTIMIZED", int, DEBUG)
+        DUMP_OPTIMIZED = 0
 
         # Force disable loop vectorize
         LOOP_VECTORIZE = _readenv("NUMBA_LOOP_VECTORIZE", int, 1)

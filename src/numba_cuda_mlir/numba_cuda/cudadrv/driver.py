@@ -2441,10 +2441,8 @@ class _Linker:
             prec_sqrt=self._prec_sqrt,
             fma=self._fma,
             variables_used=self.variables_used,
-            optimize_unused_variables=(
-                self._optimize_unused_variables if self.variables_used else None
-            ),
-            optimization_level=opt_level,
+            optimize_unused_variables=self._optimize_unused_variables,
+            optimization_level=self._optimization_level,
             ptxas_options=self._ptxas_options,
         )
         return options

@@ -24,6 +24,9 @@ on:
       matrix_filter:
         type: string
         default: "."
+      extra-cuda-components:
+        type: string
+        default: ""
 
 defaults:
   run:
@@ -162,6 +165,17 @@ jobs:
           cuda-version: ${{ matrix.CUDA_VER }}
           cuda-components: "cuda_nvcc,cuda_cudart,cuda_crt,libnvvm,cuda_nvrtc,cuda_cccl,libnvjitlink,cuda_cuobjdump"
 
+      # Overlay only the extra components (e.g. cuda_gdb,cuda_nvdisasm) on top of
+      # the shared mini CTK above.
+      - name: Set up extra CTK components
+        if: ${{ inputs.extra-cuda-components != '' }}
+        uses: ./.github/actions/fetch_ctk
+        continue-on-error: false
+        with:
+          host-platform: ${{ inputs.host-platform }}
+          cuda-version: ${{ matrix.CUDA_VER }}
+          cuda-components: ${{ inputs.extra-cuda-components }}
+
 #      - name: Set up latest cuda_sanitizer_api
 #        if: ${{ env.SETUP_SANITIZER == '1' }}
 #        uses: ./.github/actions/fetch_ctk
@@ -186,7 +200,15 @@ jobs:
             export NUMBA_CUDA_TEST_WHEEL_ONLY=1
           fi
           case "${TEST_SCRIPT}" in
-            run-tests|run-coverage-tests) ;;
+            run-tests|run-coverage-tests|run-cuda-gdb-tests) ;;
             *) echo "Unsupported test script: ${TEST_SCRIPT}"; exit 1 ;;
           esac
           "${TEST_SCRIPT}"
+
+      - name: Upload cuda-gdb test results
+        if: ${{ always() && inputs.test-script == 'run-cuda-gdb-tests' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: cuda-gdb-test-results-${{ inputs.host-platform }}-py${{ matrix.PY_VER }}-cu${{ env.TEST_CUDA_MAJOR }}
+          path: cuda-gdb-junit-results.xml
+          if-no-files-found: ignore

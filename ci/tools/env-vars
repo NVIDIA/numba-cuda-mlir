@@ -16,10 +16,17 @@ if [[ ${#} -ne 1 ]]; then
 fi
 
 PYTHON_VERSION_FORMATTED=$(echo "${PY_VER}" | tr -d '.')
-REPO_DIR=$(pwd)
-TOOLS_PATH="${REPO_DIR}/ci/tools"
 
-if [[ "${HOST_PLATFORM}" != linux* && "${HOST_PLATFORM}" != win* ]]; then
+if [[ "${HOST_PLATFORM}" == linux* ]]; then
+  REPO_DIR=$(pwd)
+  TOOLS_PATH="${REPO_DIR}/ci/tools"
+elif [[ "${HOST_PLATFORM}" == win* ]]; then
+  # Convert MSYS-style paths to Windows-native so downstream tools
+  # (cibuildwheel, delvewheel, etc.) get paths they can resolve.
+  PWD=$(pwd)
+  REPO_DIR=$(cygpath -w "${PWD}")
+  TOOLS_PATH=$(cygpath -w "${PWD}/ci/tools")
+else
   echo "Unsupported host platform: ${HOST_PLATFORM}"
   exit 1
 fi

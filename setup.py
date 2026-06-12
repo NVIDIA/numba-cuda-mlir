@@ -125,6 +125,13 @@ class BuildExtWithCmake(build_ext):
         if IS_WINDOWS:
             cmake_cmd += ["-G", "Ninja"]
         cmake_cmd += ["-B", build_dir, ROOT, f"-DCMAKE_BUILD_TYPE={build_type}"]
+        if IS_WINDOWS:
+            # Static-link the MSVC C runtime so the resulting DLLs have no
+            # external msvcp140 / vcruntime140 dependency. Must match the
+            # CRT used to build the LLVM static libs and MLIRPythonCAPI in
+            # ci/build-windows.sh -- mixing /MT and /MD within the same DLL
+            # is a link error.
+            cmake_cmd.append("-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded")
         python_root = Path(sys.executable).resolve().parent
         cmake_cmd += [
             f"-DPython_ROOT_DIR={python_root}",

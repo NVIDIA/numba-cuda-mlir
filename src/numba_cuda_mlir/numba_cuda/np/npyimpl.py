@@ -8,8 +8,6 @@ Implementation of functions in the Numpy package.
 import itertools
 from collections import namedtuple
 
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
-
 import numpy as np
 import operator
 
@@ -37,6 +35,11 @@ from numba_cuda_mlir.numba_cuda.extending import overload, intrinsic
 from numba_cuda_mlir.numba_cuda.core import errors
 
 registry = Registry("npyimpl")
+
+# The vendored numpy ufunc lowering (kernel helper classes + numpy_ufunc_kernel)
+# built llvmlite loop nests; it is dead on the MLIR path (ufuncs lower via
+# numba_cuda_mlir.lowering.numpy). The ir-using parts are neutered to raise this.
+_DEAD_CODEGEN_MSG = "this vendored numpy ufunc llvmlite codegen is not used on the MLIR path"
 
 
 ########################################################################
@@ -78,15 +81,7 @@ class _ScalarHelper:
     """
 
     def __init__(self, ctxt, bld, val, ty):
-        self.context = ctxt
-        self.builder = bld
-        self.val = val
-        self.base_type = ty
-        intpty = ctxt.get_value_type(types.intp)
-        self.shape = [ir.Constant(intpty, 1)]
-
-        lty = ctxt.get_data_type(ty) if ty != types.boolean else ir.IntType(1)
-        self._ptr = cgutils.alloca_once(bld, lty)
+        raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
     def create_iter_indices(self):
         return _ScalarIndexingHelper()
@@ -104,18 +99,7 @@ class _ScalarHelper:
 
 class _ArrayIndexingHelper(namedtuple("_ArrayIndexingHelper", ("array", "indices"))):
     def update_indices(self, loop_indices, name):
-        bld = self.array.builder
-        intpty = self.array.context.get_value_type(types.intp)
-        ONE = ir.Constant(ir.IntType(intpty.width), 1)
-
-        # we are only interested in as many inner dimensions as dimensions
-        # the indexed array has (the outer dimensions are broadcast, so
-        # ignoring the outer indices produces the desired result.
-        indices = loop_indices[len(loop_indices) - len(self.indices) :]
-        for src, dst, dim in zip(indices, self.indices, self.array.shape):
-            cond = bld.icmp_unsigned(">", dim, ONE)
-            with bld.if_then(cond):
-                bld.store(src, dst)
+        raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
     def as_values(self):
         """
@@ -150,15 +134,7 @@ class _ArrayHelper(
     """
 
     def create_iter_indices(self):
-        intpty = self.context.get_value_type(types.intp)
-        ZERO = ir.Constant(ir.IntType(intpty.width), 0)
-
-        indices = []
-        for _ in range(self.ndim):
-            x = cgutils.alloca_once(self.builder, ir.IntType(intpty.width))
-            self.builder.store(ZERO, x)
-            indices.append(x)
-        return _ArrayIndexingHelper(self, indices)
+        raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
     def _load_effective_address(self, indices):
         return cgutils.get_item_pointer2(
@@ -209,15 +185,7 @@ class _ArrayGUHelper(
     """
 
     def create_iter_indices(self):
-        intpty = self.context.get_value_type(types.intp)
-        ZERO = ir.Constant(ir.IntType(intpty.width), 0)
-
-        indices = []
-        for _ in range(self.ndim - self.inner_arr_ty.ndim):
-            x = cgutils.alloca_once(self.builder, ir.IntType(intpty.width))
-            self.builder.store(ZERO, x)
-            indices.append(x)
-        return _ArrayIndexingHelper(self, indices)
+        raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
     def _load_effective_address(self, indices):
         context = self.context
@@ -569,81 +537,11 @@ def numpy_ufunc_kernel(context, builder, sig, args, ufunc, kernel_class):
     # args - the args to the ufunc
     # ufunc - the ufunc itself
     # kernel_class -  a code generating subclass of _Kernel that provides
-
-    arguments = [
-        _prepare_argument(context, builder, arg, tyarg) for arg, tyarg in zip(args, sig.args)
-    ]
-
-    if len(arguments) < ufunc.nin:
-        raise RuntimeError(
-            "Not enough inputs to {}, expected {} got {}".format(
-                ufunc.__name__, ufunc.nin, len(arguments)
-            )
-        )
-
-    for out_i, ret_ty in enumerate(_unpack_output_types(ufunc, sig)):
-        if ufunc.nin + out_i >= len(arguments):
-            # this out argument is not provided
-            if isinstance(ret_ty, types.ArrayCompatible):
-                output = _build_array(context, builder, ret_ty, sig.args, arguments)
-            else:
-                output = _prepare_argument(
-                    context,
-                    builder,
-                    ir.Constant(context.get_value_type(ret_ty), None),
-                    ret_ty,
-                )
-            arguments.append(output)
-        elif context.enable_nrt:
-            # Incref the output
-            context.nrt.incref(builder, ret_ty, args[ufunc.nin + out_i])
-
-    inputs = arguments[: ufunc.nin]
-    outputs = arguments[ufunc.nin :]
-    assert len(outputs) == ufunc.nout
-
-    outer_sig = _ufunc_loop_sig([a.base_type for a in outputs], [a.base_type for a in inputs])
-    kernel = kernel_class(context, builder, outer_sig)
-    intpty = context.get_value_type(types.intp)
-
-    indices = [inp.create_iter_indices() for inp in inputs]
-
-    # assume outputs are all the same size, which numpy requires
-
-    loopshape = outputs[0].shape
-
-    # count the number of C and F layout arrays, respectively
-    input_layouts = [inp.layout for inp in inputs if isinstance(inp, _ArrayHelper)]
-    num_c_layout = len([x for x in input_layouts if x == "C"])
-    num_f_layout = len([x for x in input_layouts if x == "F"])
-
-    # Only choose F iteration order if more arrays are in F layout.
-    # Default to C order otherwise.
-    # This is a best effort for performance. NumPy has more fancy logic that
-    # uses array iterators in non-trivial cases.
-    if num_f_layout > num_c_layout:
-        order = "F"
-    else:
-        order = "C"
-
-    with cgutils.loop_nest(builder, loopshape, intp=intpty, order=order) as loop_indices:
-        vals_in = []
-        for i, (index, arg) in enumerate(zip(indices, inputs)):
-            index.update_indices(loop_indices, i)
-            vals_in.append(arg.load_data(index.as_values()))
-
-        vals_out = _unpack_output_values(ufunc, builder, kernel.generate(*vals_in))
-        for val_out, output in zip(vals_out, outputs):
-            output.store_data(loop_indices, val_out)
-
-    out = _pack_output_values(
-        ufunc,
-        context,
-        builder,
-        sig.return_type,
-        [o.return_val for o in outputs],
-    )
-    return impl_ret_new_ref(context, builder, sig.return_type, out)
+    #
+    # This vendored numpy ufunc lowering builds llvmlite loop nests over the
+    # ufunc kernels. It is dead on the MLIR path (numpy ufuncs are lowered by
+    # numba_cuda_mlir.lowering.numpy), so it is a dead stub.
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def numpy_gufunc_kernel(context, builder, sig, args, ufunc, kernel_class):

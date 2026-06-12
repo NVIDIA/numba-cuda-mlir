@@ -9,7 +9,6 @@ import math
 from collections import namedtuple
 import operator
 
-from numba_cuda_mlir.numba_cuda import _llvmlite_removed as llvmlite
 import numpy as np
 
 from numba_cuda_mlir.numba_cuda import types
@@ -41,8 +40,6 @@ from numba_cuda_mlir.numba_cuda.np.arrayobj import (
     store_item,
     _empty_nd_impl,
 )
-from numba_cuda_mlir.numba_cuda.np.linalg import ensure_blas
-
 from numba_cuda_mlir.numba_cuda.extending import intrinsic
 from numba_cuda_mlir.numba_cuda.core.errors import (
     RequireLiteralValue,
@@ -57,16 +54,9 @@ registry = Registry("np.arraymath")
 lower = registry.lower
 
 
-def _check_blas():
-    # Checks if a BLAS is available so e.g. dot will work
-    try:
-        ensure_blas()
-    except ImportError:
-        return False
-    return True
-
-
-_HAVE_BLAS = _check_blas()
+# No CPU BLAS on the CUDA device path (the vendored np.linalg BLAS wrappers have
+# been removed), so np.dot etc. fall back to the pure-Python implementations.
+_HAVE_BLAS = False
 
 
 @intrinsic
@@ -3147,14 +3137,9 @@ def _np_round_float(typingctx, val):
     sig = val(val)
 
     def codegen(context, builder, sig, args):
-        [val] = args
-        tp = sig.args[0]
-        llty = context.get_value_type(tp)
-        module = builder.module
-        fnty = llvmlite.ir.FunctionType(llty, [llty])
-        fn = cgutils.get_or_insert_function(module, fnty, _np_round_intrinsic(tp))
-        res = builder.call(fn, (val,))
-        return impl_ret_untracked(context, builder, sig.return_type, res)
+        # Built an llvmlite call to the np_round intrinsic; filtered out on the
+        # MLIR path (rounding is lowered by numba_cuda_mlir.lowering), dead.
+        raise NotImplementedError("_np_round_float codegen is not used on the MLIR path")
 
     return sig, codegen
 

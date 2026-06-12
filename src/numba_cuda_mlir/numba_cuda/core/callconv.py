@@ -7,8 +7,6 @@ from numba_cuda_mlir.numba_cuda import itanium_mangler
 from numba_cuda_mlir.numba_cuda.core import imputils
 from collections import namedtuple
 
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
-
 # llvmlite type aliases discarded on the MLIR path (used only by dead codegen)
 int32_t = None
 int64_t = None
@@ -256,11 +254,9 @@ class MinimalCallConv(BaseCallConv):
         """
         Get the implemented Function type for *restype* and *argtypes*.
         """
-        arginfo = self._get_arg_packer(argtypes)
-        argtypes = list(arginfo.argument_types)
-        resptr = self.get_return_type(restype)
-        fnty = ir.FunctionType(errcode_t, [resptr] + argtypes)
-        return fnty
+        # Built an llvmlite FunctionType for the vendored call convention; the
+        # MLIR path builds its own signatures, so this is dead.
+        raise NotImplementedError("MinimalCallConv.get_function_type is not used on the MLIR path")
 
     def decorate_function(self, fn, args, fe_argtypes, noalias=False):
         """
@@ -386,20 +382,9 @@ class CUDACABICallConv(BaseCallConv):
         return None
 
     def return_value(self, builder, retval):
-        expected_type = builder.function.ftype.return_type
-        actual_type = retval.type
-
-        # If types don't match, we need to cast
-        if actual_type != expected_type:
-            if isinstance(actual_type, ir.IntType) and isinstance(expected_type, ir.IntType):
-                if actual_type.width < expected_type.width:
-                    # Zero-extend smaller integers to larger ones
-                    retval = builder.zext(retval, expected_type)
-                elif actual_type.width > expected_type.width:
-                    # Truncate larger integers to smaller ones
-                    retval = builder.trunc(retval, expected_type)
-
-        return builder.ret(retval)
+        # llvmlite-builder return codegen; dead on the MLIR path (MLIRLower
+        # handles returns with the MLIR builder).
+        raise NotImplementedError("CUDACABICallConv.return_value is not used on the MLIR path")
 
     def return_user_exc(self, builder, exc, exc_args=None, loc=None, func_name=None):
         # C ABI has no status channel to propagate Python exceptions.
@@ -413,10 +398,9 @@ class CUDACABICallConv(BaseCallConv):
         """
         Get the LLVM IR Function type for *restype* and *argtypes*.
         """
-        arginfo = self._get_arg_packer(argtypes)
-        argtypes = list(arginfo.argument_types)
-        fnty = ir.FunctionType(self.get_return_type(restype), argtypes)
-        return fnty
+        # Built an llvmlite FunctionType for the C ABI; the MLIR path builds its
+        # own signatures, so this is dead.
+        raise NotImplementedError("CUDACABICallConv.get_function_type is not used on the MLIR path")
 
     def decorate_function(self, fn, args, fe_argtypes, noalias=False):
         """

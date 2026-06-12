@@ -19,12 +19,13 @@ from numba_cuda_mlir.numba_cuda.core.errors import (
 )
 from numpy.polynomial.polynomial import Polynomial
 from contextlib import ExitStack
-import numpy as np
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 from numba_cuda_mlir.numba_cuda.core.imputils import Registry
 
+# The Polynomial(...) constructor @lower codegen built llvmlite IR and is
+# filtered out on the MLIR path; the live datamodel, typing (@type_callable),
+# attribute wrappers and box/unbox below do not. The registry is retained
+# because the target context installs it.
 registry = Registry("np.polynomial_core")
-lower = registry.lower
 
 
 @register_model(types.PolynomialType)
@@ -81,76 +82,6 @@ make_attribute_wrapper(types.PolynomialType, "domain", "domain")
 make_attribute_wrapper(types.PolynomialType, "window", "window")
 # Introduced in NumPy 1.24, maybe leave it out for now
 # make_attribute_wrapper(types.PolynomialType, 'symbol', 'symbol')
-
-
-@lower(Polynomial, types.Array)
-def impl_polynomial1(context, builder, sig, args):
-    def to_double(arr):
-        return np.asarray(arr, dtype=np.double)
-
-    def const_impl():
-        return np.asarray([-1, 1])
-
-    typ = sig.return_type
-    polynomial = cgutils.create_struct_proxy(typ)(context, builder)
-    sig_coef = sig.args[0].copy(dtype=types.double)(sig.args[0])
-    coef_cast = context.compile_internal(builder, to_double, sig_coef, args)
-    sig_domain = sig.args[0].copy(dtype=types.intp)()
-    sig_window = sig.args[0].copy(dtype=types.intp)()
-    domain_cast = context.compile_internal(builder, const_impl, sig_domain, ())
-    window_cast = context.compile_internal(builder, const_impl, sig_window, ())
-    polynomial.coef = coef_cast
-    polynomial.domain = domain_cast
-    polynomial.window = window_cast
-
-    return polynomial._getvalue()
-
-
-@lower(Polynomial, types.Array, types.Array, types.Array)
-def impl_polynomial3(context, builder, sig, args):
-    def to_double(coef):
-        return np.asarray(coef, dtype=np.double)
-
-    typ = sig.return_type
-    polynomial = cgutils.create_struct_proxy(typ)(context, builder)
-
-    coef_sig = sig.args[0].copy(dtype=types.double)(sig.args[0])
-    domain_sig = sig.args[1].copy(dtype=types.double)(sig.args[1])
-    window_sig = sig.args[2].copy(dtype=types.double)(sig.args[2])
-    coef_cast = context.compile_internal(builder, to_double, coef_sig, (args[0],))
-    domain_cast = context.compile_internal(builder, to_double, domain_sig, (args[1],))
-    window_cast = context.compile_internal(builder, to_double, window_sig, (args[2],))
-
-    domain_helper = context.make_helper(builder, domain_sig.return_type, value=domain_cast)
-    window_helper = context.make_helper(builder, window_sig.return_type, value=window_cast)
-
-    i64 = ir.IntType(64)
-    two = i64(2)
-
-    s1 = builder.extract_value(domain_helper.shape, 0)
-    s2 = builder.extract_value(window_helper.shape, 0)
-    pred1 = builder.icmp_signed("!=", s1, two)
-    pred2 = builder.icmp_signed("!=", s2, two)
-
-    with cgutils.if_unlikely(builder, pred1):
-        context.fndesc.call_conv.return_user_exc(
-            builder,
-            ValueError,
-            ("Domain has wrong number of elements.",),
-        )
-
-    with cgutils.if_unlikely(builder, pred2):
-        context.fndesc.call_conv.return_user_exc(
-            builder,
-            ValueError,
-            ("Window has wrong number of elements.",),
-        )
-
-    polynomial.coef = coef_cast
-    polynomial.domain = domain_helper._getvalue()
-    polynomial.window = window_helper._getvalue()
-
-    return polynomial._getvalue()
 
 
 @unbox(types.PolynomialType)

@@ -146,22 +146,27 @@ jobs:
             "/host/${{ env.SCCACHE_PATH }}" --show-adv-stats &&
             "/host/${{ env.SCCACHE_PATH }}" --show-stats --stats-format=json > /host/${{ github.workspace }}/sccache_NUMBA_CUDA_MLIR.json
           CIBW_BEFORE_BUILD_WINDOWS: pip install delvewheel
-          # delvewheel walks _mlir.pyd's import table and resolves each
-          # dependency on PATH or in --add-path dirs; it does not inspect
-          # DLLs already bundled in the wheel. Point it at the LLVM install
-          # subtree so it can find the project DLLs it needs to walk for
-          # transitive deps (MSVC redist etc.), but --exclude those same
-          # project DLLs so delvewheel does not bundle a mangled second
-          # copy: setup.py already stages them under _mlir_libs/ and
-          # MLIRToLLVM70.dll (loaded later via ctypes) imports them under
-          # their original names. A mangled bundle would yield two
-          # MLIRPythonCAPI images in the process -> access violation.
+          # setup.py already stages the MLIR Python bindings tree
+          # (MLIRPythonCAPI / MLIRPythonSupport / nanobind / _mlir.pyd
+          # etc.) and the LLVM70 bridge into _mlir_libs/. delvewheel's
+          # job here is *just* to handle the system DLLs those need
+          # (msvcp140 etc.). --ignore-existing tells it not to re-bundle
+          # anything that's already in the wheel (no duplicate copies),
+          # --analyze-existing tells it to walk the in-wheel DLLs to
+          # discover their transitive deps, and --with-mangle keeps the
+          # default mangling for those deps so msvcp140 stays isolated
+          # from other wheels in the same process. delvewheel patches
+          # the existing in-wheel DLLs' import tables to reference the
+          # mangled msvcp140-<hash>.dll, so the un-mangled MLIRPythonCAPI
+          # finds the right system DLL at runtime.
           CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: >
             delvewheel repair
             --add-path "${{ env.LLVM_MODERN_INSTALL_DIR }}/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs"
             --add-path "${{ env.LLVM_MODERN_INSTALL_DIR }}/bin"
             --add-path "${{ env.LLVM7_INSTALL_DIR }}/bin"
-            --exclude "MLIRPythonCAPI.dll;MLIRPythonSupport-numba_cuda_mlir.dll;nanobind-numba_cuda_mlir.dll"
+            --ignore-existing
+            --analyze-existing
+            --with-mangle
             -w {dest_dir} {wheel}
 
       - name: Report sccache stats (numba-cuda-mlir)

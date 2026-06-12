@@ -220,8 +220,9 @@ build_llvm7() {
   local stub_obj="${LLVM7_BUILD}/llvm-c-stub.obj"
   pushd "${LLVM7_BUILD}" > /dev/null
   printf 'int _fltused = 0;\n' > llvm-c-stub.c
-  # /MT must match the static CRT used for the LLVM static libs above;
-  # mixing /MD and /MT in the same DLL is a link error.
+  # /MT here pairs with the /MT-built LLVM static libs linked below to
+  # produce a single LLVM-C.dll. Within one DLL/binary every .obj and
+  # .lib must agree on /MT vs /MD or the linker errors.
   cl -nologo -c -O2 -MT -Follvm-c-stub.obj llvm-c-stub.c
   popd > /dev/null
 

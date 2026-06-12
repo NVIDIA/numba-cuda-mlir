@@ -4,6 +4,7 @@ from numba_cuda_mlir import cuda
 from numba_cuda_mlir import compiler, types
 import ctypes
 import numpy as np
+import pytest
 
 
 def test_ptr_arith():
@@ -63,6 +64,33 @@ def test_cpointer_getitem():
     hr = dr.copy_to_host()
     expected = a * hx + hy
     np.testing.assert_array_equal(hr, expected)
+
+
+@pytest.mark.parametrize(
+    "complex_type, result_type",
+    [
+        (types.complex64, types.int32),
+        (types.complex128, types.int8),
+    ],
+)
+def test_cpointer_complex_getitem_cabi_ltoir(complex_type, result_type):
+    def compare_real(xp, yp, rp):
+        rp[0] = result_type(xp[0].real < yp[0].real)
+
+    sig = types.void(
+        types.CPointer(complex_type),
+        types.CPointer(complex_type),
+        types.CPointer(result_type),
+    )
+
+    cuda.compile(
+        compare_real,
+        sig,
+        device=True,
+        abi="c",
+        abi_info={"abi_name": "compare_real"},
+        output="ltoir",
+    )
 
 
 if __name__ == "__main__":

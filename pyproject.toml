@@ -204,14 +204,3 @@ addopts = [
 numba-cuda-mlir-stubgen = "numba_cuda_mlir.tools:create_numba_cuda_stubs"
 numba-cuda-mlir-generate-libdevice-stubs = "numba_cuda_mlir.tools:generate_libdevice_stubs"
 numba-cuda-mlir-replace-numba-cuda = "numba_cuda_mlir.tools:replace_numba_cuda_in_numba_install"
-
-[tool.cibuildwheel.windows]
-archs = "AMD64"
-before-build = "pip install delvewheel"
-# delvewheel doesn't inspect DLLs already inside the wheel; it walks the
-# .pyd import tables and resolves each dependency against PATH and the
-# --add-path dirs. setup.py manually stages the MLIR/nanobind DLLs into
-# the wheel, but their on-disk source (the LLVM modern install) needs to
-# be exposed here so delvewheel can find them. Use repo-relative paths;
-# cibuildwheel runs this command from the package directory (repo root).
-repair-wheel-command = "delvewheel repair --add-path llvm-modern-install/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs --add-path llvm-modern-install/bin --add-path llvm7-install/bin -w {dest_dir} {wheel}"

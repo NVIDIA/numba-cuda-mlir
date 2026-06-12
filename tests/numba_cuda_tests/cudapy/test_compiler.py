@@ -738,6 +738,18 @@ class TestCompile(NumbaCUDATestCase):
         sig = types.complex128(types.complex128)
         cuda.compile(div_by_2, sig, device=True, abi="c")
 
+    def test_compile_power_operator_c_abi(self):
+        # Reproducer from gh-123
+        # https://github.com/NVIDIA/numba-cuda-mlir/issues/123
+        def square_i(a):
+            return a**2
+
+        def square_f(a):
+            return a**2
+
+        cuda.compile(square_i, int32(int32), device=True, abi="c", output="ltoir")
+        cuda.compile(square_f, float32(float32), device=True, abi="c", output="ltoir")
+
 
 class TestCompileOnlyTests(NumbaCUDATestCase):
     """For tests where we can only check correctness by examining the compiler

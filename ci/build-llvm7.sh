@@ -54,12 +54,22 @@ cmake -G Ninja -S "${LLVM7_SRC}/llvm" -B "${LLVM7_BUILD}" \
     -DLLVM_ENABLE_TERMINFO=OFF \
     -DLLVM_ENABLE_ZLIB=ON
 
-# Build only the LLVM shared lib (not install)
+# Build only the LLVM shared lib.
 cmake --build "${LLVM7_BUILD}" -j "${PARALLEL}" --target LLVM
 
-# Copy the .so to the install dir with a stable name for artifact passing
-LLVM7_SO="$(ls "${LLVM7_BUILD}"/lib/libLLVM-7*.so | head -1)"
-cp "${LLVM7_SO}" "${LLVM7_INSTALL}/lib/libLLVM-7.so"
+# Install just the LLVM dylib component, with --strip to drop the static
+# symbol table (~5 MB savings; no DWARF present since the build is
+# Release without -g). Component-scoped install avoids dragging in
+# headers / cmake configs / tools we don't need from a full
+# `cmake --install`. Symmetric with ci/build-llvm-modern.sh.
+cmake --install "${LLVM7_BUILD}" --strip --component LLVM --prefix "${LLVM7_INSTALL}"
+
+# LLVM 7 names the dylib libLLVM-7svn.so when built from source. The
+# wheel staging expects the canonical libLLVM-7.so name.
+if [[ ! -f "${LLVM7_INSTALL}/lib/libLLVM-7.so" ]]; then
+    LLVM7_SO="$(ls "${LLVM7_INSTALL}"/lib/libLLVM-7*.so | head -1)"
+    [[ -n "${LLVM7_SO}" ]] && mv "${LLVM7_SO}" "${LLVM7_INSTALL}/lib/libLLVM-7.so"
+fi
 
 echo "=== LLVM 7 built ==="
 ls -lh "${LLVM7_INSTALL}/lib/libLLVM-7.so"

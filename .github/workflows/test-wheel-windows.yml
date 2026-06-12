@@ -113,19 +113,6 @@ jobs:
       - name: Display structure of downloaded numba-cuda-mlir artifacts
         run: ls -lahR "$NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR"
 
-      - name: Determine LLVM Python tag
-        id: wheel-tags
-        run: |
-          PY_VER_FMT=$(echo "${{ matrix.PY_VER }}" | tr -d '.')
-          echo "LLVM_PY_TAG=cp${PY_VER_FMT}" >> "$GITHUB_ENV"
-          echo "llvm-py-tag=cp${PY_VER_FMT}" >> "$GITHUB_OUTPUT"
-
-      - name: Restore LLVM artifacts
-        uses: ./.github/actions/restore_llvm_artifacts
-        with:
-          host-platform: ${{ inputs.host-platform }}
-          llvm-py-tag: ${{ steps.wheel-tags.outputs.llvm-py-tag }}
-
       - name: Set up Python ${{ matrix.PY_VER }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:

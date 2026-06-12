@@ -65,7 +65,6 @@ class ExternMLIRLibrary:
 
         typingctx = mlir_target.typing_context
 
-        @registry.register_attr
         class ThisExternMLIRLibraryAttrs(ExternMLIRLibraryAttrs):
             key = Namespace(self)
 
@@ -73,7 +72,6 @@ class ExternMLIRLibrary:
         # typingctx.insert_global(self, Namespace(self))
         # And how to resolve attributes on that module type.
         typingctx.insert_attributes(ThisExternMLIRLibraryAttrs(typingctx))
-        typingctx.refresh()
 
     @lru_cache(maxsize=None)
     def _get_or_create_template(self, name: str) -> type[ConcreteTemplate]:

@@ -665,7 +665,8 @@ def _emit_NRT_MemSys_set(gpu_module):
 
     ft = ir.FunctionType.get([_ptr()], [])
     with ir.InsertionPoint(body):
-        kern = gpu.GPUFuncOp(ft, sym_name="NRT_MemSys_set", kernel=True)
+        kern = gpu.GPUFuncOp(ft, sym_name="NRT_MemSys_set")
+        kern.kernel = True
         entry = kern.add_entry_block()
 
     with ir.InsertionPoint(entry):

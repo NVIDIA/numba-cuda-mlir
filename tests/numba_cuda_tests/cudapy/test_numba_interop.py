@@ -4,6 +4,7 @@
 import numpy as np
 
 import numba_cuda_mlir
+from numba_cuda_mlir import extending
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.testing import NumbaCUDATestCase
 from numba_cuda_mlir.extending import overload, typing_registry
@@ -26,6 +27,8 @@ class TestNumbaInterop(NumbaCUDATestCase):
                 return 42
 
             return impl
+
+        extending.refresh_registries()
 
         @numba_cuda_mlir.cuda.jit
         def kernel(a):

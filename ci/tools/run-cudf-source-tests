@@ -122,6 +122,7 @@ COMMON_ARGS=(
   -v --tb=short
 )
 
+export NUMBA_CUDA_MLIR_ICE_FULL_TB=1
 conda run -n "${CONDA_ENV_NAME}" python -m pytest \
   "${SCALAR_UDF}" \
   "${NRT_STATS}" \

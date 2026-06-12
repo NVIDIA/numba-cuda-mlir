@@ -2391,6 +2391,7 @@ class LiftedCode(serialize.ReduceMixin, _MemoMixin, _DispatcherBase):
 
         from numba_cuda_mlir.numba_cuda.descriptor import cuda_target
 
+        cuda_target.ensure_initialized()
         typingctx = cuda_target.typing_context
         targetctx = cuda_target.target_context
 

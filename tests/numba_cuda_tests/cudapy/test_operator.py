@@ -338,7 +338,7 @@ class TestOperatorModule:
 
             kernel[1, 1](got, arg1[0], arg2[0])
             expected = op(arg1, arg2)
-            self.assertEqual(got[0], expected)
+            assert got[0] == expected
 
     def test_multiple_float16_comparisons(self):
         functions = (
@@ -355,7 +355,7 @@ class TestOperatorModule:
             arg2 = np.float16(3.0)
             arg3 = np.float16(4.0)
             compiled[1, 1](ary, arg1, arg2, arg3)
-            self.assertTrue(ary[0])
+            assert ary[0] == True
 
     def test_multiple_float16_comparisons_false(self):
         functions = (
@@ -372,7 +372,25 @@ class TestOperatorModule:
             arg2 = np.float16(3.0)
             arg3 = np.float16(1.0)
             compiled[1, 1](ary, arg1, arg2, arg3)
-            self.assertFalse(ary[0])
+            assert ary[0] == False
+
+    # @pytest.mark.xfail(True, reason="NVVM verify error")
+    @pytest.mark.parametrize(
+        "func,opstring",
+        [
+            pytest.param(simple_fp16_gt, "setp.hi.u16", id="gt"),
+            pytest.param(simple_fp16_ge, "setp.hs.u16", id="ge"),
+            pytest.param(simple_fp16_lt, "setp.lo.u16", id="lt"),
+            pytest.param(simple_fp16_le, "setp.ls.u16", id="le"),
+            pytest.param(simple_fp16_eq, "setp.eq.u16", id="eq"),
+            pytest.param(simple_fp16_ne, "setp.ne.u16", id="ne"),
+        ],
+    )
+    def test_uint16_comparison_ptx(self, func, opstring):
+        args = (b1[:], u2, u2)
+        compiled = cuda.jit("void(b1[:], u2, u2)", lto=True)(func)
+        ptx = compiled.inspect_lto_ptx(args)
+        assert opstring in ptx, f"{opstring} not in PTX"
 
     @pytest.mark.xfail(True, reason="NVVM verify error")
     def test_fp16_comparison_ptx(self):
@@ -405,7 +423,7 @@ class TestOperatorModule:
         for fn, op, s in zip(functions, ops, opstring):
             compiled = cuda.jit("void(b1[:], f2, f2)", lto=True)(fn)
             ptx = compiled.inspect_lto_ptx(args)
-            self.assertIn(s, ptx)
+            assert s in ptx
 
     @pytest.mark.xfail(True, reason="NVVM verify error")
     def test_fp16_int8_comparison_ptx(self):
@@ -440,7 +458,7 @@ class TestOperatorModule:
             args = (b1[:], f2, from_dtype(np.int8))
             compiled = cuda.jit(signature(types.void, *args), lto=True)(fn)
             ptx = compiled.inspect_lto_ptx(args)
-            self.assertIn(opstring[op], ptx)
+            assert opstring[op] in ptx
 
     @pytest.mark.xfail(True, reason="NVVM verify error")
     def test_mixed_fp16_comparison_promotion_ptx(self):
@@ -484,4 +502,4 @@ class TestOperatorModule:
             ptx = compiled.inspect_lto_ptx(args)
 
             ops = opstring[op] + opsuffix[arg2_ty]
-            self.assertIn(ops, ptx)
+            assert ops in ptx

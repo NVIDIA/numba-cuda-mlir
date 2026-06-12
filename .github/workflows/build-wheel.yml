@@ -76,17 +76,6 @@ jobs:
         with:
           enable-apt: true
 
-      - name: Set environment variables
-        env:
-          HOST_PLATFORM: ${{ inputs.host-platform }}
-          PY_VER: ${{ matrix.python-version }}
-          SHA: ${{ github.sha }}
-        run: ./ci/tools/env-vars build
-
-      - name: Dump environment
-        run: |
-          env
-
       - name: Determine cibuildwheel and LLVM Python tags
         id: wheel-tags
         run: |
@@ -103,6 +92,17 @@ jobs:
         with:
           host-platform: ${{ inputs.host-platform }}
           llvm-py-tag: ${{ steps.wheel-tags.outputs.llvm-py-tag }}
+
+      - name: Set environment variables
+        env:
+          HOST_PLATFORM: ${{ inputs.host-platform }}
+          PY_VER: ${{ matrix.python-version }}
+          SHA: ${{ github.sha }}
+        run: ./ci/tools/env-vars build
+
+      - name: Dump environment
+        run: |
+          env
 
       - name: Fix LLVM artifact permissions
         if: ${{ startsWith(inputs.host-platform, 'linux') }}
@@ -150,14 +150,11 @@ jobs:
           # dependency on PATH or in --add-path dirs; it does not inspect
           # DLLs already bundled in the wheel. Point it at the LLVM install
           # subtree so it can find MLIRPythonCAPI / nanobind / LLVM-C etc.
-          # cygpath -w converts the MSYS-style env-vars values (/d/a/...) to
-          # Windows-native form (D:\a\...) that delvewheel can resolve.
-          # cibuildwheel runs repair-wheel-command via Git Bash on Windows.
           CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: >
             delvewheel repair
-            --add-path "$(cygpath -w ${{ env.LLVM_MODERN_INSTALL_DIR }}/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs)"
-            --add-path "$(cygpath -w ${{ env.LLVM_MODERN_INSTALL_DIR }}/bin)"
-            --add-path "$(cygpath -w ${{ env.LLVM7_INSTALL_DIR }}/bin)"
+            --add-path "${{ env.LLVM_MODERN_INSTALL_DIR }}/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs"
+            --add-path "${{ env.LLVM_MODERN_INSTALL_DIR }}/bin"
+            --add-path "${{ env.LLVM7_INSTALL_DIR }}/bin"
             -w {dest_dir} {wheel}
 
       - name: Report sccache stats (numba-cuda-mlir)

@@ -145,6 +145,11 @@ jobs:
             --exclude libLLVM-7.so &&
             "/host/${{ env.SCCACHE_PATH }}" --show-adv-stats &&
             "/host/${{ env.SCCACHE_PATH }}" --show-stats --stats-format=json > /host/${{ github.workspace }}/sccache_NUMBA_CUDA_MLIR.json
+          CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: >
+            delvewheel repair -w {dest_dir} -v
+            --add-path "${{ env.LLVM_MODERN_INSTALL_DIR }}/bin"
+            --add-path "${{ env.LLVM7_INSTALL_DIR }}/bin"
+            {wheel}
 
       - name: Report sccache stats (numba-cuda-mlir)
         if: ${{ startsWith(inputs.host-platform, 'linux') }}

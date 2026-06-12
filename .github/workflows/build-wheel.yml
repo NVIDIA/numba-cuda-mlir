@@ -150,14 +150,14 @@ jobs:
           # dependency on PATH or in --add-path dirs; it does not inspect
           # DLLs already bundled in the wheel. Point it at the LLVM install
           # subtree so it can find MLIRPythonCAPI / nanobind / LLVM-C etc.
-          # ${{ env.LLVM_*_INSTALL_DIR }} is substituted by GitHub Actions
-          # at workflow render time, before cibuildwheel/cmd.exe sees it,
-          # so no shell variable expansion is needed.
+          # cygpath -w converts the MSYS-style env-vars values (/d/a/...) to
+          # Windows-native form (D:\a\...) that delvewheel can resolve.
+          # cibuildwheel runs repair-wheel-command via Git Bash on Windows.
           CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: >
             delvewheel repair
-            --add-path "${{ env.LLVM_MODERN_INSTALL_DIR }}/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs"
-            --add-path "${{ env.LLVM_MODERN_INSTALL_DIR }}/bin"
-            --add-path "${{ env.LLVM7_INSTALL_DIR }}/bin"
+            --add-path "$(cygpath -w ${{ env.LLVM_MODERN_INSTALL_DIR }}/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs)"
+            --add-path "$(cygpath -w ${{ env.LLVM_MODERN_INSTALL_DIR }}/bin)"
+            --add-path "$(cygpath -w ${{ env.LLVM7_INSTALL_DIR }}/bin)"
             -w {dest_dir} {wheel}
 
       - name: Report sccache stats (numba-cuda-mlir)

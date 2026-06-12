@@ -204,3 +204,8 @@ addopts = [
 numba-cuda-mlir-stubgen = "numba_cuda_mlir.tools:create_numba_cuda_stubs"
 numba-cuda-mlir-generate-libdevice-stubs = "numba_cuda_mlir.tools:generate_libdevice_stubs"
 numba-cuda-mlir-replace-numba-cuda = "numba_cuda_mlir.tools:replace_numba_cuda_in_numba_install"
+
+[tool.cibuildwheel.windows]
+archs = "AMD64"
+before-build = "pip install delvewheel"
+repair-wheel-command = "delvewheel repair -w {dest_dir} {wheel}"

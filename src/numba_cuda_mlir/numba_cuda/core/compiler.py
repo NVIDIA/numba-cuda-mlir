@@ -95,8 +95,6 @@ class CompilerBase:
     ):
         # Make sure the environment is reloaded
         config.reload_config()
-        typingctx.refresh()
-        targetctx.refresh()
 
         self.state = StateDict()
 

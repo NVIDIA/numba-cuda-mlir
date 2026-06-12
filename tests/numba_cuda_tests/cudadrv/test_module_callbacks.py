@@ -7,15 +7,11 @@ import unittest
 import numpy as np
 
 from numba_cuda_mlir import cuda
-from numba_cuda_mlir.numba_cuda import config
 from numba_cuda_mlir.numba_cuda.cudadrv.linkable_code import CUSource
 from numba_cuda_mlir.testing import NumbaCUDATestCase
-from numba_cuda_mlir.numba_cuda.testing import skip_on_cudasim
 from cuda.core import ObjectCode
 from numba_cuda_mlir.descriptor import _LoadedModule
-
-if not config.ENABLE_CUDASIM:
-    from cuda.bindings.driver import cuLibraryGetGlobal, cuMemcpyHtoD
+from cuda.bindings.driver import cuLibraryGetGlobal, cuMemcpyHtoD
 
 
 def wipe_all_modules_in_context():
@@ -38,7 +34,6 @@ def is_valid_module_object(obj):
     return isinstance(obj, (ObjectCode, _LoadedModule)) and hasattr(obj, "handle")
 
 
-@skip_on_cudasim("Module loading not implemented in the simulator")
 class TestModuleCallbacksBasic(NumbaCUDATestCase):
     def test_basic(self):
         counter = 0
@@ -174,7 +169,6 @@ int add_one(int *out, int a)
         self.assertEqual(len(teardown_seen), 2)
 
 
-@skip_on_cudasim("Module loading not implemented in the simulator")
 class TestModuleCallbacksAPICompleteness(NumbaCUDATestCase):
     def test_api(self):
         def setup(handle):
@@ -203,7 +197,6 @@ class TestModuleCallbacksAPICompleteness(NumbaCUDATestCase):
                 kernel[1, 1]()
 
 
-@skip_on_cudasim("Module loading not implemented in the simulator")
 class TestModuleCallbacks(NumbaCUDATestCase):
     def setUp(self):
         super().setUp()
@@ -249,7 +242,6 @@ __device__ int get_num(int &retval) {
         self.assertEqual(arr[0], 42)
 
 
-@skip_on_cudasim("Module loading not implemented in the simulator")
 class TestMultithreadedCallbacks(NumbaCUDATestCase):
     def test_concurrent_initialization(self):
         seen_mods = set()

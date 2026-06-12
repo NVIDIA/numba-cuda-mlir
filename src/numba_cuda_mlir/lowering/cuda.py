@@ -53,7 +53,6 @@ lower_getattr_generic = registry.lower_getattr_generic
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.cuda import fp16
 import numba_cuda_mlir.cuda
-from numba_cuda_mlir.numba_cuda.compiler import ExternFunction
 from numba_cuda_mlir import types
 import numba_cuda_mlir.numba_cuda.core.ir as numba_ir
 import numba_cuda_mlir.lowering_utilities.type_conversions as type_conversions

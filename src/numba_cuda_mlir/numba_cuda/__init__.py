@@ -29,11 +29,8 @@ if not (importlib.util.find_spec("cuda") and importlib.util.find_spec("cuda.bind
         "with XY=12 or XY=13)."
     )
 
-if config.ENABLE_CUDASIM:
-    from .simulator_init import *
-else:
-    from .device_init import *
-    from .device_init import _auto_device
+from .device_init import *
+from .device_init import _auto_device
 
 from numba_cuda_mlir.numba_cuda.compiler import (
     compile,

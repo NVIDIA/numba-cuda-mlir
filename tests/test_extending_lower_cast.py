@@ -98,6 +98,9 @@ def _cast_boxed_to_int(context, builder, fromty, toty, val):
     )
 
 
+extending.refresh_registries()
+
+
 # ---------------------------------------------------------------------------
 # Integration test
 # ---------------------------------------------------------------------------

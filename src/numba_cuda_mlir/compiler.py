@@ -14,7 +14,6 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof_impl
 from numba_cuda_mlir.numba_cuda.core.imputils import lower_builtin
 from pathlib import Path
-from numba_cuda_mlir.mlir_optimization import optimize
 from numba_cuda_mlir.numba_cuda.codegen import ExternalCodeLibrary
 from numba_cuda_mlir.numba_cuda.compiler import sigutils
 from numba_cuda_mlir.descriptor import mlir_target
@@ -316,8 +315,6 @@ def _compile(pyfunc, sig=None, targetoptions=None, optimized=True):
     abi_info = targetoptions.get("abi_info", None) if targetoptions is not None else None
     output = targetoptions.get("output", None) if targetoptions is not None else None
     cres = dispatcher.compile(sig, abi_info=abi_info, output=output)
-    if optimized:
-        optimize(cres)
     return CompileResult(cres)
 
 

@@ -105,7 +105,7 @@ jobs:
           PIXI_ENV="cu-${CUDA_VER_PART}-${PY_VER_PART}"
           echo "PIXI_ENV=${PIXI_ENV}" >> "${GITHUB_ENV}"
       - name: Setup pixi
-        uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11  # v0.9.6
+        uses: prefix-dev/setup-pixi@1b2de7f3351f171c8b4dfeb558c639cb58ed4ec0  # v0.9.5
         with:
           pixi-version: "v0.63.2"
           environments: ${{ env.PIXI_ENV }}
@@ -116,7 +116,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
       - name: Generate test report
-        uses: test-summary/action@v2.6
+        uses: test-summary/action@v2.4
         with:
           paths: "${{ env.RAPIDS_TESTS_DIR }}/*.xml"
         if: always()

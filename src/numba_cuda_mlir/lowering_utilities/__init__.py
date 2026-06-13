@@ -498,7 +498,9 @@ def _(a: ir.Type, b: ir.Type) -> ir.Type:
 
 def coerce_numpy_scalars_for_binary_op(a: ir.Value, b: ir.Value) -> tuple[ir.Value, ir.Value]:
     coerced = numpy_implicit_type_promotion(a.type, b.type)
-    return convert(a, coerced), convert(b, coerced)
+    a_signed = isinstance(a.type, ir.IntegerType) and a.type.width > 1
+    b_signed = isinstance(b.type, ir.IntegerType) and b.type.width > 1
+    return convert(a, coerced, signed=a_signed), convert(b, coerced, signed=b_signed)
 
 
 def mul(a: ir.Value, b: ir.Value) -> ir.Value:

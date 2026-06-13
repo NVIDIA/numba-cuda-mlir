@@ -7,6 +7,7 @@ import ctypes
 import enum
 import functools
 import operator
+import typing
 
 import numpy as np
 from numpy.random.bit_generator import BitGenerator
@@ -45,6 +46,10 @@ def typeof(val, purpose=Purpose.argument):
         msg = _termcolor.errmsg(f"Cannot determine Numba type of {type(val)}")
         raise ValueError(msg)
     return ty
+
+
+@typing.overload
+def typeof_impl(value: typing.Any, context: _TypeofContext) -> types.Type: ...
 
 
 @singledispatch

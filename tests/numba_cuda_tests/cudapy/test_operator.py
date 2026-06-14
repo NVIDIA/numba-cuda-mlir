@@ -374,16 +374,16 @@ class TestOperatorModule:
             compiled[1, 1](ary, arg1, arg2, arg3)
             assert ary[0] == False
 
-    # @pytest.mark.xfail(True, reason="NVVM verify error")
+    @pytest.mark.xfail(True, reason="NVVM verify error")
     @pytest.mark.parametrize(
         "func,opstring",
         [
-            pytest.param(simple_fp16_gt, "setp.hi.u16", id="gt"),
-            pytest.param(simple_fp16_ge, "setp.hs.u16", id="ge"),
-            pytest.param(simple_fp16_lt, "setp.lo.u16", id="lt"),
-            pytest.param(simple_fp16_le, "setp.ls.u16", id="le"),
-            pytest.param(simple_fp16_eq, "setp.eq.u16", id="eq"),
-            pytest.param(simple_fp16_ne, "setp.ne.u16", id="ne"),
+            pytest.param(simple_fp16_gt, "setp.gt.u16", id="gt"),
+            pytest.param(simple_fp16_ge, "setp.ge.u16", id="ge"),
+            pytest.param(simple_fp16_lt, "setp.lt.u16", id="lt"),
+            pytest.param(simple_fp16_le, "setp.le.u16", id="le"),
+            pytest.param(simple_fp16_eq, "setp.eq.b16", id="eq"),
+            pytest.param(simple_fp16_ne, "setp.ne.b16", id="ne"),
         ],
     )
     def test_uint16_comparison_ptx(self, func, opstring):

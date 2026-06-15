@@ -6,7 +6,6 @@ import re
 from numba_cuda_mlir._mlir.dialects import gpu, arith, llvm, vector
 from numba_cuda_mlir._mlir.dialects._llvm_enum_gen import IntegerOverflowFlags
 from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir.models import get_float_integer_storage_map
 
 
 def recursively_apply(pattern):
@@ -130,6 +129,8 @@ def _is_shared_llvm_ptr(ty: ir.Type) -> bool:
 
 
 def _bit_storage_type_for_float(ty: ir.Type):
+    from numba_cuda_mlir.models import get_float_integer_storage_map
+
     with ir.Location.unknown():
         if isinstance(ty, ir.FloatType):
             width = get_float_integer_storage_map().get(str(ty))
@@ -229,6 +230,8 @@ def _demote_shared_and_local_arrays_to_bytes(module: ir.Module):
     """
 
     def _get_llvm_type_byte_size(ty_str: str) -> int:
+        from numba_cuda_mlir.models import get_float_integer_storage_map
+
         ty_str = ty_str.strip()
         if ty_str.startswith("!llvm.array<"):
             inner = ty_str[len("!llvm.array<") : -1].strip()
@@ -284,7 +287,10 @@ def _demote_shared_and_local_arrays_to_bytes(module: ir.Module):
         elem_type = op.attributes["elem_type"]
         if str(elem_type) == "i8":
             continue
-        byte_size = _get_llvm_type_byte_size(str(elem_type))
+        try:
+            byte_size = _get_llvm_type_byte_size(str(elem_type))
+        except NotImplementedError:
+            continue
         if byte_size == 1:
             continue
 
@@ -304,6 +310,10 @@ def _demote_shared_and_local_arrays_to_bytes(module: ir.Module):
             new_alloca.owner.opview.operation.attributes["elem_type"] = ir.TypeAttr.get(
                 ir.IntegerType.get_signless(8)
             )
+            if "alignment" not in new_alloca.owner.opview.operation.attributes:
+                new_alloca.owner.opview.operation.attributes["alignment"] = ir.IntegerAttr.get(
+                    ir.IntegerType.get_signless(64), 16
+                )
 
             op.results[0].replace_all_uses_with(new_alloca)
         op.operation.erase()
@@ -312,7 +322,10 @@ def _demote_shared_and_local_arrays_to_bytes(module: ir.Module):
         global_type = ir.TypeAttr(op.attributes["global_type"]).value
         if str(global_type) == "i8" or str(global_type).endswith(" x i8>"):
             continue
-        byte_size = _get_llvm_type_byte_size(str(global_type))
+        try:
+            byte_size = _get_llvm_type_byte_size(str(global_type))
+        except NotImplementedError:
+            continue
 
         with ir.Location.unknown():
             new_global_type = ir.Type.parse(f"!llvm.array<{byte_size} x i8>")
@@ -320,6 +333,10 @@ def _demote_shared_and_local_arrays_to_bytes(module: ir.Module):
         op.operation.attributes["global_type"] = ir.TypeAttr.get(new_global_type)
         if "type" in op.operation.attributes:
             op.operation.attributes["type"] = ir.TypeAttr.get(new_global_type)
+        if "alignment" not in op.operation.attributes:
+            op.operation.attributes["alignment"] = ir.IntegerAttr.get(
+                ir.IntegerType.get_signless(64), 16
+            )
 
 
 def run_pre_codegen_patterns(module: ir.Module, use_llvm70: bool = False):

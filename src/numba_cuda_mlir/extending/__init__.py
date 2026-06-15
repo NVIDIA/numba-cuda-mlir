@@ -19,7 +19,6 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
 from numba_cuda_mlir.numba_cuda.extending import (
     intrinsic,
     _Intrinsic,
-    type_callable,
 )
 
 from numba_cuda_mlir.models import mlir_data_manager
@@ -40,6 +39,7 @@ __all__ = [
     "as_numba_type",
     "lower_builtin",
     "lower_cast",
+    "refresh_registries",
     "overload",
     "overload_attribute",
     "overload_method",
@@ -62,6 +62,52 @@ def _require_lowering_registry(decorator_name, registry):
     if registry is None:
         raise ValueError(f"numba_cuda_mlir.extending.{decorator_name} requires lowering_registry=")
     return registry
+
+
+def refresh_registries(*, typing=True, target=True, include_uninitialized_cuda=True):
+    """Sync compiler contexts after adding entries to extension registries."""
+    from numba_cuda_mlir.descriptor import mlir_target
+    from numba_cuda_mlir.numba_cuda.descriptor import cuda_target
+
+    mlir_target.refresh_registries(typing=typing, target=target)
+    if (
+        include_uninitialized_cuda
+        or cuda_target._typingctx_initialized
+        or cuda_target._targetctx_initialized
+    ):
+        cuda_target.refresh_registries(typing=typing, target=target)
+
+
+def type_callable(func, typing_registry=None):
+    """
+    Decorate a function as implementing typing for the callable *func*.
+    """
+    from numba_cuda_mlir.numba_cuda.typing.templates import CallableTemplate
+
+    selected_typing_registry = typing_registry or globals()["typing_registry"]
+
+    if not callable(func) and not isinstance(func, str):
+        raise TypeError("`func` should be a function or string")
+    try:
+        func_name = func.__name__
+    except AttributeError:
+        func_name = str(func)
+
+    def decorate(typing_func):
+        def generic(self):
+            return typing_func(self.context)
+
+        name = "%s_CallableTemplate" % (func_name,)
+        bases = (CallableTemplate,)
+        class_dict = dict(key=func, generic=generic)
+        template = type(name, bases, class_dict)
+        selected_typing_registry.register(template)
+        if callable(func):
+            selected_typing_registry.register_global(func, types.Function(template))
+        refresh_registries(typing=True, target=False, include_uninitialized_cuda=False)
+        return typing_func
+
+    return decorate
 
 
 class _NumbaCudaMlirOverloadFunctionTemplate(_OverloadFunctionTemplate):
@@ -135,6 +181,7 @@ def overload(
         selected_typing_registry.register(template)
         if callable(func):
             selected_typing_registry.register_global(func, types.Function(template))
+        refresh_registries(typing=True, target=False, include_uninitialized_cuda=False)
         return overload_func
 
     return decorate
@@ -226,6 +273,7 @@ def overload_attribute(typ, attr, typing_registry=None, lowering_registry=None, 
         template._attribute_lowering_registry = selected_lowering_registry
         selected_typing_registry.register_attr(template)
         overload(overload_func, typing_registry=selected_typing_registry, **kwargs)(overload_func)
+        refresh_registries(typing=True, target=True, include_uninitialized_cuda=False)
         return overload_func
 
     return decorate
@@ -261,6 +309,7 @@ def overload_method(typ, attr, typing_registry=None, **kwargs):
         )
         selected_typing_registry.register_attr(template)
         overload(overload_func, typing_registry=selected_typing_registry, **kwargs)(overload_func)
+        refresh_registries(typing=True, target=False, include_uninitialized_cuda=False)
         return overload_func
 
     return decorate

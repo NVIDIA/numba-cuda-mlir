@@ -522,8 +522,12 @@ def optimize(cres):
     with context.get_context():
         target_options = cres.metadata["targetoptions"]
         dump_mlir = target_options.get("dump_mlir", False) or target_options.get("dump", False)
-        # Parse pre-optimization MLIR (debug metadata present when debug/lineinfo enabled).
-        module = ir.Module.parse(cres.metadata["mlir_module_str"])
+        module = cres.metadata["mlir_module"]
+        # Materialize the pre-optimization string before passes mutate the module,
+        # so that inspect_mlir() and other consumers can still access it.
+        from numba_cuda_mlir.mlir_lowering import get_mlir_module_str
+
+        get_mlir_module_str(cres.metadata)
 
         if dump_mlir:
             _dump_module(module, "=============== MLIR Module ===============")

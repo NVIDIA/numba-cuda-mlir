@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from numba_cuda_mlir.descriptor import MLIRDispatcherType
-from functools import lru_cache
 from io import StringIO
 import logging
 import operator
@@ -94,6 +93,19 @@ KERNEL_ERROR_CODES = {
 }
 # MLIR LLVM dialect dynamic GEP sentinel, LLVM::GEPOp::kDynamicIndex / INT32_MIN.
 _GEP_DYNAMIC_INDEX = -2147483648
+
+
+def get_mlir_module_str(metadata):
+    """Lazily serialize the MLIR module to string, caching the result."""
+    if "mlir_module_str" not in metadata:
+        module = metadata["mlir_module"]
+        if metadata.get("_mlir_has_debug_info"):
+            with StringIO() as sb:
+                module.operation.print(enable_debug_info=True, file=sb)
+                metadata["mlir_module_str"] = sb.getvalue()
+        else:
+            metadata["mlir_module_str"] = str(module)
+    return metadata["mlir_module_str"]
 
 
 def _is_omitted_arg(argty):
@@ -331,14 +343,7 @@ class MLIRLower(object):
                 self._materialize_deferred_dbg_declare_attrs()
                 assert self.metadata
                 self.metadata["mlir_module"] = self.mlir_module
-                # In debug/lineinfo mode, serialize with enable_debug_info so LLVM dialect
-                # debug metadata (#llvm.di_*, loc) is not stripped from mlir_module_str.
-                if self._di_subprogram is not None:
-                    with StringIO() as sb:
-                        self.mlir_module.operation.print(enable_debug_info=True, file=sb)
-                        self.metadata["mlir_module_str"] = sb.getvalue()
-                else:
-                    self.metadata["mlir_module_str"] = str(self.mlir_module)
+                self.metadata["_mlir_has_debug_info"] = self._di_subprogram is not None
                 self.metadata["linker"] = self.linker
                 self.metadata["needs_nrt"] = needs_nrt
                 self.metadata["nrt_inline"] = needs_nrt
@@ -541,9 +546,8 @@ extern "C" __global__ void
                     function_type=mlir_funcOp_type,
                     sym_name=sym_name,
                     loc=self.mlir_loc,
-                    kernel=True,
                 )
-                # self.mlir_funcOp.attributes['nvvm.kernel'] = ir.UnitAttr.get()
+                self.mlir_funcOp.kernel = True
 
                 # Set launch bounds if specified
                 launch_bounds = self.targetoptions.get("launch_bounds")
@@ -1657,7 +1661,7 @@ extern "C" __global__ void
         if callee_linker := cres.metadata.get("linker"):
             self.linker.merge_ltoirs_from(callee_linker)
 
-        module: ir.Module = ir.Module.parse(cres.metadata["mlir_module_str"])
+        module: ir.Module = ir.Module.parse(get_mlir_module_str(cres.metadata))
         gpu_module: gpu.GPUModuleOp = list(module.body)[0]
         gpu_module_ops = list(gpu_module.regions[0].blocks[0].operations)
         linkable_ops = [
@@ -1860,7 +1864,7 @@ extern "C" __global__ void
         if callee_linker := cres.metadata.get("linker"):
             self.linker.merge_ltoirs_from(callee_linker)
 
-        link.link_inplace(self.mlir_module, cres.metadata["mlir_module_str"])
+        link.link_inplace(self.mlir_module, get_mlir_module_str(cres.metadata))
 
         name_attr = ir.StringAttr.get(func_name)
         body = self.mlir_gpu_module.regions[0].blocks[0]
@@ -1902,27 +1906,13 @@ extern "C" __global__ void
         signature: typing.Signature | tuple[types.Type, ...],
     ) -> Builder | None:
         """
-        After doing the work to find the code generator for the function
-        and signature if it exists, filter out any builders that do not
-        originate in numba_cuda_mlir.
-
-        TODO: Instead, filter _out_ builders coming from Numba by overriding
-        methods in the target
+        Return the registered code generator for the function and signature
+        if one exists.
         """
         trace("fn: %s, signature: %s", fn, signature)
         if builder := self._get_registered_builder(fn, signature):
-            if self._assume_builder_is_usable_for_mlir(builder):
-                return builder
+            return builder
         return None
-
-    @lru_cache(maxsize=None)
-    def _filter_out_numba_builders(self, fn) -> None:
-        overload_selector = self.context._defns[fn]
-        overload_selector.versions = [
-            version
-            for version in overload_selector.versions
-            if self._assume_builder_is_usable_for_mlir(version[-1])
-        ]
 
     def _lookup_actual_function(self, fn, signature) -> Builder | None:
         """
@@ -1932,10 +1922,10 @@ extern "C" __global__ void
         """
         #        if callable(fn) and fn in self.context._defns:
         if fn in self.context._defns:
-            self._filter_out_numba_builders(fn)
             try:
                 impl = self.context.get_function(fn, signature)
-                return impl._callable.func
+                builder = impl._callable.func
+                return builder
             except NotImplementedError:
                 return None
         return None
@@ -1983,7 +1973,7 @@ extern "C" __global__ void
 
         Priority order:
         1. Registered lowerings in context._defns (from @lower decorators)
-        2. Intrinsic _defn builders (if MLIR-compatible)
+        2. Intrinsic _defn builders
         3. DeferredLowering objects
         """
         if isinstance(fn, numba_ir.Var):
@@ -2007,7 +1997,7 @@ extern "C" __global__ void
                 return None
             tyctx = self.context.typing_context
             full_sig, maybe_builder = fn._defn(tyctx, *signature.args)
-            if maybe_builder and self._assume_builder_is_usable_for_mlir(maybe_builder):
+            if maybe_builder:
                 return maybe_builder
 
         if isinstance(fn, DeferredLowering):
@@ -2392,18 +2382,6 @@ extern "C" __global__ void
             self.incref(elem_type, val)
         self.store_var(target, tuple(values))
 
-    def _assume_builder_is_usable_for_mlir(self, object):
-        module = getattr(object, "__module__", None) or ""
-        is_numba = module.startswith("numba_cuda_mlir.numba_cuda.")
-        is_cccl = module.startswith("cuda.coop")
-        trace(
-            "\n\tis object %s defined in numba?: %s, in cccl?: %s",
-            object,
-            is_numba,
-            is_cccl,
-        )
-        return not (is_numba or is_cccl)
-
     def _is_extension_cast(self, cast_impl):
         """True only for third-party extension casts (e.g. cuDF).
 
@@ -2529,8 +2507,7 @@ extern "C" __global__ void
         trace("target_type=%s, value_type=%s, attr=%s", target_type, value_type, attr)
         try:
             if builder := self.context.get_getattr(value_type, attr):
-                if self._assume_builder_is_usable_for_mlir(builder):
-                    return builder
+                return builder
         except NotImplementedError:
             # No registered builder - will be handled by explicit lowering in lower_getattr_assign
             pass
@@ -2644,11 +2621,8 @@ extern "C" __global__ void
             # get_setattr expects (attr, sig) where sig has (target_type, value_type)
             setattr_sig = types.void(target_type, value_type)
             if builder := self.context.get_setattr(attr, setattr_sig):
-                # Check if this builder is from our registry (not upstream numba)
-                module = getattr(builder, "__module__", "")
-                if not module.startswith("numba_cuda_mlir.numba_cuda."):
-                    builder(self, [target, value])
-                    return
+                builder(self, [target, value])
+                return
         except NotImplementedError:
             pass
 

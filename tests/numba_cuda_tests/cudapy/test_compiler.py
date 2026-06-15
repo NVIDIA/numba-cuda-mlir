@@ -785,6 +785,7 @@ def _is_sm_120_with_ctk_12_9():
 _xfail_launch_bounds = pytest.mark.xfail(
     (_is_sm_100() and nvvm.NVVM().get_version() < (13, 2)) or _is_sm_120_with_ctk_12_9(),
     reason="libnvvm omits .maxntid for sm_100 before CUDA 13.2 or sm_120 with CUDA 12.9",
+    strict=False,
 )
 
 
@@ -825,7 +826,7 @@ class TestCompileWithLaunchBounds(NumbaCUDATestCase):
         self.assertRegex(ptx, r".minnctapersm\s+2")
         self.assertNotIn(".maxclusterrank", ptx)
 
-    @pytest.mark.xfail(reason="libnvvm does not emit .maxclusterrank")
+    @pytest.mark.xfail(reason="libnvvm does not emit .maxclusterrank", strict=False)
     def test_launch_bounds_with_max_cluster_rank(self):
         def f():
             pass

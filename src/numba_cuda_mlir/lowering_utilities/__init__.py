@@ -164,6 +164,53 @@ def get_type_width(ty: ir.Type) -> int:
             raise NotImplementedError(f"Not implemented for type {ty}")
 
 
+def is_complex_type(mlir_type):
+    return isinstance(mlir_type, ir.ComplexType)
+
+
+# Complex values lower as MLIR complex scalars in SSA, but pointer and record
+# storage paths address them as literal LLVM {real, imag} structs. Keep the
+# conversions shared so those independent lowering paths use the same layout.
+def get_llvm_struct_for_complex(complex_type):
+    elem_type = complex_type.element_type
+    return llvm.StructType.get_literal([elem_type, elem_type])
+
+
+def complex_to_llvm_struct(value):
+    complex_type = value.type
+    if not is_complex_type(complex_type):
+        raise TypeError(f"Expected MLIR complex type, got {complex_type}")
+    struct_type = get_llvm_struct_for_complex(complex_type)
+    real = complex_dialect.re(value)
+    imag = complex_dialect.im(value)
+    undef = llvm.UndefOp(struct_type)
+    with_real = llvm.insertvalue(
+        container=undef,
+        value=real,
+        position=ir.DenseI64ArrayAttr.get([0]),
+    )
+    return llvm.insertvalue(
+        container=with_real,
+        value=imag,
+        position=ir.DenseI64ArrayAttr.get([1]),
+    )
+
+
+def llvm_struct_to_complex(value, complex_type):
+    elem_type = complex_type.element_type
+    real = llvm.extractvalue(
+        res=elem_type,
+        container=value,
+        position=ir.DenseI64ArrayAttr.get([0]),
+    )
+    imag = llvm.extractvalue(
+        res=elem_type,
+        container=value,
+        position=ir.DenseI64ArrayAttr.get([1]),
+    )
+    return complex_dialect.create_(complex=complex_type, real=real, imaginary=imag)
+
+
 def _lookup_datamodel_type(numba_type: types.Type, context: str) -> ir.Type:
     from numba_cuda_mlir.models import mlir_data_manager
 

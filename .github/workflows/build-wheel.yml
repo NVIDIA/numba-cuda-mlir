@@ -76,17 +76,6 @@ jobs:
         with:
           enable-apt: true
 
-      - name: Set environment variables
-        env:
-          HOST_PLATFORM: ${{ inputs.host-platform }}
-          PY_VER: ${{ matrix.python-version }}
-          SHA: ${{ github.sha }}
-        run: ./ci/tools/env-vars build
-
-      - name: Dump environment
-        run: |
-          env
-
       - name: Determine cibuildwheel and LLVM Python tags
         id: wheel-tags
         run: |
@@ -103,6 +92,17 @@ jobs:
         with:
           host-platform: ${{ inputs.host-platform }}
           llvm-py-tag: ${{ steps.wheel-tags.outputs.llvm-py-tag }}
+
+      - name: Set environment variables
+        env:
+          HOST_PLATFORM: ${{ inputs.host-platform }}
+          PY_VER: ${{ matrix.python-version }}
+          SHA: ${{ github.sha }}
+        run: ./ci/tools/env-vars build
+
+      - name: Dump environment
+        run: |
+          env
 
       - name: Fix LLVM artifact permissions
         if: ${{ startsWith(inputs.host-platform, 'linux') }}

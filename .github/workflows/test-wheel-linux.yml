@@ -126,28 +126,6 @@ jobs:
           pwd
           ls -lahR $NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR
 
-      - name: Determine LLVM Python tag
-        id: wheel-tags
-        run: |
-          PY_VER_FMT=$(echo "${{ matrix.PY_VER }}" | tr -d '.')
-          echo "LLVM_PY_TAG=cp${PY_VER_FMT}" >> "$GITHUB_ENV"
-          echo "llvm-py-tag=cp${PY_VER_FMT}" >> "$GITHUB_OUTPUT"
-
-      - name: Restore LLVM artifacts
-        uses: ./.github/actions/restore_llvm_artifacts
-        with:
-          host-platform: ${{ inputs.host-platform }}
-          llvm-py-tag: ${{ steps.wheel-tags.outputs.llvm-py-tag }}
-
-      - name: Fix LLVM artifact permissions
-        run: |
-          chmod -R +x llvm-modern-install/bin/ llvm7-install/bin/ || true
-          chmod -R +x llvm-modern-install/lib/ llvm7-install/lib/ || true
-
-      - name: Set LLVM library paths
-        run: |
-          echo "LD_LIBRARY_PATH=$(pwd)/llvm-modern-install/lib:$(pwd)/llvm7-install/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
-
       - name: Set up Python ${{ matrix.PY_VER }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:

@@ -159,6 +159,8 @@ build_llvm7() {
     -DCMAKE_C_COMPILER=cl \
     -DCMAKE_CXX_COMPILER=cl \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded \
+    -DLLVM_USE_CRT_RELEASE=MT \
     -DLLVM_TARGETS_TO_BUILD=NVPTX \
     -DBUILD_SHARED_LIBS=OFF \
     -DLLVM_ENABLE_PIC=ON \
@@ -218,7 +220,10 @@ build_llvm7() {
   local stub_obj="${LLVM7_BUILD}/llvm-c-stub.obj"
   pushd "${LLVM7_BUILD}" > /dev/null
   printf 'int _fltused = 0;\n' > llvm-c-stub.c
-  cl -nologo -c -O2 -MD -Follvm-c-stub.obj llvm-c-stub.c
+  # /MT here pairs with the /MT-built LLVM static libs linked below to
+  # produce a single LLVM-C.dll. Within one DLL/binary every .obj and
+  # .lib must agree on /MT vs /MD or the linker errors.
+  cl -nologo -c -O2 -MT -Follvm-c-stub.obj llvm-c-stub.c
   popd > /dev/null
 
   {
@@ -275,6 +280,8 @@ build_modern_llvm() {
     -DCMAKE_INSTALL_PREFIX="$(cmake_path "${LLVM_MODERN_INSTALL}")" \
     -DCMAKE_C_COMPILER=cl \
     -DCMAKE_CXX_COMPILER=cl \
+    -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded \
+    -DLLVM_USE_CRT_RELEASE=MT \
     -DLLVM_ENABLE_PROJECTS=mlir \
     -DLLVM_TARGETS_TO_BUILD=NVPTX \
     -DBUILD_SHARED_LIBS=OFF \
@@ -435,7 +442,8 @@ build_modern_to_nvvm_bridge() {
     -DMLIR_DIR="$(cmake_path "${LLVM_MODERN_INSTALL}/lib/cmake/mlir")" \
     -DLLVM_DIR="$(cmake_path "${LLVM_MODERN_INSTALL}/lib/cmake/llvm")" \
     -DCMAKE_C_COMPILER=cl \
-    -DCMAKE_CXX_COMPILER=cl
+    -DCMAKE_CXX_COMPILER=cl \
+    -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
   cmake --build "$(cmake_path "${bridge_build}")" \
     --target MLIRModernToNVVM MLIRModernToNVVMSmoke -j "${PARALLEL}"
   ctest --test-dir "$(cmake_path "${bridge_build}")" --output-on-failure

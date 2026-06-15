@@ -205,6 +205,10 @@ class CompileResult:
                 ptx = get_ptx(self.cres)
                 self.cres.metadata["ptx"] = ptx
                 return ptx
+        if attr == "mlir_module":
+            from numba_cuda_mlir.mlir_lowering import get_mlir_module_str
+
+            return get_mlir_module_str(self.cres.metadata)
         if attr in self.cres.metadata.keys():
             return self.cres.metadata[attr]
         # Provide compatibility attributes
@@ -436,8 +440,12 @@ def compile_mlir(pyfunc, sig, optimized=False, **targetoptions):
         cres = _compile_and_optimize(pyfunc, sig, targetoptions)
         return cres.metadata["mlir_module_optimized"]
     else:
+        from numba_cuda_mlir.descriptor import mlir_target
+        from numba_cuda_mlir.mlir_lowering import get_mlir_module_str
+
+        mlir_target.ensure_initialized()
         cres = _compile_only(pyfunc, sig, targetoptions)
-        return cres.metadata["mlir_module_str"]
+        return get_mlir_module_str(cres.metadata)
 
 
 def compile_cubin(pyfunc, sig, **targetoptions):
@@ -520,6 +528,7 @@ extern_function_dummy_lowering.__module__ = "numba_cuda_mlir.numba_cuda.compiler
 def declare_device_function(name, restype, argtypes, link, use_cooperative, abi="numba"):
     from numba_cuda_mlir.descriptor import mlir_target
 
+    mlir_target.ensure_initialized()
     typingctx = mlir_target.typing_context
     targetctx = mlir_target.target_context
     sig = typing.signature(restype, *argtypes)

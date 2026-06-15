@@ -39,10 +39,16 @@ command -v sccache &>/dev/null || { echo "ERROR: sccache not found"; exit 1; }
 export CMAKE_C_COMPILER_LAUNCHER="$(which sccache)"
 export CMAKE_CXX_COMPILER_LAUNCHER="$(which sccache)"
 
-# Configure
+# Configure. CMAKE_PLATFORM_NO_VERSIONED_SONAME=ON tells cmake to skip
+# the SOVERSION symlink chain (libLLVM-7.1.so -> libLLVM-7.so ->
+# libLLVM.so) and emit a single un-versioned shared library. Without
+# this, `cmake --install` installs all three and `actions/upload-artifact`
+# (zip format) materializes each symlink as a full byte-identical copy,
+# 3x-bloating the artifact. Matches ci/build-llvm-modern.sh.
 cmake -G Ninja -S "${LLVM7_SRC}/llvm" -B "${LLVM7_BUILD}" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON \
     -DLLVM_TARGETS_TO_BUILD="NVPTX" \
     -DLLVM_BUILD_LLVM_DYLIB=ON \
     -DLLVM_BUILD_TOOLS=OFF \
@@ -64,10 +70,11 @@ cmake --build "${LLVM7_BUILD}" -j "${PARALLEL}" --target LLVM
 # `cmake --install`. Symmetric with ci/build-llvm-modern.sh.
 cmake --install "${LLVM7_BUILD}" --strip --component LLVM --prefix "${LLVM7_INSTALL}"
 
-# LLVM 7 names the dylib libLLVM-7svn.so when built from source. The
-# wheel staging expects the canonical libLLVM-7.so name.
+# Setup.py / build-wheel.yml expects the dylib at the canonical
+# libLLVM-7.so name. With NO_VERSIONED_SONAME above the install should
+# emit exactly one libLLVM*.so; rename it to libLLVM-7.so if needed.
 if [[ ! -f "${LLVM7_INSTALL}/lib/libLLVM-7.so" ]]; then
-    LLVM7_SO="$(ls "${LLVM7_INSTALL}"/lib/libLLVM-7*.so | head -1)"
+    LLVM7_SO="$(ls "${LLVM7_INSTALL}"/lib/libLLVM*.so 2>/dev/null | head -1)"
     [[ -n "${LLVM7_SO}" ]] && mv "${LLVM7_SO}" "${LLVM7_INSTALL}/lib/libLLVM-7.so"
 fi
 

@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir import compiler, types
+from numba_cuda_mlir.cuda.experimental import intrin
+from numba_cuda_mlir._mlir.dialects import llvm
+from numba_cuda_mlir._mlir.extras import types as T
 import ctypes
 import numpy as np
 import pytest
@@ -142,6 +145,58 @@ def test_cpointer_complex_getitem_setitem(numba_complex, numpy_complex, float_dt
     np.testing.assert_array_equal(d_arith.copy_to_host(), h_src[[1, 0]])
 
 
+def test_array_slice_ptr_preserves_offset():
+    """ctypes.cast(array_slice, POINTER(...)) points at the slice start."""
+
+    @cuda.jit
+    def copy_from_slice(src, dst, start):
+        i = cuda.threadIdx.x
+        ptr = ctypes.cast(src[start:], ctypes.POINTER(ctypes.c_int32))
+        dst[i] = ptr[i]
+
+    @cuda.jit
+    def copy_bool_from_slice(src, dst, start):
+        i = cuda.threadIdx.x
+        ptr = ctypes.cast(src[start:], ctypes.POINTER(ctypes.c_bool))
+        dst[i] = ptr[i]
+
+    @intrin.define
+    def load_i32(ptr: llvm.PointerType.get, idx: types.int64) -> types.int32:
+        llvm_kDynamic = -2147483648
+        offset_ptr = llvm.getelementptr(
+            llvm.PointerType.get(), ptr, [idx], [llvm_kDynamic], T.i32(), None
+        )
+        return llvm.load(T.i32(), offset_ptr)
+
+    @cuda.jit
+    def copy_from_types_ptr_slice(src, dst, start):
+        dst[0] = load_i32(types.ptr(src[start:]), 0)
+
+    h_src = np.arange(32, dtype=np.int32)
+    h_dst = np.zeros(8, dtype=np.int32)
+
+    copy_from_slice[1, h_dst.size](h_src, h_dst, 11)
+
+    np.testing.assert_array_equal(h_dst, h_src[11 : 11 + h_dst.size])
+
+    h_bool_src = np.array(
+        [False, True, False, True, True, False, True, False],
+        dtype=np.bool_,
+    )
+    h_bool_dst = np.zeros(4, dtype=np.bool_)
+
+    copy_bool_from_slice[1, h_bool_dst.size](h_bool_src, h_bool_dst, 3)
+
+    np.testing.assert_array_equal(h_bool_dst, h_bool_src[3 : 3 + h_bool_dst.size])
+
+    h_types_ptr_dst = np.zeros(1, dtype=np.int32)
+
+    copy_from_types_ptr_slice[1, 1](h_src, h_types_ptr_dst, 11)
+
+    assert h_types_ptr_dst[0] == h_src[11]
+
+
 if __name__ == "__main__":
     test_ptr_arith()
     test_cpointer_getitem()
+    test_array_slice_ptr_preserves_offset()

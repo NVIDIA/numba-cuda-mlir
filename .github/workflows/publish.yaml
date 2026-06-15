@@ -4,14 +4,22 @@
 name: Publish packages
 
 on:
+  workflow_dispatch:
+    inputs:
+      git-tag:
+        description: "The release git tag"
+        required: true
+        type: string
   push:
     tags:
       - 'v*'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-release
+  group: ${{ github.workflow }}-${{ inputs.git-tag || github.ref }}-release
   cancel-in-progress: true
 
+env:
+  RELEASE_TAG: ${{ inputs.git-tag || github.ref_name }}
 
 jobs:
   ci-vars:
@@ -24,6 +32,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Get CUDA build versions
         id: get-vars
@@ -37,12 +46,21 @@ jobs:
     uses: ./.github/workflows/build-llvm.yml
     with:
       host-platform: linux-64
+      source-ref: ${{ inputs.git-tag || github.ref }}
     secrets: inherit
 
   build-llvm-linux-aarch64:
     uses: ./.github/workflows/build-llvm.yml
     with:
       host-platform: linux-aarch64
+      source-ref: ${{ inputs.git-tag || github.ref }}
+    secrets: inherit
+
+  build-llvm-windows:
+    uses: ./.github/workflows/build-llvm.yml
+    with:
+      host-platform: win-64
+      source-ref: ${{ inputs.git-tag || github.ref }}
     secrets: inherit
 
   build-wheels-linux-64:
@@ -55,6 +73,7 @@ jobs:
       host-platform: linux-64
       cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
       prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
+      source-ref: ${{ inputs.git-tag || github.ref }}
 
   build-wheels-linux-aarch64:
     needs:
@@ -66,10 +85,23 @@ jobs:
       host-platform: linux-aarch64
       cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
       prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
+      source-ref: ${{ inputs.git-tag || github.ref }}
+
+  build-wheels-windows:
+    needs:
+      - ci-vars
+      - build-llvm-windows
+    name: Build win-64
+    uses: ./.github/workflows/build-wheel.yml
+    with:
+      host-platform: win-64
+      cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
+      prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
+      source-ref: ${{ inputs.git-tag || github.ref }}
 
   publish-wheels:
     name: Publish wheels to PyPI
-    needs: [build-wheels-linux-64, build-wheels-linux-aarch64]
+    needs: [build-wheels-linux-64, build-wheels-linux-aarch64, build-wheels-windows]
     permissions:
       id-token: write
     runs-on: ubuntu-latest
@@ -90,7 +122,7 @@ jobs:
 
   upload-release:
     name: Upload wheels to GitHub Release
-    needs: [build-wheels-linux-64, build-wheels-linux-aarch64]
+    needs: [build-wheels-linux-64, build-wheels-linux-aarch64, build-wheels-windows]
     if: ${{ !github.event.repository.fork }}
     permissions:
       contents: write
@@ -108,15 +140,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Check if release already exists, create if not
-          if ! gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" > /dev/null 2>&1; then
-            echo "Creating release ${{ github.ref_name }}"
-            gh release create "${{ github.ref_name }}" \
+          if ! gh release view "${RELEASE_TAG}" --repo "${{ github.repository }}" > /dev/null 2>&1; then
+            echo "Creating release ${RELEASE_TAG}"
+            gh release create "${RELEASE_TAG}" \
               --repo "${{ github.repository }}" \
-              --title "${{ github.ref_name }}" \
+              --title "${RELEASE_TAG}" \
               --generate-notes \
               --verify-tag
           else
-            echo "Release ${{ github.ref_name }} already exists"
+            echo "Release ${RELEASE_TAG} already exists"
           fi
 
       - name: Upload wheels to GitHub Release
@@ -124,8 +156,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [[ -d "wheels" && $(ls -A wheels 2>/dev/null | wc -l) -gt 0 ]]; then
-            echo "Uploading wheels to release ${{ github.ref_name }}"
-            gh release upload --clobber "${{ github.ref_name }}" --repo "${{ github.repository }}" wheels/*
+            echo "Uploading wheels to release ${RELEASE_TAG}"
+            gh release upload --clobber "${RELEASE_TAG}" --repo "${{ github.repository }}" wheels/*
           else
             echo "No wheels found to upload"
             exit 1
@@ -142,5 +174,5 @@ jobs:
     uses: ./.github/workflows/build-docs.yml
     with:
       host-platform: linux-64
-      git-tag: ${{ github.ref_name }}
+      git-tag: ${{ inputs.git-tag || github.ref_name }}
       is-release: true

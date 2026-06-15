@@ -13,6 +13,10 @@ on:
       prev-cuda-version:
         required: true
         type: string
+      source-ref:
+        required: false
+        default: ""
+        type: string
 
 defaults:
   run:
@@ -42,6 +46,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
+          ref: ${{ inputs.source-ref || github.ref }}
 
       - name: Set up Python
         id: setup-python

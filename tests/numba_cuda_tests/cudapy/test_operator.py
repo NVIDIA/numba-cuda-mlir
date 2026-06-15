@@ -1,16 +1,19 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
+import itertools
+import operator
+
 import numpy as np
 import numba_cuda_mlir
-from numba_cuda_mlir.testing import NumbaCUDATestCase
-from numba_cuda_mlir.numba_cuda import types
-from numba_cuda_mlir.numba_cuda.types import f2, b1
-from numba_cuda_mlir.numba_cuda.typing import signature
-import operator
-import itertools
-from numba_cuda_mlir.numba_cuda.np.numpy_support import from_dtype
 import pytest
+
+from numba_cuda_mlir import cuda
+from numba_cuda_mlir.numba_cuda import types
+from numba_cuda_mlir.numba_cuda.np.numpy_support import from_dtype
+from numba_cuda_mlir.numba_cuda.types import f2, i2, u2, b1
+from numba_cuda_mlir.numba_cuda.typing import signature
+from numba_cuda_mlir.testing import NumbaCUDATestCase
 
 
 def simple_fp16_div_scalar(ary, a, b):
@@ -77,12 +80,12 @@ def simple_fp16_ne(ary, a, b):
     ary[0] = a != b
 
 
-@numba_cuda_mlir.cuda.jit("b1(f2, f2)", device=True)
+@cuda.jit("b1(f2, f2)", device=True)
 def hlt_func_1(x, y):
     return x < y
 
 
-@numba_cuda_mlir.cuda.jit("b1(f2, f2)", device=True)
+@cuda.jit("b1(f2, f2)", device=True)
 def hlt_func_2(x, y):
     return x < y
 
@@ -112,9 +115,9 @@ def multiple_hcmp_5(r, a, b, c):
     r[0] = a < b and c >= b
 
 
-class TestOperatorModule(NumbaCUDATestCase):
+class TestOperatorModule:
+    @pytest.fixture(autouse=True)
     def setUp(self):
-        super().setUp()
         np.random.seed(0)
 
     """
@@ -122,7 +125,7 @@ class TestOperatorModule(NumbaCUDATestCase):
     """
 
     def operator_template(self, op):
-        @numba_cuda_mlir.cuda.jit
+        @cuda.jit
         def foo(a, b):
             i = 0
             a[i] = op(a[i], b[i])
@@ -159,7 +162,7 @@ class TestOperatorModule(NumbaCUDATestCase):
         ops = (operator.add, operator.sub, operator.mul, operator.truediv)
 
         for fn, op in zip(functions, ops):
-            kernel = numba_cuda_mlir.cuda.jit("void(f2[:], f2, f2)")(fn)
+            kernel = cuda.jit("void(f2[:], f2, f2)")(fn)
 
             got = np.zeros(1, dtype=np.float16)
             arg1 = np.random.random(1).astype(np.float16)
@@ -174,9 +177,9 @@ class TestOperatorModule(NumbaCUDATestCase):
         instrs = ("add.f16", "sub.f16", "mul.f16")
         args = (f2[:], f2, f2)
         for fn, instr in zip(functions, instrs):
-            compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2, f2)", lto=True)(fn)
+            compiled = cuda.jit("void(f2[:], f2, f2)", lto=True)(fn)
             ptx = compiled.inspect_lto_ptx(args)
-            self.assertIn(instr, ptx)
+            assert instr in ptx
 
     def test_mixed_fp16_binary_arithmetic(self):
         functions = (
@@ -188,7 +191,7 @@ class TestOperatorModule(NumbaCUDATestCase):
         ops = (operator.add, operator.sub, operator.mul, operator.truediv)
         types = (np.int8, np.int16, np.int32, np.int64, np.float32, np.float64)
         for (fn, op), ty in itertools.product(zip(functions, ops), types):
-            kernel = numba_cuda_mlir.cuda.jit(fn, lto=True)
+            kernel = cuda.jit(fn, lto=True)
 
             arg1 = np.random.random(1).astype(np.float16)
             arg2 = (np.random.random(1) * 100).astype(ty)
@@ -205,9 +208,9 @@ class TestOperatorModule(NumbaCUDATestCase):
         args = (f2[:], f2)
 
         for fn, instr in zip(functions, instrs):
-            compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2)", lto=True)(fn)
+            compiled = cuda.jit("void(f2[:], f2)", lto=True)(fn)
             ptx = compiled.inspect_lto_ptx(args)
-            self.assertIn(instr, ptx)
+            assert instr in ptx
 
     def test_fp16_inplace_binary(self):
         functions = (
@@ -219,7 +222,7 @@ class TestOperatorModule(NumbaCUDATestCase):
         ops = (operator.iadd, operator.isub, operator.imul, operator.itruediv)
 
         for fn, op in zip(functions, ops):
-            kernel = numba_cuda_mlir.cuda.jit("void(f2[:], f2)")(fn)
+            kernel = cuda.jit("void(f2[:], f2)")(fn)
 
             got = np.random.random(1).astype(np.float16)
             expected = got.copy()
@@ -233,7 +236,7 @@ class TestOperatorModule(NumbaCUDATestCase):
         ops = (operator.neg, operator.abs)
 
         for fn, op in zip(functions, ops):
-            kernel = numba_cuda_mlir.cuda.jit("void(f2[:], f2)")(fn)
+            kernel = cuda.jit("void(f2[:], f2)")(fn)
 
             got = np.zeros(1, dtype=np.float16)
             arg1 = np.random.random(1).astype(np.float16)
@@ -245,16 +248,60 @@ class TestOperatorModule(NumbaCUDATestCase):
     @pytest.mark.xfail(True, reason="NVVM verify error")
     def test_fp16_neg_ptx(self):
         args = (f2[:], f2)
-        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2)", lto=True)(simple_fp16neg)
+        compiled = cuda.jit("void(f2[:], f2)", lto=True)(simple_fp16neg)
         ptx = compiled.inspect_lto_ptx(args)
-        self.assertIn("neg.f16", ptx)
+        assert "neg.f16" in ptx
 
     @pytest.mark.xfail(True, reason="Bitcode parsing error")
     def test_fp16_abs_ptx(self):
         args = (f2[:], f2)
-        compiled = numba_cuda_mlir.cuda.jit("void(f2[:], f2)", lto=True)(simple_fp16abs)
+        compiled = cuda.jit("void(f2[:], f2)", lto=True)(simple_fp16abs)
         ptx = compiled.inspect_lto_ptx(args)
-        self.assertIn("abs.f16", ptx)
+        assert "abs.f16" in ptx
+
+    @pytest.mark.parametrize(
+        "func,op",
+        [
+            pytest.param(simple_fp16_gt, operator.gt, id="gt"),
+            pytest.param(simple_fp16_ge, operator.ge, id="ge"),
+            pytest.param(simple_fp16_lt, operator.lt, id="lt"),
+            pytest.param(simple_fp16_le, operator.le, id="le"),
+            pytest.param(simple_fp16_eq, operator.eq, id="eq"),
+            pytest.param(simple_fp16_ne, operator.ne, id="ne"),
+        ],
+    )
+    def test_int16_comparison(self, func, op):
+        kernel = cuda.jit(f"void(b1[:], i2, i2)")(func)
+
+        got = np.zeros(1, dtype=np.bool_)
+        arg1 = np.array([-50], dtype=np.int16)
+        arg2 = np.array([0], dtype=np.int16)
+
+        kernel[1, 1](got, arg1[0], arg2[0])
+        expected = op(arg1, arg2)
+        assert got[0] == expected
+
+    @pytest.mark.parametrize(
+        "func,op",
+        [
+            pytest.param(simple_fp16_gt, operator.gt, id="gt"),
+            pytest.param(simple_fp16_ge, operator.ge, id="ge"),
+            pytest.param(simple_fp16_lt, operator.lt, id="lt"),
+            pytest.param(simple_fp16_le, operator.le, id="le"),
+            pytest.param(simple_fp16_eq, operator.eq, id="eq"),
+            pytest.param(simple_fp16_ne, operator.ne, id="ne"),
+        ],
+    )
+    def test_uint16_comparison(self, func, op):
+        kernel = cuda.jit("void(b1[:], u2, u2)")(func)
+
+        got = np.zeros(1, dtype=np.bool_)
+        arg1 = np.array([40000], dtype=np.uint16)
+        arg2 = np.array([5], dtype=np.uint16)
+
+        kernel[1, 1](got, arg1[0], arg2[0])
+        expected = op(arg1, arg2)
+        assert got[0] == expected
 
     def test_fp16_comparison(self):
         functions = (
@@ -275,7 +322,7 @@ class TestOperatorModule(NumbaCUDATestCase):
         )
 
         for fn, op in zip(functions, ops):
-            kernel = numba_cuda_mlir.cuda.jit("void(b1[:], f2, f2)")(fn)
+            kernel = cuda.jit("void(b1[:], f2, f2)")(fn)
 
             got = np.zeros(1, dtype=np.bool_)
             arg1 = np.random.random(1).astype(np.float16)
@@ -283,7 +330,7 @@ class TestOperatorModule(NumbaCUDATestCase):
 
             kernel[1, 1](got, arg1[0], arg2[0])
             expected = op(arg1, arg2)
-            self.assertEqual(got[0], expected)
+            assert got[0] == expected
 
     def test_mixed_fp16_comparison(self):
         functions = (
@@ -305,7 +352,7 @@ class TestOperatorModule(NumbaCUDATestCase):
         types = (np.int8, np.int16, np.int32, np.int64, np.float32, np.float64)
 
         for (fn, op), ty in itertools.product(zip(functions, ops), types):
-            kernel = numba_cuda_mlir.cuda.jit(fn)
+            kernel = cuda.jit(fn)
 
             got = np.zeros(1, dtype=np.bool_)
             arg1 = np.random.random(1).astype(np.float16)
@@ -313,7 +360,7 @@ class TestOperatorModule(NumbaCUDATestCase):
 
             kernel[1, 1](got, arg1[0], arg2[0])
             expected = op(arg1, arg2)
-            self.assertEqual(got[0], expected)
+            assert got[0] == expected
 
     def test_multiple_float16_comparisons(self):
         functions = (
@@ -324,13 +371,13 @@ class TestOperatorModule(NumbaCUDATestCase):
             multiple_hcmp_5,
         )
         for fn in functions:
-            compiled = numba_cuda_mlir.cuda.jit("void(b1[:], f2, f2, f2)")(fn)
+            compiled = cuda.jit("void(b1[:], f2, f2, f2)")(fn)
             ary = np.zeros(1, dtype=np.bool_)
             arg1 = np.float16(2.0)
             arg2 = np.float16(3.0)
             arg3 = np.float16(4.0)
             compiled[1, 1](ary, arg1, arg2, arg3)
-            self.assertTrue(ary[0])
+            assert ary[0] == True
 
     def test_multiple_float16_comparisons_false(self):
         functions = (
@@ -341,13 +388,49 @@ class TestOperatorModule(NumbaCUDATestCase):
             multiple_hcmp_5,
         )
         for fn in functions:
-            compiled = numba_cuda_mlir.cuda.jit("void(b1[:], f2, f2, f2)")(fn)
+            compiled = cuda.jit("void(b1[:], f2, f2, f2)")(fn)
             ary = np.zeros(1, dtype=np.bool_)
             arg1 = np.float16(2.0)
             arg2 = np.float16(3.0)
             arg3 = np.float16(1.0)
             compiled[1, 1](ary, arg1, arg2, arg3)
-            self.assertFalse(ary[0])
+            assert ary[0] == False
+
+    @pytest.mark.xfail(True, reason="NVVM verify error")
+    @pytest.mark.parametrize(
+        "func,opstring",
+        [
+            pytest.param(simple_fp16_gt, "setp.gt.s16", id="gt"),
+            pytest.param(simple_fp16_ge, "setp.ge.s16", id="ge"),
+            pytest.param(simple_fp16_lt, "setp.lt.s16", id="lt"),
+            pytest.param(simple_fp16_le, "setp.le.s16", id="le"),
+            pytest.param(simple_fp16_eq, "setp.eq.b16", id="eq"),
+            pytest.param(simple_fp16_ne, "setp.ne.b16", id="ne"),
+        ],
+    )
+    def test_int16_comparison_ptx(self, func, opstring):
+        args = (b1[:], i2, i2)
+        compiled = cuda.jit("void(b1[:], i2, i2)", lto=True)(func)
+        ptx = compiled.inspect_lto_ptx(args)
+        assert opstring in ptx, f"{opstring} not in PTX"
+
+    @pytest.mark.xfail(True, reason="NVVM verify error")
+    @pytest.mark.parametrize(
+        "func,opstring",
+        [
+            pytest.param(simple_fp16_gt, "setp.gt.u16", id="gt"),
+            pytest.param(simple_fp16_ge, "setp.ge.u16", id="ge"),
+            pytest.param(simple_fp16_lt, "setp.lt.u16", id="lt"),
+            pytest.param(simple_fp16_le, "setp.le.u16", id="le"),
+            pytest.param(simple_fp16_eq, "setp.eq.b16", id="eq"),
+            pytest.param(simple_fp16_ne, "setp.ne.b16", id="ne"),
+        ],
+    )
+    def test_uint16_comparison_ptx(self, func, opstring):
+        args = (b1[:], u2, u2)
+        compiled = cuda.jit("void(b1[:], u2, u2)", lto=True)(func)
+        ptx = compiled.inspect_lto_ptx(args)
+        assert opstring in ptx, f"{opstring} not in PTX"
 
     @pytest.mark.xfail(True, reason="NVVM verify error")
     def test_fp16_comparison_ptx(self):
@@ -378,9 +461,9 @@ class TestOperatorModule(NumbaCUDATestCase):
         args = (b1[:], f2, f2)
 
         for fn, op, s in zip(functions, ops, opstring):
-            compiled = numba_cuda_mlir.cuda.jit("void(b1[:], f2, f2)", lto=True)(fn)
+            compiled = cuda.jit("void(b1[:], f2, f2)", lto=True)(fn)
             ptx = compiled.inspect_lto_ptx(args)
-            self.assertIn(s, ptx)
+            assert s in ptx
 
     @pytest.mark.xfail(True, reason="NVVM verify error")
     def test_fp16_int8_comparison_ptx(self):
@@ -413,9 +496,9 @@ class TestOperatorModule(NumbaCUDATestCase):
         }
         for fn, op in zip(functions, ops):
             args = (b1[:], f2, from_dtype(np.int8))
-            compiled = numba_cuda_mlir.cuda.jit(signature(types.void, *args), lto=True)(fn)
+            compiled = cuda.jit(signature(types.void, *args), lto=True)(fn)
             ptx = compiled.inspect_lto_ptx(args)
-            self.assertIn(opstring[op], ptx)
+            assert opstring[op] in ptx
 
     @pytest.mark.xfail(True, reason="NVVM verify error")
     def test_mixed_fp16_comparison_promotion_ptx(self):
@@ -455,8 +538,8 @@ class TestOperatorModule(NumbaCUDATestCase):
         for (fn, op), ty in itertools.product(zip(functions, ops), types_promote):
             arg2_ty = np.result_type(np.float16, ty)
             args = (b1[:], f2, from_dtype(arg2_ty))
-            compiled = numba_cuda_mlir.cuda.jit(signature(types.void, *args), lto=True)(fn)
+            compiled = cuda.jit(signature(types.void, *args), lto=True)(fn)
             ptx = compiled.inspect_lto_ptx(args)
 
             ops = opstring[op] + opsuffix[arg2_ty]
-            self.assertIn(ops, ptx)
+            assert ops in ptx

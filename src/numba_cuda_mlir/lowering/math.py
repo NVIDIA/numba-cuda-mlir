@@ -312,9 +312,14 @@ def pow_cg(builder, target, args, kwargs):
 def _bin_op_cg(op, builder, target, args, kwargs):
     assert not kwargs, "add_cg does not accept any keyword arguments"
     assert len(args) == 2, "add_cg expects 2 arguments"
-    target_type = builder.get_numba_type(target.name)
-    target_mlir_type = builder.get_mlir_type(target_type)
     lhs, rhs = args
+    target_type, lhs_type, rhs_type = (
+        builder.get_numba_type(target.name),
+        builder.get_numba_type(lhs.name),
+        builder.get_numba_type(rhs.name),
+    )
+    target_mlir_type = builder.get_mlir_type(target_type)
+
     lhs, rhs = builder.load_var(lhs), builder.load_var(rhs)
 
     # Handle cases where load_var returns Python/numpy scalars instead of MLIR values
@@ -330,7 +335,22 @@ def _bin_op_cg(op, builder, target, args, kwargs):
             rhs = rhs.item()
         rhs = lowering_utilities.constant(rhs, target_mlir_type)
 
-    unified_type = lowering_utilities.numpy_implicit_type_promotion(lhs.type, rhs.type)
+    # Ensure numbers whose MLIR types are signless end up with the correct
+    # operation. Without this logic, two input values with two unsigned integer
+    # types get a signed comparator operator and vice versa
+    if (
+        isinstance(lhs_type, types.Integer)
+        and isinstance(rhs_type, types.Integer)
+        and lhs_type.signed == rhs_type.signed
+    ):
+        width = max(lhs_type.bitwidth, rhs_type.bitwidth)
+        unified_type = (
+            ir.IntegerType.get_signed(width)
+            if lhs_type.signed
+            else ir.IntegerType.get_unsigned(width)
+        )
+    else:
+        unified_type = lowering_utilities.numpy_implicit_type_promotion(lhs.type, rhs.type)
 
     trace("op: %s, target_mlir_type: %s", op, target_mlir_type)
     if found_op := _get_operation_for_op_and_type(op, unified_type):

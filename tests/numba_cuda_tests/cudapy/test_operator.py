@@ -11,7 +11,7 @@ import pytest
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.np.numpy_support import from_dtype
-from numba_cuda_mlir.numba_cuda.types import f2, u2, b1
+from numba_cuda_mlir.numba_cuda.types import f2, i2, u2, b1
 from numba_cuda_mlir.numba_cuda.typing import signature
 from numba_cuda_mlir.testing import NumbaCUDATestCase
 
@@ -270,6 +270,28 @@ class TestOperatorModule:
             pytest.param(simple_fp16_ne, operator.ne, id="ne"),
         ],
     )
+    def test_int16_comparison(self, func, op):
+        kernel = cuda.jit(f"void(b1[:], i2, i2)")(func)
+
+        got = np.zeros(1, dtype=np.bool_)
+        arg1 = np.array([-50], dtype=np.int16)
+        arg2 = np.array([0], dtype=np.int16)
+
+        kernel[1, 1](got, arg1[0], arg2[0])
+        expected = op(arg1, arg2)
+        assert got[0] == expected
+
+    @pytest.mark.parametrize(
+        "func,op",
+        [
+            pytest.param(simple_fp16_gt, operator.gt, id="gt"),
+            pytest.param(simple_fp16_ge, operator.ge, id="ge"),
+            pytest.param(simple_fp16_lt, operator.lt, id="lt"),
+            pytest.param(simple_fp16_le, operator.le, id="le"),
+            pytest.param(simple_fp16_eq, operator.eq, id="eq"),
+            pytest.param(simple_fp16_ne, operator.ne, id="ne"),
+        ],
+    )
     def test_uint16_comparison(self, func, op):
         kernel = cuda.jit("void(b1[:], u2, u2)")(func)
 
@@ -373,6 +395,24 @@ class TestOperatorModule:
             arg3 = np.float16(1.0)
             compiled[1, 1](ary, arg1, arg2, arg3)
             assert ary[0] == False
+
+    @pytest.mark.xfail(True, reason="NVVM verify error")
+    @pytest.mark.parametrize(
+        "func,opstring",
+        [
+            pytest.param(simple_fp16_gt, "setp.gt.s16", id="gt"),
+            pytest.param(simple_fp16_ge, "setp.ge.s16", id="ge"),
+            pytest.param(simple_fp16_lt, "setp.lt.s16", id="lt"),
+            pytest.param(simple_fp16_le, "setp.le.s16", id="le"),
+            pytest.param(simple_fp16_eq, "setp.eq.b16", id="eq"),
+            pytest.param(simple_fp16_ne, "setp.ne.b16", id="ne"),
+        ],
+    )
+    def test_int16_comparison_ptx(self, func, opstring):
+        args = (b1[:], i2, i2)
+        compiled = cuda.jit("void(b1[:], i2, i2)", lto=True)(func)
+        ptx = compiled.inspect_lto_ptx(args)
+        assert opstring in ptx, f"{opstring} not in PTX"
 
     @pytest.mark.xfail(True, reason="NVVM verify error")
     @pytest.mark.parametrize(

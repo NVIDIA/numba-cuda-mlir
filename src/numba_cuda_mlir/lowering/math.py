@@ -335,15 +335,20 @@ def _bin_op_cg(op, builder, target, args, kwargs):
             rhs = rhs.item()
         rhs = lowering_utilities.constant(rhs, target_mlir_type)
 
-    # Create happy path for numbers whose MLIR types are signless, but numpy
-    # types are unsigned. Without this, _get_operation_for_op_and_type returns
-    # a signed operation, which becomes problematic for comparing two
-    # unsigned values (e.g. np.uint16(40000) > np.uint16(5) returns False because
-    # using 'sgt' instead of 'ugt' results in np.int16(-25536) > np.uint16(5)
-    is_unsigned = lambda x: isinstance(x, types.Integer) and not x.signed
-    if is_unsigned(lhs_type) and is_unsigned(rhs_type):
+    # Ensure numbers whose MLIR types are signless end up with the correct
+    # operation. Without this logic, two input values with two unsigned integer
+    # types get a signed comparator operator and vice versa
+    if (
+        isinstance(lhs_type, types.Integer)
+        and isinstance(rhs_type, types.Integer)
+        and lhs_type.signed == rhs_type.signed
+    ):
         width = max(lhs_type.bitwidth, rhs_type.bitwidth)
-        unified_type = ir.IntegerType.get_unsigned(width)
+        unified_type = (
+            ir.IntegerType.get_signed(width)
+            if lhs_type.signed
+            else ir.IntegerType.get_unsigned(width)
+        )
     else:
         unified_type = lowering_utilities.numpy_implicit_type_promotion(lhs.type, rhs.type)
 

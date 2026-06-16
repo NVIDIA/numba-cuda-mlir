@@ -56,7 +56,6 @@ jobs:
             | sudo tar -C /usr/local/bin -xz --strip-components=1 --wildcards '*/sccache'
           sccache --version
           echo "SCCACHE_PATH=/usr/local/bin/sccache" >> "$GITHUB_ENV"
-          echo "SCCACHE_GHA_USE_PREPROCESSOR_CACHE_MODE=true" >> "$GITHUB_ENV"
 
       # xref: https://github.com/orgs/community/discussions/42856#discussioncomment-7678867
       - name: Adding addtional GHA cache-related env vars
@@ -134,7 +133,6 @@ jobs:
             ACTIONS_RESULTS_URL=${{ env.ACTIONS_RESULTS_URL }}
             ACTIONS_CACHE_URL=${{ env.ACTIONS_CACHE_URL }}
             ACTIONS_CACHE_SERVICE_V2=${{ env.ACTIONS_CACHE_SERVICE_V2 }}
-            SCCACHE_GHA_USE_PREPROCESSOR_CACHE_MODE=${{ env.SCCACHE_GHA_USE_PREPROCESSOR_CACHE_MODE }}
           CIBW_ENVIRONMENT_WINDOWS: >
             MLIR_DIR="$(cygpath -w ${{ env.LLVM_MODERN_INSTALL_DIR }}/lib/cmake/mlir)"
             LIBLLVM7="$(cygpath -w ${{ env.LLVM7_INSTALL_DIR }}/bin/LLVM-C.dll)"

@@ -65,8 +65,8 @@ cmake --build "${LLVM7_BUILD}" -j "${PARALLEL}" --target LLVM
 # a full byte-identical copy -- 3x-bloating the artifact. The narrow
 # `cp` + manual `strip` avoids that entirely.
 LLVM7_SO="$(ls "${LLVM7_BUILD}"/lib/libLLVM-7*.so | head -1)"
+strip --strip-unneeded "${LLVM7_SO}"
 cp "${LLVM7_SO}" "${LLVM7_INSTALL}/lib/libLLVM-7.so"
-strip --strip-unneeded "${LLVM7_INSTALL}/lib/libLLVM-7.so"
 
 echo "=== LLVM 7 built ==="
 ls -lh "${LLVM7_INSTALL}/lib/libLLVM-7.so"

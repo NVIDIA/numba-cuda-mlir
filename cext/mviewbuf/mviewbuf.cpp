@@ -371,14 +371,23 @@ PyMODINIT_FUNC PyInit__mviewbuf(void) {
     PyObject *module = PyModule_Create(&moduledef);
     if (module == NULL)
         return NULL;
+#if !defined(Py_LIMITED_API) && defined(Py_GIL_DISABLED)
+    if (PyUnstable_Module_SetGIL(module, Py_MOD_GIL_NOT_USED) < 0) {
+        Py_DECREF(module);
+        return NULL;
+    }
+#endif
 
     MemAllocType.tp_new = PyType_GenericNew;
     if (PyType_Ready(&MemAllocType) < 0){
+        Py_DECREF(module);
         return NULL;
     }
 
-    Py_INCREF(&MemAllocType);
-    PyModule_AddObject(module, "MemAlloc", (PyObject*)&MemAllocType);
+    if (PyModule_AddObjectRef(module, "MemAlloc", (PyObject*)&MemAllocType) < 0) {
+        Py_DECREF(module);
+        return NULL;
+    }
 
     return module;
 }

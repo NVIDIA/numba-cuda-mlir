@@ -10,6 +10,7 @@
 #include <dlfcn.h>
 #endif
 #include <cstring>
+#include <mutex>
 #include <string_view>
 #include <vector>
 
@@ -182,6 +183,7 @@ LLVM_CAPI_OPTIONAL(DECLARE_FN)
 #undef DECLARE_FN
 
 static void* g_mlir_lib_handle;
+static std::mutex g_mlir_capi_mutex;
 
 static void* load_symbol(void* handle, const char* name) {
 #ifdef _WIN32
@@ -192,39 +194,68 @@ static void* load_symbol(void* handle, const char* name) {
 #endif
 }
 
+static void close_library_handle(void* handle) {
+    if (!handle) return;
+#ifdef _WIN32
+    FreeLibrary(reinterpret_cast<HMODULE>(handle));
+#else
+    dlclose(handle);
+#endif
+}
+
 Status load_mlir_capi(const char* lib_path) {
+    std::lock_guard<std::mutex> guard(g_mlir_capi_mutex);
+
     if (g_mlir_lib_handle)
         return OK;
 
+    void* handle = nullptr;
 #ifdef _WIN32
-    g_mlir_lib_handle = LoadLibraryA(lib_path);
-    if (!g_mlir_lib_handle)
+    handle = LoadLibraryA(lib_path);
+    if (!handle)
         return raise(PyExc_RuntimeError, "Failed to load %s: error %lu",
                      lib_path, GetLastError());
 #else
     // RTLD_LOCAL: keep bundled LLVM/MLIR symbols out of the process-global
     // namespace. See #170.
-    g_mlir_lib_handle = dlopen(lib_path, RTLD_NOW | RTLD_LOCAL);
-    if (!g_mlir_lib_handle)
+    handle = dlopen(lib_path, RTLD_NOW | RTLD_LOCAL);
+    if (!handle)
         return raise(PyExc_RuntimeError, "Failed to load %s: %s",
                      lib_path, dlerror());
 #endif
 
+#define DECLARE_LOCAL(ret, name, args) \
+    name##_fn local_##name = nullptr;
+
+    LLVM_CAPI_REQUIRED(DECLARE_LOCAL)
+    LLVM_CAPI_OPTIONAL(DECLARE_LOCAL)
+#undef DECLARE_LOCAL
+
 #define LOAD_REQUIRED(ret, name, args) \
-    g_##name = reinterpret_cast<name##_fn>(load_symbol(g_mlir_lib_handle, #name)); \
-    if (!g_##name) \
+    local_##name = reinterpret_cast<name##_fn>(load_symbol(handle, #name)); \
+    if (!local_##name) { \
+        close_library_handle(handle); \
         return raise(PyExc_RuntimeError, \
-                     "Symbol '%s' not found in %s", #name, lib_path);
+                     "Symbol '%s' not found in %s", #name, lib_path); \
+    }
 
     LLVM_CAPI_REQUIRED(LOAD_REQUIRED)
 #undef LOAD_REQUIRED
 
 #define LOAD_OPTIONAL(ret, name, args) \
-    g_##name = reinterpret_cast<name##_fn>(load_symbol(g_mlir_lib_handle, #name));
+    local_##name = reinterpret_cast<name##_fn>(load_symbol(handle, #name));
 
     LLVM_CAPI_OPTIONAL(LOAD_OPTIONAL)
 #undef LOAD_OPTIONAL
 
+#define PUBLISH_SYMBOL(ret, name, args) \
+    g_##name = local_##name;
+
+    LLVM_CAPI_REQUIRED(PUBLISH_SYMBOL)
+    LLVM_CAPI_OPTIONAL(PUBLISH_SYMBOL)
+#undef PUBLISH_SYMBOL
+
+    g_mlir_lib_handle = handle;
     return OK;
 }
 

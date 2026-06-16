@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 #include <algorithm>
@@ -37,6 +38,7 @@ PyObject* g_shape_pyunicode;
 PyObject* g_data_pyunicode;
 PyObject* g_strides_pyunicode;
 PyObject* g___dlpack___pyunicode;
+PyObject* g_int64_pyunicode;
 
 PyTypeObject* g_torch_Tensor_type;
 PyTypeObject* g_torch_cuda_Stream_type;
@@ -405,10 +407,20 @@ struct LaunchHelper {
     }
 };
 
-LaunchHelper* g_helper_freelist;  // protected by the GIL
+LaunchHelper* g_helper_freelist;
+
+#ifdef Py_GIL_DISABLED
+std::mutex& helper_freelist_mutex() {
+    static auto* mutex = new std::mutex;
+    return *mutex;
+}
+#endif
 
 struct LaunchHelperDeleter {
     void operator() (LaunchHelper* helper) const {
+#ifdef Py_GIL_DISABLED
+        std::lock_guard<std::mutex> guard(helper_freelist_mutex());
+#endif
         helper->next_free = g_helper_freelist;
         g_helper_freelist = helper;
     }
@@ -418,6 +430,9 @@ using LaunchHelperPtr = std::unique_ptr<LaunchHelper, LaunchHelperDeleter>;
 
 
 LaunchHelperPtr launch_helper_get() {
+#ifdef Py_GIL_DISABLED
+    std::lock_guard<std::mutex> guard(helper_freelist_mutex());
+#endif
     if (g_helper_freelist) {
         LaunchHelper* ret = g_helper_freelist;
         g_helper_freelist = ret->next_free;
@@ -989,9 +1004,9 @@ Status extract_dlpack(PyObject* pyobj, LaunchHelper& helper) {
 
 inline Status extract_np_datetime(PyObject* pyobj, bool is_constant, LaunchHelper& helper) {
     // numpy.datetime64/timedelta64 are stored as int64 internally.
-    // Call arg.view('int64') to get the numpy.int64 scalar, then extract.
-    static PyObject* view_arg = PyUnicode_InternFromString("int64");
-    PyPtr int_view = steal(PyObject_CallMethod(pyobj, "view", "O", view_arg));
+    // Call view() with the cached "int64" PyUnicode to get the numpy.int64
+    // scalar, then extract.
+    PyPtr int_view = steal(PyObject_CallMethod(pyobj, "view", "O", g_int64_pyunicode));
     if (!int_view) return ErrorRaised;
     int64_t value = pylong_as<int64_t>(int_view.get());
     if (PyErr_Occurred()) return ErrorRaised;
@@ -1445,6 +1460,7 @@ struct KernelDispatcher {
     PyPtr compile_func;
     PyPtr ensure_context_func;
     std::vector<bool> constant_arg_flags;
+    std::recursive_mutex launch_mutex;
     ProfileMap arg_profiles;
     FamilyMap kernel_families;
 };
@@ -1751,6 +1767,8 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
         if (!current_stream.is_ok()) return ErrorRaised;
         launch_stream = *current_stream;
     }
+
+    std::lock_guard<std::recursive_mutex> launch_guard(dispatcher.launch_mutex);
 
     PythonArgProfile* profile = dispatcher.arg_profiles.find(helper->pyarg_types);
     if (!profile) {
@@ -2395,6 +2413,7 @@ Status kernel_init(PyObject* m) {
     INIT_STRING_CONSTANT(data);
     INIT_STRING_CONSTANT(strides);
     INIT_STRING_CONSTANT(__dlpack__);
+    INIT_STRING_CONSTANT(int64);
 
     try_get_torch_globals();
     try_get_cupy_globals();

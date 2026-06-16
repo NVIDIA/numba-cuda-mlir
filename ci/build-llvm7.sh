@@ -39,16 +39,10 @@ command -v sccache &>/dev/null || { echo "ERROR: sccache not found"; exit 1; }
 export CMAKE_C_COMPILER_LAUNCHER="$(which sccache)"
 export CMAKE_CXX_COMPILER_LAUNCHER="$(which sccache)"
 
-# Configure. CMAKE_PLATFORM_NO_VERSIONED_SONAME=ON tells cmake to skip
-# the SOVERSION symlink chain (libLLVM-7.1.so -> libLLVM-7.so ->
-# libLLVM.so) and emit a single un-versioned shared library. Without
-# this, `cmake --install` installs all three and `actions/upload-artifact`
-# (zip format) materializes each symlink as a full byte-identical copy,
-# 3x-bloating the artifact. Matches ci/build-llvm-modern.sh.
+# Configure
 cmake -G Ninja -S "${LLVM7_SRC}/llvm" -B "${LLVM7_BUILD}" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-    -DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON \
     -DLLVM_TARGETS_TO_BUILD="NVPTX" \
     -DLLVM_BUILD_LLVM_DYLIB=ON \
     -DLLVM_BUILD_TOOLS=OFF \
@@ -60,23 +54,19 @@ cmake -G Ninja -S "${LLVM7_SRC}/llvm" -B "${LLVM7_BUILD}" \
     -DLLVM_ENABLE_TERMINFO=OFF \
     -DLLVM_ENABLE_ZLIB=ON
 
-# Build only the LLVM shared lib.
+# Build only the LLVM shared lib (not install).
 cmake --build "${LLVM7_BUILD}" -j "${PARALLEL}" --target LLVM
 
-# Install just the LLVM dylib component, with --strip to drop the static
-# symbol table (~5 MB savings; no DWARF present since the build is
-# Release without -g). Component-scoped install avoids dragging in
-# headers / cmake configs / tools we don't need from a full
-# `cmake --install`. Symmetric with ci/build-llvm-modern.sh.
-cmake --install "${LLVM7_BUILD}" --strip --component LLVM --prefix "${LLVM7_INSTALL}"
-
-# Setup.py / build-wheel.yml expects the dylib at the canonical
-# libLLVM-7.so name. With NO_VERSIONED_SONAME above the install should
-# emit exactly one libLLVM*.so; rename it to libLLVM-7.so if needed.
-if [[ ! -f "${LLVM7_INSTALL}/lib/libLLVM-7.so" ]]; then
-    LLVM7_SO="$(ls "${LLVM7_INSTALL}"/lib/libLLVM*.so 2>/dev/null | head -1)"
-    [[ -n "${LLVM7_SO}" ]] && mv "${LLVM7_SO}" "${LLVM7_INSTALL}/lib/libLLVM-7.so"
-fi
+# Asymmetric with ci/build-llvm-modern.sh which uses
+# `cmake --install --strip`: LLVM 7's tools/llvm-shlib creates extra
+# compatibility symlinks (libLLVM-7.so, libLLVM.so -> libLLVM-7.1.so)
+# regardless of CMAKE_PLATFORM_NO_VERSIONED_SONAME, and
+# `actions/upload-artifact`'s zip format materializes each symlink into
+# a full byte-identical copy -- 3x-bloating the artifact. The narrow
+# `cp` + manual `strip` avoids that entirely.
+LLVM7_SO="$(ls "${LLVM7_BUILD}"/lib/libLLVM-7*.so | head -1)"
+cp "${LLVM7_SO}" "${LLVM7_INSTALL}/lib/libLLVM-7.so"
+strip --strip-unneeded "${LLVM7_INSTALL}/lib/libLLVM-7.so"
 
 echo "=== LLVM 7 built ==="
 ls -lh "${LLVM7_INSTALL}/lib/libLLVM-7.so"

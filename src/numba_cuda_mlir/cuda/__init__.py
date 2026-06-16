@@ -53,7 +53,7 @@ shared_array = shared.array  # noqa: F401
 
 def __getattr__(name):
     """Lazy load modules to avoid circular import issues."""
-    if name in ("intrin", "tensor_map", "experimental"):
+    if name in ("intrin", "tensor_map", "experimental", "cudadrv"):
         import importlib
 
         module = importlib.import_module(f"numba_cuda_mlir.cuda.{name}")

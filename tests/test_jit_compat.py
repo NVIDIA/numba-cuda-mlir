@@ -97,6 +97,16 @@ def test_jit_kwargs_inline_callable():
     assert "OK" in stdout
 
 
+def test_cuda_cudadrv_reexports_legacy_namespace():
+    from numba_cuda_mlir import cuda as compat_cuda
+    from numba_cuda_mlir.numba_cuda.cudadrv import devicearray, driver
+    import numba_cuda_mlir.cuda.cudadrv.devicearray as compat_devicearray
+
+    assert compat_cuda.cudadrv.devicearray is devicearray
+    assert compat_cuda.cudadrv.driver is driver
+    assert compat_devicearray is devicearray
+
+
 # --- MLIRDispatcher Resource Methods ---
 
 

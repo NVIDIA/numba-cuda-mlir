@@ -2127,12 +2127,6 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             overloads[LaunchConfigInspectableKey(sig_args, launch_config_key)] = cres
         return overloads
 
-    def inspect_llvm(self, sig=None):
-        raise NotImplementedError(
-            "inspect_llvm is not supported. "
-            "Use inspect_mlir() to inspect the MLIR module or inspect_asm() to inspect the PTX."
-        )
-
     def inspect_asm(self, signature=None):
         """Get generated PTX.
 
@@ -2153,6 +2147,36 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         ptx = get_ptx(cres)
         cres.metadata["ptx"] = ptx
         return ptx
+
+    def inspect_llvm(self, signature=None, legacy=False):
+        """Get generated LLVM-IR.
+
+        With no signature, launch-specialized entries are keyed by
+        LaunchConfigInspectableKey and generic entries keep their argtypes tuple.
+
+        Passing 'legacy=True' results in generating LLVM-IR from legacy
+        LLVM-7, a version that utilized typed pointers instead of the
+        more modern opaque pointers (more details can be found in the
+        following URL: https://llvm.org/docs/OpaquePointers.html).
+
+        Although modern LLVM-IR utilize opaque pointers by default on the
+        Blackwell architecture (and onwards), the legacy flag gives users
+        the ability to generate the older LLVM-IR code without having to
+        be on the pre-Blackwell architectures.
+        """
+        if signature is None:
+            return {sig: self.inspect_asm(sig) for sig in self.overloads}
+        cres = self._find_overload(signature)
+        key = "llvmir_legacy" if legacy else "llvmir"
+        llvmir = cres.metadata.get(key)
+        if llvmir:
+            return llvmir
+
+        from numba_cuda_mlir.mlir_optimization import get_llvmir
+
+        llvmir = get_llvmir(cres, target_options=None, legacy=legacy)
+        cres.metadata[key] = llvmir
+        return llvmir
 
     def inspect_mlir(self, sig=None):
         """Get generated MLIR.

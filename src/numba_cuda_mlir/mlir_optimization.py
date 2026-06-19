@@ -140,6 +140,7 @@ def _get_llvm70_capi():
         ctypes.c_char_p,  # libnvvm
         ctypes.c_char_p,  # libdevice
         ctypes.c_int,  # gen_lto
+        ctypes.c_int,  # gen_llvmir
         ctypes.c_int,  # opt_level
         ctypes.c_int,  # gen_lineinfo
         ctypes.POINTER(ctypes.c_char_p),  # out
@@ -168,7 +169,7 @@ def _get_op_ptr(op) -> ctypes.c_void_p:
     return ptr(capsule, b"numba_cuda_mlir._mlir.ir.Operation._CAPIPtr")
 
 
-def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
+def _call_llvm70_capi(module, target_options, gen_lto=False, gen_llvmir=False) -> bytes:
     """Compile MLIR gpu.module via in-process LLVM70 C API (raw Operation*)."""
     from numba_cuda_mlir._mlir.dialects import gpu
     from numba_cuda_mlir.tools import get_gpu_compute_capability
@@ -228,6 +229,7 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
         libnvvm.encode(),
         libdevice.encode(),
         1 if gen_lto else 0,
+        1 if gen_llvmir else 0,
         opt_level,
         debug_level,
         ctypes.byref(out),
@@ -323,6 +325,37 @@ def _compile_to_ltoir(llvm_ir: bytes, libdevice, nvvm_opts: dict) -> bytes:
     cu.verify()
     cu.lazy_add_module(libdevice.get())
     return cu.compile()
+
+
+def get_llvmir(cres, target_options=None, legacy=False) -> str:
+    key = "llvmir_legacy" if legacy else "llvmir"
+    llvmir = cres.metadata.get(key)
+    if llvmir:
+        return llvmir
+    if target_options is None:
+        target_options = cres.metadata["targetoptions"]
+
+    with context.get_context():
+        module = ir.Module.parse(cres.metadata["mlir_module_optimized"])
+        run_pre_codegen_patterns(module)
+
+        chip = target_options.get("chip")
+        if not chip:
+            from numba_cuda_mlir.tools import get_gpu_compute_capability
+
+            chip = get_gpu_compute_capability()
+        cc = chip.replace("sm_", "")
+
+        if _needs_llvm70_path(cc) or legacy:
+            llvmir = _call_llvm70_capi(module, target_options, gen_llvmir=legacy)
+        else:
+            llvmir = _prepare_llvm_ir(
+                module,
+                dump=target_options.get("dump_llvmir", False),
+                preserve_debug_info=target_options.get("debug", False)
+                or target_options.get("lineinfo", False),
+            )
+    return llvmir.decode()
 
 
 def get_ptx(cres, target_options=None) -> str:
@@ -579,6 +612,7 @@ def optimize(cres):
                 preserve_debug_info=target_options.get("debug", False)
                 or target_options.get("lineinfo", False),
             )
+            cres.metadata["llvmir"] = llvm_ir
 
         linker = cres.metadata["linker"].recreate_with_lto()
 

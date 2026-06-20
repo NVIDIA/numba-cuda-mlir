@@ -612,7 +612,7 @@ def optimize(cres):
                 preserve_debug_info=target_options.get("debug", False)
                 or target_options.get("lineinfo", False),
             )
-            cres.metadata["llvmir"] = llvm_ir
+            cres.metadata["llvmir"] = llvm_ir.decode()
 
         linker = cres.metadata["linker"].recreate_with_lto()
 

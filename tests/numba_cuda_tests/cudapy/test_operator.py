@@ -396,7 +396,6 @@ class TestOperatorModule:
             compiled[1, 1](ary, arg1, arg2, arg3)
             assert ary[0] == False
 
-    @pytest.mark.xfail(True, reason="NVVM verify error")
     @pytest.mark.parametrize(
         "func,opstring",
         [

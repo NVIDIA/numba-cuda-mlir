@@ -28,17 +28,17 @@
   </noscript>
   
   <!-- Loaded before other Sphinx assets -->
-  <link href="../_static/styles/theme.css?digest=0790524f97105ba85085" rel="stylesheet" />
-<link href="../_static/styles/pydata-sphinx-theme.css?digest=0790524f97105ba85085" rel="stylesheet" />
+  <link href="../_static/styles/theme.css?digest=a95f357e85573c9b56d5" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=a95f357e85573c9b56d5" rel="stylesheet" />
 
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/nvidia-sphinx-theme.css?v=933278ad" />
   
   <!-- So that users can add custom icons -->
-  <script defer src="../_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
+  <script defer src="../_static/scripts/fontawesome.js?digest=a95f357e85573c9b56d5"></script>
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=0790524f97105ba85085" />
-<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=0790524f97105ba85085" />
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=a95f357e85573c9b56d5" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=a95f357e85573c9b56d5" />
 
 
 
@@ -47,7 +47,7 @@
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'user/kernels';</script>
     <script>
-        DOCUMENTATION_OPTIONS.theme_version = '0.18.0';
+        DOCUMENTATION_OPTIONS.theme_version = '0.19.0';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://nvidia.github.io/numba-cuda-mlir/versions.json';
         DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'latest';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
@@ -539,7 +539,7 @@ the number of thread blocks and the number of threads per block
 times with different block sizes or grid sizes).</p></li>
 </ul>
 <p>At first sight, writing a CUDA kernel with Numba CUDA MLIR looks very much like
-writing a <a class="reference external" href="https://numba.readthedocs.io/en/latest/glossary.html#term-JIT-function" title="(in Numba v0.66)"><span class="xref std std-term">JIT function</span></a> for the CPU with Numba:</p>
+writing a <a class="reference external" href="https://numba.readthedocs.io/en/latest/glossary.html#term-JIT-function" title="(in Numba v0.67)"><span class="xref std std-term">JIT function</span></a> for the CPU with Numba:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">increment_by_one</span><span class="p">(</span><span class="n">an_array</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -567,7 +567,7 @@ instantiation is done by taking the compiled kernel function
 <li><p>Running the kernel, by passing it the input array (and any separate
 output arrays if necessary). Kernels run asynchronously: launches queue their
 execution on the device and then return immediately.  You can use
-<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/host.html#numba.cuda.synchronize" title="(in Numba v0.66)"><code class="xref py py-func docutils literal notranslate"><span class="pre">cuda.synchronize()</span></code></a> to wait for all previous
+<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/host.html#numba.cuda.synchronize" title="(in Numba v0.67)"><code class="xref py py-func docutils literal notranslate"><span class="pre">cuda.synchronize()</span></code></a> to wait for all previous
 kernel launches to finish executing.</p></li>
 </ul>
 <div class="admonition note">
@@ -823,8 +823,8 @@ of CUDA programming.</p>
   
 
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script defer src="../_static/scripts/bootstrap.js?digest=0790524f97105ba85085"></script>
-<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=0790524f97105ba85085"></script>
+  <script defer src="../_static/scripts/bootstrap.js?digest=a95f357e85573c9b56d5"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=a95f357e85573c9b56d5"></script>
 
 
   <footer class="bd-footer">

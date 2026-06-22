@@ -28,17 +28,17 @@
   </noscript>
   
   <!-- Loaded before other Sphinx assets -->
-  <link href="../_static/styles/theme.css?digest=0790524f97105ba85085" rel="stylesheet" />
-<link href="../_static/styles/pydata-sphinx-theme.css?digest=0790524f97105ba85085" rel="stylesheet" />
+  <link href="../_static/styles/theme.css?digest=a95f357e85573c9b56d5" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=a95f357e85573c9b56d5" rel="stylesheet" />
 
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/nvidia-sphinx-theme.css?v=933278ad" />
   
   <!-- So that users can add custom icons -->
-  <script defer src="../_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
+  <script defer src="../_static/scripts/fontawesome.js?digest=a95f357e85573c9b56d5"></script>
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=0790524f97105ba85085" />
-<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=0790524f97105ba85085" />
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=a95f357e85573c9b56d5" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=a95f357e85573c9b56d5" />
 
 
 
@@ -47,7 +47,7 @@
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'user/cudapysupported';</script>
     <script>
-        DOCUMENTATION_OPTIONS.theme_version = '0.18.0';
+        DOCUMENTATION_OPTIONS.theme_version = '0.19.0';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://nvidia.github.io/numba-cuda-mlir/versions.json';
         DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'latest';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
@@ -513,7 +513,7 @@ model, division by zero raises no exception and instead produces a result of
 <code class="docutils literal notranslate"><span class="pre">inf</span></code>, <code class="docutils literal notranslate"><span class="pre">-inf</span></code> or <code class="docutils literal notranslate"><span class="pre">nan</span></code>. This differs from the normal Python error model,
 in which division by zero raises a <code class="docutils literal notranslate"><span class="pre">ZeroDivisionError</span></code>.</p>
 <p>When debug is enabled (by passing <code class="docutils literal notranslate"><span class="pre">debug=True</span></code> to the
-<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.jit" title="(in Numba v0.66)"><code class="xref py py-func docutils literal notranslate"><span class="pre">&#64;cuda.jit</span></code></a> decorator), the Python error model is used.
+<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.jit" title="(in Numba v0.67)"><code class="xref py py-func docutils literal notranslate"><span class="pre">&#64;cuda.jit</span></code></a> decorator), the Python error model is used.
 This allows division-by-zero errors during kernel execution to be identified.</p>
 </section>
 <section id="constructs">
@@ -530,13 +530,13 @@ constraints:</p>
 <ul class="simple">
 <li><p>They can only be used in kernels, not in device functions.</p></li>
 <li><p>They only have an effect when <code class="docutils literal notranslate"><span class="pre">debug=True</span></code> is passed to the
-<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.jit" title="(in Numba v0.66)"><code class="xref py py-func docutils literal notranslate"><span class="pre">&#64;cuda.jit</span></code></a> decorator. This is similar to the behavior
+<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.jit" title="(in Numba v0.67)"><code class="xref py py-func docutils literal notranslate"><span class="pre">&#64;cuda.jit</span></code></a> decorator. This is similar to the behavior
 of the <code class="docutils literal notranslate"><span class="pre">assert</span></code> keyword in CUDA C/C++, which is ignored unless compiling
 with device debug turned on.</p></li>
 </ul>
 <p>Printing of strings, integers, and floats is supported, but printing is an
 asynchronous operation - in order to ensure that all output is printed after a
-kernel launch, it is necessary to call <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/host.html#numba.cuda.synchronize" title="(in Numba v0.66)"><code class="xref py py-func docutils literal notranslate"><span class="pre">numba.cuda.synchronize()</span></code></a>. Eliding
+kernel launch, it is necessary to call <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/host.html#numba.cuda.synchronize" title="(in Numba v0.67)"><code class="xref py py-func docutils literal notranslate"><span class="pre">numba.cuda.synchronize()</span></code></a>. Eliding
 the call to <code class="docutils literal notranslate"><span class="pre">synchronize</span></code> is acceptable, but output from a kernel may appear
 during other later driver operations (e.g. subsequent kernel launches, memory
 transfers, etc.), or fail to appear before the program execution completes. Up
@@ -598,7 +598,7 @@ which explicitly states when stack overflow has occurred.</p>
 <li><p>tuple</p></li>
 <li><p>Enum, IntEnum</p></li>
 </ul>
-<p>See <a class="reference external" href="https://numba.readthedocs.io/en/latest/reference/pysupported.html#pysupported-builtin-types" title="(in Numba v0.66)"><span class="xref std std-ref">nopython built-in types</span></a>.</p>
+<p>See <a class="reference external" href="https://numba.readthedocs.io/en/latest/reference/pysupported.html#pysupported-builtin-types" title="(in Numba v0.67)"><span class="xref std std-ref">nopython built-in types</span></a>.</p>
 <p>There is also some very limited support for character sequences (bytes and
 unicode strings) used in NumPy arrays.</p>
 </section>
@@ -898,8 +898,8 @@ functions (see the <a class="reference internal" href="cuda_ffi.html#cuda-ffi"><
   
 
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script defer src="../_static/scripts/bootstrap.js?digest=0790524f97105ba85085"></script>
-<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=0790524f97105ba85085"></script>
+  <script defer src="../_static/scripts/bootstrap.js?digest=a95f357e85573c9b56d5"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=a95f357e85573c9b56d5"></script>
 
 
   <footer class="bd-footer">

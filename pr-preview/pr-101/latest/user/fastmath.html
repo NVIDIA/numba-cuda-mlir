@@ -28,17 +28,17 @@
   </noscript>
   
   <!-- Loaded before other Sphinx assets -->
-  <link href="../_static/styles/theme.css?digest=0790524f97105ba85085" rel="stylesheet" />
-<link href="../_static/styles/pydata-sphinx-theme.css?digest=0790524f97105ba85085" rel="stylesheet" />
+  <link href="../_static/styles/theme.css?digest=a95f357e85573c9b56d5" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=a95f357e85573c9b56d5" rel="stylesheet" />
 
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/nvidia-sphinx-theme.css?v=933278ad" />
   
   <!-- So that users can add custom icons -->
-  <script defer src="../_static/scripts/fontawesome.js?digest=0790524f97105ba85085"></script>
+  <script defer src="../_static/scripts/fontawesome.js?digest=a95f357e85573c9b56d5"></script>
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=0790524f97105ba85085" />
-<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=0790524f97105ba85085" />
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=a95f357e85573c9b56d5" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=a95f357e85573c9b56d5" />
 
 
 
@@ -47,7 +47,7 @@
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'user/fastmath';</script>
     <script>
-        DOCUMENTATION_OPTIONS.theme_version = '0.18.0';
+        DOCUMENTATION_OPTIONS.theme_version = '0.19.0';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://nvidia.github.io/numba-cuda-mlir/versions.json';
         DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'latest';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
@@ -486,12 +486,12 @@
                   
   <section id="cuda-fast-math">
 <span id="id1"></span><h1>CUDA Fast Math<a class="headerlink" href="#cuda-fast-math" title="Link to this heading">#</a></h1>
-<p>As noted in <a class="reference external" href="https://numba.readthedocs.io/en/latest/user/performance-tips.html#fast-math" title="(in Numba v0.66)"><span>Fastmath</span></a>, for certain classes of applications that utilize
+<p>As noted in <a class="reference external" href="https://numba.readthedocs.io/en/latest/user/performance-tips.html#fast-math" title="(in Numba v0.67)"><span>Fastmath</span></a>, for certain classes of applications that utilize
 floating point, strict IEEE-754 conformance is not required. For this subset of
 applications, performance speedups may be possible.</p>
-<p>The CUDA target implements <a class="reference external" href="https://numba.readthedocs.io/en/latest/user/performance-tips.html#fast-math" title="(in Numba v0.66)"><span>Fastmath</span></a> behavior with two differences.</p>
+<p>The CUDA target implements <a class="reference external" href="https://numba.readthedocs.io/en/latest/user/performance-tips.html#fast-math" title="(in Numba v0.67)"><span>Fastmath</span></a> behavior with two differences.</p>
 <ul>
-<li><p>First, the <code class="docutils literal notranslate"><span class="pre">fastmath</span></code> argument to the <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.jit" title="(in Numba v0.66)"><code class="xref py py-func docutils literal notranslate"><span class="pre">&#64;jit</span> <span class="pre">decorator</span></code></a> is limited to the values <code class="docutils literal notranslate"><span class="pre">True</span></code> and <code class="docutils literal notranslate"><span class="pre">False</span></code>.
+<li><p>First, the <code class="docutils literal notranslate"><span class="pre">fastmath</span></code> argument to the <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.jit" title="(in Numba v0.67)"><code class="xref py py-func docutils literal notranslate"><span class="pre">&#64;jit</span> <span class="pre">decorator</span></code></a> is limited to the values <code class="docutils literal notranslate"><span class="pre">True</span></code> and <code class="docutils literal notranslate"><span class="pre">False</span></code>.
 When <code class="docutils literal notranslate"><span class="pre">True</span></code>, the following optimizations are enabled:</p>
 <ul class="simple">
 <li><p>Flushing of denormals to zero.</p></li>
@@ -571,8 +571,8 @@ library.</p>
   
 
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script defer src="../_static/scripts/bootstrap.js?digest=0790524f97105ba85085"></script>
-<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=0790524f97105ba85085"></script>
+  <script defer src="../_static/scripts/bootstrap.js?digest=a95f357e85573c9b56d5"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=a95f357e85573c9b56d5"></script>
 
 
   <footer class="bd-footer">

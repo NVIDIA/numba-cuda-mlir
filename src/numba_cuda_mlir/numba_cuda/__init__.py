@@ -16,7 +16,10 @@ import numba_cuda_mlir.numba_cuda.types as types
 # Re-export all type names
 from numba_cuda_mlir.numba_cuda.types import *
 
-HAS_NUMBA = importlib.util.find_spec("numba") is not None
+# numba-cuda-mlir is a standalone MLIR-based compiler and does not integrate
+# with (or import) base numba. Keeping this False ensures we never import numba
+# - which would in turn pull in llvmlite, a dependency we have removed.
+HAS_NUMBA = False
 
 # Require NVIDIA CUDA bindings at import time
 if not (importlib.util.find_spec("cuda") and importlib.util.find_spec("cuda.bindings")):
@@ -26,11 +29,8 @@ if not (importlib.util.find_spec("cuda") and importlib.util.find_spec("cuda.bind
         "with XY=12 or XY=13)."
     )
 
-if config.ENABLE_CUDASIM:
-    from .simulator_init import *
-else:
-    from .device_init import *
-    from .device_init import _auto_device
+from .device_init import *
+from .device_init import _auto_device
 
 from numba_cuda_mlir.numba_cuda.compiler import (
     compile,

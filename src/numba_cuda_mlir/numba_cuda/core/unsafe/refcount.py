@@ -5,24 +5,16 @@
 Helpers to see the refcount information of an object
 """
 
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda import cgutils
 from numba_cuda_mlir.numba_cuda.extending import intrinsic
 
-_word_type = ir.IntType(64)
-_pointer_type = ir.PointerType(ir.IntType(8))
-
-_meminfo_struct_type = ir.LiteralStructType(
-    [
-        _word_type,  # size_t refct
-        _pointer_type,  # dtor_function dtor
-        _pointer_type,  # void *dtor_info
-        _pointer_type,  # void *data
-        _word_type,  # size_t size
-    ]
-)
+# llvmlite types discarded on the MLIR path (used only by dead codegen)
+_word_type = None
+_pointer_type = None
+_meminfo_struct_type = None
 
 
 @intrinsic

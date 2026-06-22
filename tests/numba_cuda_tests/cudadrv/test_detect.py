@@ -10,7 +10,6 @@ import unittest
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.testing import NumbaCUDATestCase
 from numba_cuda_mlir.numba_cuda.testing import (
-    skip_on_cudasim,
     skip_under_cuda_memcheck,
 )
 from numba_cuda_mlir.numba_cuda.tests.support import captured_stdout
@@ -64,7 +63,6 @@ class TestCUDAFindLibs(NumbaCUDATestCase):
         cmdline = [sys.executable, "-c", code]
         return self.run_cmd(cmdline, env_copy)
 
-    @skip_on_cudasim("Simulator does not hit device library search code path")
     @unittest.skipIf(not sys.platform.startswith("linux"), "linux only")
     def test_cuda_find_lib_errors(self):
         """

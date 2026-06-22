@@ -125,6 +125,19 @@ class BuildExtWithCmake(build_ext):
         if IS_WINDOWS:
             cmake_cmd += ["-G", "Ninja"]
         cmake_cmd += ["-B", build_dir, ROOT, f"-DCMAKE_BUILD_TYPE={build_type}"]
+        if IS_WINDOWS:
+            # Static-link the MSVC C runtime (/MT) so each resulting DLL
+            # embeds its own CRT copy and has no external msvcp140 /
+            # vcruntime140 runtime dependency. Across DLLs the embedded
+            # CRTs are independent (different heaps, etc.); that's fine
+            # here because the cross-DLL ABI is C only -- MLIRPythonCAPI
+            # exposes a C API, and our cext modules link against its
+            # import lib and call C functions only. The per-binary
+            # constraint that does apply is that every .obj and statically-
+            # linked .lib feeding *this* cmake build must also use /MT;
+            # ci/build-windows.sh sets the same flag for the LLVM static
+            # libs and MLIRPythonCAPI, so MLIRToLLVM70 here can link them.
+            cmake_cmd.append("-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded")
         python_root = Path(sys.executable).resolve().parent
         cmake_cmd += [
             f"-DPython_ROOT_DIR={python_root}",

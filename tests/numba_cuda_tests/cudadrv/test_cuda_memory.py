@@ -9,10 +9,8 @@ import numpy as np
 from numba_cuda_mlir.numba_cuda.cudadrv import driver
 from numba_cuda_mlir.numba_cuda.cudadrv import devices
 from numba_cuda_mlir.testing import NumbaCUDATestCase
-from numba_cuda_mlir.numba_cuda.testing import skip_on_cudasim
 
 
-@skip_on_cudasim("CUDA Memory API unsupported in the simulator")
 class TestCudaMemory(NumbaCUDATestCase):
     def setUp(self):
         super().setUp()
@@ -102,7 +100,6 @@ class TestCudaMemory(NumbaCUDATestCase):
         self.assertEqual(dtor_invoked[0], 2)
 
 
-@skip_on_cudasim("CUDA Memory API unsupported in the simulator")
 class TestCudaMemoryFunctions(NumbaCUDATestCase):
     def setUp(self):
         super().setUp()
@@ -149,7 +146,6 @@ class TestCudaMemoryFunctions(NumbaCUDATestCase):
         self.assertTrue(np.all(hst == hst2))
 
 
-@skip_on_cudasim("CUDA Memory API unsupported in the simulator")
 class TestMVExtent(NumbaCUDATestCase):
     def test_c_contiguous_array(self):
         ary = np.arange(100)

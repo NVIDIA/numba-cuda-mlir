@@ -138,6 +138,7 @@ jobs:
     permissions:
       actions: read
       contents: write
+      pull-requests: write  # required by build-docs.yml for doc preview comments
     uses: ./.github/workflows/build-docs.yml
     with:
       host-platform: linux-64

@@ -30,6 +30,9 @@ from numba_cuda_mlir.lowering_utilities import (
     f32_of,
     i32_of,
     memref_to_llvm_ptr,
+    storage_itemsize_bytes,
+    storage_bitwidth,
+    memref_llvm_address_space,
 )
 from numba_cuda_mlir.lowering_utilities.type_conversions import (
     to_mlir_type,
@@ -51,7 +54,6 @@ lower_getattr_generic = registry.lower_getattr_generic
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.cuda import fp16
 import numba_cuda_mlir.cuda
-from numba_cuda_mlir.numba_cuda.compiler import ExternFunction
 from numba_cuda_mlir import types
 import numba_cuda_mlir.numba_cuda.core.ir as numba_ir
 import numba_cuda_mlir.lowering_utilities.type_conversions as type_conversions
@@ -270,8 +272,21 @@ def _resolve_dtype(lower, dtype_var):
         dtype_numba = lower.get_numba_type(dtype_var.name)
         if isinstance(dtype_numba, types.StringLiteral):
             return np.dtype(dtype_numba.literal_value)
+        if isinstance(dtype_numba, types.DTypeSpec):
+            return dtype_numba
         return lower.load_var(dtype_var)
     return dtype_var
+
+
+def _resolve_numba_dtype(lower, dtype_var):
+    dtype = _resolve_dtype(lower, dtype_var)
+    if isinstance(dtype, np.dtype):
+        return to_numba_type(dtype)
+    if isinstance(dtype, type) and getattr(dtype, "__module__", None) == "numpy":
+        return to_numba_type(np.dtype(dtype))
+    if isinstance(dtype, types.DTypeSpec) and hasattr(dtype, "dtype"):
+        return dtype.dtype
+    return dtype
 
 
 shmem_id = 0
@@ -280,8 +295,7 @@ shmem_id = 0
 def cuda_static_shared_memory(lower: MLIRLower, target, static_shape, dtype, alignas):
     global shmem_id
     shape = tuple(static_shape)
-    dtype = _resolve_dtype(lower, dtype)
-    dtype = type_conversions.to_mlir_type(dtype)
+    dtype = lower.get_storage_type(_resolve_numba_dtype(lower, dtype))
     mspace = ir.Attribute.parse("#gpu.address_space<workgroup>")
     ty = T.memref(*shape, element_type=dtype, memory_space=mspace)
     gpu_module = lower.mlir_gpu_module
@@ -367,8 +381,8 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
 
     shape = coerce_to_shape_tuple(shape_op)
 
-    np_dtype = _resolve_dtype(lower, dtype)
-    dtype = to_mlir_type(np_dtype)
+    np_dtype = _resolve_numba_dtype(lower, dtype)
+    dtype = lower.get_storage_type(np_dtype)
     mr_type = ir.MemRefType.get(
         shape=[ir.MemRefType.get_dynamic_size() for _ in shape],
         element_type=dtype,
@@ -433,8 +447,8 @@ def cuda_local_array(lower: MLIRLower, target, args: list[Any], kwargs: list[tup
             static_shape = None
             break
 
-    np_dtype = _resolve_dtype(lower, dtype)
-    mlir_dtype = to_mlir_type(np_dtype)
+    np_dtype = _resolve_numba_dtype(lower, dtype)
+    mlir_dtype = lower.get_storage_type(np_dtype)
 
     if static_shape is not None:
         # Static shape - use static memref allocation
@@ -490,9 +504,8 @@ def lower_array_dtype(
     array: numba_ir.Var,
 ):
     trace()
-    array = mlir_lower.load_var(array)
-    numba_dtype = to_numba_type(array.type.element_type)
-    mlir_lower.store_var(target, numba_dtype)
+    array_type = mlir_lower.get_numba_type(array.name)
+    mlir_lower.store_var(target, array_type.dtype)
 
 
 @lower_getattr(types.Array, "shape")
@@ -523,10 +536,10 @@ def lower_strides(
     array = mlir_lower.load_var(array)
     array_type = array.type
     rank = array_type.rank
-    element_type = array_type.element_type
+    array_numba_type = mlir_lower.get_numba_type(array.name)
 
     # Get element size in bytes
-    element_size = element_type.width // 8
+    element_size = storage_itemsize_bytes(array_numba_type)
 
     # Get dimensions - handle both memref and tensor types
     if isinstance(array_type, ir.MemRefType):
@@ -1108,21 +1121,9 @@ def cuda_generic_atomic_cg(builder, target, mr, indices, value, body_builder):
     builder.store_var(target, ir.Value(rmw))
 
 
-def _get_llvm_address_space(memref_type: ir.MemRefType) -> int:
-    mspace = memref_type.memory_space
-    if mspace is None:
-        return 1  # Global memory
-    mspace_str = str(mspace)
-    if "workgroup" in mspace_str:
-        return 3  # Shared memory
-    if "private" in mspace_str:
-        return 5  # Local/private memory
-    return 1  # Default to global
-
-
 def _atomic_ptr(mr: ir.Value, indices: list[ir.Value], value_type: ir.Type) -> ir.Value:
     llvm_kDynamic = -2147483648
-    addrspace = _get_llvm_address_space(mr.type)
+    addrspace = memref_llvm_address_space(mr.type)
     ptr_type = llvm.PointerType.get(addrspace)
 
     md = memref.extract_strided_metadata(mr)
@@ -1404,10 +1405,10 @@ def _get_element_pointer_for_cache_hint(builder, array, index, array_type):
     """Compute pointer to array element for cache hint operations."""
     from numba_cuda_mlir._mlir.dialects import llvm as llvm_dialect
 
-    # Get the element type
+    # Get the storage element type and width. The user-visible value type may differ.
     dtype = array_type.dtype
-    ele_ty = to_mlir_type(dtype)
-    bitwidth = dtype.bitwidth
+    ele_ty = builder.get_storage_type(dtype)
+    bitwidth = storage_bitwidth(dtype)
 
     # Handle index - for 1D arrays it's a scalar, for ND arrays it's a tuple
     if isinstance(array_type, types.Array):
@@ -1424,7 +1425,7 @@ def _get_element_pointer_for_cache_hint(builder, array, index, array_type):
     else:
         raise TypeError(f"Unsupported array type: {array_type}")
 
-    return element_ptr, ele_ty, bitwidth
+    return element_ptr, ele_ty, bitwidth, dtype
 
 
 def _cache_hint_load_lowering(operator_name, builder, target, args, kwargs):
@@ -1435,7 +1436,7 @@ def _cache_hint_load_lowering(operator_name, builder, target, args, kwargs):
     index = builder.load_var(args[1])
     array_type = builder.get_numba_type(args[0])
 
-    element_ptr, ele_ty, bitwidth = _get_element_pointer_for_cache_hint(
+    element_ptr, ele_ty, bitwidth, dtype = _get_element_pointer_for_cache_hint(
         builder, array, index, array_type
     )
 
@@ -1443,19 +1444,10 @@ def _cache_hint_load_lowering(operator_name, builder, target, args, kwargs):
     ptx_str = f"ld.global.{operator_name}.b{bitwidth} $0, [$1];"
     constraints = f"={constraint},l"
 
-    # libnvvm inline asm only accepts integer/float types, not half/bfloat.
-    # Load as integer and bitcast back to float for sub-32-bit float types.
-    if bitwidth == 16 and isinstance(ele_ty, (ir.FloatType, ir.BF16Type)):
-        int_ty = ir.IntegerType.get_signless(16)
-        result = llvm_dialect.inline_asm(
-            int_ty, [element_ptr], ptx_str, constraints, has_side_effects=False
-        )
-        result = arith.bitcast(ele_ty, result)
-    else:
-        result = llvm_dialect.inline_asm(
-            ele_ty, [element_ptr], ptx_str, constraints, has_side_effects=False
-        )
-    builder.store_var(target, result)
+    stored = llvm_dialect.inline_asm(
+        ele_ty, [element_ptr], ptx_str, constraints, has_side_effects=False
+    )
+    builder.store_var(target, builder.from_storage(dtype, stored))
 
 
 def _cache_hint_store_lowering(operator_name, builder, target, args, kwargs):
@@ -1467,16 +1459,11 @@ def _cache_hint_store_lowering(operator_name, builder, target, args, kwargs):
     value = builder.load_var(args[2])
     array_type = builder.get_numba_type(args[0])
 
-    element_ptr, ele_ty, bitwidth = _get_element_pointer_for_cache_hint(
+    element_ptr, ele_ty, bitwidth, dtype = _get_element_pointer_for_cache_hint(
         builder, array, index, array_type
     )
 
-    value = convert(value, ele_ty)
-
-    # libnvvm inline asm only accepts integer/float types, not half/bfloat.
-    # Bitcast sub-32-bit floats to their integer equivalent.
-    if bitwidth == 16 and isinstance(ele_ty, (ir.FloatType, ir.BF16Type)):
-        value = arith.bitcast(ir.IntegerType.get_signless(16), value)
+    value = builder.as_storage(dtype, value)
 
     constraint = CACHE_HINT_CONSTRAINT_MAP[bitwidth]
     ptx_str = f"st.global.{operator_name}.b{bitwidth} [$0], $1;"

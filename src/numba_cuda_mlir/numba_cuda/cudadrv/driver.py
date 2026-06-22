@@ -52,6 +52,7 @@ from .mappings import FILE_EXTENSION_MAP
 from .linkable_code import LinkableCode, LTOIR, Fatbin, Object
 from numba_cuda_mlir.numba_cuda.utils import cached_file_read
 from numba_cuda_mlir.numba_cuda.cudadrv import nvrtc
+from numba_cuda_mlir.numba_cuda.core.errors import NumbaWarning
 
 from cuda.bindings import driver as binding
 from cuda.core import (
@@ -2176,6 +2177,17 @@ class CudaPythonFunction:
 Function = CudaPythonFunction
 
 
+@functools.cache
+def _warn_lto_opt_risk():
+    warnings.warn(
+        "Linking LTOIR with optimization_level>0 can erase float16/bfloat16 "
+        "(and their vector type) stores due to a known LTO linking bug."
+        "If results look wrong, set NUMBA_CUDA_MLIR_DISABLE_LTO_OPT=1 to force "
+        "opt_level=0 on the LTO link.",
+        category=NumbaWarning,
+    )
+
+
 class _Linker:
     def __init__(
         self,
@@ -2412,6 +2424,19 @@ class _Linker:
         # (fixed in cuda-python PR #989, released in cuda-core v0.4.0)
         lto_flag = True if self._has_ltoir else None
         ptx_flag = True if (self._has_ltoir and ptx) else None
+
+        # LTO cubin links at opt_level>0 can hit an linking bug that erases
+        # float16/bfloat16 (and their vector type) stores. Keep opts on by
+        # default but warn. Allow opting out via NUMBA_CUDA_MLIR_DISABLE_LTO_OPT,
+        # which forces opt_level=0.
+        lto_cubin_link = bool(lto_flag) and not ptx
+        if lto_cubin_link and config.CUDA_DISABLE_LTO_OPT:
+            opt_level = 0
+        else:
+            opt_level = self._optimization_level
+            if lto_cubin_link and opt_level:
+                _warn_lto_opt_risk()
+
         options = LinkerOptions(
             max_register_count=self.max_registers,
             lineinfo=self.lineinfo,
@@ -2426,8 +2451,10 @@ class _Linker:
             prec_sqrt=self._prec_sqrt,
             fma=self._fma,
             variables_used=self.variables_used,
-            optimize_unused_variables=self._optimize_unused_variables,
-            optimization_level=self._optimization_level,
+            optimize_unused_variables=(
+                self._optimize_unused_variables if self.variables_used else None
+            ),
+            optimization_level=opt_level,
             ptxas_options=self._ptxas_options,
         )
         return options

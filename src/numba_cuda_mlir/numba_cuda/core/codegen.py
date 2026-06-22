@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 from abc import abstractmethod, ABCMeta
-from numba_cuda_mlir.numba_cuda.misc.llvm_pass_timings import PassTimingsCollection
 
 
 class CodeLibrary(metaclass=ABCMeta):
@@ -19,8 +18,6 @@ class CodeLibrary(metaclass=ABCMeta):
     def __init__(self, codegen: "Codegen", name: str):
         self._codegen = codegen
         self._name = name
-        ptc_name = f"{self.__class__.__name__}({self._name!r})"
-        self._recorded_timings = PassTimingsCollection(ptc_name)
         # Track names of the dynamic globals
         self._dynamic_globals = []
 
@@ -28,10 +25,6 @@ class CodeLibrary(metaclass=ABCMeta):
     def has_dynamic_globals(self):
         self._ensure_finalized()
         return len(self._dynamic_globals) > 0
-
-    @property
-    def recorded_timings(self):
-        return self._recorded_timings
 
     @property
     def codegen(self):

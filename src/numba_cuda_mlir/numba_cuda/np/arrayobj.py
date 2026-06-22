@@ -11,8 +11,8 @@ import math
 import operator
 import textwrap
 
-from llvmlite import ir
-from llvmlite.ir import Constant
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import Constant
 
 import numpy as np
 
@@ -4683,18 +4683,6 @@ def ol_array_zero_fill(self):
     return impl
 
 
-@overload(np.zeros)
-def ol_np_zeros(shape, dtype=float):
-    _check_const_str_dtype("zeros", dtype)
-
-    def impl(shape, dtype=float):
-        arr = np.empty(shape, dtype=dtype)
-        arr._zero_fill()
-        return arr
-
-    return impl
-
-
 @overload(np.zeros_like)
 def ol_np_zeros_like(a, dtype=None):
     _check_const_str_dtype("zeros_like", dtype)
@@ -4723,24 +4711,6 @@ def ol_np_ones_like(a, dtype=None):
     return impl
 
 
-@overload(np.full)
-def impl_np_full(shape, fill_value, dtype=None):
-    _check_const_str_dtype("full", dtype)
-    if not is_nonelike(dtype):
-        nb_dtype = ty_parse_dtype(dtype)
-    else:
-        nb_dtype = fill_value
-
-    def full(shape, fill_value, dtype=None):
-        arr = np.empty(shape, nb_dtype)
-        arr_flat = arr.flat
-        for idx in range(len(arr_flat)):
-            arr_flat[idx] = fill_value
-        return arr
-
-    return full
-
-
 @overload(np.full_like)
 def impl_np_full_like(a, fill_value, dtype=None):
     _check_const_str_dtype("full_like", dtype)
@@ -4753,22 +4723,6 @@ def impl_np_full_like(a, fill_value, dtype=None):
         return arr
 
     return full_like
-
-
-@overload(np.ones)
-def ol_np_ones(shape, dtype=None):
-    # for some reason the NumPy default for dtype is None in the source but
-    # ends up as np.float64 by definition.
-    _check_const_str_dtype("ones", dtype)
-
-    def impl(shape, dtype=None):
-        arr = np.empty(shape, dtype=dtype)
-        arr_flat = arr.flat
-        for idx in range(len(arr_flat)):
-            arr_flat[idx] = 1
-        return arr
-
-    return impl
 
 
 @overload(np.identity)

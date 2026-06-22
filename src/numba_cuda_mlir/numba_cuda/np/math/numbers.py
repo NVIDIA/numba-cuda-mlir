@@ -6,8 +6,8 @@ import numbers
 
 import numpy as np
 
-from llvmlite import ir
-from llvmlite.ir import Constant
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import Constant
 
 from numba_cuda_mlir.numba_cuda.core.imputils import impl_ret_untracked
 from numba_cuda_mlir.numba_cuda import typing, types, cgutils

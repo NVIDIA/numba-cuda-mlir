@@ -9,7 +9,6 @@ import unittest
 import unittest.mock
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda.testing import (
-    skip_on_cudasim,
     skip_if_cuda_includes_missing,
     skip_if_nvjitlink_missing,
 )
@@ -128,7 +127,6 @@ def add_from_numba_lto(request, numba_cuda_test_binaries):
     del request.instance.add_from_numba_lto
 
 
-@skip_on_cudasim("Linking unsupported in the simulator")
 class TestLinker(NumbaCUDATestCase):
     @require_context
     def test_linker_basic(self):

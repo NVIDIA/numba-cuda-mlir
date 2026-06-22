@@ -20,7 +20,7 @@ from numba_cuda_mlir.numba_cuda.core.errors import (
 from numpy.polynomial.polynomial import Polynomial
 from contextlib import ExitStack
 import numpy as np
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 from numba_cuda_mlir.numba_cuda.core.imputils import Registry
 
 registry = Registry("np.polynomial_core")

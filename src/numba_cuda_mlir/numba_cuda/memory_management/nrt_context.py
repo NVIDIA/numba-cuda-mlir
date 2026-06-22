@@ -4,7 +4,7 @@
 import functools
 from collections import namedtuple
 
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core import errors
 from numba_cuda_mlir.numba_cuda import cgutils, config
@@ -27,9 +27,10 @@ _NRT_MEMINFO_DEFAULT_API = _NRT_Meminfo_Functions(
     "NRT_MemInfo_alloc", "NRT_MemInfo_alloc_dtor", "NRT_MemInfo_alloc_aligned"
 )
 
-_pointer_type = ir.PointerType(ir.IntType(8))
-incref_decref_ty = ir.FunctionType(ir.VoidType(), [_pointer_type])
-meminfo_data_ty = ir.FunctionType(_pointer_type, [_pointer_type])
+# llvmlite types discarded on the MLIR path (used only by dead codegen)
+_pointer_type = None
+incref_decref_ty = None
+meminfo_data_ty = None
 
 
 class NRTContext:

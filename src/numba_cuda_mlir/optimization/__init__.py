@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import functools
-from numba_cuda_mlir._mlir.dialects import gpu, arith
+from numba_cuda_mlir._mlir.dialects import gpu, arith, llvm
 from numba_cuda_mlir._mlir import ir
 
 
@@ -115,9 +115,87 @@ def _resolve_exotic_float_casts(module: ir.Module):
         op.operation.erase()
 
 
+_SHARED_ADDRESS_SPACE = 3
+
+
+def _is_shared_llvm_ptr(ty: ir.Type) -> bool:
+    return (
+        isinstance(ty, llvm.PointerType)
+        and llvm.PointerType(ty).address_space == _SHARED_ADDRESS_SPACE
+    )
+
+
+def _bit_storage_type_for_float(ty: ir.Type):
+    if not isinstance(ty, ir.FloatType):
+        return None
+    from numba_cuda_mlir.models import get_float_integer_storage_map
+
+    width = get_float_integer_storage_map().get(str(ty))
+    if width is None:
+        return None
+    return ir.IntegerType.get_signless(width)
+
+
+def _copy_op_attrs(src, dst):
+    for name in src.operation.attributes:
+        dst.operation.attributes[name] = src.operation.attributes[name]
+
+
+def _resolve_shared_bit_storage_float_accesses(module: ir.Module):
+    """Rewrite shared-memory LLVM scalar loads/stores so float operands use integer storage.
+
+    For MLIR floating-point types whose ABI/storage representation is wider integer bits
+    (half/bfloat16, eight-bit storages for sub-byte floats, TF32), load/store through the
+    integer representation when the pointer is shared (address space 3).
+
+    nvjitlink LTO can drop certain half-precision scalar stores before a widened load; forcing
+    integer accesses preserves bit patterns across that optimization.
+    """
+    worklist = []
+
+    def collect(op):
+        if op.operation.name in ("llvm.load", "llvm.store"):
+            worklist.append(op)
+        for region in op.operation.regions:
+            for block in region.blocks:
+                for child in block:
+                    collect(child)
+
+    collect(module.operation.opview)
+
+    for op in worklist:
+        if op.operation.name == "llvm.store":
+            value = op.operands[0]
+            addr = op.operands[1]
+            storage_type = _bit_storage_type_for_float(value.type)
+            if storage_type is None or not _is_shared_llvm_ptr(addr.type):
+                continue
+            loc = op.operation.location
+            with ir.InsertionPoint(op), loc:
+                bits = llvm.bitcast(storage_type, value)
+                new_store = llvm.store(bits, addr)
+            _copy_op_attrs(op, new_store)
+            op.operation.erase()
+            continue
+
+        result = op.results[0]
+        addr = op.operands[0]
+        storage_type = _bit_storage_type_for_float(result.type)
+        if storage_type is None or not _is_shared_llvm_ptr(addr.type):
+            continue
+        loc = op.operation.location
+        with ir.InsertionPoint(op), loc:
+            bits = llvm.load(storage_type, addr)
+            value = llvm.bitcast(result.type, bits)
+        _copy_op_attrs(op, bits.owner.opview)
+        result.replace_all_uses_with(value)
+        op.operation.erase()
+
+
 def run_pre_codegen_patterns(module: ir.Module):
     fixup_nvvm_arg_attrs(module.operation)
     _resolve_exotic_float_casts(module)
+    _resolve_shared_bit_storage_float_accesses(module)
     # TODO(ajm): why does this not trigger?
     # patterns = RewritePatternSet()
     # patterns.add(gpu.GPUFuncOp, fixup_nvvm_arg_attrs)

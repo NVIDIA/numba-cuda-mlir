@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 from collections import namedtuple
 from warnings import warn, catch_warnings, simplefilter
 import copy
@@ -19,18 +19,19 @@ from numba_cuda_mlir.numba_cuda.core.interpreter import Interpreter
 
 from numba_cuda_mlir.numba_cuda import cgutils, typing, lowering, nvvmutils, utils
 from numba_cuda_mlir.numba_cuda.api import get_current_device
-from numba_cuda_mlir.numba_cuda.codegen import ExternalCodeLibrary
 
 from numba_cuda_mlir.numba_cuda.core import (
     inline_closurecall,
     sigutils,
     postproc,
     config,
-    funcdesc,
 )
 from numba_cuda_mlir.numba_cuda.cudadrv import nvvm, nvrtc
 from numba_cuda_mlir.numba_cuda.cudadrv.linkable_code import LinkableCode
 from numba_cuda_mlir.numba_cuda.descriptor import cuda_target
+from numba_cuda_mlir.device_declarations import (
+    register_device_declaration_from_parts,
+)
 from numba_cuda_mlir.numba_cuda.flags import CUDAFlags
 from numba_cuda_mlir.numba_cuda.core.callconv import CUDACABICallConv, CUDACallConv
 from numba_cuda_mlir.numba_cuda.core.compiler import CompilerBase
@@ -838,6 +839,7 @@ def compile_cuda(
 
     from .descriptor import cuda_target
 
+    cuda_target.ensure_initialized()
     typingctx = cuda_target.typing_context
     targetctx = cuda_target.target_context
 
@@ -1437,46 +1439,16 @@ def compile_ptx_for_current_device(
 def declare_device_function(name, restype, argtypes, link, use_cooperative, abi):
     from .descriptor import cuda_target
 
-    typingctx = cuda_target.typing_context
-    targetctx = cuda_target.target_context
-    sig = typing.signature(restype, *argtypes)
-
-    # extfn is the descriptor used to call the function from Python code, and
-    # is used as the key for typing and lowering.
-    extfn = ExternFunction(name, sig)
-
-    # Typing
-    device_function_template = typing.make_concrete_template(name, extfn, [sig])
-    typingctx.insert_user_function(extfn, device_function_template)
-
-    # Lowering
-    lib = ExternalCodeLibrary(f"{name}_externals", targetctx.codegen())
-    for file in link:
-        lib.add_linking_file(file)
-    lib.use_cooperative = use_cooperative
-
-    if abi == "numba":
-        call_conv = CUDACallConv(targetctx)
-    elif abi == "c":
-        call_conv = CUDACABICallConv(targetctx)
-    else:
-        raise NotImplementedError(f"Unsupported ABI: {abi}")
-
-    # ExternalFunctionDescriptor provides a lowering implementation for calling
-    # external functions
-    fndesc = funcdesc.ExternalFunctionDescriptor(name, restype, argtypes, call_conv)
-    targetctx.insert_user_function(extfn, fndesc, libs=(lib,))
-
+    declaration = register_device_declaration_from_parts(
+        name, restype, argtypes, link, use_cooperative, abi
+    )
+    if hasattr(cuda_target, "ensure_initialized"):
+        cuda_target.ensure_initialized()
+    declaration.apply(cuda_target.typing_context, cuda_target.target_context)
+    device_function_template = typing.make_concrete_template(
+        name, declaration.extfn, [declaration.sig]
+    )
     return device_function_template
-
-
-class ExternFunction:
-    """A descriptor that can be used to call the external function from within
-    a Python kernel."""
-
-    def __init__(self, name, sig):
-        self.name = name
-        self.sig = sig
 
 
 def _default_cc(cc):

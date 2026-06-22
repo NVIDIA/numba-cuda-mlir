@@ -18,9 +18,6 @@ except ImportError:
     _HAVE_YAML = False
 
 
-import llvmlite.binding as ll
-
-
 IS_WIN32 = sys.platform.startswith("win32")
 IS_OSX = sys.platform.startswith("darwin")
 MACHINE_BITS = tuple.__itemsize__ * 8
@@ -384,8 +381,10 @@ class _EnvReloader:
                 # There are various performance issues with AVX and LLVM
                 # on some CPUs (list at
                 # http://llvm.org/bugs/buglist.cgi?quicksearch=avx).
-                # For now we'd rather disable it, since it can pessimize code
-                cpu_name = CPU_NAME or ll.get_host_cpu_name()
+                # For now we'd rather disable it, since it can pessimize code.
+                # Host CPU detection (llvmlite) is irrelevant on the CUDA/MLIR
+                # path, so we skip it; this flag is a host (CPU-target) concern.
+                cpu_name = CPU_NAME or ""
                 disabled_cpus = {
                     "corei7-avx",
                     "core-avx-i",
@@ -432,9 +431,6 @@ class _EnvReloader:
         # Disable CUDA support
         DISABLE_CUDA = _readenv("NUMBA_DISABLE_CUDA", int, int(MACHINE_BITS == 32))
 
-        # Enable CUDA simulator
-        ENABLE_CUDASIM = _readenv("NUMBA_ENABLE_CUDASIM", int, 0)
-
         # CUDA logging level
         # Any level name from the *logging* module.  Case insensitive.
         # Defaults to CRITICAL if not set or invalid.
@@ -462,6 +458,10 @@ class _EnvReloader:
 
         # Whether to generate verbose log messages when JIT linking
         CUDA_VERBOSE_JIT_LOG = _readenv("NUMBA_CUDA_VERBOSE_JIT_LOG", int, 1)
+
+        # WAR for an LTO linking bug that erases float16/bfloat16 (and their
+        # vector type) stores: when set, force opt_level=0 on LTO links
+        CUDA_DISABLE_LTO_OPT = _readenv("NUMBA_CUDA_MLIR_DISABLE_LTO_OPT", int, 0)
 
         # Whether the default stream is the per-thread default stream
         CUDA_PER_THREAD_DEFAULT_STREAM = _readenv("NUMBA_CUDA_PER_THREAD_DEFAULT_STREAM", int, 0)
@@ -592,12 +592,3 @@ def reload_config():
     Reload the configuration from environment variables, if necessary.
     """
     _env_reloader.update()
-
-
-# use numba.core.config if available, otherwise use numba.cuda.core.config
-try:
-    import numba.core.config as _config
-
-    sys.modules[__name__] = _config
-except ImportError:
-    pass

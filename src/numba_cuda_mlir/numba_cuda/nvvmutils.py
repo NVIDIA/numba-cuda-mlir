@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 import itertools
-from llvmlite import ir
+from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 from numba_cuda_mlir.numba_cuda.core import targetconfig
 from numba_cuda_mlir.numba_cuda import cgutils
 from .cudadrv import nvvm

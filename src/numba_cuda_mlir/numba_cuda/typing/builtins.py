@@ -555,7 +555,7 @@ class Contains(AbstractTemplate):
         assert not kws
         (seq, val) = args
 
-        if isinstance(seq, (types.Sequence)):
+        if isinstance(seq, types.Sequence) and isinstance(val, (types.Number, types.Boolean)):
             return signature(types.boolean, seq, val)
 
 
@@ -818,7 +818,6 @@ class NumberClassAttribute(AttributeTemplate):
                     and isinstance(val.dtype, types.Float)
                 ):
                     return ty
-
                 # unsupported
                 msg = f"Casting {val} to {ty} directly is unsupported."
                 if isinstance(val, types.Array):
@@ -827,7 +826,7 @@ class NumberClassAttribute(AttributeTemplate):
                 raise errors.TypingError(msg)
 
         def typer_complex(val, imag):
-            if ty in types.complex_domain:
+            if isinstance(ty, types.Complex):
                 if isinstance(val, types.Number) and isinstance(imag, types.Number):
                     return ty
                 else:

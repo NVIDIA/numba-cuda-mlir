@@ -10,7 +10,7 @@ shim.cu references against these definitions the same way it resolved them
 against the old nrt.cu definitions.
 
 NRT_MemInfo layout (matches nrt.cuh):
-  field 0: refct      – i64    (atomic in C++, plain load/store here; per-thread)
+  field 0: refct      – i64    (atomic refcount)
   field 1: dtor       – ptr    (NRT_dtor_function: void(ptr, i64, ptr))
   field 2: dtor_info  – ptr
   field 3: data       – ptr
@@ -252,9 +252,12 @@ def _emit_NRT_incref(gm, stats, mg):
 
     with ir.InsertionPoint(inc_block):
         refct_ptr = _gep_field(mi, 0)
-        refct = _llvm.load(T.i64(), refct_ptr)
-        new_refct = _add(refct, _const_i64(1))
-        _llvm.store(new_refct, refct_ptr)
+        _llvm.atomicrmw(
+            AtomicBinOp.add,
+            refct_ptr,
+            _const_i64(1),
+            AtomicOrdering.monotonic,
+        )
         cf.br([], ret_block)
 
     with ir.InsertionPoint(ret_block):
@@ -273,10 +276,13 @@ def _emit_NRT_decref(gm, stats, mg):
 
     with ir.InsertionPoint(dec_block):
         refct_ptr = _gep_field(mi, 0)
-        refct = _llvm.load(T.i64(), refct_ptr)
-        new_refct = _sub(refct, _const_i64(1))
-        _llvm.store(new_refct, refct_ptr)
-        is_zero = _icmp_eq(new_refct, _const_i64(0))
+        refct = _llvm.atomicrmw(
+            AtomicBinOp.sub,
+            refct_ptr,
+            _const_i64(1),
+            AtomicOrdering.monotonic,
+        )
+        is_zero = _icmp_eq(refct, _const_i64(1))
         dtor_block = fn.body.blocks.append()
         cf.cond_br(is_zero, [], [], dtor_block, ret_block)
 
@@ -659,7 +665,8 @@ def _emit_NRT_MemSys_set(gpu_module):
 
     ft = ir.FunctionType.get([_ptr()], [])
     with ir.InsertionPoint(body):
-        kern = gpu.GPUFuncOp(ft, sym_name="NRT_MemSys_set", kernel=True)
+        kern = gpu.GPUFuncOp(ft, sym_name="NRT_MemSys_set")
+        kern.kernel = True
         entry = kern.add_entry_block()
 
     with ir.InsertionPoint(entry):

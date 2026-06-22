@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for numba-cuda compatibility attributes and type conversions."""
 
+import numpy as np
 import pytest
 import numba_cuda_mlir._mlir.ir as ir
 from numba_cuda_mlir._mlir.dialects import arith
@@ -106,6 +107,14 @@ class TestCompileResult:
 class TestScalarValueConversion:
     """Test ScalarValue to Numba type conversion."""
 
+    def test_numpy_scalar_class_float16(self):
+        """NumPy scalar classes should convert through the dtype converter."""
+        from numba_cuda_mlir.lowering_utilities.type_conversions import to_numba_type
+        from numba_cuda_mlir import types
+
+        result = to_numba_type(np.float16)
+        assert result == types.float16
+
     def test_scalar_value_i32(self):
         """ScalarValue with i32 should convert to int32."""
         from numba_cuda_mlir.lowering_utilities.type_conversions import to_numba_type
@@ -165,6 +174,26 @@ class TestScalarValueConversion:
             # c is an ir.Value (OpResult)
             result = to_numba_type(c)
             assert result == types.int32
+
+
+class TestDTypeSpecLowering:
+    """Test dtype spec handling at MLIR ABI boundaries."""
+
+    def test_vector_type_class_return_type_erases_to_none(self):
+        """VectorTypeClass is a dtype specifier, not a runtime return value."""
+        from numba_cuda_mlir.cuda.vector_types import float16x2
+        from numba_cuda_mlir.mlir_lowering import MLIRLower
+        from numba_cuda_mlir.typing.cuda_vector_types import (
+            VectorTypeClass,
+            make_constructor_template,
+        )
+
+        vector_type_class = VectorTypeClass(float16x2, make_constructor_template(float16x2))
+
+        with ir.Context():
+            lower = object.__new__(MLIRLower)
+            result = lower.get_return_type(vector_type_class)
+            assert isinstance(result, ir.NoneType)
 
 
 class TestToMlirTypeScalarValue:

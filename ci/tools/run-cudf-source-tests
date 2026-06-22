@@ -116,6 +116,7 @@ GROUPBY_UDF="${CUDF_DIR}/python/cudf/cudf/tests/groupby/test_apply.py"
 NRT_STATS="${CUDF_DIR}/python/cudf/cudf/tests/private_objects/test_nrt_stats.py"
 
 COMMON_ARGS=(
+  -p "no:cases"
   -W "ignore::UserWarning"
   -W "ignore::numba_cuda_mlir.numba_cuda.core.errors.NumbaPerformanceWarning"
   -W "ignore:Linking LTOIR with optimization_level"

@@ -40,11 +40,64 @@ import operator
 GEP_DYNAMIC_INDEX = -2147483648
 
 
+def memref_llvm_address_space(memref_type: ir.MemRefType) -> int:
+    """Return the NVVM LLVM address space for a CUDA memref type.
+
+    Untagged CUDA kernel argument memrefs represent global memory. Tagged memrefs
+    are used for explicit CUDA spaces such as workgroup/shared and private/local.
+    """
+    memory_space = memref_type.memory_space
+    if memory_space is None:
+        return 1
+    if isinstance(memory_space, ir.IntegerAttr):
+        return int(memory_space.value)
+    memory_space_str = str(memory_space)
+    if "workgroup" in memory_space_str:
+        return 3
+    if "private" in memory_space_str:
+        return 5
+    return 1
+
+
+def _memref_llvm_pointer_type(memref_type: ir.MemRefType) -> llvm.PointerType:
+    return llvm.PointerType.get(memref_llvm_address_space(memref_type))
+
+
+def memref_data_pointer_as_index(array: ir.Value, element_type: ir.Type | None = None) -> ir.Value:
+    metadata = memref.extract_strided_metadata(array)
+    base_ptr_idx = memref.extract_aligned_pointer_as_index(metadata[0])
+    offset = index_of(metadata[1])
+    if element_type is None:
+        element_type = ir.MemRefType(array.type).element_type
+    elem_bytes = get_type_size_bytes(element_type)
+    byte_offset = arith.muli(offset, arith.constant(T.index(), elem_bytes))
+    return arith.addi(base_ptr_idx, byte_offset)
+
+
+def _memref_index_offset(array: ir.Value, indices: list[ir.Value]) -> ir.Value:
+    """Return the element offset for indices into a potentially-strided memref."""
+    metadata = memref.extract_strided_metadata(array)
+    rank = array.type.rank
+    ndim = len(indices)
+    if ndim == 1 and rank != 1:
+        return convert(indices[0], T.i64())
+    if ndim != rank:
+        raise ValueError(
+            f"Expected either a scalar linear index or {rank} indices for {array.type}, got {ndim}"
+        )
+    linear_idx = arith.constant(T.i64(), 0)
+    for d, index in enumerate(indices):
+        idx_val = convert(index, T.i64())
+        stride = convert(metadata[2 + rank + d], T.i64())
+        linear_idx = linear_idx + idx_val * stride
+    return linear_idx
+
+
 def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value], element_type: ir.Type) -> ir.Value:
     """Convert memref + indices to LLVM pointer.
 
-    Extracts base pointer from potentially strided memref and computes
-    element pointer using getelementptr with linearized indices.
+    Extracts base pointer from a potentially-strided memref and computes the
+    element pointer using the memref metadata offset and strides.
 
     Args:
         array: Memref value (potentially strided)
@@ -54,50 +107,21 @@ def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value], element_type: i
     Returns:
         LLVM pointer (!llvm.ptr) to the indexed element
     """
-    # Extract base pointer from memref and convert to LLVM pointer
-    base_ptr_idx = memref.extract_aligned_pointer_as_index(array)
-    base_ptr = convert(base_ptr_idx, llvm.PointerType.get())
+    # Extract base pointer from memref and convert to an address-space-preserving
+    # LLVM pointer.
+    ptr_type = _memref_llvm_pointer_type(ir.MemRefType(array.type))
+    base_ptr_idx = memref_data_pointer_as_index(array)
+    base_ptr = llvm.inttoptr(res=ptr_type, arg=convert(base_ptr_idx, T.i64()))
 
-    # Compute linear offset and use getelementptr
-    if len(indices) == 1:
-        # 1D case: simple offset
-        idx = convert(indices[0], T.i64())
-        element_ptr = llvm.getelementptr(
-            llvm.PointerType.get(),
-            base_ptr,
-            [idx],
-            [GEP_DYNAMIC_INDEX],
-            element_type,
-            None,
-        )
-    else:
-        # N-D case: linearize indices using row-major strides
-        ndim = len(indices)
-
-        # Compute strides for row-major layout (C order)
-        strides = [None] * ndim
-        strides[-1] = arith.constant(T.i64(), 1)
-        for d in range(ndim - 2, -1, -1):
-            dim_size = memref.dim(array, index_of(d + 1))
-            dim_size = convert(dim_size, T.i64())
-            strides[d] = dim_size * strides[d + 1]
-
-        # Compute linear index: sum(index[d] * stride[d])
-        linear_idx = arith.constant(T.i64(), 0)
-        for d in range(ndim):
-            idx_val = convert(indices[d], T.i64())
-            linear_idx = linear_idx + idx_val * strides[d]
-
-        element_ptr = llvm.getelementptr(
-            llvm.PointerType.get(),
-            base_ptr,
-            [linear_idx],
-            [GEP_DYNAMIC_INDEX],
-            element_type,
-            None,
-        )
-
-    return element_ptr
+    linear_idx = _memref_index_offset(array, indices)
+    return llvm.getelementptr(
+        ptr_type,
+        base_ptr,
+        [linear_idx],
+        [GEP_DYNAMIC_INDEX],
+        element_type,
+        None,
+    )
 
 
 def memref_to_tensor(memref):
@@ -209,6 +233,14 @@ def llvm_struct_to_complex(value, complex_type):
         position=ir.DenseI64ArrayAttr.get([1]),
     )
     return complex_dialect.create_(complex=complex_type, real=real, imaginary=imag)
+
+
+def get_type_size_bytes(ty: ir.Type) -> int:
+    if isinstance(ty, ir.BF16Type):
+        return 2
+    # CUDA memrefs handled here are byte-addressable. Numpy bool storage is one
+    # byte even though the MLIR element type is i1.
+    return max(1, (get_type_width(ty) + 7) // 8)
 
 
 def _lookup_datamodel_type(numba_type: types.Type, context: str) -> ir.Type:
@@ -945,7 +977,7 @@ def unverified_basic_mlir_convert(
             imag = convert(imag, target_element_type)
             return complex_dialect.create_(complex=target_type, real=real, imaginary=imag)
         case ir.MemRefType() as mr, ptr_type if str(ptr_type) == "!llvm.ptr":
-            idx = memref.extract_aligned_pointer_as_index(value)
+            idx = memref_data_pointer_as_index(value, mr.element_type)
             return convert(idx, target_type)
         case ptr_type, ir.IntegerType() if str(ptr_type) == "!llvm.ptr":
             ptrtoi = llvm.ptrtoint(res=T.i64(), arg=value)

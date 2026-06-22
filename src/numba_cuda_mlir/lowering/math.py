@@ -472,8 +472,9 @@ def pointer_array_cg(builder, target, args, kwargs):
         "calling types.ptr() is only supported on arrays, pointers, and integers"
     )
     array = builder.load_var(args[0])
-    result = memref.extract_aligned_pointer_as_index(array)
-    result = convert(result, llvm.PointerType.get())
+    result = lowering_utilities.memref_data_pointer_as_index(array)
+    result = arith.index_cast(T.i64(), result)
+    result = llvm.inttoptr(res=llvm.PointerType.get(), arg=result)
     builder.store_var(target, result)
 
 

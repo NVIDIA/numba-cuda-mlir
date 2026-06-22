@@ -9,7 +9,6 @@ import numpy as np
 
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.testing import NumbaCUDATestCase
-from numba_cuda_mlir.numba_cuda.testing import skip_on_cudasim
 
 
 class CudaArrayIndexing(NumbaCUDATestCase):
@@ -303,7 +302,6 @@ class CudaArraySetting(NumbaCUDATestCase):
             ],
         )
 
-    @skip_on_cudasim("cudasim does not use streams and operates synchronously")
     def test_sync(self):
         # There should be a synchronization when no stream is supplied
         darr = cuda.to_device(np.arange(5))
@@ -315,7 +313,6 @@ class CudaArraySetting(NumbaCUDATestCase):
 
         mock_sync.assert_called_once()
 
-    @skip_on_cudasim("cudasim does not use streams and operates synchronously")
     def test_no_sync_default_stream(self):
         # There should not be a synchronization when the array has a default
         # stream, whether it is the default stream, the legacy default stream,
@@ -337,7 +334,6 @@ class CudaArraySetting(NumbaCUDATestCase):
 
             mock_sync.assert_not_called()
 
-    @skip_on_cudasim("cudasim does not use streams and operates synchronously")
     def test_no_sync_supplied_stream(self):
         # There should not be a synchronization when a stream is supplied for
         # the setitem call, whether it is the default stream, the legacy default

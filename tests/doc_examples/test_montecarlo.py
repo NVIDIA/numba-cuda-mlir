@@ -5,13 +5,11 @@ import unittest
 
 from numba.cuda.testing import (
     CUDATestCase,
-    skip_on_cudasim,
     skip_on_standalone_numba_cuda,
 )
 from numba.cuda.tests.support import captured_stdout
 
 
-@skip_on_cudasim("cudasim doesn't support cuda import at non-top-level")
 class TestMonteCarlo(CUDATestCase):
     """
     Test monte-carlo integration

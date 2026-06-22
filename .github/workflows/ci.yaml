@@ -260,6 +260,36 @@ jobs:
     with:
       host-platform: linux-aarch64
 
+  test-cuda-gdb-linux-64:
+    name: cuda-gdb Test linux-64
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read
+    needs:
+      - build-linux-64
+    uses: ./.github/workflows/test-wheel-linux.yml
+    with:
+      build-type: pull-request
+      host-platform: linux-64
+      test-script: run-cuda-gdb-tests
+      extra-cuda-components: "cuda_gdb,cuda_nvdisasm"
+      matrix_filter: 'map(select(.PY_VER == "3.12" and .CUDA_VER == "13.2.1" and .LOCAL_CTK == "1" and .GPU == "l4")) | .[0:1]'
+
+  test-cuda-gdb-linux-aarch64:
+    name: cuda-gdb Test linux-aarch64
+    if: ${{ github.repository_owner == 'nvidia' }}
+    permissions:
+      contents: read
+    needs:
+      - build-linux-aarch64
+    uses: ./.github/workflows/test-wheel-linux.yml
+    with:
+      build-type: pull-request
+      host-platform: linux-aarch64
+      test-script: run-cuda-gdb-tests
+      extra-cuda-components: "cuda_gdb,cuda_nvdisasm"
+      matrix_filter: 'map(select(.PY_VER == "3.12" and .CUDA_VER == "13.2.1" and .LOCAL_CTK == "1" and .GPU == "a100")) | .[0:1]'
+
   # ============== old CI jobs (ci.yaml & pr.yaml) ==============
 
   build-docs:
@@ -306,6 +336,8 @@ jobs:
       - test-cudf-source-linux-aarch64
       - test-numbast-mlir-linux-64
       - test-numbast-mlir-linux-aarch64
+      - test-cuda-gdb-linux-64
+      - test-cuda-gdb-linux-aarch64
       - build-docs
       # - coverage-report
       # - test-simulator
@@ -346,6 +378,10 @@ jobs:
                  needs.test-numbast-mlir-linux-64.result == 'failure' ||
                  needs.test-numbast-mlir-linux-aarch64.result == 'cancelled' ||
                  needs.test-numbast-mlir-linux-aarch64.result == 'failure' ||
+                 needs.test-cuda-gdb-linux-64.result == 'cancelled' ||
+                 needs.test-cuda-gdb-linux-64.result == 'failure' ||
+                 needs.test-cuda-gdb-linux-aarch64.result == 'cancelled' ||
+                 needs.test-cuda-gdb-linux-aarch64.result == 'failure' ||
                  needs.build-docs.result == 'cancelled' ||
                  needs.build-docs.result == 'failure' }}; then
           #        needs.coverage-report.result == 'cancelled' ||

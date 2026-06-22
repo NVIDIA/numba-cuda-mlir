@@ -8,7 +8,3 @@
 - Device array implementation
 
 """
-
-from numba_cuda_mlir.numba_cuda.core import config
-
-assert not config.ENABLE_CUDASIM, "Cannot use real driver API with simulator"

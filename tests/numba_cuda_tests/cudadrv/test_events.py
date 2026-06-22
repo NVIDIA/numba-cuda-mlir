@@ -7,7 +7,6 @@ import unittest
 from numba_cuda_mlir import cuda
 from cuda.core import Device
 from numba_cuda_mlir.testing import NumbaCUDATestCase
-from numba_cuda_mlir.numba_cuda.testing import skip_on_cudasim
 
 
 class TestCudaEvent(NumbaCUDATestCase):
@@ -29,7 +28,6 @@ class TestCudaEvent(NumbaCUDATestCase):
         stream = cuda.stream()
         self.event_elapsed_inner(stream)
 
-    @skip_on_cudasim("Testing cuda.core events requires driver")
     def test_event_elapsed_cuda_core_stream(self):
         dev = Device()
         dev.set_current()

@@ -3,11 +3,10 @@
 
 import unittest
 
-from numba.cuda.testing import CUDATestCase, skip_on_cudasim
+from numba.cuda.testing import CUDATestCase
 from numba.cuda.tests.support import captured_stdout
 
 
-@skip_on_cudasim("cudasim doesn't support cuda import at non-top-level")
 class TestCPointer(CUDATestCase):
     """
     Test simple vector addition

@@ -25,7 +25,7 @@ class InContainer(AbstractTemplate):
 
     def generic(self, args, kws):
         cont, item = args
-        if isinstance(cont, types.Container):
+        if isinstance(cont, types.Container) and isinstance(item, (types.Number, types.Boolean)):
             return signature(types.boolean, cont, cont.dtype)
 
 

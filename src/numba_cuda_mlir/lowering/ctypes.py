@@ -15,6 +15,10 @@ from numba_cuda_mlir.lowering_utilities import (
     DeferredLowering,
     index_of,
     storage_itemsize_bytes,
+    is_complex_type as _is_complex_type,
+    get_llvm_struct_for_complex as _get_llvm_struct_for_complex,
+    complex_to_llvm_struct as _complex_to_llvm_struct,
+    llvm_struct_to_complex as _llvm_struct_to_complex,
 )
 from numba_cuda_mlir._mlir.dialects import llvm, arith, memref
 from numba_cuda_mlir.logging import trace
@@ -100,10 +104,17 @@ def lower_pointer_setitem(builder, target, args, kwargs):
             f"Cannot set item on pointer of type {nb_type}, must cast to a typed pointer first"
         )
     idx = convert(idx, T.i64())
+    value_ty = builder.get_mlir_type(ele_ty)
     storage_ty = builder.get_storage_type(ele_ty)
-    value = builder.as_storage(ele_ty, value)
+    value = convert(value, value_ty)
+    if _is_complex_type(value_ty):
+        gep_ty = _get_llvm_struct_for_complex(value_ty)
+        value = _complex_to_llvm_struct(value)
+    else:
+        gep_ty = storage_ty
+        value = builder.as_storage(ele_ty, value)
     elementptr = llvm.getelementptr(
-        llvm.PointerType.get(), ptr, [idx], [llvm_kDynamic], storage_ty, None
+        llvm.PointerType.get(), ptr, [idx], [llvm_kDynamic], gep_ty, None
     )
     llvm.store(value, elementptr)
 
@@ -119,13 +130,19 @@ def lower_pointer_getitem(builder, target, args, kwargs):
             f"Cannot get item on pointer of type {nb_type}, must cast to a typed pointer first"
         )
     idx = convert(idx, T.i64())
+    value_ty = builder.get_mlir_type(ele_ty)
     storage_ty = builder.get_storage_type(ele_ty)
+    gep_ty = _get_llvm_struct_for_complex(value_ty) if _is_complex_type(value_ty) else storage_ty
     elementptr = llvm.getelementptr(
-        llvm.PointerType.get(), ptr, [idx], [llvm_kDynamic], storage_ty, None
+        llvm.PointerType.get(), ptr, [idx], [llvm_kDynamic], gep_ty, None
     )
     # Load the value from the computed address
-    value = llvm.load(storage_ty, elementptr)
-    value = builder.from_storage(nb_type.dtype, value)
+    if _is_complex_type(value_ty):
+        value = llvm.load(gep_ty, elementptr)
+        value = _llvm_struct_to_complex(value, value_ty)
+    else:
+        value = llvm.load(storage_ty, elementptr)
+        value = builder.from_storage(nb_type.dtype, value)
     builder.incref(nb_type.dtype, value)
     builder.store_var(target, value)
 

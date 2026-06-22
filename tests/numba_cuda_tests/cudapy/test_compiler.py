@@ -739,8 +739,6 @@ class TestCompile(NumbaCUDATestCase):
         cuda.compile(div_by_2, sig, device=True, abi="c")
 
     def test_compile_power_operator_c_abi(self):
-        # Reproducer from gh-123
-        # https://github.com/NVIDIA/numba-cuda-mlir/issues/123
         def square_i(a):
             return a**2
 

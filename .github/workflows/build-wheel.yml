@@ -114,7 +114,7 @@ jobs:
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756  # v1
 
       - name: Build numba-cuda-mlir wheel
-        uses: pypa/cibuildwheel@8d2b08b68458a16aeb24b64e68a09ab1c8e82084  # v3.4.1
+        uses: pypa/cibuildwheel@294735312765b09d24a2fbec22660ce817587d55  # v4.1.0
         with:
           package-dir: .
           output-dir: dist
@@ -143,6 +143,11 @@ jobs:
             --exclude libLLVM-7.so &&
             "/host/${{ env.SCCACHE_PATH }}" --show-adv-stats &&
             "/host/${{ env.SCCACHE_PATH }}" --show-stats --stats-format=json > /host/${{ github.workspace }}/sccache_NUMBA_CUDA_MLIR.json
+          # Windows wheels are built with /MT (static CRT) per PR #127, so the
+          # wheel is self-contained and needs no DLL bundling. cibuildwheel v4
+          # made `delvewheel repair` the Windows default; opt out explicitly
+          # to restore the v3.x no-op behavior we rely on.
+          CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: ""
 
       - name: Report sccache stats (numba-cuda-mlir)
         if: ${{ startsWith(inputs.host-platform, 'linux') }}

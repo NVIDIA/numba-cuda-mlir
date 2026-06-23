@@ -331,6 +331,7 @@ def lower_broadcasted_binary(builder, target, args, kwargs):
                     case ir.IntegerType(), ir.FloatType():
                         raise InternalCompilerError("NYI: integer power of float, unreachable")
                     case ir.IntegerType(), ir.IntegerType():
+                        rhs = convert(rhs, lhs.type)
                         return ipowi(lhs, rhs)
             case _:
                 raise NotImplementedError(f"Not implemented for operator {op}")

@@ -284,6 +284,8 @@ def pow_cg(builder, target, args, kwargs):
     lhs_mlir_type, rhs_mlir_type = lhs.type, rhs.type
     match (lhs_mlir_type, rhs_mlir_type):
         case (ir.FloatType(), ir.FloatType()):
+            lhs = builder.mlir_convert(lhs, target_mlir_type)
+            rhs = builder.mlir_convert(rhs, target_mlir_type)
             op = math_dialect.powf
         case (ir.FloatType(), ir.IntegerType()):
             # NVVM/libdevice only defines __nv_powi/__nv_powif with an i32 exponent.
@@ -293,6 +295,7 @@ def pow_cg(builder, target, args, kwargs):
                 rhs = convert(rhs, T.i32())
             op = math_dialect.fpowi
         case (ir.IntegerType(), ir.IntegerType()):
+            rhs = builder.mlir_convert(rhs, lhs_mlir_type)
             op = ipowi
         case (ir.ComplexType(), ir.ComplexType()):
             op = complex_dialect.pow

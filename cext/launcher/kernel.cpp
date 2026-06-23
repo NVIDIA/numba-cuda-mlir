@@ -1871,8 +1871,22 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
         }
     }
 
-    // Configure dynamic shared memory if needed (default limit is typically 48KB)
-    if (sharedmem > 48 * 1024) {
+    // Configure dynamic shared memory if needed.
+    //
+    // Every function has a default cap on dynamic shared memory
+    // (CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES). This default is the
+    // device's standard per-block limit (typically 48 KiB) minus any static
+    // shared memory the kernel uses, so it can be anything up to 48 KiB. When
+    // the requested dynamic shared memory exceeds this default, we must
+    // explicitly opt in to the larger limit, otherwise the driver rejects the
+    // launch with CUDA_ERROR_INVALID_VALUE.
+    //
+    // We compare against the function's actual default (queried at runtime)
+    // rather than a hard-coded 48 KiB so that the window [default, 48 KiB] is
+    // reachable. A kernel asking for exactly 48 KiB while using even a single
+    // byte of static shared memory has a default below 48 KiB and therefore
+    // needs the opt-in.
+    {
         // Convert CUkernel to CUfunction for attribute configuration
         CUfunction cu_function = nullptr;
         CUkernel cu_kernel = kernel_iter->second.cukernel.kernel;
@@ -1883,16 +1897,74 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
                         get_cuda_error(func_res));
         }
 
-        CUresult attr_res = g_cuFuncSetAttribute(
-            cu_function,
+        // The function's default dynamic limit is the device's standard
+        // per-block limit minus the kernel's static shared memory
+        // (CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK -
+        //  CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES).
+        int default_dyn_limit = 0;
+        CUresult get_res = g_cuFuncGetAttribute(
+            &default_dyn_limit,
             CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-            sharedmem
+            cu_function
         );
-
-        if (attr_res != CUDA_SUCCESS) {
+        if (get_res != CUDA_SUCCESS) {
             return raise(PyExc_RuntimeError,
-                        "Failed to set max dynamic shared memory size to %d bytes: %s",
-                        sharedmem, get_cuda_error(attr_res));
+                        "Failed to query max dynamic shared memory size: %s",
+                        get_cuda_error(get_res));
+        }
+
+        if (sharedmem > default_dyn_limit) {
+            // Surface a clear error if the request exceeds what the device can
+            // provide instead of letting the attribute set fail with an opaque
+            // INVALID_VALUE.
+            //
+            // The device opt-in limit (CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_
+            // PER_BLOCK_OPTIN) covers the *total* per-block shared memory, i.e.
+            // static + dynamic. The kernel's static shared memory therefore
+            // reduces the dynamic budget, so we subtract it before comparing.
+            // Otherwise we could opt in to a dynamic size that, combined with
+            // static usage, overflows the device limit and fails at launch.
+            int max_optin = 0;
+            CUdevice dev;
+            if (g_cuCtxGetDevice(&dev) == CUDA_SUCCESS) {
+                g_cuDeviceGetAttribute(
+                    &max_optin,
+                    CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
+                    dev
+                );
+            }
+
+            int static_smem = 0;
+            CUresult static_res = g_cuFuncGetAttribute(
+                &static_smem,
+                CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES,
+                cu_function
+            );
+            if (static_res != CUDA_SUCCESS) {
+                return raise(PyExc_RuntimeError,
+                            "Failed to query static shared memory size: %s",
+                            get_cuda_error(static_res));
+            }
+
+            if (max_optin > 0 && sharedmem > max_optin - static_smem) {
+                return raise(PyExc_ValueError,
+                            "Requested dynamic shared memory (%d bytes) plus the kernel's "
+                            "static shared memory (%d bytes) exceeds the device maximum "
+                            "opt-in shared memory per block (%d bytes)",
+                            sharedmem, static_smem, max_optin);
+            }
+
+            CUresult attr_res = g_cuFuncSetAttribute(
+                cu_function,
+                CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+                sharedmem
+            );
+
+            if (attr_res != CUDA_SUCCESS) {
+                return raise(PyExc_RuntimeError,
+                            "Failed to set max dynamic shared memory size to %d bytes: %s",
+                            sharedmem, get_cuda_error(attr_res));
+            }
         }
     }
 

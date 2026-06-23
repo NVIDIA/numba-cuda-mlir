@@ -463,6 +463,11 @@ class _EnvReloader:
         # vector type) stores: when set, force opt_level=0 on LTO links
         CUDA_DISABLE_LTO_OPT = _readenv("NUMBA_CUDA_MLIR_DISABLE_LTO_OPT", int, 0)
 
+        # Dump the NVVM IR fed to libnvvm before PTX/LTO generation. Set to
+        # "1"/"true"/"yes"/"stderr" to print to stderr, or to a file or
+        # directory path to write the IR to disk.
+        CUDA_DUMP_NVVM = _readenv("NUMBA_CUDA_MLIR_DUMP_NVVM", str, "")
+
         # Whether the default stream is the per-thread default stream
         CUDA_PER_THREAD_DEFAULT_STREAM = _readenv("NUMBA_CUDA_PER_THREAD_DEFAULT_STREAM", int, 0)
 

@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import ctypes
+import itertools
 import os
+import sys
 from io import StringIO
+from pathlib import Path
 
 from numba_cuda_mlir._mlir.passmanager import PassManager
 from numba_cuda_mlir._mlir.dialects import llvm
@@ -246,6 +249,54 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
     return result
 
 
+_nvvm_dump_counter = itertools.count()
+
+# Bitcode magic ('BC' 0xC0 0xDE). libnvvm input is usually serialized bitcode,
+# but may also be textual LLVM IR depending on the serialization path.
+_BITCODE_MAGIC = b"BC\xc0\xde"
+
+
+def _maybe_dump_nvvm(nvvm_ir: bytes) -> None:
+    """Dump the NVVM IR fed to libnvvm when NUMBA_CUDA_MLIR_DUMP_NVVM is set.
+
+    The behaviour is controlled by ``config.CUDA_DUMP_NVVM`` (the
+    ``NUMBA_CUDA_MLIR_DUMP_NVVM`` environment variable), which may be set to
+    ``1``/``true``/``yes``/``stderr`` to print to stderr, or to a file or
+    directory path to write the IR to disk. Textual IR is written with a
+    ``.ll`` suffix; bitcode is written with a ``.bc`` suffix.
+    """
+    from numba_cuda_mlir.numba_cuda import config
+
+    target = config.CUDA_DUMP_NVVM
+    if not target:
+        return
+
+    is_bitcode = nvvm_ir[:4] == _BITCODE_MAGIC
+
+    if target.lower() in {"1", "true", "yes", "stderr"}:
+        if is_bitcode:
+            print(
+                f"=============== NVVM IR (bitcode, {len(nvvm_ir)} bytes) ===============\n"
+                "Set NUMBA_CUDA_MLIR_DUMP_NVVM=<file|dir> to write the bitcode to disk.\n",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"=============== NVVM IR ===============\n\n"
+                f"{nvvm_ir.decode('utf-8', errors='replace')}\n",
+                file=sys.stderr,
+            )
+        return
+
+    path = Path(target)
+    if path.exists() and path.is_dir():
+        ext = "bc" if is_bitcode else "ll"
+        name = f"nvvm-{os.getpid()}-{next(_nvvm_dump_counter)}.{ext}"
+        path = path / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(nvvm_ir)
+
+
 def _operation_to_text(operation, *, preserve_debug_info=False) -> str:
     if not preserve_debug_info:
         return str(operation)
@@ -269,13 +320,15 @@ def _prepare_llvm_ir(module, dump=False, preserve_debug_info=False) -> bytes:
     ctk_major, ctk_minor = get_cuda_runtime_version()
 
     if os.name == "nt":
-        return translate_gpu_module_to_libnvvm_ir(
+        nvvm_ir = translate_gpu_module_to_libnvvm_ir(
             _operation_to_text(gpu_mod.operation, preserve_debug_info=preserve_debug_info),
             ctk_major,
             ctk_minor,
             dump=dump,
             emit_text_ir=preserve_debug_info,
         )
+        _maybe_dump_nvvm(nvvm_ir)
+        return nvvm_ir
 
     from numba_cuda_mlir._cext import downgrade_for_libnvvm
 
@@ -284,7 +337,9 @@ def _prepare_llvm_ir(module, dump=False, preserve_debug_info=False) -> bytes:
     if dump:
         print(f"=============== LLVM IR ===============\n\n{dump_llvmir(llvm_mod)}\n\n")
 
-    return downgrade_for_libnvvm(llvm_mod, llvm_ctx, ctk_major, ctk_minor, LLVM_C_LIB_PATH)
+    nvvm_ir = downgrade_for_libnvvm(llvm_mod, llvm_ctx, ctk_major, ctk_minor, LLVM_C_LIB_PATH)
+    _maybe_dump_nvvm(nvvm_ir)
+    return nvvm_ir
 
 
 def _nvvm_options(cc: str, target_options=None, **extra) -> dict:

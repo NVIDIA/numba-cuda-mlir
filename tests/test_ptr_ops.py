@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from numba_cuda_mlir import cuda
+from numba_cuda_mlir import carray, cuda
 from numba_cuda_mlir import compiler, types
 from numba_cuda_mlir.cuda.experimental import intrin
 from numba_cuda_mlir._mlir.dialects import llvm
@@ -67,6 +67,38 @@ def test_cpointer_getitem():
     hr = dr.copy_to_host()
     expected = a * hx + hy
     np.testing.assert_array_equal(hr, expected)
+
+
+def test_cpointer_carray_compile():
+    """Test cuda.carray converts a CPointer into an array view in device code."""
+    assert hasattr(cuda, "carray")
+    assert carray is cuda.carray
+
+    def bump(p):
+        ary = cuda.carray(p, 1)
+        cuda.atomic.add(ary, 0, 1)
+
+    compiler.compile(
+        bump,
+        types.void(types.CPointer(types.int32)),
+        device=True,
+        abi="c",
+        abi_info={"abi_name": "bump"},
+        output="ltoir",
+    )
+
+    def bump_voidptr(p):
+        ary = cuda.carray(p, 1, dtype=types.int32)
+        cuda.atomic.add(ary, 0, 1)
+
+    compiler.compile(
+        bump_voidptr,
+        types.void(types.voidptr),
+        device=True,
+        abi="c",
+        abi_info={"abi_name": "bump_voidptr"},
+        output="ltoir",
+    )
 
 
 @pytest.mark.parametrize(

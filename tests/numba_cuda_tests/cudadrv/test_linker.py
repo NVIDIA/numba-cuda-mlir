@@ -3,8 +3,10 @@
 
 import numpy as np
 import pytest
+import io
 import pathlib
 import unittest
+import unittest.mock
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda.testing import (
     skip_if_cuda_includes_missing,
@@ -17,6 +19,7 @@ from numba_cuda_mlir.numba_cuda.cudadrv.driver import _Linker, LinkerError
 from numba_cuda_mlir.numba_cuda import require_context
 from numba_cuda_mlir.numba_cuda import void, float64, int64, int32, float32
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
+from numba_cuda_mlir.numba_cuda.cudadrv.linkable_code import CUSource
 from cuda.core._utils.cuda_utils import CUDAError
 
 CONST1D = np.arange(10, dtype=np.float64)
@@ -428,6 +431,200 @@ __device__ int foo(int x) {
         linker.add_cu(code, "foo")
         ptx = linker.get_linked_ptx().decode()
         assert "target sm_75" in ptx
+
+    def test_add_cu_defers_nvrtc_compile(self):
+        linker = _Linker(max_registers=0, cc=(7, 5))
+
+        with unittest.mock.patch.object(cuda_driver.nvrtc, "compile") as compile:
+            linker.add_cu("__device__ int foo() { return 1; }", "foo.cu")
+
+        self.assertEqual(compile.call_count, 0)
+
+    def test_complete_materializes_deferred_cu(self):
+        captured = {}
+
+        class FakeCudaCoreLinker:
+            def __init__(self, *object_codes, options):
+                captured["object_codes"] = object_codes
+                captured["options"] = options
+
+            def link(self, kind):
+                captured["kind"] = kind
+                return object()
+
+            def get_info_log(self):
+                return ""
+
+            def get_error_log(self):
+                return ""
+
+            def close(self):
+                captured["closed"] = True
+
+        fake_obj = unittest.mock.Mock()
+        linker = _Linker(max_registers=0, cc=(7, 5))
+
+        with (
+            unittest.mock.patch.object(
+                cuda_driver.nvrtc, "compile", return_value=(fake_obj, "")
+            ) as compile,
+            unittest.mock.patch.object(cuda_driver, "Linker", FakeCudaCoreLinker),
+        ):
+            linker.add_cu("__device__ int foo() { return 1; }", "foo.cu")
+            self.assertEqual(compile.call_count, 0)
+            linker.complete()
+
+        self.assertEqual(compile.call_count, 1)
+        self.assertEqual(
+            compile.call_args.args[:3],
+            ("__device__ int foo() { return 1; }", "foo.cu", (7, 5)),
+        )
+        self.assertIs(captured["object_codes"][0], fake_obj)
+        self.assertEqual(captured["kind"], "cubin")
+        self.assertTrue(captured["closed"])
+
+    def test_get_linked_ptx_materializes_deferred_cu(self):
+        captured = {}
+
+        class FakeCudaCoreLinker:
+            def __init__(self, *object_codes, options):
+                captured["object_codes"] = object_codes
+                captured["options"] = options
+
+            def link(self, kind):
+                captured["kind"] = kind
+                result = unittest.mock.Mock()
+                result.code = b"linked-ptx"
+                return result
+
+            def get_info_log(self):
+                return ""
+
+            def get_error_log(self):
+                return ""
+
+            def close(self):
+                captured["closed"] = True
+
+        fake_obj = unittest.mock.Mock()
+        linker = _Linker(max_registers=0, cc=(7, 5))
+
+        with (
+            unittest.mock.patch.object(
+                cuda_driver.nvrtc, "compile", return_value=(fake_obj, "")
+            ) as compile,
+            unittest.mock.patch.object(cuda_driver, "Linker", FakeCudaCoreLinker),
+        ):
+            linker.add_cu("__device__ int foo() { return 1; }", "foo.cu")
+            ptx = linker.get_linked_ptx()
+
+        self.assertEqual(compile.call_count, 1)
+        self.assertIs(captured["object_codes"][0], fake_obj)
+        self.assertEqual(captured["kind"], "ptx")
+        self.assertEqual(ptx, b"linked-ptx")
+        self.assertTrue(captured["closed"])
+
+    def test_cusource_stream_is_snapshotted_at_materialization(self):
+        stream = io.StringIO()
+        stream.write("__device__ int a() { return 1; }")
+        source = CUSource(stream, name="shim.cu")
+
+        fake_obj = unittest.mock.Mock()
+        linker = _Linker(max_registers=0, cc=(7, 5))
+
+        with unittest.mock.patch.object(cuda_driver.nvrtc, "compile") as compile:
+            linker.add_file_guess_ext(source)
+            stream.write("\n__device__ int b() { return 2; }")
+            self.assertEqual(compile.call_count, 0)
+            compile.return_value = (fake_obj, "")
+            linker._materialize_pending_cu()
+
+        compiled_source = compile.call_args.args[0]
+        self.assertIn("int a()", compiled_source)
+        self.assertIn("int b()", compiled_source)
+
+    def test_cusource_data_is_not_read_until_complete(self):
+        class TrackingCUSource(CUSource):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.data_reads = 0
+
+            @property
+            def data(self):
+                self.data_reads += 1
+                return super().data
+
+        captured = {}
+
+        class FakeCudaCoreLinker:
+            def __init__(self, *object_codes, options):
+                captured["object_codes"] = object_codes
+                captured["options"] = options
+
+            def link(self, kind):
+                captured["kind"] = kind
+                return object()
+
+            def get_info_log(self):
+                return ""
+
+            def get_error_log(self):
+                return ""
+
+            def close(self):
+                captured["closed"] = True
+
+        stream = io.StringIO("__device__ int a() { return 1; }")
+        source = TrackingCUSource(stream, name="shim.cu")
+        fake_obj = unittest.mock.Mock()
+        linker = _Linker(max_registers=0, cc=(7, 5))
+
+        with (
+            unittest.mock.patch.object(
+                cuda_driver.nvrtc, "compile", return_value=(fake_obj, "")
+            ) as compile,
+            unittest.mock.patch.object(cuda_driver, "Linker", FakeCudaCoreLinker),
+        ):
+            linker.add_file_guess_ext(source)
+            self.assertEqual(source.data_reads, 0)
+            self.assertEqual(compile.call_count, 0)
+
+            stream.write("\n__device__ int b() { return 2; }")
+            linker.complete()
+
+        self.assertEqual(source.data_reads, 1)
+        self.assertEqual(compile.call_args.args[0], stream.getvalue())
+        self.assertIs(captured["object_codes"][0], fake_obj)
+        self.assertEqual(captured["kind"], "cubin")
+
+    def test_deferred_cu_uses_registration_lto(self):
+        fake_obj = unittest.mock.Mock()
+        linker = _Linker(max_registers=0, cc=(7, 5), lto=False)
+        linker.add_cu("__device__ int foo() { return 1; }", "foo.cu")
+        linker.lto = True
+
+        with unittest.mock.patch.object(
+            cuda_driver.nvrtc, "compile", return_value=(fake_obj, "")
+        ) as compile:
+            linker._materialize_pending_cu()
+
+        self.assertFalse(compile.call_args.kwargs["ltoir"])
+
+    def test_recreate_with_lto_materializes_pending_cu(self):
+        fake_obj = unittest.mock.Mock()
+        fake_obj.code_type = "unknown"
+        linker = NumbaCudaMLIRLinker(cc=(7, 5))
+        linker.add_cu("__device__ int foo() { return 1; }", "foo.cu")
+
+        with unittest.mock.patch.object(
+            cuda_driver.nvrtc, "compile", return_value=(fake_obj, "")
+        ) as compile:
+            recreated = linker.recreate_with_lto()
+
+        self.assertEqual(compile.call_count, 1)
+        self.assertEqual(linker._pending_cu, [])
+        self.assertEqual(recreated._pending_cu, [])
+        self.assertIs(recreated._object_codes[0], fake_obj)
 
 
 if __name__ == "__main__":

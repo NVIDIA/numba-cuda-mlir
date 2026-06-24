@@ -80,9 +80,12 @@ cmake_args=(
 
 cmake "${cmake_args[@]}"
 
-# Build & install
+# Build & install. --strip removes the static symbol table (.symtab +
+# .strtab); LLVM is built without -g so there's no DWARF to strip, but
+# the symbol table itself accounts for ~70 MB on libMLIRPythonCAPI.so
+# alone -- ~25 MB compressed in the wheel.
 cmake --build "${LLVM_BUILD}" -j "${PARALLEL}"
-cmake --install "${LLVM_BUILD}"
+cmake --install "${LLVM_BUILD}" --strip
 
 echo "=== Modern LLVM installed to ${LLVM_INSTALL} ==="
 echo "  MLIR_DIR=${LLVM_INSTALL}/lib/cmake/mlir"

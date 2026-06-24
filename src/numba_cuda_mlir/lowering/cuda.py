@@ -42,7 +42,7 @@ from numba_cuda_mlir.lowering_utilities.type_conversions import (
 )
 from numba_cuda_mlir.descriptor import MLIRTargetContext
 from numba_cuda_mlir.mlir_lowering import MLIRLower
-from numba_cuda_mlir._mlir.dialects import arith, func, memref, gpu, nvvm, llvm
+from numba_cuda_mlir._mlir.dialects import arith, builtin, func, memref, gpu, nvvm, llvm
 from numba_cuda_mlir._mlir.extras import types as T
 import numba_cuda_mlir._mlir.ir as ir
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
@@ -70,6 +70,79 @@ from numba_cuda_mlir.logging import trace
 import numpy as np
 from numba_cuda_mlir.numba_cuda.typing.templates import ConcreteTemplate
 from numba_cuda_mlir.numba_cuda import stubs as cuda_stubs
+
+
+def _lower_cfarray(builder: MLIRLower, target, args, kwargs, name, layout):
+    if kwargs and [name for name, _ in kwargs] != ["dtype"]:
+        raise TypeError(f"{name} only supports dtype as a keyword argument")
+
+    ptr = builder.load_var(args[0])
+    shape = builder.load_var(args[1])
+    result_type = builder.get_numba_type(target)
+    rank = result_type.ndim
+
+    if isinstance(shape, tuple):
+        sizes = list(shape)
+    else:
+        sizes = [shape]
+
+    if len(sizes) != rank:
+        raise TypeError(f"shape rank {len(sizes)} does not match array rank {rank}")
+
+    sizes_i64 = [convert(size, T.i64()) for size in sizes]
+
+    strides_i64 = [None] * rank
+    stride = constant(1, T.i64())
+    indices = range(rank - 1, -1, -1) if layout == "C" else range(rank)
+    for i in indices:
+        strides_i64[i] = stride
+        stride = arith.muli(stride, sizes_i64[i])
+
+    result_mlir_type = builder.get_mlir_type(result_type)
+    i64 = T.i64()
+
+    if rank > 0:
+        struct_type = ir.Type.parse(
+            f"!llvm.struct<(ptr, ptr, i64, array<{rank} x i64>, array<{rank} x i64>)>"
+        )
+    else:
+        struct_type = ir.Type.parse("!llvm.struct<(ptr, ptr, i64)>")
+
+    desc = llvm.UndefOp(struct_type).result
+    zero = constant(0, i64)
+    ins = lambda d, v, *p: llvm.insertvalue(
+        container=d, value=v, position=ir.DenseI64ArrayAttr.get(list(p))
+    )
+
+    desc = ins(desc, ptr, 0)
+    desc = ins(desc, ptr, 1)
+    desc = ins(desc, zero, 2)
+    for i, size in enumerate(sizes_i64):
+        desc = ins(desc, size, 3, i)
+    for i, stride in enumerate(strides_i64):
+        desc = ins(desc, stride, 4, i)
+
+    builder.store_var(target, builtin.unrealized_conversion_cast([result_mlir_type], [desc]))
+
+
+@lower(cuda.carray, types.CPointer, types.Integer)
+@lower(cuda.carray, types.CPointer, types.BaseTuple)
+@lower(cuda.carray, types.CPointer, types.Integer, types.Any)
+@lower(cuda.carray, types.CPointer, types.BaseTuple, types.Any)
+@lower(cuda.carray, types.voidptr, types.Integer, types.Any)
+@lower(cuda.carray, types.voidptr, types.BaseTuple, types.Any)
+def lower_carray(builder: MLIRLower, target, args, kwargs):
+    _lower_cfarray(builder, target, args, kwargs, "carray", "C")
+
+
+@lower(cuda.farray, types.CPointer, types.Integer)
+@lower(cuda.farray, types.CPointer, types.BaseTuple)
+@lower(cuda.farray, types.CPointer, types.Integer, types.Any)
+@lower(cuda.farray, types.CPointer, types.BaseTuple, types.Any)
+@lower(cuda.farray, types.voidptr, types.Integer, types.Any)
+@lower(cuda.farray, types.voidptr, types.BaseTuple, types.Any)
+def lower_farray(builder: MLIRLower, target, args, kwargs):
+    _lower_cfarray(builder, target, args, kwargs, "farray", "F")
 
 
 @lower(cuda_stubs.nanosleep, types.Number)

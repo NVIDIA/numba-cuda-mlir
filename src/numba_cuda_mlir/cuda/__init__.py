@@ -14,6 +14,7 @@ from numba_cuda_mlir.numba_cuda.cudadrv.devicearray import (
     DeviceNDArray,  # ty:ignore[unresolved-import]
 )  # noqa: F401
 from numba_cuda_mlir.numba_cuda.misc.special import literal_unroll  # noqa: F401,E402
+from numba_cuda_mlir.numba_cuda.np.numpy_support import carray, farray  # noqa: F401
 
 from numba_cuda_mlir.decorators import mlir_jit as jit
 from numba_cuda_mlir.compiler import (

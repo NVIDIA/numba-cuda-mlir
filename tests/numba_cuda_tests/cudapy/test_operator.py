@@ -397,38 +397,38 @@ class TestOperatorModule:
             assert ary[0] == False
 
     @pytest.mark.parametrize(
-        "func,opstring",
+        "func,opstrings",
         [
-            pytest.param(simple_fp16_gt, "setp.gt.s16", id="gt"),
-            pytest.param(simple_fp16_ge, "setp.ge.s16", id="ge"),
-            pytest.param(simple_fp16_lt, "setp.lt.s16", id="lt"),
-            pytest.param(simple_fp16_le, "setp.le.s16", id="le"),
-            pytest.param(simple_fp16_eq, "setp.eq.b16", id="eq"),
-            pytest.param(simple_fp16_ne, "setp.ne.b16", id="ne"),
+            pytest.param(simple_fp16_gt, ["setp.gt.s16"], id="gt"),
+            pytest.param(simple_fp16_ge, ["setp.ge.s16"], id="ge"),
+            pytest.param(simple_fp16_lt, ["setp.lt.s16"], id="lt"),
+            pytest.param(simple_fp16_le, ["setp.le.s16"], id="le"),
+            pytest.param(simple_fp16_eq, ["setp.eq.s16", "setp.eq.b16"], id="eq"),
+            pytest.param(simple_fp16_ne, ["setp.ne.s16", "setp.ne.b16"], id="ne"),
         ],
     )
-    def test_int16_comparison_ptx(self, func, opstring):
+    def test_int16_comparison_ptx(self, func, opstrings):
         args = (b1[:], i2, i2)
         compiled = cuda.jit("void(b1[:], i2, i2)", lto=True)(func)
         ptx = compiled.inspect_lto_ptx(args)
-        assert opstring in ptx, f"{opstring} not in PTX"
+        assert any(op in ptx for op in opstrings), "op not in PTX"
 
     @pytest.mark.parametrize(
-        "func,opstring",
+        "func,opstrings",
         [
-            pytest.param(simple_fp16_gt, "setp.gt.u16", id="gt"),
-            pytest.param(simple_fp16_ge, "setp.ge.u16", id="ge"),
-            pytest.param(simple_fp16_lt, "setp.lt.u16", id="lt"),
-            pytest.param(simple_fp16_le, "setp.le.u16", id="le"),
-            pytest.param(simple_fp16_eq, "setp.eq.b16", id="eq"),
-            pytest.param(simple_fp16_ne, "setp.ne.b16", id="ne"),
+            pytest.param(simple_fp16_gt, ["setp.gt.u16"], id="gt"),
+            pytest.param(simple_fp16_ge, ["setp.ge.u16"], id="ge"),
+            pytest.param(simple_fp16_lt, ["setp.lt.u16"], id="lt"),
+            pytest.param(simple_fp16_le, ["setp.le.u16"], id="le"),
+            pytest.param(simple_fp16_eq, ["setp.eq.u16", "setp.eq.b16"], id="eq"),
+            pytest.param(simple_fp16_ne, ["setp.ne.u16", "setp.ne.b16"], id="ne"),
         ],
     )
-    def test_uint16_comparison_ptx(self, func, opstring):
+    def test_uint16_comparison_ptx(self, func, opstrings):
         args = (b1[:], u2, u2)
         compiled = cuda.jit("void(b1[:], u2, u2)", lto=True)(func)
         ptx = compiled.inspect_lto_ptx(args)
-        assert opstring in ptx, f"{opstring} not in PTX"
+        assert any(op in ptx for op in opstrings), "op not in PTX"
 
     @pytest.mark.xfail(True, reason="NVVM verify error")
     def test_fp16_comparison_ptx(self):

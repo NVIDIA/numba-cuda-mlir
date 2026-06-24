@@ -1,19 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
-import itertools
-import operator
-
 import numpy as np
 import numba_cuda_mlir
-import pytest
-
+from numba_cuda_mlir.testing import NumbaCUDATestCase
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda import types
-from numba_cuda_mlir.numba_cuda.np.numpy_support import from_dtype
 from numba_cuda_mlir.numba_cuda.types import f2, i2, u2, b1
 from numba_cuda_mlir.numba_cuda.typing import signature
-from numba_cuda_mlir.testing import NumbaCUDATestCase
+import operator
+import itertools
+from numba_cuda_mlir.numba_cuda.np.numpy_support import from_dtype
+import pytest
 
 
 def simple_fp16_div_scalar(ary, a, b):

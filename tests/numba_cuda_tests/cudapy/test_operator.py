@@ -409,7 +409,7 @@ class TestOperatorModule:
         args = (b1[:], i2, i2)
         compiled = cuda.jit("void(b1[:], i2, i2)", lto=True)(func)
         ptx = compiled.inspect_lto_ptx(args)
-        assert any(op in ptx for op in opstrings), "op not in PTX"
+        assert any(op in ptx for op in opstrings), f"op not in PTX:\n{ptx}"
 
     @pytest.mark.parametrize(
         "func,opstrings",
@@ -426,7 +426,7 @@ class TestOperatorModule:
         args = (b1[:], u2, u2)
         compiled = cuda.jit("void(b1[:], u2, u2)", lto=True)(func)
         ptx = compiled.inspect_lto_ptx(args)
-        assert any(op in ptx for op in opstrings), "op not in PTX"
+        assert any(op in ptx for op in opstrings), f"op not in PTX:\n{ptx}"
 
     @pytest.mark.xfail(True, reason="NVVM verify error")
     def test_fp16_comparison_ptx(self):

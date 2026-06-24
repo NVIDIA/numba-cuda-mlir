@@ -82,7 +82,7 @@ jobs:
         RAPIDS_BUILD_TYPE: ${{ inputs.build_type }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: ${{ inputs.repo }}
           ref: ${{ inputs.sha }}

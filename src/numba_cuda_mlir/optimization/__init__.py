@@ -192,10 +192,44 @@ def _resolve_shared_bit_storage_float_accesses(module: ir.Module):
         op.operation.erase()
 
 
+def _drop_shared_gep_no_wrap_flags(module: ir.Module):
+    """Shared memory GEPs may index dynamic shared-memory globals that have a
+    zero-sized backing type. Inbounds/nuw flags make those accesses undefined
+    before NVVM sees the dynamic allocation size, so keep shared-memory pointer
+    arithmetic conservative."""
+    worklist = []
+
+    def collect(op):
+        if op.operation.name == "llvm.getelementptr" and _is_shared_llvm_ptr(op.results[0].type):
+            worklist.append(op)
+        for region in op.operation.regions:
+            for block in region.blocks:
+                for child in block:
+                    collect(child)
+
+    collect(module.operation.opview)
+
+    for op in worklist:
+        opview = op.opview
+        loc = op.operation.location
+        with ir.InsertionPoint(op), loc:
+            gep = llvm.GEPOp(
+                op.results[0].type,
+                opview.base,
+                list(opview.dynamicIndices),
+                opview.rawConstantIndices,
+                opview.elem_type,
+                None,
+            )
+        op.results[0].replace_all_uses_with(gep.result)
+        op.operation.erase()
+
+
 def run_pre_codegen_patterns(module: ir.Module):
     fixup_nvvm_arg_attrs(module.operation)
     _resolve_exotic_float_casts(module)
     _resolve_shared_bit_storage_float_accesses(module)
+    _drop_shared_gep_no_wrap_flags(module)
     # TODO(ajm): why does this not trigger?
     # patterns = RewritePatternSet()
     # patterns.add(gpu.GPUFuncOp, fixup_nvvm_arg_attrs)

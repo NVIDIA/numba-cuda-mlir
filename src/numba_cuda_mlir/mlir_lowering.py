@@ -2306,14 +2306,39 @@ extern "C" __global__ void
                 self._shared_memory_base = gpu.dynamic_shared_memory(mr_type)
         return self._shared_memory_base
 
-    def _request_shared_memory(self, sizes: tuple[ir.Value, ...], mr_type: ir.MemRefType):
+    def _shared_memory_element_bytes(self, mr_type: ir.MemRefType) -> int:
         match mr_type.element_type:
             case ir.IntegerType() | ir.FloatType() as t:
-                bytes: int = t.width // 8
+                return t.width // 8
             case T.index:
-                bytes: int = 8
+                return 8
             case _:
                 raise NotImplementedError(f"NotImplemented shared memory type {mr_type}.")
+
+    def _request_dynamic_shared_memory(self, mr_type: ir.MemRefType):
+        bytes = self._shared_memory_element_bytes(mr_type)
+        assert self.mlir_funcOp
+        with ir.InsertionPoint(self.mlir_funcOp.entry_block):
+            bytes_op = arith.constant(result=T.index(), value=bytes)
+            shm_base = self._get_shared_memory_base()
+            if self._total_shared_memory_bytes is None:
+                self._total_shared_memory_bytes = arith.constant(result=T.index(), value=0)
+            dynamic_shared_bytes = memref.dim(shm_base, index_of(0))
+            remaining_bytes = arith.subi(
+                lhs=dynamic_shared_bytes, rhs=self._total_shared_memory_bytes
+            )
+            size = arith.divui(lhs=remaining_bytes, rhs=bytes_op)
+            view = memref.view(
+                result=mr_type,
+                source=shm_base,
+                byte_shift=self._total_shared_memory_bytes,
+                sizes=[size],
+            )
+            self._total_shared_memory_bytes = dynamic_shared_bytes
+        return view
+
+    def _request_shared_memory(self, sizes: tuple[ir.Value, ...], mr_type: ir.MemRefType):
+        bytes = self._shared_memory_element_bytes(mr_type)
         assert self.mlir_funcOp
         with ir.InsertionPoint(self.mlir_funcOp.entry_block):
             bytes_op = arith.constant(result=T.index(), value=bytes)

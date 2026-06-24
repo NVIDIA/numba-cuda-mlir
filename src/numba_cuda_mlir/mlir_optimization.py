@@ -149,6 +149,17 @@ def _get_llvm70_capi():
         ctypes.POINTER(ctypes.c_size_t),  # out_len
         ctypes.POINTER(ctypes.c_char_p),  # err_out
     ]
+    lib.llvm70_translate_gpu_module_to_nvvm_ir_from_op.restype = ctypes.c_int
+    lib.llvm70_translate_gpu_module_to_nvvm_ir_from_op.argtypes = [
+        ctypes.c_void_p,  # raw_op (Operation*)
+        ctypes.c_char_p,  # chip
+        ctypes.c_char_p,  # data_layout
+        ctypes.c_char_p,  # libllvm
+        ctypes.c_int,  # gen_lineinfo
+        ctypes.POINTER(ctypes.c_char_p),  # out
+        ctypes.POINTER(ctypes.c_size_t),  # out_len
+        ctypes.POINTER(ctypes.c_char_p),  # err_out
+    ]
     lib.llvm70_free.restype = None
     lib.llvm70_free.argtypes = [ctypes.c_void_p]
     _llvm70_capi = lib
@@ -169,6 +180,45 @@ def _get_op_ptr(op) -> ctypes.c_void_p:
     ptr.restype = ctypes.c_void_p
     ptr.argtypes = [ctypes.py_object, ctypes.c_char_p]
     return ptr(capsule, b"numba_cuda_mlir._mlir.ir.Operation._CAPIPtr")
+
+
+def _maybe_dump_llvm70_nvvm(lib, raw_op, chip, libllvm, debug_level) -> None:
+    """Dump the LLVM70-path NVVM IR when NUMBA_CUDA_MLIR_DUMP_NVVM is set.
+
+    The CAPI translates straight to PTX/LTOIR, so the NVVM IR is regenerated
+    here via the text-only entry point and routed through ``_maybe_dump_nvvm``.
+    """
+    from numba_cuda_mlir.numba_cuda import config
+
+    if not config.CUDA_DUMP_NVVM:
+        return
+
+    out = ctypes.c_char_p()
+    out_len = ctypes.c_size_t()
+    err_out = ctypes.c_char_p()
+
+    rc = lib.llvm70_translate_gpu_module_to_nvvm_ir_from_op(
+        raw_op,
+        chip.encode(),
+        None,
+        libllvm.encode(),
+        debug_level,
+        ctypes.byref(out),
+        ctypes.byref(out_len),
+        ctypes.byref(err_out),
+    )
+
+    if rc != 0:
+        msg = err_out.value.decode() if err_out.value else "unknown error"
+        if err_out.value:
+            lib.llvm70_free(err_out)
+        raise RuntimeError(f"llvm70 NVVM IR generation failed: {msg}")
+
+    try:
+        _maybe_dump_nvvm(ctypes.string_at(out, out_len.value))
+    finally:
+        if out.value:
+            lib.llvm70_free(out)
 
 
 def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
@@ -218,6 +268,11 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
         debug_level = 1
     else:
         debug_level = 0
+
+    # Dump the (LLVM 7 dialect) NVVM IR before compiling to PTX/LTO, if
+    # requested. The CAPI PTX/LTO entry point keeps the NVVM IR internal, so we
+    # regenerate it via a dedicated translation that skips libnvvm compilation.
+    _maybe_dump_llvm70_nvvm(lib, raw_op, chip, libllvm, debug_level)
 
     out = ctypes.c_char_p()
     out_len = ctypes.c_size_t()

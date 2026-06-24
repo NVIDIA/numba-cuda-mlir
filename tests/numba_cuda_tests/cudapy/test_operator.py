@@ -413,7 +413,6 @@ class TestOperatorModule:
         ptx = compiled.inspect_lto_ptx(args)
         assert opstring in ptx, f"{opstring} not in PTX"
 
-    @pytest.mark.xfail(True, reason="NVVM verify error")
     @pytest.mark.parametrize(
         "func,opstring",
         [

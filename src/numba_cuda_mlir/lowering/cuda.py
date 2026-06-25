@@ -467,7 +467,9 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
     else:
         array = lower._request_shared_memory(shape, mr_type)
     if alignas != 8:
-        array = memref.assume_alignment(array, alignas)
+        array = lower._mark_dynamic_shared_memory_alias(
+            memref.assume_alignment(array, alignas), array
+        )
     lower.store_var(target, array)
 
 

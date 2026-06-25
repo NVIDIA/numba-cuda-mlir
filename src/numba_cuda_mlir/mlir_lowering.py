@@ -230,6 +230,14 @@ class MLIRLower(object):
         self._mlir_gpu_module: gpu.GPUModuleOp | None = None
         self._shared_memory_base: ir.Value | None = None
         self._total_shared_memory_bytes: ir.Value | None = None
+        # Dynamic shared-memory tags follow MLIR values and stack slots. Stack
+        # slot tags are monotonic because lowering visits blocks in bytecode
+        # order; clearing on one predecessor can hide the shared value loaded by
+        # another. A stale tag only selects conservative pointer-load/store
+        # lowering, while the real address space still comes from the memref
+        # type. The shared-GEP cleanup pass remains the backstop for untracked
+        # aliases.
+        self._dynamic_shared_memory_values: set[ir.Value] = set()
         self._deferred_dbg_declare_vars: set[str] = set()
         self._debug_forced_alloca: set[str] = set()
         self._poly_dbg_alloca: dict[str, ir.Value] = {}
@@ -2318,6 +2326,8 @@ extern "C" __global__ void
         match mr_type.element_type:
             case ir.IntegerType() | ir.FloatType() as t:
                 return t.width // 8
+            case ir.ComplexType() as t:
+                return 2 * t.element_type.width // 8
             case T.index:
                 return 8
             case _:
@@ -2343,7 +2353,65 @@ extern "C" __global__ void
                 sizes=[size],
             )
             self._total_shared_memory_bytes = dynamic_shared_bytes
+        self._mark_dynamic_shared_memory(view)
         return view
+
+    def _dynamic_shared_memory_key(self, value: Any) -> ir.Value | None:
+        if isinstance(value, ir.OpView):
+            results = list(value.operation.results)
+            if len(results) != 1:
+                return None
+            return results[0]
+        if isinstance(value, ir.Value):
+            return value
+        return None
+
+    def _mark_dynamic_shared_memory(self, value: Any) -> Any:
+        if isinstance(value, (tuple, list)):
+            for element in value:
+                self._mark_dynamic_shared_memory(element)
+            return value
+        key = self._dynamic_shared_memory_key(value)
+        if key is not None:
+            self._dynamic_shared_memory_values.add(key)
+        return value
+
+    def _mark_dynamic_shared_memory_alias(self, value: Any, source: Any) -> Any:
+        if isinstance(value, (tuple, list)) and isinstance(source, (tuple, list)):
+            if len(value) != len(source):
+                return value
+            for element, source_element in zip(value, source):
+                self._mark_dynamic_shared_memory_alias(element, source_element)
+            return value
+        if isinstance(value, (tuple, list)) or isinstance(source, (tuple, list)):
+            return value
+        if self._is_dynamic_shared_memory(source):
+            self._mark_dynamic_shared_memory(value)
+        return value
+
+    def _is_dynamic_shared_memory(self, value: Any) -> bool:
+        if isinstance(value, (tuple, list)):
+            return any(self._is_dynamic_shared_memory(element) for element in value)
+        key = self._dynamic_shared_memory_key(value)
+        return key is not None and key in self._dynamic_shared_memory_values
+
+    def _dynamic_shared_memory_memref_type(self, value: Any) -> ir.MemRefType | None:
+        key = self._dynamic_shared_memory_key(value)
+        if key is None or key not in self._dynamic_shared_memory_values:
+            return None
+        if not isinstance(key.type, MemRefType):
+            return None
+        return ir.MemRefType(key.type)
+
+    def _mark_dynamic_shared_memory_slot(self, slot: Any, value: Any):
+        if isinstance(slot, (tuple, list)) and isinstance(value, (tuple, list)):
+            if len(slot) != len(value):
+                return
+            for element_slot, element_value in zip(slot, value):
+                self._mark_dynamic_shared_memory_slot(element_slot, element_value)
+            return
+        if self._is_dynamic_shared_memory(value):
+            self._mark_dynamic_shared_memory(slot)
 
     def _request_shared_memory(self, sizes: tuple[ir.Value, ...], mr_type: ir.MemRefType):
         bytes = self._shared_memory_element_bytes(mr_type)
@@ -2365,6 +2433,7 @@ extern "C" __global__ void
             self._total_shared_memory_bytes = arith.addi(
                 lhs=self._total_shared_memory_bytes, rhs=bytes_op
             )
+        self._mark_dynamic_shared_memory(view)
         return view
 
     def _get_tuple_element_type(self, target_type):
@@ -3266,6 +3335,8 @@ extern "C" __global__ void
         result = self._load_var(var)
         numba_type = self.get_numba_type(var.name)
         result = self.lower_literal_if_needed(result, numba_type)
+        if var.name in self.varmap:
+            self._mark_dynamic_shared_memory_alias(result, self.varmap[var.name])
         return result
 
     def _load_stack_slot(self, var_type, slot):
@@ -3417,6 +3488,7 @@ extern "C" __global__ void
 
             slot = self.varmap[var.name]
             var_type = self.get_numba_type(var.name)
+            self._mark_dynamic_shared_memory_slot(slot, value)
 
             # UniTuple multi-assign uses a packed memref; heterogeneous
             # BaseTuple multi-assign uses per-element stack slots.
@@ -3447,6 +3519,7 @@ extern "C" __global__ void
                 alloca_op = memref.alloca(memref=memref_type, dynamic_sizes=[], symbol_operands=[])
                 memref.store(value=mlir_value, memref=alloca_op, indices=[index_of(0)])
                 self.varmap[var.name] = alloca_op
+                self._mark_dynamic_shared_memory_slot(alloca_op, value)
                 self._debug_forced_alloca.add(var.name)
                 self._tag_alloca_for_deferred_dbg_declare(var.name, alloca_op)
             else:

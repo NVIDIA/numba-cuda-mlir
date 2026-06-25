@@ -193,10 +193,12 @@ def _resolve_shared_bit_storage_float_accesses(module: ir.Module):
 
 
 def _drop_shared_gep_no_wrap_flags(module: ir.Module):
-    """Shared memory GEPs may index dynamic shared-memory globals that have a
-    zero-sized backing type. Inbounds/nuw flags make those accesses undefined
-    before NVVM sees the dynamic allocation size, so keep shared-memory pointer
-    arithmetic conservative."""
+    """Keep shared-memory pointer arithmetic conservative.
+
+    Lowering tries to avoid no-wrap flags for known shared-memory accesses, but
+    this pass remains a defensive backstop for aliases, callees, and direct
+    memref operations that do not pass through the shared-aware helpers.
+    """
     worklist = []
 
     def collect(op):

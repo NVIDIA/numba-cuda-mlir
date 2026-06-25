@@ -83,7 +83,12 @@ def lower_to_fixed_tuple(builder, target, args, kwargs):
     elements = []
     for i in range(tuple_size):
         idx = index_of(i)
-        elem = lowering_utilities.array_element_value_load(array_type, array, [idx])
+        elem = lowering_utilities.array_element_value_load(
+            array_type,
+            array,
+            [idx],
+            dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
+        )
         elements.append(elem)
 
     builder.store_var(target, tuple(elements))
@@ -143,6 +148,8 @@ def _lower_array_complex_real_imag(builder, target, array_var, attr):
         layout=ir.StridedLayoutAttr.get(dyn_s, [dyn_s] * rank),
         memory_space=array_type.memory_space,
     )
+    # Keep complex real/imag views aligned with the other shared-aware view paths.
+    target_mr_type = _dynamic_shared_memory_result_type(builder, target_mr_type, complex_array)
 
     retyped = builtin.unrealized_conversion_cast([target_mr_type], [complex_array])
 
@@ -168,6 +175,7 @@ def _lower_array_complex_real_imag(builder, target, array_var, attr):
         static_sizes=[dyn] * rank,
         static_strides=[dyn_s] * rank,
     )
+    builder._mark_dynamic_shared_memory_alias(result, complex_array)
     builder.store_var(target, result)
 
 
@@ -565,17 +573,54 @@ def np_mean_cg(builder, target, args, kwargs):
     builder.store_var(target, mean)
 
 
+def _dynamic_shared_memory_result_type(builder, result_type, source):
+    source_type = builder._dynamic_shared_memory_memref_type(source)
+    if source_type is None:
+        return result_type
+    return ir.MemRefType.get(
+        shape=result_type.shape,
+        element_type=result_type.element_type,
+        layout=result_type.layout,
+        memory_space=source_type.memory_space,
+    )
+
+
+def _reshape_result_type(builder, result_type, source):
+    # memref.reshape verifies only identity-layout result memrefs. Rebuild the
+    # type for every reshape, and additionally preserve dynamic shared-memory
+    # address space when the source carries it.
+    memory_space = result_type.memory_space
+    source_type = builder._dynamic_shared_memory_memref_type(source)
+    if source_type is not None:
+        memory_space = source_type.memory_space
+    return ir.MemRefType.get(
+        shape=result_type.shape,
+        element_type=result_type.element_type,
+        memory_space=memory_space,
+    )
+
+
+def _reshape_storage_result(builder, reshaped, result_type, source):
+    storage_type = _dynamic_shared_memory_result_type(builder, result_type, source)
+    if reshaped.type != storage_type:
+        reshaped = memref.cast(storage_type, reshaped)
+    builder._mark_dynamic_shared_memory_alias(reshaped, source)
+    return reshaped
+
+
 def np_dynamic_reshape_cg(builder, target, args, kwargs):
     to_type = builder.get_mlir_type(builder.get_numba_type(target))
     array = builder.load_var(args[0])
+    reshape_type = _reshape_result_type(builder, to_type, array)
     shape = builder.load_var(args[1])
-    shty = T.memref(to_type.rank, shape.type.element_type)
+    shty = T.memref(reshape_type.rank, shape.type.element_type)
     shape = memref.cast(shty, shape)
     reshaped = memref.reshape(
-        result=to_type,
+        result=reshape_type,
         source=array,
         shape=shape,
     )
+    reshaped = _reshape_storage_result(builder, reshaped, to_type, array)
     builder.store_var(target, reshaped)
 
 
@@ -608,11 +653,13 @@ def np_reshape_cg(builder, target, args, kwargs):
         # Now use the memref for reshape
         to_type = builder.get_mlir_type(builder.get_numba_type(target))
         array = builder.load_var(args[0])
+        reshape_type = _reshape_result_type(builder, to_type, array)
         reshaped = memref.reshape(
-            result=to_type,
+            result=reshape_type,
             source=array,
             shape=shape_memref,
         )
+        reshaped = _reshape_storage_result(builder, reshaped, to_type, array)
         builder.store_var(target, reshaped)
         return
 
@@ -712,6 +759,7 @@ def _array_ravel_cg(builder, target, args, kwargs):
             total_size = arith.muli(total_size, s)
 
     result_type = builder.get_mlir_type(builder.get_numba_type(target))
+    result_type = _dynamic_shared_memory_result_type(builder, result_type, src)
     dyn = ir.ShapedType.get_dynamic_size()
     dyn_s = ir.ShapedType.get_dynamic_stride_or_offset()
     reshaped = memref_dialect.reinterpret_cast(
@@ -724,6 +772,7 @@ def _array_ravel_cg(builder, target, args, kwargs):
         static_sizes=[dyn],
         static_strides=[dyn_s],
     )
+    builder._mark_dynamic_shared_memory_alias(reshaped, src)
     builder.store_var(target, reshaped)
 
 
@@ -1054,7 +1103,12 @@ def lower_array_getitem(builder, target, args, kwargs):
         raise NotImplementedError("NYI: unranked memrefs")
 
     if array_type.rank == 1:
-        value = lowering_utilities.array_element_value_load(array_numba_type, array, [index])
+        value = lowering_utilities.array_element_value_load(
+            array_numba_type,
+            array,
+            [index],
+            dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
+        )
     else:
         rank = array_type.rank
         sv_offsets = [index] + [index_of(0)] * (rank - 1)
@@ -1062,6 +1116,7 @@ def lower_array_getitem(builder, target, args, kwargs):
         sv_strides = [index_of(1)] * rank
         dims_to_drop = [True] + [False] * (rank - 1)
         value = _rank_reducing_subview(array, sv_offsets, sv_sizes, sv_strides, dims_to_drop)
+        builder._mark_dynamic_shared_memory_alias(value, array)
 
     builder.store_var(target, value)
 
@@ -1205,7 +1260,9 @@ def lower_array_slice_getitem(builder, target, args, kwargs):
         memory_space=mr_type.memory_space,
     )
     sizes = [(stop - start) // step for start, stop, step in zip(starts, stops, steps)]
+    source = mr
     mr = memref.subview(mr, offsets=starts, sizes=sizes, strides=steps, result_type=mrt)
+    builder._mark_dynamic_shared_memory_alias(mr, source)
     builder.store_var(target, mr)
 
 
@@ -1267,9 +1324,11 @@ def lower_array_view_cg(builder, target, args, kwargs):
         layout=target_mr.layout,
         memory_space=mr_ty.memory_space,
     )
+    target_mr = _dynamic_shared_memory_result_type(builder, target_mr, _self)
     retyped = builtin.unrealized_conversion_cast([target_mr], [_self])
 
     if old_dtype_bytes == new_dtype_bytes:
+        builder._mark_dynamic_shared_memory_alias(retyped, _self)
         builder.store_var(target, retyped)
         return
 
@@ -1311,7 +1370,9 @@ def lower_array_view_cg(builder, target, args, kwargs):
 
     if layout in ("C", "F") or rank == 1:
         axis = (rank - 1) if (layout == "C" or rank == 1) else 0
-        builder.store_var(target, _reinterpret(axis))
+        result = _reinterpret(axis)
+        builder._mark_dynamic_shared_memory_alias(result, _self)
+        builder.store_var(target, result)
         return
 
     # ====================
@@ -1334,7 +1395,9 @@ def lower_array_view_cg(builder, target, args, kwargs):
             scf.yield_([_dispatch(axis_idx - 1)])
         return if_op.results[0]
 
-    builder.store_var(target, _dispatch(rank - 1))
+    result = _dispatch(rank - 1)
+    builder._mark_dynamic_shared_memory_alias(result, _self)
+    builder.store_var(target, result)
 
 
 @lower_getattr(types.Array, "view")
@@ -1529,7 +1592,13 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
     value = builder.load_var(args[2])
     mrt = array.type
     if mrt.rank == 1:
-        lowering_utilities.array_element_value_store(array_numba_type, array, [index], value)
+        lowering_utilities.array_element_value_store(
+            array_numba_type,
+            array,
+            [index],
+            value,
+            dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
+        )
     else:
         rankm1 = mrt.rank - 1
 
@@ -1540,7 +1609,11 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
         )
         def assign_slice(*indices):
             lowering_utilities.array_element_value_store(
-                array_numba_type, array, [index] + list(indices), value
+                array_numba_type,
+                array,
+                [index] + list(indices),
+                value,
+                dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
             )
 
 
@@ -1590,7 +1663,13 @@ def lower_array_setitem_tuple(builder, target, args, kwargs):
     tup = builder.load_var(tup) if isinstance(tup, numba_ir.Var) else tup
     indices = _setitem_indices_to_memref_indices(tup)
     value = builder.load_var(args[2])
-    lowering_utilities.array_element_value_store(array_numba_type, array, indices, value)
+    lowering_utilities.array_element_value_store(
+        array_numba_type,
+        array,
+        indices,
+        value,
+        dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
+    )
 
 
 @lower(operator.setitem, types.Array, types.SliceType, types.Any)
@@ -1627,7 +1706,13 @@ def lower_array_slice_setitem(builder, target, args, kwargs):
 
     @scf.forall_(starts, stops, steps)
     def fill_all(*indices):
-        lowering_utilities.array_element_value_store(array_numba_type, array, list(indices), value)
+        lowering_utilities.array_element_value_store(
+            array_numba_type,
+            array,
+            list(indices),
+            value,
+            dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
+        )
 
 
 @lower(operator.getitem, types.Array, types.UniTuple)
@@ -1715,10 +1800,14 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
             value = _rank_reducing_subview(
                 array, full_offsets, full_sizes, full_strides, full_is_scalar
             )
+            builder._mark_dynamic_shared_memory_alias(value, array)
             builder.store_var(target, value)
         case types.Number() | types.Boolean():
             value = lowering_utilities.array_element_value_load(
-                array_numba_type, array, full_offsets
+                array_numba_type,
+                array,
+                full_offsets,
+                dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
             )
             builder.store_var(target, value)
         case _:

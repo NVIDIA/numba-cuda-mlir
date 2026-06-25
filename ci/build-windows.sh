@@ -229,7 +229,6 @@ build_llvm7() {
   {
     printf '/NOLOGO\n'
     printf '/DLL\n'
-    printf '/MACHINE:X64\n'
     printf '/OUT:%s\n' "$(cmake_path "${llvm_c_dll}")"
     printf '/IMPLIB:%s\n' "$(cmake_path "${llvm_c_import_lib}")"
     printf '/DEF:%s\n' "$(cmake_path "${def_file}")"

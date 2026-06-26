@@ -8,19 +8,13 @@ from numba_cuda_mlir.numba_cuda.cudadrv.driver import _Linker
 def _link_item_is_ltoir(link_item) -> bool:
     if isinstance(link_item, str):
         return link_item.endswith(".ltoir")
-    return (
-        getattr(link_item, "kind", None) == "ltoir"
-        or type(link_item).__name__ == "LTOIR"
-    )
+    return getattr(link_item, "kind", None) == "ltoir" or type(link_item).__name__ == "LTOIR"
 
 
 def _link_item_is_cuda_source(link_item) -> bool:
     if isinstance(link_item, str):
         return link_item.endswith(".cu")
-    return (
-        getattr(link_item, "kind", None) == "cu"
-        or type(link_item).__name__ == "CUSource"
-    )
+    return getattr(link_item, "kind", None) == "cu" or type(link_item).__name__ == "CUSource"
 
 
 class Linker(_Linker):

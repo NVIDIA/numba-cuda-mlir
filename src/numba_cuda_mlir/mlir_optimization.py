@@ -297,13 +297,9 @@ def _rename_debug_info_version_module_flag_with_status(llvm_ir: bytes) -> tuple[
         return llvm_ir, False
 
     module_flag_refs = {
-        operand.strip()
-        for operand in module_flags_match.group(1).split(",")
-        if operand.strip()
+        operand.strip() for operand in module_flags_match.group(1).split(",") if operand.strip()
     }
-    rewrite_ids = {
-        id_ for id_ in debug_info_version_ids if f"!{id_}" in module_flag_refs
-    }
+    rewrite_ids = {id_ for id_ in debug_info_version_ids if f"!{id_}" in module_flag_refs}
     if not rewrite_ids:
         return llvm_ir, False
 
@@ -478,13 +474,11 @@ def _prepare_llvm_ir(
             neutralize_debug_info_version_flag=neutralize_debug_info_version_flag,
         )
 
-    from numba_cuda_mlir._cext import downgrade_for_libnvvm
+    from numba_cuda_mlir import _cext
 
     llvm_mod, llvm_ctx = translate_to_llvmir(gpu_mod.operation)
     if neutralize_debug_info_version_flag:
-        capi_available, renamed = _neutralize_debug_info_version_module_flag(
-            llvm_mod, llvm_ctx
-        )
+        capi_available, renamed = _neutralize_debug_info_version_module_flag(llvm_mod, llvm_ctx)
         if not capi_available:
             # Some LLVM-C builds lack the metadata mutation symbols. Fall back
             # to text translation where the problematic module flag can be
@@ -503,7 +497,18 @@ def _prepare_llvm_ir(
     if dump:
         print(f"=============== LLVM IR ===============\n\n{dump_llvmir(llvm_mod)}\n\n")
 
-    return downgrade_for_libnvvm(llvm_mod, llvm_ctx, ctk_major, ctk_minor, LLVM_C_LIB_PATH)
+    llvm_ir = _cext.downgrade_for_libnvvm(
+        llvm_mod,
+        llvm_ctx,
+        ctk_major,
+        ctk_minor,
+        LLVM_C_LIB_PATH,
+    )
+    if neutralize_debug_info_version_flag:
+        llvm_ir, renamed = _rename_debug_info_version_module_flag_with_status(llvm_ir)
+        if renamed:
+            _warn_debug_info_version_flag_neutralization()
+    return llvm_ir
 
 
 def _nvvm_options(cc: str, target_options=None, **extra) -> dict:
@@ -619,12 +624,10 @@ def _compile_ltoir_for_inspection(cres, target_options) -> bytes:
         if _needs_llvm70_path(cc):
             ltoir = _call_llvm70_capi(module, target_options, gen_lto=True)
         else:
-            neutralize_debug_info_version = (
-                _needs_debug_info_version_flag_neutralization(
-                    cres,
-                    target_options,
-                    is_lto=True,
-                )
+            neutralize_debug_info_version = _needs_debug_info_version_flag_neutralization(
+                cres,
+                target_options,
+                is_lto=True,
             )
             llvm_ir = _prepare_llvm_ir(
                 module,
@@ -878,12 +881,10 @@ def optimize(cres):
         if use_llvm70:
             llvm_ir = None
         else:
-            neutralize_debug_info_version = (
-                _needs_debug_info_version_flag_neutralization(
-                    cres,
-                    target_options,
-                    is_lto,
-                )
+            neutralize_debug_info_version = _needs_debug_info_version_flag_neutralization(
+                cres,
+                target_options,
+                is_lto,
             )
             llvm_ir = _prepare_llvm_ir(
                 module,

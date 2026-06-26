@@ -166,9 +166,7 @@ def test_prepare_llvm_ir_uses_text_fallback_when_metadata_capi_is_missing(monkey
     monkeypatch.setattr(
         mlir_optimization,
         "ir",
-        types.SimpleNamespace(
-            StringAttr=types.SimpleNamespace(get=lambda value: f"attr:{value}")
-        ),
+        types.SimpleNamespace(StringAttr=types.SimpleNamespace(get=lambda value: f"attr:{value}")),
     )
     monkeypatch.setattr(tools, "get_cuda_runtime_version", lambda: (12, 9))
     monkeypatch.setattr(
@@ -249,9 +247,7 @@ def test_prepare_llvm_ir_neutralizes_debug_info_version_on_text_path(
     monkeypatch.setattr(
         mlir_optimization,
         "ir",
-        types.SimpleNamespace(
-            StringAttr=types.SimpleNamespace(get=lambda value: f"attr:{value}")
-        ),
+        types.SimpleNamespace(StringAttr=types.SimpleNamespace(get=lambda value: f"attr:{value}")),
     )
     monkeypatch.setattr(tools, "get_cuda_runtime_version", lambda: (12, 9))
     monkeypatch.setattr(mlir_optimization.os, "name", "nt")
@@ -270,6 +266,68 @@ def test_prepare_llvm_ir_neutralizes_debug_info_version_on_text_path(
         result = mlir_optimization._prepare_llvm_ir(
             module,
             preserve_debug_info=True,
+            neutralize_debug_info_version_flag=True,
+        )
+
+    assert b"Debug Info Version" not in result
+    assert mlir_optimization._PRIVATE_DEBUG_INFO_VERSION_KEY in result
+
+
+def test_prepare_llvm_ir_neutralizes_debug_info_version_after_downgrade(
+    monkeypatch,
+):
+    import numba_cuda_mlir._cext as cext
+    from numba_cuda_mlir import tools
+    from numba_cuda_mlir._mlir.dialects import gpu
+
+    class FakeOperation:
+        def __init__(self):
+            self.attributes = {}
+
+    class FakeGPUModuleOp:
+        def __init__(self):
+            self.operation = FakeOperation()
+
+    fake_gpu_mod = FakeGPUModuleOp()
+    module = types.SimpleNamespace(body=[fake_gpu_mod])
+    llvm_ir = b"""
+!llvm.module.flags = !{!2, !3}
+!2 = !{i32 2, !"Debug Info Version", i32 3}
+!3 = !{i32 1, !"wchar_size", i32 4}
+"""
+
+    monkeypatch.setattr(gpu, "GPUModuleOp", FakeGPUModuleOp)
+    monkeypatch.setattr(
+        mlir_optimization,
+        "ir",
+        types.SimpleNamespace(StringAttr=types.SimpleNamespace(get=lambda value: f"attr:{value}")),
+    )
+    monkeypatch.setattr(tools, "get_cuda_runtime_version", lambda: (13, 2))
+    monkeypatch.setattr(mlir_optimization.os, "name", "posix")
+    monkeypatch.setattr(
+        mlir_optimization,
+        "translate_to_llvmir",
+        lambda operation: ("llvm_mod", "llvm_ctx"),
+    )
+    monkeypatch.setattr(
+        mlir_optimization,
+        "_neutralize_debug_info_version_module_flag",
+        lambda llvm_mod, llvm_ctx: (True, False),
+    )
+    monkeypatch.setattr(
+        cext,
+        "downgrade_for_libnvvm",
+        lambda *args: llvm_ir,
+    )
+    monkeypatch.setattr(
+        mlir_optimization,
+        "_debug_info_version_neutralization_warned",
+        False,
+    )
+
+    with pytest.warns(NumbaWarning, match="Debug Info Version"):
+        result = mlir_optimization._prepare_llvm_ir(
+            module,
             neutralize_debug_info_version_flag=True,
         )
 

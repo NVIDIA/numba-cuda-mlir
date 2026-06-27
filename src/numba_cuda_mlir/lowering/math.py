@@ -250,7 +250,7 @@ def _get_operator_mapping(fn) -> OpForType | None:
     return info
 
 
-def _get_operation_for_op_and_type(op, type) -> tuple[OpForType, MaybeOp] | None:
+def _get_operation_for_op_and_type(op, type, is_unsigned) -> tuple[OpForType, MaybeOp] | None:
     mapping = _get_operator_mapping(op)
     if not mapping:
         return None
@@ -264,7 +264,7 @@ def _get_operation_for_op_and_type(op, type) -> tuple[OpForType, MaybeOp] | None
                 return mapping, mapping.unsigned_integer
             else:
                 # Default to signedness
-                return mapping, mapping.signed_integer
+                return mapping, mapping.unsigned_integer if is_unsigned else mapping.signed_integer
         case ir.ComplexType():
             return mapping, mapping.complex
         case _:
@@ -323,6 +323,16 @@ def _bin_op_cg(op, builder, target, args, kwargs):
     )
     target_mlir_type = builder.get_mlir_type(target_type)
 
+    # Ensure numbers whose MLIR types are signless end up with the correct
+    # operation. Without this logic, two input values with two unsigned integer
+    # types get a signed comparator operator and vice versa
+    is_unsigned = (
+        isinstance(lhs_type, types.Integer)
+        and isinstance(rhs_type, types.Integer)
+        and not lhs_type.signed
+        and not rhs_type.signed
+    )
+
     lhs, rhs = builder.load_var(lhs), builder.load_var(rhs)
 
     # Handle cases where load_var returns Python/numpy scalars instead of MLIR values
@@ -338,25 +348,10 @@ def _bin_op_cg(op, builder, target, args, kwargs):
             rhs = rhs.item()
         rhs = lowering_utilities.constant(rhs, target_mlir_type)
 
-    # Ensure numbers whose MLIR types are signless end up with the correct
-    # operation. Without this logic, two input values with two unsigned integer
-    # types get a signed comparator operator and vice versa
-    if (
-        isinstance(lhs_type, types.Integer)
-        and isinstance(rhs_type, types.Integer)
-        and lhs_type.signed == rhs_type.signed
-    ):
-        width = max(lhs_type.bitwidth, rhs_type.bitwidth)
-        unified_type = (
-            ir.IntegerType.get_signed(width)
-            if lhs_type.signed
-            else ir.IntegerType.get_unsigned(width)
-        )
-    else:
-        unified_type = lowering_utilities.numpy_implicit_type_promotion(lhs.type, rhs.type)
+    unified_type = lowering_utilities.numpy_implicit_type_promotion(lhs.type, rhs.type)
 
     trace("op: %s, target_mlir_type: %s", op, target_mlir_type)
-    if found_op := _get_operation_for_op_and_type(op, unified_type):
+    if found_op := _get_operation_for_op_and_type(op, unified_type, is_unsigned):
         info, op = found_op
         assert op is not None, "Expected operation"
         if info.cast_to_return_type:

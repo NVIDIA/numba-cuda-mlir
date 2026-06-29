@@ -200,6 +200,12 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
                 libllvm = os.path.realpath(bundled)
                 break
 
+        # Fall back to a conda-forge libllvm7.1 package, whose shared library is
+        # named libLLVM-7.1.so (its real soname). It lives in the environment's
+        # lib dir, which is on our DSOs' RPATH, so dlopen resolves the soname.
+        if not libllvm and os.name != "nt":
+            libllvm = "libLLVM-7.1.so"
+
     if not libllvm:
         hint = "Set LIBLLVM7=/path/to/libLLVM-7.so"
         if os.name == "nt":

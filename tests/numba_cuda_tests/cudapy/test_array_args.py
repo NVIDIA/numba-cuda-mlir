@@ -7,7 +7,6 @@ from collections import namedtuple
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.testing import NumbaCUDATestCase
-import pytest
 
 
 class TestCudaArrayArg(NumbaCUDATestCase):
@@ -103,7 +102,6 @@ class TestCudaArrayArg(NumbaCUDATestCase):
 
         self.assertEqual(r[0], 0)
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_tuple_of_empty_tuples(self):
         @numba_cuda_mlir.cuda.jit
         def f(r, x):
@@ -117,7 +115,6 @@ class TestCudaArrayArg(NumbaCUDATestCase):
         self.assertEqual(r[0], 3)
         self.assertEqual(r[1], 0)
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_tuple_of_tuples(self):
         @numba_cuda_mlir.cuda.jit
         def f(r, x):
@@ -145,7 +142,6 @@ class TestCudaArrayArg(NumbaCUDATestCase):
         self.assertEqual(r[7], 9)
         self.assertEqual(r[8], 10)
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_tuple_of_tuples_and_scalars(self):
         @numba_cuda_mlir.cuda.jit
         def f(r, x):
@@ -183,7 +179,6 @@ class TestCudaArrayArg(NumbaCUDATestCase):
 
         np.testing.assert_equal(x0, x1 + x2)
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_tuple_of_array_scalar_tuple(self):
         @numba_cuda_mlir.cuda.jit
         def f(r, x):

@@ -1,11 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
-
 from numba_cuda_mlir import numba_cuda as cuda
 from numba_cuda_mlir.numba_cuda import types
-from numba_cuda_mlir.numba_cuda import cgutils
 from numba_cuda_mlir.numba_cuda.core.errors import (
     RequireLiteralValue,
     TypingError,
@@ -13,8 +10,21 @@ from numba_cuda_mlir.numba_cuda.core.errors import (
 )
 from numba_cuda_mlir.numba_cuda.typing import signature
 from numba_cuda_mlir.numba_cuda.extending import overload_attribute, overload_method
-from numba_cuda_mlir.numba_cuda import nvvmutils
 from numba_cuda_mlir.numba_cuda.extending import intrinsic
+
+
+# Each @intrinsic below provides the typing (the returned signature plus literal
+# / type validation) that the MLIR type-inference pass needs. The codegen used
+# to build NVVM IR with llvmlite, but on the MLIR path these grid / syncthreads
+# / warp shuffle / warp vote operations are lowered by
+# numba_cuda_mlir.lowering.cuda, so the codegen closures are never invoked (a
+# numba_cuda_mlir.numba_cuda intrinsic builder is filtered out by MLIRLower).
+# The codegen is therefore a single shared tombstone.
+def _dead_codegen(context, builder, sig, args):
+    raise NotImplementedError(
+        "this intrinsic is lowered by numba_cuda_mlir.lowering.cuda on the MLIR "
+        "path; the vendored llvmlite codegen is never invoked"
+    )
 
 
 # -------------------------------------------------------------------------------
@@ -55,15 +65,7 @@ def grid(typingctx, ndim):
 
     sig = _type_grid_function(ndim)
 
-    def codegen(context, builder, sig, args):
-        restype = sig.return_type
-        if restype == types.int64:
-            return nvvmutils.get_global_id(builder, dim=1)
-        elif isinstance(restype, types.UniTuple):
-            ids = nvvmutils.get_global_id(builder, dim=restype.count)
-            return cgutils.pack_array(builder, ids)
-
-    return sig, codegen
+    return sig, _dead_codegen
 
 
 @intrinsic
@@ -88,38 +90,14 @@ def gridsize(typingctx, ndim):
 
     sig = _type_grid_function(ndim)
 
-    def _nthreads_for_dim(builder, dim):
-        i64 = ir.IntType(64)
-        ntid = nvvmutils.call_sreg(builder, f"ntid.{dim}")
-        nctaid = nvvmutils.call_sreg(builder, f"nctaid.{dim}")
-        return builder.mul(builder.sext(ntid, i64), builder.sext(nctaid, i64))
-
-    def codegen(context, builder, sig, args):
-        restype = sig.return_type
-        nx = _nthreads_for_dim(builder, "x")
-
-        if restype == types.int64:
-            return nx
-        elif isinstance(restype, types.UniTuple):
-            ny = _nthreads_for_dim(builder, "y")
-
-            if restype.count == 2:
-                return cgutils.pack_array(builder, (nx, ny))
-            elif restype.count == 3:
-                nz = _nthreads_for_dim(builder, "z")
-                return cgutils.pack_array(builder, (nx, ny, nz))
-
-    return sig, codegen
+    return sig, _dead_codegen
 
 
 @intrinsic
 def _warpsize(typingctx):
     sig = signature(types.int32)
 
-    def codegen(context, builder, sig, args):
-        return nvvmutils.call_sreg(builder, "warpsize")
-
-    return sig, codegen
+    return sig, _dead_codegen
 
 
 @overload_attribute(types.Module(cuda), "warpsize", target="cuda")
@@ -149,15 +127,7 @@ def syncthreads(typingctx):
     """
     sig = signature(types.none)
 
-    def codegen(context, builder, sig, args):
-        fname = "llvm.nvvm.barrier0"
-        lmod = builder.module
-        fnty = ir.FunctionType(ir.VoidType(), ())
-        sync = cgutils.get_or_insert_function(lmod, fnty, fname)
-        builder.call(sync, ())
-        return context.get_dummy_value()
-
-    return sig, codegen
+    return sig, _dead_codegen
 
 
 def _syncthreads_predicate(typingctx, predicate, fname):
@@ -166,12 +136,7 @@ def _syncthreads_predicate(typingctx, predicate, fname):
 
     sig = signature(types.i4, types.i4)
 
-    def codegen(context, builder, sig, args):
-        fnty = ir.FunctionType(ir.IntType(32), (ir.IntType(32),))
-        sync = cgutils.get_or_insert_function(builder.module, fnty, fname)
-        return builder.call(sync, args)
-
-    return sig, codegen
+    return sig, _dead_codegen
 
 
 @intrinsic
@@ -222,24 +187,6 @@ def integer_bit_count(i):
 #
 # - https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#warp-shuffle-functions
 # - https://docs.nvidia.com/cuda/nvvm-ir-spec/index.html#data-movement
-#
-# Notes:
-#
-# - The public CUDA C/C++ and Numba Python APIs for these intrinsics use
-#   different names for parameters to the NVVM IR specification. So that we
-#   can correlate the implementation with the documentation, the @intrinsic
-#   API functions map the public API arguments to the NVVM intrinsic
-#   arguments.
-# - The NVVM IR specification requires some of the parameters (e.g. mode) to be
-#   constants. It's therefore essential that we pass in some values to the
-#   shfl_sync_intrinsic function (e.g. the mode and c values).
-# - Normally parameters for intrinsic functions in Numba would be given the
-#   same name as used in the API, and would contain a type. However, because we
-#   have to pass in some values and some times (and there is divergence between
-#   the names in the intrinsic documentation and the public APIs) we instead
-#   follow the convention of naming shfl_sync_intrinsic parameters with a
-#   suffix of _type or _value depending on whether they contain a type or a
-#   value.
 
 
 @intrinsic
@@ -312,68 +259,9 @@ def shfl_sync_intrinsic(
     if a_type not in (types.i4, types.i8, types.f4, types.f8):
         raise TypingError("shfl_sync only supports 32- and 64-bit ints and floats")
 
-    def codegen(context, builder, sig, args):
-        """
-        The NVVM shfl_sync intrinsic only supports i32, but the CUDA C/C++
-        intrinsic supports both 32- and 64-bit ints and floats, so for feature
-        parity, i32, i64, f32, and f64 are implemented. Floats by way of
-        bitcasting the float to an int, then shuffling, then bitcasting
-        back."""
-        membermask, a, b = args
-
-        # Types
-        a_type = sig.args[1]
-        return_type = context.get_value_type(sig.return_type)
-        i32 = ir.IntType(32)
-        i64 = ir.IntType(64)
-
-        if a_type in types.real_domain:
-            a = builder.bitcast(a, ir.IntType(a_type.bitwidth))
-
-        # NVVM intrinsic definition
-        arg_types = (i32, i32, i32, i32, i32)
-        shfl_return_type = ir.LiteralStructType((i32, ir.IntType(1)))
-        fnty = ir.FunctionType(shfl_return_type, arg_types)
-
-        fname = "llvm.nvvm.shfl.sync.i32"
-        shfl_sync = cgutils.get_or_insert_function(builder.module, fnty, fname)
-
-        # Intrinsic arguments
-        mode = ir.Constant(i32, mode_value)
-        c = ir.Constant(i32, c_value)
-        membermask = builder.trunc(membermask, i32)
-        b = builder.trunc(b, i32)
-
-        if a_type.bitwidth == 32:
-            a = builder.trunc(a, i32)
-            ret = builder.call(shfl_sync, (membermask, mode, a, b, c))
-            d = builder.extract_value(ret, 0)
-        else:
-            # Handle 64-bit values by shuffling as two 32-bit values and
-            # packing the result into 64 bits.
-
-            # Extract high and low parts
-            lo = builder.trunc(a, i32)
-            a_lshr = builder.lshr(a, ir.Constant(i64, 32))
-            hi = builder.trunc(a_lshr, i32)
-
-            # Shuffle individual parts
-            ret_lo = builder.call(shfl_sync, (membermask, mode, lo, b, c))
-            ret_hi = builder.call(shfl_sync, (membermask, mode, hi, b, c))
-
-            # Combine individual result parts into a 64-bit result
-            d_lo = builder.extract_value(ret_lo, 0)
-            d_hi = builder.extract_value(ret_hi, 0)
-            d_lo_64 = builder.zext(d_lo, i64)
-            d_hi_64 = builder.zext(d_hi, i64)
-            d_shl = builder.shl(d_hi_64, ir.Constant(i64, 32))
-            d = builder.or_(d_shl, d_lo_64)
-
-        return builder.bitcast(d, return_type)
-
     sig = signature(a_type, membermask_type, a_type, b_type)
 
-    return sig, codegen
+    return sig, _dead_codegen
 
 
 # -------------------------------------------------------------------------------
@@ -383,12 +271,6 @@ def shfl_sync_intrinsic(
 #
 # - https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#warp-vote-functions
 # - https://docs.nvidia.com/cuda/nvvm-ir-spec/index.html?highlight=data%2520movement#vote
-#
-# Notes:
-#
-# - The NVVM IR specification requires some of the mode parameter to be
-#   constants. It's therefore essential that we pass in mode values to the
-#   vote_sync_intrinsic.
 
 
 @intrinsic
@@ -398,15 +280,11 @@ def all_sync(typingctx, mask_type, predicate_type):
     a non-zero value is returned, otherwise 0 is returned.
     """
     mode_value = 0
-    sig, codegen_inner = vote_sync_intrinsic(typingctx, mask_type, mode_value, predicate_type)
-
-    def codegen(context, builder, sig_outer, args):
-        # Call vote_sync_intrinsic and extract the boolean result (index 1)
-        result_tuple = codegen_inner(context, builder, sig, args)
-        return builder.extract_value(result_tuple, 1)
+    # Validate the mask / predicate types (raises on unsupported types).
+    vote_sync_intrinsic(typingctx, mask_type, mode_value, predicate_type)
 
     sig_outer = signature(types.b1, mask_type, predicate_type)
-    return sig_outer, codegen
+    return sig_outer, _dead_codegen
 
 
 @intrinsic
@@ -416,14 +294,10 @@ def any_sync(typingctx, mask_type, predicate_type):
     a non-zero value is returned, otherwise 0 is returned.
     """
     mode_value = 1
-    sig, codegen_inner = vote_sync_intrinsic(typingctx, mask_type, mode_value, predicate_type)
-
-    def codegen(context, builder, sig_outer, args):
-        result_tuple = codegen_inner(context, builder, sig, args)
-        return builder.extract_value(result_tuple, 1)
+    vote_sync_intrinsic(typingctx, mask_type, mode_value, predicate_type)
 
     sig_outer = signature(types.b1, mask_type, predicate_type)
-    return sig_outer, codegen
+    return sig_outer, _dead_codegen
 
 
 @intrinsic
@@ -433,14 +307,10 @@ def eq_sync(typingctx, mask_type, predicate_type):
     then a non-zero value is returned, otherwise 0 is returned.
     """
     mode_value = 2
-    sig, codegen_inner = vote_sync_intrinsic(typingctx, mask_type, mode_value, predicate_type)
-
-    def codegen(context, builder, sig_outer, args):
-        result_tuple = codegen_inner(context, builder, sig, args)
-        return builder.extract_value(result_tuple, 1)
+    vote_sync_intrinsic(typingctx, mask_type, mode_value, predicate_type)
 
     sig_outer = signature(types.b1, mask_type, predicate_type)
-    return sig_outer, codegen
+    return sig_outer, _dead_codegen
 
 
 @intrinsic
@@ -450,14 +320,10 @@ def ballot_sync(typingctx, mask_type, predicate_type):
     and are within the given mask.
     """
     mode_value = 3
-    sig, codegen_inner = vote_sync_intrinsic(typingctx, mask_type, mode_value, predicate_type)
-
-    def codegen(context, builder, sig_outer, args):
-        result_tuple = codegen_inner(context, builder, sig, args)
-        return builder.extract_value(result_tuple, 0)  # Extract ballot result (index 0)
+    vote_sync_intrinsic(typingctx, mask_type, mode_value, predicate_type)
 
     sig_outer = signature(types.i4, mask_type, predicate_type)
-    return sig_outer, codegen
+    return sig_outer, _dead_codegen
 
 
 def vote_sync_intrinsic(typingctx, mask_type, mode_value, predicate_type):
@@ -472,34 +338,6 @@ def vote_sync_intrinsic(typingctx, mask_type, mode_value, predicate_type):
     if types.unliteral(predicate_type) not in predicate_types:
         raise NumbaTypeError(f"Predicate must be an integer or boolean. Got {predicate_type}")
 
-    def codegen(context, builder, sig, args):
-        mask, predicate = args
-
-        # Types
-        i1 = ir.IntType(1)
-        i32 = ir.IntType(32)
-
-        # NVVM intrinsic definition
-        arg_types = (i32, i32, i1)
-        vote_return_type = ir.LiteralStructType((i32, i1))
-        fnty = ir.FunctionType(vote_return_type, arg_types)
-
-        fname = "llvm.nvvm.vote.sync"
-        lmod = builder.module
-        vote_sync = cgutils.get_or_insert_function(lmod, fnty, fname)
-
-        # Intrinsic arguments
-        mode = ir.Constant(i32, mode_value)
-        mask_i32 = builder.trunc(mask, i32)
-
-        # Convert predicate to i1
-        if predicate.type != ir.IntType(1):
-            predicate_bool = builder.icmp_signed("!=", predicate, ir.Constant(predicate.type, 0))
-        else:
-            predicate_bool = predicate
-
-        return builder.call(vote_sync, [mask_i32, mode, predicate_bool])
-
     sig = signature(types.Tuple((types.i4, types.b1)), mask_type, predicate_type)
 
-    return sig, codegen
+    return sig, _dead_codegen

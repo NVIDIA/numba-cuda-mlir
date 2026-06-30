@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 from collections import namedtuple
 from warnings import warn, catch_warnings, simplefilter
 import copy
@@ -17,7 +16,7 @@ from numba_cuda_mlir.numba_cuda.core.errors import (
 )
 from numba_cuda_mlir.numba_cuda.core.interpreter import Interpreter
 
-from numba_cuda_mlir.numba_cuda import cgutils, typing, lowering, nvvmutils, utils
+from numba_cuda_mlir.numba_cuda import cgutils, typing, utils
 from numba_cuda_mlir.numba_cuda.api import get_current_device
 
 from numba_cuda_mlir.numba_cuda.core import (
@@ -562,7 +561,10 @@ class CUDANativeLowering(BaseNativeLowering):
 
     @property
     def lowering_class(self):
-        return lowering.CUDALower
+        # The vendored llvmlite CUDALower is dead on the MLIR path (kernels are
+        # lowered by MLIRLower, not by this pass). Returning None so the dead
+        # CUDALower class can be removed; if this pass ever ran it would fail loudly.
+        return None
 
 
 class CUDABytecodeInterpreter(Interpreter):
@@ -907,161 +909,21 @@ def compile_cuda(
 
 
 def kernel_fixup(kernel, debug):
-    if debug:
-        exc_helper = add_exception_store_helper(kernel)
-
-    # Pass 1 - replace:
-    #
-    #    ret <value>
-    #
-    # with:
-    #
-    #    exc_helper(<value>)
-    #    ret void
-
-    for block in kernel.blocks:
-        for inst in block.instructions:
-            if isinstance(inst, ir.Ret):
-                old_ret = block.instructions.pop()
-                block.terminator = None
-
-                # The original return's metadata will be set on the new
-                # instructions in order to preserve debug info
-                metadata = old_ret.metadata
-
-                builder = ir.IRBuilder(block)
-                if debug:
-                    status_code = old_ret.operands[0]
-                    exc_helper_call = builder.call(exc_helper, (status_code,))
-                    exc_helper_call.metadata = metadata
-
-                new_ret = builder.ret_void()
-                new_ret.metadata = old_ret.metadata
-
-                # Need to break out so we don't carry on modifying what we are
-                # iterating over. There can only be one return in a block
-                # anyway.
-                break
-
-    # Pass 2: remove stores of null pointer to return value argument pointer
-
-    return_value = kernel.args[0]
-
-    for block in kernel.blocks:
-        # Find all stores first
-        remove_list = [
-            inst
-            for inst in block.instructions
-            if (isinstance(inst, ir.StoreInstr) and inst.operands[1] == return_value)
-        ]
-
-        # Remove all stores
-        for to_remove in remove_list:
-            block.instructions.remove(to_remove)
-
-    # Replace non-void return type with void return type and remove return
-    # value
-
-    if isinstance(kernel.type, ir.PointerType):
-        new_type = ir.PointerType(ir.FunctionType(ir.VoidType(), kernel.type.pointee.args[1:]))
-    else:
-        new_type = ir.FunctionType(ir.VoidType(), kernel.type.args[1:])
-
-    kernel.type = new_type
-    kernel.return_value = ir.ReturnValue(kernel, ir.VoidType())
-    kernel.args = kernel.args[1:]
-
-    # If debug metadata is present, fix the return type to void by replacing
-    # the first element of the types tuple with null (representing void).
-
-    if kernel_metadata := getattr(kernel, "metadata", None):
-        if dbg_metadata := kernel_metadata.get("dbg", None):
-            for name, value in dbg_metadata.operands:
-                if name == "type":
-                    type_metadata = value
-                    for tm_name, tm_value in type_metadata.operands:
-                        if tm_name == "types":
-                            types = tm_value
-                            ret_type = ir.Constant(ir.MetaDataType(), None)
-                            types.operands = (ret_type,) + types.operands[1:]
-                            if config.DUMP_LLVM:
-                                types._clear_string_cache()
-
-    # Mark as a kernel for NVVM
-
-    nvvm.set_cuda_kernel(kernel)
-
-    if config.DUMP_LLVM:
-        print(f"LLVM DUMP: Post kernel fixup {kernel.name}".center(80, "-"))
-        print(kernel.module)
-        print("=" * 80)
+    # Rewrote a vendored llvmlite kernel function (return-value handling, void
+    # return-type conversion, nvvm.annotations marking) on an llvmlite module.
+    # Dead on the MLIR path: kernels are MLIR modules lowered/finalized by the
+    # MLIR pipeline. Only the vendored llvmlite dispatch reaches here.
+    raise NotImplementedError("kernel_fixup (vendored llvmlite) is not used on the MLIR path")
 
 
 def add_exception_store_helper(kernel):
-    # Create global variables for exception state
-
-    def define_error_gv(postfix):
-        name = kernel.name + postfix
-        gv = cgutils.add_global_variable(kernel.module, ir.IntType(32), name)
-        gv.initializer = ir.Constant(gv.type.pointee, None)
-        return gv
-
-    gv_exc = define_error_gv("__errcode__")
-    gv_tid = []
-    gv_ctaid = []
-    for i in "xyz":
-        gv_tid.append(define_error_gv("__tid%s__" % i))
-        gv_ctaid.append(define_error_gv("__ctaid%s__" % i))
-
-    # Create exception store helper function
-
-    helper_name = kernel.name + "__exc_helper__"
-    helper_type = ir.FunctionType(ir.VoidType(), (ir.IntType(32),))
-    helper_func = ir.Function(kernel.module, helper_type, helper_name)
-
-    block = helper_func.append_basic_block(name="entry")
-    builder = ir.IRBuilder(block)
-
-    # Implement status check / exception store logic
-
-    status_code = helper_func.args[0]
-    call_conv = CUDACallConv(cuda_target.target_context)
-    status = call_conv._get_return_status(builder, status_code)
-
-    # Check error status
-    with cgutils.if_likely(builder, status.is_ok):
-        builder.ret_void()
-
-    with builder.if_then(builder.not_(status.is_python_exc)):
-        # User exception raised
-        old = ir.Constant(gv_exc.type.pointee, None)
-
-        # Use atomic cmpxchg to prevent rewriting the error status
-        # Only the first error is recorded
-
-        xchg = builder.cmpxchg(gv_exc, old, status.code, "monotonic", "monotonic")
-        changed = builder.extract_value(xchg, 1)
-
-        # If the xchange is successful, save the thread ID.
-        sreg = nvvmutils.SRegBuilder(builder)
-        with builder.if_then(changed):
-            for (
-                dim,
-                ptr,
-            ) in zip("xyz", gv_tid):
-                val = sreg.tid(dim)
-                builder.store(val, ptr)
-
-            for (
-                dim,
-                ptr,
-            ) in zip("xyz", gv_ctaid):
-                val = sreg.ctaid(dim)
-                builder.store(val, ptr)
-
-    builder.ret_void()
-
-    return helper_func
+    # Built the llvmlite exception-store helper (error-code global + per-thread
+    # id capture via nvvmutils.SRegBuilder) for the vendored llvmlite kernel
+    # fixup path. That path is dead on the MLIR path (kernels are MLIR modules
+    # lowered by MLIRLower), so this is a dead stub.
+    raise NotImplementedError(
+        "add_exception_store_helper (vendored llvmlite kernel fixup) is not used on the MLIR path"
+    )
 
 
 def compile_all(

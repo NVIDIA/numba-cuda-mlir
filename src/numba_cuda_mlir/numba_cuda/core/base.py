@@ -45,7 +45,6 @@ from numba_cuda_mlir.numba_cuda import (
 )
 from numba_cuda_mlir.numba_cuda.core import errors
 from numba_cuda_mlir.numba_cuda.core.compiler_lock import global_compiler_lock
-from numba_cuda_mlir.numba_cuda.core.pythonapi import PythonAPI
 from numba_cuda_mlir.numba_cuda.core.imputils import (
     user_function,
     user_generator,
@@ -367,9 +366,14 @@ class BaseContext:
 
     @cached_property
     def nrt(self):
-        from numba_cuda_mlir.numba_cuda.memory_management.nrt_context import NRTContext
-
-        return NRTContext(self, self.enable_nrt)
+        # The vendored NRTContext builds llvmlite NRT incref/decref/alloc IR and
+        # is dead on the MLIR path: MLIRLower uses its own MLIRNRTContext, and
+        # the only target-context .nrt accesses are from filtered-out vendored
+        # codegen. Raise so the dead NRTContext can be removed.
+        raise NotImplementedError(
+            "BaseContext.nrt (vendored NRTContext) is not available on the MLIR path; "
+            "MLIRLower uses MLIRNRTContext"
+        )
 
     def subtarget(self, **kws):
         obj = copy.copy(self)  # shallow copy
@@ -1043,7 +1047,13 @@ class BaseContext:
         raise NotImplementedError
 
     def get_python_api(self, builder):
-        return PythonAPI(self, builder)
+        # PythonAPI is llvmlite PyObject C-API codegen, dead on the MLIR path
+        # (only reached from filtered-out object-mode codegen). Raise so the
+        # dead PythonAPI class can be removed; reaching here means a live path
+        # tried to use the CPython C-API, which is unsupported on device.
+        raise NotImplementedError(
+            "get_python_api / the CPython C-API is not available on the MLIR path"
+        )
 
     def sentry_record_alignment(self, rectyp, attr):
         """

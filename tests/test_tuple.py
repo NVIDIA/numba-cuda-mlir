@@ -121,6 +121,20 @@ def test_captured_namedtuple_getattr():
     assert r[0] == np.float32(1)
 
 
+def test_captured_namedtuple_unpack():
+    LD = namedtuple("LD", ["a", "b", "c"])
+    dim = LD(2, 4, 8)
+    out = np.zeros(1, dtype=np.int64)
+
+    @cuda.jit
+    def kernel(out):
+        a, b, c = dim
+        out[0] = a + b + c
+
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(out, 14)
+
+
 @pytest.mark.parametrize(
     "Point, vals, dtypes",
     [

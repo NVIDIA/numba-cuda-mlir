@@ -388,7 +388,7 @@ class MLIRLower(object):
             )
             if not already_exists:
                 with ir.InsertionPoint.at_block_begin(gpu_block):
-                    linkage = ir.Attribute.parse("#llvm.linkage<external>")
+                    linkage = ir.Attribute.parse("#llvm.linkage<common>")
                     llvm.GlobalOp(
                         T.i32(),
                         ERROR_CODE_GLOBAL_NAME,

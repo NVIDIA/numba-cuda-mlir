@@ -19,6 +19,29 @@ numpy_version = tuple(map(int, np.__version__.split(".")[:2]))
 _ufunc_db = None
 
 
+class _Dead:
+    """Stand-in for the removed vendored ufunc lowering implementations.
+
+    Only the loop-signature *keys* of this database are consumed on the MLIR
+    path (numpy_support.supported_ufunc_loop checks ``loop_sig in
+    get_ufunc_info(ufunc)`` for typing; ufuncs are lowered by
+    numba_cuda_mlir.lowering.numpy). The *values* used to be llvmlite-codegen
+    functions fed to the vendored ufunc lowering (_KernelImpl), which is
+    filtered out. Rather than import that dead codegen just to populate
+    discarded values, every value is this sentinel. It answers attribute access
+    and calls (e.g. ``numbers.int_signed_unsigned_cmp(">")``) with itself.
+    """
+
+    def __getattr__(self, name):
+        return self
+
+    def __call__(self, *args, **kwargs):
+        return self
+
+
+_DEAD = _Dead()
+
+
 def _lazy_init_db():
     global _ufunc_db
 
@@ -51,8 +74,10 @@ def _fill_ufunc_db(ufunc_db):
     # some of these imports would cause a problem of circular
     # imports if done at global scope when importing the numba
     # module.
-    from numba_cuda_mlir.numba_cuda.np import npyfuncs
-    from numba_cuda_mlir.numba_cuda.np.math import cmathimpl, mathimpl, numbers
+    # The lowering implementations are dead on the MLIR path (see _Dead); only
+    # the loop-signature keys below matter. Use the sentinel for every value so
+    # this table no longer imports the removed vendored ufunc codegen.
+    cmathimpl = mathimpl = numbers = npyfuncs = _DEAD
     from numba_cuda_mlir.numba_cuda.np.numpy_support import numpy_version
 
     ufunc_db[np.isnat] = {
@@ -1140,7 +1165,7 @@ def _fill_ufunc_db(ufunc_db):
     }
 
     # Inject datetime64 support
-    from numba_cuda_mlir.numba_cuda.np import npdatetime
+    npdatetime = _DEAD
 
     ufunc_db[np.negative].update(
         {

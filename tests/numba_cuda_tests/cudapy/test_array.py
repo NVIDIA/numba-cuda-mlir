@@ -286,10 +286,8 @@ class TestCudaArray:
         a = a.copy_to_host()
         assert a[0] == 1.2
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_carray(self):
         self._test_cfarray(carray)
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_farray(self):
         self._test_cfarray(farray)

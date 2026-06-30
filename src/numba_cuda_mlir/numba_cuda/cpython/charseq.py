@@ -5,7 +5,6 @@
 
 import operator
 import numpy as np
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda import cgutils
@@ -22,6 +21,17 @@ from numba_cuda_mlir.numba_cuda.cpython import unicode
 registry = Registry("charseq")
 lower = registry.lower
 lower_cast = registry.lower_cast
+
+
+# The deref intrinsics and _unicode_to_bytes below keep their typing (the
+# returned signatures) but their codegen built llvmlite IR and is filtered out
+# on the MLIR path, so it is a shared tombstone. The bytes/charseq/unicode cast
+# @lower_cast functions are likewise dead and have been removed.
+def _dead_codegen(context, builder, signature, args):
+    raise NotImplementedError(
+        "this charseq codegen built llvmlite IR and is not used on the MLIR path"
+    )
+
 
 # bytes and str arrays items are of type CharSeq and UnicodeCharSeq,
 # respectively.  See numpy/types/npytypes.py for CharSeq,
@@ -50,14 +60,7 @@ unicode_uint = {1: np.uint8, 2: np.uint16, 4: np.uint32}[unicode_byte_width]
 
 # this is modified version of numba.unicode.make_deref_codegen
 def make_deref_codegen(bitsize):
-    def codegen(context, builder, signature, args):
-        data, idx = args
-        rawptr = cgutils.alloca_once_value(builder, value=data)
-        ptr = builder.bitcast(rawptr, ir.IntType(bitsize).as_pointer())
-        ch = builder.load(builder.gep(ptr, [idx]))
-        return builder.zext(ch, ir.IntType(32))
-
-    return codegen
+    return _dead_codegen
 
 
 @intrinsic
@@ -179,148 +182,12 @@ def unicode_charseq_get_value(a, i):
 #
 
 
-@lower_cast(types.Bytes, types.CharSeq)
-def bytes_to_charseq(context, builder, fromty, toty, val):
-    barr = cgutils.create_struct_proxy(fromty)(context, builder, value=val)
-    src = builder.bitcast(barr.data, ir.IntType(8).as_pointer())
-    src_length = barr.nitems
-
-    lty = context.get_value_type(toty)
-    dstint_t = ir.IntType(8)
-    dst_ptr = cgutils.alloca_once(builder, lty)
-    dst = builder.bitcast(dst_ptr, dstint_t.as_pointer())
-
-    dst_length = ir.Constant(src_length.type, toty.count)
-    is_shorter_value = builder.icmp_unsigned("<", src_length, dst_length)
-    count = builder.select(is_shorter_value, src_length, dst_length)
-    with builder.if_then(is_shorter_value):
-        cgutils.memset(builder, dst, ir.Constant(src_length.type, toty.count), 0)
-    with cgutils.for_range(builder, count) as loop:
-        in_ptr = builder.gep(src, [loop.index])
-        in_val = builder.zext(builder.load(in_ptr), dstint_t)
-        builder.store(in_val, builder.gep(dst, [loop.index]))
-
-    return builder.load(dst_ptr)
-
-
-def _make_constant_bytes(context, builder, nbytes):
-    bstr_ctor = cgutils.create_struct_proxy(bytes_type)
-    bstr = bstr_ctor(context, builder)
-
-    if isinstance(nbytes, int):
-        nbytes = ir.Constant(bstr.nitems.type, nbytes)
-
-    bstr.meminfo = context.nrt.meminfo_alloc(builder, nbytes)
-    bstr.nitems = nbytes
-    bstr.itemsize = ir.Constant(bstr.itemsize.type, 1)
-    bstr.data = context.nrt.meminfo_data(builder, bstr.meminfo)
-    bstr.parent = cgutils.get_null_value(bstr.parent.type)
-    # bstr.shape and bstr.strides are not used
-    bstr.shape = cgutils.get_null_value(bstr.shape.type)
-    bstr.strides = cgutils.get_null_value(bstr.strides.type)
-    return bstr
-
-
-@lower_cast(types.CharSeq, types.Bytes)
-def charseq_to_bytes(context, builder, fromty, toty, val):
-    bstr = _make_constant_bytes(context, builder, val.type.count)
-    rawptr = cgutils.alloca_once_value(builder, value=val)
-    ptr = builder.bitcast(rawptr, bstr.data.type)
-    cgutils.memcpy(builder, bstr.data, ptr, bstr.nitems)
-    return bstr
-
-
-@lower_cast(types.UnicodeType, types.Bytes)
-def unicode_to_bytes_cast(context, builder, fromty, toty, val):
-    uni_str = cgutils.create_struct_proxy(fromty)(context, builder, value=val)
-    src1 = builder.bitcast(uni_str.data, ir.IntType(8).as_pointer())
-    notkind1 = builder.icmp_unsigned("!=", uni_str.kind, ir.Constant(uni_str.kind.type, 1))
-    src_length = uni_str.length
-
-    with builder.if_then(notkind1):
-        context.fndesc.call_conv.return_user_exc(
-            builder,
-            ValueError,
-            ("cannot cast higher than 8-bit unicode_type to bytes",),
-        )
-
-    bstr = _make_constant_bytes(context, builder, src_length)
-    cgutils.memcpy(builder, bstr.data, src1, bstr.nitems)
-    return bstr
-
-
 @intrinsic
 def _unicode_to_bytes(typingctx, s):
     # used in _to_bytes method
     assert s == types.unicode_type
     sig = bytes_type(s)
-
-    def codegen(context, builder, signature, args):
-        return unicode_to_bytes_cast(context, builder, s, bytes_type, args[0])._getvalue()
-
-    return sig, codegen
-
-
-@lower_cast(types.UnicodeType, types.UnicodeCharSeq)
-def unicode_to_unicode_charseq(context, builder, fromty, toty, val):
-    uni_str = cgutils.create_struct_proxy(fromty)(context, builder, value=val)
-    src1 = builder.bitcast(uni_str.data, ir.IntType(8).as_pointer())
-    src2 = builder.bitcast(uni_str.data, ir.IntType(16).as_pointer())
-    src4 = builder.bitcast(uni_str.data, ir.IntType(32).as_pointer())
-    kind1 = builder.icmp_unsigned("==", uni_str.kind, ir.Constant(uni_str.kind.type, 1))
-    kind2 = builder.icmp_unsigned("==", uni_str.kind, ir.Constant(uni_str.kind.type, 2))
-    kind4 = builder.icmp_unsigned("==", uni_str.kind, ir.Constant(uni_str.kind.type, 4))
-    src_length = uni_str.length
-
-    lty = context.get_value_type(toty)
-    dstint_t = ir.IntType(8 * unicode_byte_width)
-    dst_ptr = cgutils.alloca_once(builder, lty)
-    dst = builder.bitcast(dst_ptr, dstint_t.as_pointer())
-
-    dst_length = ir.Constant(src_length.type, toty.count)
-    is_shorter_value = builder.icmp_unsigned("<", src_length, dst_length)
-    count = builder.select(is_shorter_value, src_length, dst_length)
-    with builder.if_then(is_shorter_value):
-        cgutils.memset(
-            builder,
-            dst,
-            ir.Constant(src_length.type, toty.count * unicode_byte_width),
-            0,
-        )
-
-    with builder.if_then(kind1):
-        with cgutils.for_range(builder, count) as loop:
-            in_ptr = builder.gep(src1, [loop.index])
-            in_val = builder.zext(builder.load(in_ptr), dstint_t)
-            builder.store(in_val, builder.gep(dst, [loop.index]))
-
-    with builder.if_then(kind2):
-        if unicode_byte_width >= 2:
-            with cgutils.for_range(builder, count) as loop:
-                in_ptr = builder.gep(src2, [loop.index])
-                in_val = builder.zext(builder.load(in_ptr), dstint_t)
-                builder.store(in_val, builder.gep(dst, [loop.index]))
-        else:
-            context.fndesc.call_conv.return_user_exc(
-                builder,
-                ValueError,
-                ("cannot cast 16-bit unicode_type to %s-bit %s" % (unicode_byte_width * 8, toty)),
-            )
-
-    with builder.if_then(kind4):
-        if unicode_byte_width >= 4:
-            with cgutils.for_range(builder, count) as loop:
-                in_ptr = builder.gep(src4, [loop.index])
-                in_val = builder.zext(builder.load(in_ptr), dstint_t)
-                builder.store(in_val, builder.gep(dst, [loop.index]))
-        else:
-            context.fndesc.call_conv.return_user_exc(
-                builder,
-                ValueError,
-                ("cannot cast 32-bit unicode_type to %s-bit %s" % (unicode_byte_width * 8, toty)),
-            )
-
-    return builder.load(dst_ptr)
+    return sig, _dead_codegen
 
 
 #

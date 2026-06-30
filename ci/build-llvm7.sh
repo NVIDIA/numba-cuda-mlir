@@ -54,11 +54,18 @@ cmake -G Ninja -S "${LLVM7_SRC}/llvm" -B "${LLVM7_BUILD}" \
     -DLLVM_ENABLE_TERMINFO=OFF \
     -DLLVM_ENABLE_ZLIB=ON
 
-# Build only the LLVM shared lib (not install)
+# Build only the LLVM shared lib (not install).
 cmake --build "${LLVM7_BUILD}" -j "${PARALLEL}" --target LLVM
 
-# Copy the .so to the install dir with a stable name for artifact passing
+# Asymmetric with ci/build-llvm-modern.sh which uses
+# `cmake --install --strip`: LLVM 7's tools/llvm-shlib creates extra
+# compatibility symlinks (libLLVM-7.so, libLLVM.so -> libLLVM-7.1.so)
+# regardless of CMAKE_PLATFORM_NO_VERSIONED_SONAME, and
+# `actions/upload-artifact`'s zip format materializes each symlink into
+# a full byte-identical copy -- 3x-bloating the artifact. The narrow
+# `cp` + manual `strip` avoids that entirely.
 LLVM7_SO="$(ls "${LLVM7_BUILD}"/lib/libLLVM-7*.so | head -1)"
+strip --strip-unneeded "${LLVM7_SO}"
 cp "${LLVM7_SO}" "${LLVM7_INSTALL}/lib/libLLVM-7.so"
 
 echo "=== LLVM 7 built ==="

@@ -11,10 +11,15 @@ import math
 import operator
 import textwrap
 
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import Constant
-
 import numpy as np
+
+# Many helpers/@lower impls below built llvmlite IR (ir / Constant) for array
+# codegen. They take an llvmlite builder and are filtered out on the MLIR path
+# (arrays are lowered by numba_cuda_mlir.lowering.numpy), so the ir-using ones
+# are neutered to raise this. The live structural/typing helpers (make_array,
+# get_itemsize, load_item, store_item, make_view, numpy_empty_like_nd typing,
+# ...) are ir-free and unchanged.
+_DEAD_CODEGEN_MSG = "this arrayobj llvmlite codegen is not used on the MLIR path"
 
 from numba_cuda_mlir.numba_cuda.misc.special import literal_unroll
 from numba_cuda_mlir.numba_cuda import types, typing
@@ -84,12 +89,7 @@ def set_range_metadata(builder, load, lower_bound, upper_bound):
     Set the "range" metadata on a load instruction.
     Note the interval is in the form [lower_bound, upper_bound).
     """
-    range_operands = [
-        Constant(load.type, lower_bound),
-        Constant(load.type, upper_bound),
-    ]
-    md = builder.module.add_metadata(range_operands)
-    load.set_metadata("range", md)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def mark_positive(builder, load):
@@ -229,65 +229,11 @@ def populate_array(array, data, shape, strides, itemsize, meminfo, parent=None):
 
     *shape* and *strides* can be Python tuples or LLVM arrays.
     """
-    context = array._context
-    builder = array._builder
-    datamodel = array._datamodel
-    # doesn't matter what this array type instance is, it's just to get the
-    # fields for the datamodel of the standard array type in this context
-    standard_array = types.Array(types.float64, 1, "C")
-    standard_array_type_datamodel = context.data_model_manager[standard_array]
-    required_fields = set(standard_array_type_datamodel._fields)
-    datamodel_fields = set(datamodel._fields)
-    # Make sure that the presented array object has a data model that is close
-    # enough to an array for this function to proceed.
-    if (required_fields & datamodel_fields) != required_fields:
-        missing = required_fields - datamodel_fields
-        msg = (
-            f"The datamodel for type {array._fe_type} is missing "
-            f"field{'s' if len(missing) > 1 else ''} {missing}."
-        )
-        raise ValueError(msg)
-
-    if meminfo is None:
-        meminfo = Constant(context.get_value_type(datamodel.get_type("meminfo")), None)
-
-    intp_t = context.get_value_type(types.intp)
-    if isinstance(shape, (tuple, list)):
-        shape = cgutils.pack_array(builder, shape, intp_t)
-    if isinstance(strides, (tuple, list)):
-        strides = cgutils.pack_array(builder, strides, intp_t)
-    if isinstance(itemsize, int):
-        itemsize = intp_t(itemsize)
-
-    attrs = dict(
-        shape=shape,
-        strides=strides,
-        data=data,
-        itemsize=itemsize,
-        meminfo=meminfo,
-    )
-
-    # Set `parent` attribute
-    if parent is None:
-        attrs["parent"] = Constant(context.get_value_type(datamodel.get_type("parent")), None)
-    else:
-        attrs["parent"] = parent
-    # Calc num of items from shape
-    nitems = context.get_constant(types.intp, 1)
-    unpacked_shape = cgutils.unpack_tuple(builder, shape, shape.type.count)
-    # (note empty shape => 0d array therefore nitems = 1)
-    for axlen in unpacked_shape:
-        nitems = builder.mul(nitems, axlen, flags=["nsw"])
-    attrs["nitems"] = nitems
-
-    # Make sure that we have all the fields
-    got_fields = set(attrs.keys())
-    if got_fields != required_fields:
-        raise ValueError("missing {0}".format(required_fields - got_fields))
-
-    # Set field value
-    for k, v in attrs.items():
-        setattr(array, k, v)
+    # Built the array struct value with llvmlite (Constant defaults for
+    # meminfo/parent, cgutils packing, builder.mul). Dead on the MLIR path -
+    # array values are built by numba_cuda_mlir.lowering; callers
+    # (make_constant_array, the vendored ufunc machinery) are themselves dead.
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
     return array
 
@@ -754,15 +700,7 @@ class EntireIndexer(Indexer):
         return (self.ll_intp(0), self.size)
 
     def loop_head(self):
-        builder = self.builder
-        # Initialize loop variable
-        self.builder.store(Constant(self.ll_intp, 0), self.index)
-        builder.branch(self.bb_start)
-        builder.position_at_end(self.bb_start)
-        cur_index = builder.load(self.index)
-        with builder.if_then(builder.icmp_signed(">=", cur_index, self.size), likely=False):
-            builder.branch(self.bb_end)
-        return cur_index, cur_index
+        raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
     def loop_tail(self):
         builder = self.builder
@@ -787,7 +725,7 @@ class IntegerIndexer(Indexer):
         pass
 
     def get_size(self):
-        return Constant(self.ll_intp, 1)
+        raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
     def get_shape(self):
         return ()
@@ -835,25 +773,7 @@ class IntegerArrayIndexer(Indexer):
         return (self.ll_intp(0), self.size)
 
     def loop_head(self):
-        builder = self.builder
-        # Initialize loop variable
-        self.builder.store(Constant(self.ll_intp, 0), self.idx_index)
-        builder.branch(self.bb_start)
-        builder.position_at_end(self.bb_start)
-        cur_index = builder.load(self.idx_index)
-        with builder.if_then(builder.icmp_signed(">=", cur_index, self.idx_size), likely=False):
-            builder.branch(self.bb_end)
-        # Load the actual index from the array of indices
-        index = _getitem_array_single_int(
-            self.context,
-            builder,
-            self.idxty.dtype,
-            self.idxty,
-            self.idxary,
-            cur_index,
-        )
-        index = fix_integer_index(self.context, builder, self.idxty.dtype, index, self.size)
-        return index, cur_index
+        raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
     def loop_tail(self):
         builder = self.builder
@@ -875,7 +795,9 @@ class BooleanArrayIndexer(Indexer):
         self.idxary = idxary
         assert idxty.ndim == 1
         self.ll_intp = self.context.get_value_type(types.intp)
-        self.zero = Constant(self.ll_intp, 0)
+        # llvmlite Constant discarded; this indexer's codegen is dead on the
+        # MLIR path.
+        self.zero = None
 
     def prepare(self):
         builder = self.builder
@@ -964,7 +886,9 @@ class SliceIndexer(Indexer):
         self.idxty = idxty
         self.slice = slice
         self.ll_intp = self.context.get_value_type(types.intp)
-        self.zero = Constant(self.ll_intp, 0)
+        # llvmlite Constant discarded; this indexer's codegen is dead on the
+        # MLIR path.
+        self.zero = None
 
     def prepare(self):
         builder = self.builder
@@ -1458,24 +1382,7 @@ def _numpy_broadcast_to(typingctx, array, shape):
     sig = ret(array, shape)
 
     def codegen(context, builder, sig, args):
-        src, shape_ = args
-        srcty = sig.args[0]
-
-        src = make_array(srcty)(context, builder, src)
-        shape_ = cgutils.unpack_tuple(builder, shape_)
-        _, dest = _broadcast_to_shape(
-            context,
-            builder,
-            srcty,
-            src,
-            shape_,
-        )
-
-        # Hack to get np.broadcast_to to return a read-only array
-        dest.parent = Constant(context.get_value_type(dest._datamodel.get_type("parent")), None)
-
-        res = dest._getvalue()
-        return impl_ret_borrowed(context, builder, sig.return_type, res)
+        raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
     return sig, codegen
 
@@ -1917,62 +1824,7 @@ def permute_arrays(axis, shape, strides):
 # based on the given axes.
 @lower("array.transpose", types.Array, types.BaseTuple)
 def array_transpose_tuple(context, builder, sig, args):
-    aryty = sig.args[0]
-    ary = make_array(aryty)(context, builder, args[0])
-
-    axisty, axis = sig.args[1], args[1]
-    num_axis, dtype = axisty.count, axisty.dtype
-
-    ll_intp = context.get_value_type(types.intp)
-    ll_ary_size = ir.ArrayType(ll_intp, num_axis)
-
-    # Allocate memory for axes, shapes, and strides arrays.
-    arys = [axis, ary.shape, ary.strides]
-    ll_arys = [cgutils.alloca_once(builder, ll_ary_size) for _ in arys]
-
-    # Store axes, shapes, and strides arrays to the allocated memory.
-    for src, dst in zip(arys, ll_arys):
-        builder.store(src, dst)
-
-    np_ary_ty = types.Array(dtype=dtype, ndim=1, layout="C")
-    np_itemsize = context.get_constant(types.intp, context.get_abi_sizeof(ll_intp))
-
-    # Form NumPy arrays for axes, shapes, and strides arrays.
-    np_arys = [make_array(np_ary_ty)(context, builder) for _ in arys]
-
-    # Roughly, `np_ary = np.array(ll_ary)` for each of axes, shapes, and strides
-    for np_ary, ll_ary in zip(np_arys, ll_arys):
-        populate_array(
-            np_ary,
-            data=builder.bitcast(ll_ary, ll_intp.as_pointer()),
-            shape=[context.get_constant(types.intp, num_axis)],
-            strides=[np_itemsize],
-            itemsize=np_itemsize,
-            meminfo=None,
-        )
-
-    # Pass NumPy arrays formed above to permute_arrays function that permutes
-    # shapes and strides based on axis contents.
-    context.compile_internal(
-        builder,
-        permute_arrays,
-        typing.signature(types.void, np_ary_ty, np_ary_ty, np_ary_ty),
-        [a._getvalue() for a in np_arys],
-    )
-
-    # Make a new array based on permuted shape and strides and return it.
-    ret = make_array(sig.return_type)(context, builder)
-    populate_array(
-        ret,
-        data=ary.data,
-        shape=builder.load(ll_arys[1]),
-        strides=builder.load(ll_arys[2]),
-        itemsize=ary.itemsize,
-        meminfo=ary.meminfo,
-        parent=ary.parent,
-    )
-    res = ret._getvalue()
-    return impl_ret_borrowed(context, builder, sig.return_type, res)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 @lower("array.transpose", types.Array, types.VarArg(types.Any))
@@ -2149,48 +2001,7 @@ def _attempt_nocopy_reshape(context, builder, aryty, ary, newnd, newshape, newst
     Return value is non-zero if successful, and the array pointed to
     by *newstrides* will be filled up with the computed results.
     """
-    ll_intp = context.get_value_type(types.intp)
-    ll_intp_star = ll_intp.as_pointer()
-    ll_intc = context.get_value_type(types.intc)
-    fnty = ir.FunctionType(
-        ll_intc,
-        [
-            # nd, *dims, *strides
-            ll_intp,
-            ll_intp_star,
-            ll_intp_star,
-            # newnd, *newdims, *newstrides
-            ll_intp,
-            ll_intp_star,
-            ll_intp_star,
-            # itemsize, is_f_order
-            ll_intp,
-            ll_intc,
-        ],
-    )
-    fn = cgutils.get_or_insert_function(builder.module, fnty, "numba_attempt_nocopy_reshape")
-
-    nd = ll_intp(aryty.ndim)
-    shape = cgutils.gep_inbounds(builder, ary._get_ptr_by_name("shape"), 0, 0)
-    strides = cgutils.gep_inbounds(builder, ary._get_ptr_by_name("strides"), 0, 0)
-    newnd = ll_intp(newnd)
-    newshape = cgutils.gep_inbounds(builder, newshape, 0, 0)
-    newstrides = cgutils.gep_inbounds(builder, newstrides, 0, 0)
-    is_f_order = ll_intc(0)
-    res = builder.call(
-        fn,
-        [
-            nd,
-            shape,
-            strides,
-            newnd,
-            newshape,
-            newstrides,
-            ary.itemsize,
-            is_f_order,
-        ],
-    )
-    return res
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def normalize_reshape_value(origsize, shape):
@@ -2225,71 +2036,7 @@ def normalize_reshape_value(origsize, shape):
 
 @lower("array.reshape", types.Array, types.BaseTuple)
 def array_reshape(context, builder, sig, args):
-    aryty = sig.args[0]
-    retty = sig.return_type
-
-    shapety = sig.args[1]
-    shape = args[1]
-
-    ll_intp = context.get_value_type(types.intp)
-    ll_shape = ir.ArrayType(ll_intp, shapety.count)
-
-    ary = make_array(aryty)(context, builder, args[0])
-
-    # We will change the target shape in this slot
-    # (see normalize_reshape_value() below)
-    newshape = cgutils.alloca_once(builder, ll_shape)
-    builder.store(shape, newshape)
-
-    # Create a shape array pointing to the value of newshape.
-    # (roughly, `shape_ary = np.array(ary.shape)`)
-    shape_ary_ty = types.Array(dtype=shapety.dtype, ndim=1, layout="C")
-    shape_ary = make_array(shape_ary_ty)(context, builder)
-    shape_itemsize = context.get_constant(types.intp, context.get_abi_sizeof(ll_intp))
-    populate_array(
-        shape_ary,
-        data=builder.bitcast(newshape, ll_intp.as_pointer()),
-        shape=[context.get_constant(types.intp, shapety.count)],
-        strides=[shape_itemsize],
-        itemsize=shape_itemsize,
-        meminfo=None,
-    )
-
-    # Compute the original array size
-    size = ary.nitems
-
-    # Call our normalizer which will fix the shape array in case of negative
-    # shape value
-    context.compile_internal(
-        builder,
-        normalize_reshape_value,
-        typing.signature(types.void, types.uintp, shape_ary_ty),
-        [size, shape_ary._getvalue()],
-    )
-
-    # Perform reshape (nocopy)
-    newnd = shapety.count
-    newstrides = cgutils.alloca_once(builder, ll_shape)
-
-    ok = _attempt_nocopy_reshape(context, builder, aryty, ary, newnd, newshape, newstrides)
-    fail = builder.icmp_unsigned("==", ok, ok.type(0))
-
-    with builder.if_then(fail):
-        msg = "incompatible shape for array"
-        context.fndesc.call_conv.return_user_exc(builder, NotImplementedError, (msg,))
-
-    ret = make_array(retty)(context, builder)
-    populate_array(
-        ret,
-        data=ary.data,
-        shape=builder.load(newshape),
-        strides=builder.load(newstrides),
-        itemsize=ary.itemsize,
-        meminfo=ary.meminfo,
-        parent=ary.parent,
-    )
-    res = ret._getvalue()
-    return impl_ret_borrowed(context, builder, sig.return_type, res)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 @lower("array.reshape", types.Array, types.VarArg(types.Any))
@@ -2898,36 +2645,7 @@ def ol_compatible_view(a, dtype):
 
 @lower("array.view", types.Array, types.DTypeSpec)
 def array_view(context, builder, sig, args):
-    aryty = sig.args[0]
-    retty = sig.return_type
-
-    ary = make_array(aryty)(context, builder, args[0])
-    ret = make_array(retty)(context, builder)
-    # Copy all fields, casting the "data" pointer appropriately
-    fields = set(ret._datamodel._fields)
-    for k in sorted(fields):
-        val = getattr(ary, k)
-        if k == "data":
-            ptrty = ret.data.type
-            ret.data = builder.bitcast(val, ptrty)
-        else:
-            setattr(ret, k, val)
-
-    tyctx = context.typing_context
-    fnty = tyctx.resolve_value_type(_compatible_view)
-    _compatible_view_sig = fnty.get_call_type(tyctx, (*sig.args,), {})
-    impl = context.get_function(fnty, _compatible_view_sig)
-    impl(builder, args)
-
-    ok = _change_dtype(context, builder, aryty, retty, ret)
-    fail = builder.icmp_unsigned("==", ok, Constant(ok.type, 0))
-
-    with builder.if_then(fail):
-        msg = "new type not compatible with array"
-        context.fndesc.call_conv.return_user_exc(builder, ValueError, (msg,))
-
-    res = ret._getvalue()
-    return impl_ret_borrowed(context, builder, sig.return_type, res)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 # ------------------------------------------------------------------------------
@@ -3176,31 +2894,7 @@ def array_complex_attr(context, builder, typ, value, attr):
         x C x C x C
           ^   ^   ^
     """
-    if attr not in ["real", "imag"] or typ.dtype not in types.complex_domain:
-        raise NotImplementedError("cannot get attribute `{}`".format(attr))
-
-    arrayty = make_array(typ)
-    array = arrayty(context, builder, value)
-
-    # sizeof underlying float type
-    flty = typ.dtype.underlying_float
-    sizeof_flty = context.get_abi_sizeof(context.get_data_type(flty))
-    itemsize = array.itemsize.type(sizeof_flty)
-
-    # cast data pointer to float type
-    llfltptrty = context.get_value_type(flty).as_pointer()
-    dataptr = builder.bitcast(array.data, llfltptrty)
-
-    # add offset
-    if attr == "imag":
-        dataptr = builder.gep(dataptr, [ir.IntType(32)(1)])
-
-    # make result
-    resultty = typ.copy(dtype=flty, layout="A")
-    result = make_array(resultty)(context, builder)
-    repl = dict(data=dataptr, itemsize=itemsize)
-    cgutils.copy_struct(result, array, repl)
-    return impl_ret_borrowed(context, builder, resultty, result._getvalue())
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 @overload_method(types.Array, "conj")
@@ -3509,9 +3203,7 @@ def constant_record(context, builder, ty, pyval):
     """
     Create a record constant as a stack-allocated array of bytes.
     """
-    lty = ir.ArrayType(ir.IntType(8), pyval.nbytes)
-    val = lty(bytearray(pyval.tostring()))
-    return cgutils.alloca_once_value(builder, val)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 @lower_constant(types.Bytes)
@@ -4409,9 +4101,7 @@ def iternext_numpy_nditer2(context, builder, sig, args, result):
 
 @lower(operator.eq, types.DType, types.DType)
 def dtype_eq_impl(context, builder, sig, args):
-    arg1, arg2 = sig.args
-    res = ir.Constant(ir.IntType(1), int(arg1 == arg2))
-    return impl_ret_untracked(context, builder, sig.return_type, res)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 # ------------------------------------------------------------------------------
@@ -4424,80 +4114,10 @@ def _empty_nd_impl(context, builder, arrtype, shapes):
     type, and a tuple or list of lowered dimension sizes, returns a
     LLVM value pointing at a Numba runtime allocated array.
     """
-    arycls = make_array(arrtype)
-    ary = arycls(context, builder)
-
-    datatype = context.get_data_type(arrtype.dtype)
-    itemsize = context.get_constant(types.intp, get_itemsize(context, arrtype))
-
-    # compute array length
-    arrlen = context.get_constant(types.intp, 1)
-    overflow = Constant(ir.IntType(1), 0)
-    for s in shapes:
-        arrlen_mult = builder.smul_with_overflow(arrlen, s)
-        arrlen = builder.extract_value(arrlen_mult, 0)
-        overflow = builder.or_(overflow, builder.extract_value(arrlen_mult, 1))
-
-    if arrtype.ndim == 0:
-        strides = ()
-    elif arrtype.layout == "C":
-        strides = [itemsize]
-        for dimension_size in reversed(shapes[1:]):
-            strides.append(builder.mul(strides[-1], dimension_size))
-        strides = tuple(reversed(strides))
-    elif arrtype.layout == "F":
-        strides = [itemsize]
-        for dimension_size in shapes[:-1]:
-            strides.append(builder.mul(strides[-1], dimension_size))
-        strides = tuple(strides)
-    else:
-        raise NotImplementedError(
-            "Don't know how to allocate array with layout '{0}'.".format(arrtype.layout)
-        )
-
-    # Check overflow, numpy also does this after checking order
-    allocsize_mult = builder.smul_with_overflow(arrlen, itemsize)
-    allocsize = builder.extract_value(allocsize_mult, 0)
-    overflow = builder.or_(overflow, builder.extract_value(allocsize_mult, 1))
-
-    with builder.if_then(overflow, likely=False):
-        # Raise same error as numpy, see:
-        # https://github.com/numpy/numpy/blob/2a488fe76a0f732dc418d03b452caace161673da/numpy/core/src/multiarray/ctors.c#L1095-L1101    # noqa: E501
-        context.fndesc.call_conv.return_user_exc(
-            builder,
-            ValueError,
-            (
-                "array is too big; `arr.size * arr.dtype.itemsize` is larger than"
-                " the maximum possible size.",
-            ),
-        )
-
-    dtype = arrtype.dtype
-    align_val = context.get_preferred_array_alignment(dtype)
-    align = context.get_constant(types.uint32, align_val)
-    args = (context.get_dummy_value(), allocsize, align)
-
-    mip = types.MemInfoPointer(types.voidptr)
-    arytypeclass = types.TypeRef(type(arrtype))
-    argtypes = signature(mip, arytypeclass, types.intp, types.uint32)
-
-    meminfo = context.compile_internal(builder, _call_allocator, argtypes, args)
-    data = context.nrt.meminfo_data(builder, meminfo)
-
-    intp_t = context.get_value_type(types.intp)
-    shape_array = cgutils.pack_array(builder, shapes, ty=intp_t)
-    strides_array = cgutils.pack_array(builder, strides, ty=intp_t)
-
-    populate_array(
-        ary,
-        data=builder.bitcast(data, datatype.as_pointer()),
-        shape=shape_array,
-        strides=strides_array,
-        itemsize=itemsize,
-        meminfo=meminfo,
-    )
-
-    return ary
+    # Allocated a Numba-runtime array and built its struct with llvmlite. Dead
+    # on the MLIR path (array allocation is lowered by numba_cuda_mlir.lowering;
+    # numpy_empty_like_nd's typing is live but its codegen is filtered out).
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 @overload_classmethod(types.Array, "_allocate")
@@ -4538,25 +4158,7 @@ def _parse_shape(context, builder, ty, val):
 
     def safecast_intp(context, builder, src_t, src):
         """Cast src to intp only if value can be maintained"""
-        intp_t = context.get_value_type(types.intp)
-        intp_width = intp_t.width
-        intp_ir = ir.IntType(intp_width)
-        maxval = Constant(intp_ir, ((1 << intp_width - 1) - 1))
-        if src_t.width < intp_width:
-            res = builder.sext(src, intp_ir)
-        elif src_t.width >= intp_width:
-            is_larger = builder.icmp_signed(">", src, maxval)
-            with builder.if_then(is_larger, likely=False):
-                context.fndesc.call_conv.return_user_exc(
-                    builder,
-                    ValueError,
-                    ("Cannot safely convert value to intp",),
-                )
-            if src_t.width > intp_width:
-                res = builder.trunc(src, intp_ir)
-            else:
-                res = src
-        return res
+        raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
     if isinstance(ty, types.Integer):
         ndim = 1
@@ -5296,41 +4898,7 @@ def np_frombuffer(typingctx, buffer, dtype, retty):
     sig = ty(buffer, dtype, retty)
 
     def codegen(context, builder, sig, args):
-        bufty = sig.args[0]
-        aryty = sig.return_type
-
-        buf = make_array(bufty)(context, builder, value=args[0])
-        out_ary_ty = make_array(aryty)
-        out_ary = out_ary_ty(context, builder)
-        out_datamodel = out_ary._datamodel
-
-        itemsize = get_itemsize(context, aryty)
-        ll_itemsize = Constant(buf.itemsize.type, itemsize)
-        nbytes = builder.mul(buf.nitems, buf.itemsize)
-
-        # Check that the buffer size is compatible
-        rem = builder.srem(nbytes, ll_itemsize)
-        is_incompatible = cgutils.is_not_null(builder, rem)
-        with builder.if_then(is_incompatible, likely=False):
-            msg = "buffer size must be a multiple of element size"
-            context.fndesc.call_conv.return_user_exc(builder, ValueError, (msg,))
-
-        shape = cgutils.pack_array(builder, [builder.sdiv(nbytes, ll_itemsize)])
-        strides = cgutils.pack_array(builder, [ll_itemsize])
-        data = builder.bitcast(buf.data, context.get_value_type(out_datamodel.get_type("data")))
-
-        populate_array(
-            out_ary,
-            data=data,
-            shape=shape,
-            strides=strides,
-            itemsize=ll_itemsize,
-            meminfo=buf.meminfo,
-            parent=buf.parent,
-        )
-
-        res = out_ary._getvalue()
-        return impl_ret_borrowed(context, builder, sig.return_type, res)
+        raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
     return sig, codegen
 
@@ -5526,30 +5094,7 @@ def compute_sequence_shape(context, builder, ndim, seqty, seq):
     """
     Compute the likely shape of a nested sequence (possibly 0d).
     """
-    intp_t = context.get_value_type(types.intp)
-    zero = Constant(intp_t, 0)
-
-    def get_first_item(seqty, seq):
-        if isinstance(seqty, types.BaseTuple):
-            if len(seqty) == 0:
-                return None, None
-            else:
-                return seqty[0], builder.extract_value(seq, 0)
-        else:
-            getitem_impl = _get_borrowing_getitem(context, seqty)
-            return seqty.dtype, getitem_impl(builder, (seq, zero))
-
-    # Compute shape by traversing the first element of each nested
-    # sequence
-    shapes = []
-    innerty, inner = seqty, seq
-
-    for i in range(ndim):
-        if i > 0:
-            innerty, inner = get_first_item(innerty, inner)
-        shapes.append(_get_seq_size(context, builder, innerty, inner))
-
-    return tuple(shapes)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def check_sequence_shape(context, builder, seqty, seq, shapes):
@@ -5720,51 +5265,14 @@ def _insert_axis_in_shape(context, builder, orig_shape, ndim, axis):
     e.g. given original shape (2, 3, 4) and axis=2,
     the returned new shape is (2, 3, 1, 4).
     """
-    assert len(orig_shape) == ndim - 1
-
-    ll_shty = ir.ArrayType(cgutils.intp_t, ndim)
-    shapes = cgutils.alloca_once(builder, ll_shty)
-
-    one = cgutils.intp_t(1)
-
-    # 1. copy original sizes at appropriate places
-    for dim in range(ndim - 1):
-        ll_dim = cgutils.intp_t(dim)
-        after_axis = builder.icmp_signed(">=", ll_dim, axis)
-        sh = orig_shape[dim]
-        idx = builder.select(after_axis, builder.add(ll_dim, one), ll_dim)
-        builder.store(sh, cgutils.gep_inbounds(builder, shapes, 0, idx))
-
-    # 2. insert new size (1) at axis dimension
-    builder.store(one, cgutils.gep_inbounds(builder, shapes, 0, axis))
-
-    return cgutils.unpack_tuple(builder, builder.load(shapes))
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def _insert_axis_in_strides(context, builder, orig_strides, ndim, axis):
     """
     Same as _insert_axis_in_shape(), but with a strides array.
     """
-    assert len(orig_strides) == ndim - 1
-
-    ll_shty = ir.ArrayType(cgutils.intp_t, ndim)
-    strides = cgutils.alloca_once(builder, ll_shty)
-
-    one = cgutils.intp_t(1)
-    zero = cgutils.intp_t(0)
-
-    # 1. copy original strides at appropriate places
-    for dim in range(ndim - 1):
-        ll_dim = cgutils.intp_t(dim)
-        after_axis = builder.icmp_signed(">=", ll_dim, axis)
-        idx = builder.select(after_axis, builder.add(ll_dim, one), ll_dim)
-        builder.store(orig_strides[dim], cgutils.gep_inbounds(builder, strides, 0, idx))
-
-    # 2. insert new stride at axis dimension
-    # (the value is indifferent for a 1-sized dimension, we use 0)
-    builder.store(zero, cgutils.gep_inbounds(builder, strides, 0, axis))
-
-    return cgutils.unpack_tuple(builder, builder.load(strides))
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def expand_dims(context, builder, sig, args, axis):
@@ -6040,91 +5548,7 @@ def _np_concatenate(context, builder, arrtys, arrs, retty, axis):
 
 
 def _np_stack(context, builder, arrtys, arrs, retty, axis):
-    ndim = retty.ndim
-
-    zero = cgutils.intp_t(0)
-    one = cgutils.intp_t(1)
-    ll_narrays = cgutils.intp_t(len(arrs))
-
-    arrs = [make_array(aty)(context, builder, value=a) for aty, a in zip(arrtys, arrs)]
-
-    axis = _normalize_axis(context, builder, "np.stack", ndim, axis)
-
-    # Check input arrays have the same shape
-    orig_shape = cgutils.unpack_tuple(builder, arrs[0].shape)
-
-    for arr in arrs[1:]:
-        is_ok = cgutils.true_bit
-        for sh, orig_sh in zip(cgutils.unpack_tuple(builder, arr.shape), orig_shape):
-            is_ok = builder.and_(is_ok, builder.icmp_signed("==", sh, orig_sh))
-            with builder.if_then(builder.not_(is_ok), likely=False):
-                context.fndesc.call_conv.return_user_exc(
-                    builder,
-                    ValueError,
-                    ("np.stack(): all input arrays must have the same shape",),
-                )
-
-    orig_strides = [cgutils.unpack_tuple(builder, arr.strides) for arr in arrs]
-
-    # Compute input shapes and return shape with the new axis inserted
-    # e.g. given 5 input arrays of shape (2, 3, 4) and axis=1,
-    # corrected input shape is (2, 1, 3, 4) and return shape is (2, 5, 3, 4).
-    ll_shty = ir.ArrayType(cgutils.intp_t, ndim)
-
-    input_shapes = cgutils.alloca_once(builder, ll_shty)
-    ret_shapes = cgutils.alloca_once(builder, ll_shty)
-
-    # 1. copy original sizes at appropriate places
-    for dim in range(ndim - 1):
-        ll_dim = cgutils.intp_t(dim)
-        after_axis = builder.icmp_signed(">=", ll_dim, axis)
-        sh = orig_shape[dim]
-        idx = builder.select(after_axis, builder.add(ll_dim, one), ll_dim)
-        builder.store(sh, cgutils.gep_inbounds(builder, input_shapes, 0, idx))
-        builder.store(sh, cgutils.gep_inbounds(builder, ret_shapes, 0, idx))
-
-    # 2. insert new size at axis dimension
-    builder.store(one, cgutils.gep_inbounds(builder, input_shapes, 0, axis))
-    builder.store(ll_narrays, cgutils.gep_inbounds(builder, ret_shapes, 0, axis))
-
-    input_shapes = cgutils.unpack_tuple(builder, builder.load(input_shapes))
-    input_shapes = [input_shapes] * len(arrs)
-    ret_shapes = cgutils.unpack_tuple(builder, builder.load(ret_shapes))
-
-    # Compute input strides for each array with the new axis inserted
-    input_strides = [cgutils.alloca_once(builder, ll_shty) for i in range(len(arrs))]
-
-    # 1. copy original strides at appropriate places
-    for dim in range(ndim - 1):
-        ll_dim = cgutils.intp_t(dim)
-        after_axis = builder.icmp_signed(">=", ll_dim, axis)
-        idx = builder.select(after_axis, builder.add(ll_dim, one), ll_dim)
-        for i in range(len(arrs)):
-            builder.store(
-                orig_strides[i][dim],
-                cgutils.gep_inbounds(builder, input_strides[i], 0, idx),
-            )
-
-    # 2. insert new stride at axis dimension
-    # (the value is indifferent for a 1-sized dimension, we put 0)
-    for i in range(len(arrs)):
-        builder.store(zero, cgutils.gep_inbounds(builder, input_strides[i], 0, axis))
-
-    input_strides = [cgutils.unpack_tuple(builder, builder.load(st)) for st in input_strides]
-
-    # Create concatenated array
-    ret = _do_concatenate(
-        context,
-        builder,
-        axis,
-        arrtys,
-        arrs,
-        input_shapes,
-        input_strides,
-        retty,
-        ret_shapes,
-    )
-    return impl_ret_new_ref(context, builder, retty, ret._getvalue())
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def np_concatenate_typer(typingctx, arrays, axis):
@@ -6354,7 +5778,7 @@ def impl_np_vstack(tup):
         return impl
 
 
-if numpy_version >= (2, 0):
+if (2, 0) <= numpy_version < (2, 5):
     overload(np.row_stack)(impl_np_vstack)
 
 

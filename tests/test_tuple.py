@@ -7,6 +7,17 @@ import numpy as np
 import pytest
 
 
+def test_compile_time_tuple_slice():
+    @cuda.jit
+    def kernel(out):
+        rev = (2, 4)[::-1]
+        out[0] = rev[0]
+
+    out = np.zeros(1, dtype=np.int64)
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(out, (4,))
+
+
 def test_tuple_builtin_hetero_tuple():
     @cuda.jit
     def k(r_int, r_float, x):
@@ -110,6 +121,20 @@ def test_captured_namedtuple_getattr():
     assert r[0] == np.float32(1)
 
 
+def test_captured_namedtuple_unpack():
+    LD = namedtuple("LD", ["a", "b", "c"])
+    dim = LD(2, 4, 8)
+    out = np.zeros(1, dtype=np.int64)
+
+    @cuda.jit
+    def kernel(out):
+        a, b, c = dim
+        out[0] = a + b + c
+
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(out, 14)
+
+
 @pytest.mark.parametrize(
     "Point, vals, dtypes",
     [
@@ -157,7 +182,6 @@ def test_empty_tuple():
     assert r[0] == 0
 
 
-@pytest.mark.xfail(reason="nested tuple indexing NYI")
 def test_tuple_of_empty_tuples():
     @cuda.jit
     def f(r, x):
@@ -171,7 +195,6 @@ def test_tuple_of_empty_tuples():
     assert r[1] == 0
 
 
-@pytest.mark.xfail(reason="nested tuple indexing NYI")
 def test_tuple_of_tuples():
     @cuda.jit
     def f(r, x):
@@ -192,7 +215,6 @@ def test_tuple_of_tuples():
     np.testing.assert_array_equal(r, expected)
 
 
-@pytest.mark.xfail(reason="nested tuple indexing NYI")
 def test_tuple_of_tuples_and_scalars():
     @cuda.jit
     def f(r, x):
@@ -229,7 +251,6 @@ def test_tuple_of_arrays():
     np.testing.assert_equal(x0, x1 + x2)
 
 
-@pytest.mark.xfail(reason="heterogeneous tuple of arrays/scalars/tuples NYI")
 def test_tuple_of_array_scalar_tuple():
     @cuda.jit
     def f(r, x):

@@ -204,7 +204,16 @@ static void close_library_handle(void* handle) {
 }
 
 Status load_mlir_capi(const char* lib_path) {
-    std::lock_guard<std::mutex> guard(g_mlir_capi_mutex);
+    std::unique_lock<std::mutex> guard(g_mlir_capi_mutex, std::defer_lock);
+#ifdef Py_GIL_DISABLED
+    if (!guard.try_lock()) {
+        Py_BEGIN_ALLOW_THREADS
+        guard.lock();
+        Py_END_ALLOW_THREADS
+    }
+#else
+    guard.lock();
+#endif
 
     if (g_mlir_lib_handle)
         return OK;

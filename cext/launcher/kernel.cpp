@@ -1460,10 +1460,6 @@ struct KernelDispatcher {
     PyPtr compile_func;
     PyPtr ensure_context_func;
     std::vector<bool> constant_arg_flags;
-#ifdef Py_GIL_DISABLED
-    std::unique_ptr<std::recursive_mutex> launch_mutex =
-        std::make_unique<std::recursive_mutex>();
-#endif
     ProfileMap arg_profiles;
     FamilyMap kernel_families;
 };
@@ -1759,10 +1755,6 @@ bool try_clarify_launch_out_of_resources_error(CUkernel kernel, const Grid& bloc
 Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional<Grid> cluster,
               std::optional<CUstream> stream, int sharedmem,
               PyObject* const* pyargs, Py_ssize_t num_pyargs) {
-#ifdef Py_GIL_DISABLED
-    std::lock_guard<std::recursive_mutex> launch_guard(*dispatcher.launch_mutex);
-#endif
-
     LaunchHelperPtr helper = launch_helper_get();
     get_pyarg_types(pyargs, num_pyargs, helper->pyarg_types);
 

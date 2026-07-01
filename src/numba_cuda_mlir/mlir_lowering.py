@@ -1572,6 +1572,13 @@ extern "C" __global__ void
                 index_type = self.get_numba_type(index.name)
             case _:
                 raise NotImplementedError(f"lowering getitem {target} = {value}[{index}]")
+
+        if isinstance(value_type, types.BaseNamedTuple) and isinstance(index, int):
+            result = self.load_var(value)[index]
+            self.incref(target_type, result)
+            self.store_var(target, result)
+            return
+
         signature = target_type(value_type, index_type)
         if builder := self.get_registered_builder(operator.getitem, signature):
             builder(self, target, [value, index], [])

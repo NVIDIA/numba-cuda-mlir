@@ -12,7 +12,6 @@ import numpy as np
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda.types import CPointer, int32
-from numba_cuda_mlir.testing import NumbaCUDATestCase
 from numba_cuda_mlir.numba_cuda.typing import signature
 import pytest
 
@@ -57,13 +56,13 @@ def sequential_rows(M):
         g.sync()
 
 
-class TestCudaCooperativeGroups(NumbaCUDATestCase):
+class TestCudaCooperativeGroups:
     def test_this_grid(self):
         A = np.full(1, fill_value=np.nan)
         this_grid[1, 1](A)
 
         # Ensure the kernel executed beyond the call to cuda.this_grid()
-        self.assertFalse(np.isnan(A[0]), "Value was not set")
+        assert not np.isnan(A[0]), "Value was not set"
 
     def test_this_grid_is_cooperative(self):
         A = np.full(1, fill_value=np.nan)
@@ -71,21 +70,21 @@ class TestCudaCooperativeGroups(NumbaCUDATestCase):
 
         # this_grid should have been determined to be cooperative
         for key, overload in this_grid.overloads.items():
-            self.assertTrue(overload.cooperative)
+            assert overload.cooperative
 
     def test_sync_group(self):
         A = np.full(1, fill_value=np.nan)
         sync_group[1, 1](A)
 
         # Ensure the kernel executed beyond the call to cuda.sync_group()
-        self.assertFalse(np.isnan(A[0]), "Value was not set")
+        assert not np.isnan(A[0]), "Value was not set"
 
     def test_sync_group_is_cooperative(self):
         A = np.full(1, fill_value=np.nan)
         sync_group[1, 1](A)
         # sync_group should have been determined to be cooperative
         for key, overload in sync_group.overloads.items():
-            self.assertTrue(overload.cooperative)
+            assert overload.cooperative
 
     @pytest.mark.xfail(True, reason="CodeLibrary implementation detail")
     def test_false_cooperative_doesnt_link_cudadevrt(self):
@@ -100,7 +99,7 @@ class TestCudaCooperativeGroups(NumbaCUDATestCase):
         for key, overload in no_sync.overloads.items():
             self.assertFalse(overload.cooperative)
             for link in overload._codelibrary._linking_files:
-                self.assertNotIn("cudadevrt", link)
+                assert "cudadevrt" not in link
 
     def test_sync_at_matrix_row(self):
         shape = (1024, 1024)
@@ -114,7 +113,7 @@ class TestCudaCooperativeGroups(NumbaCUDATestCase):
         overload = c_sequential_rows.overloads[sig]
         mb = overload.max_cooperative_grid_blocks(blockdim)
         if griddim > mb:
-            self.skipTest("GPU cannot support enough cooperative grid blocks")
+            pytest.skip("GPU cannot support enough cooperative grid blocks")
 
         c_sequential_rows[griddim, blockdim](A)
 
@@ -133,8 +132,8 @@ class TestCudaCooperativeGroups(NumbaCUDATestCase):
         blocks1d = overload.max_cooperative_grid_blocks(256)
         blocks2d = overload.max_cooperative_grid_blocks((16, 16))
         blocks3d = overload.max_cooperative_grid_blocks((16, 4, 4))
-        self.assertEqual(blocks1d, blocks2d)
-        self.assertEqual(blocks1d, blocks3d)
+        assert blocks1d == blocks2d
+        assert blocks1d == blocks3d
 
     def test_external_cooperative_func(self):
         cudapy_test_path = os.path.dirname(__file__)
@@ -158,4 +157,4 @@ class TestCudaCooperativeGroups(NumbaCUDATestCase):
         kernel[grid_size, block_size]()
 
         overload = kernel.overloads[()]
-        self.assertTrue(overload.cooperative)
+        assert overload.cooperative

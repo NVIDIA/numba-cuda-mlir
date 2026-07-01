@@ -3,6 +3,7 @@
 import os
 import shutil
 import sys
+import sysconfig
 from pathlib import Path
 
 from setuptools import setup
@@ -80,8 +81,6 @@ def _find_mlir_python_capi() -> str | None:
             if capi.exists():
                 return str(capi)
 
-    import sysconfig
-
     sp = Path(sysconfig.get_path("platlib"))
     mlir_libs = sp / "numba_cuda_mlir" / "_mlir" / "_mlir_libs"
     for capi_name in capi_names:
@@ -125,6 +124,8 @@ class BuildExtWithCmake(build_ext):
         if IS_WINDOWS:
             cmake_cmd += ["-G", "Ninja"]
         cmake_cmd += ["-B", build_dir, ROOT, f"-DCMAKE_BUILD_TYPE={build_type}"]
+        py_gil_disabled = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
+        cmake_cmd.append(f"-DNUMBA_CUDA_MLIR_PY_GIL_DISABLED={'ON' if py_gil_disabled else 'OFF'}")
         if IS_WINDOWS:
             # Static-link the MSVC C runtime (/MT) so each resulting DLL
             # embeds its own CRT copy and has no external msvcp140 /

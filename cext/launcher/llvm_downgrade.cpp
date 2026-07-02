@@ -193,13 +193,8 @@ Status load_mlir_capi(const char* lib_path) {
         return raise(PyExc_RuntimeError, "Failed to load %s: error %lu",
                      lib_path, GetLastError());
 #else
-    // RTLD_LOCAL: keep MLIR/LLVM C symbols out of the process-global
-    // namespace to avoid collisions with a differently-versioned LLVM
-    // embedded in another extension (Triton, Halide, Mojo, ...).
-    // libMLIRPythonCAPI.so is preloaded with RTLD_LOCAL | RTLD_DEEPBIND
-    // in numba_cuda_mlir/__init__.py, so this dlopen is a re-open; using
-    // RTLD_LOCAL here preserves that isolation. Only handle-based dlsym()
-    // is used below, which works with RTLD_LOCAL. See #170.
+    // RTLD_LOCAL: keep bundled LLVM/MLIR symbols out of the process-global
+    // namespace. See #170.
     g_mlir_lib_handle = dlopen(lib_path, RTLD_NOW | RTLD_LOCAL);
     if (!g_mlir_lib_handle)
         return raise(PyExc_RuntimeError, "Failed to load %s: %s",

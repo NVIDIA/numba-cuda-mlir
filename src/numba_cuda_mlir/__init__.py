@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Isolate bundled LLVM/MLIR libraries from any differently-versioned LLVM
-# elsewhere in the process (Triton, Halide, Mojo, ...). Must run before
-# any MLIR Python binding is imported. See #170.
+# DEEPBIND-preload bundled LLVM/MLIR libs before any MLIR binding is
+# imported, so their symbols cannot be preempted by another in-process
+# LLVM. See #170.
 _mlir_deepbind_handles = []
 
 
@@ -11,7 +11,7 @@ def _preload_mlir_libs_with_deepbind():
     import sys
 
     if not sys.platform.startswith("linux"):
-        return  # macOS / Windows have different symbol isolation semantics
+        return  # RTLD_DEEPBIND is Linux-only
 
     import ctypes
     import os
@@ -22,10 +22,8 @@ def _preload_mlir_libs_with_deepbind():
     )
     libs_dir = Path(__file__).parent / "_mlir" / "_mlir_libs"
 
-    # Dependencies first: libMLIRPythonCAPI.so has no sibling DT_NEEDED
-    # entries, so it loads cleanly with DEEPBIND. The other bundled libs
-    # DT_NEEDED it; loading them after CAPI means the transitive resolves
-    # find CAPI already in the process with DEEPBIND in place.
+    # CAPI first: it has no sibling DT_NEEDED so DEEPBIND applies at
+    # first load; the other libs DT_NEEDED it and reuse the handle.
     for name in (
         "libMLIRPythonCAPI.so",
         "libMLIRPythonSupport-numba_cuda_mlir.so",

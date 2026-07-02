@@ -57,6 +57,8 @@ class Linker(_Linker):
         When *ltoir_only* is True, only LTOIR objects are copied (useful for
         diagnostic ``-ptx`` links that require all inputs to be LTOIR).
         """
+        self._materialize_pending_cu()
+
         existing = list(getattr(self, "_object_codes", []))
         new_linker = Linker(
             cc=self.cc,

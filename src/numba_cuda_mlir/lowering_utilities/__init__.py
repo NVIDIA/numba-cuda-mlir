@@ -7,6 +7,7 @@ from numba_cuda_mlir.errors import InternalCompilerError
 from functools import singledispatch
 from dataclasses import dataclass
 from abc import abstractmethod
+from collections.abc import Sequence
 import functools
 import numpy as np
 from numba_cuda_mlir.numba_cuda import types, typing
@@ -26,6 +27,8 @@ from numba_cuda_mlir._mlir.dialects import (
     llvm,
     cf,
     builtin,
+    complex as complex_dialect,
+    vector as vector_dialect,
 )
 from numba_cuda_mlir.mlir.dialect_exts import scf
 from numba_cuda_mlir._mlir.extras.meta import region_op
@@ -37,11 +40,64 @@ import operator
 GEP_DYNAMIC_INDEX = -2147483648
 
 
+def memref_llvm_address_space(memref_type: ir.MemRefType) -> int:
+    """Return the NVVM LLVM address space for a CUDA memref type.
+
+    Untagged CUDA kernel argument memrefs represent global memory. Tagged memrefs
+    are used for explicit CUDA spaces such as workgroup/shared and private/local.
+    """
+    memory_space = memref_type.memory_space
+    if memory_space is None:
+        return 1
+    if isinstance(memory_space, ir.IntegerAttr):
+        return int(memory_space.value)
+    memory_space_str = str(memory_space)
+    if "workgroup" in memory_space_str:
+        return 3
+    if "private" in memory_space_str:
+        return 5
+    return 1
+
+
+def _memref_llvm_pointer_type(memref_type: ir.MemRefType) -> llvm.PointerType:
+    return llvm.PointerType.get(memref_llvm_address_space(memref_type))
+
+
+def memref_data_pointer_as_index(array: ir.Value, element_type: ir.Type | None = None) -> ir.Value:
+    metadata = memref.extract_strided_metadata(array)
+    base_ptr_idx = memref.extract_aligned_pointer_as_index(metadata[0])
+    offset = index_of(metadata[1])
+    if element_type is None:
+        element_type = ir.MemRefType(array.type).element_type
+    elem_bytes = get_type_size_bytes(element_type)
+    byte_offset = arith.muli(offset, arith.constant(T.index(), elem_bytes))
+    return arith.addi(base_ptr_idx, byte_offset)
+
+
+def _memref_index_offset(array: ir.Value, indices: list[ir.Value]) -> ir.Value:
+    """Return the element offset for indices into a potentially-strided memref."""
+    metadata = memref.extract_strided_metadata(array)
+    rank = array.type.rank
+    ndim = len(indices)
+    if ndim == 1 and rank != 1:
+        return convert(indices[0], T.i64())
+    if ndim != rank:
+        raise ValueError(
+            f"Expected either a scalar linear index or {rank} indices for {array.type}, got {ndim}"
+        )
+    linear_idx = arith.constant(T.i64(), 0)
+    for d, index in enumerate(indices):
+        idx_val = convert(index, T.i64())
+        stride = convert(metadata[2 + rank + d], T.i64())
+        linear_idx = linear_idx + idx_val * stride
+    return linear_idx
+
+
 def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value], element_type: ir.Type) -> ir.Value:
     """Convert memref + indices to LLVM pointer.
 
-    Extracts base pointer from potentially strided memref and computes
-    element pointer using getelementptr with linearized indices.
+    Extracts base pointer from a potentially-strided memref and computes the
+    element pointer using the memref metadata offset and strides.
 
     Args:
         array: Memref value (potentially strided)
@@ -51,50 +107,21 @@ def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value], element_type: i
     Returns:
         LLVM pointer (!llvm.ptr) to the indexed element
     """
-    # Extract base pointer from memref and convert to LLVM pointer
-    base_ptr_idx = memref.extract_aligned_pointer_as_index(array)
-    base_ptr = convert(base_ptr_idx, llvm.PointerType.get())
+    # Extract base pointer from memref and convert to an address-space-preserving
+    # LLVM pointer.
+    ptr_type = _memref_llvm_pointer_type(ir.MemRefType(array.type))
+    base_ptr_idx = memref_data_pointer_as_index(array)
+    base_ptr = llvm.inttoptr(res=ptr_type, arg=convert(base_ptr_idx, T.i64()))
 
-    # Compute linear offset and use getelementptr
-    if len(indices) == 1:
-        # 1D case: simple offset
-        idx = convert(indices[0], T.i64())
-        element_ptr = llvm.getelementptr(
-            llvm.PointerType.get(),
-            base_ptr,
-            [idx],
-            [GEP_DYNAMIC_INDEX],
-            element_type,
-            None,
-        )
-    else:
-        # N-D case: linearize indices using row-major strides
-        ndim = len(indices)
-
-        # Compute strides for row-major layout (C order)
-        strides = [None] * ndim
-        strides[-1] = arith.constant(T.i64(), 1)
-        for d in range(ndim - 2, -1, -1):
-            dim_size = memref.dim(array, index_of(d + 1))
-            dim_size = convert(dim_size, T.i64())
-            strides[d] = dim_size * strides[d + 1]
-
-        # Compute linear index: sum(index[d] * stride[d])
-        linear_idx = arith.constant(T.i64(), 0)
-        for d in range(ndim):
-            idx_val = convert(indices[d], T.i64())
-            linear_idx = linear_idx + idx_val * strides[d]
-
-        element_ptr = llvm.getelementptr(
-            llvm.PointerType.get(),
-            base_ptr,
-            [linear_idx],
-            [GEP_DYNAMIC_INDEX],
-            element_type,
-            None,
-        )
-
-    return element_ptr
+    linear_idx = _memref_index_offset(array, indices)
+    return llvm.getelementptr(
+        ptr_type,
+        base_ptr,
+        [linear_idx],
+        [GEP_DYNAMIC_INDEX],
+        element_type,
+        None,
+    )
 
 
 def memref_to_tensor(memref):
@@ -159,6 +186,264 @@ def get_type_width(ty: ir.Type) -> int:
             return count * get_type_width(vt.element_type)
         case _:
             raise NotImplementedError(f"Not implemented for type {ty}")
+
+
+def is_complex_type(mlir_type):
+    return isinstance(mlir_type, ir.ComplexType)
+
+
+# Complex values lower as MLIR complex scalars in SSA, but pointer and record
+# storage paths address them as literal LLVM {real, imag} structs. Keep the
+# conversions shared so those independent lowering paths use the same layout.
+def get_llvm_struct_for_complex(complex_type):
+    elem_type = complex_type.element_type
+    return llvm.StructType.get_literal([elem_type, elem_type])
+
+
+def complex_to_llvm_struct(value):
+    complex_type = value.type
+    if not is_complex_type(complex_type):
+        raise TypeError(f"Expected MLIR complex type, got {complex_type}")
+    struct_type = get_llvm_struct_for_complex(complex_type)
+    real = complex_dialect.re(value)
+    imag = complex_dialect.im(value)
+    undef = llvm.UndefOp(struct_type)
+    with_real = llvm.insertvalue(
+        container=undef,
+        value=real,
+        position=ir.DenseI64ArrayAttr.get([0]),
+    )
+    return llvm.insertvalue(
+        container=with_real,
+        value=imag,
+        position=ir.DenseI64ArrayAttr.get([1]),
+    )
+
+
+def llvm_struct_to_complex(value, complex_type):
+    elem_type = complex_type.element_type
+    real = llvm.extractvalue(
+        res=elem_type,
+        container=value,
+        position=ir.DenseI64ArrayAttr.get([0]),
+    )
+    imag = llvm.extractvalue(
+        res=elem_type,
+        container=value,
+        position=ir.DenseI64ArrayAttr.get([1]),
+    )
+    return complex_dialect.create_(complex=complex_type, real=real, imaginary=imag)
+
+
+def get_type_size_bytes(ty: ir.Type) -> int:
+    if isinstance(ty, ir.BF16Type):
+        return 2
+    # CUDA memrefs handled here are byte-addressable. Numpy bool storage is one
+    # byte even though the MLIR element type is i1.
+    return max(1, (get_type_width(ty) + 7) // 8)
+
+
+def _lookup_datamodel_type(numba_type: types.Type, context: str) -> ir.Type:
+    from numba_cuda_mlir.models import mlir_data_manager
+
+    model = mlir_data_manager.lookup(numba_type)
+    match context:
+        case "value":
+            return model.get_value_type()
+        case "storage" | "data":
+            return model.get_data_type()
+        case "argument":
+            return model.get_argument_type()
+        case "return":
+            return model.get_return_type()
+        case _:
+            raise InternalCompilerError(f"Unknown datamodel context: {context}")
+
+
+def get_value_type(numba_type: types.Type) -> ir.Type:
+    return _lookup_datamodel_type(numba_type, "value")
+
+
+def get_storage_type(numba_type: types.Type) -> ir.Type:
+    return _lookup_datamodel_type(numba_type, "storage")
+
+
+def get_argument_type(numba_type: types.Type) -> ir.Type:
+    return _lookup_datamodel_type(numba_type, "argument")
+
+
+def get_return_type(numba_type: types.Type) -> ir.Type:
+    return _lookup_datamodel_type(numba_type, "return")
+
+
+def _numba_type_bitwidth(numba_type: types.Type, value_type: ir.Type | None = None) -> int:
+    bitwidth = getattr(numba_type, "bitwidth", None)
+    if bitwidth is not None:
+        return int(bitwidth)
+    if value_type is not None:
+        return get_type_width(value_type)
+    return get_type_width(get_value_type(numba_type))
+
+
+def storage_bitwidth(numba_type: types.Type) -> int:
+    storage_type = get_storage_type(numba_type)
+    return get_type_width(storage_type)
+
+
+def storage_itemsize_bytes(numba_type: types.Type) -> int:
+    from numba_cuda_mlir.types import NestedArray, Record
+
+    if isinstance(numba_type, Record):
+        return numba_type.size
+    if isinstance(numba_type, NestedArray):
+        return storage_itemsize_bytes(numba_type.dtype)
+
+    dtype = getattr(numba_type, "dtype", numba_type)
+    if isinstance(dtype, Record):
+        return dtype.size
+    if isinstance(dtype, NestedArray):
+        return storage_itemsize_bytes(dtype.dtype)
+    if isinstance(dtype, np.dtype):
+        return dtype.itemsize
+    if isinstance(dtype, types.UnicodeCharSeq):
+        return getattr(dtype, "count", 1) * np.dtype("U1").itemsize
+    if isinstance(dtype, types.CharSeq):
+        return getattr(dtype, "count", 1)
+    bitwidth = storage_bitwidth(dtype)
+    return (bitwidth + 7) // 8
+
+
+def _is_bool_numba_type(numba_type: types.Type) -> bool:
+    return isinstance(numba_type, (types.Boolean, types.BooleanLiteral))
+
+
+def _is_float_storage_numba_type(numba_type: types.Type) -> bool:
+    from numba_cuda_mlir.type_defs import float_types
+    from numba_cuda_mlir.numba_cuda.types.ext_types import Bfloat16
+
+    return isinstance(numba_type, (types.Float, float_types.SpecialFloatType, Bfloat16))
+
+
+def _integer_storage_type_for_value(numba_type: types.Type, value_type: ir.Type) -> ir.IntegerType:
+    return ir.IntegerType.get_signless(_numba_type_bitwidth(numba_type, value_type))
+
+
+def value_to_storage(numba_type: types.Type, value: ir.Value) -> ir.Value:
+    """Convert a source-level value to its memory/ABI storage representation."""
+    storage_type = get_storage_type(numba_type)
+    value_type = get_value_type(numba_type)
+    if getattr(value, "type", None) == storage_type and value_type == storage_type:
+        return value
+    if getattr(value, "type", None) != value_type:
+        value = convert(value, value_type)
+    if value_type == storage_type:
+        return value
+
+    if _is_bool_numba_type(numba_type):
+        value = convert(value, T.bool())
+        return arith.extui(out=storage_type, in_=value)
+
+    if _is_float_storage_numba_type(numba_type) and isinstance(storage_type, ir.IntegerType):
+        bits_type = _integer_storage_type_for_value(numba_type, value_type)
+        bits = arith.bitcast(out=bits_type, in_=value)
+        if bits_type.width == storage_type.width:
+            return bits if bits_type == storage_type else arith.bitcast(out=storage_type, in_=bits)
+        if bits_type.width < storage_type.width:
+            return arith.extui(out=storage_type, in_=bits)
+        return arith.trunci(out=storage_type, in_=bits)
+
+    return convert(value, storage_type)
+
+
+def storage_to_value(numba_type: types.Type, value: ir.Value) -> ir.Value:
+    """Convert a memory/ABI storage payload to its source-level value representation."""
+    storage_type = get_storage_type(numba_type)
+    value_type = get_value_type(numba_type)
+    if getattr(value, "type", None) == value_type and value_type == storage_type:
+        return value
+    if getattr(value, "type", None) != storage_type:
+        value = convert(value, storage_type)
+    if value_type == storage_type:
+        return value
+
+    if _is_bool_numba_type(numba_type):
+        zero = arith.constant(storage_type, 0)
+        return arith.cmpi(arith.CmpIPredicate.ne, value, zero)
+
+    if _is_float_storage_numba_type(numba_type) and isinstance(storage_type, ir.IntegerType):
+        bits_type = _integer_storage_type_for_value(numba_type, value_type)
+        bits = value
+        if storage_type.width > bits_type.width:
+            bits = arith.trunci(out=bits_type, in_=value)
+        elif storage_type.width < bits_type.width:
+            bits = arith.extui(out=bits_type, in_=value)
+        elif value.type != bits_type:
+            bits = arith.bitcast(out=bits_type, in_=value)
+        return arith.bitcast(out=value_type, in_=bits)
+
+    return convert(value, value_type)
+
+
+def array_element_value_load(array_type: types.Array, array: ir.Value, indices: Sequence[ir.Value]):
+    stored = memref.load(array, list(indices))
+    return storage_to_value(array_type.dtype, stored)
+
+
+def array_element_value_store(
+    array_type: types.Array,
+    array: ir.Value,
+    indices: Sequence[ir.Value],
+    value: ir.Value,
+):
+    stored = value_to_storage(array_type.dtype, value)
+    memref.store(value=stored, memref=array, indices=list(indices))
+
+
+def memref_to_value_tensor(array_type: types.Array, array: ir.Value) -> ir.Value:
+    from numba_cuda_mlir._mlir.dialects import linalg, tensor
+
+    tensor_value = memref_to_tensor(array)
+    value_element_type = get_value_type(array_type.dtype)
+    if tensor_value.type.element_type == value_element_type:
+        return tensor_value
+
+    result_type = T.tensor(*tensor_value.type.shape, value_element_type)
+    init = tensor.empty(
+        sizes=dims_of_tensor_shape(tensor_value),
+        element_type=value_element_type,
+    )
+    result = linalg.MapOp(
+        result=[result_type],
+        inputs=[tensor_value],
+        init=init,
+    )
+    block = result.mapper.blocks.append(tensor_value.type.element_type, value_element_type)
+    with ir.InsertionPoint(block):
+        linalg.yield_([storage_to_value(array_type.dtype, block.arguments[0])])
+    return result.result[0]
+
+
+def value_tensor_to_storage_memref(array_type: types.Array, tensor_value: ir.Value) -> ir.Value:
+    from numba_cuda_mlir._mlir.dialects import linalg, tensor
+
+    storage_element_type = get_storage_type(array_type.dtype)
+    if tensor_value.type.element_type == storage_element_type:
+        return tensor_to_memref(tensor_value)
+
+    result_type = T.tensor(*tensor_value.type.shape, storage_element_type)
+    init = tensor.empty(
+        sizes=dims_of_tensor_shape(tensor_value),
+        element_type=storage_element_type,
+    )
+    result = linalg.MapOp(
+        result=[result_type],
+        inputs=[tensor_value],
+        init=init,
+    )
+    block = result.mapper.blocks.append(tensor_value.type.element_type, storage_element_type)
+    with ir.InsertionPoint(block):
+        linalg.yield_([value_to_storage(array_type.dtype, block.arguments[0])])
+    return tensor_to_memref(result.result[0])
 
 
 @singledispatch
@@ -692,7 +977,7 @@ def unverified_basic_mlir_convert(
             imag = convert(imag, target_element_type)
             return complex_dialect.create_(complex=target_type, real=real, imaginary=imag)
         case ir.MemRefType() as mr, ptr_type if str(ptr_type) == "!llvm.ptr":
-            idx = memref.extract_aligned_pointer_as_index(value)
+            idx = memref_data_pointer_as_index(value, mr.element_type)
             return convert(idx, target_type)
         case ptr_type, ir.IntegerType() if str(ptr_type) == "!llvm.ptr":
             ptrtoi = llvm.ptrtoint(res=T.i64(), arg=value)
@@ -1019,6 +1304,22 @@ class IterResult:
         self.is_valid = is_valid
 
 
+def _zero_value_for_type(mlir_type):
+    if isinstance(mlir_type, (ir.IntegerType, ir.IndexType)):
+        return arith.constant(result=mlir_type, value=0)
+    if isinstance(mlir_type, ir.FloatType):
+        return arith.constant(result=mlir_type, value=0.0)
+    if isinstance(mlir_type, ir.ComplexType):
+        zero = _zero_value_for_type(mlir_type.element_type)
+        return complex_dialect.create_(complex=mlir_type, real=zero, imaginary=zero)
+    if isinstance(mlir_type, ir.VectorType):
+        zero = _zero_value_for_type(mlir_type.element_type)
+        return vector_dialect.broadcast(mlir_type, zero)
+    if str(mlir_type).startswith("!llvm."):
+        return llvm.mlir_zero(res=mlir_type)
+    raise InternalCompilerError(f"Cannot materialize iterator dummy value for {mlir_type}.")
+
+
 @dataclass
 class UniTupleIterObject:
     """
@@ -1062,25 +1363,26 @@ class UniTupleIterObject:
 
         current_index = self.index
         is_valid = arith.cmpi(predicate=arith.CmpIPredicate.slt, lhs=current_index, rhs=count)
-        safe_index = arith.select(
-            condition=is_valid,
-            true_value=current_index,
-            false_value=int_of(0, ty=T.i64()),
-        )
 
-        if self._uses_llvm:
-            elem_ptr = llvm.getelementptr(
-                llvm.PointerType.get(),
-                self._tuple_storage,
-                [safe_index],
-                [GEP_DYNAMIC_INDEX],
-                self._element_type,
-                None,
-            )
-            current_value = llvm.load(res=self._element_type, addr=elem_ptr)
-        else:
-            index_as_index = arith.index_cast(out=ir.IndexType.get(), in_=safe_index)
-            current_value = memref.load(self._tuple_storage, [index_as_index])
+        load_if_valid = scf.IfOp(is_valid, results_=[self._element_type], has_else=True)
+        with ir.InsertionPoint(load_if_valid.then_block):
+            if self._uses_llvm:
+                elem_ptr = llvm.getelementptr(
+                    llvm.PointerType.get(),
+                    self._tuple_storage,
+                    [current_index],
+                    [GEP_DYNAMIC_INDEX],
+                    self._element_type,
+                    None,
+                )
+                current_value = llvm.load(res=self._element_type, addr=elem_ptr)
+            else:
+                index_as_index = arith.index_cast(out=ir.IndexType.get(), in_=current_index)
+                current_value = memref.load(self._tuple_storage, [index_as_index])
+            scf.yield_([current_value])
+        with ir.InsertionPoint(load_if_valid.else_block):
+            scf.yield_([_zero_value_for_type(self._element_type)])
+        current_value = load_if_valid.results[0]
 
         next_index = arith.addi(lhs=current_index, rhs=one)
         updated_index = arith.select(
@@ -1125,8 +1427,15 @@ class ArrayIterObject:
         length = self.length
 
         is_valid = arith.cmpi(predicate=arith.CmpIPredicate.slt, lhs=current_index, rhs=length)
-        index_as_index = arith.index_cast(out=ir.IndexType.get(), in_=current_index)
-        current_value = memref.load(self._array, [index_as_index])
+
+        load_if_valid = scf.IfOp(is_valid, results_=[self._element_type], has_else=True)
+        with ir.InsertionPoint(load_if_valid.then_block):
+            index_as_index = arith.index_cast(out=ir.IndexType.get(), in_=current_index)
+            current_value = memref.load(self._array, [index_as_index])
+            scf.yield_([current_value])
+        with ir.InsertionPoint(load_if_valid.else_block):
+            scf.yield_([_zero_value_for_type(self._element_type)])
+        current_value = load_if_valid.results[0]
 
         next_index = arith.addi(lhs=current_index, rhs=one)
         updated_index = arith.select(
@@ -1466,22 +1775,23 @@ def simple_scalar_conversion_op(src: ir.Type, dst: ir.Type):
 
 
 def expensive_coerce_tensor_type(a: ir.Value, target_element_type: ir.Type) -> ir.Value:
-    from numba_cuda_mlir._mlir.dialects import linalg
+    from numba_cuda_mlir._mlir.dialects import linalg, tensor
 
     if a.type.element_type == target_element_type:
         return a
     output_type = T.tensor(*a.type.shape, target_element_type)
     src, dst = a.type.element_type, target_element_type
     op = simple_scalar_conversion_op(src, dst)
+    init = tensor.empty(sizes=dims_of_tensor_shape(a), element_type=target_element_type)
     result = linalg.MapOp(
-        result=output_type,
+        result=[output_type],
         inputs=[a],
-        init=output_type,
+        init=init,
     )
-    block = result.body.blocks.append(a.type.element_type)
+    block = result.mapper.blocks.append(a.type.element_type, target_element_type)
     with ir.InsertionPoint(block):
         linalg.yield_([op(block.arguments[0])])
-    return result.results[0]
+    return result.result[0]
 
 
 def try_extract_constant(

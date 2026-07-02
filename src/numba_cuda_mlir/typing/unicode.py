@@ -23,6 +23,7 @@ for _op in _COMPARISON_OPS:
 
     class UnicodeComparisonTemplate(AbstractTemplate):
         key = _op
+        metadata = {"target": "cuda"}
 
         def generic(self, args, kws):
             a, b = args

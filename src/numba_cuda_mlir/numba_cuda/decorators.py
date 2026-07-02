@@ -10,7 +10,6 @@ from numba_cuda_mlir.numba_cuda.core.errors import (
 from numba_cuda_mlir.numba_cuda.compiler import declare_device_function
 from numba_cuda_mlir.numba_cuda.core import sigutils, config
 from numba_cuda_mlir.numba_cuda.dispatcher import CUDADispatcher
-from numba_cuda_mlir.numba_cuda.simulator.kernel import FakeCUDAKernel
 from numba_cuda_mlir.numba_cuda.cudadrv.driver import _have_nvjitlink
 
 
@@ -112,9 +111,6 @@ def jit(
     :type shared_memory_carveout: str | int
     """
 
-    if link and config.ENABLE_CUDASIM:
-        raise NotImplementedError("Cannot link PTX in the simulator")
-
     if kws.get("boundscheck"):
         raise NotImplementedError("bounds checking is not supported for CUDA")
 
@@ -185,12 +181,6 @@ def jit(
         signatures = None
 
     if signatures is not None:
-        if config.ENABLE_CUDASIM:
-
-            def jitwrapper(func):
-                return FakeCUDAKernel(func, device=device, fastmath=fastmath)
-
-            return jitwrapper
 
         def _jit(func):
             targetoptions = kws.copy()
@@ -234,54 +224,46 @@ def jit(
         return _jit
     else:
         if func_or_sig is None:
-            if config.ENABLE_CUDASIM:
 
-                def autojitwrapper(func):
-                    return FakeCUDAKernel(func, device=device, fastmath=fastmath)
-
-            else:
-
-                def autojitwrapper(func):
-                    return jit(
-                        func,
-                        device=device,
-                        inline=inline,
-                        forceinline=forceinline,
-                        debug=debug,
-                        opt=opt,
-                        lineinfo=lineinfo,
-                        link=link,
-                        cache=cache,
-                        launch_bounds=launch_bounds,
-                        shared_memory_carveout=shared_memory_carveout,
-                        **kws,
-                    )
+            def autojitwrapper(func):
+                return jit(
+                    func,
+                    device=device,
+                    inline=inline,
+                    forceinline=forceinline,
+                    debug=debug,
+                    opt=opt,
+                    lineinfo=lineinfo,
+                    link=link,
+                    cache=cache,
+                    launch_bounds=launch_bounds,
+                    shared_memory_carveout=shared_memory_carveout,
+                    **kws,
+                )
 
             return autojitwrapper
+
         # func_or_sig is a function
         else:
-            if config.ENABLE_CUDASIM:
-                return FakeCUDAKernel(func_or_sig, device=device, fastmath=fastmath)
-            else:
-                targetoptions = kws.copy()
-                targetoptions["debug"] = debug
-                targetoptions["lineinfo"] = lineinfo
-                targetoptions["opt"] = opt
-                targetoptions["link"] = link
-                targetoptions["fastmath"] = fastmath
-                targetoptions["device"] = device
-                targetoptions["inline"] = inline
-                targetoptions["forceinline"] = forceinline
-                targetoptions["extensions"] = extensions
-                targetoptions["launch_bounds"] = launch_bounds
-                targetoptions["lto"] = lto
-                targetoptions["shared_memory_carveout"] = shared_memory_carveout
-                disp = CUDADispatcher(func_or_sig, targetoptions=targetoptions)
+            targetoptions = kws.copy()
+            targetoptions["debug"] = debug
+            targetoptions["lineinfo"] = lineinfo
+            targetoptions["opt"] = opt
+            targetoptions["link"] = link
+            targetoptions["fastmath"] = fastmath
+            targetoptions["device"] = device
+            targetoptions["inline"] = inline
+            targetoptions["forceinline"] = forceinline
+            targetoptions["extensions"] = extensions
+            targetoptions["launch_bounds"] = launch_bounds
+            targetoptions["lto"] = lto
+            targetoptions["shared_memory_carveout"] = shared_memory_carveout
+            disp = CUDADispatcher(func_or_sig, targetoptions=targetoptions)
 
-                if cache:
-                    disp.enable_caching()
+            if cache:
+                disp.enable_caching()
 
-                return disp
+            return disp
 
 
 def declare_device(name, sig, link=None, use_cooperative=False, abi="numba"):

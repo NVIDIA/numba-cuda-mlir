@@ -24,6 +24,35 @@ def test_vector_load_store_1d():
     filecheck_with_comments(mlir)
 
 
+def test_vector_load_store_1d_float16_unaligned():
+    @cuda.jit
+    def kernel(arr_in, arr_out):
+        i = cuda.threadIdx.x * 4
+        vec = cuda.vector.load(arr_in, i, 4)
+        cuda.vector.store(arr_out, i, vec)
+
+    arr_in = np.arange(32, dtype=np.float16)
+    arr_out = np.zeros(32, dtype=np.float16)
+    kernel[1, 8](arr_in, arr_out)
+    np.testing.assert_array_equal(arr_in, arr_out)
+
+
+def test_vector_load_store_1d_bool_unaligned():
+    @cuda.jit
+    def kernel(arr_in, arr_out):
+        i = cuda.threadIdx.x * 4
+        vec = cuda.vector.load(arr_in, i, 4)
+        cuda.vector.store(arr_out, i, vec)
+
+    arr_in = np.array(
+        [True, False, True, True, False, False, True, False],
+        dtype=np.bool_,
+    )
+    arr_out = np.zeros(8, dtype=np.bool_)
+    kernel[1, 2](arr_in, arr_out)
+    np.testing.assert_array_equal(arr_in, arr_out)
+
+
 def test_vector_load_store_aligned():
     """Test aligned vector load/store generates vectorized PTX."""
 
@@ -46,8 +75,8 @@ def test_vector_load_store_aligned():
     (ptx,) = kernel.inspect_ptx().values()
     filecheck(
         r"""
-        CHECK: ld.global.{{(v[24]\.[bf][0-9]+|b32)}}
-        CHECK: st.global.v{{[24]}}.{{[bf]}}{{[0-9]+}}
+        CHECK: ld.global.{{(v[24]\.([bf][0-9]+|u16|u32)|b32)}}
+        CHECK: st.global.v{{[24]}}.{{([bf][0-9]+|u16|u32)}}
         """,
         ptx,
     )
@@ -64,6 +93,68 @@ def test_vector_load_store_2d_array():
     arr_out = np.zeros((8, 4), dtype=np.float32)
     kernel[1, 8](arr_in, arr_out)
     np.testing.assert_array_equal(arr_in, arr_out)
+
+
+def test_vector_load_aligned_2d_slice_preserves_strides():
+    @cuda.jit
+    def kernel(arr_in, arr_out):
+        row = cuda.threadIdx.x
+        view = arr_in[1:, 2:]
+        vec = cuda.vector.load(view, (row, 0), 2, alignment=8)
+        cuda.vector.store(arr_out, (row, 0), vec, alignment=8)
+
+    arr_in = np.arange(40, dtype=np.float32).reshape(5, 8)
+    arr_out = np.zeros((4, 2), dtype=np.float32)
+    kernel[1, 4](arr_in, arr_out)
+    np.testing.assert_array_equal(arr_out, arr_in[1:, 2:4])
+
+
+def test_vector_store_aligned_2d_slice_preserves_strides():
+    @cuda.jit
+    def kernel(arr_in, arr_out):
+        row = cuda.threadIdx.x
+        view = arr_out[1:, 2:]
+        vec = cuda.vector.load(arr_in, row * 2, 2, alignment=8)
+        cuda.vector.store(view, (row, 0), vec, alignment=8)
+
+    arr_in = np.arange(8, dtype=np.float32)
+    arr_out = np.zeros((5, 8), dtype=np.float32)
+    kernel[1, 4](arr_in, arr_out)
+
+    expected = np.zeros_like(arr_out)
+    expected[1:, 2:4] = arr_in.reshape(4, 2)
+    np.testing.assert_array_equal(arr_out, expected)
+
+
+def test_vector_load_store_aligned_3d_slice_preserves_strides():
+    @cuda.jit
+    def kernel(arr_in, arr_out):
+        plane = cuda.threadIdx.y
+        row = cuda.threadIdx.x
+        src_view = arr_in[1:, 2:, 2:]
+        dst_view = arr_out[1:, 1:, 2:]
+        vec = cuda.vector.load(src_view, (plane, row, 0), 2, alignment=8)
+        cuda.vector.store(dst_view, (plane, row, 0), vec, alignment=8)
+
+    arr_in = np.arange(160, dtype=np.float32).reshape(4, 5, 8)
+    arr_out = np.zeros((4, 4, 6), dtype=np.float32)
+    kernel[1, (3, 3)](arr_in, arr_out)
+
+    expected = np.zeros_like(arr_out)
+    expected[1:, 1:, 2:4] = arr_in[1:, 2:, 2:4]
+    np.testing.assert_array_equal(arr_out, expected)
+
+
+def test_vector_load_aligned_2d_scalar_index_is_linear():
+    @cuda.jit
+    def kernel(arr_in, arr_out):
+        vec = cuda.vector.load(arr_in, 8, 2, alignment=8)
+        cuda.vector.store(arr_out, 0, vec, alignment=8)
+
+    arr_in = np.arange(35, dtype=np.float32).reshape(5, 7)
+    arr_out = np.zeros(2, dtype=np.float32)
+    kernel[1, 1](arr_in, arr_out)
+    np.testing.assert_array_equal(arr_out, arr_in.ravel()[8:10])
 
 
 def test_vector_2d_shape():

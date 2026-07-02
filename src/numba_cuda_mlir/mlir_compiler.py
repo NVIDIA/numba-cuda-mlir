@@ -305,8 +305,6 @@ def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
     typingctx = mlir_target.typing_context
     targetctx = mlir_target.target_context
 
-    typingctx.refresh()
-
     # Do not compile to native code
     flags = CUDAFlags()
     flags.no_compile = True

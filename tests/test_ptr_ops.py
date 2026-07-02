@@ -1,9 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from numba_cuda_mlir import cuda
+from numba_cuda_mlir import carray, cuda
 from numba_cuda_mlir import compiler, types
+from numba_cuda_mlir.cuda.experimental import intrin
+from numba_cuda_mlir._mlir.dialects import llvm
+from numba_cuda_mlir._mlir.extras import types as T
 import ctypes
 import numpy as np
+import pytest
 
 
 def test_ptr_arith():
@@ -65,6 +69,139 @@ def test_cpointer_getitem():
     np.testing.assert_array_equal(hr, expected)
 
 
+def test_cpointer_carray_compile():
+    """Test cuda.carray converts a CPointer into an array view in device code."""
+    assert hasattr(cuda, "carray")
+    assert carray is cuda.carray
+
+    def bump(p):
+        ary = cuda.carray(p, 1)
+        cuda.atomic.add(ary, 0, 1)
+
+    compiler.compile(
+        bump,
+        types.void(types.CPointer(types.int32)),
+        device=True,
+        abi="c",
+        abi_info={"abi_name": "bump"},
+        output="ltoir",
+    )
+
+    def bump_voidptr(p):
+        ary = cuda.carray(p, 1, dtype=types.int32)
+        cuda.atomic.add(ary, 0, 1)
+
+    compiler.compile(
+        bump_voidptr,
+        types.void(types.voidptr),
+        device=True,
+        abi="c",
+        abi_info={"abi_name": "bump_voidptr"},
+        output="ltoir",
+    )
+
+
+@pytest.mark.parametrize(
+    ("numba_complex", "numpy_complex", "float_dtype"),
+    [
+        (types.complex64, np.complex64, np.float32),
+        (types.complex128, np.complex128, np.float64),
+    ],
+)
+def test_cpointer_complex_getitem_setitem(numba_complex, numpy_complex, float_dtype):
+    """Test complex CPointer getitem/setitem lowers through LLVM struct storage."""
+    ptr = types.CPointer(numba_complex)
+    sig = types.void(ptr, ptr, types.uint32)
+    arith_sig = types.void(ptr, ptr)
+
+    @cuda.jit(sig)
+    def copy_complex(dst, src, n):
+        i = cuda.grid(1)
+        if i < n:
+            dst[i] = src[i]
+
+    @cuda.jit(arith_sig)
+    def copy_complex_with_pointer_arith(dst, src):
+        src += 1
+        dst[0] = src[0]
+        src -= 1
+        dst += 1
+        dst[0] = src[0]
+
+    n = 16
+    h_src = (np.arange(n, dtype=float_dtype) + 1j * np.arange(n, dtype=float_dtype)[::-1]).astype(
+        numpy_complex
+    )
+    d_src = cuda.to_device(h_src)
+    d_dst = cuda.device_array(n, dtype=numpy_complex)
+
+    src_ptr = d_src.__cuda_array_interface__["data"][0]
+    dst_ptr = d_dst.__cuda_array_interface__["data"][0]
+
+    copy_complex[1, n](dst_ptr, src_ptr, n)
+
+    np.testing.assert_array_equal(d_dst.copy_to_host(), h_src)
+
+    d_arith = cuda.device_array(2, dtype=numpy_complex)
+    arith_ptr = d_arith.__cuda_array_interface__["data"][0]
+
+    copy_complex_with_pointer_arith[1, 1](arith_ptr, src_ptr)
+
+    np.testing.assert_array_equal(d_arith.copy_to_host(), h_src[[1, 0]])
+
+
+def test_array_slice_ptr_preserves_offset():
+    """ctypes.cast(array_slice, POINTER(...)) points at the slice start."""
+
+    @cuda.jit
+    def copy_from_slice(src, dst, start):
+        i = cuda.threadIdx.x
+        ptr = ctypes.cast(src[start:], ctypes.POINTER(ctypes.c_int32))
+        dst[i] = ptr[i]
+
+    @cuda.jit
+    def copy_bool_from_slice(src, dst, start):
+        i = cuda.threadIdx.x
+        ptr = ctypes.cast(src[start:], ctypes.POINTER(ctypes.c_bool))
+        dst[i] = ptr[i]
+
+    @intrin.define
+    def load_i32(ptr: llvm.PointerType.get, idx: types.int64) -> types.int32:
+        llvm_kDynamic = -2147483648
+        offset_ptr = llvm.getelementptr(
+            llvm.PointerType.get(), ptr, [idx], [llvm_kDynamic], T.i32(), None
+        )
+        return llvm.load(T.i32(), offset_ptr)
+
+    @cuda.jit
+    def copy_from_types_ptr_slice(src, dst, start):
+        dst[0] = load_i32(types.ptr(src[start:]), 0)
+
+    h_src = np.arange(32, dtype=np.int32)
+    h_dst = np.zeros(8, dtype=np.int32)
+
+    copy_from_slice[1, h_dst.size](h_src, h_dst, 11)
+
+    np.testing.assert_array_equal(h_dst, h_src[11 : 11 + h_dst.size])
+
+    h_bool_src = np.array(
+        [False, True, False, True, True, False, True, False],
+        dtype=np.bool_,
+    )
+    h_bool_dst = np.zeros(4, dtype=np.bool_)
+
+    copy_bool_from_slice[1, h_bool_dst.size](h_bool_src, h_bool_dst, 3)
+
+    np.testing.assert_array_equal(h_bool_dst, h_bool_src[3 : 3 + h_bool_dst.size])
+
+    h_types_ptr_dst = np.zeros(1, dtype=np.int32)
+
+    copy_from_types_ptr_slice[1, 1](h_src, h_types_ptr_dst, 11)
+
+    assert h_types_ptr_dst[0] == h_src[11]
+
+
 if __name__ == "__main__":
     test_ptr_arith()
     test_cpointer_getitem()
+    test_array_slice_ptr_preserves_offset()

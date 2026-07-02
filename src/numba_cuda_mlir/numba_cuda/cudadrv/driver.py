@@ -52,6 +52,7 @@ from .mappings import FILE_EXTENSION_MAP
 from .linkable_code import LinkableCode, LTOIR, Fatbin, Object
 from numba_cuda_mlir.numba_cuda.utils import cached_file_read
 from numba_cuda_mlir.numba_cuda.cudadrv import nvrtc
+from numba_cuda_mlir.numba_cuda.core.errors import NumbaWarning
 
 from cuda.bindings import driver as binding
 from cuda.core import (
@@ -2176,6 +2177,17 @@ class CudaPythonFunction:
 Function = CudaPythonFunction
 
 
+@functools.cache
+def _warn_lto_opt_risk():
+    warnings.warn(
+        "Linking LTOIR with optimization_level>0 can erase float16/bfloat16 "
+        "(and their vector type) stores due to a known LTO linking bug."
+        "If results look wrong, set NUMBA_CUDA_MLIR_DISABLE_LTO_OPT=1 to force "
+        "opt_level=0 on the LTO link.",
+        category=NumbaWarning,
+    )
+
+
 class _Linker:
     def __init__(
         self,
@@ -2211,6 +2223,7 @@ class _Linker:
         self._has_ltoir = False
         self._complete = False
         self._object_codes = []
+        self._pending_cu = []
         self.linker = None  # need at least one program
 
         self._verbose = verbose
@@ -2286,7 +2299,7 @@ class _Linker:
                 raise TypeError("Expected path to file or a LinkableCode object")
 
             if path_or_code.kind == "cu":
-                self.add_cu(path_or_code.data, path_or_code.name)
+                self._pending_cu.append(("linkable", path_or_code, path_or_code.name, self.lto))
             else:
                 if ignore_nonlto:
                     warn_and_return = False
@@ -2335,15 +2348,24 @@ class _Linker:
     def add_cu(self, cu, name="<cudapy-cu>"):
         """Add CUDA source in a string to the link. The name of the source
         file should be specified in `name`."""
-        obj, log = nvrtc.compile(cu, name, self.cc, ltoir=self.lto)
+        self._pending_cu.append(("data", cu, name, self.lto))
 
-        if not self.lto and config.DUMP_ASSEMBLY:
-            print(("ASSEMBLY %s" % name).center(80, "-"))
-            print(obj.code)
+    def _materialize_pending_cu(self):
+        pending = self._pending_cu
+        self._pending_cu = []
 
-        self._object_codes.append(obj)
-        if self.lto:
-            self._has_ltoir = True
+        for kind, payload, name, lto in pending:
+            cu = payload.data if kind == "linkable" else payload
+
+            obj, log = nvrtc.compile(cu, name, self.cc, ltoir=lto)
+
+            if not lto and config.DUMP_ASSEMBLY:
+                print(("ASSEMBLY %s" % name).center(80, "-"))
+                print(obj.code)
+
+            self._object_codes.append(obj)
+            if lto:
+                self._has_ltoir = True
 
     def add_cubin(self, cubin, name="<cudapy-cubin>"):
         obj = ObjectCode.from_cubin(cubin, name=name)
@@ -2402,6 +2424,19 @@ class _Linker:
         # (fixed in cuda-python PR #989, released in cuda-core v0.4.0)
         lto_flag = True if self._has_ltoir else None
         ptx_flag = True if (self._has_ltoir and ptx) else None
+
+        # LTO cubin links at opt_level>0 can hit an linking bug that erases
+        # float16/bfloat16 (and their vector type) stores. Keep opts on by
+        # default but warn. Allow opting out via NUMBA_CUDA_MLIR_DISABLE_LTO_OPT,
+        # which forces opt_level=0.
+        lto_cubin_link = bool(lto_flag) and not ptx
+        if lto_cubin_link and config.CUDA_DISABLE_LTO_OPT:
+            opt_level = 0
+        else:
+            opt_level = self._optimization_level
+            if lto_cubin_link and opt_level:
+                _warn_lto_opt_risk()
+
         options = LinkerOptions(
             max_register_count=self.max_registers,
             lineinfo=self.lineinfo,
@@ -2416,13 +2451,17 @@ class _Linker:
             prec_sqrt=self._prec_sqrt,
             fma=self._fma,
             variables_used=self.variables_used,
-            optimize_unused_variables=self._optimize_unused_variables,
-            optimization_level=self._optimization_level,
+            optimize_unused_variables=(
+                self._optimize_unused_variables if self.variables_used else None
+            ),
+            optimization_level=opt_level,
             ptxas_options=self._ptxas_options,
         )
         return options
 
     def get_linked_ptx(self):
+        self._materialize_pending_cu()
+
         options = self._get_linker_options(ptx=True)
         self.linker = Linker(*self._object_codes, options=options)
 
@@ -2442,6 +2481,8 @@ class _Linker:
         cubin is a pointer to a internal buffer of cubin owned by the linker;
         thus, it should be loaded before the linker is destroyed.
         """
+        self._materialize_pending_cu()
+
         options = self._get_linker_options(ptx=False)
         self.linker = Linker(*self._object_codes, options=options)
         result = self.linker.link("cubin")

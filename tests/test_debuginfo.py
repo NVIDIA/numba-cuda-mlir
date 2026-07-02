@@ -774,3 +774,31 @@ def test_mlir_poly_scalar_var_runtime_debug():
         out = cuda.device_array(1, dtype=np.float64)
         kernel[1, 1](out, *flags)
         assert out.copy_to_host()[0] == expected
+
+
+def test_mlir_di_bitwise_result_int32():
+    """Bitwise AND/OR/XOR on int32 operands must appear as int32 in DWARF (nvbug5936795)."""
+
+    def k(out, a, b):
+        result_and = a & b
+        result_or = a | b
+        result_xor = a ^ b
+        out[0] = result_and
+        out[1] = result_or
+        out[2] = result_xor
+
+    mlir = compiler.compile_mlir(
+        k,
+        types.void(types.int32[:], types.int32, types.int32),
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK: #[[INT32:di_basic_type[0-9]*]] = #llvm.di_basic_type<{{.*}}name = "int32"{{.*}}sizeInBits = 32{{.*}}DW_ATE_signed
+        CHECK: di_local_variable<{{.*}}name = "result_and"{{.*}}type = #[[INT32]]
+        CHECK: di_local_variable<{{.*}}name = "result_or"{{.*}}type = #[[INT32]]
+        CHECK: di_local_variable<{{.*}}name = "result_xor"{{.*}}type = #[[INT32]]
+        """,
+        mlir,
+    )

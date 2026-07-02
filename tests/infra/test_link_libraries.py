@@ -1,5 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+from cuda import pathfinder
+from cuda.core import Device, Program, ProgramOptions
 from numba_cuda_mlir.numba_cuda.cudadrv.devicearray import DeviceNDArray
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir import types, compiler, testing
@@ -122,6 +124,38 @@ extern "C" __device__ int mutate_array(int *ret, int *arr) {
 """
 
 
+def _compile_ltoir(source):
+    dev = Device(0)
+    dev.set_current()
+    cc = dev.compute_capability
+    program = Program(
+        source,
+        "c++",
+        ProgramOptions(
+            arch=f"sm_{cc.major}{cc.minor}",
+            link_time_optimization=True,
+            relocatable_device_code=True,
+            include_path=pathfinder.find_nvidia_header_directory("cudart"),
+        ),
+    )
+    return bytes(program.compile("ltoir").code)
+
+
+SHARED_FROM_BUFFER_CABI_LTOIR = """
+extern "C" __device__ void write_smem(void* p) {
+    *(unsigned int*)p = 0x12345678u;
+}
+"""
+
+
+HALF_NOOP_CABI_LTOIR = """
+#include <cuda_fp16.h>
+extern "C" __device__ void noop_half(__half* p) {
+    (void)p;
+}
+"""
+
+
 def test_link_void_return():
     """declare_device with void return type passes a dummy return pointer per the ABI."""
     cffi = pytest.importorskip("cffi")
@@ -146,6 +180,80 @@ def test_link_void_return():
     kernel[1, 1](x)
     x = x.copy_to_host()
     assert x[0] == 50
+
+
+def test_ffi_from_buffer_shared_memory_ltoir_cabi():
+    """ffi.from_buffer preserves shared-memory pointers passed to C ABI LTOIR."""
+    cffi = pytest.importorskip("cffi")
+    ffi = cffi.FFI()
+    write_smem = cuda.declare_device(
+        "write_smem",
+        types.void(types.CPointer(types.int32)),
+        link=cuda.LTOIR(_compile_ltoir(SHARED_FROM_BUFFER_CABI_LTOIR)),
+        abi="c",
+    )
+
+    @cuda.jit(opt_level=3)
+    def kernel(out):
+        smem = cuda.shared.array(shape=(16,), dtype=np.int32, alignment=16)
+        tid = cuda.threadIdx.x
+        smem[tid] = -1
+        cuda.syncthreads()
+
+        if tid == 0:
+            write_smem(ffi.from_buffer(smem))
+
+        cuda.syncthreads()
+        out[tid] = smem[tid]
+
+    out = cuda.to_device(np.zeros(16, dtype=np.int32))
+    kernel[1, 16](out)
+    cuda.synchronize()
+
+    got = out.copy_to_host()
+    assert got[0] == np.int32(0x12345678)
+    np.testing.assert_equal(got[1:], np.full(15, -1, dtype=np.int32))
+
+
+def test_ltoir_cabi_preserves_float16_shared_init_stores():
+    """C ABI LTOIR calls do not make LTO drop preceding float16 shared stores."""
+    cffi = pytest.importorskip("cffi")
+    ffi = cffi.FFI()
+    noop_half = cuda.declare_device(
+        "noop_half",
+        types.void(types.CPointer(types.float16)),
+        link=cuda.LTOIR(_compile_ltoir(HALF_NOOP_CABI_LTOIR)),
+        abi="c",
+    )
+
+    @cuda.jit(opt_level=3)
+    def kernel(out):
+        smem = cuda.shared.array(shape=(16,), dtype=np.float16, alignment=16)
+        tid = cuda.threadIdx.x
+        val = np.float16(3.0)
+
+        smem[tid * 4 + 0] = val
+        smem[tid * 4 + 1] = val
+        smem[tid * 4 + 2] = val
+        smem[tid * 4 + 3] = val
+        cuda.syncthreads()
+
+        if tid == 0:
+            noop_half(ffi.from_buffer(smem))
+
+        cuda.syncthreads()
+        out[tid * 4 + 0] = smem[tid * 4 + 0]
+        out[tid * 4 + 1] = smem[tid * 4 + 1]
+        out[tid * 4 + 2] = smem[tid * 4 + 2]
+        out[tid * 4 + 3] = smem[tid * 4 + 3]
+
+    out = cuda.to_device(np.zeros(16, dtype=np.float16))
+    kernel[1, 4](out)
+    cuda.synchronize()
+
+    got = out.copy_to_host()
+    expected = np.full(16, 3.0, dtype=np.float16)
+    np.testing.assert_equal(got, expected)
 
 
 def test_linker():

@@ -17,6 +17,7 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
     Registry,
     signature,
 )
+from numba_cuda_mlir.numba_cuda.typing.npydecl import parse_dtype, parse_shape
 from numba_cuda_mlir import types
 from numba_cuda_mlir.cuda.vector_types import (
     vector_types_by_name,
@@ -26,6 +27,60 @@ from numba_cuda_mlir.cuda.vector_types import (
 from numba_cuda_mlir.numba_cuda import cudadecl
 
 registry = Registry()
+
+
+class CArrayTyping(AbstractTemplate):
+    from numba_cuda_mlir.cuda import carray
+
+    key = carray
+    layout = "C"
+
+    def generic(self, args, kws):
+        if kws:
+            if set(kws) != {"dtype"}:
+                return None
+            args = (*args, kws["dtype"])
+
+        if len(args) not in (2, 3):
+            return None
+
+        ptr, shape = args[:2]
+        dtype_arg = args[2] if len(args) == 3 else None
+
+        if ptr is types.voidptr:
+            ptr_dtype = None
+        elif isinstance(ptr, types.CPointer):
+            ptr_dtype = ptr.dtype
+        else:
+            return None
+
+        if dtype_arg is None or isinstance(dtype_arg, types.NoneType):
+            if ptr_dtype is None:
+                return None
+            dtype = ptr_dtype
+        else:
+            dtype = parse_dtype(dtype_arg)
+            if dtype is None or (ptr_dtype is not None and dtype != ptr_dtype):
+                return None
+
+        ndim = parse_shape(shape)
+        if ndim is None:
+            return None
+
+        return signature(types.Array(dtype, ndim, self.layout), *args)
+
+
+registry.register_global(CArrayTyping.key, types.Function(CArrayTyping))
+
+
+class FArrayTyping(CArrayTyping):
+    from numba_cuda_mlir.cuda import farray
+
+    key = farray
+    layout = "F"
+
+
+registry.register_global(FArrayTyping.key, types.Function(FArrayTyping))
 
 
 @registry.register

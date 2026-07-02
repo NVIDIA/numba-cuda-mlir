@@ -1008,6 +1008,7 @@ class TypeInferer:
             self.debug = NullDebug()
 
         self._skip_recursion = False
+        self._resolve_call_cache = {}
 
     def copy(self, skip_recursion=False):
         clone = TypeInferer(self.context, self.func_ir, self.warnings)
@@ -1607,7 +1608,24 @@ https://numba.readthedocs.io/en/stable/user/troubleshoot.html#my-code-has-an-unt
             return sig
         else:
             # Normal non-recursive call
-            return self.context.resolve_function_type(fnty, pos_args, kw_args)
+            cache_key = self._resolve_call_cache_key(fnty, pos_args, kw_args)
+            if cache_key is not None and cache_key in self._resolve_call_cache:
+                return self._resolve_call_cache[cache_key]
+            sig = self.context.resolve_function_type(fnty, pos_args, kw_args)
+            if sig is not None and cache_key is not None:
+                self._resolve_call_cache[cache_key] = sig
+            return sig
+
+    def _resolve_call_cache_key(self, fnty, pos_args, kw_args):
+        if isinstance(fnty, types.RecursiveCall):
+            return None
+        kw_key = tuple(sorted(kw_args.items())) if kw_args else ()
+        key = (fnty, tuple(pos_args), kw_key)
+        try:
+            hash(key)
+        except TypeError:
+            return None
+        return key
 
     def typeof_global(self, inst, target, gvar):
         try:

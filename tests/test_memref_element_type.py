@@ -113,6 +113,9 @@ def _cast_mini_masked_to_int(context, builder, fromty, toty, val):
     )
 
 
+extending.refresh_registries()
+
+
 # ---------------------------------------------------------------------------
 # Integration tests
 # ---------------------------------------------------------------------------

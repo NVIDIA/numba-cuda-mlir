@@ -919,8 +919,45 @@ def make_overload_template(
     return type(base)(name, (base,), dct)
 
 
+class _TargetRegistryProxy:
+    def __init__(self, registry, target_context):
+        self._registry = registry
+        self._target_context = target_context
+
+    def _wrap_decorator(self, decorator):
+        def install_after_registration(impl):
+            result = decorator(impl)
+            self._target_context.install_registry(self._registry)
+            return result
+
+        return install_after_registration
+
+    def lower(self, *args, **kwargs):
+        return self._wrap_decorator(self._registry.lower(*args, **kwargs))
+
+    def lower_getattr(self, *args, **kwargs):
+        return self._wrap_decorator(self._registry.lower_getattr(*args, **kwargs))
+
+    def lower_getattr_generic(self, *args, **kwargs):
+        return self._wrap_decorator(self._registry.lower_getattr_generic(*args, **kwargs))
+
+    def lower_setattr(self, *args, **kwargs):
+        return self._wrap_decorator(self._registry.lower_setattr(*args, **kwargs))
+
+    def lower_setattr_generic(self, *args, **kwargs):
+        return self._wrap_decorator(self._registry.lower_setattr_generic(*args, **kwargs))
+
+    def lower_cast(self, *args, **kwargs):
+        return self._wrap_decorator(self._registry.lower_cast(*args, **kwargs))
+
+    def lower_constant(self, *args, **kwargs):
+        return self._wrap_decorator(self._registry.lower_constant(*args, **kwargs))
+
+
 class _TemplateTargetHelperMixin:
     """Mixin for helper methods that assist with target/registry resolution"""
+
+    _cached_target_registry_proxy = None
 
     def _get_target_registry(self, reason):
         """Returns the registry for the current target.
@@ -933,9 +970,13 @@ class _TemplateTargetHelperMixin:
         -------
         reg : a registry suitable for the current target.
         """
-        from numba_cuda_mlir.numba_cuda.core.imputils import builtin_registry
+        cached = _TemplateTargetHelperMixin._cached_target_registry_proxy
+        if cached is not None:
+            return cached
+
         from numba_cuda_mlir.numba_cuda.descriptor import cuda_target
 
+        cuda_target.ensure_initialized()
         tgtctx = cuda_target.target_context
 
         # ---------------------------------------------------------------------
@@ -974,26 +1015,12 @@ class _TemplateTargetHelperMixin:
         # branch and just keep the `else`.
         # =====================================================================
 
-        # =====================================================================
-        # XXX: This ought not to be necessary in the long term, but is left in
-        # for now. When there are fewer registries (or just one) for a target,
-        # it may be safe to remove this. Or, it may always require a refresh in
-        # case there are pending registrations - this remains to be seen
-        # ---------------------------------------------------------------------
-        #
-        # Comment / code left in from upstream:
-        #
-        # If the target context has not been populated yet, register overload
-        # lowerings into the builtin registry. The regular target refresh will
-        # install it later without recursively refreshing during typing.
-        if not tgtctx._registries:
-            return builtin_registry
-        # =====================================================================
-
         # Pick a registry in which to install intrinsics
         registries = iter(tgtctx._registries)
         reg = next(registries)
-        return reg
+        proxy = _TargetRegistryProxy(reg, tgtctx)
+        _TemplateTargetHelperMixin._cached_target_registry_proxy = proxy
+        return proxy
 
 
 class _IntrinsicTemplate(_TemplateTargetHelperMixin, AbstractTemplate):
@@ -1307,13 +1334,16 @@ class Registry:
         self.functions = []
         self.attributes = []
         self.globals = []
+        self._version = 0
 
     def register(self, item):
         self.functions.append(item)
+        self._version += 1
         return item
 
     def register_attr(self, item):
         self.attributes.append(item)
+        self._version += 1
         return item
 
     def register_global(self, val=None, typ=None, **kwargs):
@@ -1331,6 +1361,7 @@ class Registry:
             assert val is not None
             assert not kwargs
             self.globals.append((val, typ))
+            self._version += 1
         else:
 
             def decorate(cls, typing_key):
@@ -1342,6 +1373,7 @@ class Registry:
                 else:
                     raise TypeError("cannot infer type for global value %r")
                 self.globals.append((val, typ))
+                self._version += 1
                 return cls
 
             # register_global(val, typing_key=None)(<template class>)

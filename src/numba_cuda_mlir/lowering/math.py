@@ -250,7 +250,7 @@ def _get_operator_mapping(fn) -> OpForType | None:
     return info
 
 
-def _get_operation_for_op_and_type(op, type) -> tuple[OpForType, MaybeOp] | None:
+def _get_operation_for_op_and_type(op, type, is_unsigned) -> tuple[OpForType, MaybeOp] | None:
     mapping = _get_operator_mapping(op)
     if not mapping:
         return None
@@ -264,7 +264,7 @@ def _get_operation_for_op_and_type(op, type) -> tuple[OpForType, MaybeOp] | None
                 return mapping, mapping.unsigned_integer
             else:
                 # Default to signedness
-                return mapping, mapping.signed_integer
+                return mapping, mapping.unsigned_integer if is_unsigned else mapping.signed_integer
         case ir.ComplexType():
             return mapping, mapping.complex
         case _:
@@ -284,6 +284,8 @@ def pow_cg(builder, target, args, kwargs):
     lhs_mlir_type, rhs_mlir_type = lhs.type, rhs.type
     match (lhs_mlir_type, rhs_mlir_type):
         case (ir.FloatType(), ir.FloatType()):
+            lhs = builder.mlir_convert(lhs, target_mlir_type)
+            rhs = builder.mlir_convert(rhs, target_mlir_type)
             op = math_dialect.powf
         case (ir.FloatType(), ir.IntegerType()):
             # NVVM/libdevice only defines __nv_powi/__nv_powif with an i32 exponent.
@@ -293,6 +295,7 @@ def pow_cg(builder, target, args, kwargs):
                 rhs = convert(rhs, T.i32())
             op = math_dialect.fpowi
         case (ir.IntegerType(), ir.IntegerType()):
+            rhs = builder.mlir_convert(rhs, lhs_mlir_type)
             op = ipowi
         case (ir.ComplexType(), ir.ComplexType()):
             op = complex_dialect.pow
@@ -312,9 +315,24 @@ def pow_cg(builder, target, args, kwargs):
 def _bin_op_cg(op, builder, target, args, kwargs):
     assert not kwargs, "add_cg does not accept any keyword arguments"
     assert len(args) == 2, "add_cg expects 2 arguments"
-    target_type = builder.get_numba_type(target.name)
-    target_mlir_type = builder.get_mlir_type(target_type)
     lhs, rhs = args
+    target_type, lhs_type, rhs_type = (
+        builder.get_numba_type(target.name),
+        builder.get_numba_type(lhs.name),
+        builder.get_numba_type(rhs.name),
+    )
+    target_mlir_type = builder.get_mlir_type(target_type)
+
+    # Ensure numbers whose MLIR types are signless end up with the correct
+    # operation. Without this logic, two input values with two unsigned integer
+    # types get a signed comparator operator and vice versa
+    is_unsigned = (
+        isinstance(lhs_type, types.Integer)
+        and isinstance(rhs_type, types.Integer)
+        and not lhs_type.signed
+        and not rhs_type.signed
+    )
+
     lhs, rhs = builder.load_var(lhs), builder.load_var(rhs)
 
     # Handle cases where load_var returns Python/numpy scalars instead of MLIR values
@@ -333,7 +351,7 @@ def _bin_op_cg(op, builder, target, args, kwargs):
     unified_type = lowering_utilities.numpy_implicit_type_promotion(lhs.type, rhs.type)
 
     trace("op: %s, target_mlir_type: %s", op, target_mlir_type)
-    if found_op := _get_operation_for_op_and_type(op, unified_type):
+    if found_op := _get_operation_for_op_and_type(op, unified_type, is_unsigned):
         info, op = found_op
         assert op is not None, "Expected operation"
         if info.cast_to_return_type:
@@ -452,8 +470,9 @@ def pointer_array_cg(builder, target, args, kwargs):
         "calling types.ptr() is only supported on arrays, pointers, and integers"
     )
     array = builder.load_var(args[0])
-    result = memref.extract_aligned_pointer_as_index(array)
-    result = convert(result, llvm.PointerType.get())
+    result = lowering_utilities.memref_data_pointer_as_index(array)
+    result = arith.index_cast(T.i64(), result)
+    result = llvm.inttoptr(res=llvm.PointerType.get(), arg=result)
     builder.store_var(target, result)
 
 

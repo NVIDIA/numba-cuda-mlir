@@ -15,8 +15,6 @@
 # Imports:
 import io
 import operator
-
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.cudadrv.driver import _have_nvjitlink
 from numba_cuda_mlir.numba_cuda.datamodel import PrimitiveModel, StructModel
@@ -29,7 +27,10 @@ from numba_cuda_mlir.numba_cuda.extending import (
 from numba_cuda_mlir.numba_cuda.core.imputils import Registry as TargetRegistry
 from numba_cuda_mlir.numba_cuda.core.imputils import lower_cast
 from numba_cuda_mlir.numba_cuda.typing import signature
-from numba_cuda_mlir.numba_cuda import CUSource, declare_device
+from numba_cuda_mlir.numba_cuda.cudadrv.linkable_code import CUSource
+from numba_cuda_mlir.device_declarations import (
+    register_device_declaration as declare_device,
+)
 from numba_cuda_mlir.numba_cuda._internal.cuda_bf16 import _type___nv_bfloat16
 from numba_cuda_mlir.numba_cuda.typing.templates import (
     AbstractTemplate,
@@ -7574,26 +7575,14 @@ def float16_float_ty_constraint(bitwidth):
 
 @lower_cast(types.float16, types.Float)
 def float16_to_float_cast(context, builder, fromty, toty, val):
-    if fromty.bitwidth == toty.bitwidth:
-        return val
-
-    ty, constraint = float16_float_ty_constraint(toty.bitwidth)
-
-    fnty = ir.FunctionType(context.get_value_type(toty), [ir.IntType(16)])
-    asm = ir.InlineAsm(fnty, f"cvt.{ty}.f16 $0, $1;", f"={constraint},h")
-    return builder.call(asm, [val])
+    # float16 casts build cvt PTX via llvmlite and are filtered out on the MLIR
+    # path (lowered by numba_cuda_mlir.lowering); dead codegen.
+    raise NotImplementedError("float16->float cast codegen is not used on the MLIR path")
 
 
 @lower_cast(types.Float, types.float16)
 def float_to_float16_cast(context, builder, fromty, toty, val):
-    if fromty.bitwidth == toty.bitwidth:
-        return val
-
-    ty, constraint = float16_float_ty_constraint(fromty.bitwidth)
-
-    fnty = ir.FunctionType(ir.IntType(16), [context.get_value_type(fromty)])
-    asm = ir.InlineAsm(fnty, f"cvt.rn.f16.{ty} $0, $1;", f"=h,{constraint}")
-    return builder.call(asm, [val])
+    raise NotImplementedError("float->float16 cast codegen is not used on the MLIR path")
 
 
 def float16_int_constraint(bitwidth):
@@ -7608,25 +7597,13 @@ def float16_int_constraint(bitwidth):
 
 @lower_cast(types.float16, types.Integer)
 def float16_to_integer_cast(context, builder, fromty, toty, val):
-    bitwidth = toty.bitwidth
-    constraint = float16_int_constraint(bitwidth)
-    signedness = "s" if toty.signed else "u"
-
-    fnty = ir.FunctionType(context.get_value_type(toty), [ir.IntType(16)])
-    asm = ir.InlineAsm(fnty, f"cvt.rni.{signedness}{bitwidth}.f16 $0, $1;", f"={constraint},h")
-    return builder.call(asm, [val])
+    raise NotImplementedError("float16->int cast codegen is not used on the MLIR path")
 
 
 @lower_cast(types.Integer, types.float16)
 @lower_cast(types.IntegerLiteral, types.float16)
 def integer_to_float16_cast(context, builder, fromty, toty, val):
-    bitwidth = fromty.bitwidth
-    constraint = float16_int_constraint(bitwidth)
-    signedness = "s" if fromty.signed else "u"
-
-    fnty = ir.FunctionType(ir.IntType(16), [context.get_value_type(fromty)])
-    asm = ir.InlineAsm(fnty, f"cvt.rn.f16.{signedness}{bitwidth} $0, $1;", f"=h,{constraint}")
-    return builder.call(asm, [val])
+    raise NotImplementedError("int->float16 cast codegen is not used on the MLIR path")
 
 
 def _genfp16_unary_operator(l_key):

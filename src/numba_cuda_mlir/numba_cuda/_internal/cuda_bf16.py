@@ -15,8 +15,6 @@
 # Imports:
 import io
 import operator
-
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.datamodel import PrimitiveModel, StructModel
 from numba_cuda_mlir.numba_cuda.extending import (
@@ -40,7 +38,10 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
     ConcreteTemplate,
 )
 from numba_cuda_mlir.numba_cuda.typing.templates import Registry as TypingRegistry
-from numba_cuda_mlir.numba_cuda import CUSource, declare_device
+from numba_cuda_mlir.numba_cuda.cudadrv.linkable_code import CUSource
+from numba_cuda_mlir.device_declarations import (
+    register_device_declaration as declare_device,
+)
 from numba_cuda_mlir.numba_cuda.vector_types import vector_types
 from numba_cuda_mlir.numba_cuda.extending import as_numba_type
 from numba_cuda_mlir.numba_cuda.types import (
@@ -1448,12 +1449,9 @@ _from___nv_bfloat16_to_bool__lower(shim_stream, shim_obj)
 def _from___nv_bfloat16_to_float64__lower():
     @lower_cast(_type___nv_bfloat16, float64)
     def impl(context, builder, fromty, toty, value):
-        # Hand rolled bfloat16 -> float32 -> double conversion with zero-ext
-        bits32 = builder.zext(value, ir.IntType(32))
-        shift = builder.shl(bits32, ir.Constant(ir.IntType(32), 16))
-        f32 = builder.bitcast(shift, ir.FloatType())
-        f64 = builder.fpext(f32, ir.DoubleType())
-        return f64
+        # bfloat16 casts build llvmlite IR and are filtered out on the MLIR path
+        # (lowered by numba_cuda_mlir.lowering.exotic_float); dead codegen.
+        raise NotImplementedError("bfloat16->float64 cast codegen is not used on the MLIR path")
 
 
 _from___nv_bfloat16_to_float64__lower()
@@ -1462,10 +1460,7 @@ _from___nv_bfloat16_to_float64__lower()
 def _literalint_to_bf16_lower():
     @lower_cast(types.IntegerLiteral, _type___nv_bfloat16)
     def impl(context, builder, fromty, toty, value):
-        f32 = context.cast(builder, value, fromty, float32)
-        i32 = builder.bitcast(f32, ir.IntType(32))
-        i16 = builder.trunc(i32, ir.IntType(16))
-        return i16
+        raise NotImplementedError("int-literal->bfloat16 cast codegen is not used on the MLIR path")
 
 
 _literalint_to_bf16_lower()

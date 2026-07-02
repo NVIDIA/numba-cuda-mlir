@@ -9,7 +9,6 @@ from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda import get_current_device, config
 from numba_cuda_mlir.numba_cuda.cudadrv.driver import _Linker, _have_nvjitlink
 from numba_cuda_mlir.testing import NumbaCUDATestCase
-from numba_cuda_mlir.numba_cuda.testing import skip_on_cudasim
 
 import os
 import io
@@ -17,7 +16,6 @@ import contextlib
 
 
 @unittest.skipIf(not _have_nvjitlink(), "nvJitLink not installed or new enough (>12.3)")
-@skip_on_cudasim("Linking unsupported in the simulator")
 class TestLinker(NumbaCUDATestCase):
     @pytest.mark.numba_cuda_test_binaries("a", "cubin", "cu", "fatbin", "o", "ptx")
     def test_nvjitlink_add_file_guess_ext_linkable_code(self):
@@ -83,7 +81,6 @@ class TestLinker(NumbaCUDATestCase):
 
 
 @unittest.skipIf(not _have_nvjitlink(), "nvJitLink not installed or new enough (>12.3)")
-@skip_on_cudasim("Linking unsupported in the simulator")
 class TestLinkerDumpAssembly(NumbaCUDATestCase):
     def setUp(self):
         super().setUp()

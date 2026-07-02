@@ -200,6 +200,12 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
                 libllvm = os.path.realpath(bundled)
                 break
 
+        # Fall back to a conda-forge libllvm7.1 package, whose shared library is
+        # named libLLVM-7.1.so (its real soname). It lives in the environment's
+        # lib dir, which is on our DSOs' RPATH, so dlopen resolves the soname.
+        if not libllvm and os.name != "nt":
+            libllvm = "libLLVM-7.1.so"
+
     if not libllvm:
         hint = "Set LIBLLVM7=/path/to/libLLVM-7.so"
         if os.name == "nt":
@@ -521,8 +527,12 @@ def optimize(cres):
     with context.get_context():
         target_options = cres.metadata["targetoptions"]
         dump_mlir = target_options.get("dump_mlir", False) or target_options.get("dump", False)
-        # Parse pre-optimization MLIR (debug metadata present when debug/lineinfo enabled).
-        module = ir.Module.parse(cres.metadata["mlir_module_str"])
+        module = cres.metadata["mlir_module"]
+        # Materialize the pre-optimization string before passes mutate the module,
+        # so that inspect_mlir() and other consumers can still access it.
+        from numba_cuda_mlir.mlir_lowering import get_mlir_module_str
+
+        get_mlir_module_str(cres.metadata)
 
         if dump_mlir:
             _dump_module(module, "=============== MLIR Module ===============")

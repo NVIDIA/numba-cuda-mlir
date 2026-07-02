@@ -277,8 +277,6 @@ class Cache(_Cache):
         Load and recreate the cached object for the given signature,
         using the *target_context*.
         """
-        # Refresh the context to ensure it is initialized
-        target_context.refresh()
         with self._guard_against_spurious_io_errors():
             return self._load_overload(sig, target_context)
         # None returned if the `with` block swallows an exception

@@ -12,8 +12,6 @@
 
 
 # Imports:
-# Keep type annotations lazy: prepare_ir_types() is annotated with the
-# (now-removed) llvmlite ir.Type, which must not be evaluated at import.
 from __future__ import annotations
 
 from numba_cuda_mlir.numba_cuda.typing.templates import ConcreteTemplate
@@ -23,7 +21,6 @@ from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.extending import make_attribute_wrapper
 from numba_cuda_mlir.numba_cuda.types import bool_
 from numba_cuda_mlir.numba_cuda.types import uint64
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 from cuda.bindings.runtime import cudaRoundMode
 from numba_cuda_mlir.numba_cuda.typing.templates import Registry as TypingRegistry
 from numba_cuda_mlir.numba_cuda.types import uint32
@@ -102,35 +99,14 @@ shim_obj = CUSource(shim_stream)
 
 from numba_cuda_mlir.numba_cuda.target import CUDATargetContext
 
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 
-
-def prepare_ir_types(context: CUDATargetContext, argtys: list[ir.Type]) -> list[ir.Type]:
-    """
-    Prepare IR types for passing arguments via pointers in function calls.
-
-    This utility wraps each argument type in a PointerType to enable
-    the call convention used by FunctionCallConv, where arguments are
-    passed by reference.
-
-    Parameters
-    ----------
-    context : context object
-        The compilation context providing the get_value_type method.
-    argtys : list[ir.Type]
-        List of LLVM IR types representing function arguments.
-
-    Returns
-    -------
-    list[ir.Type]
-        List of pointer types wrapping the value types of each argument.
-    """
-    return [ir.PointerType(context.get_value_type(argty)) for argty in argtys]
+def prepare_ir_types(context, argtys):
+    # Built llvmlite pointer types for the fp8 shim call convention; that
+    # codegen is filtered out on the MLIR path, so this is a dead stub.
+    raise NotImplementedError("fp8 shim-call codegen is not used on the MLIR path")
 
 
 from numba_cuda_mlir.numba_cuda import types, cgutils
-
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 
 
 class BaseCallConv:
@@ -166,37 +142,9 @@ class BaseCallConv:
 
 class FunctionCallConv(BaseCallConv):
     def _lower_impl(self, builder, context, sig, args):
-        return_type = sig.return_type
-        # 1. Prepare return value pointer
-        if return_type == types.void:
-            # Void return type in C++ is shimmed as int& ignored
-            retval_ty = ir.IntType(32)
-            retval_ptr = builder.alloca(retval_ty, name="ignored")
-        else:
-            retval_ty = context.get_value_type(return_type)
-            retval_ptr = builder.alloca(retval_ty, name="retval")
-
-        # 2. Prepare arguments
-        arg_pointer_types = prepare_ir_types(context, sig.args)
-
-        # All arguments are passed by pointer
-        ptrs = [cgutils.alloca_once(builder, context.get_value_type(argty)) for argty in sig.args]
-        for ptr, argty, arg in zip(ptrs, sig.args, args):
-            builder.store(arg, ptr, align=getattr(argty, "alignof_", None))
-
-        # 3. Declare shim
-        # Shim signature: int (retval_type*, arg0_type*, ...)
-        fnty = ir.FunctionType(ir.IntType(32), [ir.PointerType(retval_ty)] + arg_pointer_types)
-        fn = cgutils.get_or_insert_function(builder.module, fnty, self.shim_function_name)
-
-        # 4. Call shim
-        builder.call(fn, (retval_ptr, *ptrs))
-
-        # 5. Return
-        if return_type == types.void:
-            return None
-        else:
-            return builder.load(retval_ptr, align=getattr(return_type, "alignof_", None))
+        # Built the fp8 shim call (pointer-based call convention) as llvmlite IR.
+        # This is filtered out on the MLIR path, so it is a dead stub.
+        raise NotImplementedError("fp8 shim-call codegen is not used on the MLIR path")
 
 
 class ShimWriterAdapter:
@@ -251,7 +199,9 @@ as_numba_type.register(fp8_e5m2, _type_fp8_e5m2)
 @register_model(_type_class_fp8_e5m2)
 class _model_fp8_e5m2(PrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = ir.IntType(fe_type.bitwidth)
+        # llvmlite be_type is discarded on the MLIR path (the model is built
+        # during type inference but the storage type comes from MLIR).
+        be_type = None
         super(_model_fp8_e5m2, self).__init__(dmm, fe_type, be_type)
 
 
@@ -1245,7 +1195,9 @@ as_numba_type.register(fp8_e4m3, _type_fp8_e4m3)
 @register_model(_type_class_fp8_e4m3)
 class _model_fp8_e4m3(PrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = ir.IntType(fe_type.bitwidth)
+        # llvmlite be_type is discarded on the MLIR path (the model is built
+        # during type inference but the storage type comes from MLIR).
+        be_type = None
         super(_model_fp8_e4m3, self).__init__(dmm, fe_type, be_type)
 
 
@@ -2287,7 +2239,9 @@ as_numba_type.register(fp8_e8m0, _type_fp8_e8m0)
 @register_model(_type_class_fp8_e8m0)
 class _model_fp8_e8m0(PrimitiveModel):
     def __init__(self, dmm, fe_type):
-        be_type = ir.IntType(fe_type.bitwidth)
+        # llvmlite be_type is discarded on the MLIR path (the model is built
+        # during type inference but the storage type comes from MLIR).
+        be_type = None
         super(_model_fp8_e8m0, self).__init__(dmm, fe_type, be_type)
 
 

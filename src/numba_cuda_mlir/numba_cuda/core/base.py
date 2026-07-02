@@ -45,7 +45,6 @@ from numba_cuda_mlir.numba_cuda import (
 )
 from numba_cuda_mlir.numba_cuda.core import errors
 from numba_cuda_mlir.numba_cuda.core.compiler_lock import global_compiler_lock
-from numba_cuda_mlir.numba_cuda.core.pythonapi import PythonAPI
 from numba_cuda_mlir.numba_cuda.core.imputils import (
     user_function,
     user_generator,
@@ -175,7 +174,16 @@ class OverloadSelector:
         """
         assert isinstance(sig, tuple), (value, sig)
         self.versions.append((sig, value))
-        self._cache.clear()
+        if self._cache:
+            self._cache.clear()
+
+    def extend(self, items):
+        """
+        Bulk-add [(sig, value), ...] pairs, clearing cache once at the end.
+        """
+        self.versions.extend(items)
+        if self._cache:
+            self._cache.clear()
 
 
 class BaseContext:
@@ -247,6 +255,7 @@ class BaseContext:
 
         # A mapping of installed registries to their loaders
         self._registries = {}
+        self._registry_versions = {}
         # Declarations loaded from registries and other sources
         self._defns = defaultdict(OverloadSelector)
         self._getattrs = defaultdict(OverloadSelector)
@@ -272,11 +281,23 @@ class BaseContext:
         For subclasses to add initializer
         """
 
+    def _registries_unchanged(self):
+        for registry, _loader in self._registries.items():
+            reg_id = id(registry)
+            current = getattr(registry, "_version", None)
+            if current is None:
+                return False
+            if current != self._registry_versions.get(reg_id, -1):
+                return False
+        return bool(self._registries)
+
     def refresh(self):
         """
-        Refresh context with new declarations from known registries.
+        Refresh target context with new declarations from known registries.
         Useful for third-party extensions.
         """
+        if self._registries_unchanged():
+            return
         # load target specific registries
         self.load_additional_registries()
 
@@ -285,10 +306,6 @@ class BaseContext:
         # their implementations into the builtin_registry and would be missed if
         # this ran first.
         self.install_registry(builtin_registry)
-
-        # Also refresh typing context, since @overload declarations can
-        # affect it.
-        self.typing_context.refresh()
 
     def load_additional_registries(self):
         """
@@ -349,9 +366,14 @@ class BaseContext:
 
     @cached_property
     def nrt(self):
-        from numba_cuda_mlir.numba_cuda.memory_management.nrt_context import NRTContext
-
-        return NRTContext(self, self.enable_nrt)
+        # The vendored NRTContext builds llvmlite NRT incref/decref/alloc IR and
+        # is dead on the MLIR path: MLIRLower uses its own MLIRNRTContext, and
+        # the only target-context .nrt accesses are from filtered-out vendored
+        # codegen. Raise so the dead NRTContext can be removed.
+        raise NotImplementedError(
+            "BaseContext.nrt (vendored NRTContext) is not available on the MLIR path; "
+            "MLIRLower uses MLIRNRTContext"
+        )
 
     def subtarget(self, **kws):
         obj = copy.copy(self)  # shallow copy
@@ -369,6 +391,13 @@ class BaseContext:
         Install a *registry* (a imputils.Registry instance) of function
         and attribute implementations.
         """
+        reg_id = id(registry)
+        current_version = getattr(registry, "_version", None)
+        if current_version is not None and current_version == self._registry_versions.get(
+            reg_id, -1
+        ):
+            return
+
         try:
             loader = self._registries[registry]
         except KeyError:
@@ -379,6 +408,9 @@ class BaseContext:
         self._insert_setattr_defn(loader.new_registrations("setattrs"))
         self._insert_cast_defn(loader.new_registrations("casts"))
         self._insert_get_constant_defn(loader.new_registrations("constants"))
+
+        if current_version is not None:
+            self._registry_versions[reg_id] = current_version
 
     def install_external_registry(self, registry):
         """
@@ -444,24 +476,33 @@ class BaseContext:
         self._insert_get_constant_defn(constants)
 
     def insert_func_defn(self, defns):
+        buckets = defaultdict(list)
         for impl, func, sig in defns:
-            self._defns[func].append(impl, sig)
+            buckets[func].append((sig, impl))
+        for func, items in buckets.items():
+            self._defns[func].extend(items)
 
     def _insert_getattr_defn(self, defns):
+        buckets = defaultdict(list)
         for impl, attr, sig in defns:
-            self._getattrs[attr].append(impl, sig)
+            buckets[attr].append((sig, impl))
+        for attr, items in buckets.items():
+            self._getattrs[attr].extend(items)
 
     def _insert_setattr_defn(self, defns):
+        buckets = defaultdict(list)
         for impl, attr, sig in defns:
-            self._setattrs[attr].append(impl, sig)
+            buckets[attr].append((sig, impl))
+        for attr, items in buckets.items():
+            self._setattrs[attr].extend(items)
 
     def _insert_cast_defn(self, defns):
-        for impl, sig in defns:
-            self._casts.append(impl, sig)
+        items = [(sig, impl) for impl, sig in defns]
+        self._casts.extend(items)
 
     def _insert_get_constant_defn(self, defns):
-        for impl, sig in defns:
-            self._get_constants.append(impl, sig)
+        items = [(sig, impl) for impl, sig in defns]
+        self._get_constants.extend(items)
 
     def insert_user_function(self, func, fndesc, libs=()):
         impl = user_function(fndesc, libs)
@@ -589,7 +630,7 @@ class BaseContext:
         lty = self.get_value_type(ty)
         return Constant(lty, None)
 
-    def get_function(self, fn, sig, _firstcall=True):
+    def get_function(self, fn, sig):
         """
         Return the implementation of function *fn* for signature *sig*.
         The return value is a callable with the signature (builder, args).
@@ -614,12 +655,6 @@ class BaseContext:
             except NotImplementedError:
                 # Raise exception for the type instance, for a better error message
                 pass
-
-        # Automatically refresh the context to load new registries if we are
-        # calling the first time.
-        if _firstcall:
-            self.refresh()
-            return self.get_function(fn, sig, _firstcall=False)
 
         raise NotImplementedError("No definition for lowering %s%s" % (key, sig))
 
@@ -1012,7 +1047,13 @@ class BaseContext:
         raise NotImplementedError
 
     def get_python_api(self, builder):
-        return PythonAPI(self, builder)
+        # PythonAPI is llvmlite PyObject C-API codegen, dead on the MLIR path
+        # (only reached from filtered-out object-mode codegen). Raise so the
+        # dead PythonAPI class can be removed; reaching here means a live path
+        # tried to use the CPython C-API, which is unsupported on device.
+        raise NotImplementedError(
+            "get_python_api / the CPython C-API is not available on the MLIR path"
+        )
 
     def sentry_record_alignment(self, rectyp, attr):
         """

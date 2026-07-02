@@ -756,12 +756,14 @@ def _is_sm_120_with_ctk_12_9():
 _xfail_launch_bounds = pytest.mark.xfail(
     (_is_sm_100() and nvvm.NVVM().get_version() < (13, 2)) or _is_sm_120_with_ctk_12_9(),
     reason="libnvvm omits .maxntid for sm_100 before CUDA 13.2 or sm_120 with CUDA 12.9",
+    strict=False,
 )
 _xfail_max_cluster_rank = pytest.mark.xfail(
     not cc_X_or_above(10, 0)
     or (_is_sm_100() and nvvm.NVVM().get_version() < (13, 2))
     or _is_sm_120_with_ctk_12_9(),
     reason="libnvvm does not emit .maxclusterrank before CUDA 13.2 on sm_100+",
+    strict=False,
 )
 
 

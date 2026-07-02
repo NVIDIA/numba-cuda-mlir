@@ -170,6 +170,17 @@ def choose_result_int(*inputs):
     return types.Integer.from_bitwidth(bitwidth, signed)
 
 
+def choose_result_int_bitwise(*inputs):
+    """Choose the integer result type for bitwise logic ops (&, |, ^).
+
+    Unlike choose_result_int, this does not enforce a minimum width of
+    ``intp``.
+    """
+    bitwidth = max(tp.bitwidth for tp in inputs)
+    signed = any(tp.signed for tp in inputs)
+    return types.Integer.from_bitwidth(bitwidth, signed)
+
+
 # The "machine" integer types to take into consideration for operator typing
 # (according to the integer typing NBEP)
 machine_ints = sorted(set((types.intp, types.int64))) + sorted(set((types.uintp, types.uint64)))
@@ -179,6 +190,14 @@ machine_ints = sorted(set((types.intp, types.int64))) + sorted(set((types.uintp,
 integer_binop_cases = tuple(
     signature(choose_result_int(op1, op2), op1, op2)
     for op1, op2 in itertools.product(machine_ints, machine_ints)
+)
+
+# Bitwise logic cases cover all machine-integer widths so that narrower
+# types are matched exactly and not widened to int64.
+_all_integer_types = sorted(types.signed_domain) + sorted(types.unsigned_domain)
+integer_bitwise_cases = tuple(
+    signature(choose_result_int_bitwise(op1, op2), op1, op2)
+    for op1, op2 in itertools.product(_all_integer_types, _all_integer_types)
 )
 
 
@@ -295,9 +314,9 @@ class BitwiseRightShift(BitwiseShiftOperation):
     pass
 
 
-class BitwiseLogicOperation(BinOp):
+class BitwiseLogicOperation(ConcreteTemplate):
     cases = [signature(types.boolean, types.boolean, types.boolean)]
-    cases += list(integer_binop_cases)
+    cases += list(integer_bitwise_cases)
     unsafe_casting = False
 
 
@@ -555,7 +574,7 @@ class Contains(AbstractTemplate):
         assert not kws
         (seq, val) = args
 
-        if isinstance(seq, (types.Sequence)):
+        if isinstance(seq, types.Sequence) and isinstance(val, (types.Number, types.Boolean)):
             return signature(types.boolean, seq, val)
 
 
@@ -818,7 +837,6 @@ class NumberClassAttribute(AttributeTemplate):
                     and isinstance(val.dtype, types.Float)
                 ):
                     return ty
-
                 # unsupported
                 msg = f"Casting {val} to {ty} directly is unsupported."
                 if isinstance(val, types.Array):
@@ -827,7 +845,7 @@ class NumberClassAttribute(AttributeTemplate):
                 raise errors.TypingError(msg)
 
         def typer_complex(val, imag):
-            if ty in types.complex_domain:
+            if isinstance(ty, types.Complex):
                 if isinstance(val, types.Number) and isinstance(imag, types.Number):
                     return ty
                 else:

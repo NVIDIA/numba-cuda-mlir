@@ -13,7 +13,6 @@ from numba_cuda_mlir.numba_cuda.cudadrv.devicearray import (
 )
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.testing import NumbaCUDATestCase
-from numba_cuda_mlir.numba_cuda.testing import skip_on_cudasim
 from numba_cuda_mlir.numba_cuda.np import numpy_support
 
 N_CHARS = 5
@@ -35,7 +34,6 @@ recwithmat = np.dtype([("i", np.int32), ("j", np.float32, (3, 3))])
 recwithrecwithmat = np.dtype([("x", np.int32), ("y", recwithmat)])
 
 
-@skip_on_cudasim("Device Record API unsupported in the simulator")
 class TestCudaDeviceRecord(NumbaCUDATestCase):
     """
     Tests the DeviceRecord class with np.void host types.
@@ -120,7 +118,6 @@ class TestCudaDeviceRecordWithRecord(TestCudaDeviceRecord):
         self._create_data(np.recarray)
 
 
-@skip_on_cudasim("Structured array attr access not supported in simulator")
 class TestRecordDtypeWithStructArrays(NumbaCUDATestCase):
     """
     Test operation of device arrays on structured arrays.

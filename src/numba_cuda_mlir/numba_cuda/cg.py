@@ -4,7 +4,6 @@
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.extending import overload, overload_method
 from numba_cuda_mlir.numba_cuda.typing import signature
-from numba_cuda_mlir.numba_cuda import nvvmutils
 from numba_cuda_mlir.numba_cuda.extending import intrinsic
 from numba_cuda_mlir.numba_cuda.types.ext_types import (
     grid_group,

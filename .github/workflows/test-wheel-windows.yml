@@ -113,19 +113,6 @@ jobs:
       - name: Display structure of downloaded numba-cuda-mlir artifacts
         run: ls -lahR "$NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR"
 
-      - name: Determine LLVM Python tag
-        id: wheel-tags
-        run: |
-          PY_VER_FMT=$(echo "${{ matrix.PY_VER }}" | tr -d '.')
-          echo "LLVM_PY_TAG=cp${PY_VER_FMT}" >> "$GITHUB_ENV"
-          echo "llvm-py-tag=cp${PY_VER_FMT}" >> "$GITHUB_OUTPUT"
-
-      - name: Restore LLVM artifacts
-        uses: ./.github/actions/restore_llvm_artifacts
-        with:
-          host-platform: ${{ inputs.host-platform }}
-          llvm-py-tag: ${{ steps.wheel-tags.outputs.llvm-py-tag }}
-
       - name: Set up Python ${{ matrix.PY_VER }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
@@ -140,67 +127,19 @@ jobs:
           cuda-version: ${{ matrix.CUDA_VER }}
           cuda-components: "cuda_nvcc,cuda_cudart,cuda_crt,libnvvm,cuda_nvrtc,cuda_cccl,libnvjitlink,cuda_cuobjdump"
 
-      - name: Resolve devcontainer image
-        env:
-          CUDA_VER: ${{ matrix.CUDA_VER }}
-        run: |
-          cuda_major_minor="$(cut -d '.' -f 1,2 <<< "${CUDA_VER}")"
-          case "${cuda_major_minor}" in
-            12.*|13.*) ;;
-            *) echo "Unsupported Windows devcontainer CUDA version: ${CUDA_VER}" >&2; exit 1 ;;
-          esac
-          image="rapidsai/devcontainers:26.06-cuda${cuda_major_minor}-cl14.44"
-          echo "WINDOWS_TEST_DEVCONTAINER_IMAGE=${image}" >> "$GITHUB_ENV"
-          echo "Resolved Windows test devcontainer image: ${image}"
-
-      - name: Pull devcontainer image
-        shell: pwsh
-        run: |
-          docker pull $env:WINDOWS_TEST_DEVCONTAINER_IMAGE
-
-      - name: Run numba-cuda-mlir tests in devcontainer
-        shell: pwsh
+      - name: Run numba-cuda-mlir tests
         env:
           CUDA_VER: ${{ matrix.CUDA_VER }}
           LOCAL_CTK: ${{ matrix.LOCAL_CTK }}
-          PY_VER: ${{ matrix.PY_VER }}
           TEST_SCRIPT: ${{ inputs.test-script }}
         run: |
-          switch ($env:TEST_SCRIPT) {
-            'run-tests' { }
-            'run-coverage-tests' { }
-            default { throw "Unsupported test script: $env:TEST_SCRIPT" }
-          }
-
-          $src = (Resolve-Path "${{ github.workspace }}").Path
-          $img = $env:WINDOWS_TEST_DEVCONTAINER_IMAGE
-          $dockerArgs = @(
-            'run',
-            '--rm',
-            '--isolation=process',
-            '--device',
-            'class/5B45201D-F2F2-4F3B-85BB-30FF1F953599',
-            '--mount',
-            "type=bind,source=$src,target=C:\workspace",
-            '--workdir',
-            'C:\workspace',
-            $img,
-            'powershell',
-            '-NoProfile',
-            '-ExecutionPolicy',
-            'Bypass',
-            '-File',
-            'C:\workspace\ci\windows-run-tests-container.ps1',
-            '-PythonVersion',
-            $env:PY_VER,
-            '-CudaVersion',
-            $env:CUDA_VER,
-            '-LocalCtk',
-            $env:LOCAL_CTK,
-            '-TestScript',
-            $env:TEST_SCRIPT
-          )
-          & docker @dockerArgs
-          if ($LASTEXITCODE -ne 0) {
-            throw "Windows test container failed with exit code $LASTEXITCODE"
-          }
+          if [[ "${LOCAL_CTK}" != 1 ]]; then
+            export NUMBA_CUDA_MLIR_TEST_WHEEL_ONLY=1
+            export NUMBA_CUDA_MLIR_CUDA_TEST_WHEEL_ONLY=1
+            export NUMBA_CUDA_TEST_WHEEL_ONLY=1
+          fi
+          case "${TEST_SCRIPT}" in
+            run-tests|run-coverage-tests) ;;
+            *) echo "Unsupported test script: ${TEST_SCRIPT}"; exit 1 ;;
+          esac
+          "${TEST_SCRIPT}"

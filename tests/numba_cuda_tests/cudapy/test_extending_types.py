@@ -5,7 +5,7 @@
 Test extending types via the numba.extending.* API.
 """
 
-from numba_cuda_mlir import cuda
+from numba_cuda_mlir import cuda, extending
 from numba_cuda_mlir.numba_cuda import types
 
 from numba_cuda_mlir.numba_cuda.core.errors import TypingError, NumbaTypeError
@@ -54,6 +54,7 @@ class TestExtTypDummy(unittest.TestCase):
     def test_overload_float_error_msg(self):
         mock_float = gen_mock_float()
         self._add_float_overload(mock_float)
+        extending.refresh_registries()
 
         @cuda.jit
         def foo(x):

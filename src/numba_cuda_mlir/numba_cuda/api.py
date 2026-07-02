@@ -24,6 +24,10 @@ current_context = devices.get_context
 gpus = devices.gpus
 
 
+def _dtype_from_cuda_array_interface(desc, owner):
+    return resolve_cuda_array_interface_dtype(desc["typestr"], getattr(owner, "dtype", None))
+
+
 @require_context
 def from_cuda_array_interface(desc, owner=None, sync=True):
     """Create a DeviceNDArray from a cuda-array-interface description.

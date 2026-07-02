@@ -1313,8 +1313,10 @@ extern "C" __global__ void
             case "getitem" | "typed_getitem":
                 self.lower_getitem_expr_assign(target, expr.value, expr.index)
             case "static_getitem":
-                # For static_getitem, use index_var if available, otherwise use the constant index
-                index = expr.index_var if expr.index_var is not None else expr.index
+                value_type = self.get_numba_type(expr.value.name)
+                index = expr.index
+                if not isinstance(value_type, types.BaseTuple) and expr.index_var is not None:
+                    index = expr.index_var
                 self.lower_getitem_expr_assign(target, expr.value, index)
             case "call":
                 args = list(expr.args)
@@ -1573,13 +1575,22 @@ extern "C" __global__ void
         value_type = self.get_numba_type(value.name)
         match index:
             case int():
-                index_type = types.int64
+                index_type = types.IntegerLiteral(index)
+            case slice():
+                index_type = numba_types.SliceLiteral(index)
             case str():
                 index_type = types.StringLiteral(index)
             case numba_ir.Var():
                 index_type = self.get_numba_type(index.name)
             case _:
                 raise NotImplementedError(f"lowering getitem {target} = {value}[{index}]")
+
+        if isinstance(value_type, types.BaseNamedTuple) and isinstance(index, int):
+            result = self.load_var(value)[index]
+            self.incref(target_type, result)
+            self.store_var(target, result)
+            return
+
         signature = target_type(value_type, index_type)
         if builder := self.get_registered_builder(operator.getitem, signature):
             builder(self, target, [value, index], [])

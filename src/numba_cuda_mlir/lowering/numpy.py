@@ -1409,6 +1409,16 @@ def lower_uni_tuple_getitem(builder, target, args, kwargs):
             raise InternalCompilerError(f"Tuple index must be an integer, got {type(args[1])}")
 
 
+@lower("static_getitem", types.UniTuple, types.SliceLiteral)
+@lower("static_getitem", types.Tuple, types.SliceLiteral)
+def lower_static_tuple_slice(builder, target, args, kwargs):
+    tup = builder.load_var(args[0])
+    index = args[1]
+    assert isinstance(tup, tuple), f"Expected Python tuple, got {type(tup)}"
+    assert isinstance(index, slice), f"Expected slice, got {type(index)}"
+    builder.store_var(target, tup[index])
+
+
 def _lower_record_array_setitem(builder, target, args, kwargs):
     """
     Handle array[index] = record where array.dtype is Record.

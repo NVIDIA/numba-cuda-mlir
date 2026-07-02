@@ -1,16 +1,29 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 from numba_cuda_mlir.numba_cuda import types
-from numba_cuda_mlir.numba_cuda import cgutils
 from numba_cuda_mlir.numba_cuda.extending import intrinsic, overload
 from numba_cuda_mlir.numba_cuda.core.errors import NumbaTypeError
-from numba_cuda_mlir.numba_cuda.api_util import normalize_indices
 
 # Docs references:
 # https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-ld
 # https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#load-functions-using-cache-hints
+#
+# The @intrinsic ``codegen`` closures here used to build the ld/st.global PTX
+# inline asm with llvmlite. On the MLIR path the cache-hint operations are
+# lowered by numba_cuda_mlir.lowering.cuda (register_cache_hint_lowerings,
+# @lower against the stub functions below), so these closures are never invoked
+# (a numba_cuda_mlir.numba_cuda intrinsic builder is filtered out, and an array
+# argument is rejected outright by MLIRLower). The @intrinsic typing (the
+# returned signature) and argument validation are retained; the codegen is a
+# tombstone.
+
+
+def _dead_codegen(context, builder, sig, args):
+    raise NotImplementedError(
+        "cache-hint codegen is provided by numba_cuda_mlir.lowering.cuda on the "
+        "MLIR path; this vendored llvmlite codegen is never invoked"
+    )
 
 
 def ldca(array, i):
@@ -106,29 +119,6 @@ def _validate_bitwidth(instruction, array):
         raise NumbaTypeError(msg)
 
 
-def _get_element_pointer(context, builder, index_type, indices, array_type, array):
-    if isinstance(array_type, types.CPointer):
-        return builder.gep(array, [indices])
-    else:
-        index_type, indices = normalize_indices(
-            context,
-            builder,
-            index_type,
-            indices,
-            array_type,
-            array_type.dtype,
-        )
-        array_struct = context.make_array(array_type)(context, builder, value=array)
-        return cgutils.get_item_pointer(
-            context,
-            builder,
-            array_type,
-            array_struct,
-            indices,
-            wraparound=True,
-        )
-
-
 def ld_cache_operator(operator):
     @intrinsic
     def impl(typingctx, array, index):
@@ -137,23 +127,7 @@ def ld_cache_operator(operator):
 
         signature = array.dtype(array, index)
 
-        def codegen(context, builder, sig, args):
-            array_type, index_type = sig.args
-            loaded_type = context.get_value_type(array_type.dtype)
-            ptr_type = loaded_type.as_pointer()
-            ldcs_type = ir.FunctionType(loaded_type, [ptr_type])
-
-            array, indices = args
-
-            ptr = _get_element_pointer(context, builder, index_type, indices, array_type, array)
-
-            bitwidth = array_type.dtype.bitwidth
-            inst = f"ld.global.{operator}.b{bitwidth}"
-            constraints = f"={CONSTRAINT_MAP[bitwidth]},l"
-            ldcs = ir.InlineAsm(ldcs_type, f"{inst} $0, [$1];", constraints)
-            return builder.call(ldcs, [ptr])
-
-        return signature, codegen
+        return signature, _dead_codegen
 
     return impl
 
@@ -173,25 +147,7 @@ def st_cache_operator(operator):
 
         signature = types.void(array, index, value)
 
-        def codegen(context, builder, sig, args):
-            array_type, index_type, value_type = sig.args
-            stored_type = context.get_value_type(array_type.dtype)
-            ptr_type = stored_type.as_pointer()
-            stcs_type = ir.FunctionType(ir.VoidType(), [ptr_type, stored_type])
-
-            array, indices, value = args
-
-            ptr = _get_element_pointer(context, builder, index_type, indices, array_type, array)
-
-            casted_value = context.cast(builder, value, value_type, array_type.dtype)
-
-            bitwidth = array_type.dtype.bitwidth
-            inst = f"st.global.{operator}.b{bitwidth}"
-            constraints = f"l,{CONSTRAINT_MAP[bitwidth]},~{{memory}}"
-            stcs = ir.InlineAsm(stcs_type, f"{inst} [$0], $1;", constraints)
-            builder.call(stcs, [ptr, casted_value])
-
-        return signature, codegen
+        return signature, _dead_codegen
 
     return impl
 

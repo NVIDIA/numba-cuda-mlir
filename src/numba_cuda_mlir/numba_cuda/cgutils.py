@@ -9,11 +9,16 @@ import collections
 from contextlib import contextmanager, ExitStack
 import functools
 
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
-
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda import config, utils, debuginfo
 import numba_cuda_mlir.numba_cuda.datamodel
+
+# Many cgutils helpers built llvmlite IR (struct/array packing, alloca, global
+# constants, printf/snprintf, raw memcpy, type predicates, ...). They take an
+# llvmlite IRBuilder/Module, which the MLIR path never provides (MLIRLower uses
+# the MLIR builder and does not import cgutils), so they are dead. The ones that
+# referenced llvmlite `ir` are neutered to raise this message.
+_DEAD_CODEGEN_MSG = "this cgutils llvmlite codegen helper is not used on the MLIR path"
 
 
 # llvmlite type aliases discarded on the MLIR path (used only by dead codegen)
@@ -38,21 +43,14 @@ def make_anonymous_struct(builder, values, struct_type=None):
     """
     Create an anonymous struct containing the given LLVM *values*.
     """
-    if struct_type is None:
-        struct_type = ir.LiteralStructType([v.type for v in values])
-    struct_val = struct_type(ir.Undefined)
-    for i, v in enumerate(values):
-        struct_val = builder.insert_value(struct_val, v, i)
-    return struct_val
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def make_bytearray(buf):
     """
     Make a byte array constant from *buf*.
     """
-    b = bytearray(buf)
-    n = len(b)
-    return ir.Constant(ir.ArrayType(ir.IntType(8), n), b)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 _struct_proxy_cache = {}
@@ -383,20 +381,7 @@ def alloca_once(builder, ty, size=None, name="", zfill=False):
     use-site location.  Note that the memory is always zero-filled after the
     ``alloca`` at init-site (the entry block).
     """
-    if isinstance(size, int):
-        size = ir.Constant(intp_t, size)
-    # suspend debug metadata emission else it links up python source lines with
-    # alloca in the entry block as well as their actual location and it makes
-    # the debug info "jump about".
-    with debuginfo.suspend_emission(builder):
-        with builder.goto_entry_block():
-            ptr = builder.alloca(ty, size=size, name=name)
-            # Always zero-fill at init-site.  This is safe.
-            builder.store(ty(None), ptr)
-        # Also zero-fill at the use-site
-        if zfill:
-            builder.store(ptr.type.pointee(None), ptr)
-        return ptr
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def sizeof(builder, ptr_type):
@@ -433,10 +418,7 @@ def get_or_insert_function(module, fnty, name):
     Get the function named *name* with type *fnty* from *module*, or insert it
     if it doesn't exist.
     """
-    fn = module.globals.get(name, None)
-    if fn is None:
-        fn = ir.Function(module, fnty, name)
-    return fn
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def get_or_insert_named_metadata(module, name):
@@ -447,8 +429,7 @@ def get_or_insert_named_metadata(module, name):
 
 
 def add_global_variable(module, ty, name, addrspace=0):
-    unique_name = module.get_unique_name(name)
-    return ir.GlobalVariable(module, ty, unique_name, addrspace)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def terminate(builder, bbend):
@@ -567,36 +548,7 @@ def for_range_slice(builder, start, stop, step, intp=None, inc=True):
     -----------
         None
     """
-    if intp is None:
-        intp = start.type
-
-    bbcond = builder.append_basic_block("for.cond")
-    bbbody = builder.append_basic_block("for.body")
-    bbend = builder.append_basic_block("for.end")
-    bbstart = builder.basic_block
-    builder.branch(bbcond)
-
-    with builder.goto_block(bbcond):
-        index = builder.phi(intp, name="loop.index")
-        count = builder.phi(intp, name="loop.count")
-        if inc:
-            pred = builder.icmp_signed("<", index, stop)
-        else:
-            pred = builder.icmp_signed(">", index, stop)
-        builder.cbranch(pred, bbbody, bbend)
-
-    with builder.goto_block(bbbody):
-        yield index, count
-        bbbody = builder.basic_block
-        incr = builder.add(index, step)
-        next_count = increment_index(builder, count)
-        terminate(builder, bbcond)
-
-    index.add_incoming(start, bbstart)
-    index.add_incoming(incr, bbbody)
-    count.add_incoming(ir.Constant(intp, 0), bbstart)
-    count.add_incoming(next_count, bbbody)
-    builder.position_at_end(bbend)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 @contextmanager
@@ -613,20 +565,7 @@ def for_range_slice_generic(builder, start, stop, step):
             with neg_range as (idx, count):
                 ...
     """
-    intp = start.type
-    is_pos_step = builder.icmp_signed(">=", step, ir.Constant(intp, 0))
-
-    pos_for_range = for_range_slice(builder, start, stop, step, intp, inc=True)
-    neg_for_range = for_range_slice(builder, start, stop, step, intp, inc=False)
-
-    @contextmanager
-    def cm_cond(cond, inner_cm):
-        with cond:
-            with inner_cm as value:
-                yield value
-
-    with builder.if_else(is_pos_step, likely=True) as (then, otherwise):
-        yield cm_cond(then, pos_for_range), cm_cond(otherwise, neg_for_range)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 @contextmanager
@@ -673,24 +612,14 @@ def pack_array(builder, values, ty=None):
     if the array may be empty, in which case the type can't be inferred
     from the values.
     """
-    n = len(values)
-    if ty is None:
-        ty = values[0].type
-    ary = ir.ArrayType(ty, n)(ir.Undefined)
-    for i, v in enumerate(values):
-        ary = builder.insert_value(ary, v, i)
-    return ary
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def pack_struct(builder, values):
     """
     Pack a sequence of values into a LLVM struct.
     """
-    structty = ir.LiteralStructType([v.type for v in values])
-    st = structty(ir.Undefined)
-    for i, v in enumerate(values):
-        st = builder.insert_value(st, v, i)
-    return st
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def unpack_tuple(builder, tup, count=None):
@@ -833,14 +762,7 @@ def get_item_pointer2(
 
 
 def _scalar_pred_against_zero(builder, value, fpred, icond):
-    nullval = value.type(0)
-    if isinstance(value.type, (ir.FloatType, ir.DoubleType)):
-        isnull = fpred(value, nullval)
-    elif isinstance(value.type, ir.IntType):
-        isnull = builder.icmp_signed(icond, value, nullval)
-    else:
-        raise TypeError("unexpected value type %s" % (value.type,))
-    return isnull
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def is_scalar_zero(builder, value):
@@ -936,10 +858,7 @@ def guard_memory_error(context, builder, pointer, msg=None):
     """
     Guard against *pointer* being NULL (and raise a MemoryError).
     """
-    assert isinstance(pointer.type, ir.PointerType), pointer.type
-    exc_args = (msg,) if msg else ()
-    with builder.if_then(is_null(builder, pointer), likely=False):
-        context.fndesc.call_conv.return_user_exc(builder, MemoryError, exc_args)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 @contextmanager
@@ -958,7 +877,7 @@ def is_pointer(ltyp):
     """
     Whether the LLVM type *typ* is a struct type.
     """
-    return isinstance(ltyp, ir.PointerType)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def get_record_member(builder, record, offset, typ):
@@ -1039,15 +958,7 @@ def global_constant(builder_or_module, name, value, linkage="internal"):
     """
     Get or create a (LLVM module-)global constant with *name* or *value*.
     """
-    if isinstance(builder_or_module, ir.Module):
-        module = builder_or_module
-    else:
-        module = builder_or_module.module
-    data = add_global_variable(module, value.type, name)
-    data.linkage = linkage
-    data.global_constant = True
-    data.initializer = value
-    return data
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def divmod_by_constant(builder, val, divisor):
@@ -1116,21 +1027,7 @@ def memcpy(builder, dst, src, count):
 
 
 def _raw_memcpy(builder, func_name, dst, src, count, itemsize, align):
-    size_t = count.type
-    if isinstance(itemsize, int):
-        itemsize = ir.Constant(size_t, itemsize)
-
-    memcpy = builder.module.declare_intrinsic(func_name, [voidptr_t, voidptr_t, size_t])
-    is_volatile = false_bit
-    builder.call(
-        memcpy,
-        [
-            builder.bitcast(dst, voidptr_t),
-            builder.bitcast(src, voidptr_t),
-            builder.mul(count, itemsize),
-            is_volatile,
-        ],
-    )
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def raw_memcpy(builder, dst, src, count, itemsize, align=1):
@@ -1172,48 +1069,12 @@ def printf(builder, format, *args):
     Note: There is no checking to ensure there is correct number of values
     in `args` and there type matches the declaration in the format string.
     """
-    assert isinstance(format, str)
-    mod = builder.module
-    # Make global constant for format string
-    cstring = voidptr_t
-    fmt_bytes = make_bytearray((format + "\00").encode("ascii"))
-    global_fmt = global_constant(mod, "printf_format", fmt_bytes)
-    fnty = ir.FunctionType(int32_t, [cstring], var_arg=True)
-    # Insert printf()
-    try:
-        fn = mod.get_global("printf")
-    except KeyError:
-        fn = ir.Function(mod, fnty, name="printf")
-    # Call
-    ptr_fmt = builder.bitcast(global_fmt, cstring)
-    return builder.call(fn, [ptr_fmt] + list(args))
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def snprintf(builder, buffer, bufsz, format, *args):
     """Calls libc snprintf(buffer, bufsz, format, ...args)"""
-    assert isinstance(format, str)
-    mod = builder.module
-    # Make global constant for format string
-    cstring = voidptr_t
-    fmt_bytes = make_bytearray((format + "\00").encode("ascii"))
-    global_fmt = global_constant(mod, "snprintf_format", fmt_bytes)
-    fnty = ir.FunctionType(
-        int32_t,
-        [cstring, intp_t, cstring],
-        var_arg=True,
-    )
-    # Actual symbol name of snprintf is different on win32.
-    symbol = "snprintf"
-    if config.IS_WIN32:
-        symbol = "_" + symbol
-    # Insert snprintf()
-    try:
-        fn = mod.get_global(symbol)
-    except KeyError:
-        fn = ir.Function(mod, fnty, name=symbol)
-    # Call
-    ptr_fmt = builder.bitcast(global_fmt, cstring)
-    return builder.call(fn, [buffer, bufsz, ptr_fmt] + list(args))
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def snprintf_stackbuffer(builder, bufsz, format, *args):
@@ -1222,12 +1083,7 @@ def snprintf_stackbuffer(builder, bufsz, format, *args):
 
     Returns the buffer pointer as i8*.
     """
-    assert isinstance(bufsz, int)
-    spacety = ir.ArrayType(ir.IntType(8), bufsz)
-    space = alloca_once(builder, spacety, zfill=True)
-    buffer = builder.bitcast(space, voidptr_t)
-    snprintf(builder, buffer, intp_t(bufsz), format, *args)
-    return buffer
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def normalize_ir_text(text):
@@ -1243,22 +1099,7 @@ def hexdump(builder, ptr, nbytes):
     """Debug print the memory region in *ptr* to *ptr + nbytes*
     as hex.
     """
-    bytes_per_line = 16
-    nbytes = builder.zext(nbytes, intp_t)
-    printf(builder, "hexdump p=%p n=%zu", ptr, nbytes)
-    byte_t = ir.IntType(8)
-    ptr = builder.bitcast(ptr, byte_t.as_pointer())
-    # Loop to print the bytes in *ptr* as hex
-    with for_range(builder, nbytes) as idx:
-        div_by = builder.urem(idx.index, intp_t(bytes_per_line))
-        do_new_line = builder.icmp_unsigned("==", div_by, intp_t(0))
-        with builder.if_then(do_new_line):
-            printf(builder, "\n")
-
-        offset = builder.gep(ptr, [idx.index])
-        val = builder.load(offset)
-        printf(builder, " %02x", val)
-    printf(builder, "\n")
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def is_nonelike(ty):
@@ -1277,4 +1118,4 @@ def create_constant_array(ty, val):
 
     The type provided is the type of the elements.
     """
-    return ir.Constant(ir.ArrayType(ty, len(val)), val)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)

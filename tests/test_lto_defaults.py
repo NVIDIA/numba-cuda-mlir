@@ -33,13 +33,29 @@ def test_link_plan_keeps_implicit_ptx_for_external_ptx_link_items():
     assert plan.lto_explicit is False
 
 
-def test_link_plan_keeps_implicit_ptx_for_cu_source_link_items():
+def test_link_plan_enables_implicit_lto_for_cu_source_link_items():
     dispatcher = cuda.jit(link=[cuda.CUSource("")])(_kernel)
 
     plan = resolve_link_plan(dispatcher.targetoptions, dispatcher.targetoptions["link"])
 
-    assert plan.compile_new_inputs_as_ltoir is False
+    assert plan.compile_new_inputs_as_ltoir is True
     assert plan.lto_explicit is False
+
+
+def test_link_plan_ptx_disables_implicit_lto_for_cu_source_link_items():
+    dispatcher = cuda.jit(link=[cuda.CUSource(""), "external.ptx"])(_kernel)
+
+    plan = resolve_link_plan(dispatcher.targetoptions, dispatcher.targetoptions["link"])
+
+    assert plan.compile_new_inputs_as_ltoir is False
+
+
+def test_link_plan_ptx_disables_implicit_lto_for_ltoir_link_items():
+    dispatcher = cuda.jit(link=["external.ltoir", "external.ptx"])(_kernel)
+
+    plan = resolve_link_plan(dispatcher.targetoptions, dispatcher.targetoptions["link"])
+
+    assert plan.compile_new_inputs_as_ltoir is False
 
 
 def test_link_plan_enables_implicit_lto_for_ltoir_link_items():
@@ -60,6 +76,15 @@ def test_link_plan_preserves_explicit_lto_false_without_ltoir():
     assert plan.compile_new_inputs_as_ltoir is False
     assert plan.lto_explicit is True
     assert plan.requested_lto is False
+
+
+def test_link_plan_preserves_explicit_lto_true_with_ptx():
+    dispatcher = cuda.jit(link=["external.ptx"], lto=True)(_kernel)
+
+    plan = resolve_link_plan(dispatcher.targetoptions, dispatcher.targetoptions["link"])
+
+    assert plan.compile_new_inputs_as_ltoir is True
+    assert plan.lto_explicit is True
 
 
 def test_link_plan_rejects_explicit_lto_false_with_ltoir():
@@ -96,7 +121,7 @@ def test_link_plan_lineinfo_preserves_implicit_lto_for_ltoir_inputs():
     assert plan.compile_new_inputs_as_ltoir is True
 
 
-def test_link_plan_callbacks_disable_only_implicit_lto():
+def test_link_plan_callbacks_do_not_disable_implicit_lto():
     def setup(_):
         pass
 
@@ -105,7 +130,7 @@ def test_link_plan_callbacks_disable_only_implicit_lto():
 
     plan = resolve_link_plan(dispatcher.targetoptions, dispatcher.targetoptions["link"])
 
-    assert plan.compile_new_inputs_as_ltoir is False
+    assert plan.compile_new_inputs_as_ltoir is True
     assert plan.has_callback_link_items is True
 
 

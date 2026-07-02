@@ -626,6 +626,18 @@ __device__ int foo(int x) {
         self.assertEqual(recreated._pending_cu, [])
         self.assertIs(recreated._object_codes[0], fake_obj)
 
+    def test_recreate_with_lto_tracks_materialized_cu_ltoir(self):
+        fake_obj = unittest.mock.Mock()
+        fake_obj.code_type = "ltoir"
+        fake_obj.code = b"ltoir"
+        linker = NumbaCudaMLIRLinker(cc=(7, 5), lto=True)
+        linker.add_cu("__device__ int foo() { return 1; }", "foo.cu")
+
+        with unittest.mock.patch.object(cuda_driver.nvrtc, "compile", return_value=(fake_obj, "")):
+            recreated = linker.recreate_with_lto()
+
+        self.assertEqual(recreated._ltoirs, {hash(fake_obj.code): fake_obj.code})
+
 
 if __name__ == "__main__":
     unittest.main()

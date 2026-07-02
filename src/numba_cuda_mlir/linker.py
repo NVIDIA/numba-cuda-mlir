@@ -52,6 +52,15 @@ def resolve_link_plan(targetoptions: dict, link_items=(), extra_ltoir_items=()) 
     has_ltoir_link_items = bool(extra_ltoir_items) or any(
         _link_item_is_ltoir(link_item) for link_item in link_items
     )
+    has_ptx_link_items = any(
+        link_item.endswith(".ptx")
+        if isinstance(link_item, str)
+        else type(link_item).__name__ == "PTXSource"
+        for link_item in link_items
+    )
+    has_cuda_source_link_items = any(
+        _link_item_is_cuda_source(link_item) for link_item in link_items
+    )
     has_callback_link_items = any(_link_item_has_callbacks(link_item) for link_item in link_items)
 
     if compile_output not in ("ptx", "ltoir"):
@@ -66,10 +75,10 @@ def resolve_link_plan(targetoptions: dict, link_items=(), extra_ltoir_items=()) 
         compile_new_inputs_as_ltoir = requested_lto
     elif requested_lto:
         compile_new_inputs_as_ltoir = True
-    elif has_callback_link_items or targetoptions.get("debug", False):
+    elif has_ptx_link_items or targetoptions.get("debug", False):
         compile_new_inputs_as_ltoir = False
     else:
-        compile_new_inputs_as_ltoir = has_ltoir_link_items
+        compile_new_inputs_as_ltoir = has_ltoir_link_items or has_cuda_source_link_items
 
     return ResolvedLinkPlan(
         compile_new_inputs_as_ltoir=compile_new_inputs_as_ltoir,
@@ -180,7 +189,7 @@ class Linker(_Linker):
                 new_linker.add_ltoir(obj.code)
             else:
                 new_linker._object_codes.append(obj)
-        new_linker._ltoirs = dict(self._ltoirs)
+        new_linker._ltoirs.update(self._ltoirs)
         return new_linker
 
     def add_ltoir(self, ltoir: bytes, name: str = "") -> None:

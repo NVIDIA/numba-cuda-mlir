@@ -495,6 +495,8 @@ def _emit_deferred_dbg_declares(module):
 
 def get_lto_ptx(cres, linker=None, target_options=None) -> str:
     """Return PTX after LTO without requiring it during normal compilation."""
+    from numba_cuda_mlir.linker import Linker, _link_item_is_cuda_source
+
     ptx = cres.metadata.get("lto_ptx")
     if ptx:
         return ptx
@@ -503,7 +505,6 @@ def get_lto_ptx(cres, linker=None, target_options=None) -> str:
     if linker is None:
         linker = cres.metadata.get("linker")
     if linker is None:
-        from numba_cuda_mlir.linker import Linker
         from numba_cuda_mlir.tools import get_gpu_compute_capability, parse_compute_capability
 
         chip = target_options.get("chip")
@@ -533,9 +534,16 @@ def get_lto_ptx(cres, linker=None, target_options=None) -> str:
     diag_linker = linker.recreate_with_lto(lto=True, ltoir_only=True)
     diag_linker.additional_flags = ["-ptx"]
     diag_linker.add_ltoir(_get_ltoir(cres, target_options))
+    link_plan = cres.metadata.get("link_plan")
     for link_file in cres.metadata.get(
         "linked_external_link_items", target_options.get("link", [])
     ):
+        if (
+            link_plan is not None
+            and link_plan.compile_new_inputs_as_ltoir
+            and _link_item_is_cuda_source(link_file)
+        ):
+            continue
         diag_linker.add_file_guess_ext(link_file, ignore_nonlto=True)
     if cres.metadata.get("needs_nrt") and not cres.metadata.get("nrt_inline"):
         _maybe_link_nrt(diag_linker)

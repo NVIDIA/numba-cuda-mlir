@@ -48,6 +48,8 @@ def typeof(val, purpose=Purpose.argument):
     return ty
 
 
+# Add overloads, so IDEs that use pyright does not mark the code after the
+# function call as unreachable.
 @typing.overload
 def typeof_impl(value: typing.Any, context: _TypeofContext) -> types.Type: ...
 

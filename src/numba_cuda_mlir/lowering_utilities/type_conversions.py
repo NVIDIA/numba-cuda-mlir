@@ -187,6 +187,9 @@ def ctypes_type_to_numba_type(obj: ctypes._SimpleCData) -> types.Type:
         case _:
             raise NotImplementedError(f"Not implemented for type {obj}")
 
+
+# Add overloads, so IDEs that use pyright does not mark the code after the
+# function call as unreachable.
 @overload
 def to_mlir_type(obj: types.Type) -> ir.Type: ...
 @overload
@@ -199,6 +202,7 @@ def to_mlir_type(obj: typing.Signature) -> ir.FunctionType: ...
 def to_mlir_type(obj: ir.Value) -> ir.Type: ...
 @overload
 def to_mlir_type(obj: type) -> ir.Type: ...
+
 
 @singledispatch
 def to_mlir_type(obj):

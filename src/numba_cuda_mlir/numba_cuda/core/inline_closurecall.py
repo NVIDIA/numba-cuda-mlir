@@ -948,14 +948,11 @@ def length_of_iterator(typingctx, val):
 
         return signature(val_type, val), codegen
     elif isinstance(val, types.ListIter):
-
+        # Native list support (numba_cuda.cpython.listobj) has been removed; it
+        # never worked on CUDA. This list-iterator length codegen built llvmlite
+        # IR and is filtered out on the MLIR path, so it is a dead stub.
         def codegen(context, builder, sig, args):
-            (value,) = args
-            intp_t = context.get_value_type(types.intp)
-            from numba_cuda_mlir.numba_cuda.cpython.listobj import ListIterInstance
-
-            iterobj = ListIterInstance(context, builder, sig.args[0], value)
-            return impl_ret_untracked(context, builder, intp_t, iterobj.size)
+            raise NotImplementedError("native list iterators are not supported on the MLIR path")
 
         return signature(types.intp, val), codegen
     elif isinstance(val, types.ArrayIterator):

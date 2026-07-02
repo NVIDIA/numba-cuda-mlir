@@ -5,7 +5,6 @@ import sys
 import operator
 
 import numpy as np
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import IntType, Constant
 
 from numba_cuda_mlir.numba_cuda.cgutils import is_nonelike
 from numba_cuda_mlir.numba_cuda.extending import (
@@ -252,14 +251,19 @@ def box_unicode_str(typ, val, c):
 # HELPER FUNCTIONS
 
 
-def make_deref_codegen(bitsize):
-    def codegen(context, builder, signature, args):
-        data, idx = args
-        ptr = builder.bitcast(data, IntType(bitsize).as_pointer())
-        ch = builder.load(builder.gep(ptr, [idx]))
-        return builder.zext(ch, IntType(32))
+# The deref/set codegen and _malloc_string's details closure built llvmlite IR
+# and are filtered out on the MLIR path (string ops are lowered by
+# numba_cuda_mlir.lowering.unicode / lowering.nrt, which use the typing of these
+# intrinsics). The codegen is a shared tombstone; the @intrinsic signatures and
+# the pure-Python helpers are retained.
+def _dead_codegen(context, builder, signature, args):
+    raise NotImplementedError(
+        "this unicode codegen built llvmlite IR and is not used on the MLIR path"
+    )
 
-    return codegen
+
+def make_deref_codegen(bitsize):
+    return _dead_codegen
 
 
 @intrinsic
@@ -287,30 +291,8 @@ def _malloc_string(typingctx, kind, char_bytes, length, is_ascii):
     Must set length and kind values for string after it is returned
     """
 
-    def details(context, builder, signature, args):
-        [kind_val, char_bytes_val, length_val, is_ascii_val] = args
-
-        # fill the struct
-        uni_str_ctor = cgutils.create_struct_proxy(types.unicode_type)
-        uni_str = uni_str_ctor(context, builder)
-        # add null padding character
-        nbytes_val = builder.mul(
-            char_bytes_val,
-            builder.add(length_val, Constant(length_val.type, 1)),
-        )
-        uni_str.meminfo = context.nrt.meminfo_alloc(builder, nbytes_val)
-        uni_str.kind = kind_val
-        uni_str.is_ascii = is_ascii_val
-        uni_str.length = length_val
-        # empty string has hash value -1 to indicate "need to compute hash"
-        uni_str.hash = context.get_constant(_Py_hash_t, -1)
-        uni_str.data = context.nrt.meminfo_data(builder, uni_str.meminfo)
-        # Set parent to NULL
-        uni_str.parent = cgutils.get_null_value(uni_str.parent.type)
-        return uni_str._getvalue()
-
     sig = types.unicode_type(types.int32, types.intp, types.intp, types.uint32)
-    return sig, details
+    return sig, _dead_codegen
 
 
 @register_jitable
@@ -340,15 +322,7 @@ def _get_code_point(a, i):
 
 
 def make_set_codegen(bitsize):
-    def codegen(context, builder, signature, args):
-        data, idx, ch = args
-        if bitsize < 32:
-            ch = builder.trunc(ch, IntType(bitsize))
-        ptr = builder.bitcast(data, IntType(bitsize).as_pointer())
-        builder.store(ch, builder.gep(ptr, [idx]))
-        return context.get_dummy_value()
-
-    return codegen
+    return _dead_codegen
 
 
 @intrinsic

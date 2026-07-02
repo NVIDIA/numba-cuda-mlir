@@ -22,7 +22,6 @@ from numba_cuda_mlir.numba_cuda import (
     itanium_mangler,
     compiler,
     codegen,
-    ufuncs,
     typing,
 )
 from numba_cuda_mlir.numba_cuda.debuginfo import CUDADIBuilder
@@ -133,7 +132,6 @@ def load_cuda_target_registration_modules():
         numbers,
         slicing,
         iterators,
-        listobj,
         unicode,
         charseq,
         cmathimpl,
@@ -157,7 +155,6 @@ def load_cuda_target_registration_modules():
         numbers,
         slicing,
         iterators,
-        listobj,
         unicode,
         charseq,
         cmathimpl,
@@ -210,7 +207,6 @@ class CUDATargetContext(BaseContext):
             numbers,
             slicing,
             iterators,
-            listobj,
             unicode,
             charseq,
             cmathimpl,
@@ -231,8 +227,6 @@ class CUDATargetContext(BaseContext):
         from . import (
             cudaimpl,
             fp16,
-            printimpl,
-            libdeviceimpl,
             mathimpl as cuda_mathimpl,
             vector_types,
             bf16,
@@ -241,8 +235,6 @@ class CUDATargetContext(BaseContext):
 
         self.install_registry(cudaimpl.registry)
         self.install_registry(cffiimpl.registry)
-        self.install_registry(printimpl.registry)
-        self.install_registry(libdeviceimpl.registry)
         self.install_registry(cmathimpl.registry)
         self.install_registry(mathimpl.registry)
         self.install_registry(numbers.registry)
@@ -254,7 +246,6 @@ class CUDATargetContext(BaseContext):
         self.install_registry(fp8.target_registry)
         self.install_registry(slicing.registry)
         self.install_registry(iterators.registry)
-        self.install_registry(listobj.registry)
         self.install_registry(unicode.registry)
         self.install_registry(charseq.registry)
         self.install_registry(tupleobj.registry)
@@ -276,14 +267,6 @@ class CUDATargetContext(BaseContext):
         # The MLIR pipeline does not use an llvmlite TargetData; this property
         # is only reachable on the dead llvmlite codegen path.
         raise NotImplementedError("CUDATargetContext.target_data is not available on the MLIR path")
-
-    def build_list(self, builder, list_type, items):
-        """
-        Build a list from the Numba *list_type* and its initial *items*.
-        """
-        from numba_cuda_mlir.numba_cuda.cpython import listobj
-
-        return listobj.build_list(self, builder, list_type, items)
 
     @cached_property
     def nonconst_module_attrs(self):
@@ -348,7 +331,14 @@ class CUDATargetContext(BaseContext):
         # fpm.finalize()
 
     def get_ufunc_info(self, ufunc_key):
-        return ufuncs.get_ufunc_info(ufunc_key)
+        # The ufunc loop -> llvmlite codegen table (numba_cuda.ufuncs) only fed
+        # the vendored numpy ufunc lowering (_KernelImpl), which is filtered out
+        # on the MLIR path. Ufunc loop *typing* uses np.ufunc_db instead, and
+        # ufuncs are lowered by numba_cuda_mlir.lowering.numpy. Reaching here
+        # means dead vendored ufunc codegen ran.
+        raise NotImplementedError(
+            "CUDATargetContext.get_ufunc_info is not available on the MLIR path"
+        )
 
     def _compile_subroutine_no_cache(self, builder, impl, sig, locals=None, flags=None):
         # Overrides numba.core.base.BaseContext._compile_subroutine_no_cache().

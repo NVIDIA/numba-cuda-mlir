@@ -38,7 +38,7 @@ llvm::Expected<std::string> llvm70::translateToNVVMIR(gpu::GPUModuleOp gpuMod,
     builder->setDataLayout(opts.dataLayout.c_str());
 
   MLIRToLLVM70 translator(*builder);
-  if (auto err = translator.translate(gpuMod, opts.debugLevel, opts.genLTO))
+  if (auto err = translator.translate(gpuMod, opts.debugLevel, opts.genLTO, &opts))
     return std::move(err);
 
   return builder->printModuleToString();
@@ -56,7 +56,7 @@ llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
     builder->setDataLayout(opts.dataLayout.c_str());
 
   MLIRToLLVM70 translator(*builder);
-  if (auto err = translator.translate(gpuMod, opts.debugLevel, opts.genLTO))
+  if (auto err = translator.translate(gpuMod, opts.debugLevel, opts.genLTO, &opts))
     return std::move(err);
 
   LLVM_DEBUG({
@@ -270,7 +270,8 @@ void MLIRToLLVM70::setDebugLocFromOp(Operation *op) {
 //===----------------------------------------------------------------------===//
 
 llvm::Error MLIRToLLVM70::translate(gpu::GPUModuleOp gpuMod, int debugLevel,
-                                    bool omitDebugInfoVersionFlag) {
+                                    bool omitDebugInfoVersionFlag,
+                                    const LLVM70Options *opts) {
   bool needFullDebug = (debugLevel >= 2);
   if (debugLevel > 0) {
     // Upgrade to FullDebug when the IR contains debug variable intrinsics
@@ -357,10 +358,16 @@ llvm::Error MLIRToLLVM70::translate(gpu::GPUModuleOp gpuMod, int debugLevel,
     }
   }
 
-  // Emit !nvvmir.version = !{!{i32 2, i32 0}} so libnvvm accepts the bitcode.
-  LLVMValueRef verVals[2] = {b.constInt(b.i32Ty(), 2, false),
-                             b.constInt(b.i32Ty(), 0, false)};
-  LLVMValueRef verNode = b.mdNode(verVals, 2);
+  int irMajor = opts ? opts->nvvmIRMajor : 2;
+  int irMinor = opts ? opts->nvvmIRMinor : 0;
+  int debugMajor = opts ? opts->nvvmDebugMajor : 0;
+  int debugMinor = opts ? opts->nvvmDebugMinor : 0;
+  LLVMValueRef verVals[4] = {
+      b.constInt(b.i32Ty(), irMajor, false),
+      b.constInt(b.i32Ty(), irMinor, false),
+      b.constInt(b.i32Ty(), debugMajor, false),
+      b.constInt(b.i32Ty(), debugMinor, false)};
+  LLVMValueRef verNode = b.mdNode(verVals, 4);
   b.addNamedMetadataOperand("nvvmir.version", verNode);
 
   return llvm::Error::success();

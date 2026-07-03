@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import ctypes
+import functools
 import os
 from io import StringIO
 
@@ -111,6 +112,13 @@ _llvm70_capi = None
 _llvm70_dll_dirs = []
 
 
+@functools.cache
+def _get_nvvm_ir_version():
+    from numba_cuda_mlir.numba_cuda.cudadrv.nvvm import NVVM
+
+    return NVVM().get_ir_version()
+
+
 def _get_llvm70_capi():
     global _llvm70_capi
     if _llvm70_capi is not None:
@@ -142,6 +150,10 @@ def _get_llvm70_capi():
         ctypes.c_int,  # gen_lto
         ctypes.c_int,  # opt_level
         ctypes.c_int,  # gen_lineinfo
+        ctypes.c_int,  # nvvm_ir_major
+        ctypes.c_int,  # nvvm_ir_minor
+        ctypes.c_int,  # nvvm_dbg_major
+        ctypes.c_int,  # nvvm_dbg_minor
         ctypes.POINTER(ctypes.c_char_p),  # out
         ctypes.POINTER(ctypes.c_size_t),  # out_len
         ctypes.POINTER(ctypes.c_char_p),  # err_out
@@ -222,6 +234,7 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
     else:
         debug_level = 0
 
+    nvvm_ir_version = _get_nvvm_ir_version()
     out = ctypes.c_char_p()
     out_len = ctypes.c_size_t()
     err_out = ctypes.c_char_p()
@@ -236,6 +249,10 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
         1 if gen_lto else 0,
         opt_level,
         debug_level,
+        nvvm_ir_version[0],
+        nvvm_ir_version[1],
+        nvvm_ir_version[2],
+        nvvm_ir_version[3],
         ctypes.byref(out),
         ctypes.byref(out_len),
         ctypes.byref(err_out),
@@ -273,12 +290,14 @@ def _prepare_llvm_ir(module, dump=False, preserve_debug_info=False) -> bytes:
     gpu_mod.operation.attributes["llvm.data_layout"] = ir.StringAttr.get(NVPTX64_DATALAYOUT)
     gpu_mod.operation.attributes["llvm.target_triple"] = ir.StringAttr.get(NVPTX64_TRIPLE)
     ctk_major, ctk_minor = get_cuda_runtime_version()
+    nvvm_ir_version = _get_nvvm_ir_version()
 
     if os.name == "nt":
         return translate_gpu_module_to_libnvvm_ir(
             _operation_to_text(gpu_mod.operation, preserve_debug_info=preserve_debug_info),
             ctk_major,
             ctk_minor,
+            nvvm_ir_version,
             dump=dump,
             emit_text_ir=preserve_debug_info,
         )
@@ -290,7 +309,17 @@ def _prepare_llvm_ir(module, dump=False, preserve_debug_info=False) -> bytes:
     if dump:
         print(f"=============== LLVM IR ===============\n\n{dump_llvmir(llvm_mod)}\n\n")
 
-    return downgrade_for_libnvvm(llvm_mod, llvm_ctx, ctk_major, ctk_minor, LLVM_C_LIB_PATH)
+    return downgrade_for_libnvvm(
+        llvm_mod,
+        llvm_ctx,
+        ctk_major,
+        ctk_minor,
+        nvvm_ir_version[0],
+        nvvm_ir_version[1],
+        nvvm_ir_version[2],
+        nvvm_ir_version[3],
+        LLVM_C_LIB_PATH,
+    )
 
 
 def _nvvm_options(cc: str, target_options=None, **extra) -> dict:

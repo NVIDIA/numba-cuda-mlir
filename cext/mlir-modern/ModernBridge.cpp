@@ -40,6 +40,15 @@
 
 namespace {
 
+struct NvvmIrVersion {
+    int ir_major = 2;
+    int ir_minor = 0;
+    int debug_major = 0;
+    int debug_minor = 0;
+};
+
+static NvvmIrVersion g_nvvm_ir_version;
+
 static void set_error(char **error_out, const std::string &message) {
     if (!error_out)
         return;
@@ -411,11 +420,16 @@ static void adapt_nvvmir_version(llvm::Module &mod, llvm::LLVMContext &ctx) {
             return;
 
     llvm::Type *i32_ty = llvm::Type::getInt32Ty(ctx);
-    llvm::Metadata *two =
-        llvm::ValueAsMetadata::get(llvm::ConstantInt::get(i32_ty, 2));
-    llvm::Metadata *zero =
-        llvm::ValueAsMetadata::get(llvm::ConstantInt::get(i32_ty, 0));
-    llvm::MDNode *node = llvm::MDNode::get(ctx, {two, zero});
+    llvm::Metadata *ir_major = llvm::ValueAsMetadata::get(
+        llvm::ConstantInt::get(i32_ty, g_nvvm_ir_version.ir_major));
+    llvm::Metadata *ir_minor = llvm::ValueAsMetadata::get(
+        llvm::ConstantInt::get(i32_ty, g_nvvm_ir_version.ir_minor));
+    llvm::Metadata *debug_major = llvm::ValueAsMetadata::get(
+        llvm::ConstantInt::get(i32_ty, g_nvvm_ir_version.debug_major));
+    llvm::Metadata *debug_minor = llvm::ValueAsMetadata::get(
+        llvm::ConstantInt::get(i32_ty, g_nvvm_ir_version.debug_minor));
+    llvm::MDNode *node =
+        llvm::MDNode::get(ctx, {ir_major, ir_minor, debug_major, debug_minor});
     mod.getOrInsertNamedMetadata("nvvmir.version")->addOperand(node);
 }
 
@@ -545,6 +559,8 @@ static bool initialize_mlir_context(mlir::MLIRContext &context) {
 extern "C" MLIR_MODERN_TO_NVVM_EXPORT int
 mlir_modern_to_nvvm_translate_for_libnvvm(
     const char *mlir_text, size_t mlir_text_len, int ctk_major, int ctk_minor,
+    int nvvm_ir_major, int nvvm_ir_minor, int nvvm_debug_major,
+    int nvvm_debug_minor,
     int dump_llvmir, int emit_text_ir, char **out, size_t *out_len,
     char **error_out) {
     if (out)
@@ -553,6 +569,10 @@ mlir_modern_to_nvvm_translate_for_libnvvm(
         *out_len = 0;
     if (error_out)
         *error_out = nullptr;
+
+    g_nvvm_ir_version = {
+        nvvm_ir_major, nvvm_ir_minor, nvvm_debug_major, nvvm_debug_minor
+    };
 
     if (!mlir_text || !out || !out_len) {
         set_error(error_out, "invalid null argument");

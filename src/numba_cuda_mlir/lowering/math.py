@@ -325,13 +325,15 @@ def _bin_op_cg(op, builder, target, args, kwargs):
 
     # Ensure numbers whose MLIR types are signless end up with the correct
     # operation. Without this logic, two input values with two unsigned integer
-    # types get a signed comparator operator and vice versa
-    is_unsigned = (
-        isinstance(lhs_type, types.Integer)
-        and isinstance(rhs_type, types.Integer)
-        and not lhs_type.signed
-        and not rhs_type.signed
-    )
+    # types get a signed comparator operator and vice versa. Booleans lower to
+    # i1 and must compare as unsigned, otherwise True (all-ones) orders below
+    # False.
+    def _is_unsigned_operand(operand_type):
+        if isinstance(operand_type, types.Boolean):
+            return True
+        return isinstance(operand_type, types.Integer) and not operand_type.signed
+
+    is_unsigned = _is_unsigned_operand(lhs_type) and _is_unsigned_operand(rhs_type)
 
     lhs, rhs = builder.load_var(lhs), builder.load_var(rhs)
 
@@ -395,31 +397,37 @@ def truediv_cg(builder, target, args, kwargs):
 
 
 @lower(operator.ne, types.Number, types.Number)
+@lower(operator.ne, types.Boolean, types.Boolean)
 def ne_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ne, builder, target, args, kwargs)
 
 
 @lower(operator.eq, types.Number, types.Number)
+@lower(operator.eq, types.Boolean, types.Boolean)
 def eq_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.eq, builder, target, args, kwargs)
 
 
 @lower(operator.lt, types.Number, types.Number)
+@lower(operator.lt, types.Boolean, types.Boolean)
 def lt_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.lt, builder, target, args, kwargs)
 
 
 @lower(operator.le, types.Number, types.Number)
+@lower(operator.le, types.Boolean, types.Boolean)
 def le_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.le, builder, target, args, kwargs)
 
 
 @lower(operator.gt, types.Number, types.Number)
+@lower(operator.gt, types.Boolean, types.Boolean)
 def gt_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.gt, builder, target, args, kwargs)
 
 
 @lower(operator.ge, types.Number, types.Number)
+@lower(operator.ge, types.Boolean, types.Boolean)
 def ge_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ge, builder, target, args, kwargs)
 

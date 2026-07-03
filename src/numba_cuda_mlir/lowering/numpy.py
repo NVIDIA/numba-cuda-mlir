@@ -1364,6 +1364,11 @@ def lower_uni_tuple_getitem(builder, target, args, kwargs):
     """
     Tuples are always Python tuples in the varmap. Static integer indices
     resolve at compile time; dynamic indices emit an scf.index_switch.
+
+    scf.index_switch results must be scalar MLIR types, so when the selected
+    element is itself a tuple (e.g. indexing a tuple of coefficient rows with
+    a loop variable), the selection is decomposed into one switch per leaf
+    position and the result is stored as a Python tuple of switch results.
     """
     trace("args=%s", args)
     from numba_cuda_mlir.lowering_utilities import convert
@@ -1376,28 +1381,42 @@ def lower_uni_tuple_getitem(builder, target, args, kwargs):
         case tuple(), ir.Value():
             tup = builder.lower_literal_if_needed(tup)
             index = index_of(index)
-            result_type = builder.get_mlir_type(target_type)
             error_memref = builder._get_or_create_error_global()
+            cases = ir.DenseI64ArrayAttr.get(range(len(tup)))
 
-            def default(op):
-                if error_memref is not None:
-                    set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[IndexError])
-                result = convert(tup[0], result_type)
-                scf.yield_([result])
+            def select(candidates, element_type):
+                # candidates[i] is the value this selection yields when the
+                # runtime index equals i.
+                if isinstance(element_type, types.BaseTuple):
+                    sub_types = (
+                        [element_type.dtype] * element_type.count
+                        if isinstance(element_type, types.UniTuple)
+                        else list(element_type.types)
+                    )
+                    return tuple(
+                        select([candidate[i] for candidate in candidates], sub_type)
+                        for i, sub_type in enumerate(sub_types)
+                    )
 
-            def case_builder(op, case_index, case_value):
-                result = convert(tup[case_value], result_type)
-                scf.yield_([result])
+                result_type = builder.get_mlir_type(element_type)
 
-            cases = range(len(tup))
-            cases = ir.DenseI64ArrayAttr.get(cases)
-            result = scf.index_switch(
-                results=[result_type],
-                arg=index,
-                cases=cases,
-                default_body_builder=default,
-                case_body_builder=case_builder,
-            )
+                def default(op):
+                    if error_memref is not None:
+                        set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[IndexError])
+                    scf.yield_([convert(candidates[0], result_type)])
+
+                def case_builder(op, case_index, case_value):
+                    scf.yield_([convert(candidates[case_value], result_type)])
+
+                return scf.index_switch(
+                    results=[result_type],
+                    arg=index,
+                    cases=cases,
+                    default_body_builder=default,
+                    case_body_builder=case_builder,
+                )
+
+            result = select(list(tup), target_type)
             builder.store_var(target, result)
             if isinstance(result, ir.Value):
                 builder.incref(target_type, result)

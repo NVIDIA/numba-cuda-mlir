@@ -82,7 +82,7 @@ jobs:
         RAPIDS_BUILD_TYPE: ${{ inputs.build_type }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: ${{ inputs.repo }}
           ref: ${{ inputs.sha }}
@@ -105,7 +105,7 @@ jobs:
           PIXI_ENV="cu-${CUDA_VER_PART}-${PY_VER_PART}"
           echo "PIXI_ENV=${PIXI_ENV}" >> "${GITHUB_ENV}"
       - name: Setup pixi
-        uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11  # v0.9.6
+        uses: prefix-dev/setup-pixi@a09b6247153796b190642a2b53fac4241043cf6f  # v0.10.0
         with:
           pixi-version: "v0.63.2"
           environments: ${{ env.PIXI_ENV }}

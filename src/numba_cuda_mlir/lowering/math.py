@@ -449,16 +449,25 @@ def iadd_cg(builder, target, args, kwargs):
 
 
 @lower(operator.ior, types.Integer, types.Integer)
+@lower(operator.ior, types.Boolean, types.Boolean)
+@lower(operator.ior, types.Boolean, types.Integer)
+@lower(operator.ior, types.Integer, types.Boolean)
 def ior_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ior, builder, target, args, kwargs)
 
 
 @lower(operator.iand, types.Integer, types.Integer)
+@lower(operator.iand, types.Boolean, types.Boolean)
+@lower(operator.iand, types.Boolean, types.Integer)
+@lower(operator.iand, types.Integer, types.Boolean)
 def iand_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.iand, builder, target, args, kwargs)
 
 
 @lower(operator.ixor, types.Integer, types.Integer)
+@lower(operator.ixor, types.Boolean, types.Boolean)
+@lower(operator.ixor, types.Boolean, types.Integer)
+@lower(operator.ixor, types.Integer, types.Boolean)
 def ixor_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ixor, builder, target, args, kwargs)
 
@@ -883,6 +892,9 @@ def ilshift_cg(builder, target, args, kwargs):
 
 
 @lower(operator.and_, types.Integer, types.Integer)
+@lower(operator.and_, types.Boolean, types.Boolean)
+@lower(operator.and_, types.Boolean, types.Integer)
+@lower(operator.and_, types.Integer, types.Boolean)
 def and_cg(builder, target, args, kwargs):
     assert not kwargs, "and_cg does not accept any keyword arguments"
     assert len(args) == 2, "and_cg expects 2 arguments"
@@ -896,6 +908,9 @@ def and_cg(builder, target, args, kwargs):
 
 
 @lower(operator.or_, types.Integer, types.Integer)
+@lower(operator.or_, types.Boolean, types.Boolean)
+@lower(operator.or_, types.Boolean, types.Integer)
+@lower(operator.or_, types.Integer, types.Boolean)
 def or_cg(builder, target, args, kwargs):
     assert not kwargs, "or_cg does not accept any keyword arguments"
     assert len(args) == 2, "or_cg expects 2 arguments"
@@ -909,6 +924,9 @@ def or_cg(builder, target, args, kwargs):
 
 
 @lower(operator.xor, types.Integer, types.Integer)
+@lower(operator.xor, types.Boolean, types.Boolean)
+@lower(operator.xor, types.Boolean, types.Integer)
+@lower(operator.xor, types.Integer, types.Boolean)
 def xor_cg(builder, target, args, kwargs):
     assert not kwargs, "xor_cg does not accept any keyword arguments"
     assert len(args) == 2, "xor_cg expects 2 arguments"
@@ -918,6 +936,21 @@ def xor_cg(builder, target, args, kwargs):
     lhs = lowering_utilities.convert(builder.load_var(lhs), target_mlir_type)
     rhs = lowering_utilities.convert(builder.load_var(rhs), target_mlir_type)
     result = arith.xori(lhs, rhs)
+    builder.store_var(target, result)
+
+
+@lower(operator.invert, types.Integer)
+@lower(operator.invert, types.Boolean)
+def invert_cg(builder, target, args, kwargs):
+    """Bitwise NOT: xor with all-ones (~True is False for booleans)."""
+    assert not kwargs, "invert_cg does not accept any keyword arguments"
+    assert len(args) == 1, "invert_cg expects 1 argument"
+    target_type = builder.get_numba_type(target.name)
+    target_mlir_type = builder.get_mlir_type(target_type)
+    operand = lowering_utilities.convert(builder.load_var(args[0]), target_mlir_type)
+    fill = 1 if isinstance(target_type, types.Boolean) else -1
+    all_ones = lowering_utilities.constant(fill, target_mlir_type)
+    result = arith.xori(operand, all_ones)
     builder.store_var(target, result)
 
 

@@ -3,6 +3,7 @@
 
 from numba_cuda_mlir.descriptor import MLIRDispatcherType
 from io import StringIO
+import itertools
 import logging
 import operator
 from typing import Any, Callable, Sequence
@@ -123,6 +124,11 @@ def _is_valid_memref_element_type(mlir_type: ir.Type) -> bool:
 
 def get_gpu_module_name():
     return ir.StringAttr.get("numba_cuda_mlir_gpu_module")
+
+
+# Array-literal globals from separately lowered functions keep unique symbol names when
+# modules are linked together, as for lowering_utilities.string.
+_array_literal_counter = itertools.count()
 
 
 class MLIRLower(object):
@@ -1254,12 +1260,76 @@ extern "C" __global__ void
                     self.store_var(target, value_op)
 
     def lower_array_literal(self, value: np.ndarray) -> ir.Value:
+        """Materialize a frozen array literal as a constant global.
+
+        The array's bytes go into an internal constant ``llvm.mlir.global`` shared by
+        every thread, wrapped in a memref descriptor. Dtypes whose storage width differs
+        from the numpy itemsize, and rank-0 arrays, take the element-wise
+        ``tensor.from_elements`` path instead, which bufferizes to a per-thread heap
+        allocation.
+        """
+        dtype_numba = to_numba_type(value.dtype)
+        dtype = self.get_storage_type(dtype_numba)
+
+        raw_byte_storage = (
+            isinstance(dtype, (ir.IntegerType, ir.FloatType))
+            and dtype.width == value.dtype.itemsize * 8
+            and value.ndim > 0
+        )
+        if raw_byte_storage:
+            # Byte-payload llvm.mlir.global, the same encoding string constants use. A
+            # dense-attribute initializer compiles but the global reads back zeroed
+            # after the LLVM70 translation.
+            contiguous = np.ascontiguousarray(value)
+            databytes = contiguous.tobytes()
+            name = f"__numba_cuda_mlir_array_literal_{next(_array_literal_counter)}"
+            arr_type = ir.Type.parse(f"!llvm.array<{len(databytes)} x i8>")
+            gpu_block = self.mlir_gpu_module.bodyRegion.blocks[0]
+            with ir.InsertionPoint.at_block_begin(gpu_block):
+                llvm.GlobalOp(
+                    arr_type,
+                    name,
+                    ir.Attribute.parse("#llvm.linkage<internal>"),
+                    addr_space=0,
+                    constant=True,
+                    value=ir.StringAttr.get(databytes),
+                    alignment=value.dtype.itemsize,
+                )
+
+            ndim = contiguous.ndim
+            strides, s = [], 1
+            for d in reversed(contiguous.shape):
+                strides.insert(0, s)
+                s *= d
+            # The memref type must use the identity layout. memref.copy of a memref
+            # whose layout carries symbolic strides lowers to a call to the memrefCopy
+            # runtime function, which does not exist on device.
+            memref_type = ir.MemRefType.get(shape=contiguous.shape, element_type=dtype)
+            struct_type = ir.Type.parse(
+                f"!llvm.struct<(ptr, ptr, i64, array<{ndim} x i64>, array<{ndim} x i64>)>"
+            )
+            from numba_cuda_mlir.mlir.dialect_exts import llvm as llvm_ext
+
+            with self.alloca_insertion_point():
+                ptr = llvm_ext.addressof(name)
+                i64c = lambda v: arith.constant(T.i64(), v)
+                ins = lambda d, v, *p: llvm.insertvalue(
+                    container=d, value=v, position=ir.DenseI64ArrayAttr.get(list(p))
+                )
+                desc = llvm.UndefOp(struct_type).result
+                desc = ins(desc, ptr, 0)
+                desc = ins(desc, ptr, 1)
+                desc = ins(desc, i64c(0), 2)
+                for i, d in enumerate(contiguous.shape):
+                    desc = ins(desc, i64c(d), 3, i)
+                for i, st in enumerate(strides):
+                    desc = ins(desc, i64c(st), 4, i)
+                return builtin.unrealized_conversion_cast([memref_type], [desc])
+
         from numba_cuda_mlir._mlir.dialects import tensor
         from numba_cuda_mlir.lowering_utilities import tensor_to_memref
 
         with self.alloca_insertion_point():
-            dtype_numba = to_numba_type(value.dtype)
-            dtype = self.get_storage_type(dtype_numba)
             raveled = value.ravel()
             elems = [
                 self.as_storage(dtype_numba, self.lower_literal_if_needed(e, dtype_numba))

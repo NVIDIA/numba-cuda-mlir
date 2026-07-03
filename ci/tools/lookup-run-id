@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Look up the GitHub Actions CI run ID that validated a release tag's commit.
+#
+# cuSIMT's CI workflow does not run on tag pushes; it runs on pushes to main
+# (and PR branches). A release tag points at a commit that already exists on
+# main with a successful CI run. This script resolves the tag to its commit
+# SHA and returns the latest successful main-branch CI run for that commit.
+#
+# Usage:
+#   lookup-run-id <git-tag> <repository> [workflow-file]
+#
+# `workflow-file` is the filename under .github/workflows (default: ci.yaml).
+# We pass the filename rather than the display name because two workflows
+# may share the same display name (e.g. an old workflow remains registered
+# after its YAML is removed), which would make `gh run list --workflow`
+# ambiguous.
+#
+# Outputs the run ID on stdout. Diagnostic messages go to stderr.
+#
+# Requires: gh, jq, GH_TOKEN, and a local git checkout with the tag fetched.
+
+set -euo pipefail
+
+if [[ $# -lt 2 ]]; then
+    echo "Usage: $0 <git-tag> <repository> [workflow-file]" >&2
+    exit 1
+fi
+
+TAG="$1"
+REPOSITORY="$2"
+WORKFLOW_FILE="${3:-ci.yaml}"
+
+if [[ -z "${GH_TOKEN:-}" ]]; then
+    echo "Error: GH_TOKEN environment variable is required" >&2
+    exit 1
+fi
+
+for cmd in jq gh; do
+    if ! command -v "${cmd}" >/dev/null 2>&1; then
+        echo "Error: ${cmd} is required but not installed" >&2
+        exit 1
+    fi
+done
+
+echo "Resolving tag '${TAG}' to a commit SHA..." >&2
+if ! COMMIT_SHA=$(git rev-parse "${TAG}^{commit}" 2>/dev/null); then
+    echo "Error: Could not resolve git tag '${TAG}' locally. Did you fetch tags?" >&2
+    exit 1
+fi
+echo "Tag '${TAG}' -> commit ${COMMIT_SHA}" >&2
+
+echo "Searching for successful main-branch runs of '${WORKFLOW_FILE}' for ${COMMIT_SHA}..." >&2
+RUN_DATA=$(gh run list \
+    --repo "${REPOSITORY}" \
+    --commit "${COMMIT_SHA}" \
+    --workflow "${WORKFLOW_FILE}" \
+    --status completed \
+    --json databaseId,workflowName,conclusion,headSha,headBranch,event,createdAt,url \
+    --limit 50)
+
+if [[ -z "${RUN_DATA}" || "${RUN_DATA}" == "[]" ]]; then
+    echo "Error: No completed '${WORKFLOW_FILE}' runs found for commit ${COMMIT_SHA}" >&2
+    echo "All recent runs for this commit:" >&2
+    gh run list --repo "${REPOSITORY}" --commit "${COMMIT_SHA}" --limit 10 >&2 || true
+    exit 1
+fi
+
+RUN_ID=$(echo "${RUN_DATA}" | jq -r '
+    map(select(.conclusion == "success" and .event == "push" and .headBranch == "main"))
+    | sort_by(.createdAt) | reverse | .[0].databaseId // empty
+')
+
+if [[ -z "${RUN_ID}" ]]; then
+    echo "Error: No successful main-branch '${WORKFLOW_FILE}' run found for tag '${TAG}'." >&2
+    echo "Release tags must point at a commit on main that already has a green CI run." >&2
+    echo "Completed runs for commit ${COMMIT_SHA}:" >&2
+    echo "${RUN_DATA}" | jq -r '.[] | "\(.databaseId): event=\(.event), headBranch=\(.headBranch), conclusion=\(.conclusion), createdAt=\(.createdAt)"' >&2
+    exit 1
+fi
+
+echo "Found run ID ${RUN_ID} for tag '${TAG}'" >&2
+echo "${RUN_ID}"

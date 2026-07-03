@@ -150,11 +150,20 @@ class Linker(_Linker):
         finally:
             self.lto = old_lto
 
-    def recreate_with_lto(self, lto: bool = True, ltoir_only: bool = False) -> Self:
+    def recreate_with_lto(
+        self,
+        lto: bool = True,
+        ltoir_only: bool = False,
+        kernel_ltoir: bytes | None = None,
+    ) -> Self:
         """Recreate the linker, re-adding all object codes from raw bytes.
 
         When *ltoir_only* is True, only LTOIR objects are copied (useful for
         diagnostic ``-ptx`` links that require all inputs to be LTOIR).
+
+        When *kernel_ltoir* is provided, it is added *first* in the link chain,
+        ahead of any previously accumulated device-function and library
+        LTO-IRs, so that nvJitLink resolves symbols against the kernel first.
         """
         self._materialize_pending_cu()
 
@@ -177,6 +186,8 @@ class Linker(_Linker):
             ptxas_options=self._ptxas_options,
             max_registers=self.max_registers,
         )
+        if kernel_ltoir is not None:
+            new_linker.add_ltoir(kernel_ltoir)
         for obj in existing:
             code_type = getattr(obj, "code_type", None)
             if ltoir_only and code_type != "ltoir":
@@ -189,7 +200,11 @@ class Linker(_Linker):
                 new_linker.add_ltoir(obj.code)
             else:
                 new_linker._object_codes.append(obj)
-        new_linker._ltoirs.update(self._ltoirs)
+
+        # Preserve dedup tracking from the source linker without dropping the
+        # kernel LTO-IR that may have been prepended above.
+        for h, ltoir in self._ltoirs.items():
+            new_linker._ltoirs.setdefault(h, ltoir)
         return new_linker
 
     def add_ltoir(self, ltoir: bytes, name: str = "") -> None:

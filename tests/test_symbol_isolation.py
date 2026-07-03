@@ -5,7 +5,7 @@
 # is a process-level property established at first-load time.
 from __future__ import annotations
 
-import shutil
+import os
 import subprocess
 import sys
 import textwrap
@@ -29,21 +29,24 @@ def _run(code: str, env: dict | None = None) -> subprocess.CompletedProcess:
     )
 
 
-def test_no_llvm_symbol_leak_to_global_scope():
+# cc=(8, 0) forces the LLVM70 (sm<100) path; cc=(10, 0) forces the modern path.
+# Both paths must keep bundled symbols out of RTLD_DEFAULT.
+@pytest.mark.parametrize("cc", [(8, 0), (10, 0)], ids=["sm_80", "sm_100"])
+def test_no_llvm_symbol_leak_to_global_scope(cc):
     code = textwrap.dedent(
-        """
+        f"""
         import ctypes
         import numba_cuda_mlir  # noqa: F401
         from numba_cuda_mlir import cuda
         from numba_cuda_mlir.numba_cuda import types
 
-        # Drive the modern lowering path so the launcher's dlopen runs.
+        # Drive the lowering path so the launcher's dlopen runs.
         def add(x, y):
             return x + y
 
         ptx, _ = cuda.compile_ptx(
             add, types.int32(types.int32, types.int32),
-            device=True, cc=(10, 0),
+            device=True, cc={cc},
         )
         assert ptx
 
@@ -59,7 +62,7 @@ def test_no_llvm_symbol_leak_to_global_scope():
                     b"mlirModuleCreateEmpty"):
             if libdl.dlsym(RTLD_DEFAULT, sym):
                 leaked.append(sym.decode())
-        assert not leaked, f"symbols leaked into RTLD_DEFAULT: {leaked}"
+        assert not leaked, f"symbols leaked into RTLD_DEFAULT: {{leaked}}"
         """
     )
     result = _run(code)
@@ -68,43 +71,29 @@ def test_no_llvm_symbol_leak_to_global_scope():
     )
 
 
-def _find_compiler() -> str | None:
-    for name in ("cc", "gcc", "clang"):
-        p = shutil.which(name)
-        if p:
+def _find_shim() -> Path | None:
+    # NUMBA_CUDA_MLIR_TEST_BIN_DIR is populated by CI (build-stage
+    # artifact); locally, `make -C tests/data` drops the shim next to
+    # this test file.
+    for candidate in (
+        os.environ.get("NUMBA_CUDA_MLIR_TEST_BIN_DIR"),
+        str(Path(__file__).parent / "data"),
+    ):
+        if not candidate:
+            continue
+        p = Path(candidate) / "fake_mlir_shim.so"
+        if p.is_file():
             return p
     return None
 
 
-def test_poisoned_global_mlir_symbol_does_not_break_modern_path(tmp_path: Path):
-    cc = _find_compiler()
-    if cc is None:
-        pytest.skip("no C compiler available to build the poisoning shim")
-
-    # mlirContextCreateWithThreading picked via LD_DEBUG=bindings — hit
-    # early through Support's PLT during modern lowering.
-    shim_c = tmp_path / "fake_mlir.c"
-    shim_c.write_text(
-        textwrap.dedent(
-            """
-            #include <stdio.h>
-            #include <stdlib.h>
-            /* Return type only matters if isolation broke; abort fires first. */
-            typedef struct { void *ptr; } MlirContext;
-            MlirContext mlirContextCreateWithThreading(int threading_enabled) {
-                (void)threading_enabled;
-                fputs("FAKE mlirContextCreateWithThreading called"
-                      " -- isolation broken\\n", stderr);
-                abort();
-            }
-            """
+def test_poisoned_global_mlir_symbol_does_not_break_modern_path():
+    shim_so = _find_shim()
+    if shim_so is None:
+        pytest.skip(
+            "fake_mlir_shim.so not found; build with "
+            "`make -C tests/data` or set NUMBA_CUDA_MLIR_TEST_BIN_DIR"
         )
-    )
-    shim_so = tmp_path / "fake_mlir.so"
-    subprocess.run(
-        [cc, "-shared", "-fPIC", "-O0", "-o", str(shim_so), str(shim_c)],
-        check=True,
-    )
 
     code = textwrap.dedent(
         """
@@ -124,8 +113,6 @@ def test_poisoned_global_mlir_symbol_does_not_break_modern_path(tmp_path: Path):
         assert ptx, "empty PTX returned"
         """
     )
-
-    import os
 
     env = {**os.environ, "LD_PRELOAD": str(shim_so)}
     result = _run(code, env=env)

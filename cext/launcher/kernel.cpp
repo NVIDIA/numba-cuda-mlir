@@ -1679,6 +1679,7 @@ struct Grid {
 };
 
 bool try_clarify_invalid_value_error(const Grid& grid) {
+    // If we can't read the data we need to try to clarify, this is a no-op.
     CUdevice dev;
     if (g_cuCtxGetDevice(&dev) != CUDA_SUCCESS) return false;
 
@@ -1696,6 +1697,44 @@ bool try_clarify_invalid_value_error(const Grid& grid) {
         }
     }
     return false;
+}
+
+bool try_clarify_launch_out_of_resources_error(CUkernel kernel, const Grid& block) {
+    // If we can't read the data we need to try to clarify, this is a no-op.
+    CUfunction function;
+    if (g_cuKernelGetFunction(&function, kernel) != CUDA_SUCCESS) return false;
+
+    int registers_per_thread;
+    if (g_cuFuncGetAttribute(&registers_per_thread, CU_FUNC_ATTRIBUTE_NUM_REGS, function)
+            != CUDA_SUCCESS)
+        return false;
+
+    CUdevice device;
+    if (g_cuCtxGetDevice(&device) != CUDA_SUCCESS) return false;
+
+    int max_registers_per_block;
+    if (g_cuDeviceGetAttribute(&max_registers_per_block,
+            CU_DEVICE_ATTRIBUTE_MAX_REGISTERS_PER_BLOCK, device) != CUDA_SUCCESS)
+        return false;
+
+    uint64_t threads_per_block = 1;
+    for (unsigned dim : block.dims)
+        threads_per_block *= dim;
+    uint64_t required_registers = threads_per_block * registers_per_thread;
+    if (required_registers <= static_cast<uint64_t>(max_registers_per_block)) return false;
+
+    uint64_t suggested_max_registers = max_registers_per_block / threads_per_block;
+    raise(PyExc_RuntimeError,
+          "Failed to launch CUDA kernel: CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES (%s). "
+          "The kernel uses %d registers per thread and the launch block has %llu threads, "
+          "requiring %llu registers per block, but the device limit is %d. Recompile the "
+          "kernel with cuda.jit(max_registers=%llu) to force the compiler to use fewer "
+          "registers, or reduce the threads per block.",
+          get_cuda_error(CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES), registers_per_thread,
+          static_cast<unsigned long long>(threads_per_block),
+          static_cast<unsigned long long>(required_registers), max_registers_per_block,
+          static_cast<unsigned long long>(suggested_max_registers));
+    return true;
 }
 
 Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional<Grid> cluster,
@@ -2023,6 +2062,10 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
 
     if (res != CUDA_SUCCESS) {
         if (res == CUDA_ERROR_INVALID_VALUE && try_clarify_invalid_value_error(grid))
+            return ErrorRaised;
+        if (res == CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES
+                && try_clarify_launch_out_of_resources_error(
+                    kernel_iter->second.cukernel.kernel, block))
             return ErrorRaised;
 
         const char* error_name = nullptr;

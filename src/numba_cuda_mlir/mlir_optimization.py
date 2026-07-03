@@ -586,7 +586,7 @@ def optimize(cres):
                 or target_options.get("lineinfo", False),
             )
 
-        linker = cres.metadata["linker"].recreate_with_lto()
+        base_linker = cres.metadata["linker"]
 
         if is_lto:
             if use_llvm70:
@@ -595,11 +595,15 @@ def optimize(cres):
                 ltoir = _compile_to_ltoir(llvm_ir, libdevice, nvvm_opts)
             cres.metadata["ltoir"] = ltoir
             cres.metadata["ptx"] = ""
-            linker.add_ltoir(ltoir)
+            # The kernel's own LTO-IR must be first in the link chain, ahead of
+            # any device-function and library LTO-IRs accumulated during
+            # lowering, so nvJitLink resolves symbols against the kernel first.
+            linker = base_linker.recreate_with_lto(kernel_ltoir=ltoir)
             if target_options.get("dump_ptx", False):
                 cres.metadata["lto_ptx"] = get_lto_ptx(cres, linker, target_options)
                 print(f"=============== PTX ===============\n\n{cres.metadata['lto_ptx']}\n\n")
         else:
+            linker = base_linker.recreate_with_lto()
             if use_llvm70:
                 ptx = _call_llvm70_capi(module, target_options)
             else:

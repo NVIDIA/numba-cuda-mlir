@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Download numba-cuda-mlir wheel artifacts from a GitHub Actions run.
+#
+# Usage:
+#   download-wheels <run-id> <repository> [output-dir]
+#
+# Requires: gh, GH_TOKEN.
+
+set -euo pipefail
+
+if [[ $# -lt 2 ]]; then
+    echo "Usage: $0 <run-id> <repository> [output-dir]" >&2
+    exit 1
+fi
+
+RUN_ID="$1"
+REPOSITORY="$2"
+OUTPUT_DIR="${3:-./dist}"
+
+if [[ -z "${GH_TOKEN:-}" ]]; then
+    echo "Error: GH_TOKEN environment variable is required" >&2
+    exit 1
+fi
+
+ARTIFACT_PATTERN="numba-cuda-mlir-python*"
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "${TMP_DIR}"' EXIT
+
+echo "Downloading artifacts matching '${ARTIFACT_PATTERN}' from run ${RUN_ID}..." >&2
+gh run download "${RUN_ID}" \
+    -p "${ARTIFACT_PATTERN}" \
+    -R "${REPOSITORY}" \
+    -D "${TMP_DIR}"
+
+mkdir -p "${OUTPUT_DIR}"
+
+# Each artifact unpacks into its own subdirectory; collect every .whl into OUTPUT_DIR.
+find "${TMP_DIR}" -name "*.whl" -exec mv {} "${OUTPUT_DIR}/" \;
+
+WHEEL_COUNT=$(find "${OUTPUT_DIR}" -maxdepth 1 -name "*.whl" | wc -l)
+if [[ "${WHEEL_COUNT}" -eq 0 ]]; then
+    echo "Error: No .whl files downloaded from run ${RUN_ID}" >&2
+    exit 1
+fi
+
+echo "Downloaded ${WHEEL_COUNT} wheel(s) to ${OUTPUT_DIR}:" >&2
+ls -la "${OUTPUT_DIR}" >&2

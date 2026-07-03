@@ -72,11 +72,12 @@ def test_no_llvm_symbol_leak_to_global_scope(cc):
 
 
 def _find_shim() -> Path | None:
-    # NUMBA_CUDA_MLIR_TEST_BIN_DIR is populated by CI (build-stage
-    # artifact); locally, `make -C tests/data` drops the shim next to
-    # this test file.
+    # CI ships the shim next to the wheel in NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR;
+    # locally, `make -C tests/data` drops it next to this test file.
+    # NUMBA_CUDA_MLIR_TEST_BIN_DIR is an explicit override for either.
     for candidate in (
         os.environ.get("NUMBA_CUDA_MLIR_TEST_BIN_DIR"),
+        os.environ.get("NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR"),
         str(Path(__file__).parent / "data"),
     ):
         if not candidate:

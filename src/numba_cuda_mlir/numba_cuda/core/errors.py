@@ -323,11 +323,7 @@ else:
                 features += color
             if style:
                 features += style
-            with ColorShell():
-                with reset_terminal() as mu:
-                    mu += features.encode("utf-8")
-                    mu += (msg).encode("utf-8")
-                return mu.decode("utf-8")
+            return features + msg + Style.RESET_ALL
 
         def code(self, msg):
             return self._markup(msg, self._code)

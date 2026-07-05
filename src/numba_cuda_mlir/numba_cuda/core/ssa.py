@@ -82,9 +82,7 @@ def _run_ssa(blocks):
         _logger.debug("Replaced assignments: %s", _lazy_pformat(defmap))
         # Fix up the RHS
         # Re-associate the variable uses with the reaching definition
-        blocks = _fix_ssa_vars(
-            blocks, varname, defmap, cfg, df_plus, cache_list_vars, use_labels
-        )
+        blocks = _fix_ssa_vars(blocks, varname, defmap, cfg, df_plus, cache_list_vars, use_labels)
 
     # Post-condition checks.
     # CFG invariant
@@ -102,9 +100,7 @@ def _fix_ssa_vars(blocks, varname, defmap, cfg, df_plus, cache_list_vars, use_la
     states["phimap"] = phimap = defaultdict(list)
     states["cfg"] = cfg
     states["phi_locations"] = _compute_phi_locations(df_plus, defmap)
-    newblocks = _run_block_rewrite(
-        blocks, states, _FixSSAVars(cache_list_vars), use_labels
-    )
+    newblocks = _run_block_rewrite(blocks, states, _FixSSAVars(cache_list_vars), use_labels)
     # insert phi nodes
     for label, philist in phimap.items():
         curblk = newblocks[label]

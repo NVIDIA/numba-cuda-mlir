@@ -79,6 +79,7 @@ float32 = Float("float32")
 float64 = Float("float64")
 float16 = Float("float16")
 
+complex32 = Complex("complex32", float16)
 complex64 = Complex("complex64", float32)
 complex128 = Complex("complex128", float64)
 
@@ -93,7 +94,7 @@ signed_domain = frozenset([int8, int16, int32, int64])
 unsigned_domain = frozenset([uint8, uint16, uint32, uint64])
 integer_domain = signed_domain | unsigned_domain
 real_domain = frozenset([float32, float64])
-complex_domain = frozenset([complex64, complex128])
+complex_domain = frozenset([complex32, complex64, complex128])
 number_domain = real_domain | integer_domain | complex_domain
 
 # Integer Aliases
@@ -184,6 +185,7 @@ all_str = """
     boolean
     float32
     float64
+    complex32
     complex64
     complex128
     bool_

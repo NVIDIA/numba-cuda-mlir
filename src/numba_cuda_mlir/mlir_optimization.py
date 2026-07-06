@@ -341,14 +341,15 @@ def get_ptx(cres, target_options=None) -> str:
 
     with context.get_context():
         module = ir.Module.parse(cres.metadata["mlir_module_optimized"])
-        run_pre_codegen_patterns(module)
-
         chip = target_options.get("chip")
         if not chip:
             from numba_cuda_mlir.tools import get_gpu_compute_capability
 
             chip = get_gpu_compute_capability()
         cc = chip.replace("sm_", "")
+        use_llvm70 = _needs_llvm70_path(cc)
+
+        run_pre_codegen_patterns(module, use_llvm70=use_llvm70)
 
         if _needs_llvm70_path(cc):
             ptx = _call_llvm70_capi(module, target_options)
@@ -555,24 +556,24 @@ def optimize(cres):
         if dump_mlir:
             _dump_module(module, "=============== Optimized MLIR Module ===============")
 
-        run_pre_codegen_patterns(module)
-        if dump_mlir:
-            _dump_module(
-                module,
-                "=============== Optimized MLIR Module (after pre-codegen patterns) ===============",
-            )
-
         chip = target_options.get("chip")
         if not chip:
             from numba_cuda_mlir.tools import get_gpu_compute_capability
 
             chip = get_gpu_compute_capability()
         cc = chip.replace("sm_", "")
+        use_llvm70 = _needs_llvm70_path(cc)
+
+        run_pre_codegen_patterns(module, use_llvm70=use_llvm70)
+        if dump_mlir:
+            _dump_module(
+                module,
+                "=============== Optimized MLIR Module (after pre-codegen patterns) ===============",
+            )
+
         is_lto = target_options.get("lto", False) or target_options.get("output", "ptx") == "ltoir"
 
         from numba_cuda_mlir.numba_cuda.cudadrv.nvvm import LibDevice
-
-        use_llvm70 = _needs_llvm70_path(cc)
 
         libdevice = LibDevice()
         nvvm_opts = _nvvm_options(cc, target_options)

@@ -118,7 +118,9 @@ def test_int32_negative_compared_to_negative_int_literal(op, expected):
     do = cuda.to_device(out)
     kernel[1, 1](dn, dl, do)
     out = do.copy_to_host()
-    assert bool(out[0]) is expected, f"int32(-1) {op.__name__} -1 -> {bool(out[0])} (expected {expected})"
+    assert bool(out[0]) is expected, (
+        f"int32(-1) {op.__name__} -1 -> {bool(out[0])} (expected {expected})"
+    )
 
 
 if __name__ == "__main__":

@@ -103,12 +103,12 @@ wheel="${wheels[0]}"
 
 if [[ "${LOCAL_CTK}" == 1 ]]; then
   "${PIP}" install "${wheel}" --group "test-cu${TEST_CUDA_MAJOR}" \
-    "numba-cuda[cu${TEST_CUDA_MAJOR}]==0.28.1" \
+    "numba-cuda[cu${TEST_CUDA_MAJOR}]==0.30.4" \
     "cuda-bindings==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*" \
     "cuda-core[cu${TEST_CUDA_MAJOR}]"
 else
   "${PIP}" install "${wheel}[cu${TEST_CUDA_MAJOR}]" --group "test-cu${TEST_CUDA_MAJOR}" \
-    "numba-cuda[cu${TEST_CUDA_MAJOR}]==0.28.1" \
+    "numba-cuda[cu${TEST_CUDA_MAJOR}]==0.30.4" \
     "cuda-bindings==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*" \
     "cuda-core[cu${TEST_CUDA_MAJOR}]" \
     "cuda-toolkit[cudart]==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*"

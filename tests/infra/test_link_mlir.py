@@ -70,9 +70,9 @@ def test_link_mlir_memref():
     # CHECK-NEXT:             %{{.*}} = llvm.mlir.constant(2 : i64) : i64
     # CHECK-NEXT:             %{{.*}} = llvm.mlir.constant(1 : i64) : i64
     # CHECK-NEXT:             %{{.*}} = llvm.mlir.constant(3735928559 : i64) : i64
-    # CHECK-NEXT:             %{{.*}} = llvm.mul %{{.*}}, %{{.*}} overflow<nsw, nuw> : i64
-    # CHECK-NEXT:             %{{.*}} = llvm.add %{{.*}}, %{{.*}} overflow<nsw, nuw> : i64
-    # CHECK-NEXT:             %{{.*}} = llvm.getelementptr inbounds|nuw %{{.*}}{{\[}}%{{.*}}] : (!llvm.ptr, i64) -> !llvm.ptr, i64
+    # CHECK-NEXT:             %{{.*}} = llvm.mul %{{.*}}, %{{.*}} overflow<nsw> : i64
+    # CHECK-NEXT:             %{{.*}} = llvm.add %{{.*}}, %{{.*}} overflow<nsw> : i64
+    # CHECK-NEXT:             %{{.*}} = llvm.getelementptr inbounds %{{.*}}{{\[}}%{{.*}}] : (!llvm.ptr, i64) -> !llvm.ptr, i64
     # CHECK-NEXT:             llvm.store %{{.*}}, %{{.*}} : i64, !llvm.ptr
     # CHECK-NEXT:             llvm.return
     # CHECK-NEXT:           }

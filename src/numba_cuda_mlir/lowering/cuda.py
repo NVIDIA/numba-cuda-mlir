@@ -808,12 +808,7 @@ def get_syncthreads_variant(reduction_op: nvvm.BarrierReduction):
     def cg_syncthreads_variant(builder, target, args, kwargs):
         pred = builder.load_var(args[0]) if len(args) else None
         pred = convert(pred, T.i32())
-        res = nvvm.barrier(
-            barrier_id=None,
-            number_of_threads=None,
-            reduction_op=reduction_op,
-            reduction_predicate=pred,
-        )
+        res = nvvm.barrier_reduction(reduction_op, pred)
         builder.store_var(target, res)
 
     return cg_syncthreads_variant

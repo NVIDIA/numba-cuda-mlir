@@ -35,7 +35,7 @@ Write-Host "Using Python: $pythonExe"
 
 if ($Mode -eq 'modern') {
     # nanobind 2.13 breaks the pinned MLIR Python bindings; see issue #173.
-    $pkgs = @('pybind11', 'nanobind==2.12.0', 'numpy', 'ninja', 'cmake', 'awscli')
+    $pkgs = @('pybind11', 'nanobind', 'numpy', 'ninja', 'cmake', 'awscli')
     & $pythonExe -m pip install @pkgs
     if ([version]($spec.TrimEnd('t').Trim()) -lt [version]'3.12') {
         & $pythonExe -m pip install 'typing-extensions'

@@ -71,7 +71,7 @@ gpu.module @kernels attributes {
     %pred = llvm.mlir.constant(1 : i32) : i32
     nvvm.nanosleep %ticks
     nvvm.barrier
-    %count = nvvm.barrier #nvvm.reduction<popc> %pred -> i32
+    %count = nvvm.barrier.reduction #nvvm.reduction<popc> %pred -> i32
     llvm.return
   }
 }

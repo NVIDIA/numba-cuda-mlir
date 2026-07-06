@@ -1716,31 +1716,8 @@ llvm::Error MLIRToLLVM70::translateBarrierOp(Operation *op) {
   auto barrierOp = cast<NVVM::BarrierOp>(op);
   Value barrierId = barrierOp.getBarrierId();
   Value numThreads = barrierOp.getNumberOfThreads();
-  Value predicate = barrierOp.getReductionPredicate();
-  auto reductionOp = barrierOp.getReductionOp();
 
-  if (reductionOp) {
-    if (!predicate)
-      return llvm::createStringError(llvm::inconvertibleErrorCode(),
-                                     "barrier reduction requires a predicate");
-
-    llvm::StringRef opStr;
-    switch (*reductionOp) {
-    case NVVM::BarrierReduction::POPC: opStr = "popc"; break;
-    case NVVM::BarrierReduction::AND:  opStr = "and";  break;
-    case NVVM::BarrierReduction::OR:   opStr = "or";   break;
-    }
-
-    std::string intrName = ("llvm.nvvm.barrier0." + opStr).str();
-    LLVMTypeRef paramTy = b.i32Ty();
-    LLVMTypeRef fnTy = b.funcTy(b.i32Ty(), &paramTy, 1, false);
-    LLVMValueRef fn = b.getNamedFunction(intrName.c_str());
-    if (!fn)
-      fn = b.addFunction(intrName.c_str(), fnTy);
-    LLVMValueRef predVal = lookupValue(predicate);
-    LLVMValueRef result = b.buildCall(fn, &predVal, 1, "");
-    mapValue(barrierOp.getRes(), result);
-  } else if (numThreads) {
+  if (numThreads) {
     // bar.sync barId, numThreads;
     std::string ptx = "bar.sync $0, $1;";
     LLVMTypeRef paramTys[2] = {b.i32Ty(), b.i32Ty()};
@@ -1766,6 +1743,30 @@ llvm::Error MLIRToLLVM70::translateBarrierOp(Operation *op) {
     b.buildCall(asmVal, nullptr, 0, "");
   }
 
+  return llvm::Error::success();
+}
+
+llvm::Error MLIRToLLVM70::translateBarrierReductionOp(Operation *op) {
+  auto barrierOp = cast<NVVM::BarrierReductionOp>(op);
+  Value predicate = barrierOp.getReductionPredicate();
+  auto reductionOp = barrierOp.getReductionOp();
+
+  llvm::StringRef opStr;
+  switch (reductionOp) {
+  case NVVM::BarrierReduction::POPC: opStr = "popc"; break;
+  case NVVM::BarrierReduction::AND:  opStr = "and";  break;
+  case NVVM::BarrierReduction::OR:   opStr = "or";   break;
+  }
+
+  std::string intrName = ("llvm.nvvm.barrier0." + opStr).str();
+  LLVMTypeRef paramTy = b.i32Ty();
+  LLVMTypeRef fnTy = b.funcTy(b.i32Ty(), &paramTy, 1, false);
+  LLVMValueRef fn = b.getNamedFunction(intrName.c_str());
+  if (!fn)
+    fn = b.addFunction(intrName.c_str(), fnTy);
+  LLVMValueRef predVal = lookupValue(predicate);
+  LLVMValueRef result = b.buildCall(fn, &predVal, 1, "");
+  mapValue(barrierOp.getRes(), result);
   return llvm::Error::success();
 }
 
@@ -2425,6 +2426,8 @@ llvm::Error MLIRToLLVM70::translateNVVMOp(Operation *op) {
           [&](auto) { return this->translateClusterWaitOp(op); })
       .Case<NVVM::BarrierOp>(
           [&](auto) { return this->translateBarrierOp(op); })
+      .Case<NVVM::BarrierReductionOp>(
+          [&](auto) { return this->translateBarrierReductionOp(op); })
       .Case<NVVM::Breakpoint>([&](auto) {
         LLVMTypeRef fnTy = b.funcTy(b.voidTy(), nullptr, 0, false);
         LLVMValueRef asmVal =

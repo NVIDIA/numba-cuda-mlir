@@ -159,6 +159,7 @@ private:
   llvm::Error translateClusterArriveOp(mlir::Operation *op, bool isRelaxed);
   llvm::Error translateClusterWaitOp(mlir::Operation *op);
   llvm::Error translateBarrierOp(mlir::Operation *op);
+  llvm::Error translateBarrierReductionOp(mlir::Operation *op);
   llvm::Error translateCttzCtlzOp(mlir::Operation *op, llvm::StringRef intrBase,
                                   mlir::Value in, mlir::Value res,
                                   bool isZeroPoison);

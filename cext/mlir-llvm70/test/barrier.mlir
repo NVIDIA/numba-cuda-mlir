@@ -22,12 +22,12 @@ module {
     }
 
     llvm.func @barrier_red_popc(%pred: i32) -> i32 attributes {gpu.kernel} {
-      %r = nvvm.barrier #nvvm.reduction<popc> %pred -> i32
+      %r = nvvm.barrier.reduction #nvvm.reduction<popc> %pred -> i32
       llvm.return %r : i32
     }
 
     llvm.func @barrier_red_and(%pred: i32) -> i32 attributes {gpu.kernel} {
-      %r = nvvm.barrier #nvvm.reduction<and> %pred -> i32
+      %r = nvvm.barrier.reduction #nvvm.reduction<and> %pred -> i32
       llvm.return %r : i32
     }
   }

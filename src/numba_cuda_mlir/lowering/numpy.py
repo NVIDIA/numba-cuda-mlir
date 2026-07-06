@@ -137,7 +137,8 @@ def _lower_array_complex_real_imag(builder, target, array_var, attr):
     complex_array = builder.load_var(array_var)
     array_type = complex_array.type
     rank = array_type.rank
-    float_type = array_type.element_type.element_type
+    array_numba_type = builder.get_numba_type(array_var.name)
+    float_type = builder.get_storage_type(array_numba_type.dtype.underlying_float)
 
     dyn = ir.ShapedType.get_dynamic_size()
     dyn_s = ir.ShapedType.get_dynamic_stride_or_offset()

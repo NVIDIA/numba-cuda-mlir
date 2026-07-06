@@ -42,6 +42,8 @@ int llvm70_translate_gpu_module_from_op(
     const char *chip, const char *data_layout,
     const char *libllvm, const char *libnvvm, const char *libdevice,
     int gen_lto, int opt_level, int gen_lineinfo,
+    int nvvm_ir_major, int nvvm_ir_minor, int nvvm_debug_major,
+    int nvvm_debug_minor,
     char **out, size_t *out_len, char **err_out) {
 
   *out = nullptr;
@@ -80,6 +82,10 @@ int llvm70_translate_gpu_module_from_op(
   opts.genLTO = gen_lto != 0;
   opts.optLevel = (opt_level >= 0 && opt_level <= 3) ? opt_level : 2;
   opts.debugLevel = gen_lineinfo;  // 0=none, 1=lineinfo, 2=full debug
+  opts.nvvmIRMajor = nvvm_ir_major;
+  opts.nvvmIRMinor = nvvm_ir_minor;
+  opts.nvvmDebugMajor = nvvm_debug_major;
+  opts.nvvmDebugMinor = nvvm_debug_minor;
 
   // Intercept llvm::report_fatal_error so it throws an exception instead of
   // aborting the host process (e.g. bf16 rejection, unsupported types).

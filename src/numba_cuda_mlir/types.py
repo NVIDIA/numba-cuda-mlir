@@ -67,6 +67,7 @@ from numba_cuda_mlir.numba_cuda.types import (
     uint16,
     uint32,
     uint64,
+    complex32,
     complex64,
     complex128,
     bool,

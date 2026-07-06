@@ -14,7 +14,7 @@ static int run_case(const char *name, const char *mlir, int ctk_major = 13,
     size_t out_len = 0;
     char *error = nullptr;
     int rc = mlir_modern_to_nvvm_translate_for_libnvvm(
-        mlir, std::strlen(mlir), ctk_major, ctk_minor, 0,
+        mlir, std::strlen(mlir), ctk_major, ctk_minor, 2, 0, 3, 2, 0,
         emit_text_ir ? 1 : 0, &out, &out_len, &error);
     if (rc != 0) {
         std::fprintf(stderr, "bridge smoke case '%s' failed: %s\n", name,

@@ -426,6 +426,15 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
         alignas = try_extract_constant(alignas)
     # Validate alignment (raises ValueError for invalid values)
     _validate_alignment(alignas)
+    if alignas is None or alignas == 8:
+        dtype_numba = lower.get_numba_type(dtype.name) if isinstance(dtype, numba_ir.Var) else None
+        if (
+            isinstance(dtype_numba, types.DTypeSpec)
+            and hasattr(dtype_numba.dtype, "alignment")
+            and dtype_numba.dtype.alignment is not None
+        ):
+            alignas = dtype_numba.dtype.alignment
+
     if alignas is None:
         alignas = 8  # default alignment when None
     shape_op: tuple[ir.Value | int, ...] | ir.Value | int = lower.load_var(shape)
@@ -523,8 +532,16 @@ def cuda_local_array(lower: MLIRLower, target, args: list[Any], kwargs: list[tup
     np_dtype = _resolve_numba_dtype(lower, dtype)
     mlir_dtype = lower.get_storage_type(np_dtype)
 
+    if alignas is None or alignas == 8:  # 8 is the hardcoded default from before
+        dtype_numba = lower.get_numba_type(dtype.name) if isinstance(dtype, numba_ir.Var) else None
+        if (
+            isinstance(dtype_numba, types.DTypeSpec)
+            and hasattr(dtype_numba.dtype, "alignment")
+            and dtype_numba.dtype.alignment is not None
+        ):
+            alignas = dtype_numba.dtype.alignment
+
     if static_shape is not None:
-        # Static shape - use static memref allocation
         with lower.alloca_insertion_point():
             mr_type = ir.MemRefType.get(
                 shape=static_shape,

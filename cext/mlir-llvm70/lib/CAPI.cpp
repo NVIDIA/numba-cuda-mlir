@@ -41,7 +41,7 @@ int llvm70_translate_gpu_module_from_op(
     void *raw_op,
     const char *chip, const char *data_layout,
     const char *libllvm, const char *libnvvm, const char *libdevice,
-    int gen_lto, int opt_level, int gen_lineinfo,
+    int gen_lto, int gen_llvmir, int opt_level, int gen_lineinfo,
     char **out, size_t *out_len, char **err_out) {
 
   *out = nullptr;
@@ -87,7 +87,9 @@ int llvm70_translate_gpu_module_from_op(
   llvm::install_fatal_error_handler(fatalErrorHandler, nullptr);
 
   try {
-    auto ptxOrErr = llvm70::translateToPTX(gpuMod, opts);
+    auto ptxOrErr = gen_llvmir != 0
+      ? llvm70::translateToNVVMIR(gpuMod, opts)
+      : llvm70::translateToPTX(gpuMod, opts);
     llvm::remove_fatal_error_handler();
 
     if (!ptxOrErr) {

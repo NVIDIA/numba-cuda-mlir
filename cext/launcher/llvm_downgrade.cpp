@@ -15,6 +15,15 @@
 
 namespace {
 
+struct NvvmIrVersion {
+    int ir_major = 2;
+    int ir_minor = 0;
+    int debug_major = 0;
+    int debug_minor = 0;
+};
+
+static NvvmIrVersion g_nvvm_ir_version;
+
 // ---------------------------------------------------------------------------
 // LLVM C API types and constants (obtained from llvm-c/Core.h).
 // Redeclared here because we dlopen libMLIRPythonCAPI.so at runtime rather
@@ -562,22 +571,26 @@ static void adapt_nvvm_annotations(LLVMModuleRef mod, LLVMContextRef ctx) {
     g_LLVMSetInitializer(used, g_LLVMConstArray2(ptr_ty, kernel_fns.data(), n));
 }
 
-// Add !nvvmir.version = !{i32 2, i32 0}
-// Version 2.0 is accepted by all supported CTKs. Newer CTKs may use higher
-// versions (e.g., CTK 13.1 uses NVVM IR 2.1) but are backward-compatible.
+// Add !nvvmir.version using the full libNVVM-reported IR/debug version tuple.
 static void adapt_nvvmir_version(LLVMModuleRef mod, LLVMContextRef ctx) {
     if (g_LLVMGetNamedMetadataNumOperands(mod, "nvvmir.version") > 0)
         return;
 
     LLVMTypeRef i32_ty = g_LLVMInt32TypeInContext(ctx);
-    LLVMValueRef two = g_LLVMConstInt(i32_ty, 2, 0);
-    LLVMValueRef zero = g_LLVMConstInt(i32_ty, 0, 0);
+    LLVMValueRef ir_major = g_LLVMConstInt(i32_ty, g_nvvm_ir_version.ir_major, 0);
+    LLVMValueRef ir_minor = g_LLVMConstInt(i32_ty, g_nvvm_ir_version.ir_minor, 0);
+    LLVMValueRef debug_major =
+        g_LLVMConstInt(i32_ty, g_nvvm_ir_version.debug_major, 0);
+    LLVMValueRef debug_minor =
+        g_LLVMConstInt(i32_ty, g_nvvm_ir_version.debug_minor, 0);
 
     LLVMMetadataRef ops[] = {
-        g_LLVMValueAsMetadata(two),
-        g_LLVMValueAsMetadata(zero)
+        g_LLVMValueAsMetadata(ir_major),
+        g_LLVMValueAsMetadata(ir_minor),
+        g_LLVMValueAsMetadata(debug_major),
+        g_LLVMValueAsMetadata(debug_minor)
     };
-    LLVMMetadataRef node = g_LLVMMDNodeInContext2(ctx, ops, 2);
+    LLVMMetadataRef node = g_LLVMMDNodeInContext2(ctx, ops, 4);
     LLVMValueRef node_val = g_LLVMMetadataAsValue(ctx, node);
     g_LLVMAddNamedMetadataOperand(mod, "nvvmir.version", node_val);
 }
@@ -740,11 +753,15 @@ static void downgrade_for_libnvvm(LLVMModuleRef mod, LLVMContextRef ctx,
 PyObject* py_downgrade_for_libnvvm(PyObject* /*self*/, PyObject* args) {
     unsigned long long mod_ptr_int, ctx_ptr_int;
     int ctk_major, ctk_minor;
+    int nvvm_ir_major, nvvm_ir_minor, nvvm_debug_major, nvvm_debug_minor;
     const char* lib_path;
 
-    if (!PyArg_ParseTuple(args, "KKiis",
+    if (!PyArg_ParseTuple(args, "KKiiiiiis",
                           &mod_ptr_int, &ctx_ptr_int,
-                          &ctk_major, &ctk_minor, &lib_path))
+                          &ctk_major, &ctk_minor,
+                          &nvvm_ir_major, &nvvm_ir_minor,
+                          &nvvm_debug_major, &nvvm_debug_minor,
+                          &lib_path))
         return nullptr;
 
     if (!load_mlir_capi(lib_path))
@@ -753,6 +770,9 @@ PyObject* py_downgrade_for_libnvvm(PyObject* /*self*/, PyObject* args) {
     LLVMModuleRef llvm_mod = reinterpret_cast<LLVMModuleRef>(mod_ptr_int);
     LLVMContextRef llvm_ctx = reinterpret_cast<LLVMContextRef>(ctx_ptr_int);
 
+    g_nvvm_ir_version = {
+        nvvm_ir_major, nvvm_ir_minor, nvvm_debug_major, nvvm_debug_minor
+    };
     adapt_for_libnvvm(llvm_mod, llvm_ctx);
     downgrade_for_libnvvm(llvm_mod, llvm_ctx, ctk_major, ctk_minor);
 

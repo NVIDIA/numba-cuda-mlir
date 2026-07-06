@@ -80,6 +80,27 @@ def dyn_shared_memory(ary):
     ary[i] = sm[i]
 
 
+def test_dynamic_shared_memory_gep_has_no_no_wrap_flags(monkeypatch):
+    from numba_cuda_mlir import compiler, tools
+
+    monkeypatch.setattr(tools, "get_gpu_compute_capability", lambda tuple=False: (10, 0))
+
+    mlir = compiler.compile_mlir(
+        cuda.jit(chip="sm_100")(dyn_shared_memory),
+        "void(float32[:])",
+        optimized=True,
+        chip="sm_100",
+    )
+
+    shared_geps = [
+        line
+        for line in mlir.splitlines()
+        if "llvm.getelementptr" in line and "!llvm.ptr<3>" in line
+    ]
+    assert shared_geps
+    assert all("inbounds" not in line and "nuw" not in line for line in shared_geps)
+
+
 def use_threadfence(ary):
     ary[0] += 123
     cuda.threadfence()

@@ -85,7 +85,7 @@ int add_one(int *out, int a)
         callback = CUSource("", setup_callback=setup)
         add_one = cuda.declare_device("add_one", "int32(int32)", link=[linked_function, callback])
 
-        @cuda.jit(output="ltoir")
+        @cuda.jit(lto=True)
         def kernel(out):
             out[0] = add_one(41)
 

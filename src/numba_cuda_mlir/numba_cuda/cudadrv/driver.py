@@ -2346,7 +2346,14 @@ class _Linker:
         for kind, payload, name, lto in pending:
             cu = payload.data if kind == "linkable" else payload
 
-            obj, log = nvrtc.compile(cu, name, self.cc, ltoir=lto)
+            obj, log = nvrtc.compile(
+                cu,
+                name,
+                self.cc,
+                ltoir=lto,
+                lineinfo=self.lineinfo,
+                debug=self._debug,
+            )
 
             if not lto and config.DUMP_ASSEMBLY:
                 print(("ASSEMBLY %s" % name).center(80, "-"))

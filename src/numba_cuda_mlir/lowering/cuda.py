@@ -273,7 +273,7 @@ def _ensure_cudadevrt_linked(lower: MLIRLower):
     if not lower.metadata.get("_cudadevrt_linked"):
         from numba_cuda_mlir.numba_cuda.cudadrv.libs import get_cudalib
 
-        lower.linker.add_file_guess_ext(get_cudalib("cudadevrt", static=True))
+        lower.link_external_item(get_cudalib("cudadevrt", static=True))
         lower.metadata["_cudadevrt_linked"] = True
 
 
@@ -449,7 +449,8 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
 
     static_shape = [_is_static_dim(x) for x in shape_op]
 
-    if all([x is not None for x in static_shape]):
+    is_dynamic_shared_shape = len(static_shape) == 1 and static_shape[0] == 0
+    if all([x is not None for x in static_shape]) and not is_dynamic_shared_shape:
         return cuda_static_shared_memory(lower, target, static_shape, dtype, alignas)
 
     shape = coerce_to_shape_tuple(shape_op)
@@ -461,7 +462,10 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
         element_type=dtype,
         memory_space=lower._get_shared_address_space(),
     )
-    array = lower._request_shared_memory(shape, mr_type)
+    if is_dynamic_shared_shape:
+        array = lower._request_dynamic_shared_memory(mr_type)
+    else:
+        array = lower._request_shared_memory(shape, mr_type)
     if alignas != 8:
         array = memref.assume_alignment(array, alignas)
     lower.store_var(target, array)

@@ -116,6 +116,72 @@ int llvm70_translate_gpu_module_from_op(
   }
 }
 
+/// Translate a gpu.module Operation* to old (LLVM 7 dialect) NVVM IR text.
+/// This is the IR that would be handed to libnvvm by
+/// llvm70_translate_gpu_module_from_op; exposing it lets callers dump the
+/// NVVM IR for debugging (e.g. NUMBA_CUDA_MLIR_DUMP_NVVM) without compiling
+/// to PTX. libnvvm/libdevice are not needed because no compilation happens.
+int llvm70_translate_gpu_module_to_nvvm_ir_from_op(
+    void *raw_op,
+    const char *chip, const char *data_layout,
+    const char *libllvm, int gen_lineinfo,
+    char **out, size_t *out_len, char **err_out) {
+
+  *out = nullptr;
+  *out_len = 0;
+  *err_out = nullptr;
+
+  if (!raw_op) {
+    *err_out = copyCString("null Operation*");
+    return 1;
+  }
+
+  auto *op = static_cast<mlir::Operation *>(raw_op);
+  auto gpuMod = mlir::dyn_cast<mlir::gpu::GPUModuleOp>(op);
+  if (!gpuMod) {
+    *err_out = copyCString("Operation is not a gpu.module");
+    return 1;
+  }
+
+  llvm70::LLVM70Options opts;
+  opts.chip = chip ? chip : "sm_80";
+  opts.dataLayout = (data_layout && data_layout[0]) ? data_layout
+                                                    : kDefaultDataLayout;
+  if (libllvm && libllvm[0]) opts.libLLVMPath = libllvm;
+  opts.debugLevel = gen_lineinfo;  // 0=none, 1=lineinfo, 2=full debug
+
+  llvm::install_fatal_error_handler(fatalErrorHandler, nullptr);
+
+  try {
+    auto irOrErr = llvm70::translateToNVVMIR(gpuMod, opts);
+    llvm::remove_fatal_error_handler();
+
+    if (!irOrErr) {
+      std::string msg = llvm::toString(irOrErr.takeError());
+      *err_out = copyCString(msg.c_str());
+      return 1;
+    }
+
+    const std::string &ir = *irOrErr;
+    *out = static_cast<char *>(malloc(ir.size()));
+    if (!*out) {
+      *err_out = copyCString("malloc failed");
+      return 1;
+    }
+    memcpy(*out, ir.data(), ir.size());
+    *out_len = ir.size();
+    return 0;
+  } catch (const std::exception &e) {
+    llvm::remove_fatal_error_handler();
+    *err_out = copyCString(e.what());
+    return 1;
+  } catch (...) {
+    llvm::remove_fatal_error_handler();
+    *err_out = copyCString("unknown exception");
+    return 1;
+  }
+}
+
 void llvm70_free(void *ptr) { free(ptr); }
 
 } // extern "C"

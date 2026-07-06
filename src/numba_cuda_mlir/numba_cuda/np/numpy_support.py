@@ -194,7 +194,10 @@ def as_dtype(nbtype):
     """
     nbtype = types.unliteral(nbtype)
     if isinstance(nbtype, (types.Complex, types.Integer, types.Float)):
-        return np.dtype(str(nbtype))
+        try:
+            return np.dtype(str(nbtype))
+        except TypeError as exc:
+            raise errors.NumbaNotImplementedError(nbtype) from exc
     if isinstance(nbtype, (types.Boolean)):
         return np.dtype("?")
     if isinstance(nbtype, (types.NPDatetime, types.NPTimedelta)):

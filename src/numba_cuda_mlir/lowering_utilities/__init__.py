@@ -384,8 +384,19 @@ def storage_to_value(numba_type: types.Type, value: ir.Value) -> ir.Value:
     return convert(value, value_type)
 
 
-def array_element_value_load(array_type: types.Array, array: ir.Value, indices: Sequence[ir.Value]):
-    stored = memref.load(array, list(indices))
+def array_element_value_load(
+    array_type: types.Array,
+    array: ir.Value,
+    indices: Sequence[ir.Value],
+    *,
+    dynamic_shared_memory: bool = False,
+):
+    if dynamic_shared_memory:
+        storage_type = get_storage_type(array_type.dtype)
+        ptr = memref_to_llvm_ptr(array, list(indices), storage_type)
+        stored = llvm.load(storage_type, ptr)
+    else:
+        stored = memref.load(array, list(indices))
     return storage_to_value(array_type.dtype, stored)
 
 
@@ -394,9 +405,15 @@ def array_element_value_store(
     array: ir.Value,
     indices: Sequence[ir.Value],
     value: ir.Value,
+    *,
+    dynamic_shared_memory: bool = False,
 ):
     stored = value_to_storage(array_type.dtype, value)
-    memref.store(value=stored, memref=array, indices=list(indices))
+    if dynamic_shared_memory:
+        ptr = memref_to_llvm_ptr(array, list(indices), stored.type)
+        llvm.store(stored, ptr)
+    else:
+        memref.store(value=stored, memref=array, indices=list(indices))
 
 
 def memref_to_value_tensor(array_type: types.Array, array: ir.Value) -> ir.Value:
@@ -530,7 +547,9 @@ def _(a: ir.Type, b: ir.Type) -> ir.Type:
 
 def coerce_numpy_scalars_for_binary_op(a: ir.Value, b: ir.Value) -> tuple[ir.Value, ir.Value]:
     coerced = numpy_implicit_type_promotion(a.type, b.type)
-    return convert(a, coerced), convert(b, coerced)
+    a_signed = isinstance(a.type, ir.IntegerType) and a.type.width > 1
+    b_signed = isinstance(b.type, ir.IntegerType) and b.type.width > 1
+    return convert(a, coerced, signed=a_signed), convert(b, coerced, signed=b_signed)
 
 
 def mul(a: ir.Value, b: ir.Value) -> ir.Value:

@@ -338,6 +338,32 @@ class TestLinker(NumbaCUDATestCase):
         compiled = compiled.specialize(np.empty(32), *range(6))
         self.assertGreater(compiled.get_regs_per_thread(), 57)
 
+    def test_register_pressure_launch_diagnostic(self):
+        compiled = cuda.jit(func_with_lots_of_registers)
+        compiled = compiled.specialize(np.empty(32), *range(6))
+
+        registers_per_thread = compiled.get_regs_per_thread()
+        device = cuda.get_current_device()
+        max_registers_per_block = device.MAX_REGISTERS_PER_BLOCK
+        threads_per_block = max_registers_per_block // registers_per_thread + 1
+        if threads_per_block > device.MAX_THREADS_PER_BLOCK:
+            self.skipTest("Kernel does not use enough registers to exceed the device limit")
+
+        required_registers = registers_per_thread * threads_per_block
+        suggested_max_registers = max_registers_per_block // threads_per_block
+        out = cuda.device_array(threads_per_block, dtype=np.float64)
+
+        with self.assertRaises(CUDAError) as raises:
+            compiled[1, threads_per_block](out, 1, 1, 1, 1, 1, 1)
+
+        message = str(raises.exception)
+        self.assertIn("CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES", message)
+        self.assertIn(f"uses {registers_per_thread} registers per thread", message)
+        self.assertIn(f"launch block has {threads_per_block} threads", message)
+        self.assertIn(f"requiring {required_registers} registers per block", message)
+        self.assertIn(f"device limit is {max_registers_per_block}", message)
+        self.assertIn(f"cuda.jit(max_registers={suggested_max_registers})", message)
+
     def test_set_registers_57(self):
         compiled = cuda.jit(max_registers=57)(func_with_lots_of_registers)
         compiled = compiled.specialize(np.empty(32), *range(6))
@@ -625,6 +651,18 @@ __device__ int foo(int x) {
         self.assertEqual(linker._pending_cu, [])
         self.assertEqual(recreated._pending_cu, [])
         self.assertIs(recreated._object_codes[0], fake_obj)
+
+    def test_recreate_with_lto_tracks_materialized_cu_ltoir(self):
+        fake_obj = unittest.mock.Mock()
+        fake_obj.code_type = "ltoir"
+        fake_obj.code = b"ltoir"
+        linker = NumbaCudaMLIRLinker(cc=(7, 5), lto=True)
+        linker.add_cu("__device__ int foo() { return 1; }", "foo.cu")
+
+        with unittest.mock.patch.object(cuda_driver.nvrtc, "compile", return_value=(fake_obj, "")):
+            recreated = linker.recreate_with_lto()
+
+        self.assertEqual(recreated._ltoirs, {hash(fake_obj.code): fake_obj.code})
 
 
 if __name__ == "__main__":

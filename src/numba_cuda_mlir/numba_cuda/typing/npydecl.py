@@ -508,7 +508,9 @@ for func in ["sum", "argsort", "nonzero", "ravel"]:
 # Numpy scalar constructors
 
 # Register np.int8, etc. as converters to the equivalent Numba types
-np_types = set(getattr(np, str(nb_type)) for nb_type in types.number_domain)
+np_types = set(
+    getattr(np, str(nb_type)) for nb_type in types.number_domain if hasattr(np, str(nb_type))
+)
 np_types.add(np.bool_)
 # Those may or may not be aliases (depending on the Numpy build / version)
 np_types.add(np.intc)

@@ -92,6 +92,10 @@ def _get_modern_to_nvvm_bridge():
         ctypes.c_int,
         ctypes.c_int,
         ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
         ctypes.POINTER(ctypes.c_void_p),
         ctypes.POINTER(ctypes.c_size_t),
         ctypes.POINTER(ctypes.c_void_p),
@@ -160,7 +164,12 @@ def translate_to_llvmir(op):
 
 
 def translate_gpu_module_to_libnvvm_ir(
-    gpu_module_text, ctk_major, ctk_minor, dump=False, emit_text_ir=False
+    gpu_module_text,
+    ctk_major,
+    ctk_minor,
+    nvvm_ir_version,
+    dump=False,
+    emit_text_ir=False,
 ):
     """Translate gpu.module text to libnvvm-compatible LLVM IR bytes."""
     lib = _get_modern_to_nvvm_bridge()
@@ -175,6 +184,10 @@ def translate_gpu_module_to_libnvvm_ir(
         len(mlir_bytes),
         ctk_major,
         ctk_minor,
+        nvvm_ir_version[0],
+        nvvm_ir_version[1],
+        nvvm_ir_version[2],
+        nvvm_ir_version[3],
         int(bool(dump)),
         int(bool(emit_text_ir)),
         ctypes.byref(out),

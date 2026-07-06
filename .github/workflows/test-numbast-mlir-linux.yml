@@ -27,7 +27,7 @@ jobs:
       MATRIX: ${{ steps.compute-matrix.outputs.MATRIX }}
     steps:
       - name: Checkout ${{ github.event.repository.name }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Compute Numbast MLIR test matrix
         id: compute-matrix
@@ -55,7 +55,7 @@ jobs:
         run: nvidia-smi
 
       - name: Checkout ${{ github.event.repository.name }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Setup proxy cache
         uses: nv-gha-runners/setup-proxy-cache@main
@@ -71,7 +71,7 @@ jobs:
           dependent_exes: "bzip2 git jq wget python3"
 
       - name: Checkout Numbast
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           repository: NVIDIA/numbast
           ref: 00036e490ead95c2d1749986dd689dde28b3196d

@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+"""Validate downloaded release wheels against the requested release tag.
+
+Guards against publishing wheels whose embedded version does not match the
+release tag (e.g. tag pushed at the wrong commit), and against dev/local
+version markers leaking into a release upload.
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from pathlib import Path
+
+DISTRIBUTION = "numba_cuda_mlir"
+TAG_PATTERN = re.compile(r"^v(?P<version>\d+\.\d+\.\d+)")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Validate that wheel versions match the release tag. "
+            "Rejects dev/local wheel versions for release uploads."
+        )
+    )
+    parser.add_argument("git_tag", help="Release git tag (for example: v0.4.0)")
+    parser.add_argument("wheel_dir", help="Directory containing wheel files")
+    return parser.parse_args()
+
+
+def version_from_tag(tag: str) -> str:
+    match = TAG_PATTERN.match(tag)
+    if not match:
+        raise ValueError(f"Unsupported git tag format {tag!r}; expected vX.Y.Z.")
+    return match.group("version")
+
+
+def parse_wheel_dist_and_version(path: Path) -> tuple[str, str]:
+    # Wheel name format: {distribution}-{version}-{python}-{abi}-{platform}.whl
+    parts = path.stem.split("-")
+    if len(parts) < 5:
+        raise ValueError(f"Invalid wheel filename format: {path.name}")
+    return parts[0], parts[1]
+
+
+def main() -> int:
+    args = parse_args()
+    expected_version = version_from_tag(args.git_tag)
+    wheel_dir = Path(args.wheel_dir)
+
+    wheels = sorted(wheel_dir.glob("*.whl"))
+    if not wheels:
+        print(f"Error: No wheel files found in {wheel_dir}", file=sys.stderr)
+        return 1
+
+    seen_versions: set[str] = set()
+    errors: list[str] = []
+
+    for wheel in wheels:
+        try:
+            distribution, version = parse_wheel_dist_and_version(wheel)
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+
+        if distribution != DISTRIBUTION:
+            errors.append(
+                f"{wheel.name}: unexpected distribution {distribution!r}; "
+                f"expected {DISTRIBUTION!r}."
+            )
+            continue
+
+        seen_versions.add(version)
+
+        if ".dev" in version or "+" in version:
+            errors.append(
+                f"{wheel.name}: wheel version {version!r} contains dev/local "
+                "markers (.dev or +), which is not allowed for release uploads."
+            )
+
+        if version != expected_version:
+            errors.append(
+                f"{wheel.name}: wheel version {version!r} does not match "
+                f"expected release version {expected_version!r} from git tag "
+                f"{args.git_tag!r}."
+            )
+
+    if not seen_versions:
+        errors.append(f"No wheels matching distribution {DISTRIBUTION!r} found.")
+    elif len(seen_versions) > 1:
+        errors.append(
+            f"Expected one release version, found multiple: " + ", ".join(sorted(seen_versions))
+        )
+
+    if errors:
+        print("Wheel validation failed:", file=sys.stderr)
+        for error in errors:
+            print(f"  - {error}", file=sys.stderr)
+        return 1
+
+    print(
+        f"Validated {len(wheels)} wheel(s) for {DISTRIBUTION} at version "
+        f"{expected_version} from tag {args.git_tag}."
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

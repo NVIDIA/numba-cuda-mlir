@@ -2591,6 +2591,10 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
 
         argtypes, return_type = sigutils.normalize_signature(sig)
 
+        if output is not None:
+            self.targetoptions["_compile_output"] = output
+            self.targetoptions["lto"] = output == "ltoir"
+
         # Check in-memory overloads first
         if argtypes in self.overloads:
             return self.overloads[argtypes]
@@ -2609,8 +2613,6 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         # Cache miss - need to compile
         self._cache_misses[argtypes] += 1
 
-        if output is not None:
-            self.targetoptions["output"] = output
         if abi_info is not None:
             self.targetoptions["abi_info"] = abi_info
 
@@ -2699,7 +2701,6 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         opts = self.targetoptions.copy()
         opts["device"] = True
         opts["lto"] = False
-        opts["output"] = "ptx"
         if self.targetoptions.get("device", False):
             self.targetoptions.update(opts)
             return self._compile_device_callee(sig)
@@ -2724,8 +2725,6 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         ptx = cres.metadata.get("lto_ptx")
         if ptx:
             return ptx
-        if not cres.metadata.get("ltoir"):
-            return self.inspect_ptx(args)
 
         from numba_cuda_mlir.mlir_optimization import get_lto_ptx
 
@@ -2859,7 +2858,6 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         opts = self.targetoptions.copy()
         opts["device"] = True
         opts["lto"] = False
-        opts["output"] = "ptx"
         if self.targetoptions.get("device", False):
             self.targetoptions.update(opts)
             return self.compile(sig)

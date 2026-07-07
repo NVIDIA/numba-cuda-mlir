@@ -68,6 +68,10 @@ planner, start with the next compilation. Planners operate on untyped Numba
 IR; typing and MLIR lowering extensions remain responsible for the later
 compilation phases.
 
+Persistent disk-cache load and save are bypassed while planners are
+registered because planner identity and implementation are not part of the
+cache key. In-memory overload reuse is unchanged.
+
 .. autoclass:: numba_cuda_mlir.extending.WholeFunctionPlanner
    :members: is_device_function, run
 

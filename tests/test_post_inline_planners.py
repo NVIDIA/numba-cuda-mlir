@@ -145,6 +145,51 @@ def test_ir_is_repaired_between_modifying_planners():
     assert observed_constants == [2]
 
 
+def test_active_planners_bypass_persistent_dispatch_cache(
+    isolated_global_planners,
+    monkeypatch,
+):
+    from numba_cuda_mlir import descriptor as descriptor_mod, mlir_compiler
+    from numba_cuda_mlir.numba_cuda import typing as cuda_typing
+
+    class Planner(WholeFunctionPlanner):
+        def run(self):
+            return False
+
+    class UnexpectedCache:
+        def load_overload(self, *args):
+            pytest.fail("active planners must not load persistent cache entries")
+
+        def save_overload(self, *args):
+            pytest.fail("active planners must not save persistent cache entries")
+
+    class CompilerResult:
+        signature = cuda_typing.signature(types.none, types.int32)
+        metadata = {"cubin": b"compiled", "func_name": "kernel"}
+
+    def kernel(value):
+        pass
+
+    register_planner(Planner)
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    dispatcher._cache = UnexpectedCache()
+    monkeypatch.setattr(
+        mlir_compiler,
+        "mlir_compiler_entry",
+        lambda *args, **kwargs: CompilerResult(),
+    )
+    monkeypatch.setattr(
+        descriptor_mod._compile_arg_types,
+        "types",
+        (types.int32,),
+        raising=False,
+    )
+
+    assert dispatcher._compile_impl([1]) == (b"compiled", "kernel", False)
+    assert not dispatcher._cache_hits
+    assert not dispatcher._cache_misses
+
+
 def _post_inline_marker(value):
     return value
 

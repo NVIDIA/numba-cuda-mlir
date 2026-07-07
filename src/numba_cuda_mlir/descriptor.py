@@ -39,6 +39,7 @@ from numba_cuda_mlir.numba_cuda.core.descriptors import TargetDescriptor
 from numba_cuda_mlir.numba_cuda.core.compiler_lock import global_compiler_lock
 from numba_cuda_mlir.numba_cuda.dispatcher import Dispatcher
 from numba_cuda_mlir.numba_cuda.core.options import TargetOptions
+from numba_cuda_mlir._whole_function_planners import _planner_registry
 from numba_cuda_mlir.numba_cuda.core.target_extension import (
     CPU,
     target_registry,
@@ -2557,12 +2558,17 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             if active_launch_config is not None:
                 targetoptions["__launch_config__"] = dict(active_launch_config)
 
+        # A cached result bypasses compiler passes. Until planner identity and
+        # implementation are part of the persistent cache key, active planners
+        # must compile in-process so their transformations cannot be skipped.
+        use_disk_cache = active_launch_config_key is None and not _planner_registry.has_planners
+
         # Try to load from disk cache
         mlir_target.ensure_initialized()
         sig = typing.signature(types.none, *argtypes)
         # Launch-specialized compiles use an in-memory cache because the
         # generic in-memory and on-disk cache keys do not include launch metadata.
-        if active_launch_config_key is None:
+        if use_disk_cache:
             cres = self._cache.load_overload(sig, mlir_target.target_context)
             if cres is not None:
                 self._cache_hits[argtypes] += 1
@@ -2571,7 +2577,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 return _result(wrapped)
 
         # Cache miss - need to compile
-        if active_launch_config_key is None:
+        if use_disk_cache:
             self._cache_misses[argtypes] += 1
 
         # Compile using mlir_compiler_entry which handles annotations and AST transforms
@@ -2636,7 +2642,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             self.overloads[result.signature.args] = wrapped
 
         # Save to disk cache
-        if active_launch_config_key is None:
+        if use_disk_cache:
             self._cache.save_overload(sig, result)
 
         return _result(wrapped)
@@ -2665,18 +2671,21 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             return self.overloads[argtypes]
 
         self._resolve_target_options()
+        use_disk_cache = not _planner_registry.has_planners
 
         # Try to load from disk cache
         mlir_target.ensure_initialized()
-        cres = self._cache.load_overload(sig, mlir_target.target_context)
-        if cres is not None:
-            self._cache_hits[argtypes] += 1
-            wrapped = CompileResult(cres)
-            self.overloads[argtypes] = wrapped
-            return wrapped
+        if use_disk_cache:
+            cres = self._cache.load_overload(sig, mlir_target.target_context)
+            if cres is not None:
+                self._cache_hits[argtypes] += 1
+                wrapped = CompileResult(cres)
+                self.overloads[argtypes] = wrapped
+                return wrapped
 
         # Cache miss - need to compile
-        self._cache_misses[argtypes] += 1
+        if use_disk_cache:
+            self._cache_misses[argtypes] += 1
 
         if abi_info is not None:
             self.targetoptions["abi_info"] = abi_info
@@ -2700,7 +2709,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         self._propagate_compile_callbacks(cres.metadata)
 
         # Save to cache
-        self._cache.save_overload(sig, cres)
+        if use_disk_cache:
+            self._cache.save_overload(sig, cres)
 
         # Wrap in CompileResult for compatibility attributes
         wrapped = CompileResult(cres)

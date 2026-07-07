@@ -48,6 +48,11 @@ class _WholeFunctionPlannerRegistry:
                 self._planners.append(planner_cls)
         return planner_cls
 
+    @property
+    def has_planners(self) -> bool:
+        with self._lock:
+            return bool(self._planners)
+
     def apply(self, state) -> bool:
         """Run each planner once, repairing IR after every mutation."""
 

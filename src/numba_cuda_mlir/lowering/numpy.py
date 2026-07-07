@@ -1384,6 +1384,26 @@ def lower_uni_tuple_getitem(builder, target, args, kwargs):
             error_memref = builder._get_or_create_error_global()
             cases = ir.DenseI64ArrayAttr.get(range(len(tup)))
 
+            if error_memref is not None:
+                # The bounds check lives in its own zero-result switch
+                # so that selections with no leaf switches (empty-tuple
+                # elements) are still checked; the leaf switches below
+                # only select.
+                def oob_default(op):
+                    set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[IndexError])
+                    scf.yield_([])
+
+                def oob_case(op, case_index, case_value):
+                    scf.yield_([])
+
+                scf.index_switch(
+                    results=[],
+                    arg=index,
+                    cases=cases,
+                    default_body_builder=oob_default,
+                    case_body_builder=oob_case,
+                )
+
             def select(candidates, element_type):
                 # candidates[i] is the value this selection yields when the
                 # runtime index equals i.
@@ -1401,8 +1421,6 @@ def lower_uni_tuple_getitem(builder, target, args, kwargs):
                 result_type = builder.get_mlir_type(element_type)
 
                 def default(op):
-                    if error_memref is not None:
-                        set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[IndexError])
                     scf.yield_([convert(candidates[0], result_type)])
 
                 def case_builder(op, case_index, case_value):

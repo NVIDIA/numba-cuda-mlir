@@ -24,6 +24,7 @@ struct NvvmIrVersion {
 };
 
 static NvvmIrVersion g_nvvm_ir_version;
+static std::mutex g_nvvm_ir_version_mutex;
 
 // ---------------------------------------------------------------------------
 // LLVM C API types and constants (obtained from llvm-c/Core.h).
@@ -185,6 +186,20 @@ LLVM_CAPI_OPTIONAL(DECLARE_FN)
 static void* g_mlir_lib_handle;
 static std::mutex g_mlir_capi_mutex;
 
+static std::unique_lock<std::mutex> lock_from_python(std::mutex& mutex) {
+    std::unique_lock<std::mutex> guard(mutex, std::defer_lock);
+#ifdef Py_GIL_DISABLED
+    if (!guard.try_lock()) {
+        Py_BEGIN_ALLOW_THREADS
+        guard.lock();
+        Py_END_ALLOW_THREADS
+    }
+#else
+    guard.lock();
+#endif
+    return guard;
+}
+
 static void* load_symbol(void* handle, const char* name) {
 #ifdef _WIN32
     return reinterpret_cast<void*>(
@@ -204,16 +219,7 @@ static void close_library_handle(void* handle) {
 }
 
 Status load_mlir_capi(const char* lib_path) {
-    std::unique_lock<std::mutex> guard(g_mlir_capi_mutex, std::defer_lock);
-#ifdef Py_GIL_DISABLED
-    if (!guard.try_lock()) {
-        Py_BEGIN_ALLOW_THREADS
-        guard.lock();
-        Py_END_ALLOW_THREADS
-    }
-#else
-    guard.lock();
-#endif
+    auto guard = lock_from_python(g_mlir_capi_mutex);
 
     if (g_mlir_lib_handle)
         return OK;
@@ -812,10 +818,13 @@ PyObject* py_downgrade_for_libnvvm(PyObject* /*self*/, PyObject* args) {
     LLVMModuleRef llvm_mod = reinterpret_cast<LLVMModuleRef>(mod_ptr_int);
     LLVMContextRef llvm_ctx = reinterpret_cast<LLVMContextRef>(ctx_ptr_int);
 
-    g_nvvm_ir_version = {
-        nvvm_ir_major, nvvm_ir_minor, nvvm_debug_major, nvvm_debug_minor
-    };
-    adapt_for_libnvvm(llvm_mod, llvm_ctx);
+    {
+        auto guard = lock_from_python(g_nvvm_ir_version_mutex);
+        g_nvvm_ir_version = {
+            nvvm_ir_major, nvvm_ir_minor, nvvm_debug_major, nvvm_debug_minor
+        };
+        adapt_for_libnvvm(llvm_mod, llvm_ctx);
+    }
     downgrade_for_libnvvm(llvm_mod, llvm_ctx, ctk_major, ctk_minor);
 
     if (PyErr_Occurred()) {

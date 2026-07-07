@@ -269,6 +269,82 @@ def test_compile_and_recompile_take_launch_lock(monkeypatch):
     ]
 
 
+def test_nvvm_ir_version_adaptation_is_thread_safe():
+    _require_free_threaded_python()
+    if os.name == "nt":
+        pytest.skip("the Windows ModernBridge path has a native smoke test")
+
+    from numba_cuda_mlir import _cext
+    from numba_cuda_mlir._mlir import ir
+    from numba_cuda_mlir._mlir.dialects import gpu, llvm
+    from numba_cuda_mlir.lowering_utilities.llvm_utils import (
+        LLVM_C_LIB_PATH,
+        translate_to_llvmir,
+    )
+
+    # Importing the dialect modules registers the operations used by the parser.
+    _ = gpu, llvm
+
+    module_text = """
+    module {
+      gpu.module @kernels attributes {
+        llvm.data_layout = "e-i64:64-i128:128-v16:16-v32:32-n16:32:64-S128",
+        llvm.target_triple = "nvptx64-nvidia-cuda"
+      } {
+        llvm.func @simple_kernel() attributes {gpu.kernel} {
+          llvm.return
+        }
+      }
+    }
+    """
+
+    def make_llvm_module():
+        with ir.Context():
+            module = ir.Module.parse(module_text)
+            return translate_to_llvmir(module.body.operations[0])
+
+    worker_count = 32
+    versions = [
+        (1000 + worker, 1100 + worker, 1200 + worker, 1300 + worker)
+        for worker in range(worker_count)
+    ]
+    baselines = []
+    for version in versions:
+        llvm_mod, llvm_ctx = make_llvm_module()
+        baselines.append(
+            _cext.downgrade_for_libnvvm(
+                llvm_mod,
+                llvm_ctx,
+                13,
+                0,
+                *version,
+                LLVM_C_LIB_PATH,
+            )
+        )
+
+    modules = [make_llvm_module() for _ in range(worker_count)]
+    start = threading.Barrier(worker_count)
+
+    def adapt(worker):
+        version = versions[worker]
+        llvm_mod, llvm_ctx = modules[worker]
+        start.wait()
+        result = _cext.downgrade_for_libnvvm(
+            llvm_mod,
+            llvm_ctx,
+            13,
+            0,
+            *version,
+            LLVM_C_LIB_PATH,
+        )
+        assert result == baselines[worker]
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = [executor.submit(adapt, worker) for worker in range(worker_count)]
+        for future in futures:
+            future.result()
+
+
 def test_cuda_dispatch_with_gc_stress():
     _require_free_threaded_python()
     if os.environ.get("NUMBA_CUDA_MLIR_FT_STRESS") != "1":

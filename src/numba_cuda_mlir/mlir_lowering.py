@@ -228,7 +228,11 @@ class MLIRLower(object):
         self._mlir_module: ir.Module | None = None
         self._mlir_gpu_module: gpu.GPUModuleOp | None = None
         self._shared_memory_base: ir.Value | None = None
+        self._dynamic_shared_memory_size: ir.Value | None = None
         self._total_shared_memory_bytes: ir.Value | None = None
+        # block offset that defines _total_shared_memory_bytes, or None
+        # when it is defined in the entry block
+        self._shared_offset_def_block: int | None = None
         self._dynamic_shared_memory_values: list[ir.Value] = []
         self._deferred_dbg_declare_vars: set[str] = set()
         self._debug_forced_alloca: set[str] = set()
@@ -589,8 +593,7 @@ extern "C" __global__ void
                             T.i32(), max_cluster_rank
                         )
 
-                with ir.InsertionPoint(self.mlir_funcOp.add_entry_block()):
-                    self._total_shared_memory_bytes = arith.constant(result=T.index(), value=0)
+                self.mlir_funcOp.add_entry_block()
             else:
                 self.mlir_funcOp = func.FuncOp(
                     name=sym_name,
@@ -2316,6 +2319,10 @@ extern "C" __global__ void
             assert self.mlir_funcOp
             with ir.InsertionPoint.at_block_begin(self.mlir_funcOp.entry_block):
                 self._shared_memory_base = gpu.dynamic_shared_memory(mr_type)
+                # the size is queried in the entry block so it dominates
+                # every request site; if no dynamic request reads it, the
+                # unused pure op folds away in canonicalization
+                self._dynamic_shared_memory_size = memref.dim(self._shared_memory_base, index_of(0))
         return self._shared_memory_base
 
     def _shared_memory_element_bytes(self, mr_type: ir.MemRefType) -> int:
@@ -2327,27 +2334,56 @@ extern "C" __global__ void
             case _:
                 raise NotImplementedError(f"NotImplemented shared memory type {mr_type}.")
 
+    def _get_total_shared_memory_bytes(self):
+        if self._total_shared_memory_bytes is None:
+            assert self.mlir_funcOp
+            with ir.InsertionPoint.at_block_begin(self.mlir_funcOp.entry_block):
+                self._total_shared_memory_bytes = arith.constant(result=T.index(), value=0)
+        return self._total_shared_memory_bytes
+
+    def _validate_shared_memory_offset_dominates(self):
+        """Raise if _total_shared_memory_bytes does not dominate the block
+        being lowered.
+
+        A runtime-shaped request redefines the running offset at its own
+        request site, so a request in a block that site does not dominate
+        has no defined shared-memory offset.
+        """
+        if self._shared_offset_def_block is None:
+            return
+        if self._shared_offset_def_block == self.current_offset:
+            return
+        if self._shared_offset_def_block in self.cfg.dominators()[self.current_offset]:
+            return
+        raise errors.LoweringError(
+            "A shared array with a runtime shape was allocated under "
+            "conditional control flow, so the shared-memory offset of a "
+            "later allocation is undefined. Allocate runtime-shaped shared "
+            "arrays before branching, or make the allocation under control "
+            "flow the last shared-memory request in the kernel."
+        )
+
     def _request_dynamic_shared_memory(self, mr_type: ir.MemRefType):
         bytes = self._shared_memory_element_bytes(mr_type)
         assert self.mlir_funcOp
+        self._validate_shared_memory_offset_dominates()
         # Emit at the current insertion point: the entry block may
         # already have a terminator once the request appears after
-        # control flow. The shared-memory base itself is still created
-        # at the entry block's start by _get_shared_memory_base.
+        # control flow. The shared-memory base and its total size are
+        # created at the entry block's start by _get_shared_memory_base.
         bytes_op = arith.constant(result=T.index(), value=bytes)
         shm_base = self._get_shared_memory_base()
-        if self._total_shared_memory_bytes is None:
-            self._total_shared_memory_bytes = arith.constant(result=T.index(), value=0)
-        dynamic_shared_bytes = memref.dim(shm_base, index_of(0))
-        remaining_bytes = arith.subi(lhs=dynamic_shared_bytes, rhs=self._total_shared_memory_bytes)
+        total = self._get_total_shared_memory_bytes()
+        remaining_bytes = arith.subi(lhs=self._dynamic_shared_memory_size, rhs=total)
         size = arith.divui(lhs=remaining_bytes, rhs=bytes_op)
         view = memref.view(
             result=mr_type,
             source=shm_base,
-            byte_shift=self._total_shared_memory_bytes,
+            byte_shift=total,
             sizes=[size],
         )
-        self._total_shared_memory_bytes = dynamic_shared_bytes
+        self._total_shared_memory_bytes = self._dynamic_shared_memory_size
+        self._shared_offset_def_block = None
         self._dynamic_shared_memory_values.append(view)
         return view
 
@@ -2357,6 +2393,7 @@ extern "C" __global__ void
     def _request_shared_memory(self, sizes: tuple[ir.Value, ...], mr_type: ir.MemRefType):
         bytes = self._shared_memory_element_bytes(mr_type)
         assert self.mlir_funcOp
+        self._validate_shared_memory_offset_dominates()
         # Emit at the current insertion point: the size operands are
         # computed here, and the entry block may already have a
         # terminator once the request appears after control flow.
@@ -2365,17 +2402,17 @@ extern "C" __global__ void
             size = self.mlir_convert(size, T.index())
             bytes_op = arith.muli(lhs=bytes_op, rhs=size)
         shm_base = self._get_shared_memory_base()
-        if self._total_shared_memory_bytes is None:
-            self._total_shared_memory_bytes = arith.constant(result=T.index(), value=0)
+        total = self._get_total_shared_memory_bytes()
         view = memref.view(
             result=mr_type,
             source=shm_base,
-            byte_shift=self._total_shared_memory_bytes,
+            byte_shift=total,
             sizes=sizes,
         )
-        self._total_shared_memory_bytes = arith.addi(
-            lhs=self._total_shared_memory_bytes, rhs=bytes_op
-        )
+        self._total_shared_memory_bytes = arith.addi(lhs=total, rhs=bytes_op)
+        # the increment uses request-site size operands, so the offset is
+        # only defined in blocks this one dominates
+        self._shared_offset_def_block = self.current_offset
         return view
 
     def _get_tuple_element_type(self, target_type):

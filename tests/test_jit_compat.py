@@ -261,6 +261,15 @@ def kernel(arr, val):
 # --- Intrinsics ---
 
 
+def test_aligned_dynamic_shared_memory_ptx_llvm70():
+    def kernel():
+        smem = cuda.shared.array(shape=(0,), dtype=np.byte, alignment=16)
+        smem[0] = 0
+
+    ptx, _ = cuda.compile_ptx(kernel, (), cc=(8, 0))
+    assert ptx
+
+
 def test_nanosleep_ptx():
     """Test nanosleep emits correct PTX."""
 

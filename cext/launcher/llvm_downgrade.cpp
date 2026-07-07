@@ -202,7 +202,9 @@ Status load_mlir_capi(const char* lib_path) {
         return raise(PyExc_RuntimeError, "Failed to load %s: error %lu",
                      lib_path, GetLastError());
 #else
-    g_mlir_lib_handle = dlopen(lib_path, RTLD_NOW | RTLD_GLOBAL);
+    // RTLD_LOCAL: keep bundled LLVM/MLIR symbols out of the process-global
+    // namespace. See #170.
+    g_mlir_lib_handle = dlopen(lib_path, RTLD_NOW | RTLD_LOCAL);
     if (!g_mlir_lib_handle)
         return raise(PyExc_RuntimeError, "Failed to load %s: %s",
                      lib_path, dlerror());

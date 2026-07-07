@@ -25,6 +25,10 @@ from numba_cuda_mlir.models import mlir_data_manager
 
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.extending.argument_handler import ArgumentHandler
+from numba_cuda_mlir._whole_function_planners import (
+    WholeFunctionPlanner,
+    register_planner,
+)
 
 lowering_registry = LoweringRegistry()
 typing_registry = Registry()
@@ -34,12 +38,14 @@ register_model = functools.partial(register, mlir_data_manager)
 
 __all__ = [
     "ArgumentHandler",
+    "WholeFunctionPlanner",
     "intrinsic",
     "lowering_registry",
     "as_numba_type",
     "lower_builtin",
     "lower_cast",
     "refresh_registries",
+    "register_planner",
     "overload",
     "overload_attribute",
     "overload_method",

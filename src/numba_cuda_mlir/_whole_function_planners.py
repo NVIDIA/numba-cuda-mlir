@@ -54,11 +54,17 @@ class _WholeFunctionPlannerRegistry:
             return bool(self._planners)
 
     def apply(self, state) -> bool:
-        """Run each planner once, repairing IR after every mutation."""
+        """Run each planner once with coherent IR and repair every mutation."""
 
         modified = False
         with self._lock:
             planners = tuple(self._planners)
+        if planners:
+            # Inlining and CFG simplification can leave definitions and
+            # postprocessing analysis describing blocks that no longer exist.
+            # Repair once so the first inspection-only planner sees the same
+            # coherent IR promised to every planner after a mutation.
+            self._repair_ir(state.func_ir)
         for planner_cls in planners:
             result = planner_cls(state).run()
             if not isinstance(result, bool):

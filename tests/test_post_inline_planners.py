@@ -17,6 +17,7 @@ from numba_cuda_mlir._whole_function_planners import (
 from numba_cuda_mlir.extending import WholeFunctionPlanner, register_planner
 from numba_cuda_mlir.numba_cuda.compiler import run_frontend
 from numba_cuda_mlir.numba_cuda.core import ir
+from numba_cuda_mlir.numba_cuda.core.ir_utils import build_definitions
 
 
 @pytest.fixture
@@ -28,6 +29,13 @@ def isolated_global_planners():
             yield
         finally:
             _planner_registry._planners[:] = original
+
+
+def _planner_state():
+    def empty():
+        pass
+
+    return SimpleNamespace(func_ir=run_frontend(empty))
 
 
 def test_planners_run_once_in_registration_order():
@@ -47,7 +55,7 @@ def test_planners_run_once_in_registration_order():
     assert registry.register(FirstPlanner) is FirstPlanner
     assert registry.register(FirstPlanner) is FirstPlanner
     assert registry.register(SecondPlanner) is SecondPlanner
-    assert registry.apply(SimpleNamespace()) is False
+    assert registry.apply(_planner_state()) is False
     assert events == ["first", "second"]
 
 
@@ -67,10 +75,10 @@ def test_registration_during_planning_applies_to_next_compilation():
             return False
 
     registry.register(RegisteringPlanner)
-    assert registry.apply(SimpleNamespace()) is False
+    assert registry.apply(_planner_state()) is False
     assert events == ["register"]
 
-    assert registry.apply(SimpleNamespace()) is False
+    assert registry.apply(_planner_state()) is False
     assert events == ["register", "register", "late"]
 
 
@@ -100,7 +108,7 @@ def test_planner_registration_and_result_contracts():
 
     registry.register(InvalidResultPlanner)
     with pytest.raises(TypeError, match=r"run\(\) must return bool"):
-        registry.apply(SimpleNamespace())
+        registry.apply(_planner_state())
 
 
 def test_ir_is_repaired_between_modifying_planners():
@@ -194,6 +202,25 @@ def _post_inline_marker(value):
     return value
 
 
+class _InspectPostInlineStatePlanner(WholeFunctionPlanner):
+    kernel_runs = 0
+
+    def run(self):
+        if self.is_device_function:
+            return False
+
+        func_ir = self.state.func_ir
+        rebuilt_definitions = build_definitions(func_ir.blocks)
+        assert set(func_ir._definitions) == set(rebuilt_definitions)
+        for name, rebuilt in rebuilt_definitions.items():
+            current = func_ir._definitions[name]
+            assert len(current) == len(rebuilt)
+            assert all(lhs is rhs for lhs, rhs in zip(current, rebuilt))
+        assert set(func_ir.block_entry_vars) == set(func_ir.blocks.values())
+        type(self).kernel_runs += 1
+        return False
+
+
 class _MarkerPlanner(WholeFunctionPlanner):
     kernel_runs = 0
     device_runs = 0
@@ -241,8 +268,10 @@ class _MarkerPlanner(WholeFunctionPlanner):
 def test_planner_pass_runs_after_device_inlining_without_gpu(
     isolated_global_planners,
 ):
+    _InspectPostInlineStatePlanner.kernel_runs = 0
     _MarkerPlanner.kernel_runs = 0
     _MarkerPlanner.device_runs = 0
+    register_planner(_InspectPostInlineStatePlanner)
     register_planner(_MarkerPlanner)
 
     @cuda.jit(device=True, inline="always")
@@ -262,6 +291,7 @@ def test_planner_pass_runs_after_device_inlining_without_gpu(
         cc=(8, 0),
     )
 
+    assert _InspectPostInlineStatePlanner.kernel_runs == 1
     assert _MarkerPlanner.kernel_runs == 1
     assert _MarkerPlanner.device_runs == 0
 

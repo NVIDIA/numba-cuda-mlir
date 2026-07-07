@@ -42,11 +42,11 @@ caller and before type inference. This makes calls introduced by device
 helpers visible without rerunning unrelated rewrite registries.
 
 Implement ``run()`` and return ``True`` only when the planner changed
-``state.func_ir``. After each change, Numba-CUDA-MLIR simplifies the control
-flow graph, refreshes postprocessing state and definitions, and verifies every
-block before invoking the next planner. Planners run for both kernels and
-device-function compilations; a planner that only applies to kernels should
-check ``self.is_device_function`` and decline device functions.
+``state.func_ir``. Before the first planner and after each change,
+Numba-CUDA-MLIR simplifies the control flow graph, refreshes postprocessing
+state and definitions, and verifies every block. Planners run for both kernels
+and device-function compilations; a planner that only applies to kernels
+should check ``self.is_device_function`` and decline device functions.
 
 .. code-block:: python
 

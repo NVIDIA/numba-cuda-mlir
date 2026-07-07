@@ -161,9 +161,19 @@ jobs:
         run: |
           ls -lahR dist/
 
+      # Ships next to the wheel via the same artifact. See
+      # tests/test_symbol_isolation.py (#170).
+      - name: Build isolation-test shim
+        if: ${{ startsWith(inputs.host-platform, 'linux') }}
+        run: |
+          make -C tests/data fake_mlir_shim.so
+          cp tests/data/fake_mlir_shim.so dist/
+
       - name: Upload numba-cuda-mlir build artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: ${{ env.NUMBA_CUDA_MLIR_CUDA_ARTIFACT_NAME }}
-          path: dist/*.whl
+          path: |
+            dist/*.whl
+            dist/fake_mlir_shim.so
           if-no-files-found: error

@@ -44,6 +44,7 @@ from numba_cuda_mlir.lowering_utilities import (
     user_signature_to_external_abi_signature,
     lookup_callee_in_module,
     get_func_type,
+    get_type_size_bytes,
     storage_itemsize_bytes,
 )
 from numba_cuda_mlir.compiler import (
@@ -2318,17 +2319,8 @@ extern "C" __global__ void
                 self._shared_memory_base = gpu.dynamic_shared_memory(mr_type)
         return self._shared_memory_base
 
-    def _shared_memory_element_bytes(self, mr_type: ir.MemRefType) -> int:
-        match mr_type.element_type:
-            case ir.IntegerType() | ir.FloatType() as t:
-                return t.width // 8
-            case T.index:
-                return 8
-            case _:
-                raise NotImplementedError(f"NotImplemented shared memory type {mr_type}.")
-
     def _request_dynamic_shared_memory(self, mr_type: ir.MemRefType):
-        bytes = self._shared_memory_element_bytes(mr_type)
+        bytes = get_type_size_bytes(mr_type.element_type)
         assert self.mlir_funcOp
         with ir.InsertionPoint(self.mlir_funcOp.entry_block):
             bytes_op = arith.constant(result=T.index(), value=bytes)
@@ -2354,7 +2346,7 @@ extern "C" __global__ void
         return any(value == dynamic for dynamic in self._dynamic_shared_memory_values)
 
     def _request_shared_memory(self, sizes: tuple[ir.Value, ...], mr_type: ir.MemRefType):
-        bytes = self._shared_memory_element_bytes(mr_type)
+        bytes = get_type_size_bytes(mr_type.element_type)
         assert self.mlir_funcOp
         with ir.InsertionPoint(self.mlir_funcOp.entry_block):
             bytes_op = arith.constant(result=T.index(), value=bytes)

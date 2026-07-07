@@ -22,6 +22,8 @@ echo "  Source:  ${LLVM_SRC}"
 echo "  Build:   ${LLVM_BUILD}"
 echo "  Install: ${LLVM_INSTALL}"
 
+"${PYTHON}" "${SCRIPT_DIR}/patch-nanobind-2.13.py"
+
 mkdir -p "${BUILD_ROOT}"
 
 # Download source if not present

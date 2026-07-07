@@ -52,7 +52,9 @@ case "${kind}" in
         version_short="$(cache_version "${LLVM_MODERN_COMMIT}")"
         case "${host_platform}" in
             linux-*)
-                build_hash="$(hash_file "${SCRIPT_DIR}/build-llvm-modern.sh")"
+                build_hash="$(hash_inputs \
+                    "${SCRIPT_DIR}/build-llvm-modern.sh" \
+                    "${SCRIPT_DIR}/patch-nanobind-2.13.py")"
                 echo "llvm-modern-linux-$(cache_arch "${host_platform}")-${py_tag}-${version_short}-${build_hash}"
                 ;;
             win-64)
@@ -62,6 +64,7 @@ case "${kind}" in
                     "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridge.cpp" \
                     "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridgeSmoke.cpp" \
                     "${SCRIPT_DIR}/../cext/mlir-modern/include/ModernBridge.h" \
+                    "${SCRIPT_DIR}/patch-nanobind-2.13.py" \
                     "${SCRIPT_DIR}/windows-llvm-container-build.ps1" \
                     "${SCRIPT_DIR}/windows-devcontainer.env")"
                 echo "llvm-modern-windows-$(cache_arch "${host_platform}")-${py_tag}-${version_short}-${build_hash}"

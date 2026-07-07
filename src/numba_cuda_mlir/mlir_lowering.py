@@ -590,8 +590,7 @@ extern "C" __global__ void
                             T.i32(), max_cluster_rank
                         )
 
-                with ir.InsertionPoint(self.mlir_funcOp.add_entry_block()):
-                    self._total_shared_memory_bytes = arith.constant(result=T.index(), value=0)
+                self.mlir_funcOp.add_entry_block()
             else:
                 self.mlir_funcOp = func.FuncOp(
                     name=sym_name,
@@ -2319,6 +2318,31 @@ extern "C" __global__ void
                 self._shared_memory_base = gpu.dynamic_shared_memory(mr_type)
         return self._shared_memory_base
 
+    def _load_total_shared_memory_bytes(self):
+        if self._total_shared_memory_bytes is None:
+            mr_type = memref.MemRefType.get(shape=[1], element_type=T.index())
+            assert self.mlir_funcOp
+            with ir.InsertionPoint.at_block_begin(self.mlir_funcOp.entry_block):
+                self._total_shared_memory_bytes = memref.alloca(
+                    memref=mr_type, dynamic_sizes=[], symbol_operands=[]
+                )
+                zero = arith.constant(result=T.index(), value=0)
+                memref.store(
+                    value=zero,
+                    memref=self._total_shared_memory_bytes,
+                    indices=[index_of(0)],
+                )
+
+        return memref.load(memref=self._total_shared_memory_bytes, indices=[index_of(0)])
+
+    def _store_total_shared_memory_bytes(self, value: ir.Value):
+        self._load_total_shared_memory_bytes()
+        memref.store(
+            value=value,
+            memref=self._total_shared_memory_bytes,
+            indices=[index_of(0)],
+        )
+
     def _request_dynamic_shared_memory(self, mr_type: ir.MemRefType):
         bytes = get_type_size_bytes(mr_type.element_type)
         assert self.mlir_funcOp
@@ -2328,18 +2352,17 @@ extern "C" __global__ void
         # at the entry block's start by _get_shared_memory_base.
         bytes_op = arith.constant(result=T.index(), value=bytes)
         shm_base = self._get_shared_memory_base()
-        if self._total_shared_memory_bytes is None:
-            self._total_shared_memory_bytes = arith.constant(result=T.index(), value=0)
+        total_shared_memory_bytes = self._load_total_shared_memory_bytes()
         dynamic_shared_bytes = memref.dim(shm_base, index_of(0))
-        remaining_bytes = arith.subi(lhs=dynamic_shared_bytes, rhs=self._total_shared_memory_bytes)
+        remaining_bytes = arith.subi(lhs=dynamic_shared_bytes, rhs=total_shared_memory_bytes)
         size = arith.divui(lhs=remaining_bytes, rhs=bytes_op)
         view = memref.view(
             result=mr_type,
             source=shm_base,
-            byte_shift=self._total_shared_memory_bytes,
+            byte_shift=total_shared_memory_bytes,
             sizes=[size],
         )
-        self._total_shared_memory_bytes = dynamic_shared_bytes
+        self._store_total_shared_memory_bytes(dynamic_shared_bytes)
         self._dynamic_shared_memory_values.append(view)
         return view
 
@@ -2357,17 +2380,15 @@ extern "C" __global__ void
             size = self.mlir_convert(size, T.index())
             bytes_op = arith.muli(lhs=bytes_op, rhs=size)
         shm_base = self._get_shared_memory_base()
-        if self._total_shared_memory_bytes is None:
-            self._total_shared_memory_bytes = arith.constant(result=T.index(), value=0)
+        total_shared_memory_bytes = self._load_total_shared_memory_bytes()
         view = memref.view(
             result=mr_type,
             source=shm_base,
-            byte_shift=self._total_shared_memory_bytes,
+            byte_shift=total_shared_memory_bytes,
             sizes=sizes,
         )
-        self._total_shared_memory_bytes = arith.addi(
-            lhs=self._total_shared_memory_bytes, rhs=bytes_op
-        )
+        total_shared_memory_bytes = arith.addi(lhs=total_shared_memory_bytes, rhs=bytes_op)
+        self._store_total_shared_memory_bytes(total_shared_memory_bytes)
         return view
 
     def _get_tuple_element_type(self, target_type):

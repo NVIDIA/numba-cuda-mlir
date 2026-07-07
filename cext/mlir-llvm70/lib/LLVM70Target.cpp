@@ -593,6 +593,7 @@ llvm::Error MLIRToLLVM70::translateOp(Operation *op) {
       .Case<LLVM::ICmpOp>([&](auto) { return this->translateICmpOp(op); })
       .Case<LLVM::FCmpOp>([&](auto) { return this->translateFCmpOp(op); })
       .Case<LLVM::SelectOp>([&](auto) { return this->translateSelectOp(op); })
+      .Case<LLVM::AssumeOp>([&](auto) { return this->translateAssumeOp(op); })
       // Aggregate
       .Case<LLVM::ExtractValueOp>(
           [&](auto) { return this->translateExtractValueOp(op); })
@@ -1297,6 +1298,48 @@ llvm::Error MLIRToLLVM70::translateSelectOp(Operation *op) {
                               lookupValue(selectOp.getTrueValue()),
                               lookupValue(selectOp.getFalseValue()), "");
   mapValue(selectOp.getResult(), result);
+  return llvm::Error::success();
+}
+
+llvm::Error MLIRToLLVM70::translateAssumeOp(Operation *op) {
+  auto assumeOp = cast<LLVM::AssumeOp>(op);
+  LLVMValueRef condition = lookupValue(assumeOp.getCond());
+
+  if (auto tags = assumeOp.getOpBundleTagsAttr()) {
+    for (auto [tagAttr, operands] :
+         llvm::zip(tags, assumeOp.getOpBundleOperands())) {
+      auto tag = cast<StringAttr>(tagAttr).getValue();
+      if (tag != "align")
+        return llvm::createStringError(
+            llvm::inconvertibleErrorCode(),
+            "unsupported llvm.assume operand bundle: %s",
+            tag.str().c_str());
+      if (operands.size() != 2 && operands.size() != 3)
+        return llvm::createStringError(
+            llvm::inconvertibleErrorCode(),
+            "llvm.assume align bundle requires 2 or 3 operands, got %zu",
+            operands.size());
+
+      LLVMValueRef ptr = b.buildPtrToInt(lookupValue(operands[0]), b.i64Ty(), "");
+      if (operands.size() == 3)
+        ptr = b.buildAdd(ptr, lookupValue(operands[2]), "");
+
+      LLVMValueRef one = b.constInt(b.i64Ty(), 1, false);
+      LLVMValueRef zero = b.constInt(b.i64Ty(), 0, false);
+      LLVMValueRef mask = b.buildSub(lookupValue(operands[1]), one, "");
+      LLVMValueRef maskedPtr = b.buildAnd(ptr, mask, "");
+      LLVMValueRef aligned =
+          b.buildICmp(LLVMIntEQ, maskedPtr, zero, "");
+      condition = b.buildAnd(condition, aligned, "");
+    }
+  }
+
+  LLVMTypeRef conditionType = b.i1Ty();
+  LLVMTypeRef fnType = b.funcTy(b.voidTy(), &conditionType, 1, false);
+  LLVMValueRef fn = b.getNamedFunction("llvm.assume");
+  if (!fn)
+    fn = b.addFunction("llvm.assume", fnType);
+  b.buildCall(fn, &condition, 1, "");
   return llvm::Error::success();
 }
 

@@ -37,9 +37,10 @@ Whole-function planning
 
 Extensions that need to inspect or transform a complete function before typing
 can register a :py:class:`~numba_cuda_mlir.extending.WholeFunctionPlanner`.
-Planners run once after inlineable device functions have been merged into the
-caller and before type inference. This makes calls introduced by device
-helpers visible without rerunning unrelated rewrite registries.
+Each planner runs once per compiler attempt after inlineable device functions
+have been merged into the caller and before type inference. This makes calls
+introduced by device helpers visible without rerunning unrelated rewrite
+registries.
 
 Implement ``run()`` and return ``True`` only when the planner changed
 ``state.func_ir``. Before the first planner and after each change,
@@ -62,11 +63,20 @@ should check ``self.is_device_function`` and decline device functions.
            return bool(modified)
 
 Registration order is preserved, and registering the same planner class more
-than once has no effect. The planner pass snapshots its registry before
-running, so planners registered after that snapshot, including from a running
-planner, start with the next compilation. Planners operate on untyped Numba
-IR; typing and MLIR lowering extensions remain responsible for the later
-compilation phases.
+than once has no effect. The planner pass snapshots its registry before each
+compiler attempt. A planner registered after that snapshot does not join the
+active attempt, but it can run in a later retry or compilation. Planners
+operate on untyped Numba IR; typing and MLIR lowering extensions remain
+responsible for the later compilation phases.
+
+A planner that needs the configured grid, block, dynamic shared memory, or
+cluster should call
+:py:func:`~numba_cuda_mlir.extending.require_launch_config`. The first generic
+compiler attempt requests a launch-qualified retry; the planner then runs
+again with normalized launch metadata. A retry reruns the complete ordered
+planner set, including planners that did not request the metadata. Planners
+must therefore be pure or idempotent across attempts and should avoid
+externally visible side effects.
 
 Register every planner before compiling a dispatcher that needs it.
 Registration does not invalidate an overload that the dispatcher has already
@@ -81,6 +91,8 @@ cache key. In-memory overload reuse is unchanged.
    :members: is_device_function, run
 
 .. autofunction:: numba_cuda_mlir.extending.register_planner
+
+.. autofunction:: numba_cuda_mlir.extending.require_launch_config
 
 Typing
 ------

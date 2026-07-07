@@ -28,6 +28,7 @@ from numba_cuda_mlir.extending.argument_handler import ArgumentHandler
 from numba_cuda_mlir._whole_function_planners import (
     WholeFunctionPlanner,
     register_planner,
+    require_launch_config,
 )
 
 lowering_registry = LoweringRegistry()
@@ -46,6 +47,7 @@ __all__ = [
     "lower_cast",
     "refresh_registries",
     "register_planner",
+    "require_launch_config",
     "overload",
     "overload_attribute",
     "overload_method",

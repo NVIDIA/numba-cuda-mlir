@@ -124,7 +124,7 @@ class BuildExtWithCmake(build_ext):
         if IS_WINDOWS:
             cmake_cmd += ["-G", "Ninja"]
         cmake_cmd += ["-B", build_dir, ROOT, f"-DCMAKE_BUILD_TYPE={build_type}"]
-        py_gil_disabled = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
+        py_gil_disabled = sysconfig.get_config_var("Py_GIL_DISABLED") in (1, "1")
         cmake_cmd.append(f"-DNUMBA_CUDA_MLIR_PY_GIL_DISABLED={'ON' if py_gil_disabled else 'OFF'}")
         if IS_WINDOWS:
             # Static-link the MSVC C runtime (/MT) so each resulting DLL

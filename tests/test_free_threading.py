@@ -15,7 +15,7 @@ import pytest
 
 
 def _is_free_threaded_python():
-    return bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
+    return sysconfig.get_config_var("Py_GIL_DISABLED") in (1, "1")
 
 
 def _run_python(code, *, env=None, timeout=60):

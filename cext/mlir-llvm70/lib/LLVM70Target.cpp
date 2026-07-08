@@ -15,6 +15,7 @@
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FormatVariadic.h"
+#include <cstring>
 #include <fstream>
 
 #define DEBUG_TYPE "llvm70-target"
@@ -913,18 +914,36 @@ llvm::Error MLIRToLLVM70::translateConstantOp(Operation *op) {
     if (!vecTy)
       return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                      "DenseElementsAttr on non-vector type");
-    LLVMTypeRef elemLLVMTy = convertType(vecTy.getElementType());
+    Type elemTy = vecTy.getElementType();
+    LLVMTypeRef elemLLVMTy = convertType(elemTy);
     SmallVector<LLVMValueRef> elems;
-    if (vecTy.getElementType().isIntOrIndex()) {
+    if (elemTy.isIntOrIndex()) {
       for (auto val : denseAttr.getValues<APInt>())
         elems.push_back(b.constInt(elemLLVMTy, toUInt64(val),
                                    val.isNegative()));
-    } else if (isBF16(vecTy.getElementType())) {
-      for (auto val : denseAttr.getValues<APFloat>())
-        elems.push_back(constBF16(b, val));
     } else {
-      for (auto val : denseAttr.getValues<APFloat>())
-        elems.push_back(b.constReal(elemLLVMTy, val.convertToDouble()));
+      // Reconstruct floating-point elements from their raw bit patterns instead
+      // of using DenseElementsAttr::getValues<APFloat>(). When this bridge and
+      // the MLIR Python bindings embed distinct LLVM copies (e.g. on Windows,
+      // where duplicate symbols are not interposed as they are with ELF),
+      // APFloat's fltSemantics singletons live at different addresses across the
+      // module boundary and the float element iterator silently yields zero.
+      // Raw byte access carries the correct IEEE encoding, so we read the bits
+      // and materialize the constant via an integer bitcast. bf16 is stored as
+      // i16, so it needs no bitcast.
+      unsigned bitWidth = elemTy.getIntOrFloatBitWidth();
+      unsigned byteWidth = bitWidth / 8;
+      ArrayRef<char> raw = denseAttr.getRawData();
+      bool splat = denseAttr.isSplat();
+      LLVMTypeRef intElemTy = b.intTy(bitWidth);
+      for (int64_t i = 0, e = vecTy.getNumElements(); i < e; ++i) {
+        uint64_t bits = 0;
+        std::memcpy(&bits, raw.data() + (splat ? 0 : i * byteWidth), byteWidth);
+        LLVMValueRef intConst = b.constInt(intElemTy, bits, /*signExt=*/false);
+        elems.push_back(isBF16(elemTy)
+                            ? intConst
+                            : b.constBitCast(intConst, elemLLVMTy));
+      }
     }
     mapValue(result, b.constVector(elems.data(), elems.size()));
     return llvm::Error::success();

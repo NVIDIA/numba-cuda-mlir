@@ -1,0 +1,971 @@
+
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Debugging Numba CUDA Programs with Visual Studio Code and CUDA GDB &#8212; Numba CUDA MLIR</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=a95f357e85573c9b56d5" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=a95f357e85573c9b56d5" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/nvidia-sphinx-theme.css?v=933278ad" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../_static/scripts/fontawesome.js?digest=a95f357e85573c9b56d5"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=a95f357e85573c9b56d5" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=a95f357e85573c9b56d5" />
+
+
+
+    <script src="../_static/documentation_options.js?v=c87aa342"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'user/debugging';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.19.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://nvidia.github.io/numba-cuda-mlir/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.4.1';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+
+    <link rel="icon" href="../_static/numba-green-icon-rgb.svg"/>
+
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="GPU Reduction" href="reduction.html" />
+    <link rel="prev" title="Examples" href="examples.html" />
+
+
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="../_static/searchtools.js"></script>
+    <script src="../_static/language_data.js"></script>
+    <script src="../searchindex.js"></script>
+  
+
+
+  </head>
+
+  <body data-default-mode="">
+
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="../_static/nvidia-logo-horiz-rgb-blk-for-screen.svg" class="logo__image only-light" alt="Numba CUDA MLIR - Home"/>
+    <img src="../_static/nvidia-logo-horiz-rgb-wht-for-screen.svg" class="logo__image only-dark pst-js-only" alt="Numba CUDA MLIR - Home"/>
+  
+  
+    <p class="title logo__title">Numba CUDA MLIR</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+
+
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    User guide
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../extending/index.html">
+    Extension API
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference documentation
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="../_static/nvidia-logo-horiz-rgb-blk-for-screen.svg" class="logo__image only-light" alt="Numba CUDA MLIR - Home"/>
+    <img src="../_static/nvidia-logo-horiz-rgb-wht-for-screen.svg" class="logo__image only-dark pst-js-only" alt="Numba CUDA MLIR - Home"/>
+  
+  
+    <p class="title logo__title">Numba CUDA MLIR</p>
+  
+</a>
+
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+
+
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+          
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    User guide
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../extending/index.html">
+    Extension API
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference documentation
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+
+
+<nav class="bd-docs-nav bd-links"
+     aria-label="Table of Contents">
+  <p class="bd-links__title" role="heading" aria-level="1">Table of Contents</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">User guide</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="kernels.html">Writing CUDA Kernels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="memory.html">Memory management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="globals.html">Global Variables and Captured Values</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cudapysupported.html">Supported Python features in CUDA Python</a></li>
+<li class="toctree-l2"><a class="reference internal" href="fastmath.html">CUDA Fast Math</a></li>
+<li class="toctree-l2"><a class="reference internal" href="intrinsics.html">Supported Atomic Operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cooperative_groups.html">Cooperative Groups</a></li>
+<li class="toctree-l2"><a class="reference internal" href="random.html">Random Number Generation (Deprecated)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="device-management.html">Device management</a></li>
+
+
+<li class="toctree-l2"><a class="reference internal" href="examples.html">Examples</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Debugging Numba CUDA Programs with Visual Studio Code and CUDA GDB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reduction.html">GPU Reduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ufunc.html">CUDA Ufuncs and Generalized Ufuncs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ipc.html">IPC Support (Deprecated)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cuda_ffi.html">Calling foreign functions from Python kernels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cuda_compilation.html">Compiling Python functions for use with other languages</a></li>
+<li class="toctree-l2"><a class="reference internal" href="callconv.html">CUDA device call conventions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="profiling.html">Profiling</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../extending/index.html">Extension API</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../extending/high-level.html">High-level extension API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../extending/low-level.html">Low-level extension API</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../reference/index.html">Reference documentation</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../reference/compilation.html">Compilation API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/kernel.html">CUDA Kernel API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/cache_hints.html">Cache Hints for Memory Operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/types.html">CUDA-Specific Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/libdevice.html">Libdevice functions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/envvars.html">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/host.html">CUDA Host API (Deprecated)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reference/memory.html">Memory Management (Deprecated)</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">User guide</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Debugging Numba CUDA Programs with Visual Studio Code and CUDA GDB</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="debugging-numba-cuda-programs-with-visual-studio-code-and-cuda-gdb">
+<h1>Debugging Numba CUDA Programs with Visual Studio Code and CUDA GDB<a class="headerlink" href="#debugging-numba-cuda-programs-with-visual-studio-code-and-cuda-gdb" title="Link to this heading">#</a></h1>
+<section id="introduction">
+<h2>Introduction<a class="headerlink" href="#introduction" title="Link to this heading">#</a></h2>
+<p>With the release of the CUDA Toolkit (CTK) 13.1, <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code> now includes beta support for debugging Numba CUDA programs on Linux.
+<code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code> is included in the CTK and is the backend debugger for the Nsight Visual Studio Code Edition extension to support debugging
+in Microsoft Visual Studio Code (<code class="docutils literal notranslate"><span class="pre">VSCode</span></code>).</p>
+</section>
+<section id="features-included-in-this-release">
+<h2>Features included in this release:<a class="headerlink" href="#features-included-in-this-release" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p>Linux support</p></li>
+<li><p>Debugging of Numba CUDA programs with <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code> using <code class="docutils literal notranslate"><span class="pre">VSCode</span></code>.</p></li>
+<li><p>Debugging of Numba CUDA programs with <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code> from the command line.</p></li>
+<li><p>Variable inspection and modification.</p></li>
+<li><p>Execution control (continue, step over, step into, step out, restart, stop).</p></li>
+<li><p>Setting breakpoints in the <code class="docutils literal notranslate"><span class="pre">VSCode</span></code> GUI.</p></li>
+<li><p>Setting breakpoints programmatically in Numba CUDA code by inserting a <code class="docutils literal notranslate"><span class="pre">breakpoint()</span></code> call.</p></li>
+<li><p>Formatting arrays in a more human readable format.</p></li>
+<li><p>Basic support for polymorphic variables.</p></li>
+</ul>
+<p>These directions are focused on debugging with <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code> using <code class="docutils literal notranslate"><span class="pre">VSCode</span></code>, but command line debugging with <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code> is also supported.
+A more detailed description of debugging with <code class="docutils literal notranslate"><span class="pre">VSCode</span></code> in general can be found here: <a class="reference external" href="https://code.visualstudio.com/docs/editor/debugging">https://code.visualstudio.com/docs/editor/debugging</a>.</p>
+</section>
+<section id="installation-and-environment-setup">
+<h2>Installation and Environment Setup<a class="headerlink" href="#installation-and-environment-setup" title="Link to this heading">#</a></h2>
+<p>To begin you’ll need an installation of CUDA Toolkit 13.1 and corresponding CUDA Driver for Linux.
+The installer for Linux can be downloaded from NVIDIA’s website at <a class="reference external" href="https://developer.nvidia.com/cuda-downloads">https://developer.nvidia.com/cuda-downloads</a>,
+or an installation based on conda-forge or similar could be used instead.</p>
+<p>You will also need a working Numba CUDA development environment.
+The documentation for Numba CUDA including the installation instructions can be found at: <a class="reference external" href="https://nvidia.github.io/numba-cuda">https://nvidia.github.io/numba-cuda</a>.</p>
+<p>It is highly recommended that you use Anaconda, venv, or another Python virtual environment for development and debugging.
+The examples in this documentation are based on an Anaconda environment.
+In particular, make sure the required packages are installed in the virtual environment you wish to debug in.</p>
+<p>The following commands can be used to create a Numba CUDA development environment using Anaconda.
+This example creates a virtual environment called <code class="docutils literal notranslate"><span class="pre">numba-cuda-debug</span></code> using Python 3.12.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span>numba-cuda-debug<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.12
+conda<span class="w"> </span>activate<span class="w"> </span>numba-cuda-debug
+</pre></div>
+</div>
+</section>
+<section id="configure-and-launch-vscode">
+<h2>Configure and Launch VSCode<a class="headerlink" href="#configure-and-launch-vscode" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p>Clone the Numba CUDA repository from GitHub.</p></li>
+</ul>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/NVIDIA/numba-cuda.git
+</pre></div>
+</div>
+<p>This is necessary to access the Numba CUDA debugging example code and the Numba CUDA pretty printer extension for <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code>.
+The pretty printer extension is used to support formatting Numba CUDA arrays in a more human readable format.
+This is in addition to the install of the <code class="docutils literal notranslate"><span class="pre">numba-cuda</span></code> package itself.</p>
+<p>Start VSCode using the <code class="docutils literal notranslate"><span class="pre">debugging.code-workspace</span></code> workspace file in the <code class="docutils literal notranslate"><span class="pre">examples/debugging</span></code> folder of the Numba CUDA repository:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>numba-cuda/examples/debugging
+code<span class="w"> </span>debugging.code-workspace
+</pre></div>
+</div>
+<p>In the <code class="docutils literal notranslate"><span class="pre">VSCode</span></code> Extensions View search for and install or update the following extensions:</p>
+<ul class="simple">
+<li><p>Python (from Microsoft)</p></li>
+<li><p>Nsight Visual Studio Code Edition (from NVIDIA)</p></li>
+</ul>
+<p>Press <code class="docutils literal notranslate"><span class="pre">Ctrl+Shift+P</span></code> to open the VSCode Command Palette and type “Python: Select Interpreter” to select the Python interpreter for the Numba CUDA virtual environment you wish to debug in (e.g. <code class="docutils literal notranslate"><span class="pre">numba-cuda-debug</span></code>). This must be the same virtual environment that was used to install the Numba CUDA packages.</p>
+</section>
+<section id="review-the-debug-configuration-launch-json">
+<h2>Review the Debug Configuration (launch.json)<a class="headerlink" href="#review-the-debug-configuration-launch-json" title="Link to this heading">#</a></h2>
+<p>Using the Explorer Pane on the left hand side of the <code class="docutils literal notranslate"><span class="pre">VSCode</span></code> window open the provided <code class="docutils literal notranslate"><span class="pre">.vscode/launch.json</span></code> file by double clicking on it.
+You may have to expand the <code class="docutils literal notranslate"><span class="pre">.vscode</span></code> directory first in order to see it. This file contains the launch configuration for debugging Numba CUDA programs with <code class="docutils literal notranslate"><span class="pre">VSCode</span></code>.</p>
+<img alt="The launch.json file" src="../_images/launch-json.png" />
+<p>Since Numba CUDA programs are Python programs, they are executed within the python interpreter executable which is the program that <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code> needs to debug.
+This configuration fragment selects the Python interpreter pointed to by the Python extension for <code class="docutils literal notranslate"><span class="pre">VSCode</span></code> by using the <code class="docutils literal notranslate"><span class="pre">${command:python.interpreterPath}</span></code> variable.</p>
+<p>The Python script/program to run and any additional arguments are specified by the <code class="docutils literal notranslate"><span class="pre">args</span></code> entry. Here we are debugging the <code class="docutils literal notranslate"><span class="pre">hello.py</span></code> Numba CUDA program.</p>
+<p>This launch configuration fragment can be used as a starting point for customizing the debugging of other Numba CUDA programs.</p>
+</section>
+<section id="starting-debugging">
+<h2>Starting Debugging<a class="headerlink" href="#starting-debugging" title="Link to this heading">#</a></h2>
+<p>On the left hand side of the <code class="docutils literal notranslate"><span class="pre">VSCode</span></code> window look for the debugging icon (a right pointing arrow with a bug) and click on it.
+A drop-down menu will appear near the top.
+Select the <code class="docutils literal notranslate"><span class="pre">Numba:</span> <span class="pre">hello.py</span> <span class="pre">Example</span></code> menu entry and then click on the right pointing green arrow or press <code class="docutils literal notranslate"><span class="pre">F5</span></code> to start the program running under cuda-gdb.</p>
+<img alt="Starting debugging." src="../_images/starting-debugging.png" />
+<p>Setting <code class="docutils literal notranslate"><span class="pre">breakOnLaunch</span></code> to <code class="docutils literal notranslate"><span class="pre">true</span></code> in the <code class="docutils literal notranslate"><span class="pre">launch.json</span></code> configuration file causes the program to pause automatically on the very first
+source line of any kernel that is launched, which is a helpful starting point for the debugging process.
+If this is not desired, change <code class="docutils literal notranslate"><span class="pre">breakOnLaunch</span></code> to be <code class="docutils literal notranslate"><span class="pre">false</span></code>.</p>
+<p>After starting the program, the debugger will stop at the first source line of the kernel launch.
+Your <code class="docutils literal notranslate"><span class="pre">VSCode</span></code> window should look like the following image.
+The program is stopped on line 18, which is indicated by the yellow arrow to the left of the line number.</p>
+<img alt="Stopped at kernel entry" src="../_images/kernel-entry.png" />
+</section>
+<section id="controlling-execution-setting-breakpoints-and-inspecting-variables">
+<h2>Controlling Execution, Setting Breakpoints, and Inspecting Variables<a class="headerlink" href="#controlling-execution-setting-breakpoints-and-inspecting-variables" title="Link to this heading">#</a></h2>
+<p>After the program is stopped in the kernel, the user can use the buttons near the top center of the <code class="docutils literal notranslate"><span class="pre">VSCode</span></code> window to control program execution.
+From left to right these icons are: <code class="docutils literal notranslate"><span class="pre">Continue</span></code> / <code class="docutils literal notranslate"><span class="pre">Step</span> <span class="pre">Over</span></code> / <code class="docutils literal notranslate"><span class="pre">Step</span> <span class="pre">Into</span></code> / <code class="docutils literal notranslate"><span class="pre">Step</span> <span class="pre">Out</span></code> / <code class="docutils literal notranslate"><span class="pre">Restart</span></code> / <code class="docutils literal notranslate"><span class="pre">Stop</span></code> program execution.
+These buttons have hover text that shows their function.</p>
+<img alt="Visual Studio Code run control buttons" src="../_images/run-control.png" />
+<p>The following is a description of the functionality of each of the run control buttons and their corresponding <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code> CLI commands.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">Continue</span></code> will continue the program running until the next breakpoint or the program terminates. Equivalent to the <code class="docutils literal notranslate"><span class="pre">continue</span></code> command in <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code>. When pressed, this icon will change to the pause icon. Pressing the pause icon will pause the program and return control to the user for further debugging.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Step</span> <span class="pre">Over</span></code> will step over one line of source code, stepping over function calls instead of into them. Equivalent to the <code class="docutils literal notranslate"><span class="pre">next</span></code> command in <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Step</span> <span class="pre">Into</span></code> will step over one line of source code, stepping into any function calls made by that line of code. Equivalent to the <code class="docutils literal notranslate"><span class="pre">step</span></code> command in <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Step</span> <span class="pre">Out</span></code> will step out of the current function, returning to the line of code that called it. Equivalent to the <code class="docutils literal notranslate"><span class="pre">finish</span></code> command in <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Restart</span></code> will restart the program from the beginning. Equivalent to the <code class="docutils literal notranslate"><span class="pre">run</span></code> command in <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Stop</span></code> will terminate the program and end the debugging session. Equivalent to the <code class="docutils literal notranslate"><span class="pre">kill</span></code> command in <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code>.</p></li>
+</ul>
+<p>Breakpoints can be set by clicking to the left of the source line numbers in the Editor window, and are shown as red dots next to the line numbers.
+The user can also set breakpoints programmatically by calling <code class="docutils literal notranslate"><span class="pre">breakpoint()</span></code> in the Numba CUDA code. See the <code class="docutils literal notranslate"><span class="pre">hello.py</span></code> program for an example.</p>
+<p>From here, you can continue debugging the kernel by pressing the <code class="docutils literal notranslate"><span class="pre">Continue</span></code> button, stepping through the code one line at a time using
+the <code class="docutils literal notranslate"><span class="pre">Step</span> <span class="pre">Over</span></code>, <code class="docutils literal notranslate"><span class="pre">Step</span> <span class="pre">Into</span></code>, or <code class="docutils literal notranslate"><span class="pre">Step</span> <span class="pre">Out</span></code> buttons, or restarting the program from the beginning using the <code class="docutils literal notranslate"><span class="pre">Restart</span></code> button.
+You can also stop the program at any time using the <code class="docutils literal notranslate"><span class="pre">Pause</span></code> button.</p>
+</section>
+<section id="command-line-debugging">
+<h2>Command Line Debugging<a class="headerlink" href="#command-line-debugging" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code> can also be used to debug Numba CUDA programs from the command line. The key concept is that since the Numba CUDA program is executed within the python
+interpreter, <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code> must be started with the python interpreter as the program to debug. This is usually selected by either providing an absolute
+path to the python interpreter, or simply <code class="docutils literal notranslate"><span class="pre">python3</span></code> if the python interpreter is in the PATH. This is useful for specifying the correct python virtual environment
+to use for the debugging session.</p>
+<p>The following commands can be used to start the debugging session from the command line. Substitute the correct paths for the python interpreter and Numba CUDA program.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>cuda-gdb<span class="w"> </span>python3
+<span class="o">(</span>cuda-gdb<span class="o">)</span><span class="w"> </span><span class="nb">set</span><span class="w"> </span>cuda<span class="w"> </span>break_on_launch<span class="w"> </span>application
+<span class="o">(</span>cuda-gdb<span class="o">)</span><span class="w"> </span>run<span class="w"> </span>/path/to/numba-cuda/examples/debugging/hello.py
+</pre></div>
+</div>
+<p>This will start the debugging session and stop at the first source line of the kernel launch. The user can then use the <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code> CLI to control program execution.</p>
+<p>The most common execution control commands are:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">run</span></code> - Run the program until the next breakpoint or the program terminates.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">next</span></code> - Step over one line of source code, stepping over function calls instead of into them.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">step</span></code> - Step into one line of source code, stepping into any function calls made by that line of code.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">continue</span></code> - Continue the program running until the next breakpoint or the program terminates.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">finish</span></code> - Step out of the current function, returning to the line of code that called it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">kill</span></code> - Terminate the program and end the debugging session.</p></li>
+</ul>
+<p>The following commands can be used to set breakpoints in the Numba CUDA code.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">breakpoint</span></code> - Set a breakpoint at the current line of source code.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">breakpoint</span> <span class="pre">&lt;line</span> <span class="pre">number&gt;</span></code> - Set a breakpoint at the specified line number.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">breakpoint</span> <span class="pre">&lt;function</span> <span class="pre">name&gt;</span></code> - Set a breakpoint at the specified function name.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">breakpoint</span> <span class="pre">&lt;file</span> <span class="pre">name&gt;:&lt;line</span> <span class="pre">number&gt;</span></code> - Set a breakpoint at the specified file and line number.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">breakpoint</span> <span class="pre">&lt;file</span> <span class="pre">name&gt;:&lt;function</span> <span class="pre">name&gt;</span></code> - Set a breakpoint at the specified file and function name.</p></li>
+</ul>
+<p>The following commands can be used to inspect and modify variables in the Numba CUDA code.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">print</span> <span class="pre">&lt;variable</span> <span class="pre">name&gt;</span></code> - Print the value of the specified variable.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">set</span> <span class="pre">variable</span> <span class="pre">&lt;variable</span> <span class="pre">name&gt;</span> <span class="pre">=</span> <span class="pre">&lt;value&gt;</span></code> - Set the value of the specified variable to the specified value.</p></li>
+</ul>
+</section>
+<section id="example-command-line-debugging-session">
+<h2>Example command line debugging session<a class="headerlink" href="#example-command-line-debugging-session" title="Link to this heading">#</a></h2>
+<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>$ cuda-gdb python3
+NVIDIA (R) cuda-gdb 13.1
+Portions Copyright (C) 2007-2025 NVIDIA Corporation
+Based on GNU gdb 14.2
+Copyright (C) 2023 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later &lt;http://gnu.org/licenses/gpl.html&gt;
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type &quot;show copying&quot; and &quot;show warranty&quot; for details.
+This CUDA-GDB was configured as &quot;x86_64-pc-linux-gnu&quot;.
+Type &quot;show configuration&quot; for configuration details.
+For bug reporting instructions, please see:
+&lt;https://forums.developer.nvidia.com/c/developer-tools/cuda-developer-tools/cuda-gdb&gt;.
+Find the CUDA-GDB manual and other documentation resources online at:
+    &lt;https://docs.nvidia.com/cuda/cuda-gdb/index.html&gt;.
+
+For help, type &quot;help&quot;.
+Type &quot;apropos word&quot; to search for commands related to &quot;word&quot;...
+Reading symbols from python3...
+(cuda-gdb) set cuda break_on_launch application
+(cuda-gdb) run hello.py
+Starting program: /home/mmason/anaconda3/envs/Numba-GA-python3.12/bin/python3 hello.py
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library &quot;/lib/x86_64-linux-gnu/libthread_db.so.1&quot;.
+[Detaching after fork from child process 1994689]
+[Detaching after fork from child process 1994698]
+input: [0 1 2 3 4 5 6 7]
+/home/mmason/PythonDebugging/NUMBA/numba-cuda-numba-debug/numba_cuda/numba/cuda/dispatcher.py:690: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(errors.NumbaPerformanceWarning(msg))
+[Switching focus to CUDA kernel 0, grid 1, block (0,0,0), thread (0,0,0), device 0, sm 0, warp 0, lane 0]
+
+CUDA thread hit application kernel entry function breakpoint, hello&lt;&lt;&lt;(1,1,1),(8,1,1)&gt;&gt;&gt; (input=..., output=...) at hello.py:18
+18     gid = cuda.grid(1)
+(cuda-gdb) list
+13 # Editor window, and are shown as red dots next to the line numbers. They can also be set
+14 # from the CUDA GDB command line using the filename:line-number syntax, or by kernel or function name.
+15 #
+16 @cuda.jit(debug=True, opt=False)
+17 def hello(input, output):
+18     gid = cuda.grid(1)
+19     size = len(input)
+20     if gid &gt;= size:
+21         return
+22
+(cuda-gdb) break 20
+Breakpoint 1 at 0x7ffd436f83c0: file hello.py, line 20.
+(cuda-gdb) continue
+Continuing.
+
+CUDA thread hit Breakpoint 1, hello&lt;&lt;&lt;(1,1,1),(8,1,1)&gt;&gt;&gt; (input=..., output=...) at hello.py:20
+20     if gid &gt;= size:
+(cuda-gdb) print gid
+$1 = 0
+(cuda-gdb) p size
+$2 = 8
+</pre></div>
+</div>
+<p>Continuing from this point will print the input and output arrays and then stop at the manually inserted breakpoint in the source code.</p>
+<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>(cuda-gdb) continue
+Continuing.
+input[ 0 ] = 0
+input[ 1 ] = 1
+input[ 2 ] = 2
+input[ 3 ] = 3
+input[ 4 ] = 4
+input[ 5 ] = 5
+input[ 6 ] = 6
+input[ 7 ] = 7
+All threads have synchronized (local memory array)
+output[ 0 ] = 7
+output[ 1 ] = 6
+output[ 2 ] = 5
+output[ 3 ] = 4
+output[ 4 ] = 3
+output[ 5 ] = 2
+output[ 6 ] = 1
+output[ 7 ] = 0
+
+Thread 1 &quot;python3&quot; received signal SIGTRAP, Trace/breakpoint trap.
+hello&lt;&lt;&lt;(1,1,1),(8,1,1)&gt;&gt;&gt; (input=..., output=...) at hello.py:50
+50    shared_array[gid] = - input[size - gid - 1]
+(cuda-gdb) list
+45
+46    # Hit a manually-inserted breakpoint here
+47    breakpoint()
+48
+49    # Fill the shared array with the input array with negative values in reverse order
+50    shared_array[gid] = - input[size - gid - 1]
+51
+52    # Synchronize all threads in the block
+53    cuda.syncthreads()
+54
+</pre></div>
+</div>
+<p>Printing array variables without the pretty printer extension loaded will result in a display of the underlying implementation details.
+With the pretty printer extension loaded, the array variables will be displayed in a more human readable format. To load the pretty printer,
+use the cuda-gdb <code class="docutils literal notranslate"><span class="pre">python</span></code> command to import the <code class="docutils literal notranslate"><span class="pre">gdb_print_extension.py</span></code> file. This assumes that the <code class="docutils literal notranslate"><span class="pre">gdb_print_extension.py</span></code> file is in your PYTHONPATH.</p>
+<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>Thread 1 &quot;python3&quot; received signal SIGTRAP, Trace/breakpoint trap.
+[Switching focus to CUDA kernel 0, grid 1, block (0,0,0), thread (0,0,0), device 0, sm 0, warp 0, lane 0]
+hello&lt;&lt;&lt;(1,1,1),(8,1,1)&gt;&gt;&gt; (input=..., output=...) at hello.py:50
+50    shared_array[gid] = - input[size - gid - 1]
+(cuda-gdb) next
+53    cuda.syncthreads()
+(cuda-gdb) print shared_array
+$3 = {meminfo = 0x0, parent = 0x0, nitems = 8, itemsize = 8, data = 0x7ffe00000400, shape = {8}, strides = {8}}
+</pre></div>
+</div>
+<p>Note that when command line debugging, the pretty printer extension must be loaded explicitly using the <code class="docutils literal notranslate"><span class="pre">python</span></code> command, either manually from
+the command line or from the <code class="docutils literal notranslate"><span class="pre">.cuda-gdbinit</span></code> file.</p>
+<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>(cuda-gdb) python import gdb_print_extension
+(cuda-gdb) print shared_array
+$4 = [-7 -6 -5 -4 -3 -2 -1  0]
+</pre></div>
+</div>
+</section>
+<section id="known-issues-and-limitations">
+<h2>Known Issues and Limitations<a class="headerlink" href="#known-issues-and-limitations" title="Link to this heading">#</a></h2>
+</section>
+<section id="polymorphic-variables">
+<h2>Polymorphic Variables<a class="headerlink" href="#polymorphic-variables" title="Link to this heading">#</a></h2>
+<p>The beta release has minimal support for polymorphic variables, which will be improved in a future release.</p>
+<p>Unlike statically typed languages such as C or C++, Python variables are inherently polymorphic in nature. Any assignment to the variable can change its type as well as changing its value. Polymorphic variables are handled by Numba CUDA by creating a union. This union is exposed to the debugger as a single variable with members for each of the different types the variable can be. With this beta release, the user will have to manually determine which member of the union is the current one based on the code context.</p>
+<p>From the cuda-gdb command line, the user can inspect the union member types by using the <code class="docutils literal notranslate"><span class="pre">ptype</span></code> command. In <code class="docutils literal notranslate"><span class="pre">VSCode</span></code> this information is available in
+the <code class="docutils literal notranslate"><span class="pre">Variables</span></code> window.</p>
+<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>[Switching focus to CUDA kernel 0, grid 1, block (0,0,0), thread (0,0,0), device 0, sm 0, warp 0, lane 0]
+
+CUDA thread hit application kernel entry function breakpoint, test_kernel_poly1&lt;&lt;&lt;(1,1,1),(1,1,1)&gt;&gt;&gt; (
+    gid_poly1_arg=9223372036854775807, size_poly1_arg=2147483647, results64=...) at polymorphism.py:10
+10    gid_poly1 =  0x5a5a5a5a5a5a5a5a  # Should be type int64
+
+(cuda-gdb) ptype gid_poly1
+type = @local struct variant_wrapper_struct {
+    @local int64 _int64;
+    @local uint64 _uint64;
+}
+</pre></div>
+</div>
+</section>
+<section id="cuda-gdb-pretty-printer-requirements">
+<h2>CUDA GDB Pretty Printer Requirements<a class="headerlink" href="#cuda-gdb-pretty-printer-requirements" title="Link to this heading">#</a></h2>
+<p>CUDA GDB supports extensions to the debugger written in Python. The Numba CUDA cuda-gdb pretty printer is such an extension. This is used to provide a more readable representation of Numba CUDA arrays in the debugger.</p>
+<p>The Numba CUDA pretty printer extension is located in the <code class="docutils literal notranslate"><span class="pre">numba-cuda/misc/gdb_print_extension.py</span></code> file. This extension is loaded automatically by the <code class="docutils literal notranslate"><span class="pre">launch.json</span></code> file at the beginning of the debugging session. The <code class="docutils literal notranslate"><span class="pre">launch.json</span></code> example below assumes that you’ve opened the <code class="docutils literal notranslate"><span class="pre">debugging.code-workspace</span></code> workspace file in the <code class="docutils literal notranslate"><span class="pre">numba-cuda/examples/debugging</span></code> directory (due to the use of <code class="docutils literal notranslate"><span class="pre">..</span></code>). If the path to the <code class="docutils literal notranslate"><span class="pre">gdb_print_extension.py</span></code> file is not correct, simply edit the path to the <code class="docutils literal notranslate"><span class="pre">misc/</span></code> directory below.</p>
+<div class="highlight-json-object notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;environment&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="p">{</span>
+<span class="w">            </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;PYTHONPATH&quot;</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">&quot;value&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;${workspaceFolder}/../../misc:${env:PYTHONPATH}&quot;</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code> pretty printer optionally uses the Python <code class="docutils literal notranslate"><span class="pre">numpy</span></code> package to inspect and print numpy arrays. The <code class="docutils literal notranslate"><span class="pre">launch.json</span></code> file sets up the environment necessary for debugging. However, the pretty printer runs inside of cuda-gdb and not as part of the Python program being debugged. This means that the <code class="docutils literal notranslate"><span class="pre">numpy</span></code> package must be installed in both:</p>
+<ul class="simple">
+<li><p>The Python environment where <code class="docutils literal notranslate"><span class="pre">VSCode</span></code> was started in (required by the Numba CUDA <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code> pretty printer).</p></li>
+<li><p>The Python environment where the Numba CUDA program is being debugged (required by Numba CUDA).</p></li>
+</ul>
+<p>These can both use the same Python environment, but that is not required. If the <code class="docutils literal notranslate"><span class="pre">numpy</span></code> package cannot be found in cuda-gdb’s execution environment, the pretty printer will be limited in what details it can provide about the array variables.</p>
+<p>Automatic loading of the pretty printer extension is done by the following in the <code class="docutils literal notranslate"><span class="pre">launch.json</span></code> file. This command is executed before <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code> is started. Failure to find the extension is ignored in case <code class="docutils literal notranslate"><span class="pre">PYTHONPATH</span></code> is not set correctly.</p>
+<div class="highlight-json-object notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;setupCommands&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="p">{</span>
+<span class="w">            </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Load the Numba CUDA cuda-gdb pretty-printer extension&quot;</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">&quot;text&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;python import gdb_print_extension&quot;</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">&quot;ignoreFailures&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="debugging-host-python-code">
+<h2>Debugging Host Python Code<a class="headerlink" href="#debugging-host-python-code" title="Link to this heading">#</a></h2>
+<p>Debugging host Python code using the <code class="docutils literal notranslate"><span class="pre">debugpy</span></code> package is not supported when also debugging with <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code>. Numba CUDA programs are executed within the Python interpreter, which is the program that <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code> controls during the debugging session. The <code class="docutils literal notranslate"><span class="pre">debugpy</span></code> python module also executes in the Python interpreter, which means that it requires that the interpreter be actively running in order for the VSCode Python debugger to communicate with it. However, <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code> will stop both the CUDA host application and any code executing on the GPU while debugging, which prevents the <code class="docutils literal notranslate"><span class="pre">debugpy</span></code> package from running.</p>
+<p>Debugging host Python code manually from the command line with the <code class="docutils literal notranslate"><span class="pre">pdb</span></code> package is supported, with the limitation that while cuda-gdb has the host application stopped pdb commands will not function (until the program is resumed).</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="examples.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Examples</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="reduction.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">GPU Reduction</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+
+
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#introduction">Introduction</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#features-included-in-this-release">Features included in this release:</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation-and-environment-setup">Installation and Environment Setup</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configure-and-launch-vscode">Configure and Launch VSCode</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#review-the-debug-configuration-launch-json">Review the Debug Configuration (launch.json)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#starting-debugging">Starting Debugging</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#controlling-execution-setting-breakpoints-and-inspecting-variables">Controlling Execution, Setting Breakpoints, and Inspecting Variables</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#command-line-debugging">Command Line Debugging</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-command-line-debugging-session">Example command line debugging session</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#known-issues-and-limitations">Known Issues and Limitations</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#polymorphic-variables">Polymorphic Variables</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#cuda-gdb-pretty-printer-requirements">CUDA GDB Pretty Printer Requirements</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#debugging-host-python-code">Debugging Host Python Code</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=a95f357e85573c9b56d5"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=a95f357e85573c9b56d5"></script>
+
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+<a class="footer-brand logo" href="https://www.nvidia.com">
+  <img src="../_static/nvidia-logo-horiz-rgb-1c-blk-for-screen.svg" class="logo__image only-light" alt="NVIDIA"/>
+  <img src="../_static/nvidia-logo-horiz-rgb-1c-wht-for-screen.svg" class="logo__image only-dark" alt="NVIDIA"/>
+</a></div>
+      
+        <div class="footer-item">
+
+<div class="footer-links">
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/privacy-policy/">Privacy Policy</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/privacy-center/">Your Privacy Choices</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/terms-of-service/">Terms of Service</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/accessibility/">Accessibility</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/about-nvidia/company-policies/">Corporate Policies</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/product-security/">Product Security</a>
+   | 
+  
+  
+  
+  <a class="external" href="https://www.nvidia.com/en-us/contact/">Contact</a>
+  
+  
+  
+</div>
+</div>
+      
+        <div class="footer-item">
+
+
+
+
+  <p class="copyright">
+    
+      Copyright © 2012-2024 Anaconda Inc. 2024-2026, NVIDIA Corporation..
+      <br/>
+    
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+  </body>
+</html>

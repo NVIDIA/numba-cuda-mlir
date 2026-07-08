@@ -67,6 +67,4 @@ def test_dynamic_shared_after_conditional_runtime_shaped_shared():
     n_arr = np.array([2], dtype=np.int32)
     out = cuda.to_device(np.zeros(2, dtype=np.float32))
     k[1, 1, 0, 16](cuda.to_device(flag), cuda.to_device(n_arr), out)
-    np.testing.assert_allclose(
-        out.copy_to_host(), np.array([13.0, 21.0], dtype=np.float32)
-    )
+    np.testing.assert_allclose(out.copy_to_host(), np.array([13.0, 21.0], dtype=np.float32))

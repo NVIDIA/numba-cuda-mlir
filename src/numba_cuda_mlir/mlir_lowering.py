@@ -1096,7 +1096,7 @@ extern "C" __global__ void
                 # MLIR type in the varmap to unblock lowering of other
                 # numba instruction (i.e, assign this NoneType variable to other variables)
                 self.store_var(target, self.get_mlir_type(target_type))
-        elif isinstance(const.value, (bool, int, float, np.number)):
+        elif isinstance(const.value, (bool, int, float, np.number, np.bool_)):
             value = const.value
             mlir_type = self.get_mlir_type(target_type)
 
@@ -1179,7 +1179,7 @@ extern "C" __global__ void
             else:
                 self.store_var(target, self.get_mlir_type(target_type))
             return
-        if isinstance(glob.value, (bool, int, float, np.number)):
+        if isinstance(glob.value, (bool, int, float, np.number, np.bool_)):
             mlir_type = self.get_mlir_type(target_type)
             # Check if the MLIR type supports constants
             if not isinstance(
@@ -1278,9 +1278,10 @@ extern "C" __global__ void
                 return tuple(map(self.lower_literal_if_needed, value))
             case np.ndarray():
                 return self.lower_array_literal(value)
-            case np.number():
+            case np.number() | np.bool_():
+                # np.bool_ is not an np.number but lowers the same way.
                 mlir_type = to_mlir_type(value.dtype)
-                cst = constant(value, mlir_type)
+                cst = constant(value.item(), mlir_type)
                 return cst
             case bool():
                 # Python bool literal - convert to MLIR i1

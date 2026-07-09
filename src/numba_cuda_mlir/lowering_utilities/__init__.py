@@ -1835,6 +1835,10 @@ def expensive_coerce_tensor_type(a: ir.Value, target_element_type: ir.Type) -> i
 def try_extract_constant(
     value: ir.Value | ir.OpResult | int | float | bool | None,
 ) -> int | float | bool | None:
+    if isinstance(value, np.generic):
+        # numpy scalars (including np.bool_, which is not an np.number)
+        # can reach here as frozen closure or global constants.
+        value = value.item()
     match value:
         case int() | float() | bool() | None:
             return value

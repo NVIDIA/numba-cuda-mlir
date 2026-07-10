@@ -48,10 +48,13 @@ public:
   /// Compile bitcode buffer(s) to PTX (or LTOIR when \p genLTO is true) for
   /// the given SM architecture.  \p arch is e.g. "compute_80".  \p modules is
   /// a list of (buffer, size) pairs — each may be LLVM bitcode or text IR.
+  /// \p extraOptions are additional nvvmCompileProgram options
+  /// (e.g. "-prec-div=0").
   llvm::Expected<std::string>
   compile(llvm::StringRef arch,
           llvm::ArrayRef<std::pair<const char *, size_t>> modules,
-          unsigned optLevel = 2, bool genLTO = false);
+          unsigned optLevel = 2, bool genLTO = false,
+          llvm::ArrayRef<std::string> extraOptions = {});
 
   /// Get the program log (warnings, errors) from libnvvm.
   std::string getLog(nvvmProgram prog);

@@ -71,6 +71,9 @@ class FastMathOptions(AbstractOptionValue):
             return self.flags == other.flags
         return NotImplemented
 
+    def __hash__(self):
+        return hash(frozenset(self.flags))
+
 
 class ParallelOptions(AbstractOptionValue):
     """

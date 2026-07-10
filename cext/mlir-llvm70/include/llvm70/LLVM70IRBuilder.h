@@ -67,6 +67,7 @@ public:
   LLVMValueRef getParam(LLVMValueRef fn, unsigned idx);
   unsigned countParams(LLVMValueRef fn);
   void setValueName(LLVMValueRef val, const char *name);
+  bool isInstruction(LLVMValueRef val);
 
   // --- Basic blocks ---
   LLVMBasicBlockRef appendBB(LLVMValueRef fn, const char *name);
@@ -247,6 +248,12 @@ public:
   size_t getBufferSize(LLVMMemoryBufferRef buf);
   void disposeMemoryBuffer(LLVMMemoryBufferRef buf);
 
+  /// Replace the current module with one parsed from textual IR (in the same
+  /// context). Used to round-trip fast-math flag injection, which the old C
+  /// API cannot express directly. Only valid once construction is complete;
+  /// existing LLVMValueRefs into the old module become invalid.
+  llvm::Error replaceModuleWithParsedIR(llvm::StringRef ir);
+
 private:
   LLVM70IRBuilder() = default;
   llvm::Error resolveSymbols();
@@ -299,6 +306,11 @@ private:
   LLVM_FN(LLVMValueRef, fnGetParam, LLVMValueRef, unsigned)
   LLVM_FN(unsigned, fnCountParams, LLVMValueRef)
   LLVM_FN(void, fnSetValueName2, LLVMValueRef, const char *, size_t)
+  LLVM_FN(LLVMValueRef, fnIsAInstruction, LLVMValueRef)
+  LLVM_FN(LLVMMemoryBufferRef, fnCreateMemoryBufferWithMemoryRangeCopy,
+          const char *, size_t, const char *)
+  LLVM_FN(LLVMBool, fnParseIRInContext, LLVMContextRef, LLVMMemoryBufferRef,
+          LLVMModuleRef *, char **)
 
   // Basic blocks
   LLVM_FN(LLVMBasicBlockRef, fnAppendBB, LLVMContextRef, LLVMValueRef,

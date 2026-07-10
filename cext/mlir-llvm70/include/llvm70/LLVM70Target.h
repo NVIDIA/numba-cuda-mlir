@@ -50,6 +50,8 @@ struct LLVM70Options {
   int nvvmDebugMinor = 0;
   /// Extra .bc files to link (libdevice, runtime BCs)
   llvm::SmallVector<std::string> linkLibs;
+  /// Extra nvvmCompileProgram options (e.g. "-prec-div=0" for fastmath)
+  llvm::SmallVector<std::string> nvvmOptions;
 };
 
 /// Translate a gpu.module (containing LLVM dialect ops) to PTX.
@@ -73,8 +75,21 @@ public:
                         bool omitDebugInfoVersionFlag = false,
                         const LLVM70Options *opts = nullptr);
 
+  /// True when at least one instruction was tagged with a fast-math marker
+  /// name (see tagFastmath). The module's printed IR must then have the
+  /// flag keywords injected before serialization.
+  bool hasFastmathMarkers() const { return fmfTagged; }
+
 private:
   LLVM70IRBuilder &b;
+
+  // Fast-math flag transfer state. The LLVM 7 C API has no way to set
+  // per-instruction fast-math flags, so flagged instructions are given a
+  // marker value name (__fmf.<mask>_<counter>) and the flag keywords are
+  // injected into the printed textual IR afterwards.
+  unsigned fmfCounter = 0;
+  bool fmfTagged = false;
+  void tagFastmath(mlir::Operation *op, LLVMValueRef inst);
 
   // MLIR Value → old LLVMValueRef
   llvm::DenseMap<mlir::Value, LLVMValueRef> valueMap;

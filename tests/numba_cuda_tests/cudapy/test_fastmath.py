@@ -5,6 +5,7 @@ import sys
 from typing import List
 from dataclasses import dataclass, field
 import numba_cuda_mlir
+from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda.types import float32
 from numba_cuda_mlir.compiler import compile_ptx
 from math import cos, sin, tan, exp, log, log10, log2, pow, tanh, nextafter
@@ -22,24 +23,34 @@ class FastMathCriterion:
     prec_unexpected: List[str] = field(default_factory=list)
 
     def check(self, test: NumbaCUDATestCase, fast: str, prec: str):
-        test.assertTrue(all(i in fast for i in self.fast_expected))
-        test.assertTrue(all(i not in fast for i in self.fast_unexpected))
-        test.assertTrue(all(i in prec for i in self.prec_expected))
-        test.assertTrue(all(i not in prec for i in self.prec_unexpected))
+        for i in self.fast_expected:
+            test.assertIn(i, fast)
+        for i in self.fast_unexpected:
+            test.assertNotIn(i, fast)
+        for i in self.prec_expected:
+            test.assertIn(i, prec)
+        for i in self.prec_unexpected:
+            test.assertNotIn(i, prec)
 
 
-@pytest.mark.xfail(True, reason="Fastmath tests need new patterns")
+def _first_asm(dispatcher, sig):
+    asm = dispatcher.inspect_asm(sig)
+    if isinstance(asm, dict):
+        return next(iter(asm.values()))
+    return asm
+
+
 class TestFastMathOption(NumbaCUDATestCase):
-    def _test_fast_math_common(self, pyfunc, sig, device, criterion):
+    def _test_fast_math_common(self, pyfunc, sig, device, criterion, fastmath=True):
         # Test jit code path
-        fastver = numba_cuda_mlir.cuda.jit(sig, device=device, fastmath=True)(pyfunc)
+        fastver = numba_cuda_mlir.cuda.jit(sig, device=device, fastmath=fastmath)(pyfunc)
         precver = numba_cuda_mlir.cuda.jit(sig, device=device)(pyfunc)
 
-        criterion.check(self, fastver.inspect_asm(sig), precver.inspect_asm(sig))
+        criterion.check(self, _first_asm(fastver, sig), _first_asm(precver, sig))
 
         # Test compile_ptx code path
-        fastptx, _ = compile_ptx_for_current_device(pyfunc, sig, device=device, fastmath=True)
-        precptx, _ = compile_ptx_for_current_device(pyfunc, sig, device=device)
+        fastptx, _ = compile_ptx(pyfunc, sig, device=device, fastmath=fastmath)
+        precptx, _ = compile_ptx(pyfunc, sig, device=device)
 
         criterion.check(self, fastptx, precptx)
 
@@ -201,6 +212,113 @@ class TestFastMathOption(NumbaCUDATestCase):
             ),
         )
 
+    def test_divf_arcp_only(self):
+        # Selective fastmath: arcp alone opts into approximate division.
+        def kernel(r, x, y):
+            r[0] = x / y
+
+        sig = (float32[::1], float32, float32)
+        arcpptx, _ = compile_ptx(kernel, sig, fastmath={"arcp"})
+        self.assertIn("div.approx", arcpptx)
+        self.assertNotIn("div.rn.f32", arcpptx)
+
+    def test_divf_arcp_only_jit(self):
+        # The selective form must also survive the dispatcher path, not
+        # just compile_ptx.
+        def kernel(r, x, y):
+            r[0] = x / y
+
+        sig = (float32[::1], float32, float32)
+        fastver = cuda.jit(sig, fastmath={"arcp"})(kernel)
+        self.assertIn("div.approx", _first_asm(fastver, sig))
+
+    def test_divf_nsz_only_stays_precise_division(self):
+        # Selective fastmath: a subset without arcp/fast must not use the
+        # fastest approximate division.
+        def kernel(r, x, y):
+            r[0] = x / y
+
+        sig = (float32[::1], float32, float32)
+        nszptx, _ = compile_ptx(kernel, sig, fastmath={"nsz"})
+        self.assertNotIn("div.approx", nszptx)
+
+    def test_sinf_afn_only(self):
+        # afn opts into approximate functions without touching division.
+        def kernel(r, x, y):
+            r[0] = sin(x) / y
+
+        sig = (float32[::1], float32, float32)
+        afnptx, _ = compile_ptx(kernel, sig, fastmath={"afn"})
+        self.assertIn("sin.approx", afnptx)
+        self.assertNotIn("div.approx", afnptx)
+
+    def test_fastmath_flags_in_mlir(self):
+        # Selective flags are stamped per-op as #arith.fastmath attributes.
+        from numba_cuda_mlir.compiler import compile_mlir
+
+        def kernel(r, x, y):
+            r[0] = x / y
+
+        sig = (float32[::1], float32, float32)
+        m = str(compile_mlir(kernel, sig, fastmath={"nnan", "arcp"}))
+        self.assertIn("fastmath<nnan,arcp>", m)
+        m = str(compile_mlir(kernel, sig, fastmath=True))
+        self.assertIn("fastmath<fast>", m)
+        m = str(compile_mlir(kernel, sig))
+        self.assertNotIn("fastmath<", m)
+
+    def test_fastmath_invalid_flag_rejected(self):
+        def kernel(r, x, y):
+            r[0] = x / y
+
+        sig = (float32[::1], float32, float32)
+        with self.assertRaises(Exception) as cm:
+            compile_ptx(kernel, sig, fastmath={"bogus"})
+        self.assertIn("bogus", str(cm.exception))
+
+    def test_fastmath_with_lineinfo(self):
+        # Regression test: with debug info present, the LLVM70 fast-math
+        # text round-trip used to fail re-parsing on the compile unit's
+        # emission kind ("expected emission kind").
+        def kernel(r, x, y):
+            r[0] = x / y
+
+        sig = (float32[::1], float32, float32)
+        ptx, _ = compile_ptx(kernel, sig, fastmath=True, lineinfo=True)
+        self.assertIn("div.approx", ptx)
+        self.assertIn(".file", ptx)
+
+    def test_fastmath_with_debug(self):
+        # Full debug info takes the same LLVM70 text round-trip as lineinfo;
+        # both fast-math and the debug line table must survive it.
+        def kernel(r, x, y):
+            r[0] = x / y
+
+        sig = (float32[::1], float32, float32)
+        ptx, _ = compile_ptx(kernel, sig, fastmath=True, debug=True, opt=False)
+        self.assertIn("div.approx", ptx)
+        self.assertIn(".file", ptx)
+
+    def test_nvvm_knobs_follow_flags(self):
+        # The module-level libnvvm/ptxas knobs are implied per-flag, with
+        # 'fast' (the bool form) enabling all four as numba-cuda does.
+        from numba_cuda_mlir.fastmath import nvvm_fastmath_options
+
+        self.assertEqual(
+            nvvm_fastmath_options(True),
+            {"ftz": True, "fma": True, "prec_div": False, "prec_sqrt": False},
+        )
+        self.assertEqual(nvvm_fastmath_options(False), {})
+        self.assertEqual(nvvm_fastmath_options({"arcp"}), {"prec_div": False})
+        self.assertEqual(nvvm_fastmath_options({"afn"}), {"prec_sqrt": False})
+        self.assertEqual(nvvm_fastmath_options({"contract"}), {"fma": True})
+        self.assertEqual(nvvm_fastmath_options({"nnan", "nsz"}), {})
+
+    @pytest.mark.xfail(
+        True,
+        reason="mlir backend does not yet raise ZeroDivisionError for float "
+        "division under debug=True (python error model); unrelated to fastmath",
+    )
     def test_divf_exception(self):
         def f10(r, x, y):
             r[0] = x / y

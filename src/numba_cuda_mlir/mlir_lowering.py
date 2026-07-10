@@ -349,6 +349,7 @@ class MLIRLower(object):
                 self._mlir_module = ir.Module.create()
                 self.setup_func_op()
                 self.lower_function_body()
+                self._apply_fastmath_flags()
                 self.lower_capi_thunks()
                 needs_nrt = self._function_needs_nrt()
                 if needs_nrt:
@@ -365,6 +366,25 @@ class MLIRLower(object):
                     self.metadata["teardown_callbacks"] = self._teardown_callbacks
         finally:
             numba_cuda_mlir_context._compilation_options.reset(token)
+
+    def _apply_fastmath_flags(self):
+        """Stamp per-op ``#arith.fastmath`` attributes from the fastmath
+        target option onto this function's body, and rewrite f32 tanh to
+        its hardware approximation where the flags and target permit.
+
+        Runs before ``lower_capi_thunks`` so the C-ABI clone inherits the
+        attributes, and only walks this function's op: device callees are
+        cloned in pre-stamped under their own target options.
+        """
+        from numba_cuda_mlir.fastmath import (
+            apply_fastmath_to_function,
+            rewrite_approx_tanh,
+        )
+
+        fastmath = self.targetoptions.get("fastmath", False)
+        if fastmath:
+            apply_fastmath_to_function(self.mlir_funcOp, fastmath)
+            rewrite_approx_tanh(self.mlir_funcOp, fastmath, chip=self.targetoptions.get("chip"))
 
     @property
     def mlir_module(self) -> ir.Module:
@@ -495,7 +515,12 @@ extern "C" __global__ void
             chip = 'chip = "' + self.targetoptions["chip"] + '"'
             opt_level = int(self.targetoptions.get("opt_level", 2))
             flags = []
-            if self.targetoptions.get("fastmath", False):
+            from numba_cuda_mlir.fastmath import parse_fastmath
+
+            fastmath = parse_fastmath(self.targetoptions.get("fastmath", False))
+            # The module-level target flag is all-or-nothing; selective
+            # subsets are expressed per-op via #arith.fastmath attributes.
+            if "fast" in fastmath.flags:
                 flags.extend(["fast"])
             features = self.targetoptions.get("features", "")
             if not features or "+ptx" not in features:

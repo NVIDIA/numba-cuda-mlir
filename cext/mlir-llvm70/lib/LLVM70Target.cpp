@@ -24,6 +24,113 @@ using namespace llvm70;
 using namespace mlir;
 
 //===----------------------------------------------------------------------===//
+// Fast-math flag injection
+//
+// The LLVM 7 C API cannot set per-instruction fast-math flags. Flagged
+// instructions are named __fmf.<mask>_<counter> during translation; the
+// module is then printed to text, the flag keywords are inserted after
+// each marked instruction's opcode, and the result is re-parsed with the
+// same LLVM 7 runtime before bitcode serialization. The '.' cannot occur
+// in a Python identifier, LLVM 7 prints it unquoted (unlike '$'), and
+// numba's SSA renaming only ever appends ".<digits>", which cannot form
+// the "__fmf.<digits>_<digits>" shape — so the marker cannot collide
+// with a user-visible value name.
+//===----------------------------------------------------------------------===//
+
+// Keyword string (each keyword preceded by a space) for an
+// mlir::LLVM::FastmathFlags bitmask: nnan=1, ninf=2, nsz=4, arcp=8,
+// contract=16, afn=32, reassoc=64.
+static std::string fastmathKeywords(unsigned mask) {
+  if ((mask & 127u) == 127u)
+    return " fast";
+  static constexpr std::pair<unsigned, const char *> kBits[] = {
+      {1u, "nnan"},      {2u, "ninf"}, {4u, "nsz"},     {8u, "arcp"},
+      {16u, "contract"}, {32u, "afn"}, {64u, "reassoc"}};
+  std::string s;
+  for (auto [bit, kw] : kBits)
+    if (mask & bit) {
+      s += ' ';
+      s += kw;
+    }
+  return s;
+}
+
+// If `line` defines a marked value (%__fmf.<mask>_<n> = <opcode> ...), append
+// it to `out` with the flag keywords inserted after the opcode ("tail call"
+// inserts after "call"); otherwise append it unchanged.
+static void appendLineWithFlags(llvm::StringRef line, std::string &out) {
+  llvm::StringRef work = line.ltrim(" \t");
+  unsigned mask = 0, counter = 0;
+  size_t insertPos = 0;
+  bool matched = false;
+  if (work.consume_front("%__fmf.") && !work.consumeInteger(10, mask) &&
+      work.consume_front("_") && !work.consumeInteger(10, counter) &&
+      work.consume_front(" = ")) {
+    llvm::StringRef opcode = work.split(' ').first;
+    if (opcode == "tail") {
+      llvm::StringRef afterTail = work.drop_front(opcode.size()).ltrim(' ');
+      llvm::StringRef second = afterTail.split(' ').first;
+      if (second == "call") {
+        insertPos = (afterTail.data() + second.size()) - line.data();
+        matched = true;
+      }
+    } else {
+      insertPos = (work.data() + opcode.size()) - line.data();
+      matched = true;
+    }
+  }
+  if (!matched || mask == 0) {
+    out.append(line.data(), line.size());
+    return;
+  }
+  out.append(line.data(), insertPos);
+  out += fastmathKeywords(mask & 127u);
+  out.append(line.data() + insertPos, line.size() - insertPos);
+}
+
+// The debug compile unit is created with emission kind 3
+// (DebugDirectivesOnly), an extension of NVIDIA's LLVM 7 fork. A stock
+// LLVM 7 runtime has no name for it and prints "emissionKind: " (empty),
+// which no parser accepts, so the fast-math reparse would fail whenever
+// debug info is present. Downgrade exactly that unparseable case to
+// LineTablesOnly, which both stock and NVIDIA LLVM 7 round-trip. Only
+// metadata definition lines (leading '!') are rewritten, so the pattern
+// occurring inside a program's string constant is left alone.
+static void fixupUnparseableEmissionKind(std::string &ir) {
+  static constexpr llvm::StringLiteral kEmpty = "emissionKind: ,";
+  static constexpr llvm::StringLiteral kFixed = "emissionKind: LineTablesOnly,";
+  size_t pos = 0;
+  while ((pos = ir.find(kEmpty.data(), pos)) != std::string::npos) {
+    size_t bol = ir.rfind('\n', pos);
+    bol = (bol == std::string::npos) ? 0 : bol + 1;
+    if (ir[bol] != '!') {
+      pos += kEmpty.size();
+      continue;
+    }
+    ir.replace(pos, kEmpty.size(), kFixed.data());
+    pos += kFixed.size();
+  }
+}
+
+// Exercised end-to-end through translateToNVVMIR / translateToPTX by
+// test/fastmath_flags.mlir.
+static std::string injectFastmathFlags(llvm::StringRef ir) {
+  std::string out;
+  out.reserve(ir.size() + 1024);
+  size_t start = 0;
+  while (start <= ir.size()) {
+    size_t eol = ir.find('\n', start);
+    bool last = (eol == llvm::StringRef::npos);
+    appendLineWithFlags(ir.slice(start, last ? ir.size() : eol), out);
+    if (last)
+      break;
+    out += '\n';
+    start = eol + 1;
+  }
+  return out;
+}
+
+//===----------------------------------------------------------------------===//
 // Public entry points
 //===----------------------------------------------------------------------===//
 
@@ -42,7 +149,10 @@ llvm::Expected<std::string> llvm70::translateToNVVMIR(gpu::GPUModuleOp gpuMod,
   if (auto err = translator.translate(gpuMod, opts.debugLevel, opts.genLTO, &opts))
     return std::move(err);
 
-  return builder->printModuleToString();
+  std::string ir = builder->printModuleToString();
+  if (translator.hasFastmathMarkers())
+    ir = injectFastmathFlags(ir);
+  return ir;
 }
 
 llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
@@ -64,6 +174,17 @@ llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
     llvm::dbgs() << "=== Generated NVVM IR ===\n"
                  << builder->printModuleToString() << "\n";
   });
+
+  // Fast-math flags cannot be set through the old C API. When any were
+  // recorded, round-trip the module through text: print, inject the flag
+  // keywords at the marked instructions, and re-parse with the same LLVM 7
+  // runtime before serializing to bitcode.
+  if (translator.hasFastmathMarkers()) {
+    std::string textIR = injectFastmathFlags(builder->printModuleToString());
+    fixupUnparseableEmissionKind(textIR);
+    if (auto err = builder->replaceModuleWithParsedIR(textIR))
+      return std::move(err);
+  }
 
   // Serialize to bitcode
   LLVMMemoryBufferRef buf = builder->writeBitcodeToMemoryBuffer();
@@ -100,8 +221,9 @@ llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
 
   std::string computeArch =
       "compute_" + opts.chip.substr(opts.chip.find_first_of("0123456789"));
-  auto ptxOrErr =
-      (*compilerOrErr)->compile(computeArch, modules, opts.optLevel, opts.genLTO);
+  auto ptxOrErr = (*compilerOrErr)
+                      ->compile(computeArch, modules, opts.optLevel,
+                                opts.genLTO, opts.nvvmOptions);
 
   builder->disposeMemoryBuffer(buf);
   return ptxOrErr;
@@ -854,6 +976,7 @@ llvm::Error MLIRToLLVM70::translateCallOp(Operation *op) {
   }
 
   LLVMValueRef result = b.buildCall(callee, args.data(), args.size(), "");
+  tagFastmath(op, result);
 
   if (callOp.getNumResults() > 0)
     mapValue(callOp->getResult(0), result);
@@ -994,6 +1117,34 @@ llvm::Error MLIRToLLVM70::translateAddressOfOp(Operation *op) {
   return llvm::Error::success();
 }
 
+// Record the fast-math flags of `op` (if any) on the freshly built
+// instruction `inst` by giving it a marker value name. The flags are
+// materialized later by injectFastmathFlags on the printed IR.
+void MLIRToLLVM70::tagFastmath(Operation *op, LLVMValueRef inst) {
+  if (!inst || !b.isInstruction(inst))
+    return;
+  auto iface = dyn_cast<LLVM::FastmathFlagsInterface>(op);
+  if (!iface)
+    return;
+  unsigned mask = static_cast<unsigned>(iface.getFastmathAttr().getValue());
+  if (!mask)
+    return;
+  // LLVM permits fast-math flags on calls with a floating-point scalar or
+  // vector return type; this translator only ever builds scalar FP calls,
+  // so only those are tagged.
+  if (isa<LLVM::CallOp>(op)) {
+    if (op->getNumResults() != 1)
+      return;
+    Type resTy = op->getResult(0).getType();
+    if (!(resTy.isF16() || resTy.isF32() || resTy.isF64() || isBF16(resTy)))
+      return;
+  }
+  std::string name =
+      ("__fmf." + llvm::Twine(mask) + "_" + llvm::Twine(fmfCounter++)).str();
+  b.setValueName(inst, name.c_str());
+  fmfTagged = true;
+}
+
 llvm::Error MLIRToLLVM70::translateArithOp(Operation *op) {
   LLVMValueRef result = nullptr;
 
@@ -1004,6 +1155,7 @@ llvm::Error MLIRToLLVM70::translateArithOp(Operation *op) {
     if (bf)
       operand = bf16ToF32(operand);
     result = b.buildFNeg(operand, "");
+    tagFastmath(op, result);
     if (bf)
       result = f32ToBf16(result);
     mapValue(fneg.getResult(), result);
@@ -1061,6 +1213,7 @@ llvm::Error MLIRToLLVM70::translateArithOp(Operation *op) {
                                    "unhandled arith op: %s",
                                    op->getName().getStringRef().str().c_str());
 
+  tagFastmath(op, result);
   if (bf)
     result = f32ToBf16(result);
 
@@ -1175,6 +1328,7 @@ llvm::Error MLIRToLLVM70::translateFCmpOp(Operation *op) {
     rhsVal = bf16ToF32(rhsVal);
   }
   auto result = b.buildFCmp(lp, lhsVal, rhsVal, "");
+  tagFastmath(op, result);
   mapValue(fcmpOp.getResult(), result);
   return llvm::Error::success();
 }
@@ -1569,6 +1723,7 @@ llvm::Error MLIRToLLVM70::translateUnaryFloatIntrinsic(Operation *op,
   LLVMValueRef arg = lookupValue(in);
   if (bf) arg = bf16ToF32(arg);
   LLVMValueRef result = b.buildCall(fn, &arg, 1, "");
+  tagFastmath(op, result);
   if (bf) result = f32ToBf16(result);
   mapValue(res, result);
   return llvm::Error::success();
@@ -1618,6 +1773,7 @@ llvm::Error MLIRToLLVM70::translateBinaryFloatIntrinsic(Operation *op,
   LLVMValueRef args[2] = {lookupValue(lhs), lookupValue(rhs)};
   if (bf) { args[0] = bf16ToF32(args[0]); args[1] = bf16ToF32(args[1]); }
   LLVMValueRef result = b.buildCall(fn, args, 2, "");
+  tagFastmath(op, result);
   if (bf) result = f32ToBf16(result);
   mapValue(res, result);
   return llvm::Error::success();
@@ -1647,6 +1803,7 @@ llvm::Error MLIRToLLVM70::translateMinimumMaximumOp(Operation *op,
   if (bf) { a = bf16ToF32(a); bv = bf16ToF32(bv); }
   LLVMValueRef args[2] = {a, bv};
   LLVMValueRef mmnResult = b.buildCall(fn, args, 2, "");
+  tagFastmath(op, mmnResult);
   LLVMValueRef isNaN = b.buildFCmp(LLVMRealUNO, a, bv, "");
   LLVMValueRef nanVal = b.buildFAdd(a, bv, "");
   LLVMValueRef result = b.buildSelect(isNaN, nanVal, mmnResult, "");

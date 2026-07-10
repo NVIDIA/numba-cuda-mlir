@@ -157,6 +157,10 @@ def _get_llvm70_capi():
         ctypes.POINTER(ctypes.c_char_p),  # out
         ctypes.POINTER(ctypes.c_size_t),  # out_len
         ctypes.POINTER(ctypes.c_char_p),  # err_out
+        # Deliberately last (matches CAPI.cpp): a stale library built without
+        # this parameter ignores the trailing argument, rather than the
+        # output pointers shifting by one slot.
+        ctypes.c_char_p,  # nvvm_options (space-separated, e.g. "-prec-div=0")
     ]
     lib.llvm70_free.restype = None
     lib.llvm70_free.argtypes = [ctypes.c_void_p]
@@ -239,6 +243,23 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
     out_len = ctypes.c_size_t()
     err_out = ctypes.c_char_p()
 
+    # Same per-flag knob gating as _nvvm_options, rendered as
+    # nvvmCompileProgram command-line options.
+    from numba_cuda_mlir.fastmath import nvvm_fastmath_options
+
+    knobs = nvvm_fastmath_options(target_options.get("fastmath", False))
+    nvvm_extra_options = [
+        f"-{name.replace('_', '-')}={1 if enabled else 0}"
+        for name, enabled in (
+            ("ftz", knobs.get("ftz")),
+            ("fma", knobs.get("fma")),
+            ("prec_div", knobs.get("prec_div")),
+            ("prec_sqrt", knobs.get("prec_sqrt")),
+        )
+        if enabled is not None
+    ]
+    nvvm_options_arg = " ".join(nvvm_extra_options).encode() or None
+
     rc = lib.llvm70_translate_gpu_module_from_op(
         raw_op,
         chip.encode(),
@@ -256,6 +277,7 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
         ctypes.byref(out),
         ctypes.byref(out_len),
         ctypes.byref(err_out),
+        nvvm_options_arg,
     )
 
     if rc != 0:
@@ -324,11 +346,12 @@ def _prepare_llvm_ir(module, dump=False, preserve_debug_info=False) -> bytes:
 
 def _nvvm_options(cc: str, target_options=None, **extra) -> dict:
     """Build libnvvm CompilationUnit options from arch + target options."""
+    from numba_cuda_mlir.fastmath import nvvm_fastmath_options
+
     opts = {"arch": f"compute_{cc}", **extra}
     if target_options is None:
         return opts
-    if target_options.get("fastmath"):
-        opts.update({"ftz": True, "fma": True, "prec_div": False, "prec_sqrt": False})
+    opts.update(nvvm_fastmath_options(target_options.get("fastmath", False)))
     # Note: we intentionally omit -g and -generate-line-info here.
     # Our MLIR pipeline embeds DWARF metadata (DICompileUnit, DISubprogram, DILocation)
     # into the LLVM IR when debug=True or lineinfo=True. libnvvm honors that metadata
@@ -550,6 +573,9 @@ def get_lto_ptx(cres, linker=None, target_options=None) -> str:
             cc = get_gpu_compute_capability(tuple)
             arch = get_gpu_compute_capability(str)
 
+        from numba_cuda_mlir.fastmath import nvvm_fastmath_options
+
+        knobs = nvvm_fastmath_options(target_options.get("fastmath", False))
         linker = Linker(
             cc=cc,
             arch=arch,
@@ -557,10 +583,10 @@ def get_lto_ptx(cres, linker=None, target_options=None) -> str:
             debug=target_options.get("debug", False),
             lineinfo=target_options.get("lineinfo", False),
             lto=True,
-            ftz=target_options.get("fastmath") or None,
-            prec_div=False if target_options.get("fastmath") else None,
-            prec_sqrt=False if target_options.get("fastmath") else None,
-            fma=target_options.get("fastmath") or None,
+            ftz=knobs.get("ftz"),
+            prec_div=knobs.get("prec_div"),
+            prec_sqrt=knobs.get("prec_sqrt"),
+            fma=knobs.get("fma"),
             optimization_level=int(target_options.get("opt_level", 3)),
             ptxas_options=target_options.get("ptxas_options", None),
             max_registers=target_options.get("max_registers", None),

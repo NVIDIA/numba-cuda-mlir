@@ -467,7 +467,8 @@ class _ArgMarshaller:
             case np.datetime64() | np.timedelta64():
                 return arg
             case np.integer():
-                return int(arg)
+                # Keep as-is; C++ launcher handles np.integer directly.
+                return arg
             case np.float16():
                 # Keep as-is; C++ launcher handles f16 conversion
                 return arg

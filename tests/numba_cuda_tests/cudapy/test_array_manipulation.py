@@ -108,8 +108,10 @@ class TestArrayManipulation(NumbaCUDATestCase):
                 a[x, y] = x * a.shape[1] + y
 
         threads = (4, 4)
-        blocks = ((shape[0] + threads[0] - 1) // threads[0],
-                  (shape[1] + threads[1] - 1) // threads[1])
+        blocks = (
+            (shape[0] + threads[0] - 1) // threads[0],
+            (shape[1] + threads[1] - 1) // threads[1],
+        )
 
         write_2d[blocks, threads](dev)
         result = dev.copy_to_host()

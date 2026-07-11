@@ -149,9 +149,7 @@ class TestDeviceArrayManipulation(NumbaCUDATestCase):
         viewed = arr.view(np.float32)
         self.assertEqual(viewed.dtype, np.float32)
         self.assertEqual(viewed.shape, (16,))
-        np.testing.assert_array_equal(
-            viewed.copy_to_host().view(np.int32), host
-        )
+        np.testing.assert_array_equal(viewed.copy_to_host().view(np.int32), host)
 
     def test_ravel_device_array(self):
         """Verify ravel on a DeviceArray returns a 1D array with correct data."""
@@ -192,7 +190,9 @@ class TestDeviceArrayManipulation(NumbaCUDATestCase):
         mask = np.array([True, False] * 5)
         arr[mask]
 
-    @pytest.mark.xfail(reason="Fancy (integer array) indexing is not supported on CUDA device arrays")
+    @pytest.mark.xfail(
+        reason="Fancy (integer array) indexing is not supported on CUDA device arrays"
+    )
     def test_fancy_indexing(self):
         """Fancy indexing with integer arrays is not supported on device arrays."""
         host = np.arange(10, dtype=np.int32)

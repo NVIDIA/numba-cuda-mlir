@@ -89,13 +89,13 @@ static void appendLineWithFlags(llvm::StringRef line, std::string &out) {
 }
 
 // The debug compile unit is created with emission kind 3
-// (DebugDirectivesOnly), an extension of NVIDIA's LLVM 7 fork. A stock
-// LLVM 7 runtime has no name for it and prints "emissionKind: " (empty),
-// which no parser accepts, so the fast-math reparse would fail whenever
-// debug info is present. Downgrade exactly that unparseable case to
-// LineTablesOnly, which both stock and NVIDIA LLVM 7 round-trip. Only
-// metadata definition lines (leading '!') are rewritten, so the pattern
-// occurring inside a program's string constant is left alone.
+// (DebugDirectivesOnly, which libnvvm honors but whose name only entered
+// LLVM at version 8). LLVM 7 has no name for it: its printer emits
+// "emissionKind: " (empty), which its own parser rejects, so the
+// fast-math reparse would fail whenever debug info is present. Downgrade
+// exactly that unparseable case to LineTablesOnly for the round-trip.
+// Only metadata definition lines (leading '!') are rewritten, so the
+// pattern occurring inside a program's string constant is left alone.
 static void fixupUnparseableEmissionKind(std::string &ir) {
   static constexpr llvm::StringLiteral kEmpty = "emissionKind: ,";
   static constexpr llvm::StringLiteral kFixed = "emissionKind: LineTablesOnly,";

@@ -279,13 +279,15 @@ class TestFastMathOption(NumbaCUDATestCase):
     @staticmethod
     def _debug_directives(ptx):
         """Count of each debug-related directive in the PTX (.file/.loc
-        totals, .section by name)."""
+        totals, .section and .target by name). .target matters most: a
+        spurious ", debug" there would force ptxas to disable optimization.
+        """
         counts = {}
         for line in ptx.splitlines():
             s = line.strip()
-            for d in (".file", ".loc", ".section"):
+            for d in (".file", ".loc", ".section", ".target"):
                 if s.startswith(d):
-                    key = s if d == ".section" else d
+                    key = s if d in (".section", ".target") else d
                     counts[key] = counts.get(key, 0) + 1
         return counts
 

@@ -9,14 +9,20 @@ set/dict of individual LLVM fast-math flags ({'fast', 'nnan', 'ninf', 'nsz',
 as ``#arith.fastmath<...>`` attributes on every arith/math dialect op that
 implements the ArithFastMathInterface.  The conversion passes in the standard
 pipeline (convert-arith-to-llvm, convert-gpu-to-nvvm, convert-math-to-nvvm)
-translate these into LLVM fast-math flags, which libnvvm honours
-per-instruction (e.g. ``arcp`` selects ``div.approx`` for f32 division).
+translate these into LLVM fast-math flags, which reach libnvvm
+per-instruction (via the LLVM70 marker-name transfer on sm < 100).
 
-Two effects have no per-instruction encoding and are handled separately:
+Three effects are handled separately because the per-instruction flags
+alone do not produce them:
 
 - The module-level libnvvm/ptxas knobs (``-ftz``, ``-fma``, ``-prec-div``,
-  ``-prec-sqrt``) are derived from the flag set by
-  :func:`nvvm_fastmath_options`.
+  ``-prec-sqrt``) have no per-instruction encoding and are derived from
+  the flag set by :func:`nvvm_fastmath_options`.
+- f32 division under ``arcp``/``fast`` is rewritten to
+  ``__nv_fast_fdividef`` at pre-codegen (see
+  ``optimization._rewrite_fast_divisions``): libnvvm never selects
+  ``div.approx`` from instruction flags or ``-prec-div=0`` alone, so the
+  substitution numba-cuda makes is reproduced here.
 - f32 ``math.tanh`` is rewritten to ``tanh.approx.f32`` by
   :func:`rewrite_approx_tanh`; this must happen while the op is still a
   ``math.tanh``, because ``convert-math-to-nvvm`` lowers it to a plain

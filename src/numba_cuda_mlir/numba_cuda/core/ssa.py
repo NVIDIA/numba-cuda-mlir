@@ -413,19 +413,11 @@ class _FixSSAVars(_BaseHandler):
         """Find definition reaching the top of the block at ``label``,
         inserting phi nodes where necessary.
 
-        Iterative driver for the reaching-definition search: the
-        dominator chains walked by ``_walk_def_chain`` grow with the size
-        of the function's CFG, so large functions (e.g. kernels with big
-        fully-inlined callees) would overflow the recursion limit if each
-        block cost a stack frame. The search depth here is bounded by
-        available memory instead.
-
-        Each ``pending`` item is a ``(phinode, pred, loc)`` triple whose
-        resolved incoming definition must be appended to ``phinode``.
-        Predecessors are pushed in reverse so the LIFO pop order matches
-        the depth-first order of the recursive formulation this replaced,
-        keeping phi creation order, and thus fresh-variable numbering,
-        identical.
+        Runs on an explicit worklist so the search depth does not grow
+        with the CFG. Each ``pending`` item is a ``(phinode, pred, loc)``
+        triple whose resolved incoming definition is appended to
+        ``phinode``; predecessors are pushed in reverse so phi nodes are
+        created, and fresh variables numbered, in depth-first order.
         """
         pending = []
         result = self._walk_def_chain(states, label, loc, True, pending)
@@ -444,7 +436,7 @@ class _FixSSAVars(_BaseHandler):
         return result
 
     def _walk_def_chain(self, states, label, loc, from_top, pending):
-        """Walk a single def-search chain without recursion.
+        """Walk a single def-search chain.
 
         Alternates between the *from_bottom* step (take the last
         definition in the block, if any) and the *from_top* step (insert

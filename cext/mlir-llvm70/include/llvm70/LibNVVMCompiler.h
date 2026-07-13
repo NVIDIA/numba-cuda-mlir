@@ -56,6 +56,11 @@ public:
   /// Get the program log (warnings, errors) from libnvvm.
   std::string getLog(nvvmProgram prog);
 
+  /// Query the NVVM IR and debug-metadata versions supported by the
+  /// loaded libnvvm (nvvmIRVersion).
+  llvm::Error getIRVersion(int &irMajor, int &irMinor, int &dbgMajor,
+                           int &dbgMinor);
+
 private:
   LibNVVMCompiler() = default;
   llvm::Error resolveSymbols();
@@ -74,6 +79,7 @@ private:
   nvvmResult (*fnGetCompiledResult)(nvvmProgram, char *) = nullptr;
   nvvmResult (*fnGetProgramLogSize)(nvvmProgram, size_t *) = nullptr;
   nvvmResult (*fnGetProgramLog)(nvvmProgram, char *) = nullptr;
+  nvvmResult (*fnIRVersion)(int *, int *, int *, int *) = nullptr;
 };
 
 } // namespace llvm70

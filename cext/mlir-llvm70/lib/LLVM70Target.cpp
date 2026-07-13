@@ -47,6 +47,24 @@ llvm::Expected<std::string> llvm70::translateToNVVMIR(gpu::GPUModuleOp gpuMod,
 
 llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
                                                   const LLVM70Options &opts) {
+  // If the caller supplied no versions (debug pair 0.0), ask libnvvm;
+  // recent libnvvm rejects the zero debug version.
+  auto compilerOrErr = LibNVVMCompiler::create(opts.libnvvmPath);
+  if (!compilerOrErr)
+    return compilerOrErr.takeError();
+
+  LLVM70Options effectiveOpts = opts;
+  if (opts.nvvmDebugMajor == 0 && opts.nvvmDebugMinor == 0) {
+    int irMajor, irMinor, dbgMajor, dbgMinor;
+    if (auto err =
+            (*compilerOrErr)->getIRVersion(irMajor, irMinor, dbgMajor, dbgMinor))
+      return std::move(err);
+    effectiveOpts.nvvmIRMajor = irMajor;
+    effectiveOpts.nvvmIRMinor = irMinor;
+    effectiveOpts.nvvmDebugMajor = dbgMajor;
+    effectiveOpts.nvvmDebugMinor = dbgMinor;
+  }
+
   auto builderOrErr = LLVM70IRBuilder::create(opts.libLLVMPath);
   if (!builderOrErr)
     return builderOrErr.takeError();
@@ -57,7 +75,8 @@ llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
     builder->setDataLayout(opts.dataLayout.c_str());
 
   MLIRToLLVM70 translator(*builder);
-  if (auto err = translator.translate(gpuMod, opts.debugLevel, opts.genLTO, &opts))
+  if (auto err = translator.translate(gpuMod, opts.debugLevel, opts.genLTO,
+                                      &effectiveOpts))
     return std::move(err);
 
   LLVM_DEBUG({
@@ -92,12 +111,6 @@ llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
   }
 
   // Compile via libnvvm
-  auto compilerOrErr = LibNVVMCompiler::create(opts.libnvvmPath);
-  if (!compilerOrErr) {
-    builder->disposeMemoryBuffer(buf);
-    return compilerOrErr.takeError();
-  }
-
   std::string computeArch =
       "compute_" + opts.chip.substr(opts.chip.find_first_of("0123456789"));
   auto ptxOrErr =

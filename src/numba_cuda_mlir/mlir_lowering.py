@@ -733,7 +733,7 @@ extern "C" __global__ void
                 for elem_type in self._tuple_element_types(var_type)
             )
 
-        mlir_type = self.get_storage_type(var_type)
+        mlir_type = self.get_mlir_type(var_type)
         if not _is_valid_memref_element_type(mlir_type):
             return self.alloca(mlir_type, count=1)
 
@@ -748,7 +748,7 @@ extern "C" __global__ void
                 if isinstance(var_type, types.NoneType):
                     continue
                 if isinstance(var_type, types.UniTuple):
-                    elem_mlir_type = self.get_storage_type(var_type.dtype)
+                    elem_mlir_type = self.get_mlir_type(var_type.dtype)
                     memref_type = ir.MemRefType.get(
                         shape=[var_type.count], element_type=elem_mlir_type
                     )
@@ -759,7 +759,7 @@ extern "C" __global__ void
                 if isinstance(var_type, types.BaseTuple):
                     self.varmap[var_name] = self._allocate_stack_slot_for_type(var_type)
                     continue
-                mlir_type = self.get_storage_type(var_type)
+                mlir_type = self.get_mlir_type(var_type)
 
                 if not _is_valid_memref_element_type(mlir_type):
                     self.varmap[var_name] = self.alloca(mlir_type, count=1)
@@ -3307,11 +3307,10 @@ extern "C" __global__ void
             trace("index=%s", index)
             loadOp = memref.load(memref=slot, indices=[index])
             trace("loadOp=%s", loadOp)
-            return self.from_storage(var_type, loadOp)
+            return loadOp
 
         trace("Loading %s from LLVM stack slot", type(var_type).__name__)
-        stored = llvm.load(res=self.get_storage_type(var_type), addr=slot)
-        return self.from_storage(var_type, stored)
+        return llvm.load(res=self.get_mlir_type(var_type), addr=slot)
 
     def _load_var(self, var: numba_ir.Var) -> Any:
         """
@@ -3336,9 +3335,7 @@ extern "C" __global__ void
             # BaseTuple multi-assign uses per-element stack slots.
             if isinstance(var_type, types.UniTuple) and not isinstance(slot, tuple):
                 return tuple(
-                    self.from_storage(
-                        var_type.dtype, memref.load(memref=slot, indices=[index_of(i)])
-                    )
+                    memref.load(memref=slot, indices=[index_of(i)])
                     for i in range(var_type.count)
                 )
 
@@ -3412,18 +3409,16 @@ extern "C" __global__ void
 
         if self.nrt.type_has_nrt_meminfo(var_type) and isinstance(value, ir.Value):
             if isinstance(slot.type, MemRefType):
-                old = self.from_storage(var_type, memref.load(memref=slot, indices=[index_of(0)]))
+                old = memref.load(memref=slot, indices=[index_of(0)])
             else:
-                old_stored = llvm.load(res=self.get_storage_type(var_type), addr=slot)
-                old = self.from_storage(var_type, old_stored)
+                old = llvm.load(res=self.get_mlir_type(var_type), addr=slot)
             self.decref(var_type, old)
 
-        stored_value = self.as_storage(var_type, value) if isinstance(value, ir.Value) else value
         if isinstance(slot.type, MemRefType):
-            memref.store(value=stored_value, memref=slot, indices=[index_of(0)])
+            memref.store(value=value, memref=slot, indices=[index_of(0)])
         else:
             trace("Storing %s to LLVM stack slot", type(var_type).__name__)
-            llvm.store(value=stored_value, addr=slot)
+            llvm.store(value=value, addr=slot)
 
     def store_var(self, var, value):
         """
@@ -3448,8 +3443,7 @@ extern "C" __global__ void
             if isinstance(var_type, types.UniTuple) and not isinstance(slot, tuple):
                 assert isinstance(value, (tuple, list))
                 for i, elem in enumerate(value):
-                    stored = self.as_storage(var_type.dtype, elem)
-                    memref.store(value=stored, memref=slot, indices=[index_of(i)])
+                    memref.store(value=elem, memref=slot, indices=[index_of(i)])
                 return
 
             self._store_stack_slot(var_type, slot, value)

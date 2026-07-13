@@ -410,37 +410,25 @@ class _FixSSAVars(_BaseHandler):
         return selected_def
 
     def _find_def_from_top(self, states, label, loc):
-        """Find definition reaching block of ``label``.
+        """Find definition reaching the top of the block at ``label``,
+        inserting phi nodes where necessary.
 
-        This method would look at all dominance frontiers.
-        Insert phi node if necessary.
-        """
-        return self._find_def_iteratively(states, label, loc, from_top=True)
-
-    def _find_def_from_bottom(self, states, label, loc):
-        """Find definition from within the block at ``label``."""
-        return self._find_def_iteratively(states, label, loc, from_top=False)
-
-    def _find_def_iteratively(self, states, label, loc, from_top):
-        """Iterative driver for the reaching-definition search.
-
-        Equivalent to a mutual recursion between the *from_top* and
-        *from_bottom* searches, but implemented with an explicit worklist
-        so that the search depth is bounded by available memory rather
-        than the interpreter recursion limit.  The dominator chains
-        walked here grow with the size of the function's CFG, so large
-        functions (e.g. kernels with big fully-inlined callees) would
-        otherwise overflow the recursion limit.
+        Iterative driver for the reaching-definition search: the
+        dominator chains walked by ``_walk_def_chain`` grow with the size
+        of the function's CFG, so large functions (e.g. kernels with big
+        fully-inlined callees) would overflow the recursion limit if each
+        block cost a stack frame. The search depth here is bounded by
+        available memory instead.
 
         Each ``pending`` item is a ``(phinode, pred, loc)`` triple whose
         resolved incoming definition must be appended to ``phinode``.
         Predecessors are pushed in reverse so the LIFO pop order matches
-        the depth-first order of the recursive formulation exactly,
-        keeping phi creation order — and thus fresh-variable numbering —
+        the depth-first order of the recursive formulation this replaced,
+        keeping phi creation order, and thus fresh-variable numbering,
         identical.
         """
         pending = []
-        result = self._walk_def_chain(states, label, loc, from_top, pending)
+        result = self._walk_def_chain(states, label, loc, True, pending)
         while pending:
             phinode, pred, philoc = pending.pop()
             incoming_def = self._walk_def_chain(

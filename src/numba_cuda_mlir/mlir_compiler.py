@@ -317,7 +317,7 @@ def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
 
     flags.auto_parallel = ParallelOptions(targetoptions.get("parallel", False))
     flags.nvvm_options = {}
-    is_lto = targetoptions.get("lto", False) or targetoptions.get("output", "ptx") == "ltoir"
+    is_lto = targetoptions.get("lto", False) or targetoptions.get("_compile_output") == "ltoir"
     if is_lto:
         flags.nvvm_options["gen-lto"] = None
 

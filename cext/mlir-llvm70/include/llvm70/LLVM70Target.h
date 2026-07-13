@@ -44,6 +44,10 @@ struct LLVM70Options {
   bool genLTO = false;      // Pass -gen-lto to produce LTOIR instead of PTX
   // Debug/lineinfo level: 0=none, 1=lineinfo (.file/.loc only), 2=full debug
   int debugLevel = 1;
+  int nvvmIRMajor = 2;
+  int nvvmIRMinor = 0;
+  int nvvmDebugMajor = 0;
+  int nvvmDebugMinor = 0;
   /// Extra .bc files to link (libdevice, runtime BCs)
   llvm::SmallVector<std::string> linkLibs;
 };
@@ -65,7 +69,9 @@ public:
 
   /// Translate all ops in the given gpu.module.
   /// debugLevel: 0=none, 1=lineinfo, 2=full debug
-  llvm::Error translate(mlir::gpu::GPUModuleOp gpuMod, int debugLevel = 1);
+  llvm::Error translate(mlir::gpu::GPUModuleOp gpuMod, int debugLevel = 1,
+                        bool omitDebugInfoVersionFlag = false,
+                        const LLVM70Options *opts = nullptr);
 
 private:
   LLVM70IRBuilder &b;
@@ -125,6 +131,7 @@ private:
   llvm::Error translateGEPOp(mlir::Operation *op);
   llvm::Error translateCastOp(mlir::Operation *op);
   llvm::Error translateSelectOp(mlir::Operation *op);
+  llvm::Error translateAssumeOp(mlir::Operation *op);
   llvm::Error translateExtractValueOp(mlir::Operation *op);
   llvm::Error translateInsertValueOp(mlir::Operation *op);
   llvm::Error translateExtractElementOp(mlir::Operation *op);

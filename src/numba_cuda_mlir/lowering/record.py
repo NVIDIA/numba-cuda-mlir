@@ -16,69 +16,12 @@ from numba_cuda_mlir._mlir.dialects import (
     llvm,
     arith,
     memref as memref_dialect,
-    complex as complex_dialect,
     scf,
 )
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir._mlir.dialects import arith as arith_dialect
 from numba_cuda_mlir.lowering_utilities import storage_itemsize_bytes
-
-
-def _is_complex_type(mlir_type):
-    """Check if a type is MLIR complex type."""
-    return isinstance(mlir_type, ir.ComplexType)
-
-
-def _get_llvm_struct_for_complex(complex_type):
-    """Get the LLVM struct type for a complex type."""
-    elem_type = complex_type.element_type
-    return llvm.StructType.get_literal([elem_type, elem_type])
-
-
-def _complex_to_llvm_struct(value):
-    """Convert MLIR complex value to LLVM struct for storage."""
-    complex_type = value.type
-    elem_type = complex_type.element_type
-    struct_type = _get_llvm_struct_for_complex(complex_type)
-
-    # Extract real and imaginary parts
-    real = complex_dialect.re(value)
-    imag = complex_dialect.im(value)
-
-    # Build LLVM struct
-    undef = llvm.UndefOp(struct_type)
-    with_real = llvm.insertvalue(
-        container=undef,
-        value=real,
-        position=ir.DenseI64ArrayAttr.get([0]),
-    )
-    with_imag = llvm.insertvalue(
-        container=with_real,
-        value=imag,
-        position=ir.DenseI64ArrayAttr.get([1]),
-    )
-    return with_imag
-
-
-def _llvm_struct_to_complex(value, complex_type):
-    """Convert LLVM struct back to MLIR complex value."""
-    elem_type = complex_type.element_type
-
-    # Extract real and imaginary from struct
-    real = llvm.extractvalue(
-        res=elem_type,
-        container=value,
-        position=ir.DenseI64ArrayAttr.get([0]),
-    )
-    imag = llvm.extractvalue(
-        res=elem_type,
-        container=value,
-        position=ir.DenseI64ArrayAttr.get([1]),
-    )
-
-    # Create complex value
-    return complex_dialect.create_(complex=complex_type, real=real, imaginary=imag)
 
 
 # For llvm.getelementptr - dynamic offset marker
@@ -90,7 +33,14 @@ from numba_cuda_mlir.descriptor import MLIRTargetContext
 registry = LoweringRegistry()
 lower = registry.lower
 from numba_cuda_mlir.logging import trace
-from numba_cuda_mlir.lowering_utilities import index_of, convert
+from numba_cuda_mlir.lowering_utilities import (
+    index_of,
+    convert,
+    is_complex_type as _is_complex_type,
+    get_llvm_struct_for_complex as _get_llvm_struct_for_complex,
+    complex_to_llvm_struct as _complex_to_llvm_struct,
+    llvm_struct_to_complex as _llvm_struct_to_complex,
+)
 
 
 def get_record_field_ptr(builder, record_ptr, record_type, field_name):
@@ -156,6 +106,8 @@ def lower_record_getattr(
     if isinstance(field_numba_type, NestedArray):
         # Nested array field - create a memref pointing to the data
         result = _load_nested_array_field(builder, field_ptr, field_numba_type, record_type)
+    elif isinstance(field_numba_type, Record):
+        result = field_ptr
     else:
         # Scalar field - load directly
         field_mlir_type = builder.get_mlir_type(field_numba_type)
@@ -383,6 +335,8 @@ def lower_record_static_getitem_str(builder, target, args, kwargs):
 
     if isinstance(field_numba_type, NestedArray):
         result = _load_nested_array_field(builder, field_ptr, field_numba_type, record_type)
+    elif isinstance(field_numba_type, Record):
+        result = field_ptr
     else:
         field_mlir_type = builder.get_mlir_type(field_numba_type)
         field_storage_type = builder.get_storage_type(field_numba_type)
@@ -434,6 +388,8 @@ def lower_record_static_getitem_int(builder, target, args, kwargs):
 
     if isinstance(field_numba_type, NestedArray):
         result = _load_nested_array_field(builder, field_ptr, field_numba_type, record_type)
+    elif isinstance(field_numba_type, Record):
+        result = field_ptr
     else:
         field_mlir_type = builder.get_mlir_type(field_numba_type)
         field_storage_type = builder.get_storage_type(field_numba_type)
@@ -558,7 +514,9 @@ def lower_nested_array_getitem_int(builder, target, args, kwargs):
 
     # Load and return the element
     elem_mlir_type = builder.get_mlir_type(nested_type.dtype)
-    if _is_complex_type(elem_mlir_type):
+    if isinstance(nested_type.dtype, Record):
+        result = elem_ptr
+    elif _is_complex_type(elem_mlir_type):
         struct_type = _get_llvm_struct_for_complex(elem_mlir_type)
         struct_val = llvm.load(struct_type, elem_ptr)
         result = _llvm_struct_to_complex(struct_val, elem_mlir_type)
@@ -641,7 +599,9 @@ def lower_nested_array_getitem_tuple(builder, target, args, kwargs):
 
     # Load and return the element
     elem_mlir_type = builder.get_mlir_type(nested_type.dtype)
-    if _is_complex_type(elem_mlir_type):
+    if isinstance(nested_type.dtype, Record):
+        result = elem_ptr
+    elif _is_complex_type(elem_mlir_type):
         struct_type = _get_llvm_struct_for_complex(elem_mlir_type)
         struct_val = llvm.load(struct_type, elem_ptr)
         result = _llvm_struct_to_complex(struct_val, elem_mlir_type)

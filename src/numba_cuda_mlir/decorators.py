@@ -331,13 +331,6 @@ def _get_schema() -> tuple[MLIRJITOption, ...]:
             hidden=True,
         ),
         MLIRJITOption(
-            name="output",
-            types=str,
-            default_value="ptx",
-            help="Output format for compile functions",
-            hidden=True,
-        ),
-        MLIRJITOption(
             name="_dbg_optnone",
             types=bool,
             default_value=False,
@@ -485,14 +478,6 @@ def _get_signatures(func_or_sig):
         raise ValueError(_target_options_help(f"Invalid function or signature: {func_or_sig}."))
 
 
-def _link_items_have_callbacks(link_items) -> bool:
-    return any(
-        bool(getattr(link_item, "setup_callback", None))
-        or bool(getattr(link_item, "teardown_callback", None))
-        for link_item in link_items
-    )
-
-
 def verify_target_options(kws: dict[str, Any]) -> dict[str, Any]:
     targetoptions = kws.copy()
 
@@ -549,17 +534,8 @@ def verify_target_options(kws: dict[str, Any]) -> dict[str, Any]:
             targetoptions["chip"] = format_arch(cc)
 
     lto_was_explicit = "lto" in kws
-    output_was_explicit = "output" in kws
-    if targetoptions.get("lto") is None and output_was_explicit:
-        targetoptions["lto"] = targetoptions["output"] == "ltoir"
-    elif targetoptions.get("lto") is None and (
-        targetoptions.get("lineinfo") or _link_items_have_callbacks(targetoptions.get("link", []))
-    ):
+    if targetoptions.get("lto") is None:
         targetoptions["lto"] = False
-    elif targetoptions.get("lto") is None:
-        from numba_cuda_mlir.numba_cuda.cudadrv.driver import _have_nvjitlink
-
-        targetoptions["lto"] = _have_nvjitlink() and not targetoptions.get("debug")
     targetoptions["_lto_explicit"] = lto_was_explicit
 
     return targetoptions

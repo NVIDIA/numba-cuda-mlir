@@ -267,15 +267,22 @@ class Number(Hashable):
         """
         Unify the two number types using Numpy's rules.
         """
+        from numba_cuda_mlir.numba_cuda import types
         from numba_cuda_mlir.numba_cuda.np import numpy_support
 
         if isinstance(other, Number):
             # XXX: this can produce unsafe conversions,
             # e.g. would unify {int64, uint64} to float64
-            a = numpy_support.as_dtype(self)
-            b = numpy_support.as_dtype(other)
+            has_complex32 = types.complex32 in (self, other)
+            a = numpy_support.as_dtype(self.underlying_float if self == types.complex32 else self)
+            b = numpy_support.as_dtype(
+                other.underlying_float if other == types.complex32 else other
+            )
             sel = np.promote_types(a, b)
-            return numpy_support.from_dtype(sel)
+            unified = numpy_support.from_dtype(sel)
+            if has_complex32 and isinstance(unified, types.Float):
+                return next(ty for ty in types.complex_domain if ty.underlying_float == unified)
+            return unified
 
 
 class Callable(Type):

@@ -250,7 +250,7 @@ def _get_operator_mapping(fn) -> OpForType | None:
     return info
 
 
-def _get_operation_for_op_and_type(op, type) -> tuple[OpForType, MaybeOp] | None:
+def _get_operation_for_op_and_type(op, type, is_unsigned) -> tuple[OpForType, MaybeOp] | None:
     mapping = _get_operator_mapping(op)
     if not mapping:
         return None
@@ -264,7 +264,7 @@ def _get_operation_for_op_and_type(op, type) -> tuple[OpForType, MaybeOp] | None
                 return mapping, mapping.unsigned_integer
             else:
                 # Default to signedness
-                return mapping, mapping.signed_integer
+                return mapping, mapping.unsigned_integer if is_unsigned else mapping.signed_integer
         case ir.ComplexType():
             return mapping, mapping.complex
         case _:
@@ -284,6 +284,8 @@ def pow_cg(builder, target, args, kwargs):
     lhs_mlir_type, rhs_mlir_type = lhs.type, rhs.type
     match (lhs_mlir_type, rhs_mlir_type):
         case (ir.FloatType(), ir.FloatType()):
+            lhs = builder.mlir_convert(lhs, target_mlir_type)
+            rhs = builder.mlir_convert(rhs, target_mlir_type)
             op = math_dialect.powf
         case (ir.FloatType(), ir.IntegerType()):
             # NVVM/libdevice only defines __nv_powi/__nv_powif with an i32 exponent.
@@ -293,6 +295,7 @@ def pow_cg(builder, target, args, kwargs):
                 rhs = convert(rhs, T.i32())
             op = math_dialect.fpowi
         case (ir.IntegerType(), ir.IntegerType()):
+            rhs = builder.mlir_convert(rhs, lhs_mlir_type)
             op = ipowi
         case (ir.ComplexType(), ir.ComplexType()):
             op = complex_dialect.pow
@@ -312,9 +315,26 @@ def pow_cg(builder, target, args, kwargs):
 def _bin_op_cg(op, builder, target, args, kwargs):
     assert not kwargs, "add_cg does not accept any keyword arguments"
     assert len(args) == 2, "add_cg expects 2 arguments"
-    target_type = builder.get_numba_type(target.name)
-    target_mlir_type = builder.get_mlir_type(target_type)
     lhs, rhs = args
+    target_type, lhs_type, rhs_type = (
+        builder.get_numba_type(target.name),
+        builder.get_numba_type(lhs.name),
+        builder.get_numba_type(rhs.name),
+    )
+    target_mlir_type = builder.get_mlir_type(target_type)
+
+    # Ensure numbers whose MLIR types are signless end up with the correct
+    # operation. Without this logic, two input values with two unsigned integer
+    # types get a signed comparator operator and vice versa. Booleans lower to
+    # i1 and must compare as unsigned, otherwise True (all-ones) orders below
+    # False.
+    def _is_unsigned_operand(operand_type):
+        if isinstance(operand_type, types.Boolean):
+            return True
+        return isinstance(operand_type, types.Integer) and not operand_type.signed
+
+    is_unsigned = _is_unsigned_operand(lhs_type) and _is_unsigned_operand(rhs_type)
+
     lhs, rhs = builder.load_var(lhs), builder.load_var(rhs)
 
     # Handle cases where load_var returns Python/numpy scalars instead of MLIR values
@@ -333,7 +353,7 @@ def _bin_op_cg(op, builder, target, args, kwargs):
     unified_type = lowering_utilities.numpy_implicit_type_promotion(lhs.type, rhs.type)
 
     trace("op: %s, target_mlir_type: %s", op, target_mlir_type)
-    if found_op := _get_operation_for_op_and_type(op, unified_type):
+    if found_op := _get_operation_for_op_and_type(op, unified_type, is_unsigned):
         info, op = found_op
         assert op is not None, "Expected operation"
         if info.cast_to_return_type:
@@ -377,31 +397,37 @@ def truediv_cg(builder, target, args, kwargs):
 
 
 @lower(operator.ne, types.Number, types.Number)
+@lower(operator.ne, types.Boolean, types.Boolean)
 def ne_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ne, builder, target, args, kwargs)
 
 
 @lower(operator.eq, types.Number, types.Number)
+@lower(operator.eq, types.Boolean, types.Boolean)
 def eq_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.eq, builder, target, args, kwargs)
 
 
 @lower(operator.lt, types.Number, types.Number)
+@lower(operator.lt, types.Boolean, types.Boolean)
 def lt_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.lt, builder, target, args, kwargs)
 
 
 @lower(operator.le, types.Number, types.Number)
+@lower(operator.le, types.Boolean, types.Boolean)
 def le_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.le, builder, target, args, kwargs)
 
 
 @lower(operator.gt, types.Number, types.Number)
+@lower(operator.gt, types.Boolean, types.Boolean)
 def gt_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.gt, builder, target, args, kwargs)
 
 
 @lower(operator.ge, types.Number, types.Number)
+@lower(operator.ge, types.Boolean, types.Boolean)
 def ge_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ge, builder, target, args, kwargs)
 
@@ -431,16 +457,25 @@ def iadd_cg(builder, target, args, kwargs):
 
 
 @lower(operator.ior, types.Integer, types.Integer)
+@lower(operator.ior, types.Boolean, types.Boolean)
+@lower(operator.ior, types.Boolean, types.Integer)
+@lower(operator.ior, types.Integer, types.Boolean)
 def ior_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ior, builder, target, args, kwargs)
 
 
 @lower(operator.iand, types.Integer, types.Integer)
+@lower(operator.iand, types.Boolean, types.Boolean)
+@lower(operator.iand, types.Boolean, types.Integer)
+@lower(operator.iand, types.Integer, types.Boolean)
 def iand_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.iand, builder, target, args, kwargs)
 
 
 @lower(operator.ixor, types.Integer, types.Integer)
+@lower(operator.ixor, types.Boolean, types.Boolean)
+@lower(operator.ixor, types.Boolean, types.Integer)
+@lower(operator.ixor, types.Integer, types.Boolean)
 def ixor_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ixor, builder, target, args, kwargs)
 
@@ -452,8 +487,9 @@ def pointer_array_cg(builder, target, args, kwargs):
         "calling types.ptr() is only supported on arrays, pointers, and integers"
     )
     array = builder.load_var(args[0])
-    result = memref.extract_aligned_pointer_as_index(array)
-    result = convert(result, llvm.PointerType.get())
+    result = lowering_utilities.memref_data_pointer_as_index(array)
+    result = arith.index_cast(T.i64(), result)
+    result = llvm.inttoptr(res=llvm.PointerType.get(), arg=result)
     builder.store_var(target, result)
 
 
@@ -864,6 +900,9 @@ def ilshift_cg(builder, target, args, kwargs):
 
 
 @lower(operator.and_, types.Integer, types.Integer)
+@lower(operator.and_, types.Boolean, types.Boolean)
+@lower(operator.and_, types.Boolean, types.Integer)
+@lower(operator.and_, types.Integer, types.Boolean)
 def and_cg(builder, target, args, kwargs):
     assert not kwargs, "and_cg does not accept any keyword arguments"
     assert len(args) == 2, "and_cg expects 2 arguments"
@@ -877,6 +916,9 @@ def and_cg(builder, target, args, kwargs):
 
 
 @lower(operator.or_, types.Integer, types.Integer)
+@lower(operator.or_, types.Boolean, types.Boolean)
+@lower(operator.or_, types.Boolean, types.Integer)
+@lower(operator.or_, types.Integer, types.Boolean)
 def or_cg(builder, target, args, kwargs):
     assert not kwargs, "or_cg does not accept any keyword arguments"
     assert len(args) == 2, "or_cg expects 2 arguments"
@@ -890,6 +932,9 @@ def or_cg(builder, target, args, kwargs):
 
 
 @lower(operator.xor, types.Integer, types.Integer)
+@lower(operator.xor, types.Boolean, types.Boolean)
+@lower(operator.xor, types.Boolean, types.Integer)
+@lower(operator.xor, types.Integer, types.Boolean)
 def xor_cg(builder, target, args, kwargs):
     assert not kwargs, "xor_cg does not accept any keyword arguments"
     assert len(args) == 2, "xor_cg expects 2 arguments"
@@ -899,6 +944,21 @@ def xor_cg(builder, target, args, kwargs):
     lhs = lowering_utilities.convert(builder.load_var(lhs), target_mlir_type)
     rhs = lowering_utilities.convert(builder.load_var(rhs), target_mlir_type)
     result = arith.xori(lhs, rhs)
+    builder.store_var(target, result)
+
+
+@lower(operator.invert, types.Integer)
+@lower(operator.invert, types.Boolean)
+def invert_cg(builder, target, args, kwargs):
+    """Bitwise NOT: xor with all-ones (~True is False for booleans)."""
+    assert not kwargs, "invert_cg does not accept any keyword arguments"
+    assert len(args) == 1, "invert_cg expects 1 argument"
+    target_type = builder.get_numba_type(target.name)
+    target_mlir_type = builder.get_mlir_type(target_type)
+    operand = lowering_utilities.convert(builder.load_var(args[0]), target_mlir_type)
+    fill = 1 if isinstance(target_type, types.Boolean) else -1
+    all_ones = lowering_utilities.constant(fill, target_mlir_type)
+    result = arith.xori(operand, all_ones)
     builder.store_var(target, result)
 
 

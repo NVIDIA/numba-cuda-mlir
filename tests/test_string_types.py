@@ -7,11 +7,37 @@ constant-folded. The backend value type is !llvm.ptr (i8*, null-terminated)
 when materialized; see numba_cuda_mlir.models.StringLiteralModel.
 """
 
+import operator
+
 import numpy as np
 import pytest
 
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir import testing
+
+
+def test_string_literal_eq_inline_overload_prefers_mlir_typing():
+    from numba_cuda_mlir.extending import overload, typing_registry
+    from numba_cuda_mlir.typing.unicode import registry
+
+    eq_template = next(template for template in registry.functions if template.key is operator.eq)
+    assert eq_template.metadata["target"] == "cuda"
+
+    def arrangement():
+        raise NotImplementedError
+
+    @overload(arrangement, strict=False, inline="always", typing_registry=typing_registry)
+    def _ol_arrangement():
+        value = "col_major"
+        return lambda: value
+
+    @cuda.jit
+    def kernel(out):
+        out[0] = 1 if arrangement() == "col_major" else 0
+
+    out = np.zeros(1, dtype=np.int64)
+    kernel[1, 1](out)
+    assert out[0] == 1
 
 
 @pytest.mark.parametrize(

@@ -8,9 +8,6 @@ Implementation of operations on numpy timedelta64.
 import numpy as np
 import operator
 
-from numba_cuda_mlir.numba_cuda import _llvmlite_removed as llvmlite
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import Constant
-
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda import cgutils
 from numba_cuda_mlir.numba_cuda.cgutils import create_constant_array
@@ -19,7 +16,7 @@ from numba_cuda_mlir.numba_cuda.core.imputils import (
     lower_cast,
     Registry,
 )
-from numba_cuda_mlir.numba_cuda.np import npdatetime_helpers, numpy_support, npyfuncs
+from numba_cuda_mlir.numba_cuda.np import npdatetime_helpers, numpy_support
 from numba_cuda_mlir.numba_cuda.extending import overload_method
 from numba_cuda_mlir.numba_cuda.core.config import IS_32BITS
 from numba_cuda_mlir.numba_cuda.core.errors import LoweringError
@@ -35,26 +32,22 @@ registry = Registry("np.npdatetime")
 lower = registry.lower
 lower_constant = registry.lower_constant
 
+_DEAD_CODEGEN_MSG = "this datetime llvmlite codegen is not used on the MLIR path"
 
+
+# The datetime/timedelta codegen helpers and @lower ops below built llvmlite IR
+# (Constant / llvmlite.ir). They are filtered out on the MLIR path (datetime is
+# lowered by numba_cuda_mlir.lowering.datetime), so they are dead stubs.
 def scale_by_constant(builder, val, factor):
-    """
-    Multiply *val* by the constant *factor*.
-    """
-    return builder.mul(val, Constant(TIMEDELTA64, factor))
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def unscale_by_constant(builder, val, factor):
-    """
-    Divide *val* by the constant *factor*.
-    """
-    return builder.sdiv(val, Constant(TIMEDELTA64, factor))
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def add_constant(builder, val, const):
-    """
-    Add constant *const* to *val*.
-    """
-    return builder.add(val, Constant(TIMEDELTA64, const))
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def scale_timedelta(context, builder, val, srcty, destty):
@@ -98,8 +91,7 @@ def alloc_boolean_result(builder, name="ret"):
     """
     Allocate an uninitialized boolean result slot.
     """
-    ret = cgutils.alloca_once(builder, llvmlite.ir.IntType(1), name=name)
-    return ret
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def is_not_nat(builder, val):
@@ -168,26 +160,7 @@ def timedelta_sign_impl(context, builder, sig, args):
     """
     np.sign(timedelta64)
     """
-    (val,) = args
-    ret = alloc_timedelta_result(builder)
-    zero = Constant(TIMEDELTA64, 0)
-    with builder.if_else(builder.icmp_signed(">", val, zero)) as (
-        gt_zero,
-        le_zero,
-    ):
-        with gt_zero:
-            builder.store(Constant(TIMEDELTA64, 1), ret)
-        with le_zero:
-            with builder.if_else(builder.icmp_unsigned("==", val, zero)) as (
-                eq_zero,
-                lt_zero,
-            ):
-                with eq_zero:
-                    builder.store(Constant(TIMEDELTA64, 0), ret)
-                with lt_zero:
-                    builder.store(Constant(TIMEDELTA64, -1), ret)
-    res = builder.load(ret)
-    return impl_ret_untracked(context, builder, sig.return_type, res)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 @lower(operator.add, *TIMEDELTA_BINOP_SIG)
@@ -305,55 +278,12 @@ def timedelta_over_number(context, builder, sig, args):
 @lower(operator.truediv, *TIMEDELTA_BINOP_SIG)
 @lower(operator.itruediv, *TIMEDELTA_BINOP_SIG)
 def timedelta_over_timedelta(context, builder, sig, args):
-    [va, vb] = args
-    [ta, tb] = sig.args
-    not_nan = are_not_nat(builder, [va, vb])
-    ll_ret_type = context.get_value_type(sig.return_type)
-    ret = cgutils.alloca_once(builder, ll_ret_type, name="ret")
-    builder.store(Constant(ll_ret_type, float("nan")), ret)
-    with cgutils.if_likely(builder, not_nan):
-        va, vb = normalize_timedeltas(context, builder, va, vb, ta, tb)
-        va = builder.sitofp(va, ll_ret_type)
-        vb = builder.sitofp(vb, ll_ret_type)
-        builder.store(builder.fdiv(va, vb), ret)
-    res = builder.load(ret)
-    return impl_ret_untracked(context, builder, sig.return_type, res)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 @lower(operator.floordiv, *TIMEDELTA_BINOP_SIG)
 def timedelta_floor_div_timedelta(context, builder, sig, args):
-    [va, vb] = args
-    [ta, tb] = sig.args
-    ll_ret_type = context.get_value_type(sig.return_type)
-    not_nan = are_not_nat(builder, [va, vb])
-    ret = cgutils.alloca_once(builder, ll_ret_type, name="ret")
-    zero = Constant(ll_ret_type, 0)
-    one = Constant(ll_ret_type, 1)
-    builder.store(zero, ret)
-    with cgutils.if_likely(builder, not_nan):
-        va, vb = normalize_timedeltas(context, builder, va, vb, ta, tb)
-        # is the denominator zero or NaT?
-        denom_ok = builder.not_(builder.icmp_signed("==", vb, zero))
-        with cgutils.if_likely(builder, denom_ok):
-            # is either arg negative?
-            vaneg = builder.icmp_signed("<", va, zero)
-            neg = builder.or_(vaneg, builder.icmp_signed("<", vb, zero))
-            with builder.if_else(neg) as (then, otherwise):
-                with then:  # one or more value negative
-                    with builder.if_else(vaneg) as (negthen, negotherwise):
-                        with negthen:
-                            top = builder.sub(va, one)
-                            div = builder.sdiv(top, vb)
-                            builder.store(div, ret)
-                        with negotherwise:
-                            top = builder.add(va, one)
-                            div = builder.sdiv(top, vb)
-                            builder.store(div, ret)
-                with otherwise:
-                    div = builder.sdiv(va, vb)
-                    builder.store(div, ret)
-    res = builder.load(ret)
-    return impl_ret_untracked(context, builder, sig.return_type, res)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def timedelta_mod_timedelta(context, builder, sig, args):
@@ -363,31 +293,7 @@ def timedelta_mod_timedelta(context, builder, sig, args):
     # elseif b is 0 return NaT
     # else pretend a and b are int and do pythonic int modulus
 
-    [va, vb] = args
-    [ta, tb] = sig.args
-    not_nan = are_not_nat(builder, [va, vb])
-    ll_ret_type = context.get_value_type(sig.return_type)
-    ret = alloc_timedelta_result(builder)
-    builder.store(NAT, ret)
-    zero = Constant(ll_ret_type, 0)
-    with cgutils.if_likely(builder, not_nan):
-        va, vb = normalize_timedeltas(context, builder, va, vb, ta, tb)
-        # is the denominator zero or NaT?
-        denom_ok = builder.not_(builder.icmp_signed("==", vb, zero))
-        with cgutils.if_likely(builder, denom_ok):
-            # is either arg negative?
-            vapos = builder.icmp_signed(">", va, zero)
-            vbpos = builder.icmp_signed(">", vb, zero)
-            rem = builder.srem(va, vb)
-            cond = builder.or_(builder.and_(vapos, vbpos), builder.icmp_signed("==", rem, zero))
-            with builder.if_else(cond) as (then, otherwise):
-                with then:
-                    builder.store(rem, ret)
-                with otherwise:
-                    builder.store(builder.add(rem, vb), ret)
-
-    res = builder.load(ret)
-    return impl_ret_untracked(context, builder, sig.return_type, res)
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 # Comparison operators on timedelta64
@@ -470,13 +376,7 @@ def is_leap_year(builder, year_val):
     Return a predicate indicating whether *year_val* (offset by 1970) is a
     leap year.
     """
-    actual_year = builder.add(year_val, Constant(DATETIME64, 1970))
-    multiple_of_4 = cgutils.is_null(builder, builder.and_(actual_year, Constant(DATETIME64, 3)))
-    not_multiple_of_100 = cgutils.is_not_null(
-        builder, builder.srem(actual_year, Constant(DATETIME64, 100))
-    )
-    multiple_of_400 = cgutils.is_null(builder, builder.srem(actual_year, Constant(DATETIME64, 400)))
-    return builder.and_(multiple_of_4, builder.or_(not_multiple_of_100, multiple_of_400))
+    raise NotImplementedError(_DEAD_CODEGEN_MSG)
 
 
 def year_to_days(builder, year_val):
@@ -841,12 +741,6 @@ def _cast_to_timedelta(context, builder, val):
         with els:
             builder.store(builder.fptosi(val, TIMEDELTA64), temp)
     return builder.load(temp)
-
-
-@lower(np.isnat, types.NPDatetime)
-@lower(np.isnat, types.NPTimedelta)
-def _np_isnat_impl(context, builder, sig, args):
-    return npyfuncs.np_datetime_isnat_impl(context, builder, sig, args)
 
 
 @lower_cast(types.NPDatetime, types.Integer)

@@ -301,19 +301,28 @@ def _compile(pyfunc, sig=None, targetoptions=None, optimized=True):
 
     dispatcher = pyfunc
     if not isinstance(dispatcher, MLIRDispatcher):
-        kws = targetoptions or {}
+        kws = (targetoptions or {}).copy()
+        output = kws.pop("output", kws.pop("_compile_output", None))
+        if output is not None:
+            kws["lto"] = output == "ltoir"
         # Don't call verify_target_options here - jit() will do it
         dispatcher = jit(dispatcher, **kws)
     else:
         pyfunc = dispatcher.py_func
+        output = (
+            targetoptions.get("output", targetoptions.get("_compile_output", None))
+            if targetoptions is not None
+            else None
+        )
         if targetoptions is not None:
-            dispatcher.targetoptions.update(targetoptions)
+            dispatcher.targetoptions.update(
+                {k: v for k, v in targetoptions.items() if k not in ("output", "_compile_output")}
+            )
 
     if sig is None:
         sig = to_numba_type(inspect.signature(pyfunc))
 
     abi_info = targetoptions.get("abi_info", None) if targetoptions is not None else None
-    output = targetoptions.get("output", None) if targetoptions is not None else None
     cres = dispatcher.compile(sig, abi_info=abi_info, output=output)
     return CompileResult(cres)
 
@@ -322,7 +331,7 @@ def compile_for(func, *args):
     from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 
     sig = typing.signature(types.none, *[typeof(arg) for arg in args])
-    cres = _compile_and_optimize(func, sig, {"lto": False, "output": "ptx"})
+    cres = _compile_and_optimize(func, sig, {"lto": False})
     return cres
 
 
@@ -407,7 +416,8 @@ def compile(
         targetoptions["inline"] = "always"
     if launch_bounds is not None:
         targetoptions["launch_bounds"] = launch_bounds
-    targetoptions["output"] = output
+    targetoptions["_compile_output"] = output
+    targetoptions["lto"] = output == "ltoir"
 
     optimized = _compile_and_optimize(pyfunc, sig, targetoptions)
 

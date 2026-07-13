@@ -16,10 +16,16 @@ if [[ ${#} -ne 1 ]]; then
 fi
 
 PYTHON_VERSION_FORMATTED=$(echo "${PY_VER}" | tr -d '.')
-REPO_DIR=$(pwd)
-TOOLS_PATH="${REPO_DIR}/ci/tools"
 
-if [[ "${HOST_PLATFORM}" != linux* && "${HOST_PLATFORM}" != win* ]]; then
+if [[ "${HOST_PLATFORM}" == linux* ]]; then
+  REPO_DIR=$(pwd)
+  TOOLS_PATH="${REPO_DIR}/ci/tools"
+elif [[ "${HOST_PLATFORM}" == win* ]]; then
+  # Convert MSYS-style paths to Windows-native (matches cuda-python).
+  PWD=$(pwd)
+  REPO_DIR=$(cygpath -w "${PWD}")
+  TOOLS_PATH=$(cygpath -w "${PWD}/ci/tools")
+else
   echo "Unsupported host platform: ${HOST_PLATFORM}"
   exit 1
 fi
@@ -30,15 +36,24 @@ echo "${TOOLS_PATH}" >> "$GITHUB_PATH"
 } >> "$GITHUB_ENV"
 
 if [[ "${1}" == "build" ]]; then
+  # realpath normalizes the path representation; on Windows it strips the
+  # backslashes introduced by `cygpath -w` above so downstream
+  # `cygpath -w ${VAR}` calls in CIBW_ENVIRONMENT_WINDOWS don't see
+  # unquoted backslashes (which bash would silently eat).
   {
-    echo "LLVM_MODERN_INSTALL_DIR=${REPO_DIR}/llvm-modern-install"
-    echo "LLVM7_INSTALL_DIR=${REPO_DIR}/llvm7-install"
+    echo "LLVM_MODERN_INSTALL_DIR=$(realpath "${REPO_DIR}/llvm-modern-install")"
+    echo "LLVM7_INSTALL_DIR=$(realpath "${REPO_DIR}/llvm7-install")"
   } >> "$GITHUB_ENV"
   NUMBA_CUDA_MLIR_CUDA_ARTIFACT_BASENAME="numba-cuda-mlir-python${PYTHON_VERSION_FORMATTED}-${HOST_PLATFORM}"
 elif [[ "${1}" == "test" ]]; then
   TEST_CUDA_MAJOR="$(cut -d '.' -f 1 <<< ${CUDA_VER})"
   TEST_CUDA_MINOR="$(cut -d '.' -f 2 <<< ${CUDA_VER})"
   NUMBA_CUDA_MLIR_CUDA_ARTIFACT_BASENAME="numba-cuda-mlir-python${PYTHON_VERSION_FORMATTED}-${HOST_PLATFORM}"
+  if [[ "${PY_VER}" == *t ]]; then
+    NUMBA_CUDA_MLIR_FT_STRESS=1
+  else
+    NUMBA_CUDA_MLIR_FT_STRESS=0
+  fi
 #  # We don't test compute-sanitizer on CTK<12 because backporting fixes is too much effort
 #  # We only test compute-sanitizer on python 3.12 arbitrarily; we don't need to use sanitizer on the entire matrix
 #  # Only local ctk installs have compute-sanitizer; there is no wheel for it
@@ -54,6 +69,7 @@ elif [[ "${1}" == "test" ]]; then
     echo "SANITIZER_CMD="
     echo "TEST_CUDA_MAJOR=${TEST_CUDA_MAJOR}"
     echo "TEST_CUDA_MINOR=${TEST_CUDA_MINOR}"
+    echo "NUMBA_CUDA_MLIR_FT_STRESS=${NUMBA_CUDA_MLIR_FT_STRESS}"
   } >> "$GITHUB_ENV"
 fi
 

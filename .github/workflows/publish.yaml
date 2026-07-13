@@ -3,6 +3,13 @@
 
 name: Publish packages
 
+# Tag-triggered release. Wheels are NOT rebuilt here; instead this workflow
+# looks up the successful main-branch CI run that already built and validated
+# the tag's commit, downloads those wheels, and publishes them. The release
+# tag must therefore point at a commit on main that already has a green CI
+# run (which is the normal flow: merge version-bump PR -> CI runs on main ->
+# push tag).
+
 on:
   push:
     tags:
@@ -14,75 +21,53 @@ concurrency:
 
 
 jobs:
-  ci-vars:
+  determine-run-id:
+    name: Look up validated CI run
     runs-on: ubuntu-latest
     outputs:
-      CUDA_BUILD_VER: ${{ steps.get-vars.outputs.cuda_build_ver }}
-      CUDA_PREV_BUILD_VER: ${{ steps.get-vars.outputs.cuda_prev_build_ver }}
+      run-id: ${{ steps.lookup.outputs.run-id }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
-          fetch-depth: 0
+          # lookup-run-id resolves the git tag to a SHA locally; we need tags
+          # but not full history.
+          fetch-depth: 1
+          fetch-tags: true
 
-      - name: Get CUDA build versions
-        id: get-vars
+      - name: Resolve tag to CI run ID
+        id: lookup
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          cuda_build_ver=$(yq '.cuda.build.version' ci/versions.yml)
-          echo "cuda_build_ver=$cuda_build_ver" >> $GITHUB_OUTPUT
-          cuda_prev_build_ver=$(yq '.cuda.prev_build.version' ci/versions.yml)
-          echo "cuda_prev_build_ver=$cuda_prev_build_ver" >> $GITHUB_OUTPUT
-
-  build-llvm-linux-64:
-    uses: ./.github/workflows/build-llvm.yml
-    with:
-      host-platform: linux-64
-    secrets: inherit
-
-  build-llvm-linux-aarch64:
-    uses: ./.github/workflows/build-llvm.yml
-    with:
-      host-platform: linux-aarch64
-    secrets: inherit
-
-  build-wheels-linux-64:
-    needs:
-      - ci-vars
-      - build-llvm-linux-64
-    name: Build linux-64
-    uses: ./.github/workflows/build-wheel.yml
-    with:
-      host-platform: linux-64
-      cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
-      prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
-
-  build-wheels-linux-aarch64:
-    needs:
-      - ci-vars
-      - build-llvm-linux-aarch64
-    name: Build linux-aarch64
-    uses: ./.github/workflows/build-wheel.yml
-    with:
-      host-platform: linux-aarch64
-      cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
-      prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
+          RUN_ID=$(./ci/tools/lookup-run-id "${{ github.ref_name }}" "${{ github.repository }}")
+          echo "run-id=${RUN_ID}" >> "$GITHUB_OUTPUT"
 
   publish-wheels:
     name: Publish wheels to PyPI
-    needs: [build-wheels-linux-64, build-wheels-linux-aarch64]
+    needs: determine-run-id
     permissions:
-      id-token: write
+      id-token: write  # trusted PyPI publishing
+      actions: read    # required to download artifacts from another run
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Download wheels
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
-          pattern: numba-cuda-mlir-python*
-          path: dist/
-          merge-multiple: true
-      - name: Display structure of downloaded files
-        run: ls -R dist/
+          fetch-depth: 1
+
+      - name: Download wheels from validated CI run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ./ci/tools/download-wheels "${{ needs.determine-run-id.outputs.run-id }}" "${{ github.repository }}" dist
+
+      - name: Validate wheel versions match release tag
+        run: |
+          ./ci/tools/validate-release-wheels "${{ github.ref_name }}" dist
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
@@ -90,18 +75,27 @@ jobs:
 
   upload-release:
     name: Upload wheels to GitHub Release
-    needs: [build-wheels-linux-64, build-wheels-linux-aarch64]
+    needs: determine-run-id
     if: ${{ !github.event.repository.fork }}
     permissions:
-      contents: write
+      actions: read    # required to download artifacts from another run
+      contents: write  # required to create/update the GitHub release
     runs-on: ubuntu-latest
     steps:
-      - name: Download wheels
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
-          pattern: numba-cuda-mlir-python*
-          path: wheels/
-          merge-multiple: true
+          fetch-depth: 1
+
+      - name: Download wheels from validated CI run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ./ci/tools/download-wheels "${{ needs.determine-run-id.outputs.run-id }}" "${{ github.repository }}" wheels
+
+      - name: Validate wheel versions match release tag
+        run: |
+          ./ci/tools/validate-release-wheels "${{ github.ref_name }}" wheels
 
       - name: Create GitHub Release if not exists
         env:
@@ -125,21 +119,22 @@ jobs:
         run: |
           if [[ -d "wheels" && $(ls -A wheels 2>/dev/null | wc -l) -gt 0 ]]; then
             echo "Uploading wheels to release ${{ github.ref_name }}"
-            gh release upload --clobber "${{ github.ref_name }}" --repo "${{ github.repository }}" wheels/*
+            gh release upload --clobber "${{ github.ref_name }}" --repo "${{ github.repository }}" wheels/*.whl
           else
             echo "No wheels found to upload"
             exit 1
           fi
 
   build-docs:
-    needs:
-      - build-wheels-linux-64
+    needs: determine-run-id
     if: ${{ github.repository_owner == 'nvidia' }}
     permissions:
       actions: read
       contents: write
+      pull-requests: write  # required by build-docs.yml top-level permissions
     uses: ./.github/workflows/build-docs.yml
     with:
       host-platform: linux-64
       git-tag: ${{ github.ref_name }}
       is-release: true
+      run-id: ${{ needs.determine-run-id.outputs.run-id }}

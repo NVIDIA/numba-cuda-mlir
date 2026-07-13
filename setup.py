@@ -3,6 +3,7 @@
 import os
 import shutil
 import sys
+import sysconfig
 from pathlib import Path
 
 from setuptools import setup
@@ -80,8 +81,6 @@ def _find_mlir_python_capi() -> str | None:
             if capi.exists():
                 return str(capi)
 
-    import sysconfig
-
     sp = Path(sysconfig.get_path("platlib"))
     mlir_libs = sp / "numba_cuda_mlir" / "_mlir" / "_mlir_libs"
     for capi_name in capi_names:
@@ -125,6 +124,21 @@ class BuildExtWithCmake(build_ext):
         if IS_WINDOWS:
             cmake_cmd += ["-G", "Ninja"]
         cmake_cmd += ["-B", build_dir, ROOT, f"-DCMAKE_BUILD_TYPE={build_type}"]
+        py_gil_disabled = sysconfig.get_config_var("Py_GIL_DISABLED") in (1, "1")
+        cmake_cmd.append(f"-DNUMBA_CUDA_MLIR_PY_GIL_DISABLED={'ON' if py_gil_disabled else 'OFF'}")
+        if IS_WINDOWS:
+            # Static-link the MSVC C runtime (/MT) so each resulting DLL
+            # embeds its own CRT copy and has no external msvcp140 /
+            # vcruntime140 runtime dependency. Across DLLs the embedded
+            # CRTs are independent (different heaps, etc.); that's fine
+            # here because the cross-DLL ABI is C only -- MLIRPythonCAPI
+            # exposes a C API, and our cext modules link against its
+            # import lib and call C functions only. The per-binary
+            # constraint that does apply is that every .obj and statically-
+            # linked .lib feeding *this* cmake build must also use /MT;
+            # ci/build-windows.sh sets the same flag for the LLVM static
+            # libs and MLIRPythonCAPI, so MLIRToLLVM70 here can link them.
+            cmake_cmd.append("-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded")
         python_root = Path(sys.executable).resolve().parent
         cmake_cmd += [
             f"-DPython_ROOT_DIR={python_root}",

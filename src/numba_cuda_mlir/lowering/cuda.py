@@ -32,6 +32,7 @@ from numba_cuda_mlir.lowering_utilities import (
     memref_to_llvm_ptr,
     storage_itemsize_bytes,
     storage_bitwidth,
+    memref_llvm_address_space,
 )
 from numba_cuda_mlir.lowering_utilities.type_conversions import (
     to_mlir_type,
@@ -41,7 +42,7 @@ from numba_cuda_mlir.lowering_utilities.type_conversions import (
 )
 from numba_cuda_mlir.descriptor import MLIRTargetContext
 from numba_cuda_mlir.mlir_lowering import MLIRLower
-from numba_cuda_mlir._mlir.dialects import arith, func, memref, gpu, nvvm, llvm
+from numba_cuda_mlir._mlir.dialects import arith, builtin, func, memref, gpu, nvvm, llvm
 from numba_cuda_mlir._mlir.extras import types as T
 import numba_cuda_mlir._mlir.ir as ir
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
@@ -69,6 +70,79 @@ from numba_cuda_mlir.logging import trace
 import numpy as np
 from numba_cuda_mlir.numba_cuda.typing.templates import ConcreteTemplate
 from numba_cuda_mlir.numba_cuda import stubs as cuda_stubs
+
+
+def _lower_cfarray(builder: MLIRLower, target, args, kwargs, name, layout):
+    if kwargs and [name for name, _ in kwargs] != ["dtype"]:
+        raise TypeError(f"{name} only supports dtype as a keyword argument")
+
+    ptr = builder.load_var(args[0])
+    shape = builder.load_var(args[1])
+    result_type = builder.get_numba_type(target)
+    rank = result_type.ndim
+
+    if isinstance(shape, tuple):
+        sizes = list(shape)
+    else:
+        sizes = [shape]
+
+    if len(sizes) != rank:
+        raise TypeError(f"shape rank {len(sizes)} does not match array rank {rank}")
+
+    sizes_i64 = [convert(size, T.i64()) for size in sizes]
+
+    strides_i64 = [None] * rank
+    stride = constant(1, T.i64())
+    indices = range(rank - 1, -1, -1) if layout == "C" else range(rank)
+    for i in indices:
+        strides_i64[i] = stride
+        stride = arith.muli(stride, sizes_i64[i])
+
+    result_mlir_type = builder.get_mlir_type(result_type)
+    i64 = T.i64()
+
+    if rank > 0:
+        struct_type = ir.Type.parse(
+            f"!llvm.struct<(ptr, ptr, i64, array<{rank} x i64>, array<{rank} x i64>)>"
+        )
+    else:
+        struct_type = ir.Type.parse("!llvm.struct<(ptr, ptr, i64)>")
+
+    desc = llvm.UndefOp(struct_type).result
+    zero = constant(0, i64)
+    ins = lambda d, v, *p: llvm.insertvalue(
+        container=d, value=v, position=ir.DenseI64ArrayAttr.get(list(p))
+    )
+
+    desc = ins(desc, ptr, 0)
+    desc = ins(desc, ptr, 1)
+    desc = ins(desc, zero, 2)
+    for i, size in enumerate(sizes_i64):
+        desc = ins(desc, size, 3, i)
+    for i, stride in enumerate(strides_i64):
+        desc = ins(desc, stride, 4, i)
+
+    builder.store_var(target, builtin.unrealized_conversion_cast([result_mlir_type], [desc]))
+
+
+@lower(cuda.carray, types.CPointer, types.Integer)
+@lower(cuda.carray, types.CPointer, types.BaseTuple)
+@lower(cuda.carray, types.CPointer, types.Integer, types.Any)
+@lower(cuda.carray, types.CPointer, types.BaseTuple, types.Any)
+@lower(cuda.carray, types.voidptr, types.Integer, types.Any)
+@lower(cuda.carray, types.voidptr, types.BaseTuple, types.Any)
+def lower_carray(builder: MLIRLower, target, args, kwargs):
+    _lower_cfarray(builder, target, args, kwargs, "carray", "C")
+
+
+@lower(cuda.farray, types.CPointer, types.Integer)
+@lower(cuda.farray, types.CPointer, types.BaseTuple)
+@lower(cuda.farray, types.CPointer, types.Integer, types.Any)
+@lower(cuda.farray, types.CPointer, types.BaseTuple, types.Any)
+@lower(cuda.farray, types.voidptr, types.Integer, types.Any)
+@lower(cuda.farray, types.voidptr, types.BaseTuple, types.Any)
+def lower_farray(builder: MLIRLower, target, args, kwargs):
+    _lower_cfarray(builder, target, args, kwargs, "farray", "F")
 
 
 @lower(cuda_stubs.nanosleep, types.Number)
@@ -199,7 +273,7 @@ def _ensure_cudadevrt_linked(lower: MLIRLower):
     if not lower.metadata.get("_cudadevrt_linked"):
         from numba_cuda_mlir.numba_cuda.cudadrv.libs import get_cudalib
 
-        lower.linker.add_file_guess_ext(get_cudalib("cudadevrt", static=True))
+        lower.link_external_item(get_cudalib("cudadevrt", static=True))
         lower.metadata["_cudadevrt_linked"] = True
 
 
@@ -375,7 +449,8 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
 
     static_shape = [_is_static_dim(x) for x in shape_op]
 
-    if all([x is not None for x in static_shape]):
+    is_dynamic_shared_shape = len(static_shape) == 1 and static_shape[0] == 0
+    if all([x is not None for x in static_shape]) and not is_dynamic_shared_shape:
         return cuda_static_shared_memory(lower, target, static_shape, dtype, alignas)
 
     shape = coerce_to_shape_tuple(shape_op)
@@ -387,7 +462,10 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
         element_type=dtype,
         memory_space=lower._get_shared_address_space(),
     )
-    array = lower._request_shared_memory(shape, mr_type)
+    if is_dynamic_shared_shape:
+        array = lower._request_dynamic_shared_memory(mr_type)
+    else:
+        array = lower._request_shared_memory(shape, mr_type)
     if alignas != 8:
         array = memref.assume_alignment(array, alignas)
     lower.store_var(target, array)
@@ -1120,21 +1198,9 @@ def cuda_generic_atomic_cg(builder, target, mr, indices, value, body_builder):
     builder.store_var(target, ir.Value(rmw))
 
 
-def _get_llvm_address_space(memref_type: ir.MemRefType) -> int:
-    mspace = memref_type.memory_space
-    if mspace is None:
-        return 1  # Global memory
-    mspace_str = str(mspace)
-    if "workgroup" in mspace_str:
-        return 3  # Shared memory
-    if "private" in mspace_str:
-        return 5  # Local/private memory
-    return 1  # Default to global
-
-
 def _atomic_ptr(mr: ir.Value, indices: list[ir.Value], value_type: ir.Type) -> ir.Value:
     llvm_kDynamic = -2147483648
-    addrspace = _get_llvm_address_space(mr.type)
+    addrspace = memref_llvm_address_space(mr.type)
     ptr_type = llvm.PointerType.get(addrspace)
 
     md = memref.extract_strided_metadata(mr)

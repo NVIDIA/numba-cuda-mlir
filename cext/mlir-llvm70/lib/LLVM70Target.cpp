@@ -29,8 +29,8 @@ using namespace mlir;
 // The LLVM 7 C API cannot set per-instruction fast-math flags. Flagged
 // instructions are named __fmf.<mask>_<counter> during translation; the
 // printed module gets the keywords inserted at each marked instruction
-// and is re-parsed. Python identifiers cannot contain '.', so the marker
-// cannot collide with a user value name.
+// and goes to libnvvm as text. Python identifiers cannot contain '.', so
+// the marker cannot collide with a user value name.
 //===----------------------------------------------------------------------===//
 
 // Keyword string (each keyword preceded by a space) for an
@@ -165,11 +165,9 @@ llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
                  << builder->printModuleToString() << "\n";
   });
 
-  // Serialize the kernel module. Recorded fast-math flags only exist as
-  // value-name markers; materialize them as keywords on the printed IR
-  // and hand libnvvm the text, which its parser accepts alongside
-  // emission kind 3 by name. Stock LLVM 7 cannot re-parse that kind, and
-  // every substitute it can parse changes the debug output downstream.
+  // With fast-math markers, submit the keyword-injected text; libnvvm's
+  // parser accepts it, including emission kind 3, which LLVM 7 cannot
+  // re-parse without changing the debug output.
   std::string textIR;
   LLVMMemoryBufferRef buf = nullptr;
   const char *modData;

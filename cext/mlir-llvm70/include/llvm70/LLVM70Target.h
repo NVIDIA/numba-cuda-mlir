@@ -76,8 +76,8 @@ public:
                         const LLVM70Options *opts = nullptr);
 
   /// True when at least one instruction was tagged with a fast-math marker
-  /// name (see tagFastmath). The module's printed IR must then have the
-  /// flag keywords injected before serialization.
+  /// name (see tagFastmath). The printed IR must then have the flag
+  /// keywords injected before it reaches libnvvm.
   bool hasFastmathMarkers() const { return fmfTagged; }
 
 private:

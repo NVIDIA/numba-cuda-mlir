@@ -536,8 +536,7 @@ def verify_target_options(kws: dict[str, Any]) -> dict[str, Any]:
     # Handle compatibility mappings
     if targetoptions.get("fast_math") is not None:
         targetoptions["fastmath"] = targetoptions["fast_math"]
-    # Normalize bool/set/dict to FastMathOptions so downstream consumers see
-    # a single representation with well-defined truthiness and flag set.
+    # Normalize to FastMathOptions so downstream consumers see one representation.
     targetoptions["fastmath"] = FastMathOptions(targetoptions.get("fastmath", False))
     if targetoptions.get("opt") is not None:
         targetoptions["opt_level"] = 3 if targetoptions["opt"] else 0

@@ -5,6 +5,8 @@
 #include "cuda_loader.h"
 #include "cuda_helper.h"
 
+#include <string>
+
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -119,7 +121,13 @@ FOREACH_CUDA_FUNCTION_TO_LOAD(DEFINE_CUDA_FUNCTION_GLOBAL)
         return ErrorRaised;
 
 
-Status cuda_loader_init() {
+// A missing driver is deliberately NOT fatal here so cuda may be imported 
+// on a cpu only machine. 
+static bool g_cuda_available = false;
+static std::string g_cuda_load_error;
+
+
+static Status load_cuda_driver() {
     // loader is static to keep the handle alive for the lifetime of the process
 #ifdef _WIN32
     static DynamicLoader loader("nvcuda.dll");
@@ -139,4 +147,47 @@ Status cuda_loader_init() {
     FOREACH_CUDA_FUNCTION_TO_LOAD(GET_PROC_ADDRESS)
 
     return OK;
+}
+
+Status cuda_loader_init() {
+    if (load_cuda_driver()) {
+        g_cuda_available = true;
+        return OK;
+    }
+
+    // defer driver search to ensure_cuda_available().
+    g_cuda_available = false;
+    if (PyErr_Occurred()) {
+        PyObject *type, *value, *tb;
+        PyErr_Fetch(&type, &value, &tb);
+        if (value) {
+            PyObject* str = PyObject_Str(value);
+            if (str) {
+                const char* c = PyUnicode_AsUTF8(str);
+                if (c)
+                    g_cuda_load_error = c;
+                Py_DECREF(str);
+            }
+        }
+        Py_XDECREF(type);
+        Py_XDECREF(value);
+        Py_XDECREF(tb);
+        PyErr_Clear();
+    }
+    if (g_cuda_load_error.empty())
+        g_cuda_load_error = "the CUDA driver library (libcuda.so.1) could not be loaded";
+    return OK;
+}
+
+bool cuda_is_available() {
+    return g_cuda_available;
+}
+
+Status ensure_cuda_available() {
+    if (g_cuda_available)
+        return OK;
+    return raise(PyExc_RuntimeError,
+                 "CUDA is not available: %s. A working NVIDIA driver is required "
+                 "for GPU operations (importing numba_cuda_mlir succeeds without one).",
+                 g_cuda_load_error.c_str());
 }

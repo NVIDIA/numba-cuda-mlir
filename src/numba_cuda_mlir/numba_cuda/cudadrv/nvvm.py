@@ -13,8 +13,6 @@ from ctypes import c_void_p, c_int, POINTER, c_char_p, c_size_t, byref, c_char
 
 import threading
 
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
-
 from .error import NvvmError, NvvmSupportError, NvvmWarning
 from .libs import get_libdevice, open_libdevice, open_cudalib
 from numba_cuda_mlir.numba_cuda import cgutils
@@ -738,29 +736,11 @@ def set_cuda_kernel(function):
     to be used externally, this function may need modification to add to the
     @llvm.used list rather than creating it.
     """
-    module = function.module
-
-    # Add kernel metadata
-    mdstr = ir.MetaDataString(module, "kernel")
-    mdvalue = ir.Constant(ir.IntType(32), 1)
-    md = module.add_metadata((function, mdstr, mdvalue))
-
-    nmd = cgutils.get_or_insert_named_metadata(module, "nvvm.annotations")
-    nmd.add(md)
-
-    # Create the used list
-    ptrty = ir.IntType(8).as_pointer()
-    usedty = ir.ArrayType(ptrty, 1)
-
-    fnptr = function.bitcast(ptrty)
-
-    llvm_used = ir.GlobalVariable(module, usedty, "llvm.used")
-    llvm_used.linkage = "appending"
-    llvm_used.section = "llvm.metadata"
-    llvm_used.initializer = ir.Constant(usedty, [fnptr])
-
-    # Remove 'noinline' if it is present.
-    function.attributes.discard("noinline")
+    # Marked an llvmlite kernel function with nvvm.annotations metadata + the
+    # llvm.used list. On the MLIR path kernels are MLIR modules marked by the
+    # MLIR pipeline, so this is dead - only the vendored llvmlite kernel_fixup
+    # reached it.
+    raise NotImplementedError("set_cuda_kernel (llvmlite) is not used on the MLIR path")
 
 
 def set_launch_bounds(kernel, launch_bounds):
@@ -774,45 +754,14 @@ def set_launch_bounds(kernel, launch_bounds):
     if launch_bounds is None:
         return
 
-    if isinstance(launch_bounds, int):
-        launch_bounds = (launch_bounds,)
-
-    if (n := len(launch_bounds)) > 3:
-        raise ValueError(
-            f"Got {n} launch bounds: {launch_bounds}. A maximum of three are supported: "
-            "(max_threads_per_block, min_blocks_per_sm, max_blocks_per_cluster)"
-        )
-
-    module = kernel.module
-    nvvm_annotations = cgutils.get_or_insert_named_metadata(module, "nvvm.annotations")
-
-    # Note that only maxntidx is used even though NVVM IR and PTX allow
-    # maxntidy and maxntidz. This is because the thread block size limit
-    # pertains only to the total number of threads, and therefore bounds on
-    # individual dimensions may be exceeded anyway. To prevent an unsurprising
-    # interface, it is cleaner to only allow setting total size via maxntidx
-    # and assuming y and z to be 1 (as is the case in CUDA C/C++).
-
-    properties = (
-        # Max threads per block
-        "maxntidx",
-        # Min blocks per multiprocessor
-        "minctasm",
-        # Max blocks per cluster
-        "cluster_max_blocks",
-    )
-
-    for prop, bound in zip(properties, launch_bounds):
-        mdstr = ir.MetaDataString(module, prop)
-        mdvalue = ir.Constant(ir.IntType(32), bound)
-        md = module.add_metadata((kernel, mdstr, mdvalue))
-        nvvm_annotations.add(md)
+    # Applying launch bounds via llvmlite nvvm.annotations metadata is dead on
+    # the MLIR path (kernels are MLIR modules; only the vendored llvmlite
+    # dispatch reaches here with non-None bounds).
+    raise NotImplementedError("set_launch_bounds (llvmlite) is not used on the MLIR path")
 
 
 def add_ir_version(mod):
     """Add NVVM IR version to module"""
-    # We specify the IR version to match the current NVVM's IR version
-    i32 = ir.IntType(32)
-    ir_versions = [i32(v) for v in NVVM().get_ir_version()]
-    md_ver = mod.add_metadata(ir_versions)
-    mod.add_named_metadata("nvvmir.version", md_ver)
+    # Added the nvvmir.version metadata to an llvmlite module; dead on the MLIR
+    # path and uncalled.
+    raise NotImplementedError("add_ir_version (llvmlite) is not used on the MLIR path")

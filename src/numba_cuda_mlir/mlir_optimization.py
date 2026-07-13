@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import ctypes
+import functools
 import os
 from io import StringIO
 
@@ -111,6 +112,13 @@ _llvm70_capi = None
 _llvm70_dll_dirs = []
 
 
+@functools.cache
+def _get_nvvm_ir_version():
+    from numba_cuda_mlir.numba_cuda.cudadrv.nvvm import NVVM
+
+    return NVVM().get_ir_version()
+
+
 def _get_llvm70_capi():
     global _llvm70_capi
     if _llvm70_capi is not None:
@@ -142,6 +150,10 @@ def _get_llvm70_capi():
         ctypes.c_int,  # gen_lto
         ctypes.c_int,  # opt_level
         ctypes.c_int,  # gen_lineinfo
+        ctypes.c_int,  # nvvm_ir_major
+        ctypes.c_int,  # nvvm_ir_minor
+        ctypes.c_int,  # nvvm_dbg_major
+        ctypes.c_int,  # nvvm_dbg_minor
         ctypes.POINTER(ctypes.c_char_p),  # out
         ctypes.POINTER(ctypes.c_size_t),  # out_len
         ctypes.POINTER(ctypes.c_char_p),  # err_out
@@ -200,6 +212,12 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
                 libllvm = os.path.realpath(bundled)
                 break
 
+        # Fall back to a conda-forge libllvm7.1 package, whose shared library is
+        # named libLLVM-7.1.so (its real soname). It lives in the environment's
+        # lib dir, which is on our DSOs' RPATH, so dlopen resolves the soname.
+        if not libllvm and os.name != "nt":
+            libllvm = "libLLVM-7.1.so"
+
     if not libllvm:
         hint = "Set LIBLLVM7=/path/to/libLLVM-7.so"
         if os.name == "nt":
@@ -216,6 +234,7 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
     else:
         debug_level = 0
 
+    nvvm_ir_version = _get_nvvm_ir_version()
     out = ctypes.c_char_p()
     out_len = ctypes.c_size_t()
     err_out = ctypes.c_char_p()
@@ -230,6 +249,10 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
         1 if gen_lto else 0,
         opt_level,
         debug_level,
+        nvvm_ir_version[0],
+        nvvm_ir_version[1],
+        nvvm_ir_version[2],
+        nvvm_ir_version[3],
         ctypes.byref(out),
         ctypes.byref(out_len),
         ctypes.byref(err_out),
@@ -267,12 +290,14 @@ def _prepare_llvm_ir(module, dump=False, preserve_debug_info=False) -> bytes:
     gpu_mod.operation.attributes["llvm.data_layout"] = ir.StringAttr.get(NVPTX64_DATALAYOUT)
     gpu_mod.operation.attributes["llvm.target_triple"] = ir.StringAttr.get(NVPTX64_TRIPLE)
     ctk_major, ctk_minor = get_cuda_runtime_version()
+    nvvm_ir_version = _get_nvvm_ir_version()
 
     if os.name == "nt":
         return translate_gpu_module_to_libnvvm_ir(
             _operation_to_text(gpu_mod.operation, preserve_debug_info=preserve_debug_info),
             ctk_major,
             ctk_minor,
+            nvvm_ir_version,
             dump=dump,
             emit_text_ir=preserve_debug_info,
         )
@@ -284,7 +309,17 @@ def _prepare_llvm_ir(module, dump=False, preserve_debug_info=False) -> bytes:
     if dump:
         print(f"=============== LLVM IR ===============\n\n{dump_llvmir(llvm_mod)}\n\n")
 
-    return downgrade_for_libnvvm(llvm_mod, llvm_ctx, ctk_major, ctk_minor, LLVM_C_LIB_PATH)
+    return downgrade_for_libnvvm(
+        llvm_mod,
+        llvm_ctx,
+        ctk_major,
+        ctk_minor,
+        nvvm_ir_version[0],
+        nvvm_ir_version[1],
+        nvvm_ir_version[2],
+        nvvm_ir_version[3],
+        LLVM_C_LIB_PATH,
+    )
 
 
 def _nvvm_options(cc: str, target_options=None, **extra) -> dict:
@@ -323,6 +358,41 @@ def _compile_to_ltoir(llvm_ir: bytes, libdevice, nvvm_opts: dict) -> bytes:
     cu.verify()
     cu.lazy_add_module(libdevice.get())
     return cu.compile()
+
+
+def _get_ltoir(cres, target_options) -> bytes:
+    ltoir = cres.metadata.get("ltoir")
+    if ltoir:
+        return ltoir
+
+    with context.get_context():
+        module = ir.Module.parse(cres.metadata["mlir_module_optimized"])
+        run_pre_codegen_patterns(module)
+
+        chip = target_options.get("chip")
+        if not chip:
+            from numba_cuda_mlir.tools import get_gpu_compute_capability
+
+            chip = get_gpu_compute_capability()
+        cc = chip.replace("sm_", "")
+
+        if _needs_llvm70_path(cc):
+            ltoir = _call_llvm70_capi(module, target_options, gen_lto=True)
+        else:
+            llvm_ir = _prepare_llvm_ir(
+                module,
+                dump=target_options.get("dump_llvmir", False),
+                preserve_debug_info=target_options.get("debug", False)
+                or target_options.get("lineinfo", False),
+            )
+            from numba_cuda_mlir.numba_cuda.cudadrv.nvvm import LibDevice
+
+            libdevice = LibDevice()
+            nvvm_opts = _nvvm_options(cc, target_options)
+            ltoir = _compile_to_ltoir(llvm_ir, libdevice, nvvm_opts)
+
+    cres.metadata["ltoir"] = ltoir
+    return ltoir
 
 
 def get_ptx(cres, target_options=None) -> str:
@@ -460,6 +530,8 @@ def _emit_deferred_dbg_declares(module):
 
 def get_lto_ptx(cres, linker=None, target_options=None) -> str:
     """Return PTX after LTO without requiring it during normal compilation."""
+    from numba_cuda_mlir.linker import Linker, _link_item_is_cuda_source
+
     ptx = cres.metadata.get("lto_ptx")
     if ptx:
         return ptx
@@ -468,7 +540,6 @@ def get_lto_ptx(cres, linker=None, target_options=None) -> str:
     if linker is None:
         linker = cres.metadata.get("linker")
     if linker is None:
-        from numba_cuda_mlir.linker import Linker
         from numba_cuda_mlir.tools import get_gpu_compute_capability, parse_compute_capability
 
         chip = target_options.get("chip")
@@ -497,10 +568,17 @@ def get_lto_ptx(cres, linker=None, target_options=None) -> str:
 
     diag_linker = linker.recreate_with_lto(lto=True, ltoir_only=True)
     diag_linker.additional_flags = ["-ptx"]
-    ltoir = cres.metadata.get("ltoir")
-    if ltoir:
-        diag_linker.add_ltoir(ltoir)
-    for link_file in target_options.get("link", []):
+    diag_linker.add_ltoir(_get_ltoir(cres, target_options))
+    link_plan = cres.metadata.get("link_plan")
+    for link_file in cres.metadata.get(
+        "linked_external_link_items", target_options.get("link", [])
+    ):
+        if (
+            link_plan is not None
+            and link_plan.compile_new_inputs_as_ltoir
+            and _link_item_is_cuda_source(link_file)
+        ):
+            continue
         diag_linker.add_file_guess_ext(link_file, ignore_nonlto=True)
     if cres.metadata.get("needs_nrt") and not cres.metadata.get("nrt_inline"):
         _maybe_link_nrt(diag_linker)
@@ -562,7 +640,13 @@ def optimize(cres):
 
             chip = get_gpu_compute_capability()
         cc = chip.replace("sm_", "")
-        is_lto = target_options.get("lto", False) or target_options.get("output", "ptx") == "ltoir"
+        link_plan = cres.metadata.get("link_plan")
+        is_lto = (
+            link_plan.compile_new_inputs_as_ltoir
+            if link_plan is not None
+            else target_options.get("lto", False)
+            or target_options.get("_compile_output") == "ltoir"
+        )
 
         from numba_cuda_mlir.numba_cuda.cudadrv.nvvm import LibDevice
 
@@ -580,7 +664,7 @@ def optimize(cres):
                 or target_options.get("lineinfo", False),
             )
 
-        linker = cres.metadata["linker"].recreate_with_lto()
+        base_linker = cres.metadata["linker"]
 
         if is_lto:
             if use_llvm70:
@@ -589,11 +673,15 @@ def optimize(cres):
                 ltoir = _compile_to_ltoir(llvm_ir, libdevice, nvvm_opts)
             cres.metadata["ltoir"] = ltoir
             cres.metadata["ptx"] = ""
-            linker.add_ltoir(ltoir)
+            # The kernel's own LTO-IR must be first in the link chain, ahead of
+            # any device-function and library LTO-IRs accumulated during
+            # lowering, so nvJitLink resolves symbols against the kernel first.
+            linker = base_linker.recreate_with_lto(kernel_ltoir=ltoir)
             if target_options.get("dump_ptx", False):
                 cres.metadata["lto_ptx"] = get_lto_ptx(cres, linker, target_options)
                 print(f"=============== PTX ===============\n\n{cres.metadata['lto_ptx']}\n\n")
         else:
+            linker = base_linker.recreate_with_lto()
             if use_llvm70:
                 ptx = _call_llvm70_capi(module, target_options)
             else:

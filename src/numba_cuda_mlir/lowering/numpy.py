@@ -83,7 +83,12 @@ def lower_to_fixed_tuple(builder, target, args, kwargs):
     elements = []
     for i in range(tuple_size):
         idx = index_of(i)
-        elem = lowering_utilities.array_element_value_load(array_type, array, [idx])
+        elem = lowering_utilities.array_element_value_load(
+            array_type,
+            array,
+            [idx],
+            dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
+        )
         elements.append(elem)
 
     builder.store_var(target, tuple(elements))
@@ -132,7 +137,8 @@ def _lower_array_complex_real_imag(builder, target, array_var, attr):
     complex_array = builder.load_var(array_var)
     array_type = complex_array.type
     rank = array_type.rank
-    float_type = array_type.element_type.element_type
+    array_numba_type = builder.get_numba_type(array_var.name)
+    float_type = builder.get_storage_type(array_numba_type.dtype.underlying_float)
 
     dyn = ir.ShapedType.get_dynamic_size()
     dyn_s = ir.ShapedType.get_dynamic_stride_or_offset()
@@ -1030,16 +1036,15 @@ def lower_array_getitem(builder, target, args, kwargs):
 
     # Check if this is a record array
     array_numba_type = builder.get_numba_type(args[0].name)
-    if isinstance(array_numba_type.dtype, Record):
-        return _lower_record_array_getitem(builder, target, args, kwargs)
-
-    # Check if this is a nested array (embedded in a record)
     from numba_cuda_mlir.types import NestedArray
 
     if isinstance(array_numba_type, NestedArray):
         from numba_cuda_mlir.lowering.record import lower_nested_array_getitem_int
 
         return lower_nested_array_getitem_int(builder, target, args, kwargs)
+
+    if isinstance(array_numba_type.dtype, Record):
+        return _lower_record_array_getitem(builder, target, args, kwargs)
 
     array = builder.load_var(args[0])
     # Handle both variable and constant indices
@@ -1054,7 +1059,12 @@ def lower_array_getitem(builder, target, args, kwargs):
         raise NotImplementedError("NYI: unranked memrefs")
 
     if array_type.rank == 1:
-        value = lowering_utilities.array_element_value_load(array_numba_type, array, [index])
+        value = lowering_utilities.array_element_value_load(
+            array_numba_type,
+            array,
+            [index],
+            dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
+        )
     else:
         rank = array_type.rank
         sv_offsets = [index] + [index_of(0)] * (rank - 1)
@@ -1399,6 +1409,16 @@ def lower_uni_tuple_getitem(builder, target, args, kwargs):
             raise InternalCompilerError(f"Tuple index must be an integer, got {type(args[1])}")
 
 
+@lower("static_getitem", types.UniTuple, types.SliceLiteral)
+@lower("static_getitem", types.Tuple, types.SliceLiteral)
+def lower_static_tuple_slice(builder, target, args, kwargs):
+    tup = builder.load_var(args[0])
+    index = args[1]
+    assert isinstance(tup, tuple), f"Expected Python tuple, got {type(tup)}"
+    assert isinstance(index, slice), f"Expected slice, got {type(index)}"
+    builder.store_var(target, tup[index])
+
+
 def _lower_record_array_setitem(builder, target, args, kwargs):
     """
     Handle array[index] = record where array.dtype is Record.
@@ -1512,10 +1532,6 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
 
     # Check if this is a record array
     array_numba_type = builder.get_numba_type(args[0].name)
-    if isinstance(array_numba_type.dtype, Record):
-        return _lower_record_array_setitem(builder, target, args, kwargs)
-
-    # Check if this is a nested array (embedded in a record)
     from numba_cuda_mlir.types import NestedArray
 
     if isinstance(array_numba_type, NestedArray):
@@ -1523,13 +1539,22 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
 
         return lower_nested_array_setitem_int(builder, target, args, kwargs)
 
+    if isinstance(array_numba_type.dtype, Record):
+        return _lower_record_array_setitem(builder, target, args, kwargs)
+
     array = builder.load_var(args[0])
     index = builder.load_var(args[1])
     index = lowering_utilities.index_of(index)
     value = builder.load_var(args[2])
     mrt = array.type
     if mrt.rank == 1:
-        lowering_utilities.array_element_value_store(array_numba_type, array, [index], value)
+        lowering_utilities.array_element_value_store(
+            array_numba_type,
+            array,
+            [index],
+            value,
+            dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
+        )
     else:
         rankm1 = mrt.rank - 1
 
@@ -1540,7 +1565,11 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
         )
         def assign_slice(*indices):
             lowering_utilities.array_element_value_store(
-                array_numba_type, array, [index] + list(indices), value
+                array_numba_type,
+                array,
+                [index] + list(indices),
+                value,
+                dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
             )
 
 
@@ -1590,7 +1619,13 @@ def lower_array_setitem_tuple(builder, target, args, kwargs):
     tup = builder.load_var(tup) if isinstance(tup, numba_ir.Var) else tup
     indices = _setitem_indices_to_memref_indices(tup)
     value = builder.load_var(args[2])
-    lowering_utilities.array_element_value_store(array_numba_type, array, indices, value)
+    lowering_utilities.array_element_value_store(
+        array_numba_type,
+        array,
+        indices,
+        value,
+        dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
+    )
 
 
 @lower(operator.setitem, types.Array, types.SliceType, types.Any)
@@ -1627,7 +1662,13 @@ def lower_array_slice_setitem(builder, target, args, kwargs):
 
     @scf.forall_(starts, stops, steps)
     def fill_all(*indices):
-        lowering_utilities.array_element_value_store(array_numba_type, array, list(indices), value)
+        lowering_utilities.array_element_value_store(
+            array_numba_type,
+            array,
+            list(indices),
+            value,
+            dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
+        )
 
 
 @lower(operator.getitem, types.Array, types.UniTuple)
@@ -1718,7 +1759,10 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
             builder.store_var(target, value)
         case types.Number() | types.Boolean():
             value = lowering_utilities.array_element_value_load(
-                array_numba_type, array, full_offsets
+                array_numba_type,
+                array,
+                full_offsets,
+                dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
             )
             builder.store_var(target, value)
         case _:

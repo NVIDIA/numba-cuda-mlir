@@ -37,8 +37,9 @@ typedef struct CUkern_st* CUkernel;
 /* ---- CUresult ---------------------------------------------------------- */
 
 typedef enum {
-    CUDA_SUCCESS                = 0,
-    CUDA_ERROR_INVALID_VALUE    = 1,
+    CUDA_SUCCESS                         = 0,
+    CUDA_ERROR_INVALID_VALUE             = 1,
+    CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES   = 701,
 } CUresult;
 
 /* ---- CUdevice_attribute (only values used by numba-cuda-mlir) ------------------- */
@@ -47,8 +48,10 @@ typedef enum {
     CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_X              = 5,
     CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Y              = 6,
     CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Z              = 7,
+    CU_DEVICE_ATTRIBUTE_MAX_REGISTERS_PER_BLOCK      = 12,
     CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR     = 75,
     CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR     = 76,
+    CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN = 97,
 } CUdevice_attribute;
 
 /* ---- pointer / function attributes ------------------------------------- */
@@ -58,6 +61,8 @@ typedef enum {
 } CUpointer_attribute;
 
 typedef enum {
+    CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES             = 1,
+    CU_FUNC_ATTRIBUTE_NUM_REGS                      = 4,
     CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES = 8,
 } CUfunction_attribute;
 

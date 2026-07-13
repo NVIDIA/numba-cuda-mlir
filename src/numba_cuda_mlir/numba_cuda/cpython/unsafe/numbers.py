@@ -7,27 +7,22 @@ from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core import errors
 from numba_cuda_mlir.numba_cuda.extending import intrinsic
 
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
+
+# These intrinsics' codegen closures built llvmlite bitcast/cttz/ctlz IR. They
+# are filtered out on the MLIR path, so the codegen is a shared tombstone; the
+# typing (returned signatures and validation) is retained.
+def _dead_codegen(context, builder, signature, args):
+    raise NotImplementedError(
+        "this intrinsic's vendored llvmlite codegen is not used on the MLIR path"
+    )
 
 
 @intrinsic
 def viewer(tyctx, val, viewty):
     """Bitcast a scalar 'val' to the given type 'viewty'."""
-    bits = val.bitwidth
-    if isinstance(viewty.dtype, types.Integer):
-        bitcastty = ir.IntType(bits)
-    elif isinstance(viewty.dtype, types.Float):
-        bitcastty = ir.FloatType() if bits == 32 else ir.DoubleType()
-    else:
-        assert 0, "unreachable"
-
-    def codegen(cgctx, builder, typ, args):
-        flt = args[0]
-        return builder.bitcast(flt, bitcastty)
-
     retty = viewty.dtype
     sig = retty(val, viewty)
-    return sig, codegen
+    return sig, _dead_codegen
 
 
 @intrinsic
@@ -37,11 +32,7 @@ def trailing_zeros(typeingctx, src):
         msg = f"trailing_zeros is only defined for integers, but value passed was '{src}'."
         raise errors.NumbaTypeError(msg)
 
-    def codegen(context, builder, signature, args):
-        [src] = args
-        return builder.cttz(src, ir.Constant(ir.IntType(1), 0))
-
-    return src(src), codegen
+    return src(src), _dead_codegen
 
 
 @intrinsic
@@ -51,8 +42,4 @@ def leading_zeros(typeingctx, src):
         msg = f"leading_zeros is only defined for integers, but value passed was '{src}'."
         raise errors.NumbaTypeError(msg)
 
-    def codegen(context, builder, signature, args):
-        [src] = args
-        return builder.ctlz(src, ir.Constant(ir.IntType(1), 0))
-
-    return src(src), codegen
+    return src(src), _dead_codegen

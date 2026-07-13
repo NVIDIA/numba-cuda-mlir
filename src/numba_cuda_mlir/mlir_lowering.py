@@ -44,6 +44,7 @@ from numba_cuda_mlir.lowering_utilities import (
     user_signature_to_external_abi_signature,
     lookup_callee_in_module,
     get_func_type,
+    get_type_size_bytes,
     storage_itemsize_bytes,
 )
 from numba_cuda_mlir.compiler import (
@@ -77,7 +78,7 @@ from numba_cuda_mlir.tools import (
     get_max_ptx_version,
     resolve_gpu_target,
 )
-from numba_cuda_mlir.linker import Linker
+from numba_cuda_mlir.linker import Linker, resolve_link_plan
 from numba_cuda_mlir.memory_management.nrt_mlir import emit_nrt_functions
 from numba_cuda_mlir.nrt_context import MLIRNRTContext
 from numba_cuda_mlir.type_defs.aggregate_types import AggregateType, UnionType
@@ -148,15 +149,6 @@ class MLIRLower(object):
         linker_arch = gpu_target["linker_arch"]
 
         link_files = list(self.targetoptions.get("link", []))
-        has_ltoir_files = any(
-            (f.endswith(".ltoir") if isinstance(f, str) else type(f).__name__ == "LTOIR")
-            for f in link_files
-        )
-        needs_lto = (
-            self.targetoptions.get("lto", False)
-            or has_ltoir_files
-            or self.targetoptions.get("output", "ptx") == "ltoir"
-        )
 
         self._debug_full = self.targetoptions.get("debug", False)
         self._line_only = self.targetoptions.get("lineinfo", False)
@@ -169,14 +161,13 @@ class MLIRLower(object):
             debug=self._debug_full,
             lineinfo=self._line_only,
             ptxas_options=self.targetoptions.get("ptxas_options", None),
-            lto=needs_lto,
             max_registers=self.targetoptions.get("max_registers", None),
         )
         self._seen_mlir_libraries = set()
         self._cloned_device_funcs: set[str] = set()
         self._linked_external_items = set()
         self._linked_external_link_items = []
-        self.linker = self._create_linker()
+        self._linked_ltoirs = []
 
         # Collect module callbacks from LinkableCode objects (e.g. CUSource)
         # for invocation after the CUlibrary is loaded by C++.
@@ -239,6 +230,7 @@ class MLIRLower(object):
         self._mlir_gpu_module: gpu.GPUModuleOp | None = None
         self._shared_memory_base: ir.Value | None = None
         self._total_shared_memory_bytes: ir.Value | None = None
+        self._dynamic_shared_memory_values: list[ir.Value] = []
         self._deferred_dbg_declare_vars: set[str] = set()
         self._debug_forced_alloca: set[str] = set()
         self._poly_dbg_alloca: dict[str, ir.Value] = {}
@@ -250,11 +242,32 @@ class MLIRLower(object):
         #  - environment: the python execution environment
         self.context = context.subtarget(environment=self.env, fndesc=self.fndesc)
 
-    def _create_linker(self):
+    def _create_linker(self, link_plan):
         return Linker(
             **self._linker_config,
+            lto=link_plan.compile_new_inputs_as_ltoir,
             optimize_unused_variables=True,
         )
+
+    def _create_resolved_linker(self):
+        link_plan = resolve_link_plan(
+            self.targetoptions,
+            self._linked_external_link_items,
+            self._linked_ltoirs,
+        )
+        linker = self._create_linker(link_plan)
+        for link_item in self._linked_external_link_items:
+            linker.add_file_guess_ext(
+                link_item, compile_cu_as_ltoir=link_plan.compile_new_inputs_as_ltoir
+            )
+        for ltoir in self._linked_ltoirs:
+            linker.add_ltoir(ltoir)
+        self.metadata["link_plan"] = link_plan
+        self.metadata["linked_external_link_items"] = tuple(self._linked_external_link_items)
+        return linker
+
+    def _record_ltoirs_from_linker(self, linker):
+        self._linked_ltoirs.extend(linker._ltoirs.values())
 
     def _collect_poly_dbg_types(self):
         """Scan function body to collect polymorphic debug types."""
@@ -344,7 +357,7 @@ class MLIRLower(object):
                 assert self.metadata
                 self.metadata["mlir_module"] = self.mlir_module
                 self.metadata["_mlir_has_debug_info"] = self._di_subprogram is not None
-                self.metadata["linker"] = self.linker
+                self.metadata["linker"] = self._create_resolved_linker()
                 self.metadata["needs_nrt"] = needs_nrt
                 self.metadata["nrt_inline"] = needs_nrt
                 if self._setup_callbacks or self._teardown_callbacks:
@@ -388,7 +401,7 @@ class MLIRLower(object):
             )
             if not already_exists:
                 with ir.InsertionPoint.at_block_begin(gpu_block):
-                    linkage = ir.Attribute.parse("#llvm.linkage<external>")
+                    linkage = ir.Attribute.parse("#llvm.linkage<common>")
                     llvm.GlobalOp(
                         T.i32(),
                         ERROR_CODE_GLOBAL_NAME,
@@ -577,8 +590,7 @@ extern "C" __global__ void
                             T.i32(), max_cluster_rank
                         )
 
-                with ir.InsertionPoint(self.mlir_funcOp.add_entry_block()):
-                    self._total_shared_memory_bytes = arith.constant(result=T.index(), value=0)
+                self.mlir_funcOp.add_entry_block()
             else:
                 self.mlir_funcOp = func.FuncOp(
                     name=sym_name,
@@ -1084,7 +1096,7 @@ extern "C" __global__ void
                 # MLIR type in the varmap to unblock lowering of other
                 # numba instruction (i.e, assign this NoneType variable to other variables)
                 self.store_var(target, self.get_mlir_type(target_type))
-        elif isinstance(const.value, (bool, int, float, np.number)):
+        elif isinstance(const.value, (bool, int, float, np.number, np.bool_)):
             value = const.value
             mlir_type = self.get_mlir_type(target_type)
 
@@ -1167,7 +1179,7 @@ extern "C" __global__ void
             else:
                 self.store_var(target, self.get_mlir_type(target_type))
             return
-        if isinstance(glob.value, (bool, int, float, np.number)):
+        if isinstance(glob.value, (bool, int, float, np.number, np.bool_)):
             mlir_type = self.get_mlir_type(target_type)
             # Check if the MLIR type supports constants
             if not isinstance(
@@ -1266,9 +1278,10 @@ extern "C" __global__ void
                 return tuple(map(self.lower_literal_if_needed, value))
             case np.ndarray():
                 return self.lower_array_literal(value)
-            case np.number():
+            case np.number() | np.bool_():
+                # np.bool_ is not an np.number but lowers the same way.
                 mlir_type = to_mlir_type(value.dtype)
-                cst = constant(value, mlir_type)
+                cst = constant(value.item(), mlir_type)
                 return cst
             case bool():
                 # Python bool literal - convert to MLIR i1
@@ -1301,8 +1314,10 @@ extern "C" __global__ void
             case "getitem" | "typed_getitem":
                 self.lower_getitem_expr_assign(target, expr.value, expr.index)
             case "static_getitem":
-                # For static_getitem, use index_var if available, otherwise use the constant index
-                index = expr.index_var if expr.index_var is not None else expr.index
+                value_type = self.get_numba_type(expr.value.name)
+                index = expr.index
+                if not isinstance(value_type, types.BaseTuple) and expr.index_var is not None:
+                    index = expr.index_var
                 self.lower_getitem_expr_assign(target, expr.value, index)
             case "call":
                 args = list(expr.args)
@@ -1561,13 +1576,22 @@ extern "C" __global__ void
         value_type = self.get_numba_type(value.name)
         match index:
             case int():
-                index_type = types.int64
+                index_type = types.IntegerLiteral(index)
+            case slice():
+                index_type = numba_types.SliceLiteral(index)
             case str():
                 index_type = types.StringLiteral(index)
             case numba_ir.Var():
                 index_type = self.get_numba_type(index.name)
             case _:
                 raise NotImplementedError(f"lowering getitem {target} = {value}[{index}]")
+
+        if isinstance(value_type, types.BaseNamedTuple) and isinstance(index, int):
+            result = self.load_var(value)[index]
+            self.incref(target_type, result)
+            self.store_var(target, result)
+            return
+
         signature = target_type(value_type, index_type)
         if builder := self.get_registered_builder(operator.getitem, signature):
             builder(self, target, [value, index], [])
@@ -1659,7 +1683,7 @@ extern "C" __global__ void
         cres = fn._compile_as_device_callee(folded_argtypes)
 
         if callee_linker := cres.metadata.get("linker"):
-            self.linker.merge_ltoirs_from(callee_linker)
+            self._record_ltoirs_from_linker(callee_linker)
 
         module: ir.Module = ir.Module.parse(get_mlir_module_str(cres.metadata))
         gpu_module: gpu.GPUModuleOp = list(module.body)[0]
@@ -1862,7 +1886,7 @@ extern "C" __global__ void
         cres = cuda_func.compile(folded_argtypes, abi_info={"abi_name": func_name})
 
         if callee_linker := cres.metadata.get("linker"):
-            self.linker.merge_ltoirs_from(callee_linker)
+            self._record_ltoirs_from_linker(callee_linker)
 
         link.link_inplace(self.mlir_module, get_mlir_module_str(cres.metadata))
 
@@ -2018,7 +2042,7 @@ extern "C" __global__ void
             self.link_external_item(link_item)
 
     def link_external_item(self, link_item):
-        """Register an external code object with the active linker."""
+        """Register an external code object to link after lowering."""
         key = self._external_link_item_key(link_item)
         if key in self._linked_external_items:
             return
@@ -2028,22 +2052,10 @@ extern "C" __global__ void
         has_teardown_callback = (
             hasattr(link_item, "teardown_callback") and link_item.teardown_callback
         )
-        if (has_setup_callback or has_teardown_callback) and not self.targetoptions.get(
-            "_lto_explicit", False
-        ):
-            self.targetoptions["lto"] = False
-            self.targetoptions["output"] = "ptx"
-            if self._linker_config["lto"]:
-                self._linker_config["lto"] = False
-                self.linker = self._create_linker()
-                for prior_link_item in self._linked_external_link_items:
-                    self.linker.add_file_guess_ext(prior_link_item)
-
         if has_setup_callback:
             self._setup_callbacks.append(link_item.setup_callback)
         if has_teardown_callback:
             self._teardown_callbacks.append(link_item.teardown_callback)
-        self.linker.add_file_guess_ext(link_item)
         self._linked_external_link_items.append(link_item)
 
     @staticmethod
@@ -2307,32 +2319,77 @@ extern "C" __global__ void
                 self._shared_memory_base = gpu.dynamic_shared_memory(mr_type)
         return self._shared_memory_base
 
-    def _request_shared_memory(self, sizes: tuple[ir.Value, ...], mr_type: ir.MemRefType):
-        match mr_type.element_type:
-            case ir.IntegerType() | ir.FloatType() as t:
-                bytes: int = t.width // 8
-            case T.index:
-                bytes: int = 8
-            case _:
-                raise NotImplementedError(f"NotImplemented shared memory type {mr_type}.")
+    def _load_total_shared_memory_bytes(self):
+        if self._total_shared_memory_bytes is None:
+            mr_type = memref.MemRefType.get(shape=[1], element_type=T.index())
+            assert self.mlir_funcOp
+            with ir.InsertionPoint.at_block_begin(self.mlir_funcOp.entry_block):
+                self._total_shared_memory_bytes = memref.alloca(
+                    memref=mr_type, dynamic_sizes=[], symbol_operands=[]
+                )
+                zero = arith.constant(result=T.index(), value=0)
+                memref.store(
+                    value=zero,
+                    memref=self._total_shared_memory_bytes,
+                    indices=[index_of(0)],
+                )
+
+        return memref.load(memref=self._total_shared_memory_bytes, indices=[index_of(0)])
+
+    def _store_total_shared_memory_bytes(self, value: ir.Value):
+        self._load_total_shared_memory_bytes()
+        memref.store(
+            value=value,
+            memref=self._total_shared_memory_bytes,
+            indices=[index_of(0)],
+        )
+
+    def _request_dynamic_shared_memory(self, mr_type: ir.MemRefType):
+        bytes = get_type_size_bytes(mr_type.element_type)
         assert self.mlir_funcOp
-        with ir.InsertionPoint(self.mlir_funcOp.entry_block):
-            bytes_op = arith.constant(result=T.index(), value=bytes)
-            for size in sizes:
-                size = self.mlir_convert(size, T.index())
-                bytes_op = arith.muli(lhs=bytes_op, rhs=size)
-            shm_base = self._get_shared_memory_base()
-            if self._total_shared_memory_bytes is None:
-                self._total_shared_memory_bytes = arith.constant(result=T.index(), value=0)
-            view = memref.view(
-                result=mr_type,
-                source=shm_base,
-                byte_shift=self._total_shared_memory_bytes,
-                sizes=sizes,
-            )
-            self._total_shared_memory_bytes = arith.addi(
-                lhs=self._total_shared_memory_bytes, rhs=bytes_op
-            )
+        # Emit at the current insertion point: the entry block may
+        # already have a terminator once the request appears after
+        # control flow. The shared-memory base itself is still created
+        # at the entry block's start by _get_shared_memory_base.
+        bytes_op = arith.constant(result=T.index(), value=bytes)
+        shm_base = self._get_shared_memory_base()
+        total_shared_memory_bytes = self._load_total_shared_memory_bytes()
+        dynamic_shared_bytes = memref.dim(shm_base, index_of(0))
+        remaining_bytes = arith.subi(lhs=dynamic_shared_bytes, rhs=total_shared_memory_bytes)
+        size = arith.divui(lhs=remaining_bytes, rhs=bytes_op)
+        view = memref.view(
+            result=mr_type,
+            source=shm_base,
+            byte_shift=total_shared_memory_bytes,
+            sizes=[size],
+        )
+        self._store_total_shared_memory_bytes(dynamic_shared_bytes)
+        self._dynamic_shared_memory_values.append(view)
+        return view
+
+    def _is_dynamic_shared_memory(self, value: ir.Value) -> bool:
+        return any(value == dynamic for dynamic in self._dynamic_shared_memory_values)
+
+    def _request_shared_memory(self, sizes: tuple[ir.Value, ...], mr_type: ir.MemRefType):
+        bytes = get_type_size_bytes(mr_type.element_type)
+        assert self.mlir_funcOp
+        # Emit at the current insertion point: the size operands are
+        # computed here, and the entry block may already have a
+        # terminator once the request appears after control flow.
+        bytes_op = arith.constant(result=T.index(), value=bytes)
+        for size in sizes:
+            size = self.mlir_convert(size, T.index())
+            bytes_op = arith.muli(lhs=bytes_op, rhs=size)
+        shm_base = self._get_shared_memory_base()
+        total_shared_memory_bytes = self._load_total_shared_memory_bytes()
+        view = memref.view(
+            result=mr_type,
+            source=shm_base,
+            byte_shift=total_shared_memory_bytes,
+            sizes=sizes,
+        )
+        total_shared_memory_bytes = arith.addi(lhs=total_shared_memory_bytes, rhs=bytes_op)
+        self._store_total_shared_memory_bytes(total_shared_memory_bytes)
         return view
 
     def _get_tuple_element_type(self, target_type):

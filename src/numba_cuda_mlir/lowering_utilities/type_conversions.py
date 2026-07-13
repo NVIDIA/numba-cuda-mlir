@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+from typing import overload
 from numba_cuda_mlir.numba_cuda import typing
 import inspect
 from numba_cuda_mlir import types
@@ -185,6 +186,22 @@ def ctypes_type_to_numba_type(obj: ctypes._SimpleCData) -> types.Type:
             return types.float64
         case _:
             raise NotImplementedError(f"Not implemented for type {obj}")
+
+
+# Add overloads, so IDEs that use pyright does not mark the code after the
+# function call as unreachable.
+@overload
+def to_mlir_type(obj: types.Type) -> ir.Type: ...
+@overload
+def to_mlir_type(obj: ctypes._SimpleCData) -> ir.Type: ...
+@overload
+def to_mlir_type(obj: np.dtype) -> ir.Type: ...
+@overload
+def to_mlir_type(obj: typing.Signature) -> ir.FunctionType: ...
+@overload
+def to_mlir_type(obj: ir.Value) -> ir.Type: ...
+@overload
+def to_mlir_type(obj: type) -> ir.Type: ...
 
 
 @singledispatch

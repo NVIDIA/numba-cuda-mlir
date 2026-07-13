@@ -27,7 +27,7 @@ jobs:
       MATRIX: ${{ steps.compute-matrix.outputs.MATRIX }}
     steps:
       - name: Checkout ${{ github.event.repository.name }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Compute cudf source test matrix
         id: compute-matrix
@@ -43,6 +43,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.compute-matrix.outputs.MATRIX) }}
     runs-on: "${{ matrix.FLAVOR || 'linux' }}-${{ matrix.ARCH }}-gpu-${{ matrix.GPU }}-${{ matrix.DRIVER }}-${{ matrix.GPU_COUNT }}"
+    timeout-minutes: 30
     if: ${{ github.repository_owner == 'nvidia' && !cancelled() }}
     container:
       options: -u root --security-opt seccomp=unconfined --shm-size 16g
@@ -55,7 +56,7 @@ jobs:
         run: nvidia-smi
 
       - name: Checkout ${{ github.event.repository.name }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Setup proxy cache
         uses: nv-gha-runners/setup-proxy-cache@main
@@ -91,7 +92,7 @@ jobs:
           ls -lahR $NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR
 
       - name: Set up Python ${{ matrix.PY_VER }}
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ matrix.PY_VER }}
         env:

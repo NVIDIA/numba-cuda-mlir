@@ -250,7 +250,7 @@ def _get_operator_mapping(fn) -> OpForType | None:
     return info
 
 
-def _get_operation_for_op_and_type(op, type) -> tuple[OpForType, MaybeOp] | None:
+def _get_operation_for_op_and_type(op, type, is_unsigned) -> tuple[OpForType, MaybeOp] | None:
     mapping = _get_operator_mapping(op)
     if not mapping:
         return None
@@ -264,7 +264,7 @@ def _get_operation_for_op_and_type(op, type) -> tuple[OpForType, MaybeOp] | None
                 return mapping, mapping.unsigned_integer
             else:
                 # Default to signedness
-                return mapping, mapping.signed_integer
+                return mapping, mapping.unsigned_integer if is_unsigned else mapping.signed_integer
         case ir.ComplexType():
             return mapping, mapping.complex
         case _:
@@ -315,9 +315,26 @@ def pow_cg(builder, target, args, kwargs):
 def _bin_op_cg(op, builder, target, args, kwargs):
     assert not kwargs, "add_cg does not accept any keyword arguments"
     assert len(args) == 2, "add_cg expects 2 arguments"
-    target_type = builder.get_numba_type(target.name)
-    target_mlir_type = builder.get_mlir_type(target_type)
     lhs, rhs = args
+    target_type, lhs_type, rhs_type = (
+        builder.get_numba_type(target.name),
+        builder.get_numba_type(lhs.name),
+        builder.get_numba_type(rhs.name),
+    )
+    target_mlir_type = builder.get_mlir_type(target_type)
+
+    # Ensure numbers whose MLIR types are signless end up with the correct
+    # operation. Without this logic, two input values with two unsigned integer
+    # types get a signed comparator operator and vice versa. Booleans lower to
+    # i1 and must compare as unsigned, otherwise True (all-ones) orders below
+    # False.
+    def _is_unsigned_operand(operand_type):
+        if isinstance(operand_type, types.Boolean):
+            return True
+        return isinstance(operand_type, types.Integer) and not operand_type.signed
+
+    is_unsigned = _is_unsigned_operand(lhs_type) and _is_unsigned_operand(rhs_type)
+
     lhs, rhs = builder.load_var(lhs), builder.load_var(rhs)
 
     # Handle cases where load_var returns Python/numpy scalars instead of MLIR values
@@ -336,7 +353,7 @@ def _bin_op_cg(op, builder, target, args, kwargs):
     unified_type = lowering_utilities.numpy_implicit_type_promotion(lhs.type, rhs.type)
 
     trace("op: %s, target_mlir_type: %s", op, target_mlir_type)
-    if found_op := _get_operation_for_op_and_type(op, unified_type):
+    if found_op := _get_operation_for_op_and_type(op, unified_type, is_unsigned):
         info, op = found_op
         assert op is not None, "Expected operation"
         if info.cast_to_return_type:
@@ -380,31 +397,37 @@ def truediv_cg(builder, target, args, kwargs):
 
 
 @lower(operator.ne, types.Number, types.Number)
+@lower(operator.ne, types.Boolean, types.Boolean)
 def ne_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ne, builder, target, args, kwargs)
 
 
 @lower(operator.eq, types.Number, types.Number)
+@lower(operator.eq, types.Boolean, types.Boolean)
 def eq_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.eq, builder, target, args, kwargs)
 
 
 @lower(operator.lt, types.Number, types.Number)
+@lower(operator.lt, types.Boolean, types.Boolean)
 def lt_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.lt, builder, target, args, kwargs)
 
 
 @lower(operator.le, types.Number, types.Number)
+@lower(operator.le, types.Boolean, types.Boolean)
 def le_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.le, builder, target, args, kwargs)
 
 
 @lower(operator.gt, types.Number, types.Number)
+@lower(operator.gt, types.Boolean, types.Boolean)
 def gt_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.gt, builder, target, args, kwargs)
 
 
 @lower(operator.ge, types.Number, types.Number)
+@lower(operator.ge, types.Boolean, types.Boolean)
 def ge_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ge, builder, target, args, kwargs)
 
@@ -434,16 +457,25 @@ def iadd_cg(builder, target, args, kwargs):
 
 
 @lower(operator.ior, types.Integer, types.Integer)
+@lower(operator.ior, types.Boolean, types.Boolean)
+@lower(operator.ior, types.Boolean, types.Integer)
+@lower(operator.ior, types.Integer, types.Boolean)
 def ior_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ior, builder, target, args, kwargs)
 
 
 @lower(operator.iand, types.Integer, types.Integer)
+@lower(operator.iand, types.Boolean, types.Boolean)
+@lower(operator.iand, types.Boolean, types.Integer)
+@lower(operator.iand, types.Integer, types.Boolean)
 def iand_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.iand, builder, target, args, kwargs)
 
 
 @lower(operator.ixor, types.Integer, types.Integer)
+@lower(operator.ixor, types.Boolean, types.Boolean)
+@lower(operator.ixor, types.Boolean, types.Integer)
+@lower(operator.ixor, types.Integer, types.Boolean)
 def ixor_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ixor, builder, target, args, kwargs)
 
@@ -804,14 +836,29 @@ def mod_cg(builder, target, args, kwargs):
     assert len(args) == 2, "mod_cg expects 2 arguments"
     target_type = builder.get_numba_type(target.name)
     target_mlir_type = builder.get_mlir_type(target_type)
+    # MLIR integer types here are signless; signedness must come from the
+    # Numba type so that operand widening sign-extends signed values.
+    # Non-integer targets keep convert's unsigned default.
+    signed = isinstance(target_type, types.Integer) and target_type.signed
     lhs, rhs = args
-    lhs = lowering_utilities.convert(builder.load_var(lhs), target_mlir_type)
-    rhs = lowering_utilities.convert(builder.load_var(rhs), target_mlir_type)
+    lhs = lowering_utilities.convert(builder.load_var(lhs), target_mlir_type, signed=signed)
+    rhs = lowering_utilities.convert(builder.load_var(rhs), target_mlir_type, signed=signed)
 
     match target_mlir_type:
         case ir.IntegerType():
-            # For integers: use signed integer remainder
-            result = arith.remsi(lhs, rhs)
+            if signed:
+                # Python floored modulo: the result takes the sign of the
+                # divisor. arith.remsi truncates toward zero, so add the
+                # divisor when the remainder is nonzero and its sign
+                # disagrees with the divisor's ((rem ^ rhs) < 0).
+                rem = arith.remsi(lhs, rhs)
+                zero = lowering_utilities.constant(0, rem.type)
+                sign_mismatch = arith.cmpi(arith.CmpIPredicate.slt, arith.xori(rem, rhs), zero)
+                rem_nonzero = arith.cmpi(arith.CmpIPredicate.ne, rem, zero)
+                needs_fix = arith.andi(sign_mismatch, rem_nonzero)
+                result = arith.addi(rem, arith.select(needs_fix, rhs, zero))
+            else:
+                result = arith.remui(lhs, rhs)
         case ir.FloatType():
             # For floats: implement a % b = a - floor(a/b) * b
             div = arith.divf(lhs, rhs)
@@ -868,6 +915,9 @@ def ilshift_cg(builder, target, args, kwargs):
 
 
 @lower(operator.and_, types.Integer, types.Integer)
+@lower(operator.and_, types.Boolean, types.Boolean)
+@lower(operator.and_, types.Boolean, types.Integer)
+@lower(operator.and_, types.Integer, types.Boolean)
 def and_cg(builder, target, args, kwargs):
     assert not kwargs, "and_cg does not accept any keyword arguments"
     assert len(args) == 2, "and_cg expects 2 arguments"
@@ -881,6 +931,9 @@ def and_cg(builder, target, args, kwargs):
 
 
 @lower(operator.or_, types.Integer, types.Integer)
+@lower(operator.or_, types.Boolean, types.Boolean)
+@lower(operator.or_, types.Boolean, types.Integer)
+@lower(operator.or_, types.Integer, types.Boolean)
 def or_cg(builder, target, args, kwargs):
     assert not kwargs, "or_cg does not accept any keyword arguments"
     assert len(args) == 2, "or_cg expects 2 arguments"
@@ -894,6 +947,9 @@ def or_cg(builder, target, args, kwargs):
 
 
 @lower(operator.xor, types.Integer, types.Integer)
+@lower(operator.xor, types.Boolean, types.Boolean)
+@lower(operator.xor, types.Boolean, types.Integer)
+@lower(operator.xor, types.Integer, types.Boolean)
 def xor_cg(builder, target, args, kwargs):
     assert not kwargs, "xor_cg does not accept any keyword arguments"
     assert len(args) == 2, "xor_cg expects 2 arguments"
@@ -903,6 +959,21 @@ def xor_cg(builder, target, args, kwargs):
     lhs = lowering_utilities.convert(builder.load_var(lhs), target_mlir_type)
     rhs = lowering_utilities.convert(builder.load_var(rhs), target_mlir_type)
     result = arith.xori(lhs, rhs)
+    builder.store_var(target, result)
+
+
+@lower(operator.invert, types.Integer)
+@lower(operator.invert, types.Boolean)
+def invert_cg(builder, target, args, kwargs):
+    """Bitwise NOT: xor with all-ones (~True is False for booleans)."""
+    assert not kwargs, "invert_cg does not accept any keyword arguments"
+    assert len(args) == 1, "invert_cg expects 1 argument"
+    target_type = builder.get_numba_type(target.name)
+    target_mlir_type = builder.get_mlir_type(target_type)
+    operand = lowering_utilities.convert(builder.load_var(args[0]), target_mlir_type)
+    fill = 1 if isinstance(target_type, types.Boolean) else -1
+    all_ones = lowering_utilities.constant(fill, target_mlir_type)
+    result = arith.xori(operand, all_ones)
     builder.store_var(target, result)
 
 
@@ -924,10 +995,14 @@ def floordiv_cg(builder, target, args, kwargs):
             div_result = arith.divf(lhs, rhs)
             result = math_dialect.floor(div_result)
         case ir.IntegerType():
-            # For signed integers, use floordivsi
-            lhs = lowering_utilities.convert(lhs, target_mlir_type)
-            rhs = lowering_utilities.convert(rhs, target_mlir_type)
-            if target_mlir_type.is_signed:
+            # MLIR integer types here are signless (is_signed is always
+            # False), so signedness must come from the Numba type — both
+            # for the widening conversion (extsi vs extui) and for the
+            # choice of division op.
+            signed = target_type.signed
+            lhs = lowering_utilities.convert(lhs, target_mlir_type, signed=signed)
+            rhs = lowering_utilities.convert(rhs, target_mlir_type, signed=signed)
+            if signed:
                 result = arith.floordivsi(lhs, rhs)
             else:
                 # For unsigned, regular division is the same as floor division

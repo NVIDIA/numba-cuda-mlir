@@ -2177,17 +2177,6 @@ class CudaPythonFunction:
 Function = CudaPythonFunction
 
 
-@functools.cache
-def _warn_lto_opt_risk():
-    warnings.warn(
-        "Linking LTOIR with optimization_level>0 can erase float16/bfloat16 "
-        "(and their vector type) stores due to a known LTO linking bug."
-        "If results look wrong, set NUMBA_CUDA_MLIR_DISABLE_LTO_OPT=1 to force "
-        "opt_level=0 on the LTO link.",
-        category=NumbaWarning,
-    )
-
-
 class _Linker:
     def __init__(
         self,
@@ -2357,7 +2346,14 @@ class _Linker:
         for kind, payload, name, lto in pending:
             cu = payload.data if kind == "linkable" else payload
 
-            obj, log = nvrtc.compile(cu, name, self.cc, ltoir=lto)
+            obj, log = nvrtc.compile(
+                cu,
+                name,
+                self.cc,
+                ltoir=lto,
+                lineinfo=self.lineinfo,
+                debug=self._debug,
+            )
 
             if not lto and config.DUMP_ASSEMBLY:
                 print(("ASSEMBLY %s" % name).center(80, "-"))
@@ -2434,8 +2430,6 @@ class _Linker:
             opt_level = 0
         else:
             opt_level = self._optimization_level
-            if lto_cubin_link and opt_level:
-                _warn_lto_opt_risk()
 
         options = LinkerOptions(
             max_register_count=self.max_registers,

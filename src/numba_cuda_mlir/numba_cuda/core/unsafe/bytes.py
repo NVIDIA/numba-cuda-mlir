@@ -7,35 +7,28 @@ operations with bytes and workarounds for limitations enforced in userland.
 """
 
 from numba_cuda_mlir.numba_cuda.extending import intrinsic
-from numba_cuda_mlir.numba_cuda._llvmlite_removed import ir
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda import cgutils
+
+
+# grab_byte / grab_uint64_t built llvmlite load codegen; filtered out on the MLIR
+# path, so the codegen is a shared tombstone (typing retained).
+def _dead_codegen(context, builder, signature, args):
+    raise NotImplementedError("this byte-access codegen is not used on the MLIR path")
 
 
 @intrinsic
 def grab_byte(typingctx, data, offset):
     # returns a byte at a given offset in data
-    def impl(context, builder, signature, args):
-        data, idx = args
-        ptr = builder.bitcast(data, ir.IntType(8).as_pointer())
-        ch = builder.load(builder.gep(ptr, [idx]))
-        return ch
-
     sig = types.uint8(types.voidptr, types.intp)
-    return sig, impl
+    return sig, _dead_codegen
 
 
 @intrinsic
 def grab_uint64_t(typingctx, data, offset):
     # returns a uint64_t at a given offset in data
-    def impl(context, builder, signature, args):
-        data, idx = args
-        ptr = builder.bitcast(data, ir.IntType(64).as_pointer())
-        ch = builder.load(builder.gep(ptr, [idx]))
-        return ch
-
     sig = types.uint64(types.voidptr, types.intp)
-    return sig, impl
+    return sig, _dead_codegen
 
 
 @intrinsic

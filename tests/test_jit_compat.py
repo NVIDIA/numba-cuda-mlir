@@ -97,6 +97,27 @@ def test_jit_kwargs_inline_callable():
     assert "OK" in stdout
 
 
+def test_cuda_cudadrv_reexports_legacy_namespace():
+    code = """
+        from numba_cuda_mlir import cuda as compat_cuda
+
+        initial_cudadrv = compat_cuda.cudadrv
+        assert initial_cudadrv.__name__ == "numba_cuda_mlir.cuda.cudadrv"
+
+        from numba_cuda_mlir.numba_cuda.cudadrv import devicearray, driver
+        import numba_cuda_mlir.cuda.cudadrv.devicearray as compat_devicearray
+
+        assert compat_cuda.cudadrv is initial_cudadrv
+        assert initial_cudadrv.devicearray is devicearray
+        assert initial_cudadrv.driver is driver
+        assert compat_devicearray is devicearray
+        print("OK")
+    """
+    rc, stdout, stderr = _run_in_subprocess(code)
+    assert rc == 0, f"subprocess failed: {stderr}"
+    assert "OK" in stdout
+
+
 # --- MLIRDispatcher Resource Methods ---
 
 
@@ -259,6 +280,15 @@ def kernel(arr, val):
 
 
 # --- Intrinsics ---
+
+
+def test_aligned_dynamic_shared_memory_ptx_llvm70():
+    def kernel():
+        smem = cuda.shared.array(shape=(0,), dtype=np.byte, alignment=16)
+        smem[0] = 0
+
+    ptx, _ = cuda.compile_ptx(kernel, (), cc=(8, 0))
+    assert ptx
 
 
 def test_nanosleep_ptx():

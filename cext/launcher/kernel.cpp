@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 #include <algorithm>
@@ -37,6 +38,7 @@ PyObject* g_shape_pyunicode;
 PyObject* g_data_pyunicode;
 PyObject* g_strides_pyunicode;
 PyObject* g___dlpack___pyunicode;
+PyObject* g_int64_pyunicode;
 
 PyTypeObject* g_torch_Tensor_type;
 PyTypeObject* g_torch_cuda_Stream_type;
@@ -405,10 +407,20 @@ struct LaunchHelper {
     }
 };
 
-LaunchHelper* g_helper_freelist;  // protected by the GIL
+LaunchHelper* g_helper_freelist;
+
+#ifdef Py_GIL_DISABLED
+std::mutex& helper_freelist_mutex() {
+    static auto* mutex = new std::mutex;
+    return *mutex;
+}
+#endif
 
 struct LaunchHelperDeleter {
     void operator() (LaunchHelper* helper) const {
+#ifdef Py_GIL_DISABLED
+        std::lock_guard<std::mutex> guard(helper_freelist_mutex());
+#endif
         helper->next_free = g_helper_freelist;
         g_helper_freelist = helper;
     }
@@ -418,6 +430,9 @@ using LaunchHelperPtr = std::unique_ptr<LaunchHelper, LaunchHelperDeleter>;
 
 
 LaunchHelperPtr launch_helper_get() {
+#ifdef Py_GIL_DISABLED
+    std::lock_guard<std::mutex> guard(helper_freelist_mutex());
+#endif
     if (g_helper_freelist) {
         LaunchHelper* ret = g_helper_freelist;
         g_helper_freelist = ret->next_free;
@@ -989,9 +1004,9 @@ Status extract_dlpack(PyObject* pyobj, LaunchHelper& helper) {
 
 inline Status extract_np_datetime(PyObject* pyobj, bool is_constant, LaunchHelper& helper) {
     // numpy.datetime64/timedelta64 are stored as int64 internally.
-    // Call arg.view('int64') to get the numpy.int64 scalar, then extract.
-    static PyObject* view_arg = PyUnicode_InternFromString("int64");
-    PyPtr int_view = steal(PyObject_CallMethod(pyobj, "view", "O", view_arg));
+    // Call view() with the cached "int64" PyUnicode to get the numpy.int64
+    // scalar, then extract.
+    PyPtr int_view = steal(PyObject_CallMethod(pyobj, "view", "O", g_int64_pyunicode));
     if (!int_view) return ErrorRaised;
     int64_t value = pylong_as<int64_t>(int_view.get());
     if (PyErr_Occurred()) return ErrorRaised;
@@ -1679,6 +1694,7 @@ struct Grid {
 };
 
 bool try_clarify_invalid_value_error(const Grid& grid) {
+    // If we can't read the data we need to try to clarify, this is a no-op.
     CUdevice dev;
     if (g_cuCtxGetDevice(&dev) != CUDA_SUCCESS) return false;
 
@@ -1696,6 +1712,44 @@ bool try_clarify_invalid_value_error(const Grid& grid) {
         }
     }
     return false;
+}
+
+bool try_clarify_launch_out_of_resources_error(CUkernel kernel, const Grid& block) {
+    // If we can't read the data we need to try to clarify, this is a no-op.
+    CUfunction function;
+    if (g_cuKernelGetFunction(&function, kernel) != CUDA_SUCCESS) return false;
+
+    int registers_per_thread;
+    if (g_cuFuncGetAttribute(&registers_per_thread, CU_FUNC_ATTRIBUTE_NUM_REGS, function)
+            != CUDA_SUCCESS)
+        return false;
+
+    CUdevice device;
+    if (g_cuCtxGetDevice(&device) != CUDA_SUCCESS) return false;
+
+    int max_registers_per_block;
+    if (g_cuDeviceGetAttribute(&max_registers_per_block,
+            CU_DEVICE_ATTRIBUTE_MAX_REGISTERS_PER_BLOCK, device) != CUDA_SUCCESS)
+        return false;
+
+    uint64_t threads_per_block = 1;
+    for (unsigned dim : block.dims)
+        threads_per_block *= dim;
+    uint64_t required_registers = threads_per_block * registers_per_thread;
+    if (required_registers <= static_cast<uint64_t>(max_registers_per_block)) return false;
+
+    uint64_t suggested_max_registers = max_registers_per_block / threads_per_block;
+    raise(PyExc_RuntimeError,
+          "Failed to launch CUDA kernel: CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES (%s). "
+          "The kernel uses %d registers per thread and the launch block has %llu threads, "
+          "requiring %llu registers per block, but the device limit is %d. Recompile the "
+          "kernel with cuda.jit(max_registers=%llu) to force the compiler to use fewer "
+          "registers, or reduce the threads per block.",
+          get_cuda_error(CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES), registers_per_thread,
+          static_cast<unsigned long long>(threads_per_block),
+          static_cast<unsigned long long>(required_registers), max_registers_per_block,
+          static_cast<unsigned long long>(suggested_max_registers));
+    return true;
 }
 
 Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional<Grid> cluster,
@@ -1871,8 +1925,22 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
         }
     }
 
-    // Configure dynamic shared memory if needed (default limit is typically 48KB)
-    if (sharedmem > 48 * 1024) {
+    // Configure dynamic shared memory if needed.
+    //
+    // Every function has a default cap on dynamic shared memory
+    // (CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES). This default is the
+    // device's standard per-block limit (typically 48 KiB) minus any static
+    // shared memory the kernel uses, so it can be anything up to 48 KiB. When
+    // the requested dynamic shared memory exceeds this default, we must
+    // explicitly opt in to the larger limit, otherwise the driver rejects the
+    // launch with CUDA_ERROR_INVALID_VALUE.
+    //
+    // We compare against the function's actual default (queried at runtime)
+    // rather than a hard-coded 48 KiB so that the window [default, 48 KiB] is
+    // reachable. A kernel asking for exactly 48 KiB while using even a single
+    // byte of static shared memory has a default below 48 KiB and therefore
+    // needs the opt-in.
+    {
         // Convert CUkernel to CUfunction for attribute configuration
         CUfunction cu_function = nullptr;
         CUkernel cu_kernel = kernel_iter->second.cukernel.kernel;
@@ -1883,16 +1951,74 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
                         get_cuda_error(func_res));
         }
 
-        CUresult attr_res = g_cuFuncSetAttribute(
-            cu_function,
+        // The function's default dynamic limit is the device's standard
+        // per-block limit minus the kernel's static shared memory
+        // (CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK -
+        //  CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES).
+        int default_dyn_limit = 0;
+        CUresult get_res = g_cuFuncGetAttribute(
+            &default_dyn_limit,
             CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-            sharedmem
+            cu_function
         );
-
-        if (attr_res != CUDA_SUCCESS) {
+        if (get_res != CUDA_SUCCESS) {
             return raise(PyExc_RuntimeError,
-                        "Failed to set max dynamic shared memory size to %d bytes: %s",
-                        sharedmem, get_cuda_error(attr_res));
+                        "Failed to query max dynamic shared memory size: %s",
+                        get_cuda_error(get_res));
+        }
+
+        if (sharedmem > default_dyn_limit) {
+            // Surface a clear error if the request exceeds what the device can
+            // provide instead of letting the attribute set fail with an opaque
+            // INVALID_VALUE.
+            //
+            // The device opt-in limit (CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_
+            // PER_BLOCK_OPTIN) covers the *total* per-block shared memory, i.e.
+            // static + dynamic. The kernel's static shared memory therefore
+            // reduces the dynamic budget, so we subtract it before comparing.
+            // Otherwise we could opt in to a dynamic size that, combined with
+            // static usage, overflows the device limit and fails at launch.
+            int max_optin = 0;
+            CUdevice dev;
+            if (g_cuCtxGetDevice(&dev) == CUDA_SUCCESS) {
+                g_cuDeviceGetAttribute(
+                    &max_optin,
+                    CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
+                    dev
+                );
+            }
+
+            int static_smem = 0;
+            CUresult static_res = g_cuFuncGetAttribute(
+                &static_smem,
+                CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES,
+                cu_function
+            );
+            if (static_res != CUDA_SUCCESS) {
+                return raise(PyExc_RuntimeError,
+                            "Failed to query static shared memory size: %s",
+                            get_cuda_error(static_res));
+            }
+
+            if (max_optin > 0 && sharedmem > max_optin - static_smem) {
+                return raise(PyExc_ValueError,
+                            "Requested dynamic shared memory (%d bytes) plus the kernel's "
+                            "static shared memory (%d bytes) exceeds the device maximum "
+                            "opt-in shared memory per block (%d bytes)",
+                            sharedmem, static_smem, max_optin);
+            }
+
+            CUresult attr_res = g_cuFuncSetAttribute(
+                cu_function,
+                CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+                sharedmem
+            );
+
+            if (attr_res != CUDA_SUCCESS) {
+                return raise(PyExc_RuntimeError,
+                            "Failed to set max dynamic shared memory size to %d bytes: %s",
+                            sharedmem, get_cuda_error(attr_res));
+            }
         }
     }
 
@@ -1951,6 +2077,10 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
 
     if (res != CUDA_SUCCESS) {
         if (res == CUDA_ERROR_INVALID_VALUE && try_clarify_invalid_value_error(grid))
+            return ErrorRaised;
+        if (res == CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES
+                && try_clarify_launch_out_of_resources_error(
+                    kernel_iter->second.cukernel.kernel, block))
             return ErrorRaised;
 
         const char* error_name = nullptr;
@@ -2280,6 +2410,7 @@ Status kernel_init(PyObject* m) {
     INIT_STRING_CONSTANT(data);
     INIT_STRING_CONSTANT(strides);
     INIT_STRING_CONSTANT(__dlpack__);
+    INIT_STRING_CONSTANT(int64);
 
     try_get_torch_globals();
     try_get_cupy_globals();

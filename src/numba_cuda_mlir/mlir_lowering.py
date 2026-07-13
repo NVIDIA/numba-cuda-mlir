@@ -209,6 +209,14 @@ class MLIRLower(object):
                 if self._debug_full:
                     # Variable-level debug info only for full debug, not lineinfo-only
                     self._collect_debug_variables()
+                # Instructions inlined from other Python files carry
+                # locations in those files; register each so it gets a
+                # DILexicalBlockFile scope and a DWARF file entry.
+                for block in self.blocks.values():
+                    for inst in block.body:
+                        inst_path = getattr(inst.loc, "filename", None)
+                        if inst_path:
+                            self._di_builder.add_source_file(inst_path)
                 self._di_subprogram = self._di_builder.build()
                 self.mlir_loc = ir.Location.fused(
                     [self.mlir_loc], metadata=self._di_subprogram, context=ctx
@@ -883,6 +891,12 @@ extern "C" __global__ void
                         line=self.loc.line,
                         col=self.loc.col,
                     )
+                    # Locations in files other than the subprogram's get
+                    # a DILexicalBlockFile scope so DWARF attributes them
+                    # to the correct file.
+                    file_scope = self._di_builder.di_file_scopes.get(self.loc.filename)
+                    if file_scope is not None:
+                        inst_loc = ir.Location.fused([inst_loc], metadata=file_scope)
                     with inst_loc:
                         self.lower_inst(inst)
                 else:

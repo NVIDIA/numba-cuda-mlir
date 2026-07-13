@@ -92,8 +92,13 @@ private:
   LLVMMetadataRef diSubroutineType = nullptr;
   llvm::StringMap<LLVMMetadataRef> diFileCache;
   LLVMMetadataRef currentSubprogram = nullptr;
+  // File of the current subprogram; locations in other files are scoped
+  // through a DILexicalBlockFile so DWARF attributes them correctly.
+  llvm::StringRef currentSubprogramFile;
+  llvm::StringMap<LLVMMetadataRef> fileScopeCache;
 
   LLVMMetadataRef getOrCreateDIFile(llvm::StringRef filename);
+  LLVMMetadataRef getOrCreateFileScope(llvm::StringRef filename);
   void setDebugLocFromOp(mlir::Operation *op);
   std::tuple<llvm::StringRef, unsigned, unsigned>
   extractFileLineCol(mlir::Location loc);

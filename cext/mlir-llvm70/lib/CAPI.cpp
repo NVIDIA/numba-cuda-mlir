@@ -45,11 +45,8 @@ int llvm70_translate_gpu_module_from_op(
     int nvvm_ir_major, int nvvm_ir_minor, int nvvm_debug_major,
     int nvvm_debug_minor,
     char **out, size_t *out_len, char **err_out,
-    // Deliberately last: a caller built against this signature can invoke a
-    // library that predates it (the older callee ignores the trailing
-    // argument), and the output pointers never shift. The reverse pairing,
-    // an older caller against this library, remains undefined, as with any
-    // C signature change.
+    // Deliberately last: an older library ignores a trailing argument, so
+    // the output pointers never shift.
     const char *nvvm_options) {
 
   *out = nullptr;

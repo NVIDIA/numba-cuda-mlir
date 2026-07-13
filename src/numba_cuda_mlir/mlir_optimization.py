@@ -157,9 +157,8 @@ def _get_llvm70_capi():
         ctypes.POINTER(ctypes.c_char_p),  # out
         ctypes.POINTER(ctypes.c_size_t),  # out_len
         ctypes.POINTER(ctypes.c_char_p),  # err_out
-        # Deliberately last (matches CAPI.cpp): a stale library built without
-        # this parameter ignores the trailing argument, rather than the
-        # output pointers shifting by one slot.
+        # Deliberately last (matches CAPI.cpp): a stale library ignores a
+        # trailing argument, so the output pointers never shift.
         ctypes.c_char_p,  # nvvm_options (space-separated, e.g. "-prec-div=0")
     ]
     lib.llvm70_free.restype = None

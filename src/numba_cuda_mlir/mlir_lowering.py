@@ -368,13 +368,9 @@ class MLIRLower(object):
             numba_cuda_mlir_context._compilation_options.reset(token)
 
     def _apply_fastmath_flags(self):
-        """Stamp per-op ``#arith.fastmath`` attributes from the fastmath
-        target option onto this function's body, and rewrite f32 tanh to
-        its hardware approximation where the flags and target permit.
-
-        Runs before ``lower_capi_thunks`` so the C-ABI clone inherits the
-        attributes, and only walks this function's op: device callees are
-        cloned in pre-stamped under their own target options.
+        """Stamp per-op ``#arith.fastmath`` attributes and rewrite f32
+        tanh. Runs before ``lower_capi_thunks`` so the C-ABI clone
+        inherits the attributes.
         """
         from numba_cuda_mlir.fastmath import (
             apply_fastmath_to_function,

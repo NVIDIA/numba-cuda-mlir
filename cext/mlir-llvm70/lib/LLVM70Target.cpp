@@ -28,13 +28,9 @@ using namespace mlir;
 //
 // The LLVM 7 C API cannot set per-instruction fast-math flags. Flagged
 // instructions are named __fmf.<mask>_<counter> during translation; the
-// module is then printed to text, the flag keywords are inserted after
-// each marked instruction's opcode, and the result is re-parsed with the
-// same LLVM 7 runtime before bitcode serialization. The '.' cannot occur
-// in a Python identifier, LLVM 7 prints it unquoted (unlike '$'), and
-// numba's SSA renaming only ever appends ".<digits>", which cannot form
-// the "__fmf.<digits>_<digits>" shape — so the marker cannot collide
-// with a user-visible value name.
+// printed module gets the keywords inserted at each marked instruction
+// and is re-parsed. Python identifiers cannot contain '.', so the marker
+// cannot collide with a user value name.
 //===----------------------------------------------------------------------===//
 
 // Keyword string (each keyword preceded by a space) for an
@@ -88,14 +84,10 @@ static void appendLineWithFlags(llvm::StringRef line, std::string &out) {
   out.append(line.data() + insertPos, line.size() - insertPos);
 }
 
-// The debug compile unit is created with emission kind 3
-// (DebugDirectivesOnly, which libnvvm honors but whose name only entered
-// LLVM at version 8). LLVM 7 has no name for it: its printer emits
-// "emissionKind: " (empty), which its own parser rejects, so the
-// fast-math reparse would fail whenever debug info is present. Downgrade
-// exactly that unparseable case to LineTablesOnly for the round-trip.
-// Only metadata definition lines (leading '!') are rewritten, so the
-// pattern occurring inside a program's string constant is left alone.
+// The compile unit uses emission kind 3 (DebugDirectivesOnly, named in
+// LLVM 8+); LLVM 7 prints it empty, which its own parser rejects.
+// Downgrade that one case to LineTablesOnly for the round-trip. Only
+// metadata lines (leading '!') are rewritten.
 static void fixupUnparseableEmissionKind(std::string &ir) {
   static constexpr llvm::StringLiteral kEmpty = "emissionKind: ,";
   static constexpr llvm::StringLiteral kFixed = "emissionKind: LineTablesOnly,";
@@ -112,8 +104,6 @@ static void fixupUnparseableEmissionKind(std::string &ir) {
   }
 }
 
-// Exercised end-to-end through translateToNVVMIR / translateToPTX by
-// test/fastmath_flags.mlir.
 static std::string injectFastmathFlags(llvm::StringRef ir) {
   std::string out;
   out.reserve(ir.size() + 1024);
@@ -175,10 +165,7 @@ llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
                  << builder->printModuleToString() << "\n";
   });
 
-  // Fast-math flags cannot be set through the old C API. When any were
-  // recorded, round-trip the module through text: print, inject the flag
-  // keywords at the marked instructions, and re-parse with the same LLVM 7
-  // runtime before serializing to bitcode.
+  // Materialize any recorded fast-math flags via the text round-trip.
   if (translator.hasFastmathMarkers()) {
     std::string textIR = injectFastmathFlags(builder->printModuleToString());
     fixupUnparseableEmissionKind(textIR);
@@ -1117,9 +1104,8 @@ llvm::Error MLIRToLLVM70::translateAddressOfOp(Operation *op) {
   return llvm::Error::success();
 }
 
-// Record the fast-math flags of `op` (if any) on the freshly built
-// instruction `inst` by giving it a marker value name. The flags are
-// materialized later by injectFastmathFlags on the printed IR.
+// Give an instruction with fast-math flags a marker value name;
+// injectFastmathFlags materializes the keywords on the printed IR.
 void MLIRToLLVM70::tagFastmath(Operation *op, LLVMValueRef inst) {
   if (!inst || !b.isInstruction(inst))
     return;
@@ -1129,9 +1115,7 @@ void MLIRToLLVM70::tagFastmath(Operation *op, LLVMValueRef inst) {
   unsigned mask = static_cast<unsigned>(iface.getFastmathAttr().getValue());
   if (!mask)
     return;
-  // LLVM permits fast-math flags on calls with a floating-point scalar or
-  // vector return type; this translator only ever builds scalar FP calls,
-  // so only those are tagged.
+  // Fast-math flags are only valid on calls returning floating point.
   if (isa<LLVM::CallOp>(op)) {
     if (op->getNumResults() != 1)
       return;

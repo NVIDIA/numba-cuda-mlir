@@ -174,15 +174,9 @@ def _is_fast_division(op) -> bool:
 
 
 def _rewrite_fast_divisions(module: ir.Module, worklist):
-    """Lower f32 ``llvm.fdiv`` marked ``arcp`` (or ``fast``) to
-    ``__nv_fast_fdividef`` so it compiles to ``div.approx.f32``.
-
-    This mirrors numba-cuda, whose fastmath float32 division calls
-    ``__nv_fast_fdividef`` (libnvvm never selects ``div.approx`` from
-    instruction flags or the ``-prec-div=0`` option alone — those only reach
-    ``div.full``). Gating on the per-instruction ``arcp`` flag keeps the
-    transform selective per compiled function, including device callees
-    cloned in with their own fastmath options.
+    """Lower f32 ``llvm.fdiv`` marked ``arcp`` or ``fast`` to
+    ``__nv_fast_fdividef``, as numba-cuda does; libnvvm does not select
+    ``div.approx`` from instruction flags.
     """
     for gpu_module in module.body:
         if isinstance(gpu_module, gpu.GPUModuleOp):
@@ -210,11 +204,8 @@ def _rewrite_fast_divisions(module: ir.Module, worklist):
 
 
 def run_pre_codegen_patterns(module: ir.Module):
-    """Collect every pattern's matches in a single walk, then rewrite.
-
-    The patterns are independent (they match disjoint op kinds), so one
-    traversal feeds them all; rewrites run after the walk because they
-    erase and insert operations.
+    """Collect every pattern's matches in a single walk, then rewrite;
+    the rewrites erase and insert operations so they run after the walk.
     """
     arg_attr_ops = []
     cast_ops = []

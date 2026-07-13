@@ -3,30 +3,14 @@
 
 """Selective fastmath support.
 
-The ``fastmath`` target option accepts, like numba-cuda, either a bool or a
-set/dict of individual LLVM fast-math flags ({'fast', 'nnan', 'ninf', 'nsz',
-'arcp', 'contract', 'afn', 'reassoc'}).  The flags are applied per-operation
-as ``#arith.fastmath<...>`` attributes on every arith/math dialect op that
-implements the ArithFastMathInterface.  The conversion passes in the standard
-pipeline (convert-arith-to-llvm, convert-gpu-to-nvvm, convert-math-to-nvvm)
-translate these into LLVM fast-math flags, which reach libnvvm
-per-instruction (via the LLVM70 marker-name transfer on sm < 100).
-
-Three effects are handled separately because the per-instruction flags
-alone do not produce them:
-
-- The module-level libnvvm/ptxas knobs (``-ftz``, ``-fma``, ``-prec-div``,
-  ``-prec-sqrt``) have no per-instruction encoding and are derived from
-  the flag set by :func:`nvvm_fastmath_options`.
-- f32 division under ``arcp``/``fast`` is rewritten to
-  ``__nv_fast_fdividef`` at pre-codegen (see
-  ``optimization._rewrite_fast_divisions``): libnvvm never selects
-  ``div.approx`` from instruction flags or ``-prec-div=0`` alone, so the
-  substitution numba-cuda makes is reproduced here.
-- f32 ``math.tanh`` is rewritten to ``tanh.approx.f32`` by
-  :func:`rewrite_approx_tanh`; this must happen while the op is still a
-  ``math.tanh``, because ``convert-math-to-nvvm`` lowers it to a plain
-  libdevice call and drops the fastmath attribute in the process.
+``fastmath`` accepts a bool or a set/dict of LLVM fast-math flags, applied
+per-operation as ``#arith.fastmath<...>`` attributes and carried through
+the conversion passes to libnvvm. Three effects need separate handling:
+the module-level libnvvm/ptxas knobs (:func:`nvvm_fastmath_options`), the
+f32 division rewrite to ``__nv_fast_fdividef`` (libnvvm does not select
+``div.approx`` from instruction flags), and the f32 tanh rewrite
+(:func:`rewrite_approx_tanh`), which must run before convert-math-to-nvvm
+drops the attribute.
 """
 
 import inspect
@@ -46,21 +30,11 @@ def parse_fastmath(value) -> FastMathOptions:
 
 
 def nvvm_fastmath_options(fastmath) -> dict:
-    """Map a fastmath flag set to the module-level libnvvm/ptxas knobs it
-    implies.
+    """Map a fastmath flag set to the libnvvm/ptxas knobs it implies.
 
-    Returns a dict with keys ``ftz``, ``fma``, ``prec_div`` and
-    ``prec_sqrt``; a key is absent when the flag set does not speak to that
-    knob (callers leave the toolchain default in place).
-
-    Each knob is enabled only by the flag that requests the corresponding
-    relaxation: ``arcp`` (approximate reciprocal/division) implies
-    ``prec_div=False``; ``afn`` (approximate functions) implies
-    ``prec_sqrt=False``; ``contract`` implies ``fma=True``; denormal
-    flushing has no per-instruction fast-math flag, so ``ftz=True`` is
-    implied only by full ``fast``.  ``fastmath=True`` (i.e. ``{'fast'}``)
-    enables all four, matching numba-cuda's ``nvvm.compile_ir`` gating for
-    the bool form.
+    A key is absent when the flags do not speak to that knob (the caller
+    keeps the toolchain default). ftz has no per-instruction flag, so
+    only full ``fast`` enables it.
     """
     flags = parse_fastmath(fastmath).flags
     opts = {}
@@ -114,14 +88,9 @@ def _chip_number(chip) -> int:
 
 
 def apply_fastmath_to_function(func_op, fastmath) -> None:
-    """Stamp the fastmath attribute onto every fastmath-capable op nested in
-    ``func_op``.
-
-    Called once per lowered function, before device callees are considered:
-    callee functions are compiled separately with their own target options and
-    cloned into the caller's module already stamped, so walking only the
-    caller's func op scopes the flags exactly like numba-cuda's
-    per-instruction fast-math flags.
+    """Stamp the fastmath attribute onto every fastmath-capable op nested
+    in ``func_op``. Device callees are cloned in already stamped under
+    their own options, so flags scope per function.
     """
     flags = parse_fastmath(fastmath).flags
     if not flags:
@@ -139,15 +108,9 @@ def apply_fastmath_to_function(func_op, fastmath) -> None:
 
 
 def rewrite_approx_tanh(func_op, fastmath, chip=None) -> None:
-    """Replace f32 ``math.tanh`` with the hardware ``tanh.approx.f32``
-    instruction when the flags permit approximate functions (``afn`` or
-    ``fast``) and the target is sm_75+, as numba-cuda does.
-
-    This runs at stamping time rather than with the pre-codegen rewrites
-    (see optimization/__init__.py) because ``convert-math-to-nvvm`` lowers
-    ``math.tanh`` to a plain ``__nv_tanhf`` libdevice call and discards the
-    fastmath attribute, so after conversion there is nothing left to key
-    the rewrite on.
+    """Replace f32 ``math.tanh`` with ``tanh.approx.f32`` under ``afn`` or
+    ``fast`` on sm_75+, as numba-cuda does. Must run before
+    convert-math-to-nvvm, which drops the fastmath attribute.
     """
     from numba_cuda_mlir._mlir.dialects import llvm
 

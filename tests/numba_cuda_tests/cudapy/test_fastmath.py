@@ -292,36 +292,61 @@ class TestFastMathOption(NumbaCUDATestCase):
         return counts
 
     def test_fastmath_with_lineinfo(self):
-        # Regression test: with debug info present, the LLVM70 fast-math
-        # text round-trip used to fail re-parsing on the compile unit's
-        # emission kind ("expected emission kind").
+        # The nsz flag survives to the flagged-instruction text path (arcp
+        # rewrites the division away, so alone it would not exercise it);
+        # that path used to emit full DWARF, which ptxas rejects at -O3.
         def kernel(r, x, y):
-            r[0] = x / y
+            r[0] = x / y + x
 
         sig = (float32[::1], float32, float32)
-        ptx, _ = compile_ptx(kernel, sig, fastmath=True, lineinfo=True)
+        ptx, _ = compile_ptx(
+            kernel, sig, fastmath={"nsz", "arcp"}, lineinfo=True
+        )
         self.assertIn("div.approx", ptx)
         self.assertIn(".file", ptx)
-        # The round-trip spells emission kind 3 as LineTablesOnly for the
-        # reparse; that must not change what debug output is emitted.
         precptx, _ = compile_ptx(kernel, sig, lineinfo=True)
         self.assertEqual(
             self._debug_directives(ptx), self._debug_directives(precptx)
         )
 
     def test_fastmath_with_debug(self):
-        # Full debug info takes the same LLVM70 text round-trip as lineinfo;
-        # both fast-math and the debug line table must survive it.
+        # Full debug info takes the same flagged-instruction text path as
+        # lineinfo; both fast-math and the debug output must survive it.
         def kernel(r, x, y):
-            r[0] = x / y
+            r[0] = x / y + x
 
         sig = (float32[::1], float32, float32)
-        ptx, _ = compile_ptx(kernel, sig, fastmath=True, debug=True, opt=False)
+        ptx, _ = compile_ptx(
+            kernel, sig, fastmath={"nsz", "arcp"}, debug=True, opt=False
+        )
         self.assertIn("div.approx", ptx)
         self.assertIn(".file", ptx)
         precptx, _ = compile_ptx(kernel, sig, debug=True, opt=False)
         self.assertEqual(
             self._debug_directives(ptx), self._debug_directives(precptx)
+        )
+
+    def test_fastmath_with_lineinfo_jit(self):
+        # The dispatcher path links the PTX at full optimization; leftover
+        # DWARF made ptxas refuse ("Optimized debugging not supported").
+        def kernel(r, x, y):
+            r[0] = x / y + x
+
+        sig = (float32[::1], float32, float32)
+        jitted = cuda.jit(sig, fastmath={"nsz", "arcp"}, lineinfo=True)(
+            kernel
+        )
+        self.assertIn("div.approx", _first_asm(jitted, sig))
+
+    def test_fastmath_with_lineinfo_lto(self):
+        # The same combination through an LTO link: the LTOIR must not
+        # carry full debug info either.
+        def kernel(r, x, y):
+            r[0] = x / y + x
+
+        sig = (float32[::1], float32, float32)
+        cuda.jit(sig, fastmath={"nsz", "arcp"}, lineinfo=True, lto=True)(
+            kernel
         )
 
     def test_nvvm_knobs_follow_flags(self):

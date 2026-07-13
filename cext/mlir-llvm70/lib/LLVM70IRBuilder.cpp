@@ -89,9 +89,6 @@ llvm::Error LLVM70IRBuilder::resolveSymbols() {
   RESOLVE(fnCountParams, "LLVMCountParams");
   RESOLVE(fnSetValueName2, "LLVMSetValueName2");
   RESOLVE(fnIsAInstruction, "LLVMIsAInstruction");
-  RESOLVE(fnCreateMemoryBufferWithMemoryRangeCopy,
-          "LLVMCreateMemoryBufferWithMemoryRangeCopy");
-  RESOLVE(fnParseIRInContext, "LLVMParseIRInContext");
 
   // Basic blocks
   RESOLVE(fnAppendBB, "LLVMAppendBasicBlockInContext");
@@ -734,32 +731,6 @@ LLVMValueRef LLVM70IRBuilder::insertDbgValue(LLVMValueRef val,
                                              LLVMMetadataRef debugLoc) {
   return fnDIBuilderInsertDbgValueAtEnd(diBuilder, val, varInfo, expr,
                                         debugLoc, getInsertBlock());
-}
-
-llvm::Error LLVM70IRBuilder::replaceModuleWithParsedIR(llvm::StringRef ir) {
-  // The DIBuilder references the old module; dispose it first (debug info
-  // has already been finalized by the time this is called).
-  if (diBuilder && fnDisposeDIBuilder) {
-    fnDisposeDIBuilder(diBuilder);
-    diBuilder = nullptr;
-  }
-  LLVMMemoryBufferRef buf = fnCreateMemoryBufferWithMemoryRangeCopy(
-      ir.data(), ir.size(), "fastmath_ir");
-  LLVMModuleRef newModule = nullptr;
-  char *errMsg = nullptr;
-  // LLVMParseIRInContext consumes the memory buffer regardless of outcome.
-  if (fnParseIRInContext(ctx, buf, &newModule, &errMsg)) {
-    std::string msg = errMsg ? errMsg : "unknown parse error";
-    if (errMsg)
-      fnDisposeMessage(errMsg);
-    return llvm::createStringError(llvm::inconvertibleErrorCode(),
-                                   "re-parsing IR with fast-math flags "
-                                   "failed: %s",
-                                   msg.c_str());
-  }
-  fnDisposeModule(module);
-  module = newModule;
-  return llvm::Error::success();
 }
 
 // Bitcode

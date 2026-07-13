@@ -85,12 +85,12 @@ static void appendLineWithFlags(llvm::StringRef line, std::string &out) {
 }
 
 // The compile unit uses emission kind 3 (DebugDirectivesOnly, named in
-// LLVM 8+); LLVM 7 prints it empty, which its own parser rejects.
-// Downgrade that one case to LineTablesOnly for the round-trip. Only
-// metadata lines (leading '!') are rewritten.
-static void fixupUnparseableEmissionKind(std::string &ir) {
+// LLVM 8+); LLVM 7 prints it empty. libnvvm's parser accepts the name,
+// so spell it back in. Only metadata lines (leading '!') are rewritten.
+static void spellOutEmissionKind(std::string &ir) {
   static constexpr llvm::StringLiteral kEmpty = "emissionKind: ,";
-  static constexpr llvm::StringLiteral kFixed = "emissionKind: LineTablesOnly,";
+  static constexpr llvm::StringLiteral kFixed =
+      "emissionKind: DebugDirectivesOnly,";
   size_t pos = 0;
   while ((pos = ir.find(kEmpty.data(), pos)) != std::string::npos) {
     size_t bol = ir.rfind('\n', pos);
@@ -165,29 +165,37 @@ llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
                  << builder->printModuleToString() << "\n";
   });
 
-  // Materialize any recorded fast-math flags via the text round-trip.
+  // Serialize the kernel module. Recorded fast-math flags only exist as
+  // value-name markers; materialize them as keywords on the printed IR
+  // and hand libnvvm the text, which its parser accepts alongside
+  // emission kind 3 by name. Stock LLVM 7 cannot re-parse that kind, and
+  // every substitute it can parse changes the debug output downstream.
+  std::string textIR;
+  LLVMMemoryBufferRef buf = nullptr;
+  const char *modData;
+  size_t modSize;
   if (translator.hasFastmathMarkers()) {
-    std::string textIR = injectFastmathFlags(builder->printModuleToString());
-    fixupUnparseableEmissionKind(textIR);
-    if (auto err = builder->replaceModuleWithParsedIR(textIR))
-      return std::move(err);
+    textIR = injectFastmathFlags(builder->printModuleToString());
+    spellOutEmissionKind(textIR);
+    modData = textIR.data();
+    modSize = textIR.size();
+  } else {
+    buf = builder->writeBitcodeToMemoryBuffer();
+    modData = builder->getBufferStart(buf);
+    modSize = builder->getBufferSize(buf);
   }
 
-  // Serialize to bitcode
-  LLVMMemoryBufferRef buf = builder->writeBitcodeToMemoryBuffer();
-  const char *bcData = builder->getBufferStart(buf);
-  size_t bcSize = builder->getBufferSize(buf);
-
-  // Collect modules: our bitcode + any link libraries
+  // Collect modules: the kernel module + any link libraries
   llvm::SmallVector<std::pair<const char *, size_t>> modules;
-  modules.push_back({bcData, bcSize});
+  modules.push_back({modData, modSize});
 
   // Read link libraries (libdevice, runtime BCs)
   llvm::SmallVector<std::string> libBuffers;
   for (const auto &libPath : opts.linkLibs) {
     std::ifstream file(libPath, std::ios::binary | std::ios::ate);
     if (!file.is_open()) {
-      builder->disposeMemoryBuffer(buf);
+      if (buf)
+        builder->disposeMemoryBuffer(buf);
       return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                      "cannot open link library: %s",
                                      libPath.c_str());
@@ -212,7 +220,8 @@ llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
                       ->compile(computeArch, modules, opts.optLevel,
                                 opts.genLTO, opts.nvvmOptions);
 
-  builder->disposeMemoryBuffer(buf);
+  if (buf)
+    builder->disposeMemoryBuffer(buf);
   return ptxOrErr;
 }
 

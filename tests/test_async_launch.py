@@ -7,10 +7,11 @@ from numba_cuda_mlir import cuda
 from numba_cuda_mlir.compiler import compile_result
 from numba_cuda_mlir.numba_cuda import types
 
-# Bounds the spin kernel at a few seconds of GPU time so a synchronous
-# launch cannot hang the test, while leaving orders of magnitude more
-# headroom than the host needs to record and query the event.
-_SPIN_CAP = 50_000_000
+# Bounds the spin kernel at roughly 30 seconds of GPU time so a
+# synchronous launch cannot hang the test, while leaving orders of
+# magnitude more headroom than the host needs to record and query the
+# event.
+_SPIN_CAP = 220_000_000
 
 
 def _busy_kernel_func(out):
@@ -77,11 +78,15 @@ def test_raise_free_kernel_launch_is_asynchronous():
     event = cuda.event()
     spin_kernel[1, 1, launch_stream](flag, out)
     event.record(launch_stream)
-    assert not event.query()
+    assert not event.query(), (
+        "event completed before the release flag was written: either the "
+        "launch was synchronous, or the host stalled for the full spin cap "
+        "(about 30 s) between launch and query; the two cannot be told apart"
+    )
     flag.copy_to_device(released, stream=release_stream)
     cuda.synchronize()
     assert event.query()
-    assert out.copy_to_host()[0] < _SPIN_CAP
+    assert out.copy_to_host()[0] < _SPIN_CAP, "kernel exited on the spin cap, not the release flag"
 
 
 def test_raising_kernel_launch_is_synchronous():

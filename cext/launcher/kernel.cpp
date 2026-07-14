@@ -2099,9 +2099,10 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
 
     // Check for kernel error codes (set by device-side assertion
     // replacements), unless the compiler proved the kernel never sets one
-    if (kernel_iter->second.check_error_code
-            && !check_kernel_error_code(kernel_iter->second.cukernel.lib))
-        return ErrorRaised;
+    if (kernel_iter->second.check_error_code) {
+        if (!check_kernel_error_code(kernel_iter->second.cukernel.lib))
+            return ErrorRaised;
+    }
 
     // Copy scalar records back from device to host
     for (const auto& info : helper->record_copies) {

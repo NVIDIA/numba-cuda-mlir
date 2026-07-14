@@ -64,7 +64,7 @@ class MLIRCacheImpl(CacheImpl):
             "nrt_inline": cres.metadata.get("nrt_inline"),
             "targetoptions": cres.metadata.get("targetoptions", {}),
             "gpu_target": cres.metadata.get("gpu_target"),
-            "check_error_code": cres.metadata.get("check_error_code", True),
+            "check_error_code": cres.metadata.get("check_error_code"),
         }
 
     def rebuild(self, target_context, payload):
@@ -80,6 +80,7 @@ class MLIRCacheImpl(CacheImpl):
         nrt_inline = payload.get("nrt_inline")
         targetoptions = payload.get("targetoptions", {})
         gpu_target = payload.get("gpu_target")
+        check_error_code = payload.get("check_error_code", True)
 
         signature = typing.signature(signature_return_type, *signature_args)
 
@@ -95,7 +96,7 @@ class MLIRCacheImpl(CacheImpl):
                 "nrt_inline": nrt_inline,
                 "targetoptions": targetoptions,
                 "gpu_target": gpu_target,
-                "check_error_code": payload.get("check_error_code", True),
+                "check_error_code": check_error_code,
             },
         )
 

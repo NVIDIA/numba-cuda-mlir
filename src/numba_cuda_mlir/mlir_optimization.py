@@ -596,14 +596,8 @@ def _dump_lto_assembly(cres, linker, target_options):
 
 
 def _kernel_needs_error_check(cres, linker):
-    """Decide whether the launcher must read back the device error code.
-
-    The readback synchronizes the context on every launch, so it is
-    skipped when this compilation unit provably never sets the error
-    code: the optimized module contains no use of the error global (the
-    bare definition emitted for linking does not count), and no external
-    device code (PTX/cubin/LTO-IR objects or CUDA sources) is linked in
-    that could set it out of view of the MLIR module.
+    """Return True when the launcher must read back the device error code:
+    the module uses the error global, or linked external device code could.
     """
     from numba_cuda_mlir.mlir_lowering import ERROR_CODE_GLOBAL_NAME
 
@@ -691,9 +685,7 @@ def optimize(cres):
 
         base_linker = cres.metadata["linker"]
 
-        cres.metadata["check_error_code"] = _kernel_needs_error_check(
-            cres, base_linker
-        )
+        cres.metadata["check_error_code"] = _kernel_needs_error_check(cres, base_linker)
 
         if is_lto:
             if use_llvm70:

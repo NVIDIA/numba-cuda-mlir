@@ -1036,16 +1036,15 @@ def lower_array_getitem(builder, target, args, kwargs):
 
     # Check if this is a record array
     array_numba_type = builder.get_numba_type(args[0].name)
-    if isinstance(array_numba_type.dtype, Record):
-        return _lower_record_array_getitem(builder, target, args, kwargs)
-
-    # Check if this is a nested array (embedded in a record)
     from numba_cuda_mlir.types import NestedArray
 
     if isinstance(array_numba_type, NestedArray):
         from numba_cuda_mlir.lowering.record import lower_nested_array_getitem_int
 
         return lower_nested_array_getitem_int(builder, target, args, kwargs)
+
+    if isinstance(array_numba_type.dtype, Record):
+        return _lower_record_array_getitem(builder, target, args, kwargs)
 
     array = builder.load_var(args[0])
     # Handle both variable and constant indices
@@ -1570,16 +1569,15 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
 
     # Check if this is a record array
     array_numba_type = builder.get_numba_type(args[0].name)
-    if isinstance(array_numba_type.dtype, Record):
-        return _lower_record_array_setitem(builder, target, args, kwargs)
-
-    # Check if this is a nested array (embedded in a record)
     from numba_cuda_mlir.types import NestedArray
 
     if isinstance(array_numba_type, NestedArray):
         from numba_cuda_mlir.lowering.record import lower_nested_array_setitem_int
 
         return lower_nested_array_setitem_int(builder, target, args, kwargs)
+
+    if isinstance(array_numba_type.dtype, Record):
+        return _lower_record_array_setitem(builder, target, args, kwargs)
 
     array = builder.load_var(args[0])
     index = builder.load_var(args[1])

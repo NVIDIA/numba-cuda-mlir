@@ -44,7 +44,16 @@ static struct PyModuleDef moduledef = {
 };
 
 PyMODINIT_FUNC PyInit__typeconv(void) {
-    return PyModule_Create(&moduledef);
+    PyObject *module = PyModule_Create(&moduledef);
+    if (module == NULL)
+        return NULL;
+#if !defined(Py_LIMITED_API) && defined(Py_GIL_DISABLED)
+    if (PyUnstable_Module_SetGIL(module, Py_MOD_GIL_NOT_USED) < 0) {
+        Py_DECREF(module);
+        return NULL;
+    }
+#endif
+    return module;
 }
 
 } // end extern C

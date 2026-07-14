@@ -1,11 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import numba_cuda_mlir
+import platform
 from numba_cuda_mlir.cuda.experimental import consteval
 from numba_cuda_mlir.ast_transforms import ConstevalError
 from numba_cuda_mlir import cuda
 import numpy as np
 import pytest
+
+IS_WINDOWS_ARM64 = platform.system() == "Windows" and platform.machine() == "ARM64"
 
 
 def test_consteval_freevars():
@@ -608,6 +611,7 @@ def test_consteval_arg_type_different_specializations():
 # Tests for target options access in consteval
 
 
+@pytest.mark.skipif(IS_WINDOWS_ARM64, reason="NYI: LLVM70 Bridge on Windows ARM64")
 def test_consteval_target_options_chip():
     """Test accessing chip target option in consteval."""
     from numba_cuda_mlir.cuda.experimental import current_target_options
@@ -661,6 +665,7 @@ def test_consteval_target_options_fast_math():
     assert "arr[i] = 1.0" in source
 
 
+@pytest.mark.skipif(IS_WINDOWS_ARM64, reason="NYI: LLVM70 Bridge on Windows ARM64")
 def test_consteval_current_target_options():
     """Test using numba_cuda_mlir.current_target_options() syntax."""
     from numba_cuda_mlir import cuda
@@ -903,6 +908,7 @@ def test_consteval_block_nested():
     assert "float(25)" in source
 
 
+@pytest.mark.skipif(IS_WINDOWS_ARM64, reason="NYI: LLVM70 Bridge on Windows ARM64")
 def test_consteval_block_with_target_options():
     """Test consteval block accessing target options."""
     from numba_cuda_mlir.cuda.experimental import current_target_options

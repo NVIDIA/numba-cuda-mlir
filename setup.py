@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import os
+import platform
 import shutil
 import sys
 import sysconfig
@@ -12,6 +13,7 @@ from setuptools.extension import Extension
 
 ROOT = Path(__file__).resolve().parent
 IS_WINDOWS = os.name == "nt"
+IS_WINDOWS_ARM64 = IS_WINDOWS and platform.machine() == "ARM64"
 _WINDOWS_DLL_SEARCH_MARKER = "# numba-cuda-mlir: bundled Windows DLL search paths"
 
 
@@ -154,15 +156,17 @@ class BuildExtWithCmake(build_ext):
                 cmake_cmd.append(f"-D{launcher_var}={launcher}")
         mlir_dir = os.environ.get("MLIR_DIR")
         if mlir_dir:
-            cmake_cmd += ["-DBUILD_LLVM70=ON", f"-DMLIR_DIR={mlir_dir}"]
-            capi = _find_mlir_python_capi()
-            if capi:
-                cmake_cmd.append(f"-DLLVM70_MLIR_PYTHON_CAPI={capi}")
-            else:
-                print(
-                    "WARNING: MLIR_DIR is set but the MLIRPythonCAPI link library "
-                    "was not found; MLIRToLLVM70 will not link against MLIRPythonCAPI."
-                )
+            cmake_cmd.append(f"-DMLIR_DIR={mlir_dir}")
+            if not IS_WINDOWS_ARM64:
+                cmake_cmd.append("-DBUILD_LLVM70=ON")
+                capi = _find_mlir_python_capi()
+                if capi:
+                    cmake_cmd.append(f"-DLLVM70_MLIR_PYTHON_CAPI={capi}")
+                else:
+                    print(
+                        "WARNING: MLIR_DIR is set but the MLIRPythonCAPI link library "
+                        "was not found; MLIRToLLVM70 will not link against MLIRPythonCAPI."
+                    )
         self.spawn(cmake_cmd)
         parallel = 1 if self.parallel is None else self.parallel
         self.spawn(["cmake", "--build", build_dir, "-j", str(parallel)])
@@ -205,7 +209,8 @@ class BuildExtWithCmake(build_ext):
                     mlir_dest.symlink_to(llvm70_capi)
                 else:
                     shutil.copy2(llvm70_capi, mlir_dest)
-        self._stage_libllvm7()
+        if not IS_WINDOWS_ARM64:
+            self._stage_libllvm7()
 
     def _stage_mlir_bindings(self):
         """Copy MLIR Python bindings from the LLVM install into the wheel."""

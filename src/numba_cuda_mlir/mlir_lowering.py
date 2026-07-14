@@ -28,6 +28,7 @@ from numba_cuda_mlir.lowering_utilities.type_conversions import (
 from numba_cuda_mlir.lowering_utilities import (
     context as numba_cuda_mlir_context,
     constant,
+    get_type_width,
 )
 from numba_cuda_mlir.lowering_utilities import (
     DeferredLowering,
@@ -1272,8 +1273,8 @@ extern "C" __global__ void
         dtype = self.get_storage_type(dtype_numba)
 
         raw_byte_storage = (
-            isinstance(dtype, (ir.IntegerType, ir.FloatType))
-            and dtype.width == value.dtype.itemsize * 8
+            isinstance(dtype, (ir.IntegerType, ir.FloatType, ir.ComplexType))
+            and get_type_width(dtype) == value.dtype.itemsize * 8
             and value.ndim > 0
         )
         if raw_byte_storage:

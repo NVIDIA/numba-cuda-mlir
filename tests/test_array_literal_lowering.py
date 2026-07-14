@@ -6,6 +6,8 @@ from numba_cuda_mlir import cuda
 FIDX = np.array([2, 0, 1], dtype=np.int32)
 FVALS = np.array([1.5, -2.5, 4.0, 8.0], dtype=np.float32)
 FGRID = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64)
+FCVALS64 = np.array([1.0 + 2.0j, -3.5 + 0.5j, 2.0 - 1.0j], dtype=np.complex64)
+FCVALS128 = np.array([1.0 + 2.0j, -3.5 + 0.5j, 2.0 - 1.0j], dtype=np.complex128)
 
 
 def test_frozen_index_array_correctness():
@@ -70,6 +72,40 @@ def test_frozen_array_lowers_to_constant_global():
     inp = np.ones(8, dtype=np.float32)
     out = cuda.to_device(np.zeros(8, dtype=np.float32))
     k[1, 32](cuda.to_device(inp), out)
+    ptx = str(k.inspect_lto_ptx())
+    assert "__numba_cuda_mlir_array_literal" in ptx
+    assert "malloc_param" not in ptx
+
+
+def test_frozen_complex64_array_lowering():
+    """A frozen complex64 array lowers to a constant global and reads correctly."""
+
+    @cuda.jit
+    def k(out):
+        i = cuda.grid(1)
+        if i < out.size:
+            out[i] = FCVALS64[i % 3]
+
+    out = cuda.to_device(np.zeros(6, dtype=np.complex64))
+    k[1, 32](out)
+    np.testing.assert_allclose(out.copy_to_host(), FCVALS64[np.arange(6) % 3])
+    ptx = str(k.inspect_lto_ptx())
+    assert "__numba_cuda_mlir_array_literal" in ptx
+    assert "malloc_param" not in ptx
+
+
+def test_frozen_complex128_array_lowering():
+    """A frozen complex128 array lowers to a constant global and reads correctly."""
+
+    @cuda.jit
+    def k(out):
+        i = cuda.grid(1)
+        if i < out.size:
+            out[i] = FCVALS128[i % 3]
+
+    out = cuda.to_device(np.zeros(6, dtype=np.complex128))
+    k[1, 32](out)
+    np.testing.assert_allclose(out.copy_to_host(), FCVALS128[np.arange(6) % 3])
     ptx = str(k.inspect_lto_ptx())
     assert "__numba_cuda_mlir_array_literal" in ptx
     assert "malloc_param" not in ptx

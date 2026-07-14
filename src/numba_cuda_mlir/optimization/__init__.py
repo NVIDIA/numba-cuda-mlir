@@ -203,6 +203,34 @@ def _rewrite_fast_divisions(module: ir.Module, worklist):
         op.operation.erase()
 
 
+_POW_CALLEES = ("__nv_powf", "__nv_pow", "__nv_fast_powf")
+
+
+def _is_zero_power_call(op) -> bool:
+    if "callee" not in op.attributes:
+        return False
+    if ir.FlatSymbolRefAttr(op.attributes["callee"]).value not in _POW_CALLEES:
+        return False
+    exponent_op = op.operands[1].owner
+    if getattr(exponent_op, "name", None) != "llvm.mlir.constant":
+        return False
+    value = exponent_op.attributes["value"]
+    return isinstance(value, ir.FloatAttr) and ir.FloatAttr(value).value == 0.0
+
+
+def _fold_zero_powers(pow_ops):
+    """Replace libdevice pow calls with constant-zero exponents by one,
+    the result for every base; __nv_fast_powf returns NaN for negative,
+    NaN, zero, and infinite bases.
+    """
+    for op in pow_ops:
+        result = op.results[0]
+        with ir.InsertionPoint(op), op.location:
+            one = llvm.mlir_constant(ir.FloatAttr.get(result.type, 1.0))
+        result.replace_all_uses_with(one)
+        op.erase()
+
+
 def run_pre_codegen_patterns(module: ir.Module):
     """Collect every pattern's matches in a single walk, then rewrite;
     the rewrites erase and insert operations so they run after the walk.
@@ -211,6 +239,7 @@ def run_pre_codegen_patterns(module: ir.Module):
     cast_ops = []
     mem_ops = []
     fdiv_ops = []
+    pow_ops = []
 
     def collect(op):
         name = op.name
@@ -222,6 +251,9 @@ def run_pre_codegen_patterns(module: ir.Module):
         elif name == "llvm.fdiv":
             if _is_fast_division(op):
                 fdiv_ops.append(op)
+        elif name == "llvm.call":
+            if _is_zero_power_call(op):
+                pow_ops.append(op)
         elif "numba_cuda_mlir.arg_attrs" in op.attributes:
             arg_attr_ops.append(op)
         return ir.WalkResult.ADVANCE
@@ -234,3 +266,4 @@ def run_pre_codegen_patterns(module: ir.Module):
     _resolve_shared_bit_storage_float_accesses(mem_ops)
     if fdiv_ops:
         _rewrite_fast_divisions(module, fdiv_ops)
+    _fold_zero_powers(pow_ops)

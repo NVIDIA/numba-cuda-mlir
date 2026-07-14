@@ -838,6 +838,54 @@ def test_pow():
     np.testing.assert_almost_equal(result.copy_to_host()[0], 8.0, decimal=5)
 
 
+def test_pow_zero_exponent():
+    values = np.array([np.nan, 0.0, -0.0, np.inf, -np.inf, -2.0], dtype=np.float32)
+    zero = np.float32(0.0)
+    negative_zero = np.float32(-0.0)
+
+    for fastmath in (False, {"afn"}, True):
+
+        @cuda.jit(fastmath=fastmath)
+        def pow_zero_kernel(result, bases):
+            i = cuda.grid(1)
+            result[0, i] = bases[i] ** (zero - zero)
+            result[1, i] = bases[i] ** negative_zero
+
+        bases = cuda.to_device(values)
+        result = cuda.device_array((2, values.size), dtype=np.float32)
+        pow_zero_kernel[1, values.size](result, bases)
+
+        expected = np.ones((2, values.size), dtype=np.float32)
+        np.testing.assert_array_equal(result.copy_to_host(), expected)
+
+
+def test_pow_zero_exponent_folds_before_codegen():
+    from numba_cuda_mlir._mlir import ir
+    from numba_cuda_mlir.lowering_utilities import context
+    from numba_cuda_mlir.optimization import run_pre_codegen_patterns
+
+    module_text = """
+    module {
+      llvm.func @__nv_fast_powf(f32, f32) -> f32
+      llvm.func @kernel(%arg0: f32, %arg1: f32) -> f32 {
+        %zero = llvm.mlir.constant(0.000000e+00 : f32) : f32
+        %half = llvm.mlir.constant(5.000000e-01 : f32) : f32
+        %0 = llvm.call @__nv_fast_powf(%arg0, %zero) : (f32, f32) -> f32
+        %1 = llvm.call @__nv_fast_powf(%arg1, %half) : (f32, f32) -> f32
+        %2 = llvm.fadd %0, %1 : f32
+        llvm.return %2 : f32
+      }
+    }
+    """
+    with context.get_context():
+        module = ir.Module.parse(module_text)
+        run_pre_codegen_patterns(module)
+        folded = str(module)
+
+    assert folded.count("llvm.call @__nv_fast_powf") == 1
+    assert "1.000000e+00" in folded
+
+
 def test_nextafter():
     """Test nextafter function"""
 

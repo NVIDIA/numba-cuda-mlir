@@ -300,6 +300,11 @@ struct CudaKernelHandle {
     CudaKernel cukernel;
     PyPtr post_load_callback;
     bool cooperative = false;
+    // When false, the compiler proved the kernel contains no use of the
+    // error-code global, so the post-launch device error check (which
+    // synchronizes the context) is skipped and launches stay
+    // asynchronous.
+    bool check_error_code = true;
 };
 
 // This should compile to a no-op
@@ -1488,8 +1493,8 @@ Result<CudaKernelHandle> compile(PyObject* compile_func,
                      Py_TYPE(compile_result.get())->tp_name);
 
     Py_ssize_t tuple_size = PyTuple_GET_SIZE(compile_result.get());
-    if (tuple_size < 3 || tuple_size > 4)
-        return raise(PyExc_TypeError, "Expected compile() to return a 3- or 4-tuple, got length %zd",
+    if (tuple_size < 3 || tuple_size > 5)
+        return raise(PyExc_TypeError, "Expected compile() to return a 3- to 5-tuple, got length %zd",
                      tuple_size);
 
     PyObject* py_cubin = PyTuple_GET_ITEM(compile_result.get(), 0);
@@ -1515,10 +1520,14 @@ Result<CudaKernelHandle> compile(PyObject* compile_func,
     if (!cukernel.is_ok()) return ErrorRaised;
 
     CudaKernelHandle handle{std::move(*cukernel), {}, cooperative};
-    if (tuple_size == 4) {
+    if (tuple_size >= 4) {
         PyObject* post_load_cb = PyTuple_GET_ITEM(compile_result.get(), 3);
         if (post_load_cb != Py_None && PyCallable_Check(post_load_cb))
             handle.post_load_callback = newref(post_load_cb);
+    }
+    if (tuple_size == 5) {
+        PyObject* py_check_error_code = PyTuple_GET_ITEM(compile_result.get(), 4);
+        handle.check_error_code = (py_check_error_code != Py_False);
     }
     return handle;
 }
@@ -2090,8 +2099,11 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
                      error_name, get_cuda_error(res));
     }
 
-    // Check for kernel error codes (set by device-side assertion replacements)
-    if (!check_kernel_error_code(kernel_iter->second.cukernel.lib))
+    // Check for kernel error codes (set by device-side assertion
+    // replacements). Skipped when the compiler proved the kernel never
+    // sets the error code, keeping the launch asynchronous.
+    if (kernel_iter->second.check_error_code
+            && !check_kernel_error_code(kernel_iter->second.cukernel.lib))
         return ErrorRaised;
 
     // Copy scalar records back from device to host

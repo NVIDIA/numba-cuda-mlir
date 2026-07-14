@@ -2432,10 +2432,14 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
 
     def _compile(self, args):
         with global_compiler_lock:
-            cubin, func_name, cooperative = self._compile_impl(args)
+            cubin, func_name, cooperative, check_error_code = (
+                self._compile_impl(args)
+            )
             if self._module_setup_callbacks or self._module_teardown_callbacks:
-                return (cubin, func_name, cooperative, self._make_post_load_hook())
-            return (cubin, func_name, cooperative)
+                post_load = self._make_post_load_hook()
+            else:
+                post_load = None
+            return (cubin, func_name, cooperative, post_load, check_error_code)
 
     def _compile_impl(self, args, launch_config_retry_budget=_CONFIGURE_CACHE_STALE_RETRY_LIMIT):
         from numba_cuda_mlir import mlir_compiler
@@ -2473,6 +2477,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 cres.metadata["cubin"],
                 cres.metadata["func_name"],
                 cres.metadata.get("use_cooperative", False),
+                cres.metadata.get("check_error_code", True),
             )
 
         if active_launch_config_key is not None:

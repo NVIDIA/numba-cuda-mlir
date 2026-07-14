@@ -64,6 +64,7 @@ class MLIRCacheImpl(CacheImpl):
             "nrt_inline": cres.metadata.get("nrt_inline"),
             "targetoptions": cres.metadata.get("targetoptions", {}),
             "gpu_target": cres.metadata.get("gpu_target"),
+            "check_error_code": cres.metadata.get("check_error_code", True),
         }
 
     def rebuild(self, target_context, payload):
@@ -94,6 +95,7 @@ class MLIRCacheImpl(CacheImpl):
                 "nrt_inline": nrt_inline,
                 "targetoptions": targetoptions,
                 "gpu_target": gpu_target,
+                "check_error_code": payload.get("check_error_code", True),
             },
         )
 

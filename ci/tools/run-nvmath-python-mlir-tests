@@ -74,10 +74,10 @@ export NUMBA_CUDA_MLIR_ICE_FULL_TB=1
 
 # --- Run nvmath tests ---
 
-cd "${NVMATH_CHECKOUT}"
+cd "${JUNIT_DIR}"
 
 echo "Running nvmath-python device tests (numba-cuda-mlir params)"
-python -m pytest tests/nvmath_tests/device \
+python -m pytest "${NVMATH_CHECKOUT}/tests/nvmath_tests/device" \
   -k "numba_cuda_mlir" \
   -v \
   --tb=short \
@@ -86,7 +86,7 @@ python -m pytest tests/nvmath_tests/device \
   "$@" || true
 
 echo "Running nvmath-python numba-cuda-mlir example tests"
-python -m pytest tests/example_tests/device_tests/test_device_samples.py \
+python -m pytest "${NVMATH_CHECKOUT}/tests/example_tests/device_tests/test_device_samples.py" \
   -k "numba_cuda_mlir" \
   -v \
   --tb=short \

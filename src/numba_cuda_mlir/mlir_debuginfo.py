@@ -465,6 +465,8 @@ class DIBuilder:
         self.di_local_vars: dict[str, ir.Attribute] = {}
         self.di_expression = None
         self.arg_names: set[str] = set()
+        self._source_files: dict[str, tuple[str, str]] = {}
+        self.di_file_scopes: dict[str, ir.Attribute] = {}
 
         raw_path = getattr(loc, "filename", None)
         if not raw_path or not raw_path.strip():
@@ -479,6 +481,7 @@ class DIBuilder:
                 return
 
         self.valid = True
+        self._main_path = raw_path
         filename = os.path.basename(raw_path)
         directory = os.path.dirname(raw_path) or "."
 
@@ -513,6 +516,26 @@ class DIBuilder:
             f"subprogramFlags = {_mlir_string_attr(subprogram_flags)}"
             f">"
         )
+
+    def add_source_file(self, raw_path):
+        """Register an additional source file for line mapping.
+
+        Instructions inlined from other Python files carry locations in
+        those files. Each registered file becomes a DILexicalBlockFile
+        scoped to the subprogram, so its lines land in the correct DWARF
+        file entry instead of being mis-filed under the subprogram's
+        file.
+        """
+        if not self.valid or not raw_path or not raw_path.strip():
+            return
+        if raw_path == self._main_path or raw_path in self._source_files:
+            return
+        if raw_path.startswith("<") and raw_path.endswith(">"):
+            if not linecache.getlines(raw_path):
+                return
+        filename = os.path.basename(raw_path)
+        directory = os.path.dirname(raw_path) or "."
+        self._source_files[raw_path] = (filename, directory)
 
     def add_local_variable(self, name, line, numba_type, *, arg_index=None):
         """Register a local variable for debug info emission."""
@@ -551,6 +574,22 @@ class DIBuilder:
             var_keys.append((var.name, key))
         attrs["numba_cuda_mlir.di_expr"] = "#llvm.di_expression<>"
 
+        scope_keys = []
+        for i, (raw_path, (filename, directory)) in enumerate(self._source_files.items()):
+            file_str = (
+                f"#llvm.di_file<{_mlir_string_attr(filename)} in {_mlir_string_attr(directory)}>"
+            )
+            scope_str = (
+                f"#llvm.di_lexical_block_file<"
+                f"scope = {self._di_sp_str}, "
+                f"file = {file_str}, "
+                f"discriminator = 0"
+                f">"
+            )
+            key = f"numba_cuda_mlir.di_file_scope_{i}"
+            attrs[key] = scope_str
+            scope_keys.append((raw_path, key))
+
         attr_strs = ", ".join(f"{k} = {v}" for k, v in attrs.items())
         module_str = f"module attributes {{{attr_strs}}} {{}}"
 
@@ -560,5 +599,7 @@ class DIBuilder:
             self.di_expression = helper.operation.attributes["numba_cuda_mlir.di_expr"]
             for name, key in var_keys:
                 self.di_local_vars[name] = helper.operation.attributes[key]
+            for raw_path, key in scope_keys:
+                self.di_file_scopes[raw_path] = helper.operation.attributes[key]
 
         return self.di_subprogram

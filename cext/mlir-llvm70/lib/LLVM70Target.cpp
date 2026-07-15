@@ -252,6 +252,17 @@ LLVMMetadataRef MLIRToLLVM70::getOrCreateDIFile(llvm::StringRef filename) {
   return file;
 }
 
+LLVMMetadataRef MLIRToLLVM70::getOrCreateFileScope(llvm::StringRef filename) {
+  auto it = fileScopeCache.find(filename);
+  if (it != fileScopeCache.end())
+    return it->second;
+
+  LLVMMetadataRef scope = b.createDILexicalBlockFile(
+      currentSubprogram, getOrCreateDIFile(filename));
+  fileScopeCache[filename] = scope;
+  return scope;
+}
+
 void MLIRToLLVM70::setDebugLocFromOp(Operation *op) {
   if (!diCompileUnit)
     return;
@@ -263,6 +274,12 @@ void MLIRToLLVM70::setDebugLocFromOp(Operation *op) {
   }
 
   LLVMMetadataRef scope = currentSubprogram ? currentSubprogram : diCompileUnit;
+  // Code inlined from other source files carries locations in those
+  // files. Scope such lines through a DILexicalBlockFile so the DWARF
+  // line table references the correct file instead of mis-filing the
+  // line numbers under the subprogram's file.
+  if (currentSubprogram && filename != currentSubprogramFile)
+    scope = getOrCreateFileScope(filename);
   b.setDebugLocation(line, col, scope);
 }
 
@@ -450,14 +467,16 @@ llvm::Error MLIRToLLVM70::translateFuncOp(Operation *op) {
   // Attach debug info subprogram to this function.
   if (diCompileUnit) {
     auto [filename, line, col] = extractFileLineCol(funcOp.getLoc());
-    LLVMMetadataRef diFile =
-        filename.empty() ? getOrCreateDIFile("llvm70_module")
-                         : getOrCreateDIFile(filename);
+    llvm::StringRef subprogramFile =
+        filename.empty() ? "llvm70_module" : filename;
+    LLVMMetadataRef diFile = getOrCreateDIFile(subprogramFile);
     std::string name = funcOp.getName().str();
     currentSubprogram =
         b.createDIFunction(diFile, name.c_str(), name.size(), diFile,
                            line ? line : 1, diSubroutineType);
     b.setSubprogram(fn, currentSubprogram);
+    currentSubprogramFile = subprogramFile;
+    fileScopeCache.clear();
   }
 
   // Create basic blocks (forward pass for branch targets)
@@ -484,6 +503,8 @@ llvm::Error MLIRToLLVM70::translateFuncOp(Operation *op) {
   }
 
   currentSubprogram = nullptr;
+  currentSubprogramFile = llvm::StringRef();
+  fileScopeCache.clear();
   b.clearDebugLocation();
 
   return llvm::Error::success();

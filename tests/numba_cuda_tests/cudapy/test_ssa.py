@@ -6,11 +6,13 @@ Tests for SSA reconstruction
 
 import sys
 import copy
+import inspect
 import logging
 
 import numpy as np
 
 from numba_cuda_mlir.numba_cuda import types
+from numba_cuda_mlir.numba_cuda.core import ir
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda.core import errors
@@ -442,3 +444,58 @@ class TestReportedSSAIssues(SSABaseTest):
 
         np.testing.assert_array_equal(python, expect)
         np.testing.assert_array_equal(nb, expect)
+
+
+class TestSSADeepCFG(NumbaCUDATestCase):
+    """
+    The reaching-definition search must not recurse per CFG block,
+    otherwise functions whose dominator chains are longer than the
+    interpreter recursion limit (e.g. kernels with large fully-inlined
+    device functions) fail to compile with RecursionError.
+
+    This test works on Numba IR only and does not require a GPU.
+    """
+
+    def test_deep_dominator_chain_def_search(self):
+        from numba_cuda_mlir.numba_cuda.compiler import run_frontend
+        from numba_cuda_mlir.numba_cuda.core.ssa import reconstruct_ssa
+
+        # `a` is an SSA violator (two definitions) whose use sits at the
+        # far end of a long immediate-dominator chain built from
+        # conditionals that neither define `a` nor lie on its dominance
+        # frontier, so the def search must walk the entire chain.
+        n_conditionals = 500
+        src_lines = ["def deep_cfg(x):", "    a = 0", "    if x < 0:", "        a = 1"]
+        for i in range(n_conditionals):
+            src_lines.append(f"    if x > {i}:")
+            src_lines.append(f"        b{i} = x")
+        src_lines.append("    return a")
+        ns = {}
+        exec("\n".join(src_lines), ns)
+
+        # Run the frontend at the current recursion limit; constrain only
+        # the SSA pass, the way the default 1000-frame limit constrains a
+        # much larger kernel.
+        func_ir = run_frontend(ns["deep_cfg"])
+        self.assertGreater(len(func_ir.blocks), 2 * n_conditionals)
+
+        current_depth = len(inspect.stack())
+        old_limit = sys.getrecursionlimit()
+        sys.setrecursionlimit(current_depth + 400)
+        try:
+            func_ir = reconstruct_ssa(func_ir)
+        finally:
+            sys.setrecursionlimit(old_limit)
+
+        # The reaching definition at the `return` must be the phi joining
+        # the two definitions of `a`, not an artifact of a truncated walk.
+        phis = [
+            stmt
+            for blk in func_ir.blocks.values()
+            for stmt in blk.body
+            if isinstance(stmt, ir.Assign)
+            and isinstance(stmt.value, ir.Expr)
+            and stmt.value.op == "phi"
+        ]
+        self.assertEqual(len(phis), 1)
+        self.assertEqual(len(phis[0].value.incoming_values), 2)

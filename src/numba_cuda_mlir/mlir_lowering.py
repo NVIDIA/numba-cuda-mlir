@@ -3335,8 +3335,7 @@ extern "C" __global__ void
             # BaseTuple multi-assign uses per-element stack slots.
             if isinstance(var_type, types.UniTuple) and not isinstance(slot, tuple):
                 return tuple(
-                    memref.load(memref=slot, indices=[index_of(i)])
-                    for i in range(var_type.count)
+                    memref.load(memref=slot, indices=[index_of(i)]) for i in range(var_type.count)
                 )
 
             return self._load_stack_slot(var_type, slot)

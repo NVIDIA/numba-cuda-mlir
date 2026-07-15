@@ -4,6 +4,7 @@
 import types as pytypes  # avoid confusion with numba.types
 import copy
 import ctypes
+import weakref
 from numba_cuda_mlir.numba_cuda import HAS_NUMBA
 from numba_cuda_mlir.numba_cuda import types, config, cgutils
 from numba_cuda_mlir.numba_cuda.core import ir
@@ -243,6 +244,70 @@ def check_reduce_func(func_ir, func_var):
     return reduce_func
 
 
+# Canonical callee IR per (function, flags, enable_ssa), shared by all
+# InlineWorker instances. Keyed weakly so IR does not outlive its
+# function.
+_callee_ir_cache = weakref.WeakKeyDictionary()
+
+
+def _clone_callee_ir(func_ir):
+    """Structural clone of ``func_ir`` for use as an inline callee.
+
+    Equivalent in effect to deep-copying the IR blocks, but far
+    cheaper: a fresh single Scope is created (with its redefinition
+    state), every Var is recreated in it, and every statement,
+    expression and mutable container is rebuilt. Immutable leaves are
+    shared: Loc objects, constant/global/freevar payloads, and any
+    non-IR values held in expressions. The clone can be freely
+    relabelled, renamed and spliced by ``inline_ir`` without mutating
+    the source IR.
+    """
+    blocks = func_ir.blocks
+    old_scope = next(iter(blocks.values())).scope
+    new_scope = ir.Scope(parent=old_scope.parent, loc=old_scope.loc)
+    new_scope.redefined.update(old_scope.redefined)
+    for name, versions in old_scope.var_redefinitions.items():
+        new_scope.var_redefinitions[name] = set(versions)
+
+    varmap = {}
+    for name, var in old_scope.localvars._con.items():
+        varmap[name] = new_scope.define(name, var.loc)
+
+    def clone_value(value):
+        if isinstance(value, ir.Var):
+            return varmap[value.name]
+        if isinstance(value, ir.Expr):
+            new_expr = copy.copy(value)
+            new_expr._kws = {key: clone_value(item) for key, item in value._kws.items()}
+            return new_expr
+        if isinstance(value, list):
+            return [clone_value(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(clone_value(item) for item in value)
+        if isinstance(value, dict):
+            return {key: clone_value(item) for key, item in value.items()}
+        return value
+
+    def clone_stmt(stmt):
+        new_stmt = copy.copy(stmt)
+        for name, value in tuple(new_stmt.__dict__.items()):
+            cloned = clone_value(value)
+            if cloned is not value:
+                new_stmt.__dict__[name] = cloned
+        return new_stmt
+
+    new_blocks = {}
+    for label, block in blocks.items():
+        new_block = ir.Block(scope=new_scope, loc=block.loc)
+        new_block.body = [clone_stmt(stmt) for stmt in block.body]
+        new_blocks[label] = new_block
+
+    new_ir = copy.copy(func_ir)
+    new_ir.blocks = new_blocks
+    new_ir.block_entry_vars = {}
+    return new_ir
+
+
 class InlineWorker:
     """A worker class for inlining, this is a more advanced version of
     `inline_closure_call` in that it permits inlining from function type, Numba
@@ -311,32 +376,40 @@ class InlineWorker:
         self.typemap = typemap
         self.calltypes = calltypes
 
-    def inline_ir(self, caller_ir, block, i, callee_ir, callee_freevars, arg_typs=None):
+    def inline_ir(
+        self, caller_ir, block, i, callee_ir, callee_freevars, arg_typs=None, preserve_ir=True
+    ):
         """Inlines the callee_ir in the caller_ir at statement index i of block
         `block`, callee_freevars are the free variables for the callee_ir. If
         the callee_ir is derived from a function `func` then this is
         `func.__code__.co_freevars`. If `arg_typs` is given and the InlineWorker
         instance was initialized with a typemap and calltypes then they will be
-        appropriately updated based on the arg_typs.
+        appropriately updated based on the arg_typs. If `preserve_ir` is
+        True, the callee_ir object will be copied before mutating, otherwise
+        it will be mutated in place.
         """
+        # Save a reference to the incoming callee_ir
+        callee_ir_original = callee_ir
 
-        # Always copy the callee IR, it gets mutated
-        def copy_ir(the_ir):
-            kernel_copy = the_ir.copy()
-            kernel_copy.blocks = {
-                block_label: copy.deepcopy(block) for block_label, block in the_ir.blocks.items()
-            }
-            return kernel_copy
+        # When preserve_ir is True, create a copy of the FunctionIR object
+        # to mutate. Set preserve_ir to False if callee_ir does not persist
+        # between calls to inline_ir.
+        if preserve_ir:
 
-        callee_ir = copy_ir(callee_ir)
+            def copy_ir(the_ir):
+                kernel_copy = the_ir.copy()
+                kernel_copy.blocks = {
+                    block_label: copy.deepcopy(block)
+                    for block_label, block in the_ir.blocks.items()
+                }
+                return kernel_copy
+
+            callee_ir = copy_ir(callee_ir)
 
         # check that the contents of the callee IR is something that can be
         # inlined if a validator is present
         if self.validator is not None:
             self.validator(callee_ir)
-
-        # save an unmutated copy of the callee_ir to return
-        callee_ir_original = copy_ir(callee_ir)
         scope = block.scope
         instr = block.body[i]
         call_expr = instr.value
@@ -439,9 +512,29 @@ class InlineWorker:
         initialized with a typemap and calltypes then they will be appropriately
         updated based on the arg_typs.
         """
-        callee_ir = self.run_untyped_passes(function)
+        callee_ir = self._fresh_callee_ir(function)
         freevars = function.__code__.co_freevars
-        return self.inline_ir(caller_ir, block, i, callee_ir, freevars, arg_typs=arg_typs)
+        return self.inline_ir(
+            caller_ir, block, i, callee_ir, freevars, arg_typs=arg_typs, preserve_ir=False
+        )
+
+    def _fresh_callee_ir(self, function, enable_ssa=False):
+        """Return callee IR that is safe for ``inline_ir`` to mutate.
+
+        The canonical IR produced by the untyped pipeline for a given
+        function and flags configuration is cached, and each call
+        site receives a structural clone of it. Running the untyped
+        pipeline is far more expensive than cloning, and deeply
+        nested inline='always' functions otherwise recompile their
+        whole subtree at every transitive call site.
+        """
+        per_func = _callee_ir_cache.setdefault(function, {})
+        key = (str(self.flags), enable_ssa)
+        canonical_ir = per_func.get(key)
+        if canonical_ir is None:
+            canonical_ir = self.run_untyped_passes(function, enable_ssa)
+            per_func[key] = canonical_ir
+        return _clone_callee_ir(canonical_ir)
 
     def run_untyped_passes(self, func, enable_ssa=False):
         """

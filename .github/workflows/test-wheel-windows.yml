@@ -63,6 +63,7 @@ jobs:
       max-parallel: 5
       matrix: ${{ fromJSON(needs.compute-matrix.outputs.MATRIX) }}
     runs-on: "windows-${{ matrix.ARCH }}-gpu-${{ matrix.GPU }}-${{ matrix.DRIVER }}-${{ matrix.GPU_COUNT }}"
+    timeout-minutes: 30
     if: ${{ github.repository_owner == 'nvidia' && !cancelled() }}
     steps:
       - name: Checkout ${{ github.event.repository.name }}

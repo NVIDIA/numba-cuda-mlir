@@ -836,14 +836,29 @@ def mod_cg(builder, target, args, kwargs):
     assert len(args) == 2, "mod_cg expects 2 arguments"
     target_type = builder.get_numba_type(target.name)
     target_mlir_type = builder.get_mlir_type(target_type)
+    # MLIR integer types here are signless; signedness must come from the
+    # Numba type so that operand widening sign-extends signed values.
+    # Non-integer targets keep convert's unsigned default.
+    signed = isinstance(target_type, types.Integer) and target_type.signed
     lhs, rhs = args
-    lhs = lowering_utilities.convert(builder.load_var(lhs), target_mlir_type)
-    rhs = lowering_utilities.convert(builder.load_var(rhs), target_mlir_type)
+    lhs = lowering_utilities.convert(builder.load_var(lhs), target_mlir_type, signed=signed)
+    rhs = lowering_utilities.convert(builder.load_var(rhs), target_mlir_type, signed=signed)
 
     match target_mlir_type:
         case ir.IntegerType():
-            # For integers: use signed integer remainder
-            result = arith.remsi(lhs, rhs)
+            if signed:
+                # Python floored modulo: the result takes the sign of the
+                # divisor. arith.remsi truncates toward zero, so add the
+                # divisor when the remainder is nonzero and its sign
+                # disagrees with the divisor's ((rem ^ rhs) < 0).
+                rem = arith.remsi(lhs, rhs)
+                zero = lowering_utilities.constant(0, rem.type)
+                sign_mismatch = arith.cmpi(arith.CmpIPredicate.slt, arith.xori(rem, rhs), zero)
+                rem_nonzero = arith.cmpi(arith.CmpIPredicate.ne, rem, zero)
+                needs_fix = arith.andi(sign_mismatch, rem_nonzero)
+                result = arith.addi(rem, arith.select(needs_fix, rhs, zero))
+            else:
+                result = arith.remui(lhs, rhs)
         case ir.FloatType():
             # For floats: implement a % b = a - floor(a/b) * b
             div = arith.divf(lhs, rhs)
@@ -980,10 +995,14 @@ def floordiv_cg(builder, target, args, kwargs):
             div_result = arith.divf(lhs, rhs)
             result = math_dialect.floor(div_result)
         case ir.IntegerType():
-            # For signed integers, use floordivsi
-            lhs = lowering_utilities.convert(lhs, target_mlir_type)
-            rhs = lowering_utilities.convert(rhs, target_mlir_type)
-            if target_mlir_type.is_signed:
+            # MLIR integer types here are signless (is_signed is always
+            # False), so signedness must come from the Numba type — both
+            # for the widening conversion (extsi vs extui) and for the
+            # choice of division op.
+            signed = target_type.signed
+            lhs = lowering_utilities.convert(lhs, target_mlir_type, signed=signed)
+            rhs = lowering_utilities.convert(rhs, target_mlir_type, signed=signed)
+            if signed:
                 result = arith.floordivsi(lhs, rhs)
             else:
                 # For unsigned, regular division is the same as floor division

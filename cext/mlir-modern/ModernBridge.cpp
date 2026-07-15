@@ -35,6 +35,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -48,6 +49,7 @@ struct NvvmIrVersion {
 };
 
 static NvvmIrVersion g_nvvm_ir_version;
+static std::mutex g_nvvm_ir_version_mutex;
 
 static void set_error(char **error_out, const std::string &message) {
     if (!error_out)
@@ -570,10 +572,6 @@ mlir_modern_to_nvvm_translate_for_libnvvm(
     if (error_out)
         *error_out = nullptr;
 
-    g_nvvm_ir_version = {
-        nvvm_ir_major, nvvm_ir_minor, nvvm_debug_major, nvvm_debug_minor
-    };
-
     if (!mlir_text || !out || !out_len) {
         set_error(error_out, "invalid null argument");
         return 1;
@@ -624,7 +622,13 @@ mlir_modern_to_nvvm_translate_for_libnvvm(
     if (dump_llvmir && !dump_module_to_stderr(*llvm_module, error_out))
         return 1;
 
-    adapt_for_libnvvm(*llvm_module, llvm_context);
+    {
+        std::lock_guard<std::mutex> guard(g_nvvm_ir_version_mutex);
+        g_nvvm_ir_version = {
+            nvvm_ir_major, nvvm_ir_minor, nvvm_debug_major, nvvm_debug_minor
+        };
+        adapt_for_libnvvm(*llvm_module, llvm_context);
+    }
     downgrade_for_libnvvm(*llvm_module, llvm_context, ctk_major, ctk_minor);
 
     bool ok = emit_text_ir

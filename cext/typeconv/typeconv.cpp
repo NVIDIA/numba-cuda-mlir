@@ -80,23 +80,36 @@ bool TypeManager::canUnsafeConvert(Type from, Type to) const {
 }
 
 void TypeManager::addPromotion(Type from, Type to) {
-    return addCompatibility(from, to, TCC_PROMOTE);
+    std::unique_lock<std::shared_mutex> guard(mutex);
+    addCompatibilityUnlocked(from, to, TCC_PROMOTE);
 }
 
 void TypeManager::addUnsafeConversion(Type from, Type to) {
-    return addCompatibility(from, to, TCC_CONVERT_UNSAFE);
+    std::unique_lock<std::shared_mutex> guard(mutex);
+    addCompatibilityUnlocked(from, to, TCC_CONVERT_UNSAFE);
 }
 
 void TypeManager::addSafeConversion(Type from, Type to) {
-    return addCompatibility(from, to, TCC_CONVERT_SAFE);
+    std::unique_lock<std::shared_mutex> guard(mutex);
+    addCompatibilityUnlocked(from, to, TCC_CONVERT_SAFE);
 }
 
 void TypeManager::addCompatibility(Type from, Type to, TypeCompatibleCode tcc) {
+    std::unique_lock<std::shared_mutex> guard(mutex);
+    addCompatibilityUnlocked(from, to, tcc);
+}
+
+void TypeManager::addCompatibilityUnlocked(Type from, Type to, TypeCompatibleCode tcc) {
     TypePair pair(from, to);
     tccmap.insert(pair, tcc);
 }
 
 TypeCompatibleCode TypeManager::isCompatible(Type from, Type to) const {
+    std::shared_lock<std::shared_mutex> guard(mutex);
+    return isCompatibleUnlocked(from, to);
+}
+
+TypeCompatibleCode TypeManager::isCompatibleUnlocked(Type from, Type to) const {
     if (from == to)
         return TCC_EXACT;
     TypePair pair(from, to);
@@ -109,6 +122,7 @@ int TypeManager::selectOverload(const Type sig[], const Type ovsigs[],
                                 int sigsz, int ovct, bool allow_unsafe,
                                 bool exact_match_required
                                ) const {
+    std::shared_lock<std::shared_mutex> guard(mutex);
     int count;
     if (ovct <= 16) {
         Rating ratings[16];
@@ -142,7 +156,7 @@ int TypeManager::_selectOverload(const Type sig[], const Type ovsigs[],
         Rating rate;
 
         for (int j = 0; j < sigsz; ++j) {
-            TypeCompatibleCode tcc = isCompatible(sig[j], entry[j]);
+            TypeCompatibleCode tcc = isCompatibleUnlocked(sig[j], entry[j]);
             if (tcc == TCC_FALSE ||
                 (tcc == TCC_CONVERT_UNSAFE && !allow_unsafe) ||
                 (tcc != TCC_EXACT && exact_match_required)) {

@@ -2471,13 +2471,11 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 active_launch_config_generation = self._launch_config_generation
 
         def _result(cres):
-            # The post-launch error-code readback runs only for debug
-            # kernels; exceptions have no effect without debug=True.
             return (
                 cres.metadata["cubin"],
                 cres.metadata["func_name"],
                 cres.metadata.get("use_cooperative", False),
-                bool(cres.metadata.get("targetoptions", {}).get("debug", False)),
+                cres.metadata.get("targetoptions", {}).get("debug", False),
             )
 
         if active_launch_config_key is not None:

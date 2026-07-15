@@ -300,8 +300,8 @@ struct CudaKernelHandle {
     CudaKernel cukernel;
     PyPtr post_load_callback;
     bool cooperative = false;
-    // False when the compiler proved the kernel never sets the error-code
-    // global; the post-launch check (which synchronizes) is then skipped.
+    // When false, the post-launch device error check (which synchronizes
+    // the context) is skipped.
     bool check_error_code = true;
 };
 
@@ -2097,8 +2097,7 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
                      error_name, get_cuda_error(res));
     }
 
-    // Check for kernel error codes (set by device-side assertion
-    // replacements), unless the compiler proved the kernel never sets one
+    // Check for kernel error codes (set by device-side assertion replacements)
     if (kernel_iter->second.check_error_code) {
         if (!check_kernel_error_code(kernel_iter->second.cukernel.lib))
             return ErrorRaised;

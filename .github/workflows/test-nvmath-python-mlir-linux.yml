@@ -67,8 +67,8 @@ jobs:
         uses: ./.github/actions/install_unix_deps
         continue-on-error: false
         with:
-          dependencies: "ca-certificates git jq wget"
-          dependent_exes: "git jq wget"
+          dependencies: "ca-certificates git jq wget gcc g++ make"
+          dependent_exes: "git jq wget gcc g++ make"
 
       - name: Set environment variables
         env:

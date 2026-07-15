@@ -58,7 +58,7 @@ def _run_ssa(blocks):
     cfg = compute_cfg_from_blocks(blocks)
     df_plus = _iterated_domfronts(cfg)
     # Find SSA violators
-    violators = _find_defs_violators(blocks, cfg)
+    violators, defs, uses = _find_defs_violators(blocks, cfg)
     # Make cache for .list_vars()
     cache_list_vars = _CacheListVars()
 
@@ -68,13 +68,21 @@ def _run_ssa(blocks):
             "Fix SSA violator on var %s",
             varname,
         )
+        # Only blocks that define or use the variable are visited;
+        # other blocks pass through by reference. The label sets stay
+        # valid across both passes: renames touch only this variable
+        # and phi nodes introduce fresh names. The fix pass uses the
+        # union of use and def blocks, otherwise the RHS of an
+        # assignment to itself (e.g. ``x = x + 1``) is excluded.
+        def_labels = {label for _assign, label in defs[varname]}
+        use_labels = uses[varname] | def_labels
         # Fix up the LHS
         # Put fresh variables for all assignments to the variable
-        blocks, defmap = _fresh_vars(blocks, varname)
+        blocks, defmap = _fresh_vars(blocks, varname, def_labels)
         _logger.debug("Replaced assignments: %s", _lazy_pformat(defmap))
         # Fix up the RHS
         # Re-associate the variable uses with the reaching definition
-        blocks = _fix_ssa_vars(blocks, varname, defmap, cfg, df_plus, cache_list_vars)
+        blocks = _fix_ssa_vars(blocks, varname, defmap, cfg, df_plus, cache_list_vars, use_labels)
 
     # Post-condition checks.
     # CFG invariant
@@ -84,7 +92,7 @@ def _run_ssa(blocks):
     return blocks
 
 
-def _fix_ssa_vars(blocks, varname, defmap, cfg, df_plus, cache_list_vars):
+def _fix_ssa_vars(blocks, varname, defmap, cfg, df_plus, cache_list_vars, use_labels):
     """Rewrite all uses to ``varname`` given the definition map"""
     states = _make_states(blocks)
     states["varname"] = varname
@@ -92,12 +100,16 @@ def _fix_ssa_vars(blocks, varname, defmap, cfg, df_plus, cache_list_vars):
     states["phimap"] = phimap = defaultdict(list)
     states["cfg"] = cfg
     states["phi_locations"] = _compute_phi_locations(df_plus, defmap)
-    newblocks = _run_block_rewrite(blocks, states, _FixSSAVars(cache_list_vars))
+    newblocks = _run_block_rewrite(blocks, states, _FixSSAVars(cache_list_vars), use_labels)
     # insert phi nodes
     for label, philist in phimap.items():
         curblk = newblocks[label]
-        # Prepend PHI nodes to the block
-        curblk.body = philist + curblk.body
+        # Prepend PHI nodes to the block. Build a fresh block rather
+        # than mutating in place: phi locations include pass-through
+        # blocks, and input block objects must never be mutated.
+        newblk = ir.Block(scope=curblk.scope, loc=curblk.loc)
+        newblk.body = philist + curblk.body
+        newblocks[label] = newblk
     return newblocks
 
 
@@ -130,12 +142,12 @@ def _compute_phi_locations(iterated_df, defmap):
     return phi_locations
 
 
-def _fresh_vars(blocks, varname):
+def _fresh_vars(blocks, varname, def_labels):
     """Rewrite to put fresh variable names"""
     states = _make_states(blocks)
     states["varname"] = varname
     states["defmap"] = defmap = defaultdict(list)
-    newblocks = _run_block_rewrite(blocks, states, _FreshVarHandler())
+    newblocks = _run_block_rewrite(blocks, states, _FreshVarHandler(), def_labels)
     return newblocks, defmap
 
 
@@ -148,8 +160,10 @@ def _find_defs_violators(blocks, cfg):
     """
     Returns
     -------
-    res : Set[str]
-        The SSA violators in a dictionary of variable names.
+    res : Tuple[Dict[str, None], Mapping, Mapping]
+        The SSA violators in a dictionary of variable names, the
+        per-variable definition map (name -> [(assign, label)]) and the
+        per-variable use-block map (name -> {label}).
     """
     defs = defaultdict(list)
     uses = defaultdict(set)
@@ -171,7 +185,7 @@ def _find_defs_violators(blocks, cfg):
                     violators[k] = None
                     break
     _logger.debug("SSA violators %s", _lazy_pformat(list(violators)))
-    return violators
+    return violators, defs, uses
 
 
 def _run_block_analysis(blocks, states, handler):
@@ -182,9 +196,15 @@ def _run_block_analysis(blocks, states, handler):
             pass
 
 
-def _run_block_rewrite(blocks, states, handler):
+def _run_block_rewrite(blocks, states, handler, relevant_labels=None):
     newblocks = {}
     for label, blk in blocks.items():
+        if relevant_labels is not None and label not in relevant_labels:
+            # The handler can only change statements that mention the
+            # variable being processed, so blocks without a def/use
+            # of it pass through unchanged.
+            newblocks[label] = blk
+            continue
         _logger.debug("==== SSA block rewrite pass on %s", label)
         newblk = ir.Block(scope=blk.scope, loc=blk.loc)
 

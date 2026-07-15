@@ -44,7 +44,10 @@ int llvm70_translate_gpu_module_from_op(
     int gen_lto, int opt_level, int gen_lineinfo,
     int nvvm_ir_major, int nvvm_ir_minor, int nvvm_debug_major,
     int nvvm_debug_minor,
-    char **out, size_t *out_len, char **err_out) {
+    char **out, size_t *out_len, char **err_out,
+    // Deliberately last: an older library ignores a trailing argument, so
+    // the output pointers never shift.
+    const char *nvvm_options) {
 
   *out = nullptr;
   *out_len = 0;
@@ -86,6 +89,20 @@ int llvm70_translate_gpu_module_from_op(
   opts.nvvmIRMinor = nvvm_ir_minor;
   opts.nvvmDebugMajor = nvvm_debug_major;
   opts.nvvmDebugMinor = nvvm_debug_minor;
+
+  // Space-separated extra nvvmCompileProgram options (e.g. "-prec-div=0").
+  if (nvvm_options && nvvm_options[0]) {
+    const char *p = nvvm_options;
+    while (*p) {
+      while (*p == ' ')
+        ++p;
+      const char *start = p;
+      while (*p && *p != ' ')
+        ++p;
+      if (p > start)
+        opts.nvvmOptions.emplace_back(start, p - start);
+    }
+  }
 
   // Intercept llvm::report_fatal_error so it throws an exception instead of
   // aborting the host process (e.g. bf16 rejection, unsupported types).

@@ -6,6 +6,7 @@ from numba_cuda_mlir import typing
 from io import StringIO
 from numba_cuda_mlir.numba_cuda.core import sigutils
 from numba_cuda_mlir.numba_cuda import types as numba_types
+from numba_cuda_mlir.numba_cuda.core.options import FastMathOptions
 from numba_cuda_mlir.numba_cuda.core.typeinfer import register_dispatcher
 from numba_cuda_mlir.numba_cuda.decorators import jit as numba_cuda_jit
 import inspect
@@ -77,6 +78,16 @@ def _verify_shared_memory_carveout(value: Any, targetoptions: dict[str, Any]) ->
             raise ValueError("Carveout must be between -1 and 100")
         return None
     raise TypeError(f"shared_memory_carveout must be str or int, got {type(value).__name__}")
+
+
+def _verify_fastmath(value: Any, targetoptions: dict[str, Any]) -> str | None:
+    if value is None:
+        return None
+    try:
+        FastMathOptions(value)
+    except ValueError as e:
+        return str(e)
+    return None
 
 
 def _verify_launch_bounds(value: Any, targetoptions: dict[str, Any]) -> str | None:
@@ -213,9 +224,15 @@ def _get_schema() -> tuple[MLIRJITOption, ...]:
         ),
         MLIRJITOption(
             name="fastmath",
-            types=bool,
+            types=(bool, set, dict, FastMathOptions),
             default_value=False,
-            help="Use faster approximations for floating-point arithmetic",
+            help=(
+                "Use faster approximations for floating-point arithmetic. "
+                "True enables all fast-math flags; a set or dict may select "
+                "individual LLVM flags from {'fast', 'nnan', 'ninf', 'nsz', "
+                "'arcp', 'contract', 'afn', 'reassoc'}"
+            ),
+            extra_verification=_verify_fastmath,
         ),
         MLIRJITOption(
             name="device",
@@ -264,10 +281,11 @@ def _get_schema() -> tuple[MLIRJITOption, ...]:
         ),
         MLIRJITOption(
             name="fast_math",
-            types=(bool, type(None)),
+            types=(bool, set, dict, FastMathOptions, type(None)),
             default_value=None,
             help="Alias for fastmath",
             hidden=True,
+            extra_verification=_verify_fastmath,
         ),
         MLIRJITOption(
             name="opt",
@@ -518,6 +536,8 @@ def verify_target_options(kws: dict[str, Any]) -> dict[str, Any]:
     # Handle compatibility mappings
     if targetoptions.get("fast_math") is not None:
         targetoptions["fastmath"] = targetoptions["fast_math"]
+    # Normalize to FastMathOptions so downstream consumers see one representation.
+    targetoptions["fastmath"] = FastMathOptions(targetoptions.get("fastmath", False))
     if targetoptions.get("opt") is not None:
         targetoptions["opt_level"] = 3 if targetoptions["opt"] else 0
 

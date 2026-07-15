@@ -1,63 +1,45 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-import functools
 from numba_cuda_mlir._mlir.dialects import gpu, arith, llvm
 from numba_cuda_mlir._mlir import ir
 
 
-def recursively_apply(pattern):
-    @functools.wraps(pattern)
-    def wrapper(op):
-        if pattern(op):
-            return True
-        for region in op.regions:
-            for block in region.blocks:
-                for operation in block:
-                    if recursively_apply(pattern)(operation):
-                        return True
-        return False
+def _fixup_nvvm_arg_attrs(op):
+    attrs = [[j for j in i] for i in op.attributes["numba_cuda_mlir.arg_attrs"]]
+    if all(len(i) == 0 for i in attrs):
+        return
+    orig_arg_types = op.attributes["numba_cuda_mlir.orig_arg_types"]
+    arg_attrs = op.attributes["numba_cuda_mlir.arg_attrs"]
+    new_arg_attrs = []
+    for i, arg_attr in enumerate(arg_attrs):
+        new_arg_attr = {}
+        for namedattr in arg_attr:
+            if "numba_cuda_mlir.grid_constant" == namedattr.name:
+                new_arg_attr["nvvm.grid_constant"] = ir.UnitAttr.get()
+            else:
+                new_arg_attr[namedattr.name] = namedattr.attr
 
-    return wrapper
+        new_arg_attrs.append(ir.DictAttr.get(new_arg_attr))
+        orig_arg_type = orig_arg_types[i].value
 
-
-@recursively_apply
-def fixup_nvvm_arg_attrs(op: gpu.GPUFuncOp):
-    if "numba_cuda_mlir.arg_attrs" in op.attributes:
-        attrs = [[j for j in i] for i in op.attributes["numba_cuda_mlir.arg_attrs"]]
-        if all(len(i) == 0 for i in attrs):
-            return
-        orig_arg_types = op.attributes["numba_cuda_mlir.orig_arg_types"]
-        arg_attrs = op.attributes["numba_cuda_mlir.arg_attrs"]
-        new_arg_attrs = []
-        for i, arg_attr in enumerate(arg_attrs):
-            new_arg_attr = {}
-            for namedattr in arg_attr:
-                if "numba_cuda_mlir.grid_constant" == namedattr.name:
-                    new_arg_attr["nvvm.grid_constant"] = ir.UnitAttr.get()
-                else:
-                    new_arg_attr[namedattr.name] = namedattr.attr
-
+        # assuming the CAPI for memref types is expanded here
+        if isinstance(orig_arg_type, ir.MemRefType):
+            # append again for the aligned pointer
             new_arg_attrs.append(ir.DictAttr.get(new_arg_attr))
-            orig_arg_type = orig_arg_types[i].value
 
-            # assuming the CAPI for memref types is expanded here
-            if isinstance(orig_arg_type, ir.MemRefType):
-                # append again for the aligned pointer
-                new_arg_attrs.append(ir.DictAttr.get(new_arg_attr))
+            # Empty attr for the offset
+            new_arg_attrs.append(ir.DictAttr.get({}))
 
-                # Empty attr for the offset
-                new_arg_attrs.append(ir.DictAttr.get({}))
+            # Give empty attrs for the shape args
+            r = orig_arg_type.rank
+            new_arg_attrs.extend([ir.DictAttr.get({}) for _ in range(r)])
 
-                # Give empty attrs for the shape args
-                r = orig_arg_type.rank
-                new_arg_attrs.extend([ir.DictAttr.get({}) for _ in range(r)])
+            # Give empty attrs for the stride args
+            new_arg_attrs.extend([ir.DictAttr.get({}) for _ in range(r)])
 
-                # Give empty attrs for the stride args
-                new_arg_attrs.extend([ir.DictAttr.get({}) for _ in range(r)])
-
-        op.attributes["arg_attrs"] = ir.ArrayAttr.get(new_arg_attrs)
-        del op.attributes["numba_cuda_mlir.arg_attrs"]
-        del op.attributes["numba_cuda_mlir.orig_arg_types"]
+    op.attributes["arg_attrs"] = ir.ArrayAttr.get(new_arg_attrs)
+    del op.attributes["numba_cuda_mlir.arg_attrs"]
+    del op.attributes["numba_cuda_mlir.orig_arg_types"]
 
 
 _EXOTIC_FLOAT_TYPES = frozenset(
@@ -82,29 +64,21 @@ def _is_exotic_float(ty: ir.Type) -> bool:
     return isinstance(ty, ir.FloatType) and str(ty) in _EXOTIC_FLOAT_TYPES
 
 
-def _resolve_exotic_float_casts(module: ir.Module):
+def _is_exotic_float_cast(op) -> bool:
+    if len(op.results) != 1 or len(op.operands) != 1:
+        return False
+    src_ty = op.operands[0].type
+    dst_ty = op.results[0].type
+    return (isinstance(src_ty, ir.IntegerType) and _is_exotic_float(dst_ty)) or (
+        _is_exotic_float(src_ty) and isinstance(dst_ty, ir.IntegerType)
+    )
+
+
+def _resolve_exotic_float_casts(worklist):
     """Replace unrealized_conversion_cast between integer and exotic float
     types with arith.bitcast. MLIR's memref-to-LLVM lowering inserts these
     casts for sub-32-bit float element types because LLVM has no native
     representation for them."""
-    worklist = []
-
-    def collect(op):
-        if op.operation.name == "builtin.unrealized_conversion_cast":
-            if len(op.results) == 1 and len(op.operands) == 1:
-                src_ty = op.operands[0].type
-                dst_ty = op.results[0].type
-                if (isinstance(src_ty, ir.IntegerType) and _is_exotic_float(dst_ty)) or (
-                    _is_exotic_float(src_ty) and isinstance(dst_ty, ir.IntegerType)
-                ):
-                    worklist.append(op)
-        for region in op.operation.regions:
-            for block in region.blocks:
-                for child in block:
-                    collect(child)
-
-    collect(module.operation.opview)
-
     for op in worklist:
         src = op.operands[0]
         dst_ty = op.results[0].type
@@ -141,7 +115,7 @@ def _copy_op_attrs(src, dst):
         dst.operation.attributes[name] = src.operation.attributes[name]
 
 
-def _resolve_shared_bit_storage_float_accesses(module: ir.Module):
+def _resolve_shared_bit_storage_float_accesses(worklist):
     """Rewrite shared-memory LLVM scalar loads/stores so float operands use integer storage.
 
     For MLIR floating-point types whose ABI/storage representation is wider integer bits
@@ -151,18 +125,6 @@ def _resolve_shared_bit_storage_float_accesses(module: ir.Module):
     nvjitlink LTO can drop certain half-precision scalar stores before a widened load; forcing
     integer accesses preserves bit patterns across that optimization.
     """
-    worklist = []
-
-    def collect(op):
-        if op.operation.name in ("llvm.load", "llvm.store"):
-            worklist.append(op)
-        for region in op.operation.regions:
-            for block in region.blocks:
-                for child in block:
-                    collect(child)
-
-    collect(module.operation.opview)
-
     for op in worklist:
         if op.operation.name == "llvm.store":
             value = op.operands[0]
@@ -192,12 +154,116 @@ def _resolve_shared_bit_storage_float_accesses(module: ir.Module):
         op.operation.erase()
 
 
+_FAST_FDIVIDEF = "__nv_fast_fdividef"
+
+
+def _fastmath_flag_set(op) -> frozenset:
+    """Flag names from an op's #llvm.fastmath<...> attribute (empty if none)."""
+    attrs = op.operation.attributes
+    if "fastmathFlags" not in attrs:
+        return frozenset()
+    text = str(attrs["fastmathFlags"])  # e.g. "#llvm.fastmath<nnan, arcp>"
+    inner = text[text.index("<") + 1 : text.rindex(">")]
+    return frozenset(flag.strip() for flag in inner.split(",") if flag.strip())
+
+
+def _is_fast_division(op) -> bool:
+    return isinstance(op.results[0].type, ir.F32Type) and bool(
+        _fastmath_flag_set(op) & {"fast", "arcp"}
+    )
+
+
+def _rewrite_fast_divisions(module: ir.Module, worklist):
+    """Lower f32 ``llvm.fdiv`` marked ``arcp`` or ``fast`` to
+    ``__nv_fast_fdividef``, as numba-cuda does; libnvvm does not select
+    ``div.approx`` from instruction flags.
+    """
+    for gpu_module in module.body:
+        if isinstance(gpu_module, gpu.GPUModuleOp):
+            block = gpu_module.regions[0].blocks[0]
+            has_decl = any(
+                getattr(op, "sym_name", None) and op.sym_name.value == _FAST_FDIVIDEF
+                for op in block
+            )
+            if not has_decl:
+                decl = ir.Operation.parse(f"llvm.func @{_FAST_FDIVIDEF}(f32, f32) -> f32")
+                ir.InsertionPoint.at_block_begin(block).insert(decl)
+
+    for op in worklist:
+        loc = op.operation.location
+        with ir.InsertionPoint(op), loc:
+            call = llvm.CallOp(
+                result=op.results[0].type,
+                callee_operands=[op.operands[0], op.operands[1]],
+                op_bundle_operands=[],
+                op_bundle_sizes=[],
+                callee=_FAST_FDIVIDEF,
+            )
+        op.results[0].replace_all_uses_with(call.results[0])
+        op.operation.erase()
+
+
+_POW_CALLEES = ("__nv_powf", "__nv_pow", "__nv_fast_powf")
+
+
+def _is_zero_power_call(op) -> bool:
+    if "callee" not in op.attributes:
+        return False
+    if ir.FlatSymbolRefAttr(op.attributes["callee"]).value not in _POW_CALLEES:
+        return False
+    exponent_op = op.operands[1].owner
+    if getattr(exponent_op, "name", None) != "llvm.mlir.constant":
+        return False
+    value = exponent_op.attributes["value"]
+    return isinstance(value, ir.FloatAttr) and ir.FloatAttr(value).value == 0.0
+
+
+def _fold_zero_powers(pow_ops):
+    """Replace libdevice pow calls with constant-zero exponents by one,
+    the result for every base; __nv_fast_powf returns NaN for negative,
+    NaN, zero, and infinite bases.
+    """
+    for op in pow_ops:
+        result = op.results[0]
+        with ir.InsertionPoint(op), op.location:
+            one = llvm.mlir_constant(ir.FloatAttr.get(result.type, 1.0))
+        result.replace_all_uses_with(one)
+        op.erase()
+
+
 def run_pre_codegen_patterns(module: ir.Module):
-    fixup_nvvm_arg_attrs(module.operation)
-    _resolve_exotic_float_casts(module)
-    _resolve_shared_bit_storage_float_accesses(module)
-    # TODO(ajm): why does this not trigger?
-    # patterns = RewritePatternSet()
-    # patterns.add(gpu.GPUFuncOp, fixup_nvvm_arg_attrs)
-    # frozen = patterns.freeze()
-    # apply_patterns_and_fold_greedily(module, frozen)
+    """Collect every pattern's matches in a single walk, then rewrite;
+    the rewrites erase and insert operations so they run after the walk.
+    """
+    arg_attr_ops = []
+    cast_ops = []
+    mem_ops = []
+    fdiv_ops = []
+    pow_ops = []
+
+    def collect(op):
+        name = op.name
+        if name == "builtin.unrealized_conversion_cast":
+            if _is_exotic_float_cast(op):
+                cast_ops.append(op)
+        elif name in ("llvm.load", "llvm.store"):
+            mem_ops.append(op)
+        elif name == "llvm.fdiv":
+            if _is_fast_division(op):
+                fdiv_ops.append(op)
+        elif name == "llvm.call":
+            if _is_zero_power_call(op):
+                pow_ops.append(op)
+        elif "numba_cuda_mlir.arg_attrs" in op.attributes:
+            arg_attr_ops.append(op)
+        return ir.WalkResult.ADVANCE
+
+    module.operation.walk(collect)
+
+    for op in arg_attr_ops:
+        _fixup_nvvm_arg_attrs(op)
+    _resolve_exotic_float_casts(cast_ops)
+    _resolve_shared_bit_storage_float_accesses(mem_ops)
+    if fdiv_ops:
+        _rewrite_fast_divisions(module, fdiv_ops)
+    _fold_zero_powers(pow_ops)

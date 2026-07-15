@@ -118,6 +118,6 @@ jobs:
         with:
           name: nvmath-python-mlir-test-results-${{ inputs.host-platform }}-py${{ matrix.PY_VER }}-cu${{ env.TEST_CUDA_MAJOR }}
           path: |
-            nvmath-python-mlir-junit-device.xml
+            nvmath-python-mlir-junit-device-*.xml
             nvmath-python-mlir-junit-examples.xml
           if-no-files-found: ignore

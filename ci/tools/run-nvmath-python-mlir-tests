@@ -15,7 +15,7 @@ NVMATH_REPO="${NVMATH_REPO:-https://github.com/NVIDIA/nvmath-python.git}"
 NVMATH_CHECKOUT="/tmp/nvmath-python"
 
 JUNIT_DIR="${GITHUB_WORKSPACE:-$(pwd)}"
-JUNIT_DEVICE="${JUNIT_DIR}/nvmath-python-mlir-junit-device.xml"
+JUNIT_DEVICE_PREFIX="${JUNIT_DIR}/nvmath-python-mlir-junit-device"
 JUNIT_EXAMPLES="${JUNIT_DIR}/nvmath-python-mlir-junit-examples.xml"
 
 echo "Locating numba-cuda-mlir wheel"
@@ -73,59 +73,84 @@ PY
 export NUMBA_CUDA_MLIR_ICE_FULL_TB=1
 
 # --- Run nvmath tests ---
+cd "${NVMATH_CHECKOUT}"
 
-cd "${JUNIT_DIR}"
-
-echo "Running nvmath-python device tests (numba-cuda-mlir params)"
-python -m pytest "${NVMATH_CHECKOUT}/tests/nvmath_tests/device" \
-  -k "numba_cuda_mlir" \
-  -v \
-  --tb=short \
-  --junit-xml="${JUNIT_DEVICE}" \
-  -o addopts= \
-  "$@" || true
+BATCH_SIZE=500
 
 echo "Running nvmath-python numba-cuda-mlir example tests"
-python -m pytest "${NVMATH_CHECKOUT}/tests/example_tests/device_tests/test_device_samples.py" \
+python -m pytest ./tests/example_tests/device_tests/test_device_samples.py \
   -k "numba_cuda_mlir" \
-  -v \
+  -v -ra \
   --tb=short \
+  -n auto \
   --junit-xml="${JUNIT_EXAMPLES}" \
   -o addopts= \
   "$@" || true
+
+echo "Collecting nvmath-python device tests (numba-cuda-mlir params)"
+mapfile -t device_nodeids < <(
+  python -m pytest ./tests/nvmath_tests/device \
+    --collect-only -q -o addopts= \
+    -k "not (perf or benchmark) and numba_cuda_mlir" | grep "::"
+)
+
+echo "Running ${#device_nodeids[@]} device tests in batches of ${BATCH_SIZE}"
+batch=0
+for ((i = 0; i < ${#device_nodeids[@]}; i += BATCH_SIZE)); do
+  python -m pytest "${device_nodeids[@]:i:BATCH_SIZE}" \
+    -v -ra \
+    --tb=short \
+    -n auto \
+    --junit-xml="${JUNIT_DEVICE_PREFIX}-${batch}.xml" \
+    -o addopts= \
+    "$@" || true
+  batch=$((batch + 1))
+done
 
 echo ""
 echo "========================================"
 echo "nvmath-python MLIR test run complete"
 echo "========================================"
-echo "Junit device:   ${JUNIT_DEVICE}"
+echo "Junit device:   ${JUNIT_DEVICE_PREFIX}-*.xml"
 echo "Junit examples: ${JUNIT_EXAMPLES}"
 
-python - "${JUNIT_DEVICE}" "${JUNIT_EXAMPLES}" <<'PY'
+python - "${JUNIT_EXAMPLES}" "${JUNIT_DEVICE_PREFIX}" <<'PY'
+import glob
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+examples_xml, device_prefix = sys.argv[1], sys.argv[2]
+groups = {
+    "examples": [examples_xml],
+    "device": sorted(glob.glob(f"{device_prefix}-*.xml")),
+}
+
 status = 0
-for xml_file in sys.argv[1:]:
-    p = Path(xml_file)
-    if not p.exists():
-        print(f"ERROR: {p.name} not found - tests may not have run")
+for name, files in groups.items():
+    if not files:
+        print(f"ERROR: no {name} junit produced - tests may not have run")
         status = 1
         continue
     passed = failures = errors = skipped = 0
-    for ts in ET.parse(p).iter("testsuite"):
-        ts_tests = int(ts.get("tests", 0))
-        ts_failures = int(ts.get("failures", 0))
-        ts_errors = int(ts.get("errors", 0))
-        ts_skipped = int(ts.get("skipped", 0))
-        failures += ts_failures
-        errors += ts_errors
-        skipped += ts_skipped
-        passed += ts_tests - ts_failures - ts_errors - ts_skipped
-    print(f"{p.name}: passed={passed} failed={failures} errors={errors} skipped={skipped}")
+    for xml_file in files:
+        p = Path(xml_file)
+        if not p.exists():
+            print(f"ERROR: {p.name} not found - tests may not have run")
+            status = 1
+            continue
+        for ts in ET.parse(p).iter("testsuite"):
+            ts_tests = int(ts.get("tests", 0))
+            ts_failures = int(ts.get("failures", 0))
+            ts_errors = int(ts.get("errors", 0))
+            ts_skipped = int(ts.get("skipped", 0))
+            failures += ts_failures
+            errors += ts_errors
+            skipped += ts_skipped
+            passed += ts_tests - ts_failures - ts_errors - ts_skipped
+    print(f"{name}: passed={passed} failed={failures} errors={errors} skipped={skipped}")
     if passed + failures + errors + skipped == 0:
-        print(f"ERROR: {p.name} ran no tests - selection or install may be broken")
+        print(f"ERROR: {name} ran no tests - selection or install may be broken")
         status = 1
     if failures > 0 or errors > 0:
         status = 1

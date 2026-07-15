@@ -11,7 +11,7 @@ from numba_cuda_mlir.numba_cuda.testing import skip_if_nvjitlink_missing
 from numba_cuda_mlir.tools import get_gpu_compute_capability
 
 
-@cuda.jit
+@cuda.jit(debug=True, opt=False)
 def tuple_bounds_check_kernel(out, idx):
     """Kernel that accesses a tuple with bounds checking."""
     t = (10, 20, 30)
@@ -111,12 +111,15 @@ def test_ltoir_device_functions_share_error_global():
     ],
 )
 def test_raise_only_kernel(debug, opt):
-    """Test that raise-only kernel compiles and surfaces RuntimeError to host."""
+    """Raise-only kernels compile; the raise surfaces only under debug."""
 
     @cuda.jit(debug=debug, opt=opt)
     def k():
         raise RuntimeError("Error")
 
-    with pytest.raises(RuntimeError, match="Runtime error in kernel"):
+    if debug:
+        with pytest.raises(RuntimeError, match="Runtime error in kernel"):
+            k[1, 1]()
+    else:
         k[1, 1]()
         cuda.synchronize()

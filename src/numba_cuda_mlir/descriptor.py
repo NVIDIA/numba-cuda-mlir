@@ -2432,9 +2432,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
 
     def _compile(self, args):
         with global_compiler_lock:
-            cubin, func_name, cooperative, check_error_code = (
-                self._compile_impl(args)
-            )
+            cubin, func_name, cooperative, check_error_code = self._compile_impl(args)
             if self._module_setup_callbacks or self._module_teardown_callbacks:
                 post_load = self._make_post_load_hook()
             else:
@@ -2473,11 +2471,13 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 active_launch_config_generation = self._launch_config_generation
 
         def _result(cres):
+            # The post-launch error-code readback runs only for debug
+            # kernels; exceptions have no effect without debug=True.
             return (
                 cres.metadata["cubin"],
                 cres.metadata["func_name"],
                 cres.metadata.get("use_cooperative", False),
-                cres.metadata.get("check_error_code", True),
+                bool(cres.metadata.get("targetoptions", {}).get("debug", False)),
             )
 
         if active_launch_config_key is not None:

@@ -595,25 +595,6 @@ def _dump_lto_assembly(cres, linker, target_options):
     print("=" * 80)
 
 
-def _kernel_needs_error_check(cres, linker):
-    """Return True when the launcher must read back the device error code:
-    the module uses the error global, or linked external device code could.
-    """
-    from numba_cuda_mlir.mlir_lowering import ERROR_CODE_GLOBAL_NAME
-
-    external_inputs = (
-        getattr(linker, "_object_codes", None)
-        or getattr(linker, "_ltoirs", None)
-        or getattr(linker, "_pending_cu", None)
-    )
-    if external_inputs:
-        return True
-    mlir_text = cres.metadata["mlir_module_optimized"]
-    # The definition mentions the symbol exactly once; any further
-    # mention is a use (llvm.mlir.addressof).
-    return mlir_text.count(ERROR_CODE_GLOBAL_NAME) > 1
-
-
 def optimize(cres):
     with context.get_context():
         target_options = cres.metadata["targetoptions"]
@@ -684,8 +665,6 @@ def optimize(cres):
             )
 
         base_linker = cres.metadata["linker"]
-
-        cres.metadata["check_error_code"] = _kernel_needs_error_check(cres, base_linker)
 
         if is_lto:
             if use_llvm70:

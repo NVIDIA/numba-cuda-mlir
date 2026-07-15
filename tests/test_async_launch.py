@@ -4,8 +4,6 @@
 import numpy as np
 import pytest
 from numba_cuda_mlir import cuda
-from numba_cuda_mlir.compiler import compile_result
-from numba_cuda_mlir.numba_cuda import types
 
 # Bounds the spin kernel at roughly 30 seconds of GPU time so a
 # synchronous launch cannot hang the test, while leaving orders of
@@ -28,14 +26,6 @@ def _raising_kernel_func(out, idx):
     out[0] = t[idx]
 
 
-def _busy_raising_kernel_func(out, idx):
-    x = out[0]
-    for _ in range(20_000_000):
-        x = x * 0.9999999 + 1.0
-    t = (10, 20, 30)
-    out[0] = x + t[idx]
-
-
 def _spin_kernel_func(flag, out):
     # The atomic read cannot be hoisted out of the loop, so the kernel
     # keeps re-reading the flag until the host releases it.
@@ -45,19 +35,7 @@ def _spin_kernel_func(flag, out):
     out[0] = count
 
 
-def test_raise_free_kernel_skips_error_check():
-    sig = types.void(types.float32[::1])
-    res = compile_result(_busy_kernel_func, sig)
-    assert res.cres.metadata["check_error_code"] is False
-
-
-def test_raising_kernel_keeps_error_check():
-    sig = types.void(types.int32[::1], types.int64)
-    res = compile_result(_raising_kernel_func, sig)
-    assert res.cres.metadata["check_error_code"] is True
-
-
-def test_raise_free_kernel_launch_is_asynchronous():
+def test_default_kernel_launch_is_asynchronous():
     # The kernel spins until the host writes the release flag, so the
     # event recorded after the launch call can only read as pending if
     # the launch returned while the kernel was still running. The final
@@ -89,25 +67,25 @@ def test_raise_free_kernel_launch_is_asynchronous():
     assert out.copy_to_host()[0] < _SPIN_CAP, "kernel exited on the spin cap, not the release flag"
 
 
-def test_raising_kernel_launch_is_synchronous():
-    # A kernel that can raise keeps the post-launch readback, so the
-    # launch call blocks and the event is already complete when queried.
-    # This also proves event.query() reports completed work, which the
-    # pending read in the asynchronous test depends on.
-    busy_raising_kernel = cuda.jit(_busy_raising_kernel_func)
+def test_debug_kernel_launch_is_synchronous():
+    # Debug kernels keep the post-launch readback, so the launch call
+    # blocks and the event is already complete when queried. This also
+    # proves event.query() reports completed work, which the pending
+    # read in the asynchronous test depends on.
+    busy_kernel = cuda.jit(debug=True, opt=False)(_busy_kernel_func)
     stream = cuda.stream()
     out = cuda.device_array(1, dtype=np.float32)
-    busy_raising_kernel[1, 1, stream](out, 0)  # compile + first run
+    busy_kernel[1, 1, stream](out)  # compile + first run
     cuda.synchronize()
 
     event = cuda.event()
-    busy_raising_kernel[1, 1, stream](out, 0)
+    busy_kernel[1, 1, stream](out)
     event.record(stream)
     assert event.query()
 
 
-def test_raising_kernel_still_raises_at_launch():
-    raising_kernel = cuda.jit(_raising_kernel_func)
+def test_debug_kernel_raises_at_launch():
+    raising_kernel = cuda.jit(debug=True, opt=False)(_raising_kernel_func)
     out = cuda.device_array(1, dtype=np.int32)
 
     raising_kernel[1, 1](out, 0)
@@ -115,3 +93,14 @@ def test_raising_kernel_still_raises_at_launch():
 
     with pytest.raises(IndexError, match="out of bounds"):
         raising_kernel[1, 1](out, 5)
+
+
+def test_default_kernel_does_not_raise():
+    raising_kernel = cuda.jit(_raising_kernel_func)
+    out = cuda.device_array(1, dtype=np.int32)
+
+    raising_kernel[1, 1](out, 0)
+    assert out.copy_to_host()[0] == 10
+
+    raising_kernel[1, 1](out, 5)
+    cuda.synchronize()

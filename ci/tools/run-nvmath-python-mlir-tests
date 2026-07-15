@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+set -euo pipefail
+
+: "${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR:?NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR must be set by ci/tools/env-vars}"
+: "${LOCAL_CTK:?LOCAL_CTK must be set by the workflow}"
+: "${TEST_CUDA_MAJOR:?TEST_CUDA_MAJOR must be set by ci/tools/env-vars}"
+: "${TEST_CUDA_MINOR:?TEST_CUDA_MINOR must be set by ci/tools/env-vars}"
+
+NVMATH_REPO="${NVMATH_REPO:-https://github.com/NVIDIA/nvmath-python.git}"
+NVMATH_CHECKOUT="/tmp/nvmath-python"
+
+JUNIT_DIR="${GITHUB_WORKSPACE:-$(pwd)}"
+JUNIT_DEVICE="${JUNIT_DIR}/nvmath-python-mlir-junit-device.xml"
+JUNIT_EXAMPLES="${JUNIT_DIR}/nvmath-python-mlir-junit-examples.xml"
+
+echo "Locating numba-cuda-mlir wheel"
+wheels=("${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR}"/*.whl)
+if [[ ${#wheels[@]} -ne 1 || ! -e "${wheels[0]}" ]]; then
+  echo "Expected exactly one numba-cuda-mlir wheel in ${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR}, found ${#wheels[@]}"
+  printf '%s\n' "${wheels[@]}"
+  exit 1
+fi
+wheel="${wheels[0]}"
+
+# --- Install nvmath test env ---
+
+python -m pip install --upgrade pip
+
+
+NVMATH_REF="${NVMATH_REF:-main}"
+
+echo "Cloning nvmath-python (${NVMATH_REF})"
+git clone --filter=blob:none "${NVMATH_REPO}" "${NVMATH_CHECKOUT}"
+if ! git -C "${NVMATH_CHECKOUT}" checkout --quiet "${NVMATH_REF}"; then
+  echo "ERROR: ref ${NVMATH_REF} not found in ${NVMATH_REPO}"
+  exit 1
+fi
+echo "nvmath-python test commit (${NVMATH_REF}):"
+git -C "${NVMATH_CHECKOUT}" log -1 --format='%H %h %s'
+
+echo "Building and installing nvmath-python from source with device extras"
+python -m pip install "${NVMATH_CHECKOUT}[cu${TEST_CUDA_MAJOR}-dx]"
+
+echo "Installing nvmath-python test dependencies"
+python -m pip install \
+  --group "${NVMATH_CHECKOUT}/pyproject.toml:tests-dx-cu${TEST_CUDA_MAJOR}" \
+  --group "${NVMATH_CHECKOUT}/pyproject.toml:cupy-cu${TEST_CUDA_MAJOR}"
+
+
+echo "Installing numba-cuda-mlir wheel"
+if [[ "${LOCAL_CTK}" == 1 ]]; then
+  python -m pip install "${wheel}"
+else
+  python -m pip install "${wheel}[cu${TEST_CUDA_MAJOR}]"
+fi
+
+echo "Checking numba-cuda-mlir and nvmath imports"
+python - <<'PY'
+import importlib.metadata
+
+import numba_cuda_mlir
+import nvmath
+
+print(f"numba_cuda_mlir {numba_cuda_mlir.__version__} from {numba_cuda_mlir.__file__}")
+print(f"nvmath {importlib.metadata.version('nvmath-python')} from {nvmath.__file__}")
+PY
+
+export NUMBA_CUDA_MLIR_ICE_FULL_TB=1
+
+# --- Run nvmath tests ---
+
+cd "${NVMATH_CHECKOUT}"
+
+echo "Running nvmath-python device tests (numba-cuda-mlir params)"
+python -m pytest tests/nvmath_tests/device \
+  -k "numba_cuda_mlir" \
+  -v \
+  --tb=short \
+  --junit-xml="${JUNIT_DEVICE}" \
+  -o addopts= \
+  "$@" || true
+
+echo "Running nvmath-python numba-cuda-mlir example tests"
+python -m pytest tests/example_tests/device_tests/test_device_samples.py \
+  -k "numba_cuda_mlir" \
+  -v \
+  --tb=short \
+  --junit-xml="${JUNIT_EXAMPLES}" \
+  -o addopts= \
+  "$@" || true
+
+echo ""
+echo "========================================"
+echo "nvmath-python MLIR test run complete"
+echo "========================================"
+echo "Junit device:   ${JUNIT_DEVICE}"
+echo "Junit examples: ${JUNIT_EXAMPLES}"
+
+python - "${JUNIT_DEVICE}" "${JUNIT_EXAMPLES}" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+status = 0
+for xml_file in sys.argv[1:]:
+    p = Path(xml_file)
+    if not p.exists():
+        print(f"ERROR: {p.name} not found - tests may not have run")
+        status = 1
+        continue
+    passed = failures = errors = skipped = 0
+    for ts in ET.parse(p).iter("testsuite"):
+        ts_tests = int(ts.get("tests", 0))
+        ts_failures = int(ts.get("failures", 0))
+        ts_errors = int(ts.get("errors", 0))
+        ts_skipped = int(ts.get("skipped", 0))
+        failures += ts_failures
+        errors += ts_errors
+        skipped += ts_skipped
+        passed += ts_tests - ts_failures - ts_errors - ts_skipped
+    print(f"{p.name}: passed={passed} failed={failures} errors={errors} skipped={skipped}")
+    if passed + failures + errors + skipped == 0:
+        print(f"ERROR: {p.name} ran no tests - selection or install may be broken")
+        status = 1
+    if failures > 0 or errors > 0:
+        status = 1
+sys.exit(status)
+PY

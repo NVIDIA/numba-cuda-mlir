@@ -121,8 +121,8 @@ FOREACH_CUDA_FUNCTION_TO_LOAD(DEFINE_CUDA_FUNCTION_GLOBAL)
         return ErrorRaised;
 
 
-// A missing driver is deliberately NOT fatal here so cuda may be imported 
-// on a cpu only machine. 
+// A missing driver is deliberately NOT fatal here so cuda may be imported
+// on a cpu only machine.
 static bool g_cuda_available = false;
 static std::string g_cuda_load_error;
 

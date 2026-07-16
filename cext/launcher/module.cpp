@@ -31,6 +31,10 @@ PyMODINIT_FUNC PyInit__cext() {
 
     PyPtr m = steal(PyModule_Create(&module_def));
     if (!m) return nullptr;
+#if !defined(Py_LIMITED_API) && defined(Py_GIL_DISABLED)
+    if (PyUnstable_Module_SetGIL(m.get(), Py_MOD_GIL_NOT_USED) < 0)
+        return nullptr;
+#endif
 
     if (!kernel_init(m.get()))
         return nullptr;

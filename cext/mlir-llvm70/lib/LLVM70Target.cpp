@@ -15,6 +15,7 @@
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FormatVariadic.h"
+#include <cstring>
 #include <fstream>
 
 #define DEBUG_TYPE "llvm70-target"
@@ -593,6 +594,7 @@ llvm::Error MLIRToLLVM70::translateOp(Operation *op) {
       .Case<LLVM::ICmpOp>([&](auto) { return this->translateICmpOp(op); })
       .Case<LLVM::FCmpOp>([&](auto) { return this->translateFCmpOp(op); })
       .Case<LLVM::SelectOp>([&](auto) { return this->translateSelectOp(op); })
+      .Case<LLVM::AssumeOp>([&](auto) { return this->translateAssumeOp(op); })
       // Aggregate
       .Case<LLVM::ExtractValueOp>(
           [&](auto) { return this->translateExtractValueOp(op); })
@@ -913,18 +915,36 @@ llvm::Error MLIRToLLVM70::translateConstantOp(Operation *op) {
     if (!vecTy)
       return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                      "DenseElementsAttr on non-vector type");
-    LLVMTypeRef elemLLVMTy = convertType(vecTy.getElementType());
+    Type elemTy = vecTy.getElementType();
+    LLVMTypeRef elemLLVMTy = convertType(elemTy);
     SmallVector<LLVMValueRef> elems;
-    if (vecTy.getElementType().isIntOrIndex()) {
+    if (elemTy.isIntOrIndex()) {
       for (auto val : denseAttr.getValues<APInt>())
         elems.push_back(b.constInt(elemLLVMTy, toUInt64(val),
                                    val.isNegative()));
-    } else if (isBF16(vecTy.getElementType())) {
-      for (auto val : denseAttr.getValues<APFloat>())
-        elems.push_back(constBF16(b, val));
     } else {
-      for (auto val : denseAttr.getValues<APFloat>())
-        elems.push_back(b.constReal(elemLLVMTy, val.convertToDouble()));
+      // Reconstruct floating-point elements from their raw bit patterns instead
+      // of using DenseElementsAttr::getValues<APFloat>(). When this bridge and
+      // the MLIR Python bindings embed distinct LLVM copies (e.g. on Windows,
+      // where duplicate symbols are not interposed as they are with ELF),
+      // APFloat's fltSemantics singletons live at different addresses across the
+      // module boundary and the float element iterator silently yields zero.
+      // Raw byte access carries the correct IEEE encoding, so we read the bits
+      // and materialize the constant via an integer bitcast. bf16 is stored as
+      // i16, so it needs no bitcast.
+      unsigned bitWidth = elemTy.getIntOrFloatBitWidth();
+      unsigned byteWidth = bitWidth / 8;
+      ArrayRef<char> raw = denseAttr.getRawData();
+      bool splat = denseAttr.isSplat();
+      LLVMTypeRef intElemTy = b.intTy(bitWidth);
+      for (int64_t i = 0, e = vecTy.getNumElements(); i < e; ++i) {
+        uint64_t bits = 0;
+        std::memcpy(&bits, raw.data() + (splat ? 0 : i * byteWidth), byteWidth);
+        LLVMValueRef intConst = b.constInt(intElemTy, bits, /*signExt=*/false);
+        elems.push_back(isBF16(elemTy)
+                            ? intConst
+                            : b.constBitCast(intConst, elemLLVMTy));
+      }
     }
     mapValue(result, b.constVector(elems.data(), elems.size()));
     return llvm::Error::success();
@@ -1297,6 +1317,48 @@ llvm::Error MLIRToLLVM70::translateSelectOp(Operation *op) {
                               lookupValue(selectOp.getTrueValue()),
                               lookupValue(selectOp.getFalseValue()), "");
   mapValue(selectOp.getResult(), result);
+  return llvm::Error::success();
+}
+
+llvm::Error MLIRToLLVM70::translateAssumeOp(Operation *op) {
+  auto assumeOp = cast<LLVM::AssumeOp>(op);
+  LLVMValueRef condition = lookupValue(assumeOp.getCond());
+
+  if (auto tags = assumeOp.getOpBundleTagsAttr()) {
+    for (auto [tagAttr, operands] :
+         llvm::zip(tags, assumeOp.getOpBundleOperands())) {
+      auto tag = cast<StringAttr>(tagAttr).getValue();
+      if (tag != "align")
+        return llvm::createStringError(
+            llvm::inconvertibleErrorCode(),
+            "unsupported llvm.assume operand bundle: %s",
+            tag.str().c_str());
+      if (operands.size() != 2 && operands.size() != 3)
+        return llvm::createStringError(
+            llvm::inconvertibleErrorCode(),
+            "llvm.assume align bundle requires 2 or 3 operands, got %zu",
+            operands.size());
+
+      LLVMValueRef ptr = b.buildPtrToInt(lookupValue(operands[0]), b.i64Ty(), "");
+      if (operands.size() == 3)
+        ptr = b.buildAdd(ptr, lookupValue(operands[2]), "");
+
+      LLVMValueRef one = b.constInt(b.i64Ty(), 1, false);
+      LLVMValueRef zero = b.constInt(b.i64Ty(), 0, false);
+      LLVMValueRef mask = b.buildSub(lookupValue(operands[1]), one, "");
+      LLVMValueRef maskedPtr = b.buildAnd(ptr, mask, "");
+      LLVMValueRef aligned =
+          b.buildICmp(LLVMIntEQ, maskedPtr, zero, "");
+      condition = b.buildAnd(condition, aligned, "");
+    }
+  }
+
+  LLVMTypeRef conditionType = b.i1Ty();
+  LLVMTypeRef fnType = b.funcTy(b.voidTy(), &conditionType, 1, false);
+  LLVMValueRef fn = b.getNamedFunction("llvm.assume");
+  if (!fn)
+    fn = b.addFunction("llvm.assume", fnType);
+  b.buildCall(fn, &condition, 1, "");
   return llvm::Error::success();
 }
 

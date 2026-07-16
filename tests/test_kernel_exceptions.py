@@ -6,6 +6,9 @@
 import numpy as np
 import pytest
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir.numba_cuda import require_context, types
+from numba_cuda_mlir.numba_cuda.testing import skip_if_nvjitlink_missing
+from numba_cuda_mlir.tools import get_gpu_compute_capability
 
 
 @cuda.jit
@@ -55,7 +58,48 @@ def test_error_global_in_ptx():
     ptx, _ = compile_ptx(tuple_bounds_check_kernel, sig)
 
     assert "__numba_cuda_mlir_error_code" in ptx, "Error global not found in PTX"
-    assert ".visible .global" in ptx, "Error global should be visible"
+    assert ".common .global" in ptx, "Error global should be common"
+
+
+@skip_if_nvjitlink_missing("nvJitLink missing")
+@require_context
+def test_ltoir_device_functions_share_error_global():
+    """Independently compiled device functions can be linked together."""
+
+    def op_a(x):
+        return x + 1
+
+    def op_b(x):
+        return x + 2
+
+    signature = types.int32(types.int32)
+    lto_a, _ = cuda.compile(
+        op_a,
+        signature,
+        device=True,
+        abi="c",
+        abi_info={"abi_name": "op_a"},
+        output="ltoir",
+    )
+    lto_b, _ = cuda.compile(
+        op_b,
+        signature,
+        device=True,
+        abi="c",
+        abi_info={"abi_name": "op_b"},
+        output="ltoir",
+    )
+    major, minor = get_gpu_compute_capability(tuple)
+
+    from cuda.bindings import nvjitlink
+
+    handle = nvjitlink.create(2, ["-lto", f"-arch=sm_{major}{minor}"])
+    try:
+        nvjitlink.add_data(handle, nvjitlink.InputType.LTOIR, lto_a, len(lto_a), "op_a")
+        nvjitlink.add_data(handle, nvjitlink.InputType.LTOIR, lto_b, len(lto_b), "op_b")
+        nvjitlink.complete(handle)
+    finally:
+        nvjitlink.destroy(handle)
 
 
 @pytest.mark.parametrize(

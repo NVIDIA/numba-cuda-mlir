@@ -4,6 +4,7 @@ import collections
 from contextlib import contextmanager
 from dataclasses import dataclass
 import sys
+import sysconfig
 import os
 import threading
 from functools import cached_property
@@ -57,6 +58,25 @@ import pstats
 
 # Thread-local storage for passing original tuple arg types to _compile
 _compile_arg_types = threading.local()
+_PY_GIL_DISABLED = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
+_DISPATCHER_STATE_BOOTSTRAP_LOCK = threading.Lock()
+_DISPATCHER_STATE_ATTRS = (
+    "_launch_config_lock",
+    "_launch_lock",
+    "_launch_config_overloads",
+    "_launch_config_dispatchers",
+    "_launch_config_generation",
+    "_launch_config_cache_misses",
+    "_launch_config_cache_hits",
+    "_launch_config_cache_notice_emitted",
+    "_old_dispatchers",
+    "_configure_cache",
+    "_configure_cache_inflight",
+)
+
+
+def _new_dispatcher_rlock():
+    return threading.RLock()
 
 
 def _is_strided_memory_view(arg):
@@ -664,6 +684,26 @@ class _ArgMarshaller:
                 _compile_arg_types.extensions = previous_extensions
 
     def __call__(self, *args):
+        launch_lock = None
+        if self._dispatcher is not None:
+            launch_lock = getattr(self._dispatcher, "_launch_lock", _MISSING)
+            if launch_lock is _MISSING:
+                ensure_dispatcher_state = getattr(
+                    self._dispatcher, "_ensure_dispatcher_state", None
+                )
+                if ensure_dispatcher_state is not None:
+                    ensure_dispatcher_state()
+                    launch_lock = getattr(self._dispatcher, "_launch_lock", None)
+                else:
+                    launch_lock = None
+        if launch_lock is None:
+            return self._call_impl(*args)
+        # Free-threaded launches share caches, callbacks, and native dispatcher
+        # state across this marshaller path.
+        with launch_lock:
+            return self._call_impl(*args)
+
+    def _call_impl(self, *args):
         nargs = len(args)
         has_ext = bool(self._extensions)
 
@@ -1478,7 +1518,10 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         # created with inline="always".
         self._compiler.pipeline_class = get_compiler_class(targetoptions)
 
-        self._launch_config_lock = threading.RLock()
+        # Free-threaded launches take _launch_lock before configure/cache work
+        # that may take _launch_config_lock. Keep that order one-way.
+        self._launch_config_lock = _new_dispatcher_rlock()
+        self._launch_lock = _new_dispatcher_rlock() if _PY_GIL_DISABLED else None
         # Launch-specialized overloads are retained until either recompile() or
         # cache eviction, whichever happens first. Retained marshallers can
         # reinstall their native dispatcher after dispatcher cache eviction, but
@@ -1607,28 +1650,36 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     def _ensure_dispatcher_state(self):
         # ReduceMixin restore paths may bypass __init__, so recreate the new
         # mutable caches lazily before paths that append or clear them.
-        if not hasattr(self, "_launch_config_lock"):
-            self._launch_config_lock = threading.RLock()
-        if not hasattr(self, "_launch_config_overloads"):
-            self._launch_config_overloads = {}
-        if not hasattr(self, "_launch_config_dispatchers"):
-            self._launch_config_dispatchers = collections.OrderedDict()
-        if not hasattr(self, "_launch_config_generation"):
-            self._launch_config_generation = 0
-        if not hasattr(self, "_launch_config_cache_misses"):
-            self._launch_config_cache_misses = collections.Counter()
-        if not hasattr(self, "_launch_config_cache_hits"):
-            self._launch_config_cache_hits = collections.Counter()
-        if not hasattr(self, "_launch_config_cache_notice_emitted"):
-            self._launch_config_cache_notice_emitted = False
-        if not hasattr(self, "_old_dispatchers"):
-            self._old_dispatchers = []
-        if not hasattr(self, "_configure_cache"):
-            self._configure_cache = collections.OrderedDict()
-        if not hasattr(self, "_configure_cache_inflight"):
-            self._configure_cache_inflight = {}
-        if "configure" not in self.__dict__:
-            self.configure = _ConfigureProxy(self)
+        if all(hasattr(self, name) for name in _DISPATCHER_STATE_ATTRS) and (
+            "configure" in self.__dict__
+        ):
+            return
+
+        with _DISPATCHER_STATE_BOOTSTRAP_LOCK:
+            if not hasattr(self, "_launch_config_lock"):
+                self._launch_config_lock = _new_dispatcher_rlock()
+            if not hasattr(self, "_launch_lock"):
+                self._launch_lock = _new_dispatcher_rlock() if _PY_GIL_DISABLED else None
+            if not hasattr(self, "_launch_config_overloads"):
+                self._launch_config_overloads = {}
+            if not hasattr(self, "_launch_config_dispatchers"):
+                self._launch_config_dispatchers = collections.OrderedDict()
+            if not hasattr(self, "_launch_config_generation"):
+                self._launch_config_generation = 0
+            if not hasattr(self, "_launch_config_cache_misses"):
+                self._launch_config_cache_misses = collections.Counter()
+            if not hasattr(self, "_launch_config_cache_hits"):
+                self._launch_config_cache_hits = collections.Counter()
+            if not hasattr(self, "_launch_config_cache_notice_emitted"):
+                self._launch_config_cache_notice_emitted = False
+            if not hasattr(self, "_old_dispatchers"):
+                self._old_dispatchers = []
+            if not hasattr(self, "_configure_cache"):
+                self._configure_cache = collections.OrderedDict()
+            if not hasattr(self, "_configure_cache_inflight"):
+                self._configure_cache_inflight = {}
+            if "configure" not in self.__dict__:
+                self.configure = _ConfigureProxy(self)
 
     def _clear_configure_cache(self):
         self._ensure_dispatcher_state()
@@ -2585,6 +2636,14 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         return _result(wrapped)
 
     def compile(self, sig, abi_info=None, output=None):
+        self._ensure_dispatcher_state()
+        launch_lock = self._launch_lock
+        if launch_lock is None:
+            return self._compile_public(sig, abi_info=abi_info, output=output)
+        with launch_lock:
+            return self._compile_public(sig, abi_info=abi_info, output=output)
+
+    def _compile_public(self, sig, abi_info=None, output=None):
         from numba_cuda_mlir.mlir_optimization import optimize
         from numba_cuda_mlir import mlir_compiler
         from numba_cuda_mlir.compiler import CompileResult
@@ -2892,7 +2951,13 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         have changed and you want the kernel to use the new values.
         """
         self._ensure_dispatcher_state()
+        launch_lock = self._launch_lock
+        if launch_lock is None:
+            return self._recompile_impl()
+        with launch_lock:
+            return self._recompile_impl()
 
+    def _recompile_impl(self):
         # Clear Python-side overloads
         self.overloads.clear()
 

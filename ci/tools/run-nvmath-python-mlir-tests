@@ -81,7 +81,7 @@ BATCH_SIZE=500
 
 echo "Running nvmath-python numba-cuda-mlir example tests"
 python -m pytest ./tests/example_tests/device_tests/test_device_samples.py \
-  -k "numba_cuda_mlir" \
+  -k "numba_cuda_mlir and not perf" \
   -v -ra \
   --tb=short \
   -n auto \

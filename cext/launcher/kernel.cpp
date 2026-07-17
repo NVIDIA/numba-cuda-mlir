@@ -1462,6 +1462,11 @@ struct KernelDispatcher {
     std::vector<bool> constant_arg_flags;
     ProfileMap arg_profiles;
     FamilyMap kernel_families;
+    // When false, launches stay asynchronous: the post-launch device-side error
+    // readback (cuCtxSynchronize + cuMemcpyDtoH of __numba_cuda_mlir_error_code)
+    // is skipped. Mirrors numba-cuda, which only surfaces kernel exceptions
+    // (raise/assert/bounds checks) when the kernel is compiled with debug=True.
+    bool debug = false;
 };
 
 void get_pyarg_types(PyObject* const* pyargs, Py_ssize_t num_pyargs,
@@ -2090,16 +2095,36 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
                      error_name, get_cuda_error(res));
     }
 
-    // Check for kernel error codes (set by device-side assertion replacements)
-    if (!check_kernel_error_code(kernel_iter->second.cukernel.lib))
-        return ErrorRaised;
+    // Check for kernel error codes (set by device-side assertion replacements).
+    // Only done for debug kernels, matching numba-cuda: this is the sole point
+    // that forces a synchronous cuCtxSynchronize + status readback, so gating it
+    // here keeps ordinary (debug=False) launches asynchronous. check_kernel_error_code
+    // synchronizes the context, so track whether that already happened.
+    bool context_synchronized = false;
+    if (dispatcher.debug) {
+        if (!check_kernel_error_code(kernel_iter->second.cukernel.lib))
+            return ErrorRaised;
+        context_synchronized = true;
+    }
 
-    // Copy scalar records back from device to host
-    for (const auto& info : helper->record_copies) {
-        CUresult copy_res = g_cuMemcpyDtoH(info.host_ptr, info.device_ptr, info.size);
-        if (copy_res != CUDA_SUCCESS) {
-            return raise(PyExc_RuntimeError, "Failed to copy record back from device: %s",
-                         get_cuda_error(copy_res));
+    // Copy scalar records back from device to host. These blocking DtoH copies
+    // read results the kernel just wrote, so the kernel must have completed
+    // first. Previously that ordering came for free from the (unconditional)
+    // error-check synchronization above; now that the check is debug-gated,
+    // synchronize here when it did not already run.
+    if (!helper->record_copies.empty()) {
+        if (!context_synchronized) {
+            CUresult sync_res = g_cuCtxSynchronize();
+            if (sync_res != CUDA_SUCCESS)
+                return raise(PyExc_RuntimeError, "Failed to synchronize CUDA context: %s",
+                             get_cuda_error(sync_res));
+        }
+        for (const auto& info : helper->record_copies) {
+            CUresult copy_res = g_cuMemcpyDtoH(info.host_ptr, info.device_ptr, info.size);
+            if (copy_res != CUDA_SUCCESS) {
+                return raise(PyExc_RuntimeError, "Failed to copy record back from device: %s",
+                             get_cuda_error(copy_res));
+            }
         }
     }
 
@@ -2126,13 +2151,14 @@ Result<std::vector<bool>> parse_constant_arg_flags(PyObject* tuple) {
 }
 
 int KernelDispatcher_init(PyObject* self, PyObject* args, PyObject* kwargs) {
-    const char* keywords[] = {"", "", "", nullptr};
+    const char* keywords[] = {"", "", "", "debug", nullptr};
     PyObject* compile_func = nullptr;
     PyObject* py_constant_arg_flags = nullptr;
     PyObject* ensure_context_func = Py_None;
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|O", const_cast<char**>(keywords),
+    int debug = 0;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|Op", const_cast<char**>(keywords),
                                      &compile_func, &py_constant_arg_flags,
-                                     &ensure_context_func))
+                                     &ensure_context_func, &debug))
         return -1;
 
     Result<std::vector<bool>> constant_arg_flags = parse_constant_arg_flags(py_constant_arg_flags);
@@ -2142,6 +2168,7 @@ int KernelDispatcher_init(PyObject* self, PyObject* args, PyObject* kwargs) {
     dispatcher.compile_func = newref(compile_func);
     dispatcher.ensure_context_func = newref(ensure_context_func);
     dispatcher.constant_arg_flags = std::move(*constant_arg_flags);
+    dispatcher.debug = (debug != 0);
     return 0;
 }
 

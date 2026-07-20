@@ -225,32 +225,7 @@ except ImportError:
         return _termcolor_inst
 
 else:
-    from colorama import init, reinit, deinit, Fore, Style
-
-    class ColorShell(object):
-        _has_initialized = False
-
-        def __init__(self):
-            init()
-            self._has_initialized = True
-
-        def __enter__(self):
-            if self._has_initialized:
-                reinit()
-
-        def __exit__(self, *exc_detail):
-            _ = Style.RESET_ALL
-            deinit()
-
-    class reset_terminal(object):
-        def __init__(self):
-            self._buf = bytearray(b"")
-
-        def __enter__(self):
-            return self._buf
-
-        def __exit__(self, *exc_detail):
-            self._buf += bytearray(Style.RESET_ALL.encode("utf-8"))
+    from colorama import Fore, Style
 
     # define some default themes, if more are added, update the envvars docs!
     themes = {}
@@ -323,11 +298,7 @@ else:
                 features += color
             if style:
                 features += style
-            with ColorShell():
-                with reset_terminal() as mu:
-                    mu += features.encode("utf-8")
-                    mu += (msg).encode("utf-8")
-                return mu.decode("utf-8")
+            return features + msg + Style.RESET_ALL
 
         def code(self, msg):
             return self._markup(msg, self._code)

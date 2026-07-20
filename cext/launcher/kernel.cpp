@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 #include <algorithm>
@@ -37,6 +38,7 @@ PyObject* g_shape_pyunicode;
 PyObject* g_data_pyunicode;
 PyObject* g_strides_pyunicode;
 PyObject* g___dlpack___pyunicode;
+PyObject* g_int64_pyunicode;
 
 PyTypeObject* g_torch_Tensor_type;
 PyTypeObject* g_torch_cuda_Stream_type;
@@ -52,6 +54,11 @@ PyTypeObject* g_numba_cuda_Stream_type;
 PyTypeObject* g_cuda_core_Stream_type;
 
 PyTypeObject* g_enum_Enum_type;
+
+// numpy integer abstract base type; matches every signed/unsigned numpy
+// integer scalar (int8/16/32/64, uint8/16/32/64, including aliases such as
+// numpy.longlong).
+PyTypeObject* g_numpy_integer_type;
 
 constexpr uint8_t BYTE_BITWIDTH = 8;
 
@@ -405,10 +412,20 @@ struct LaunchHelper {
     }
 };
 
-LaunchHelper* g_helper_freelist;  // protected by the GIL
+LaunchHelper* g_helper_freelist;
+
+#ifdef Py_GIL_DISABLED
+std::mutex& helper_freelist_mutex() {
+    static auto* mutex = new std::mutex;
+    return *mutex;
+}
+#endif
 
 struct LaunchHelperDeleter {
     void operator() (LaunchHelper* helper) const {
+#ifdef Py_GIL_DISABLED
+        std::lock_guard<std::mutex> guard(helper_freelist_mutex());
+#endif
         helper->next_free = g_helper_freelist;
         g_helper_freelist = helper;
     }
@@ -418,6 +435,9 @@ using LaunchHelperPtr = std::unique_ptr<LaunchHelper, LaunchHelperDeleter>;
 
 
 LaunchHelperPtr launch_helper_get() {
+#ifdef Py_GIL_DISABLED
+    std::lock_guard<std::mutex> guard(helper_freelist_mutex());
+#endif
     if (g_helper_freelist) {
         LaunchHelper* ret = g_helper_freelist;
         g_helper_freelist = ret->next_free;
@@ -456,6 +476,8 @@ enum class PythonArgKind {
     PyEnum,
     // numpy.datetime64 or numpy.timedelta64 scalar (stored as int64)
     NpDatetime,
+    // numpy signed/unsigned integer scalar (int8/16/32/64, uint8/16/32/64)
+    NpInteger,
 };
 
 enum class ParameterKind {
@@ -510,6 +532,22 @@ Result<std::pair<PythonArgKind, ParameterKind>> classify_arg(PyObject* arg) {
     if (type_name && strcmp(type_name, "numpy.float32") == 0)
         return {{PythonArgKind::NpFloat32, ParameterKind::Float}};
 
+    // numpy.datetime64 and numpy.timedelta64 scalars (stored as int64)
+    if (type_name && (strcmp(type_name, "numpy.datetime64") == 0
+                   || strcmp(type_name, "numpy.timedelta64") == 0))
+        return {{PythonArgKind::NpDatetime, ParameterKind::Integer}};
+
+    // numpy signed/unsigned integer scalars. These must be marshalled with
+    // their native width preserved, so the launcher classifies them directly
+    // instead of letting the Python side widen them to a Python int.
+    if (g_numpy_integer_type) {
+        int is_np_int = PyObject_IsInstance(arg, (PyObject*)g_numpy_integer_type);
+        if (is_np_int < 0)
+            return ErrorRaised;
+        if (is_np_int)
+            return {{PythonArgKind::NpInteger, ParameterKind::Integer}};
+    }
+
     // Check for numpy.complex64 before PyComplex_Check
     // numpy.complex64 is NOT a subclass of Python complex, but numpy.complex128 IS
     if (type_name && strcmp(type_name, "numpy.complex64") == 0)
@@ -535,11 +573,6 @@ Result<std::pair<PythonArgKind, ParameterKind>> classify_arg(PyObject* arg) {
         if (PyObject_HasAttrString(arg, "getPtr") && PyObject_HasAttrString(arg, "opaque"))
             return {{PythonArgKind::TMADescriptor, ParameterKind::Integer}};
     }
-
-    // numpy.datetime64 and numpy.timedelta64 scalars (stored as int64)
-    if (type_name && (strcmp(type_name, "numpy.datetime64") == 0
-                   || strcmp(type_name, "numpy.timedelta64") == 0))
-        return {{PythonArgKind::NpDatetime, ParameterKind::Integer}};
 
     // Check for numpy.void or record (scalar record/structured dtype) before __cuda_array_interface__
     // numpy.void has __array_interface__ but not __cuda_array_interface__
@@ -581,11 +614,22 @@ inline void fast_extract_py_long(PyObject* obj, CudaArg* out) {
     out->i64 = PyLong_AsLongLong(obj);
 }
 
+inline void fast_extract_np_integer(PyObject* obj, CudaArg* out) {
+    // Convert the numpy scalar to a real Python int, then reuse pylong_as,
+    // which reinterprets uint64 values above INT64_MAX as their bit pattern.
+    PyObject* as_int = PyNumber_Index(obj);
+    if (as_int) {
+        out->i64 = pylong_as<int64_t>(as_int);
+        Py_DECREF(as_int);
+    }
+}
+
 ScalarExtractor get_scalar_extractor(PythonArgKind kind) {
     switch (kind) {
     case PythonArgKind::NpFloat32:  return fast_extract_np_float32;
     case PythonArgKind::PyFloat:    return fast_extract_py_float;
     case PythonArgKind::PyLong:     return fast_extract_py_long;
+    case PythonArgKind::NpInteger:  return fast_extract_np_integer;
     default:                        return nullptr;
     }
 }
@@ -989,9 +1033,9 @@ Status extract_dlpack(PyObject* pyobj, LaunchHelper& helper) {
 
 inline Status extract_np_datetime(PyObject* pyobj, bool is_constant, LaunchHelper& helper) {
     // numpy.datetime64/timedelta64 are stored as int64 internally.
-    // Call arg.view('int64') to get the numpy.int64 scalar, then extract.
-    static PyObject* view_arg = PyUnicode_InternFromString("int64");
-    PyPtr int_view = steal(PyObject_CallMethod(pyobj, "view", "O", view_arg));
+    // Call view() with the cached "int64" PyUnicode to get the numpy.int64
+    // scalar, then extract.
+    PyPtr int_view = steal(PyObject_CallMethod(pyobj, "view", "O", g_int64_pyunicode));
     if (!int_view) return ErrorRaised;
     int64_t value = pylong_as<int64_t>(int_view.get());
     if (PyErr_Occurred()) return ErrorRaised;
@@ -1008,6 +1052,25 @@ inline Status extract_np_datetime(PyObject* pyobj, bool is_constant, LaunchHelpe
 
 inline Status extract_py_long(PyObject* pyobj, bool is_constant, LaunchHelper& helper) {
     int64_t value = pylong_as<int64_t>(pyobj);
+    if (PyErr_Occurred()) return ErrorRaised;
+
+    size_t start_idx = helper.cuargs.size();
+    helper.cuargs.push_back(cuda_arg_i64(value));
+    helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 0});
+
+    if (is_constant)
+        helper.constants.push_back(ConstantArg(value));
+
+    return OK;
+}
+
+inline Status extract_np_integer(PyObject* pyobj, bool is_constant, LaunchHelper& helper) {
+    // Promote numpy integer scalar to PyLong, required for pylong_as's unsigned retry;
+    // pylong_as keeps the exact 64-bit pattern, so uint64 > INT64_MAX round-trips.
+    PyPtr as_int = steal(PyNumber_Index(pyobj));
+    if (!as_int) return ErrorRaised;
+
+    int64_t value = pylong_as<int64_t>(as_int.get());
     if (PyErr_Occurred()) return ErrorRaised;
 
     size_t start_idx = helper.cuargs.size();
@@ -1368,6 +1431,9 @@ Status extract_cuda_args(PyObject* const* pyargs, size_t num_pyargs,
         case PythonArgKind::PyLong:
             if (!extract_py_long(pyobj, is_constant, helper)) return ErrorRaised;
             break;
+        case PythonArgKind::NpInteger:
+            if (!extract_np_integer(pyobj, is_constant, helper)) return ErrorRaised;
+            break;
         case PythonArgKind::PyEnum:
             if (!extract_py_enum(pyobj, is_constant, helper)) return ErrorRaised;
             break;
@@ -1447,6 +1513,11 @@ struct KernelDispatcher {
     std::vector<bool> constant_arg_flags;
     ProfileMap arg_profiles;
     FamilyMap kernel_families;
+    // When false, launches stay asynchronous: the post-launch device-side error
+    // readback (cuCtxSynchronize + cuMemcpyDtoH of __numba_cuda_mlir_error_code)
+    // is skipped. Mirrors numba-cuda, which only surfaces kernel exceptions
+    // (raise/assert/bounds checks) when the kernel is compiled with debug=True.
+    bool debug = false;
 };
 
 void get_pyarg_types(PyObject* const* pyargs, Py_ssize_t num_pyargs,
@@ -1808,6 +1879,8 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
         const ScalarExtractor* extractors = profile->fast_extractors.data();
         for (size_t i = 0; i < n; ++i) {
             extractors[i](pyargs[i], &base[i]);
+            // Fast extractors return void; propagate any exception they raised
+            if (PyErr_Occurred()) return ErrorRaised;
             helper->cuarg_pointers[i] = &base[i];
         }
         helper->constants.clear();
@@ -2075,16 +2148,36 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
                      error_name, get_cuda_error(res));
     }
 
-    // Check for kernel error codes (set by device-side assertion replacements)
-    if (!check_kernel_error_code(kernel_iter->second.cukernel.lib))
-        return ErrorRaised;
+    // Check for kernel error codes (set by device-side assertion replacements).
+    // Only done for debug kernels, matching numba-cuda: this is the sole point
+    // that forces a synchronous cuCtxSynchronize + status readback, so gating it
+    // here keeps ordinary (debug=False) launches asynchronous. check_kernel_error_code
+    // synchronizes the context, so track whether that already happened.
+    bool context_synchronized = false;
+    if (dispatcher.debug) {
+        if (!check_kernel_error_code(kernel_iter->second.cukernel.lib))
+            return ErrorRaised;
+        context_synchronized = true;
+    }
 
-    // Copy scalar records back from device to host
-    for (const auto& info : helper->record_copies) {
-        CUresult copy_res = g_cuMemcpyDtoH(info.host_ptr, info.device_ptr, info.size);
-        if (copy_res != CUDA_SUCCESS) {
-            return raise(PyExc_RuntimeError, "Failed to copy record back from device: %s",
-                         get_cuda_error(copy_res));
+    // Copy scalar records back from device to host. These blocking DtoH copies
+    // read results the kernel just wrote, so the kernel must have completed
+    // first. Previously that ordering came for free from the (unconditional)
+    // error-check synchronization above; now that the check is debug-gated,
+    // synchronize here when it did not already run.
+    if (!helper->record_copies.empty()) {
+        if (!context_synchronized) {
+            CUresult sync_res = g_cuCtxSynchronize();
+            if (sync_res != CUDA_SUCCESS)
+                return raise(PyExc_RuntimeError, "Failed to synchronize CUDA context: %s",
+                             get_cuda_error(sync_res));
+        }
+        for (const auto& info : helper->record_copies) {
+            CUresult copy_res = g_cuMemcpyDtoH(info.host_ptr, info.device_ptr, info.size);
+            if (copy_res != CUDA_SUCCESS) {
+                return raise(PyExc_RuntimeError, "Failed to copy record back from device: %s",
+                             get_cuda_error(copy_res));
+            }
         }
     }
 
@@ -2111,13 +2204,14 @@ Result<std::vector<bool>> parse_constant_arg_flags(PyObject* tuple) {
 }
 
 int KernelDispatcher_init(PyObject* self, PyObject* args, PyObject* kwargs) {
-    const char* keywords[] = {"", "", "", nullptr};
+    const char* keywords[] = {"", "", "", "debug", nullptr};
     PyObject* compile_func = nullptr;
     PyObject* py_constant_arg_flags = nullptr;
     PyObject* ensure_context_func = Py_None;
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|O", const_cast<char**>(keywords),
+    int debug = 0;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|Op", const_cast<char**>(keywords),
                                      &compile_func, &py_constant_arg_flags,
-                                     &ensure_context_func))
+                                     &ensure_context_func, &debug))
         return -1;
 
     Result<std::vector<bool>> constant_arg_flags = parse_constant_arg_flags(py_constant_arg_flags);
@@ -2127,6 +2221,7 @@ int KernelDispatcher_init(PyObject* self, PyObject* args, PyObject* kwargs) {
     dispatcher.compile_func = newref(compile_func);
     dispatcher.ensure_context_func = newref(ensure_context_func);
     dispatcher.constant_arg_flags = std::move(*constant_arg_flags);
+    dispatcher.debug = (debug != 0);
     return 0;
 }
 
@@ -2358,6 +2453,16 @@ void try_get_enum_globals() {
     }
 }
 
+void try_get_numpy_globals() {
+    PyPtr numpy = try_import("numpy");
+    if (!numpy) return;
+
+    if (PyPtr numpy_integer = try_getattr(numpy, "integer")) {
+        if (PyType_Check(numpy_integer.get()))
+            g_numpy_integer_type = reinterpret_cast<PyTypeObject*>(numpy_integer.release());
+    }
+}
+
 } // anonymous namespace
 
 
@@ -2395,12 +2500,14 @@ Status kernel_init(PyObject* m) {
     INIT_STRING_CONSTANT(data);
     INIT_STRING_CONSTANT(strides);
     INIT_STRING_CONSTANT(__dlpack__);
+    INIT_STRING_CONSTANT(int64);
 
     try_get_torch_globals();
     try_get_cupy_globals();
     try_get_numba_globals();
     try_get_cuda_core_globals();
     try_get_enum_globals();
+    try_get_numpy_globals();
 
     KernelDispatcher_type.tp_name = "numba_cuda_mlir._cext.KernelDispatcher";
     KernelDispatcher_type.tp_basicsize = sizeof(PythonWrapper<KernelDispatcher>);

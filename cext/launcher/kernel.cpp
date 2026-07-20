@@ -122,6 +122,8 @@ private:
 };
 
 Result<CudaLibrary> load_cuda_library(const void* cubin) {
+    if (!ensure_cuda_available())
+        return ErrorRaised;
     // Get current context to associate with library.
     // We require that CUDA is already initialized and a context exists.
     // This is typically done by numba's driver or by the user.

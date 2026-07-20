@@ -165,6 +165,7 @@ memoryview_get_extents_info(PyObject *self, PyObject *args)
     PyObject *shape = NULL, *strides = NULL;
     Py_ssize_t itemsize = 0;
     int ndim = 0;
+    size_t ndim_size = 0;
     PyObject* res = NULL;
 
     if (!PyArg_ParseTuple(args, "OOin", &shape, &strides, &ndim, &itemsize))
@@ -176,29 +177,49 @@ memoryview_get_extents_info(PyObject *self, PyObject *args)
     }
 
     if (itemsize <= 0) {
-        PyErr_SetString(PyExc_ValueError, "ndim <= 0");
+        PyErr_SetString(PyExc_ValueError, "itemsize <= 0");
         goto cleanup;
     }
 
-    shape_ary = (Py_ssize_t*)malloc(sizeof(Py_ssize_t) * ndim + 1);
-    strides_ary = (Py_ssize_t*)malloc(sizeof(Py_ssize_t) * ndim + 1);
-
     shape_tuple = PySequence_Fast(shape, "shape is not a sequence");
     if (!shape_tuple) goto cleanup;
+    if (PySequence_Fast_GET_SIZE(shape_tuple) != ndim) {
+        PyErr_SetString(PyExc_ValueError, "shape length does not match ndim");
+        goto cleanup;
+    }
+
+    strides_tuple = PySequence_Fast(strides, "strides is not a sequence");
+    if (!strides_tuple) goto cleanup;
+    if (PySequence_Fast_GET_SIZE(strides_tuple) != ndim) {
+        PyErr_SetString(PyExc_ValueError, "strides length does not match ndim");
+        goto cleanup;
+    }
+
+    if (ndim == 0) {
+        res = get_extents(NULL, NULL, ndim, itemsize, 0);
+        goto cleanup;
+    }
+
+    ndim_size = (size_t)ndim;
+    shape_ary = (Py_ssize_t*)malloc(sizeof(Py_ssize_t) * ndim_size);
+    strides_ary = (Py_ssize_t*)malloc(sizeof(Py_ssize_t) * ndim_size);
+    if (!shape_ary || !strides_ary) {
+        PyErr_NoMemory();
+        goto cleanup;
+    }
 
     for (i = 0; i < ndim; ++i) {
         shape_ary[i] = PyNumber_AsSsize_t(
                            PySequence_Fast_GET_ITEM(shape_tuple, i),
                            PyExc_OverflowError);
+        if (shape_ary[i] == -1 && PyErr_Occurred()) goto cleanup;
     }
-
-    strides_tuple = PySequence_Fast(strides, "strides is not a sequence");
-    if (!strides_tuple) goto cleanup;
 
     for (i = 0; i < ndim; ++i) {
         strides_ary[i] = PyNumber_AsSsize_t(
                            PySequence_Fast_GET_ITEM(strides_tuple, i),
                            PyExc_OverflowError);
+        if (strides_ary[i] == -1 && PyErr_Occurred()) goto cleanup;
     }
 
     res = get_extents(shape_ary, strides_ary, ndim, itemsize, 0);
@@ -371,14 +392,23 @@ PyMODINIT_FUNC PyInit__mviewbuf(void) {
     PyObject *module = PyModule_Create(&moduledef);
     if (module == NULL)
         return NULL;
+#if !defined(Py_LIMITED_API) && defined(Py_GIL_DISABLED)
+    if (PyUnstable_Module_SetGIL(module, Py_MOD_GIL_NOT_USED) < 0) {
+        Py_DECREF(module);
+        return NULL;
+    }
+#endif
 
     MemAllocType.tp_new = PyType_GenericNew;
     if (PyType_Ready(&MemAllocType) < 0){
+        Py_DECREF(module);
         return NULL;
     }
 
-    Py_INCREF(&MemAllocType);
-    PyModule_AddObject(module, "MemAlloc", (PyObject*)&MemAllocType);
+    if (PyModule_AddObjectRef(module, "MemAlloc", (PyObject*)&MemAllocType) < 0) {
+        Py_DECREF(module);
+        return NULL;
+    }
 
     return module;
 }

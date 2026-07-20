@@ -23,6 +23,13 @@ function(add_numba_cuda_mlir_python_module target)
         ${NC_EXT_INCLUDE_DIRS}
     )
 
+    # The official Windows free-threaded Python installer does not expose
+    # Py_GIL_DISABLED through its headers. setup.py derives this option from
+    # sysconfig so the extensions compile against the correct CPython ABI.
+    if(WIN32 AND NUMBA_CUDA_MLIR_PY_GIL_DISABLED)
+        target_compile_definitions(${target} PRIVATE Py_GIL_DISABLED=1)
+    endif()
+
     if(WIN32)
         target_link_libraries(${target} PRIVATE Python::Module)
     endif()

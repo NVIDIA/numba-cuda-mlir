@@ -35,6 +35,7 @@ HAS_NUMBA = False
 # `cuda.shared.array` resolve to the same callables we register typing/lowering
 # for.  Assign from importlib's return value so the star import from
 # numba_cuda_mlir.numba_cuda cannot leave stub attributes on this package.
+cudadrv = importlib.import_module("numba_cuda_mlir.cuda.cudadrv")
 const = importlib.import_module("numba_cuda_mlir.cuda.const")
 local = importlib.import_module("numba_cuda_mlir.cuda.local")
 shared = importlib.import_module("numba_cuda_mlir.cuda.shared")

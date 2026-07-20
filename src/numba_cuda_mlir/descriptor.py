@@ -487,7 +487,8 @@ class _ArgMarshaller:
             case np.datetime64() | np.timedelta64():
                 return arg
             case np.integer():
-                return int(arg)
+                # Keep as-is; C++ launcher handles np.integer directly.
+                return arg
             case np.float16():
                 # Keep as-is; C++ launcher handles f16 conversion
                 return arg
@@ -1565,10 +1566,15 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         return MLIRDispatcherType(self)
 
     def _new_kernel_dispatcher(self):
+        # Only debug kernels pay the per-launch device-side error readback
+        # (cuCtxSynchronize + status D2H). This mirrors numba-cuda, where kernel
+        # exceptions (raise/assert/bounds checks) surface only with debug=True;
+        # debug=False launches stay asynchronous.
         return _cext.KernelDispatcher(
             self._compile,
             get_constant_args(self.py_func),
             _ensure_numba_cuda_context,
+            debug=bool(self.targetoptions.get("debug", False)),
         )
 
     @property

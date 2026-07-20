@@ -1566,10 +1566,15 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         return MLIRDispatcherType(self)
 
     def _new_kernel_dispatcher(self):
+        # Only debug kernels pay the per-launch device-side error readback
+        # (cuCtxSynchronize + status D2H). This mirrors numba-cuda, where kernel
+        # exceptions (raise/assert/bounds checks) surface only with debug=True;
+        # debug=False launches stay asynchronous.
         return _cext.KernelDispatcher(
             self._compile,
             get_constant_args(self.py_func),
             _ensure_numba_cuda_context,
+            debug=bool(self.targetoptions.get("debug", False)),
         )
 
     @property

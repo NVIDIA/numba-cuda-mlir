@@ -32,7 +32,8 @@ module {
 // Metadata comes after functions — verify compile unit, subprograms, and file.
 // CHECK-IR: !DICompileUnit(language: DW_LANG_C,
 // CHECK-IR-SAME: producer: "llvm70"
-// CHECK-IR-SAME: emissionKind: DebugDirectviesOnly
+// LLVM 7 has no name for emission kind 3 and prints it empty.
+// CHECK-IR-SAME: emissionKind: ,
 
 // CHECK-IR: !DISubprogram(name: "debug_kernel",
 // CHECK-IR-SAME: file: ![[FILE:[0-9]+]]

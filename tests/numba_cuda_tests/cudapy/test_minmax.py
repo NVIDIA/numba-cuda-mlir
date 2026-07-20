@@ -1,8 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
-import re
-
 import numpy as np
 
 import numba_cuda_mlir
@@ -34,46 +32,47 @@ class TestCudaMinMax(NumbaCUDATestCase):
     def _run(
         self,
         kernel,
-        numpy_equivalent,
+        reference_function,
         ptx_instruction,
         dtype_left,
         dtype_right,
-        n=5,
     ):
         kernel = numba_cuda_mlir.cuda.jit(kernel)
 
-        c = np.zeros(n, dtype=np.float64)
-        a = np.arange(n, dtype=dtype_left) + 0.5
-        b = np.full(n, fill_value=2, dtype=dtype_right)
+        a = np.array([1.0, np.nan, 1.0, np.nan, -0.0, 0.0], dtype=dtype_left)
+        b = np.array([2.0, 2.0, np.nan, np.nan, 0.0, -0.0], dtype=dtype_right)
+        c = np.empty(a.size, dtype=np.float64)
+        expected = reference_function(a, b)
 
         kernel[1, c.shape](a, b, c)
-        np.testing.assert_allclose(c, numpy_equivalent(a, b))
+        np.testing.assert_array_equal(c, expected)
+        zero = expected == 0
+        np.testing.assert_array_equal(np.signbit(c[zero]), np.signbit(expected[zero]))
 
         ptx = next(p for p in kernel.inspect_asm().values())
-        # sm_100 may emit e.g. "max.NaN.f32" instead of "max.f32"
-        pattern = re.escape(ptx_instruction).replace(r"\.", r"\.(?:NaN\.)?", 1)
-        self.assertRegex(ptx, pattern)
+        self.assertIn(ptx_instruction, ptx)
+        self.assertNotIn(ptx_instruction.replace(".", ".NaN.", 1), ptx)
 
     def test_max_f8f8(self):
-        self._run(builtin_max, np.maximum, "max.f64", np.float64, np.float64)
+        self._run(builtin_max, np.fmax, "max.f64", np.float64, np.float64)
 
     def test_max_f4f8(self):
-        self._run(builtin_max, np.maximum, "max.f64", np.float32, np.float64)
+        self._run(builtin_max, np.fmax, "max.f64", np.float32, np.float64)
 
     def test_max_f8f4(self):
-        self._run(builtin_max, np.maximum, "max.f64", np.float64, np.float32)
+        self._run(builtin_max, np.fmax, "max.f64", np.float64, np.float32)
 
     def test_max_f4f4(self):
-        self._run(builtin_max, np.maximum, "max.f32", np.float32, np.float32)
+        self._run(builtin_max, np.fmax, "max.f32", np.float32, np.float32)
 
     def test_min_f8f8(self):
-        self._run(builtin_min, np.minimum, "min.f64", np.float64, np.float64)
+        self._run(builtin_min, np.fmin, "min.f64", np.float64, np.float64)
 
     def test_min_f4f8(self):
-        self._run(builtin_min, np.minimum, "min.f64", np.float32, np.float64)
+        self._run(builtin_min, np.fmin, "min.f64", np.float32, np.float64)
 
     def test_min_f8f4(self):
-        self._run(builtin_min, np.minimum, "min.f64", np.float64, np.float32)
+        self._run(builtin_min, np.fmin, "min.f64", np.float64, np.float32)
 
     def test_min_f4f4(self):
-        self._run(builtin_min, np.minimum, "min.f32", np.float32, np.float32)
+        self._run(builtin_min, np.fmin, "min.f32", np.float32, np.float32)

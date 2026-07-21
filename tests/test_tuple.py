@@ -373,7 +373,7 @@ def test_dynamic_index_tuple_of_empty_tuples_bounds_check():
     are empty tuples, which emit no leaf switches."""
     empties = ((), ())
 
-    @cuda.jit
+    @cuda.jit(debug=True, opt=False)
     def kernel(idx_arr, out):
         row = empties[idx_arr[0]]
         out[0] = len(row)

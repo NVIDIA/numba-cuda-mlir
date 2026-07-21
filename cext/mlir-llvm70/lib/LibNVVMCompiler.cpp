@@ -45,6 +45,16 @@ llvm::Error LibNVVMCompiler::resolveSymbols() {
   RESOLVE(fnGetCompiledResult, "nvvmGetCompiledResult");
   RESOLVE(fnGetProgramLogSize, "nvvmGetProgramLogSize");
   RESOLVE(fnGetProgramLog, "nvvmGetProgramLog");
+  RESOLVE(fnIRVersion, "nvvmIRVersion");
+  return llvm::Error::success();
+}
+
+llvm::Error LibNVVMCompiler::getIRVersion(int &irMajor, int &irMinor,
+                                          int &dbgMajor, int &dbgMinor) {
+  nvvmResult rc = fnIRVersion(&irMajor, &irMinor, &dbgMajor, &dbgMinor);
+  if (rc != NVVM_SUCCESS)
+    return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                   "nvvmIRVersion failed (%d)", rc);
   return llvm::Error::success();
 }
 

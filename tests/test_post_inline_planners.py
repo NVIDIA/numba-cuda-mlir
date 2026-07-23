@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from numba_cuda_mlir import compiler, cuda, types
+from numba_cuda_mlir.errors import ForceLiteralArg
 from numba_cuda_mlir._whole_function_planners import (
     _WholeFunctionPlannerRegistry,
     _planner_registry,
@@ -645,3 +646,54 @@ def test_planner_dynamic_shared_memory_minimum_reaches_launch(
     assert output[0] == 42
     [compile_result] = kernel.overloads.values()
     assert compile_result.metadata["required_dynamic_shared_memory"] == required_bytes
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
+def test_literal_retry_crosses_launch_config_and_dynamic_shared_memory(
+    isolated_global_planners,
+):
+    required_bytes = 32 * 1024
+    last_scratch_index = required_bytes // np.dtype(np.int32).itemsize - 1
+    observed = []
+
+    class LiteralScratchPlanner(WholeFunctionPlanner):
+        def run(self):
+            if self.is_device_function:
+                return False
+            launch_config = require_launch_config(self.state)
+            set_required_dynamic_shared_memory(self.state, required_bytes)
+            selector_type = self.state.args[1]
+            observed.append((launch_config["block"], selector_type))
+            if not isinstance(selector_type, types.Literal):
+                raise ForceLiteralArg({1})
+            return False
+
+    register_planner(LiteralScratchPlanner)
+
+    @cuda.jit
+    def kernel(output, selector):
+        scratch = cuda.shared.array(0, dtype=types.int32)
+        if cuda.threadIdx.x == 0:
+            scratch[last_scratch_index] = selector
+            output[0] = scratch[last_scratch_index] + cuda.blockDim.x
+
+    selectors = (3, 7, True, False)
+    for block_size in (32, 64):
+        for selector in selectors:
+            output = np.zeros(1, dtype=np.int32)
+            kernel[1, block_size](output, selector)
+            assert output[0] == selector + block_size
+
+    assert kernel._requires_launch_config is True
+    assert kernel._literal_arg_positions == frozenset({1})
+    assert not kernel.overloads
+    assert {
+        (dict(launch_config_key)["block"], argtypes[1].literal_value)
+        for (argtypes, launch_config_key) in kernel._launch_config_overloads
+    } == {(block, selector) for block in ((32, 1, 1), (64, 1, 1)) for selector in selectors}
+    assert all(
+        compile_result.metadata["required_dynamic_shared_memory"] == required_bytes
+        for compile_result in kernel._launch_config_overloads.values()
+    )
+    assert any(not isinstance(selector_type, types.Literal) for _, selector_type in observed)
+    assert any(isinstance(selector_type, types.Literal) for _, selector_type in observed)

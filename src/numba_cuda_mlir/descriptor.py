@@ -2191,6 +2191,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             else frozenset()
         )
         if self._literal_arg_positions:
+            self._retain_old_dispatcher(self._c)
             self._c = self._new_kernel_dispatcher()
         for sig in sigs:
             self.compile(sig)

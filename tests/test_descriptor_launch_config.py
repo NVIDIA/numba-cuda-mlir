@@ -2122,6 +2122,8 @@ def test_literal_retry_rebuild_preserves_debug_lock_and_serialized_state(monkeyp
     rebuilt = descriptor_mod.MLIRDispatcher._rebuild(**states)
     assert rebuilt._literal_arg_positions == frozenset({1})
     assert native_calls[-1][1:] == ((False, True), True)
+    assert native_calls[-2][0] in rebuilt._old_dispatchers
+    assert rebuilt._c is native_calls[-1][0]
 
     rebuilt_lock = rebuilt._launch_lock
     rebuilt.recompile()

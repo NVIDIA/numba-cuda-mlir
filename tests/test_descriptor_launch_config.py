@@ -40,6 +40,7 @@ class _Dispatcher:
             configured_kernel_dispatcher,
             configured_launch_config_generation,
             configured_launch_config,
+            0,
         )
 
     def _remember_kernel_dispatcher(
@@ -277,7 +278,7 @@ def test_arg_marshaller_rebinds_to_requested_launch_configuration(monkeypatch):
                 configured_launch_config_generation,
             )
         )
-        ready_launch = launch_kernel_dispatcher, 7, active_launch_config
+        ready_launch = launch_kernel_dispatcher, 7, active_launch_config, 0
         return ready_launch
 
     def launch_configuration(
@@ -362,7 +363,7 @@ def test_arg_marshaller_rebinds_for_retained_launch_extension_snapshot(monkeypat
 
     def prepare_for_launch(*args):
         prepare_calls.append(args)
-        return refreshed_kernel_dispatcher, 8, launch_config
+        return refreshed_kernel_dispatcher, 8, launch_config, 0
 
     dispatcher._get_ready_launch = lambda *args: None
     dispatcher._prepare_for_launch = prepare_for_launch
@@ -418,6 +419,113 @@ def test_arg_marshaller_ready_launch_does_not_mutate_dispatcher_registration():
     marshaller()
 
     assert dispatcher.remembered_dispatchers == []
+
+
+def test_arg_marshaller_raises_and_caches_dynamic_shared_memory_minimum(monkeypatch):
+    kernel_dispatcher = object()
+    launch_config = {
+        "grid": (3, 1, 1),
+        "block": (64, 1, 1),
+        "sharedmem": 128,
+        "cluster": (2, 1, 1),
+    }
+    dispatcher = _Dispatcher()
+    dispatcher._requires_launch_config = True
+    launches = []
+    original_launches = []
+
+    def get_ready_launch(*args):
+        return kernel_dispatcher, 7, launch_config, 4096
+
+    def launch_configuration(
+        native_dispatcher,
+        griddim,
+        blockdim,
+        stream,
+        sharedmem,
+        cluster,
+    ):
+        launches.append(
+            (
+                native_dispatcher,
+                griddim,
+                blockdim,
+                stream,
+                sharedmem,
+                cluster,
+            )
+        )
+        return lambda value: ("adjusted", value)
+
+    dispatcher._get_ready_launch = get_ready_launch
+    dispatcher._prepare_for_launch = lambda *args: pytest.fail(
+        "ready launches must not take the compiler lock"
+    )
+    monkeypatch.setattr(descriptor_mod, "LaunchConfiguration", launch_configuration)
+    marshaller = _ArgMarshaller(
+        lambda value: original_launches.append(value),
+        dispatcher=dispatcher,
+        launch_config=launch_config,
+        available_launch_config=launch_config,
+        kernel_dispatcher=kernel_dispatcher,
+        launch_config_generation=7,
+        launch_stream=123,
+    )
+
+    assert marshaller(1) == ("adjusted", 1)
+    assert marshaller(2) == ("adjusted", 2)
+    assert launches == [
+        (
+            kernel_dispatcher,
+            (3, 1, 1),
+            (64, 1, 1),
+            123,
+            4096,
+            (2, 1, 1),
+        )
+    ]
+    assert not original_launches
+    assert marshaller._launch_config is launch_config
+    assert marshaller._available_launch_config is launch_config
+    assert launch_config["sharedmem"] == 128
+
+
+def test_arg_marshaller_preserves_larger_user_shared_memory(monkeypatch):
+    kernel_dispatcher = object()
+    launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": 8192,
+        "cluster": None,
+    }
+    dispatcher = _Dispatcher()
+    dispatcher._requires_launch_config = True
+    dispatcher._get_ready_launch = lambda *args: (
+        kernel_dispatcher,
+        3,
+        launch_config,
+        4096,
+    )
+    dispatcher._prepare_for_launch = lambda *args: pytest.fail(
+        "ready launches must not take the compiler lock"
+    )
+    monkeypatch.setattr(
+        descriptor_mod,
+        "LaunchConfiguration",
+        lambda *args: pytest.fail("a larger configured sharedmem must be preserved"),
+    )
+    launches = []
+    marshaller = _ArgMarshaller(
+        lambda value: launches.append(value) or "original",
+        dispatcher=dispatcher,
+        launch_config=launch_config,
+        available_launch_config=launch_config,
+        kernel_dispatcher=kernel_dispatcher,
+        launch_config_generation=3,
+    )
+
+    assert marshaller(7) == "original"
+    assert launches == [7]
 
 
 def test_configure_records_normalized_launch_config(monkeypatch):
@@ -567,9 +675,12 @@ def test_prelaunch_uses_retained_launch_extension_snapshot(monkeypatch):
     retained_generation = marshaller._launch_config_generation
     observed_configs = []
 
+    compile_result = _CompileResult((types.int32,))
+    compile_result.metadata["required_dynamic_shared_memory"] = 2048
+
     def compile_result_for(argtypes, launch_config):
         observed_configs.append(launch_config)
-        return object()
+        return compile_result
 
     monkeypatch.setattr(dispatcher, "_compile_result_for", compile_result_for)
     dispatcher.extensions.clear()
@@ -587,6 +698,7 @@ def test_prelaunch_uses_retained_launch_extension_snapshot(monkeypatch):
         retained_kernel_dispatcher,
         retained_generation,
         retained_launch_config,
+        2048,
     )
     assert observed_configs == [retained_launch_config]
 
@@ -604,8 +716,19 @@ def test_ready_launch_known_signature_avoids_lock_and_overload_iteration(monkeyp
         def __iter__(self):
             pytest.fail("the unlocked readiness check must not iterate overloads")
 
-    dispatcher.overloads = ExactOnlyOverloads({(): object()})
+    compile_result = _CompileResult(())
+    compile_result.metadata["required_dynamic_shared_memory"] = 1024
+    dispatcher.overloads = ExactOnlyOverloads({(): compile_result})
     monkeypatch.setattr(_planner_registry, "_planners", [object()])
+
+    assert dispatcher._get_ready_launch(
+        (),
+        None,
+        None,
+        dispatcher._c,
+        None,
+    ) == (dispatcher._c, None, None, 1024)
+    compile_result.metadata.pop("required_dynamic_shared_memory")
 
     monkeypatch.setattr(
         descriptor_mod.global_compiler_lock,
@@ -639,7 +762,7 @@ def test_prelaunch_rechecks_readiness_after_global_compiler_lock(monkeypatch):
     def publish_during_acquire():
         original_acquire()
         events.append("lock")
-        dispatcher.overloads[()] = object()
+        dispatcher.overloads[()] = _CompileResult(())
 
     monkeypatch.setattr(dispatcher, "_get_ready_launch", observe_ready_launch)
     monkeypatch.setattr(descriptor_mod.global_compiler_lock, "acquire", publish_during_acquire)
@@ -681,7 +804,9 @@ def test_ready_launch_validates_specialized_state():
     argtypes = (types.int32,)
     launch_key = descriptor_mod._launch_config_key(launch_config)
     kernel_dispatcher, generation = dispatcher._get_kernel_dispatcher_and_generation(launch_config)
-    dispatcher._launch_config_overloads[(argtypes, launch_key)] = object()
+    compile_result = _CompileResult(argtypes)
+    compile_result.metadata["required_dynamic_shared_memory"] = 2048
+    dispatcher._launch_config_overloads[(argtypes, launch_key)] = compile_result
 
     assert dispatcher._get_ready_launch(
         argtypes,
@@ -689,7 +814,7 @@ def test_ready_launch_validates_specialized_state():
         launch_config,
         kernel_dispatcher,
         generation,
-    ) == (kernel_dispatcher, generation, launch_config)
+    ) == (kernel_dispatcher, generation, launch_config, 2048)
     assert (
         dispatcher._get_ready_launch(
             argtypes,

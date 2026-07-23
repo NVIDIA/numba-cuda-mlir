@@ -9,6 +9,10 @@ from numba_cuda_mlir.numba_cuda.core import postproc
 from numba_cuda_mlir.numba_cuda.core.ir_utils import build_definitions, simplify_CFG
 
 
+class _RequireLaunchConfig(RuntimeError):
+    """Request a launch-qualified compiler attempt."""
+
+
 class WholeFunctionPlanner:
     """Base class for whole-function extension planners.
 
@@ -89,6 +93,27 @@ class _WholeFunctionPlannerRegistry:
 _planner_registry = _WholeFunctionPlannerRegistry()
 
 
+def require_launch_config(state) -> dict:
+    """Return normalized launch metadata or request a launch-qualified retry."""
+
+    metadata = getattr(state, "metadata", None)
+    if not isinstance(metadata, dict):
+        raise TypeError("compiler state metadata must be a dict")
+    targetoptions = metadata.get("targetoptions")
+    if not isinstance(targetoptions, dict):
+        raise TypeError("compiler state metadata must contain targetoptions")
+    launch_config = targetoptions.get("__launch_config__")
+    if (
+        not isinstance(launch_config, dict)
+        or "grid" not in launch_config
+        or "block" not in launch_config
+    ):
+        raise _RequireLaunchConfig(
+            "whole-function planner requires metadata from a configured kernel launch"
+        )
+    return launch_config
+
+
 def register_planner(planner_cls):
     """Register a whole-function planner class.
 
@@ -99,4 +124,4 @@ def register_planner(planner_cls):
     return _planner_registry.register(planner_cls)
 
 
-__all__ = ["WholeFunctionPlanner", "register_planner"]
+__all__ = ["WholeFunctionPlanner", "register_planner", "require_launch_config"]

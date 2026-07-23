@@ -274,6 +274,7 @@ def _compile_only(pyfunc, sig=None, targetoptions=None):
     """Compile to MLIR without running the optimization pipeline."""
     from numba_cuda_mlir.cuda import jit
     from numba_cuda_mlir import mlir_compiler
+    from numba_cuda_mlir._whole_function_planners import _RequireLaunchConfig
     from numba_cuda_mlir.numba_cuda.core import sigutils
 
     dispatcher = pyfunc
@@ -287,12 +288,18 @@ def _compile_only(pyfunc, sig=None, targetoptions=None):
         sig = to_numba_type(inspect.signature(pyfunc))
 
     argtypes, return_type = sigutils.normalize_signature(sig)
-    cres = mlir_compiler.compile_mlir(
-        dispatcher.py_func,
-        return_type,
-        argtypes,
-        targetoptions=dispatcher.targetoptions,
-    )
+    try:
+        cres = mlir_compiler.compile_mlir(
+            dispatcher.py_func,
+            return_type,
+            argtypes,
+            targetoptions=dispatcher.targetoptions,
+        )
+    except _RequireLaunchConfig:
+        raise RuntimeError(
+            "whole-function planner requires launch metadata; compile through a "
+            "configured kernel launch"
+        ) from None
     return CompileResult(cres)
 
 

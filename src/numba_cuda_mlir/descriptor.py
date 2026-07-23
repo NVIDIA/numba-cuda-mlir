@@ -663,9 +663,19 @@ class _ArgMarshaller:
             active_launch_config_generation = self._launch_config_generation
             launcher = self._launcher
             dispatcher = self._dispatcher
+            snapshot_launch_config_is_stale = _extensions_use_launch_config(
+                self._extensions
+                if self._has_extension_snapshot
+                else getattr(dispatcher, "extensions", ())
+            ) and self._launch_config_generation != getattr(
+                dispatcher,
+                "_launch_config_generation",
+                self._launch_config_generation,
+            )
             if dispatcher is not None and (
                 _planner_registry.has_planners
                 or getattr(dispatcher, "_requires_launch_config", False)
+                or snapshot_launch_config_is_stale
             ):
                 (
                     active_kernel_dispatcher,

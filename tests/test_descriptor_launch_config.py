@@ -324,6 +324,56 @@ def test_arg_marshaller_rebinds_to_requested_launch_configuration(monkeypatch):
     assert not hasattr(descriptor_mod._compile_arg_types, "available_launch_config")
 
 
+def test_arg_marshaller_rebinds_for_retained_launch_extension_snapshot(monkeypatch):
+    configured_kernel_dispatcher = object()
+    refreshed_kernel_dispatcher = object()
+    launch_config = {
+        "grid": (2, 1, 1),
+        "block": (64, 1, 1),
+        "sharedmem": 256,
+        "cluster": None,
+    }
+    dispatcher = _Dispatcher()
+    dispatcher.extensions = []
+    dispatcher._launch_config_generation = 8
+    prepare_calls = []
+
+    def prepare_for_launch(*args):
+        prepare_calls.append(args)
+        return refreshed_kernel_dispatcher, 8, launch_config
+
+    dispatcher._prepare_for_launch = prepare_for_launch
+    monkeypatch.setattr(
+        descriptor_mod,
+        "LaunchConfiguration",
+        lambda *args: lambda: "refreshed",
+    )
+
+    marshaller = _ArgMarshaller(
+        lambda: pytest.fail("stale launcher should not run"),
+        extensions=[_LaunchConfigExtension()],
+        dispatcher=dispatcher,
+        launch_config=launch_config,
+        available_launch_config=launch_config,
+        kernel_dispatcher=configured_kernel_dispatcher,
+        launch_config_generation=7,
+    )
+
+    assert marshaller() == "refreshed"
+    assert prepare_calls == [
+        (
+            (),
+            (),
+            launch_config,
+            launch_config,
+            configured_kernel_dispatcher,
+            7,
+        )
+    ]
+    assert marshaller._kernel_dispatcher is refreshed_kernel_dispatcher
+    assert marshaller._launch_config_generation == 8
+
+
 def test_arg_marshaller_refreshes_launch_config_dispatcher():
     dispatcher = _Dispatcher()
     launch_config = {

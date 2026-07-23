@@ -50,6 +50,7 @@ from numba_cuda_mlir.numba_cuda.core.untyped_passes import (
 from numba_cuda_mlir.numbair_transforms import (
     NumbaCudaMlirLiteralUnroll,
     NumbaCudaMlirInlineInlinables,
+    PostInlineWholeFunctionPlanners,
 )
 
 import numba_cuda_mlir.mlir_lowering as lowering
@@ -223,6 +224,12 @@ def get_compiler_class(targetoptions: Dict[str, Any]):
                     modified_passes.append((NumbaCudaMlirLiteralUnroll, desc))
                 elif impl is InlineInlinables:
                     modified_passes.append((NumbaCudaMlirInlineInlinables, desc))
+                    modified_passes.append(
+                        (
+                            PostInlineWholeFunctionPlanners,
+                            "post-inline whole-function extension planners",
+                        )
+                    )
                 else:
                     modified_passes.append((impl, desc))
             pm.passes.extend(modified_passes)

@@ -7,8 +7,11 @@
 Low-level extension API
 =======================
 
-The low-level API exposes Numba-CUDA-MLIR's two compilation phases directly:
+The low-level API exposes Numba-CUDA-MLIR's extension phases directly:
 
+* **Planning** — after device functions have been inlined and before type
+  inference, whole-function planners can inspect and transform the complete
+  untyped Numba IR.
 * **Typing** — running before code generation, type inference resolves each
   variable, attribute, and call to a type. Extension authors register new
   typing rules with the :py:mod:`~numba_cuda_mlir.numba_cuda.typing` template
@@ -17,17 +20,67 @@ The low-level API exposes Numba-CUDA-MLIR's two compilation phases directly:
   operation. Extension authors register lowering implementations with
   :py:attr:`~numba_cuda_mlir.extending.lowering_registry`.
 
-These are the same two phases that underpin the high-level API. The
-high-level decorators are convenience wrappers that arrange the typing and
-lowering for you; use the low-level API when you need to introduce a
-brand-new type, emit MLIR directly, or anything else that is difficult to
-express using the high-level API.
+Typing and lowering also underpin the high-level API. The high-level
+decorators are convenience wrappers that arrange those phases for you; use
+the low-level API when you need whole-function planning, a brand-new type,
+direct MLIR emission, or anything else that is difficult to express using the
+high-level API.
 
 The lowering half of this API differs significantly from Numba's. Numba's
 lowering callbacks receive an ``llvmlite.ir.IRBuilder`` and emit LLVM IR.
 Numba-CUDA-MLIR's lowering callbacks receive an MLIR builder
 (:py:class:`numba_cuda_mlir.mlir_lowering.MLIRLower`) and emit MLIR through
 the bindings in :py:mod:`numba_cuda_mlir._mlir`.
+
+Whole-function planning
+-----------------------
+
+Extensions that need to inspect or transform a complete function before typing
+can register a :py:class:`~numba_cuda_mlir.extending.WholeFunctionPlanner`.
+Planners run once after inlineable device functions have been merged into the
+caller and before type inference. This makes calls introduced by device
+helpers visible without rerunning unrelated rewrite registries.
+
+Implement ``run()`` and return ``True`` only when the planner changed
+``state.func_ir``. Before the first planner and after each change,
+Numba-CUDA-MLIR simplifies the control flow graph, refreshes postprocessing
+state and definitions, and verifies every block. Planners run for both kernels
+and device-function compilations; a planner that only applies to kernels
+should check ``self.is_device_function`` and decline device functions.
+
+.. code-block:: python
+
+   from numba_cuda_mlir.extending import (
+       WholeFunctionPlanner,
+       register_planner,
+   )
+
+   @register_planner
+   class MyPlanner(WholeFunctionPlanner):
+       def run(self):
+           modified = rewrite_my_extension_calls(self.state.func_ir)
+           return bool(modified)
+
+Registration order is preserved, and registering the same planner class more
+than once has no effect. The planner pass snapshots its registry before
+running, so planners registered after that snapshot, including from a running
+planner, start with the next compilation. Planners operate on untyped Numba
+IR; typing and MLIR lowering extensions remain responsible for the later
+compilation phases.
+
+Register every planner before compiling a dispatcher that needs it.
+Registration does not invalidate an overload that the dispatcher has already
+compiled and cached in memory; a planner registered later applies only when a
+new overload is compiled.
+
+Persistent disk-cache load and save are bypassed while planners are
+registered because planner identity and implementation are not part of the
+cache key. In-memory overload reuse is unchanged.
+
+.. autoclass:: numba_cuda_mlir.extending.WholeFunctionPlanner
+   :members: is_device_function, run
+
+.. autofunction:: numba_cuda_mlir.extending.register_planner
 
 Typing
 ------

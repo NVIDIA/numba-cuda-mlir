@@ -40,6 +40,7 @@ from numba_cuda_mlir.numba_cuda.core.compiler_lock import global_compiler_lock
 from numba_cuda_mlir.numba_cuda.dispatcher import Dispatcher
 from numba_cuda_mlir.numba_cuda.core.options import TargetOptions
 from numba_cuda_mlir._whole_function_planners import (
+    _REQUIRED_DYNAMIC_SHARED_MEMORY_KEY,
     _RequireLaunchConfig,
     _planner_registry,
 )
@@ -485,6 +486,8 @@ class _ArgMarshaller:
         self._launch_stream = launch_stream
         self._kernel_dispatcher_registered = False
         self._kernel_dispatcher_registration_lock = threading.Lock()
+        self._adjusted_launcher_key = None
+        self._adjusted_launcher = None
         self._sig_cache = {}  # {type_key: (argtypes, fast_ok)}
         self._array_sig_cache = {}  # {type_key: [(argtypes, ((idx, array_key), ...))]}
 
@@ -681,6 +684,7 @@ class _ArgMarshaller:
                     active_kernel_dispatcher,
                     active_launch_config_generation,
                     active_launch_config,
+                    required_dynamic_shared_memory,
                 ) = dispatcher._prepare_for_launch(
                     tuple(launch_args),
                     tuple(argtypes),
@@ -716,6 +720,31 @@ class _ArgMarshaller:
                         self._kernel_dispatcher = active_kernel_dispatcher
                         self._launch_config_generation = active_launch_config_generation
                         self._kernel_dispatcher_registered = False
+
+                launcher_config = (
+                    active_launch_config
+                    if active_launch_config is not None
+                    else self._available_launch_config
+                )
+                configured_sharedmem = _normalize_launch_sharedmem(launcher_config["sharedmem"])
+                effective_sharedmem = max(configured_sharedmem, required_dynamic_shared_memory)
+                if effective_sharedmem > configured_sharedmem:
+                    adjusted_launcher_key = (
+                        id(active_kernel_dispatcher),
+                        active_launch_config_generation,
+                        effective_sharedmem,
+                    )
+                    if adjusted_launcher_key != self._adjusted_launcher_key:
+                        self._adjusted_launcher = LaunchConfiguration(
+                            active_kernel_dispatcher,
+                            launcher_config["grid"],
+                            launcher_config["block"],
+                            self._launch_stream,
+                            effective_sharedmem,
+                            launcher_config.get("cluster"),
+                        )
+                        self._adjusted_launcher_key = adjusted_launcher_key
+                    launcher = self._adjusted_launcher
 
             if active_launch_config is not None:
                 _compile_arg_types.launch_config = active_launch_config
@@ -2512,17 +2541,22 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             return configured_launch_config
 
         launch_config = active_launch_config()
-        if self._compile_result_for(argtypes, launch_config) is None:
+        compile_result = self._compile_result_for(argtypes, launch_config)
+        if compile_result is None:
             self._compile_impl(list(args))
             launch_config = active_launch_config()
+            compile_result = self._compile_result_for(argtypes, launch_config)
 
-        if self._compile_result_for(argtypes, launch_config) is None:
+        if compile_result is None:
             raise RuntimeError(
                 "kernel precompilation completed without publishing a matching overload"
             )
 
+        required_dynamic_shared_memory = compile_result.metadata.get(
+            _REQUIRED_DYNAMIC_SHARED_MEMORY_KEY, 0
+        )
         if launch_config is None:
-            return self._c, None, None
+            return self._c, None, None, required_dynamic_shared_memory
         if not self._requires_launch_config and configured_launch_config is not None:
             if self._is_kernel_dispatcher_registered(
                 configured_launch_config,
@@ -2533,6 +2567,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                     configured_kernel_dispatcher,
                     configured_launch_config_generation,
                     configured_launch_config,
+                    required_dynamic_shared_memory,
                 )
             # A retained marshaller may outlive recompile() or removal of the
             # extension that originally opted it into launch specialization.
@@ -2541,9 +2576,19 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             kernel_dispatcher, generation = self._get_launch_config_dispatcher_and_generation(
                 launch_config
             )
-            return kernel_dispatcher, generation, launch_config
+            return (
+                kernel_dispatcher,
+                generation,
+                launch_config,
+                required_dynamic_shared_memory,
+            )
         kernel_dispatcher, generation = self._get_kernel_dispatcher_and_generation(launch_config)
-        return kernel_dispatcher, generation, launch_config
+        return (
+            kernel_dispatcher,
+            generation,
+            launch_config,
+            required_dynamic_shared_memory,
+        )
 
     def _raise_ambiguous(self, argtypes, tied):
         sigs_str = "\n".join(f"{sig_args} -> none" for sig_args in tied)

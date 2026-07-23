@@ -254,7 +254,7 @@ def test_arg_marshaller_rebinds_to_requested_launch_configuration(monkeypatch):
                 configured_launch_config_generation,
             )
         )
-        return launch_kernel_dispatcher, 7, active_launch_config
+        return launch_kernel_dispatcher, 7, active_launch_config, 0
 
     def launch_configuration(
         kernel_dispatcher,
@@ -340,7 +340,7 @@ def test_arg_marshaller_rebinds_for_retained_launch_extension_snapshot(monkeypat
 
     def prepare_for_launch(*args):
         prepare_calls.append(args)
-        return refreshed_kernel_dispatcher, 8, launch_config
+        return refreshed_kernel_dispatcher, 8, launch_config, 0
 
     dispatcher._prepare_for_launch = prepare_for_launch
     monkeypatch.setattr(
@@ -397,6 +397,107 @@ def test_arg_marshaller_refreshes_launch_config_dispatcher():
     assert dispatcher.remembered_dispatchers == [
         (launch_config, kernel_dispatcher, launch_config, None)
     ]
+
+
+def test_arg_marshaller_raises_and_caches_dynamic_shared_memory_minimum(monkeypatch):
+    kernel_dispatcher = object()
+    launch_config = {
+        "grid": (3, 1, 1),
+        "block": (64, 1, 1),
+        "sharedmem": 128,
+        "cluster": (2, 1, 1),
+    }
+    dispatcher = _Dispatcher()
+    dispatcher._requires_launch_config = True
+    launches = []
+    original_launches = []
+
+    def prepare_for_launch(*args):
+        return kernel_dispatcher, 7, launch_config, 4096
+
+    def launch_configuration(
+        native_dispatcher,
+        griddim,
+        blockdim,
+        stream,
+        sharedmem,
+        cluster,
+    ):
+        launches.append(
+            (
+                native_dispatcher,
+                griddim,
+                blockdim,
+                stream,
+                sharedmem,
+                cluster,
+            )
+        )
+        return lambda value: ("adjusted", value)
+
+    dispatcher._prepare_for_launch = prepare_for_launch
+    monkeypatch.setattr(descriptor_mod, "LaunchConfiguration", launch_configuration)
+    marshaller = _ArgMarshaller(
+        lambda value: original_launches.append(value),
+        dispatcher=dispatcher,
+        launch_config=launch_config,
+        available_launch_config=launch_config,
+        kernel_dispatcher=kernel_dispatcher,
+        launch_config_generation=7,
+        launch_stream=123,
+    )
+
+    assert marshaller(1) == ("adjusted", 1)
+    assert marshaller(2) == ("adjusted", 2)
+    assert launches == [
+        (
+            kernel_dispatcher,
+            (3, 1, 1),
+            (64, 1, 1),
+            123,
+            4096,
+            (2, 1, 1),
+        )
+    ]
+    assert not original_launches
+    assert marshaller._launch_config is launch_config
+    assert marshaller._available_launch_config is launch_config
+    assert launch_config["sharedmem"] == 128
+
+
+def test_arg_marshaller_preserves_larger_user_shared_memory(monkeypatch):
+    kernel_dispatcher = object()
+    launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": 8192,
+        "cluster": None,
+    }
+    dispatcher = _Dispatcher()
+    dispatcher._requires_launch_config = True
+    dispatcher._prepare_for_launch = lambda *args: (
+        kernel_dispatcher,
+        3,
+        launch_config,
+        4096,
+    )
+    monkeypatch.setattr(
+        descriptor_mod,
+        "LaunchConfiguration",
+        lambda *args: pytest.fail("a larger configured sharedmem must be preserved"),
+    )
+    launches = []
+    marshaller = _ArgMarshaller(
+        lambda value: launches.append(value) or "original",
+        dispatcher=dispatcher,
+        launch_config=launch_config,
+        available_launch_config=launch_config,
+        kernel_dispatcher=kernel_dispatcher,
+        launch_config_generation=3,
+    )
+
+    assert marshaller(7) == "original"
+    assert launches == [7]
 
 
 def test_configure_records_normalized_launch_config(monkeypatch):
@@ -546,9 +647,12 @@ def test_prelaunch_uses_retained_launch_extension_snapshot(monkeypatch):
     retained_generation = marshaller._launch_config_generation
     observed_configs = []
 
+    compile_result = _CompileResult((types.int32,))
+    compile_result.metadata["required_dynamic_shared_memory"] = 2048
+
     def compile_result_for(argtypes, launch_config):
         observed_configs.append(launch_config)
-        return object()
+        return compile_result
 
     monkeypatch.setattr(dispatcher, "_compile_result_for", compile_result_for)
     dispatcher.extensions.clear()
@@ -566,8 +670,9 @@ def test_prelaunch_uses_retained_launch_extension_snapshot(monkeypatch):
         retained_kernel_dispatcher,
         retained_generation,
         retained_launch_config,
+        2048,
     )
-    assert observed_configs == [retained_launch_config, retained_launch_config]
+    assert observed_configs == [retained_launch_config]
 
 
 def test_launch_config_configure_reports_invalid_sharedmem():

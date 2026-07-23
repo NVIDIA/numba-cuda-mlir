@@ -29,6 +29,7 @@ from numba_cuda_mlir._whole_function_planners import (
     WholeFunctionPlanner,
     register_planner,
     require_launch_config,
+    set_required_dynamic_shared_memory,
 )
 
 lowering_registry = LoweringRegistry()
@@ -48,6 +49,7 @@ __all__ = [
     "refresh_registries",
     "register_planner",
     "require_launch_config",
+    "set_required_dynamic_shared_memory",
     "overload",
     "overload_attribute",
     "overload_method",

@@ -78,6 +78,24 @@ planner set, including planners that did not request the metadata. Planners
 must therefore be pure or idempotent across attempts and should avoid
 externally visible side effects.
 
+When generated code needs a minimum amount of dynamic shared memory, record it
+with
+:py:func:`~numba_cuda_mlir.extending.set_required_dynamic_shared_memory`.
+Repeated calls keep the largest requirement. At launch, Numba-CUDA-MLIR uses
+the larger of this compile-time requirement and the user's configured
+``sharedmem`` value. The configured value remains the specialization and
+configure-cache key; the minimum only adjusts the native launch.
+
+.. code-block:: python
+
+   from numba_cuda_mlir.extending import set_required_dynamic_shared_memory
+
+   class ScratchPlanner(WholeFunctionPlanner):
+       def run(self):
+           required_bytes = plan_scratch_storage(self.state.func_ir)
+           set_required_dynamic_shared_memory(self.state, required_bytes)
+           return False
+
 Register every planner before compiling a dispatcher that needs it.
 Registration does not invalidate an overload that the dispatcher has already
 compiled and cached in memory; a planner registered later applies only when a
@@ -93,6 +111,8 @@ cache key. In-memory overload reuse is unchanged.
 .. autofunction:: numba_cuda_mlir.extending.register_planner
 
 .. autofunction:: numba_cuda_mlir.extending.require_launch_config
+
+.. autofunction:: numba_cuda_mlir.extending.set_required_dynamic_shared_memory
 
 Typing
 ------

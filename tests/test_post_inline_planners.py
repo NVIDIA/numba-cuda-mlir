@@ -18,6 +18,7 @@ from numba_cuda_mlir.extending import (
     WholeFunctionPlanner,
     register_planner,
     require_launch_config,
+    set_required_dynamic_shared_memory,
 )
 from numba_cuda_mlir.numba_cuda.compiler import run_frontend
 from numba_cuda_mlir.numba_cuda.core import ir
@@ -141,6 +142,32 @@ def test_require_launch_config_requires_compiler_metadata():
 
     with pytest.raises(TypeError, match="must contain targetoptions"):
         require_launch_config(SimpleNamespace(metadata={}))
+
+
+def test_required_dynamic_shared_memory_is_max_accumulated():
+    state = SimpleNamespace(metadata={})
+
+    set_required_dynamic_shared_memory(state, 1024)
+    set_required_dynamic_shared_memory(state, np.int64(512))
+    set_required_dynamic_shared_memory(state, 4096)
+
+    assert state.metadata["required_dynamic_shared_memory"] == 4096
+
+
+@pytest.mark.parametrize("value", [True, False, 1.5, "1024", object()])
+def test_required_dynamic_shared_memory_rejects_non_integer_values(value):
+    with pytest.raises(TypeError, match="must be an integer"):
+        set_required_dynamic_shared_memory(SimpleNamespace(metadata={}), value)
+
+
+def test_required_dynamic_shared_memory_rejects_negative_values():
+    with pytest.raises(ValueError, match="cannot be negative"):
+        set_required_dynamic_shared_memory(SimpleNamespace(metadata={}), -1)
+
+
+def test_required_dynamic_shared_memory_requires_compiler_metadata():
+    with pytest.raises(TypeError, match="metadata must be a dict"):
+        set_required_dynamic_shared_memory(SimpleNamespace(), 0)
 
 
 def test_ir_is_repaired_between_modifying_planners():
@@ -587,3 +614,34 @@ def test_planner_can_request_distinct_launch_config_specializations(
 
     configured_after_demand = kernel.configure(1, 32)
     assert configured_after_demand._launch_config["block"] == (32, 1, 1)
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
+def test_planner_dynamic_shared_memory_minimum_reaches_launch(
+    isolated_global_planners,
+):
+    required_bytes = 32 * 1024
+    last_scratch_index = required_bytes // np.dtype(np.int32).itemsize - 1
+
+    class ScratchPlanner(WholeFunctionPlanner):
+        def run(self):
+            if self.is_device_function:
+                return False
+            set_required_dynamic_shared_memory(self.state, required_bytes)
+            return False
+
+    register_planner(ScratchPlanner)
+
+    @cuda.jit
+    def kernel(output):
+        scratch = cuda.shared.array(0, dtype=types.int32)
+        if cuda.threadIdx.x == 0:
+            scratch[last_scratch_index] = 42
+            output[0] = scratch[last_scratch_index]
+
+    output = np.zeros(1, dtype=np.int32)
+    kernel[1, 1](output)
+
+    assert output[0] == 42
+    [compile_result] = kernel.overloads.values()
+    assert compile_result.metadata["required_dynamic_shared_memory"] == required_bytes

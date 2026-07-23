@@ -171,6 +171,23 @@ match (other templates are tried). To force a literal to be resolved before
 typing proceeds, raise
 :py:class:`numba_cuda_mlir.errors.ForceLiteralArg`.
 
+Kernel dispatch retries one such request with value-specialized argument
+types. Pass zero-based, top-level argument positions, for example
+``ForceLiteralArg({1})``. Runtime Python ``int`` and ``bool`` values follow
+Numba's literal semantics; each distinct value receives an exact overload and
+native constant-argument specialization. If a whole-function planner promotes
+launch metadata before requesting a literal, dispatch remembers that launch
+requirement and activates it for the literal-qualified attempt. Combining both
+requirements therefore takes two compiler attempts: the initial generic
+argument typing with in-place launch promotion, followed by literal-qualified
+typing with launch metadata active from the beginning.
+
+Literal retry does not yet support an extension argument that flattens into
+multiple native launch arguments. Such a request raises a ``TypeError`` rather
+than risking a mismatch between top-level positions and native constant flags.
+Struct-like extension arguments are tracked by `issue #60
+<https://github.com/NVIDIA/numba-cuda-mlir/issues/60>`_.
+
 
 Defining new types
 ------------------

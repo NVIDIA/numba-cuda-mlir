@@ -1866,8 +1866,12 @@ def test_compile_impl_reports_unavailable_or_repeated_launch_request(monkeypatch
     descriptor_mod._compile_arg_types.types = (types.int32,)
     dispatcher = descriptor_mod.MLIRDispatcher(kernel)
 
-    with pytest.raises(RuntimeError, match="not initiated by a configured kernel launch"):
+    with pytest.raises(
+        RuntimeError, match="not initiated by a configured kernel launch"
+    ) as unavailable:
         dispatcher._compile_impl([1])
+    assert unavailable.value.__cause__ is None
+    assert unavailable.value.__suppress_context__ is True
 
     descriptor_mod._compile_arg_types.available_launch_config = {
         "grid": (1, 1, 1),
@@ -1875,7 +1879,32 @@ def test_compile_impl_reports_unavailable_or_repeated_launch_request(monkeypatch
         "sharedmem": 0,
         "cluster": None,
     }
-    with pytest.raises(RuntimeError, match="after a launch-qualified retry"):
+    with pytest.raises(RuntimeError, match="after a launch-qualified retry") as repeated:
+        dispatcher._compile_impl([1])
+    assert repeated.value.__cause__ is None
+    assert repeated.value.__suppress_context__ is True
+
+
+def test_compile_impl_preserves_invalid_launch_config_type_error(monkeypatch):
+    from numba_cuda_mlir import mlir_compiler
+
+    def kernel(x):
+        pass
+
+    def request_launch_config(*args, **kwargs):
+        raise _RequireLaunchConfig("launch config required")
+
+    monkeypatch.setattr(mlir_compiler, "mlir_compiler_entry", request_launch_config)
+    descriptor_mod._compile_arg_types.types = (types.int32,)
+    descriptor_mod._compile_arg_types.available_launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": "dynamic",
+        "cluster": None,
+    }
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+
+    with pytest.raises(TypeError, match="sharedmem.*integer-convertible"):
         dispatcher._compile_impl([1])
 
 

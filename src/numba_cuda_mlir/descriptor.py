@@ -2794,18 +2794,18 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                     targetoptions=targetoptions,
                     override_argtypes=override_argtypes,
                 )
-        except _RequireLaunchConfig as exc:
+        except _RequireLaunchConfig:
             if active_launch_config is not None:
                 raise RuntimeError(
                     "whole-function planner requested launch metadata after a "
                     "launch-qualified retry"
-                ) from exc
+                ) from None
             available_launch_config = getattr(_compile_arg_types, "available_launch_config", None)
             if available_launch_config is None:
                 raise RuntimeError(
                     "whole-function planner requires launch metadata, but compilation "
                     "was not initiated by a configured kernel launch"
-                ) from exc
+                ) from None
             _normalize_available_launch_config(available_launch_config)
             self._mark_requires_launch_config()
             return self._compile_impl(args, launch_config_retry_budget)

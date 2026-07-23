@@ -90,7 +90,11 @@ _planner_registry = _WholeFunctionPlannerRegistry()
 
 
 def register_planner(planner_cls):
-    """Register a whole-function planner class."""
+    """Register a whole-function planner class.
+
+    Register planners before compiling any dispatcher that needs them.
+    Registration does not invalidate existing in-memory overloads.
+    """
 
     return _planner_registry.register(planner_cls)
 

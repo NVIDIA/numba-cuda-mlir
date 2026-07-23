@@ -216,7 +216,8 @@ class _InspectPostInlineStatePlanner(WholeFunctionPlanner):
             current = func_ir._definitions[name]
             assert len(current) == len(rebuilt)
             assert all(lhs is rhs for lhs, rhs in zip(current, rebuilt))
-        assert set(func_ir.block_entry_vars) == set(func_ir.blocks.values())
+        assert set(func_ir.variable_lifetime.cfg.nodes()) == set(func_ir.blocks)
+        assert set(func_ir.variable_lifetime.usedefs.usemap) == set(func_ir.blocks)
         type(self).kernel_runs += 1
         return False
 

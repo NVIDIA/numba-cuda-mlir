@@ -68,6 +68,11 @@ planner, start with the next compilation. Planners operate on untyped Numba
 IR; typing and MLIR lowering extensions remain responsible for the later
 compilation phases.
 
+Register every planner before compiling a dispatcher that needs it.
+Registration does not invalidate an overload that the dispatcher has already
+compiled and cached in memory; a planner registered later applies only when a
+new overload is compiled.
+
 Persistent disk-cache load and save are bypassed while planners are
 registered because planner identity and implementation are not part of the
 cache key. In-memory overload reuse is unchanged.

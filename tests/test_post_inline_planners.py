@@ -25,9 +25,10 @@ def isolated_global_planners():
     with _planner_registry._lock:
         original = list(_planner_registry._planners)
         _planner_registry._planners.clear()
-        try:
-            yield
-        finally:
+    try:
+        yield
+    finally:
+        with _planner_registry._lock:
             _planner_registry._planners[:] = original
 
 
@@ -196,6 +197,55 @@ def test_active_planners_bypass_persistent_dispatch_cache(
     assert dispatcher._compile_impl([1]) == (b"compiled", "kernel", False)
     assert not dispatcher._cache_hits
     assert not dispatcher._cache_misses
+
+
+def test_planner_registered_during_compile_prevents_persistent_cache_save(
+    isolated_global_planners,
+    monkeypatch,
+):
+    from numba_cuda_mlir import descriptor as descriptor_mod, mlir_compiler
+    from numba_cuda_mlir.numba_cuda import typing as cuda_typing
+
+    class Planner(WholeFunctionPlanner):
+        def run(self):
+            return False
+
+    class TrackingCache:
+        load_calls = 0
+        save_calls = 0
+
+        def load_overload(self, *args):
+            self.load_calls += 1
+            return None
+
+        def save_overload(self, *args):
+            self.save_calls += 1
+
+    class CompilerResult:
+        signature = cuda_typing.signature(types.none, types.int32)
+        metadata = {"cubin": b"compiled", "func_name": "kernel"}
+
+    def kernel(value):
+        pass
+
+    def compile_and_register(*args, **kwargs):
+        register_planner(Planner)
+        return CompilerResult()
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    dispatcher._cache = TrackingCache()
+    monkeypatch.setattr(mlir_compiler, "mlir_compiler_entry", compile_and_register)
+    monkeypatch.setattr(
+        descriptor_mod._compile_arg_types,
+        "types",
+        (types.int32,),
+        raising=False,
+    )
+
+    assert dispatcher._compile_impl([1]) == (b"compiled", "kernel", False)
+    assert dispatcher._cache.load_calls == 1
+    assert dispatcher._cache.save_calls == 0
+    assert dispatcher._cache_misses[(types.int32,)] == 1
 
 
 def _post_inline_marker(value):

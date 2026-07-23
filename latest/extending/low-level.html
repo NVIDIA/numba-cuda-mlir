@@ -490,8 +490,11 @@
                   
   <section id="low-level-extension-api">
 <span id="low-level-extending"></span><h1>Low-level extension API<a class="headerlink" href="#low-level-extension-api" title="Link to this heading">#</a></h1>
-<p>The low-level API exposes Numba-CUDA-MLIR’s two compilation phases directly:</p>
+<p>The low-level API exposes Numba-CUDA-MLIR’s extension phases directly:</p>
 <ul class="simple">
+<li><p><strong>Planning</strong> — after device functions have been inlined and before type
+inference, whole-function planners can inspect and transform the complete
+untyped Numba IR.</p></li>
 <li><p><strong>Typing</strong> — running before code generation, type inference resolves each
 variable, attribute, and call to a type. Extension authors register new
 typing rules with the <code class="xref py py-mod docutils literal notranslate"><span class="pre">typing</span></code> template
@@ -500,16 +503,55 @@ machinery.</p></li>
 operation. Extension authors register lowering implementations with
 <code class="xref py py-attr docutils literal notranslate"><span class="pre">lowering_registry</span></code>.</p></li>
 </ul>
-<p>These are the same two phases that underpin the high-level API. The
-high-level decorators are convenience wrappers that arrange the typing and
-lowering for you; use the low-level API when you need to introduce a
-brand-new type, emit MLIR directly, or anything else that is difficult to
-express using the high-level API.</p>
+<p>Typing and lowering also underpin the high-level API. The high-level
+decorators are convenience wrappers that arrange those phases for you; use
+the low-level API when you need whole-function planning, a brand-new type,
+direct MLIR emission, or anything else that is difficult to express using the
+high-level API.</p>
 <p>The lowering half of this API differs significantly from Numba’s. Numba’s
 lowering callbacks receive an <code class="docutils literal notranslate"><span class="pre">llvmlite.ir.IRBuilder</span></code> and emit LLVM IR.
 Numba-CUDA-MLIR’s lowering callbacks receive an MLIR builder
 (<code class="xref py py-class docutils literal notranslate"><span class="pre">numba_cuda_mlir.mlir_lowering.MLIRLower</span></code>) and emit MLIR through
 the bindings in <code class="xref py py-mod docutils literal notranslate"><span class="pre">numba_cuda_mlir._mlir</span></code>.</p>
+<section id="whole-function-planning">
+<h2>Whole-function planning<a class="headerlink" href="#whole-function-planning" title="Link to this heading">#</a></h2>
+<p>Extensions that need to inspect or transform a complete function before typing
+can register a <code class="xref py py-class docutils literal notranslate"><span class="pre">WholeFunctionPlanner</span></code>.
+Planners run once after inlineable device functions have been merged into the
+caller and before type inference. This makes calls introduced by device
+helpers visible without rerunning unrelated rewrite registries.</p>
+<p>Implement <code class="docutils literal notranslate"><span class="pre">run()</span></code> and return <code class="docutils literal notranslate"><span class="pre">True</span></code> only when the planner changed
+<code class="docutils literal notranslate"><span class="pre">state.func_ir</span></code>. Before the first planner and after each change,
+Numba-CUDA-MLIR simplifies the control flow graph, refreshes postprocessing
+state and definitions, and verifies every block. Planners run for both kernels
+and device-function compilations; a planner that only applies to kernels
+should check <code class="docutils literal notranslate"><span class="pre">self.is_device_function</span></code> and decline device functions.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir.extending</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">WholeFunctionPlanner</span><span class="p">,</span>
+    <span class="n">register_planner</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="nd">@register_planner</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">MyPlanner</span><span class="p">(</span><span class="n">WholeFunctionPlanner</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">modified</span> <span class="o">=</span> <span class="n">rewrite_my_extension_calls</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">state</span><span class="o">.</span><span class="n">func_ir</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="n">modified</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Registration order is preserved, and registering the same planner class more
+than once has no effect. The planner pass snapshots its registry before
+running, so planners registered after that snapshot, including from a running
+planner, start with the next compilation. Planners operate on untyped Numba
+IR; typing and MLIR lowering extensions remain responsible for the later
+compilation phases.</p>
+<p>Register every planner before compiling a dispatcher that needs it.
+Registration does not invalidate an overload that the dispatcher has already
+compiled and cached in memory; a planner registered later applies only when a
+new overload is compiled.</p>
+<p>Persistent disk-cache load and save are bypassed while planners are
+registered because planner identity and implementation are not part of the
+cache key. In-memory overload reuse is unchanged.</p>
+</section>
 <section id="typing">
 <h2>Typing<a class="headerlink" href="#typing" title="Link to this heading">#</a></h2>
 <p>Typing rules in Numba-CUDA-MLIR are written exactly as they are in Numba: you
@@ -1030,6 +1072,7 @@ field access.</p></li>
   </div>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#whole-function-planning">Whole-function planning</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#typing">Typing</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#defining-new-types">Defining new types</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#data-models">Data models</a></li>

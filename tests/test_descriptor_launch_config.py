@@ -1893,6 +1893,52 @@ def test_reduce_rebuild_and_recompile_preserve_learned_launch_requirement():
     assert rebuilt._launch_config_enabled is True
 
 
+def test_reduce_omits_stale_generic_sigs_after_learned_launch_requirement(monkeypatch):
+    def kernel(x):
+        pass
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": 0,
+        "cluster": None,
+    }
+    launch_key = descriptor_mod._launch_config_key(launch_config)
+    generic_result = _CompileResult((types.int32,))
+    launch_result = _CompileResult((types.float32,))
+    dispatcher.overloads[(types.int32,)] = generic_result
+    dispatcher._launch_config_overloads[((types.float32,), launch_key)] = launch_result
+    dispatcher._mark_requires_launch_config()
+    dispatcher.disable_compile()
+
+    compiled = []
+
+    def compile_launch_config_signature(self, sig, launch_config_key):
+        compiled.append((tuple(sig.args), launch_config_key))
+        self._launch_config_overloads[(tuple(sig.args), launch_config_key)] = _CompileResult(
+            tuple(sig.args)
+        )
+
+    monkeypatch.setattr(
+        descriptor_mod.MLIRDispatcher,
+        "_compile_launch_config_signature",
+        compile_launch_config_signature,
+    )
+
+    states = dispatcher._reduce_states()
+    states["uuid"] = str(uuid4())
+    rebuilt = descriptor_mod.MLIRDispatcher._rebuild(**states)
+
+    assert states["sigs"] == []
+    assert states["launch_config_sigs"] == [(launch_result.signature, launch_key)]
+    assert compiled == [((types.float32,), launch_key)]
+    assert rebuilt._requires_launch_config is True
+    assert rebuilt._can_compile is False
+    assert not rebuilt.overloads
+    assert ((types.float32,), launch_key) in rebuilt.launch_config_overloads
+
+
 def test_compile_launch_config_signature_forces_launch_rebuild_without_extensions(monkeypatch):
     from numba_cuda_mlir import mlir_compiler
 

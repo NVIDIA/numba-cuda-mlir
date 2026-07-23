@@ -1965,7 +1965,14 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             sigs = []
             launch_config_sigs = []
         else:
-            sigs = [cr.signature for cr in self.overloads.values()]
+            # Once a planner requests launch metadata, generic overloads are
+            # no longer reachable through dispatch. Rebuilding them would also
+            # rerun the active planner without a configured launch.
+            sigs = (
+                []
+                if self._requires_launch_config
+                else [cr.signature for cr in self.overloads.values()]
+            )
             launch_config_sigs = []
             if self._launch_config_enabled:
                 seen = set()

@@ -1415,7 +1415,13 @@ Status extract_cuda_args(PyObject* const* pyargs, size_t num_pyargs,
     helper.cuda_context = nullptr;
     for (size_t i = 0; i < num_pyargs; ++i) {
         PyObject* pyobj = pyargs[i];
-        bool is_constant = constant_arg_flags[i];
+        // constant_arg_flags is sized to the number of Python-level kernel
+        // parameters, but pyargs may contain more entries because tuple/list
+        // arguments are flattened before reaching the C++ launcher (see
+        // _flatten_arg in descriptor.py).  Flags beyond the original parameter
+        // count default to false (non-constant), matching the behaviour of
+        // PythonArgProfile::maybe_init_fast_path above.
+        bool is_constant = i < constant_arg_flags.size() && constant_arg_flags[i];
 
         switch (arg_kinds[i]) {
         case PythonArgKind::TorchTensorDlpack:

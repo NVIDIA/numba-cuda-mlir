@@ -528,6 +528,83 @@ def test_arg_marshaller_preserves_larger_user_shared_memory(monkeypatch):
     assert launches == [7]
 
 
+def test_arg_marshaller_preserves_raw_sharedmem_without_required_minimum(monkeypatch):
+    class RegisteredPlannerRegistry:
+        has_planners = True
+
+    kernel_dispatcher = object()
+    available_launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": "dynamic",
+        "cluster": None,
+    }
+    dispatcher = _Dispatcher()
+    dispatcher._get_ready_launch = lambda *args: (
+        kernel_dispatcher,
+        None,
+        None,
+        0,
+    )
+    dispatcher._prepare_for_launch = lambda *args: pytest.fail(
+        "ready launches must not take the compiler lock"
+    )
+    monkeypatch.setattr(
+        descriptor_mod,
+        "_planner_registry",
+        RegisteredPlannerRegistry(),
+    )
+    launches = []
+    marshaller = _ArgMarshaller(
+        lambda value: launches.append(value) or "original",
+        dispatcher=dispatcher,
+        available_launch_config=available_launch_config,
+        kernel_dispatcher=kernel_dispatcher,
+    )
+
+    assert marshaller(7) == "original"
+    assert launches == [7]
+
+
+def test_arg_marshaller_rejects_raw_sharedmem_when_minimum_requires_adjustment(
+    monkeypatch,
+):
+    class RegisteredPlannerRegistry:
+        has_planners = True
+
+    kernel_dispatcher = object()
+    available_launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": "dynamic",
+        "cluster": None,
+    }
+    dispatcher = _Dispatcher()
+    dispatcher._get_ready_launch = lambda *args: (
+        kernel_dispatcher,
+        None,
+        None,
+        4096,
+    )
+    dispatcher._prepare_for_launch = lambda *args: pytest.fail(
+        "ready launches must not take the compiler lock"
+    )
+    monkeypatch.setattr(
+        descriptor_mod,
+        "_planner_registry",
+        RegisteredPlannerRegistry(),
+    )
+    marshaller = _ArgMarshaller(
+        lambda value: pytest.fail("invalid sharedmem must fail before launch"),
+        dispatcher=dispatcher,
+        available_launch_config=available_launch_config,
+        kernel_dispatcher=kernel_dispatcher,
+    )
+
+    with pytest.raises(TypeError, match="sharedmem.*integer-convertible"):
+        marshaller(7)
+
+
 def test_configure_records_normalized_launch_config(monkeypatch):
     captured = []
 

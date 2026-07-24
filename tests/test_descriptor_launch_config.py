@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for dispatcher launch metadata plumbing."""
 
+from concurrent.futures import ThreadPoolExecutor
 import threading
+from uuid import uuid4
 
 import pytest
 import numpy as np
@@ -11,7 +13,10 @@ from numba_cuda_mlir import descriptor as descriptor_mod
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.cuda.experimental import consteval, current_target_options
 from numba_cuda_mlir.descriptor import _ArgMarshaller
+from numba_cuda_mlir.errors import ForceLiteralArg
+from numba_cuda_mlir._whole_function_planners import _RequireLaunchConfig
 from numba_cuda_mlir.numba_cuda import types, typing as cuda_typing
+from numba_cuda_mlir.numba_cuda.core import errors as cuda_errors
 
 
 class _Dispatcher:
@@ -186,6 +191,196 @@ def test_arg_marshaller_without_launch_config_clears_outer_thread_local_temporar
     assert descriptor_mod._compile_arg_types.launch_config is outer_launch_config
 
 
+def test_arg_marshaller_exposes_available_config_without_activating_it():
+    launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": None,
+        "cluster": None,
+    }
+    observed = []
+
+    def launcher():
+        observed.append(
+            (
+                getattr(descriptor_mod._compile_arg_types, "launch_config", None),
+                getattr(
+                    descriptor_mod._compile_arg_types,
+                    "available_launch_config",
+                    None,
+                ),
+            )
+        )
+        return "launched"
+
+    marshaller = _ArgMarshaller(
+        launcher,
+        available_launch_config=launch_config,
+    )
+
+    assert marshaller() == "launched"
+    assert observed == [(None, launch_config)]
+    assert not hasattr(descriptor_mod._compile_arg_types, "launch_config")
+    assert not hasattr(descriptor_mod._compile_arg_types, "available_launch_config")
+
+
+def test_arg_marshaller_rebinds_to_requested_launch_configuration(monkeypatch):
+    generic_kernel_dispatcher = object()
+    launch_kernel_dispatcher = object()
+    available_launch_config = {
+        "grid": (2, 1, 1),
+        "block": (64, 1, 1),
+        "sharedmem": None,
+        "cluster": (2, 1, 1),
+    }
+    active_launch_config = {**available_launch_config, "sharedmem": 256}
+    dispatcher = _Dispatcher()
+    dispatcher._requires_launch_config = True
+    prepare_calls = []
+    launches = []
+
+    def prepare_for_launch(
+        args,
+        values,
+        argtypes,
+        launch_config,
+        configured_launch_config,
+        configured_kernel_dispatcher,
+        configured_launch_config_generation,
+    ):
+        prepare_calls.append(
+            (
+                args,
+                values,
+                argtypes,
+                launch_config,
+                configured_launch_config,
+                configured_kernel_dispatcher,
+                configured_launch_config_generation,
+            )
+        )
+        return launch_kernel_dispatcher, 7, active_launch_config, 0
+
+    def launch_configuration(
+        kernel_dispatcher,
+        griddim,
+        blockdim,
+        stream,
+        sharedmem,
+        cluster,
+    ):
+        launches.append(
+            (
+                kernel_dispatcher,
+                griddim,
+                blockdim,
+                stream,
+                sharedmem,
+                cluster,
+            )
+        )
+
+        def launch():
+            assert descriptor_mod._compile_arg_types.launch_config == active_launch_config
+            return "qualified"
+
+        return launch
+
+    dispatcher._prepare_for_launch = prepare_for_launch
+    monkeypatch.setattr(descriptor_mod, "LaunchConfiguration", launch_configuration)
+
+    marshaller = _ArgMarshaller(
+        lambda: pytest.fail("generic launcher should not run"),
+        dispatcher=dispatcher,
+        available_launch_config=available_launch_config,
+        kernel_dispatcher=generic_kernel_dispatcher,
+        launch_stream=123,
+    )
+
+    assert marshaller() == "qualified"
+    assert marshaller() == "qualified"
+    assert prepare_calls == [
+        ((), (), (), available_launch_config, None, generic_kernel_dispatcher, None),
+        (
+            (),
+            (),
+            (),
+            available_launch_config,
+            active_launch_config,
+            launch_kernel_dispatcher,
+            7,
+        ),
+    ]
+    assert launches == [
+        (
+            launch_kernel_dispatcher,
+            (2, 1, 1),
+            (64, 1, 1),
+            123,
+            256,
+            (2, 1, 1),
+        )
+    ]
+    assert marshaller._launch_config == active_launch_config
+    assert marshaller._launch_config_generation == 7
+    assert dispatcher.remembered_dispatchers == [
+        (active_launch_config, launch_kernel_dispatcher, active_launch_config, 7)
+    ]
+    assert not hasattr(descriptor_mod._compile_arg_types, "launch_config")
+    assert not hasattr(descriptor_mod._compile_arg_types, "available_launch_config")
+
+
+def test_arg_marshaller_rebinds_for_retained_launch_extension_snapshot(monkeypatch):
+    configured_kernel_dispatcher = object()
+    refreshed_kernel_dispatcher = object()
+    launch_config = {
+        "grid": (2, 1, 1),
+        "block": (64, 1, 1),
+        "sharedmem": 256,
+        "cluster": None,
+    }
+    dispatcher = _Dispatcher()
+    dispatcher.extensions = []
+    dispatcher._launch_config_generation = 8
+    prepare_calls = []
+
+    def prepare_for_launch(*args):
+        prepare_calls.append(args)
+        return refreshed_kernel_dispatcher, 8, launch_config, 0
+
+    dispatcher._prepare_for_launch = prepare_for_launch
+    monkeypatch.setattr(
+        descriptor_mod,
+        "LaunchConfiguration",
+        lambda *args: lambda: "refreshed",
+    )
+
+    marshaller = _ArgMarshaller(
+        lambda: pytest.fail("stale launcher should not run"),
+        extensions=[_LaunchConfigExtension()],
+        dispatcher=dispatcher,
+        launch_config=launch_config,
+        available_launch_config=launch_config,
+        kernel_dispatcher=configured_kernel_dispatcher,
+        launch_config_generation=7,
+    )
+
+    assert marshaller() == "refreshed"
+    assert prepare_calls == [
+        (
+            (),
+            (),
+            (),
+            launch_config,
+            launch_config,
+            configured_kernel_dispatcher,
+            7,
+        )
+    ]
+    assert marshaller._kernel_dispatcher is refreshed_kernel_dispatcher
+    assert marshaller._launch_config_generation == 8
+
+
 def test_arg_marshaller_refreshes_launch_config_dispatcher():
     dispatcher = _Dispatcher()
     launch_config = {
@@ -209,6 +404,178 @@ def test_arg_marshaller_refreshes_launch_config_dispatcher():
     assert dispatcher.remembered_dispatchers == [
         (launch_config, kernel_dispatcher, launch_config, None)
     ]
+
+
+def test_arg_marshaller_raises_and_caches_dynamic_shared_memory_minimum(monkeypatch):
+    kernel_dispatcher = object()
+    launch_config = {
+        "grid": (3, 1, 1),
+        "block": (64, 1, 1),
+        "sharedmem": 128,
+        "cluster": (2, 1, 1),
+    }
+    dispatcher = _Dispatcher()
+    dispatcher._requires_launch_config = True
+    launches = []
+    original_launches = []
+
+    def prepare_for_launch(*args):
+        return kernel_dispatcher, 7, launch_config, 4096
+
+    def launch_configuration(
+        native_dispatcher,
+        griddim,
+        blockdim,
+        stream,
+        sharedmem,
+        cluster,
+    ):
+        launches.append(
+            (
+                native_dispatcher,
+                griddim,
+                blockdim,
+                stream,
+                sharedmem,
+                cluster,
+            )
+        )
+        return lambda value: ("adjusted", value)
+
+    dispatcher._prepare_for_launch = prepare_for_launch
+    monkeypatch.setattr(descriptor_mod, "LaunchConfiguration", launch_configuration)
+    marshaller = _ArgMarshaller(
+        lambda value: original_launches.append(value),
+        dispatcher=dispatcher,
+        launch_config=launch_config,
+        available_launch_config=launch_config,
+        kernel_dispatcher=kernel_dispatcher,
+        launch_config_generation=7,
+        launch_stream=123,
+    )
+
+    assert marshaller(1) == ("adjusted", 1)
+    assert marshaller(2) == ("adjusted", 2)
+    assert launches == [
+        (
+            kernel_dispatcher,
+            (3, 1, 1),
+            (64, 1, 1),
+            123,
+            4096,
+            (2, 1, 1),
+        )
+    ]
+    assert not original_launches
+    assert marshaller._launch_config is launch_config
+    assert marshaller._available_launch_config is launch_config
+    assert launch_config["sharedmem"] == 128
+
+
+def test_arg_marshaller_preserves_larger_user_shared_memory(monkeypatch):
+    kernel_dispatcher = object()
+    launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": 8192,
+        "cluster": None,
+    }
+    dispatcher = _Dispatcher()
+    dispatcher._requires_launch_config = True
+    dispatcher._prepare_for_launch = lambda *args: (
+        kernel_dispatcher,
+        3,
+        launch_config,
+        4096,
+    )
+    monkeypatch.setattr(
+        descriptor_mod,
+        "LaunchConfiguration",
+        lambda *args: pytest.fail("a larger configured sharedmem must be preserved"),
+    )
+    launches = []
+    marshaller = _ArgMarshaller(
+        lambda value: launches.append(value) or "original",
+        dispatcher=dispatcher,
+        launch_config=launch_config,
+        available_launch_config=launch_config,
+        kernel_dispatcher=kernel_dispatcher,
+        launch_config_generation=3,
+    )
+
+    assert marshaller(7) == "original"
+    assert launches == [7]
+
+
+def test_arg_marshaller_preserves_raw_sharedmem_without_required_minimum(monkeypatch):
+    class RegisteredPlannerRegistry:
+        has_planners = True
+
+    kernel_dispatcher = object()
+    available_launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": "dynamic",
+        "cluster": None,
+    }
+    dispatcher = _Dispatcher()
+    dispatcher._prepare_for_launch = lambda *args: (
+        kernel_dispatcher,
+        None,
+        None,
+        0,
+    )
+    monkeypatch.setattr(
+        descriptor_mod,
+        "_planner_registry",
+        RegisteredPlannerRegistry(),
+    )
+    launches = []
+    marshaller = _ArgMarshaller(
+        lambda value: launches.append(value) or "original",
+        dispatcher=dispatcher,
+        available_launch_config=available_launch_config,
+        kernel_dispatcher=kernel_dispatcher,
+    )
+
+    assert marshaller(7) == "original"
+    assert launches == [7]
+
+
+def test_arg_marshaller_rejects_raw_sharedmem_when_minimum_requires_adjustment(
+    monkeypatch,
+):
+    class RegisteredPlannerRegistry:
+        has_planners = True
+
+    kernel_dispatcher = object()
+    available_launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": "dynamic",
+        "cluster": None,
+    }
+    dispatcher = _Dispatcher()
+    dispatcher._prepare_for_launch = lambda *args: (
+        kernel_dispatcher,
+        None,
+        None,
+        4096,
+    )
+    monkeypatch.setattr(
+        descriptor_mod,
+        "_planner_registry",
+        RegisteredPlannerRegistry(),
+    )
+    marshaller = _ArgMarshaller(
+        lambda value: pytest.fail("invalid sharedmem must fail before launch"),
+        dispatcher=dispatcher,
+        available_launch_config=available_launch_config,
+        kernel_dispatcher=kernel_dispatcher,
+    )
+
+    with pytest.raises(TypeError, match="sharedmem.*integer-convertible"):
+        marshaller(7)
 
 
 def test_configure_records_normalized_launch_config(monkeypatch):
@@ -314,6 +681,7 @@ def test_plain_configure_preserves_raw_sharedmem(monkeypatch):
 
     assert captured == ["dynamic"]
     assert marshaller._launch_config is None
+    assert marshaller._available_launch_config["sharedmem"] == "dynamic"
 
 
 def test_configure_cache_tracks_mutated_non_launch_extensions(monkeypatch):
@@ -336,6 +704,97 @@ def test_configure_cache_tracks_mutated_non_launch_extensions(monkeypatch):
     assert updated is not generic
     assert updated._extensions == [extension]
     assert updated._launch_config is None
+
+
+def test_prelaunch_uses_retained_launch_extension_snapshot(monkeypatch):
+    def launch_configuration(kernel_dispatcher, *args):
+        return lambda *launch_args: None
+
+    monkeypatch.setattr(descriptor_mod, "LaunchConfiguration", launch_configuration)
+
+    def kernel(out):
+        pass
+
+    dispatcher = descriptor_mod.MLIRDispatcher(
+        kernel,
+        targetoptions={"extensions": [_LaunchConfigExtension()]},
+    )
+    marshaller = dispatcher.configure(1, 32)
+    retained_launch_config = marshaller._launch_config
+    retained_kernel_dispatcher = marshaller._kernel_dispatcher
+    retained_generation = marshaller._launch_config_generation
+    observed_configs = []
+
+    compile_result = _CompileResult((types.int32,))
+    compile_result.metadata["required_dynamic_shared_memory"] = 2048
+
+    def compile_result_for(argtypes, launch_config):
+        observed_configs.append(launch_config)
+        return compile_result
+
+    monkeypatch.setattr(dispatcher, "_compile_result_for", compile_result_for)
+    dispatcher.extensions.clear()
+
+    prepared = dispatcher._prepare_for_launch(
+        (),
+        (1,),
+        (types.int32,),
+        marshaller._available_launch_config,
+        retained_launch_config,
+        retained_kernel_dispatcher,
+        retained_generation,
+    )
+
+    assert prepared == (
+        retained_kernel_dispatcher,
+        retained_generation,
+        retained_launch_config,
+        2048,
+    )
+    assert observed_configs == [retained_launch_config]
+
+
+def test_arg_marshaller_keeps_top_level_values_separate_from_flat_abi_args():
+    launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": 0,
+        "cluster": None,
+    }
+    kernel_dispatcher = object()
+    dispatcher = _Dispatcher()
+    dispatcher._literal_arg_positions = frozenset({0})
+    observed = []
+
+    def prepare_for_launch(
+        args,
+        values,
+        argtypes,
+        available_launch_config,
+        configured_launch_config,
+        configured_kernel_dispatcher,
+        configured_launch_config_generation,
+    ):
+        observed.append((args, values, argtypes))
+        return (
+            configured_kernel_dispatcher,
+            configured_launch_config_generation,
+            configured_launch_config,
+            0,
+        )
+
+    dispatcher._prepare_for_launch = prepare_for_launch
+    marshaller = _ArgMarshaller(
+        lambda *args: args,
+        dispatcher=dispatcher,
+        available_launch_config=launch_config,
+        kernel_dispatcher=kernel_dispatcher,
+    )
+
+    assert marshaller((1, 2)) == (1, 2)
+    assert observed[0][0] == (1, 2)
+    assert observed[0][1] == ((1, 2),)
+    assert len(observed[0][2]) == 1
 
 
 def test_launch_config_configure_reports_invalid_sharedmem():
@@ -1570,6 +2029,339 @@ def test_compile_impl_discards_callbacks_from_duplicate_launch_compile(monkeypat
     assert losing_setup_callback not in dispatcher._module_setup_callbacks
 
 
+def test_literalize_argtypes_matches_numba_scalar_literal_semantics():
+    def kernel(count, enabled):
+        pass
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    dispatcher._literal_arg_positions = frozenset({0, 1})
+
+    literalized = dispatcher._literalize_argtypes(
+        (types.int64, types.boolean),
+        (7, True),
+        abi_arg_count=2,
+    )
+
+    assert literalized == (types.literal(7), types.literal(True))
+
+    with pytest.raises(TypeError, match="top-level Python int and bool"):
+        dispatcher._literalize_argtypes(
+            (types.float64, types.boolean),
+            (1.5, True),
+            abi_arg_count=2,
+        )
+
+
+def test_literalize_argtypes_rejects_flattened_extension_abi():
+    def kernel(value):
+        pass
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    dispatcher._literal_arg_positions = frozenset({0})
+
+    with pytest.raises(TypeError, match=r"flattened launch arguments.*issue #60"):
+        dispatcher._literalize_argtypes(
+            (types.UniTuple(types.int32, 2),),
+            ((1, 2),),
+            abi_arg_count=2,
+        )
+
+
+def test_literal_prelaunch_only_rebinds_stale_native_dispatchers():
+    def kernel(value):
+        pass
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    dispatcher._literal_arg_positions = frozenset({0})
+
+    assert not dispatcher._literal_dispatcher_needs_prelaunch(
+        None,
+        dispatcher._c,
+        None,
+    )
+    assert dispatcher._literal_dispatcher_needs_prelaunch(None, object(), None)
+
+
+def test_literal_retry_rebuild_preserves_debug_lock_and_serialized_state(monkeypatch):
+    native_calls = []
+
+    def kernel(output, selector):
+        pass
+
+    def kernel_dispatcher(compile_callback, constant_flags, context_callback, debug=False):
+        native = object()
+        native_calls.append((native, tuple(constant_flags), debug))
+        return native
+
+    monkeypatch.setattr(descriptor_mod, "_PY_GIL_DISABLED", True)
+    monkeypatch.setattr(descriptor_mod._cext, "KernelDispatcher", kernel_dispatcher)
+
+    dispatcher = descriptor_mod.MLIRDispatcher(
+        kernel,
+        targetoptions={"debug": True},
+    )
+    launch_lock = dispatcher._launch_lock
+    dispatcher.overloads[(types.int32, types.int32)] = _CompileResult((types.int32, types.int32))
+    dispatcher._configure_cache["cached"] = object()
+    generation = dispatcher._launch_config_generation
+
+    assert dispatcher._record_literal_arg_positions({1}, (object(), 7), 2) is True
+    assert dispatcher._literal_arg_positions == frozenset({1})
+    assert dispatcher._launch_config_generation == generation + 1
+    assert dispatcher._launch_lock is launch_lock
+    assert not dispatcher.overloads
+    assert not dispatcher._configure_cache
+    assert [call[1:] for call in native_calls] == [
+        ((False, False), True),
+        ((False, True), True),
+    ]
+
+    states = dispatcher._reduce_states()
+    assert states["literal_arg_positions"] == (1,)
+    states["uuid"] = str(uuid4())
+    rebuilt = descriptor_mod.MLIRDispatcher._rebuild(**states)
+    assert rebuilt._literal_arg_positions == frozenset({1})
+    assert native_calls[-1][1:] == ((False, True), True)
+    assert native_calls[-2][0] in rebuilt._old_dispatchers
+    assert rebuilt._c is native_calls[-1][0]
+
+    rebuilt_lock = rebuilt._launch_lock
+    rebuilt.recompile()
+    assert rebuilt._literal_arg_positions == frozenset({1})
+    assert rebuilt._launch_lock is rebuilt_lock
+    assert native_calls[-1][1:] == ((False, True), True)
+
+
+def test_concurrent_literal_requests_rebuild_native_dispatcher_once():
+    def kernel(selector):
+        pass
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    generation = dispatcher._launch_config_generation
+
+    def record(_):
+        return dispatcher._record_literal_arg_positions({0}, (7,), 1)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        changed = list(executor.map(record, range(32)))
+
+    assert changed.count(True) == 1
+    assert changed.count(False) == 31
+    assert dispatcher._literal_arg_positions == frozenset({0})
+    assert dispatcher._launch_config_generation == generation + 1
+
+
+def test_literal_and_launch_config_retries_have_independent_budgets(monkeypatch):
+    from numba_cuda_mlir import mlir_compiler
+
+    def kernel(selector):
+        pass
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    available_launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": None,
+        "cluster": None,
+    }
+    compile_calls = []
+
+    class CompilerResult:
+        def __init__(self, argtype):
+            self.signature = cuda_typing.signature(types.none, argtype)
+            self.metadata = {
+                "cubin": f"literal-{argtype.literal_value}".encode(),
+                "func_name": "kernel",
+                "required_dynamic_shared_memory": 4096,
+            }
+
+    def mlir_compiler_entry(pyfunc, func_args, targetoptions, override_argtypes):
+        call = (tuple(func_args), tuple(override_argtypes), dict(targetoptions))
+        compile_calls.append(call)
+        if len(compile_calls) == 1:
+            raise _RequireLaunchConfig("launch config required")
+        if len(compile_calls) == 2:
+            raise ForceLiteralArg({0})
+        [argtype] = override_argtypes
+        assert isinstance(argtype, types.Literal)
+        return CompilerResult(argtype)
+
+    monkeypatch.setattr(mlir_compiler, "mlir_compiler_entry", mlir_compiler_entry)
+    descriptor_mod._compile_arg_types.types = (types.int32,)
+    descriptor_mod._compile_arg_types.values = (7,)
+    descriptor_mod._compile_arg_types.available_launch_config = available_launch_config
+
+    with pytest.warns(
+        descriptor_mod.NumbaPerformanceWarning,
+        match="Persistent disk cache is disabled for launch-config-specialized compiles",
+    ):
+        first = dispatcher._compile_impl([7])
+
+    descriptor_mod._compile_arg_types.values = (9,)
+    second = dispatcher._compile_impl([9])
+
+    normalized_launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": 0,
+        "cluster": None,
+    }
+    launch_key = descriptor_mod._launch_config_key(normalized_launch_config)
+    literal7 = types.literal(7)
+    literal9 = types.literal(9)
+
+    assert first == (b"literal-7", "kernel", False)
+    assert second == (b"literal-9", "kernel", False)
+    assert [call[0] for call in compile_calls] == [(7,), (7,), (7,), (9,)]
+    assert [call[1] for call in compile_calls] == [
+        (types.int32,),
+        (types.int32,),
+        (literal7,),
+        (literal9,),
+    ]
+    assert "__launch_config__" not in compile_calls[0][2]
+    assert all(
+        call[2].get("__launch_config__") == normalized_launch_config for call in compile_calls[1:]
+    )
+    assert dispatcher._literal_arg_positions == frozenset({0})
+    assert ((literal7,), launch_key) in dispatcher._launch_config_overloads
+    assert ((literal9,), launch_key) in dispatcher._launch_config_overloads
+    assert dispatcher._compile_result_for(
+        (literal7,), normalized_launch_config
+    ) is not dispatcher._compile_result_for((literal9,), normalized_launch_config)
+
+
+def test_literal_retry_rejects_flattened_values_and_repeated_requests(monkeypatch):
+    from numba_cuda_mlir import mlir_compiler
+
+    def kernel(value):
+        pass
+
+    def request_literal(*args, **kwargs):
+        raise ForceLiteralArg({0})
+
+    monkeypatch.setattr(mlir_compiler, "mlir_compiler_entry", request_literal)
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    descriptor_mod._compile_arg_types.types = (types.UniTuple(types.int32, 2),)
+    descriptor_mod._compile_arg_types.values = ((1, 2),)
+
+    with pytest.raises(TypeError, match=r"flattened launch arguments.*issue #60"):
+        dispatcher._compile_impl([1, 2])
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    descriptor_mod._compile_arg_types.types = (types.int32,)
+    descriptor_mod._compile_arg_types.values = (7,)
+
+    with pytest.raises(cuda_errors.CompilerError, match="Repeated literal typing request"):
+        dispatcher._compile_impl([7])
+
+
+def test_compile_impl_retries_when_planner_requests_launch_config(monkeypatch):
+    from numba_cuda_mlir import mlir_compiler
+
+    def kernel(x):
+        pass
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    available_launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": None,
+        "cluster": None,
+    }
+    compile_calls = []
+
+    class CompilerResult:
+        signature = cuda_typing.signature(types.none, types.int32)
+        metadata = {"cubin": b"qualified", "func_name": "kernel"}
+
+    def mlir_compiler_entry(pyfunc, func_args, targetoptions, override_argtypes):
+        compile_calls.append(dict(targetoptions))
+        if "__launch_config__" not in targetoptions:
+            raise _RequireLaunchConfig("launch config required")
+        return CompilerResult()
+
+    monkeypatch.setattr(mlir_compiler, "mlir_compiler_entry", mlir_compiler_entry)
+    descriptor_mod._compile_arg_types.types = (types.int32,)
+    descriptor_mod._compile_arg_types.available_launch_config = available_launch_config
+
+    with pytest.warns(
+        descriptor_mod.NumbaPerformanceWarning,
+        match="Persistent disk cache is disabled for launch-config-specialized compiles",
+    ):
+        result = dispatcher._compile_impl([1])
+
+    normalized_launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": 0,
+        "cluster": None,
+    }
+    launch_key = descriptor_mod._launch_config_key(normalized_launch_config)
+    assert result == (b"qualified", "kernel", False)
+    assert len(compile_calls) == 2
+    assert "__launch_config__" not in compile_calls[0]
+    assert compile_calls[1]["__launch_config__"] == normalized_launch_config
+    assert dispatcher._requires_launch_config is True
+    assert not dispatcher.overloads
+    assert ((types.int32,), launch_key) in dispatcher._launch_config_overloads
+
+
+def test_compile_impl_reports_unavailable_or_repeated_launch_request(monkeypatch):
+    from numba_cuda_mlir import mlir_compiler
+
+    def kernel(x):
+        pass
+
+    def request_launch_config(*args, **kwargs):
+        raise _RequireLaunchConfig("launch config required")
+
+    monkeypatch.setattr(mlir_compiler, "mlir_compiler_entry", request_launch_config)
+    descriptor_mod._compile_arg_types.types = (types.int32,)
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+
+    with pytest.raises(
+        RuntimeError, match="not initiated by a configured kernel launch"
+    ) as unavailable:
+        dispatcher._compile_impl([1])
+    assert unavailable.value.__cause__ is None
+    assert unavailable.value.__suppress_context__ is True
+
+    descriptor_mod._compile_arg_types.available_launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": 0,
+        "cluster": None,
+    }
+    with pytest.raises(RuntimeError, match="after a launch-qualified retry") as repeated:
+        dispatcher._compile_impl([1])
+    assert repeated.value.__cause__ is None
+    assert repeated.value.__suppress_context__ is True
+
+
+def test_compile_impl_preserves_invalid_launch_config_type_error(monkeypatch):
+    from numba_cuda_mlir import mlir_compiler
+
+    def kernel(x):
+        pass
+
+    def request_launch_config(*args, **kwargs):
+        raise _RequireLaunchConfig("launch config required")
+
+    monkeypatch.setattr(mlir_compiler, "mlir_compiler_entry", request_launch_config)
+    descriptor_mod._compile_arg_types.types = (types.int32,)
+    descriptor_mod._compile_arg_types.available_launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": "dynamic",
+        "cluster": None,
+    }
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+
+    with pytest.raises(TypeError, match="sharedmem.*integer-convertible"):
+        dispatcher._compile_impl([1])
+
+
 def test_disabled_launch_config_reduce_rebuild_restores_launch_sigs(monkeypatch):
     def kernel(x):
         pass
@@ -1612,6 +2404,72 @@ def test_disabled_launch_config_reduce_rebuild_restores_launch_sigs(monkeypatch)
     assert compiled == [(sig_args, launch_key, True)]
     assert rebuilt._can_compile is False
     assert (sig_args, launch_key) in rebuilt.launch_config_overloads
+
+
+def test_reduce_rebuild_and_recompile_preserve_learned_launch_requirement():
+    def kernel(x):
+        pass
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    dispatcher._mark_requires_launch_config()
+
+    states = dispatcher._reduce_states()
+    states["uuid"] = str(uuid4())
+    rebuilt = descriptor_mod.MLIRDispatcher._rebuild(**states)
+
+    assert states["requires_launch_config"] is True
+    assert rebuilt._requires_launch_config is True
+    assert rebuilt._launch_config_enabled is True
+
+    rebuilt.recompile()
+    assert rebuilt._requires_launch_config is True
+    assert rebuilt._launch_config_enabled is True
+
+
+def test_reduce_omits_stale_generic_sigs_after_learned_launch_requirement(monkeypatch):
+    def kernel(x):
+        pass
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": 0,
+        "cluster": None,
+    }
+    launch_key = descriptor_mod._launch_config_key(launch_config)
+    generic_result = _CompileResult((types.int32,))
+    launch_result = _CompileResult((types.float32,))
+    dispatcher.overloads[(types.int32,)] = generic_result
+    dispatcher._launch_config_overloads[((types.float32,), launch_key)] = launch_result
+    dispatcher._mark_requires_launch_config()
+    dispatcher.disable_compile()
+
+    compiled = []
+
+    def compile_launch_config_signature(self, sig, launch_config_key):
+        compiled.append((tuple(sig.args), launch_config_key))
+        self._launch_config_overloads[(tuple(sig.args), launch_config_key)] = _CompileResult(
+            tuple(sig.args)
+        )
+
+    monkeypatch.setattr(
+        descriptor_mod.MLIRDispatcher,
+        "_compile_launch_config_signature",
+        compile_launch_config_signature,
+    )
+
+    states = dispatcher._reduce_states()
+    states["uuid"] = str(uuid4())
+    rebuilt = descriptor_mod.MLIRDispatcher._rebuild(**states)
+
+    assert states["sigs"] == []
+    assert states["launch_config_sigs"] == [(launch_result.signature, launch_key)]
+    assert compiled == [((types.float32,), launch_key)]
+    assert rebuilt._requires_launch_config is True
+    assert rebuilt._can_compile is False
+    assert not rebuilt.overloads
+    assert ((types.float32,), launch_key) in rebuilt.launch_config_overloads
 
 
 def test_compile_launch_config_signature_forces_launch_rebuild_without_extensions(monkeypatch):

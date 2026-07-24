@@ -726,25 +726,28 @@ class _ArgMarshaller:
                     if active_launch_config is not None
                     else self._available_launch_config
                 )
-                configured_sharedmem = _normalize_launch_sharedmem(launcher_config["sharedmem"])
-                effective_sharedmem = max(configured_sharedmem, required_dynamic_shared_memory)
-                if effective_sharedmem > configured_sharedmem:
-                    adjusted_launcher_key = (
-                        id(active_kernel_dispatcher),
-                        active_launch_config_generation,
-                        effective_sharedmem,
-                    )
-                    if adjusted_launcher_key != self._adjusted_launcher_key:
-                        self._adjusted_launcher = LaunchConfiguration(
-                            active_kernel_dispatcher,
-                            launcher_config["grid"],
-                            launcher_config["block"],
-                            self._launch_stream,
+                # Plain launch configurations may preserve backend-specific
+                # sharedmem sentinels; normalize only when an adjustment is needed.
+                if required_dynamic_shared_memory:
+                    configured_sharedmem = _normalize_launch_sharedmem(launcher_config["sharedmem"])
+                    effective_sharedmem = max(configured_sharedmem, required_dynamic_shared_memory)
+                    if effective_sharedmem > configured_sharedmem:
+                        adjusted_launcher_key = (
+                            id(active_kernel_dispatcher),
+                            active_launch_config_generation,
                             effective_sharedmem,
-                            launcher_config.get("cluster"),
                         )
-                        self._adjusted_launcher_key = adjusted_launcher_key
-                    launcher = self._adjusted_launcher
+                        if adjusted_launcher_key != self._adjusted_launcher_key:
+                            self._adjusted_launcher = LaunchConfiguration(
+                                active_kernel_dispatcher,
+                                launcher_config["grid"],
+                                launcher_config["block"],
+                                self._launch_stream,
+                                effective_sharedmem,
+                                launcher_config.get("cluster"),
+                            )
+                            self._adjusted_launcher_key = adjusted_launcher_key
+                        launcher = self._adjusted_launcher
 
             if active_launch_config is not None:
                 _compile_arg_types.launch_config = active_launch_config

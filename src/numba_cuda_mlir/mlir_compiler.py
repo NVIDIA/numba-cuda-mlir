@@ -441,6 +441,15 @@ def mlir_compiler_entry(
             argtypes.append(types.StarArgTuple.from_types(vararg_types))
             break
 
+        override_argtype = (
+            override_argtypes[i]
+            if override_argtypes is not None and i < len(override_argtypes)
+            else None
+        )
+        if isinstance(override_argtype, types.Literal):
+            argtypes.append(override_argtype)
+            continue
+
         annotation = param.annotation
 
         # If there's a Numba type annotation, use it directly
@@ -453,14 +462,14 @@ def mlir_compiler_entry(
                     argtypes.append(to_numba_type(annotation))
                 except (TypeError, NotImplementedError):
                     # Use override type if provided, otherwise infer from arg
-                    if override_argtypes is not None and i < len(override_argtypes):
-                        argtypes.append(override_argtypes[i])
+                    if override_argtype is not None:
+                        argtypes.append(override_argtype)
                     else:
                         argtypes.append(typeof(func_args_extended[i], Purpose.argument))
             else:
                 # Use override type if provided, otherwise infer from arg
-                if override_argtypes is not None and i < len(override_argtypes):
-                    argtypes.append(override_argtypes[i])
+                if override_argtype is not None:
+                    argtypes.append(override_argtype)
                 else:
                     argtypes.append(typeof(func_args_extended[i], Purpose.argument))
 

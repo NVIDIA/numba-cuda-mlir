@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from numba_cuda_mlir import compiler, cuda, types
+from numba_cuda_mlir.cuda.experimental import consteval
 from numba_cuda_mlir.errors import ForceLiteralArg
 from numba_cuda_mlir._whole_function_planners import (
     _WholeFunctionPlannerRegistry,
@@ -673,27 +674,73 @@ def test_literal_retry_crosses_launch_config_and_dynamic_shared_memory(
     @cuda.jit
     def kernel(output, selector):
         scratch = cuda.shared.array(0, dtype=types.int32)
+        type_bias = consteval(1000 if isinstance(selector, types.Boolean) else 0)
         if cuda.threadIdx.x == 0:
             scratch[last_scratch_index] = selector
-            output[0] = scratch[last_scratch_index] + cuda.blockDim.x
+            output[0] = scratch[last_scratch_index] + cuda.blockDim.x + type_bias
 
-    selectors = (3, 7, True, False)
-    for block_size in (32, 64):
+    # Alternate numerically equal int/bool pairs in both insertion orders. They
+    # share an integer launch parameter family but must retain distinct native
+    # constant-cache entries.
+    selector_orders = {
+        32: (1, True, 0, False, 3, 7),
+        64: (True, 1, False, 0, 3, 7),
+    }
+    for block_size, selectors in selector_orders.items():
         for selector in selectors:
             output = np.zeros(1, dtype=np.int32)
             kernel[1, block_size](output, selector)
-            assert output[0] == selector + block_size
+            type_bias = 1000 if isinstance(selector, bool) else 0
+            assert output[0] == selector + block_size + type_bias
 
     assert kernel._requires_launch_config is True
     assert kernel._literal_arg_positions == frozenset({1})
     assert not kernel.overloads
     assert {
-        (dict(launch_config_key)["block"], argtypes[1].literal_value)
+        (
+            dict(launch_config_key)["block"],
+            type(argtypes[1]),
+            argtypes[1].literal_value,
+        )
         for (argtypes, launch_config_key) in kernel._launch_config_overloads
-    } == {(block, selector) for block in ((32, 1, 1), (64, 1, 1)) for selector in selectors}
+    } == {
+        (
+            block,
+            types.BooleanLiteral if isinstance(selector, bool) else types.IntegerLiteral,
+            selector,
+        )
+        for block in ((32, 1, 1), (64, 1, 1))
+        for selector in selector_orders[32]
+    }
     assert all(
         compile_result.metadata["required_dynamic_shared_memory"] == required_bytes
         for compile_result in kernel._launch_config_overloads.values()
     )
     assert any(not isinstance(selector_type, types.Literal) for _, selector_type in observed)
     assert any(isinstance(selector_type, types.Literal) for _, selector_type in observed)
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
+def test_literal_retry_overrides_partial_parameter_annotation(isolated_global_planners):
+    class LiteralPlanner(WholeFunctionPlanner):
+        def run(self):
+            if self.is_device_function:
+                return False
+            if not isinstance(self.state.args[1], types.Literal):
+                raise ForceLiteralArg({1})
+            return False
+
+    register_planner(LiteralPlanner)
+
+    @cuda.jit
+    def kernel(output, selector: types.int64):
+        output[0] = selector
+
+    output = np.zeros(1, dtype=np.int64)
+    kernel[1, 1](output, 7)
+
+    assert output[0] == 7
+    assert kernel._literal_arg_positions == frozenset({1})
+    [(argtypes, _)] = kernel.overloads.items()
+    assert isinstance(argtypes[1], types.IntegerLiteral)
+    assert argtypes[1].literal_value == 7

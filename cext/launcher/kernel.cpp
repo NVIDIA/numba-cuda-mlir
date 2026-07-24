@@ -238,6 +238,7 @@ Status check_kernel_error_code(const CudaLibrary& lib) {
 
 enum class ConstantArgType {
     INT64,
+    BOOL,
     FLOAT64,
     STRING,
 };
@@ -262,6 +263,13 @@ struct ConstantArg {
         }
     }
 
+    ConstantArg(bool val) :
+        type(ConstantArgType::BOOL),
+        value{}
+    {
+        value.i64 = static_cast<int64_t>(val);
+    }
+
     explicit ConstantArg(std::string val) :
         type(ConstantArgType::STRING),
         value{},
@@ -272,6 +280,7 @@ struct ConstantArg {
         if (type != other.type) return false;
         switch (type) {
         case ConstantArgType::INT64:
+        case ConstantArgType::BOOL:
             return value.i64 == other.value.i64;
         case ConstantArgType::FLOAT64:
             // compare bits of two floats directly
@@ -1060,8 +1069,12 @@ inline Status extract_py_long(PyObject* pyobj, bool is_constant, LaunchHelper& h
     helper.cuargs.push_back(cuda_arg_i64(value));
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 0});
 
-    if (is_constant)
-        helper.constants.push_back(ConstantArg(value));
+    if (is_constant) {
+        if (PyBool_Check(pyobj))
+            helper.constants.push_back(ConstantArg(value != 0));
+        else
+            helper.constants.push_back(ConstantArg(value));
+    }
 
     return OK;
 }
@@ -2475,6 +2488,9 @@ struct hash<ConstantArg> {
         switch (arg.type) {
         case ConstantArgType::INT64:
             return std::hash<int64_t>{}(arg.value.i64);
+        case ConstantArgType::BOOL:
+            return std::hash<int64_t>{}(arg.value.i64)
+                 ^ (static_cast<size_t>(ConstantArgType::BOOL) << 1);
         case ConstantArgType::FLOAT64:
             // hash float bits directly
             uint64_t float_bits;

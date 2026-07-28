@@ -542,17 +542,22 @@ should check <code class="docutils literal notranslate"><span class="pre">self.i
 <p>Registration order is preserved, and registering the same planner class more
 than once has no effect. The planner pass snapshots its registry before each
 compiler attempt. A planner registered after that snapshot does not join the
-active attempt, but it can run in a later retry or compilation. Planners
+active attempt, but it can run in a later compilation. Planners
 operate on untyped Numba IR; typing and MLIR lowering extensions remain
 responsible for the later compilation phases.</p>
 <p>A planner that needs the configured grid, block, dynamic shared memory, or
 cluster should call
-<code class="xref py py-func docutils literal notranslate"><span class="pre">require_launch_config()</span></code>. The first generic
-compiler attempt requests a launch-qualified retry; the planner then runs
-again with normalized launch metadata. A retry reruns the complete ordered
-planner set, including planners that did not request the metadata. Planners
-must therefore be pure or idempotent across attempts and should avoid
-externally visible side effects.</p>
+<code class="xref py py-func docutils literal notranslate"><span class="pre">require_launch_config()</span></code>. A configured
+kernel launch makes normalized launch metadata available to compiler state
+without specializing ordinary kernels up front. The first planner that calls
+<code class="docutils literal notranslate"><span class="pre">require_launch_config()</span></code> promotes that metadata for the current compiler
+attempt; subsequent planning, typing, and lowering phases observe the same
+launch-qualified target options. The resulting overload is keyed by the
+normalized launch configuration, while planners that never request it keep a
+generic overload.</p>
+<p>Extensions that consume launch metadata during the earlier AST-transform phase
+must opt in with <code class="docutils literal notranslate"><span class="pre">uses_launch_config</span> <span class="pre">=</span> <span class="pre">True</span></code> so launch qualification is active
+before whole-function planning begins.</p>
 <p>Register every planner before compiling a dispatcher that needs it.
 Registration does not invalidate an overload that the dispatcher has already
 compiled and cached in memory; a planner registered later applies only when a

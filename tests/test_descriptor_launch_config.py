@@ -12,6 +12,7 @@ from numba_cuda_mlir import descriptor as descriptor_mod
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.cuda.experimental import consteval, current_target_options
 from numba_cuda_mlir.descriptor import _ArgMarshaller
+from numba_cuda_mlir._launch_config import _LAUNCH_CONFIG_TRACKER_OPTION
 from numba_cuda_mlir._whole_function_planners import _RequireLaunchConfig
 from numba_cuda_mlir.numba_cuda import types, typing as cuda_typing
 
@@ -1802,7 +1803,7 @@ def test_compile_impl_discards_callbacks_from_duplicate_launch_compile(monkeypat
     assert losing_setup_callback not in dispatcher._module_setup_callbacks
 
 
-def test_compile_impl_retries_when_planner_requests_launch_config(monkeypatch):
+def test_compile_impl_promotes_available_launch_config_in_current_attempt(monkeypatch):
     from numba_cuda_mlir import mlir_compiler
 
     def kernel(x):
@@ -1823,8 +1824,8 @@ def test_compile_impl_retries_when_planner_requests_launch_config(monkeypatch):
 
     def mlir_compiler_entry(pyfunc, func_args, targetoptions, override_argtypes):
         compile_calls.append(dict(targetoptions))
-        if "__launch_config__" not in targetoptions:
-            raise _RequireLaunchConfig("launch config required")
+        tracker = targetoptions.pop(_LAUNCH_CONFIG_TRACKER_OPTION)
+        targetoptions["__launch_config__"] = tracker.require()
         return CompilerResult()
 
     monkeypatch.setattr(mlir_compiler, "mlir_compiler_entry", mlir_compiler_entry)
@@ -1845,15 +1846,72 @@ def test_compile_impl_retries_when_planner_requests_launch_config(monkeypatch):
     }
     launch_key = descriptor_mod._launch_config_key(normalized_launch_config)
     assert result == (b"qualified", "kernel", False)
-    assert len(compile_calls) == 2
+    assert len(compile_calls) == 1
     assert "__launch_config__" not in compile_calls[0]
-    assert compile_calls[1]["__launch_config__"] == normalized_launch_config
+    tracker = compile_calls[0][_LAUNCH_CONFIG_TRACKER_OPTION]
+    assert tracker.required is True
+    assert tracker.launch_config == normalized_launch_config
     assert dispatcher._requires_launch_config is True
     assert not dispatcher.overloads
     assert ((types.int32,), launch_key) in dispatcher._launch_config_overloads
 
 
-def test_compile_impl_reports_unavailable_or_repeated_launch_request(monkeypatch):
+def test_compile_impl_retries_only_after_promoted_config_generation_changes(monkeypatch):
+    from numba_cuda_mlir import mlir_compiler
+
+    def kernel(x):
+        pass
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": 0,
+        "cluster": None,
+    }
+    stale_setup_callback = lambda obj: None
+    accepted_setup_callback = lambda obj: None
+    compile_calls = []
+
+    class CompilerResult:
+        def __init__(self, cubin, setup_callback):
+            self.signature = cuda_typing.signature(types.none, types.int32)
+            self.metadata = {
+                "cubin": cubin,
+                "func_name": "kernel",
+                "setup_callbacks": [setup_callback],
+            }
+
+    def mlir_compiler_entry(pyfunc, func_args, targetoptions, override_argtypes):
+        compile_calls.append(dict(targetoptions))
+        if len(compile_calls) == 1:
+            tracker = targetoptions.pop(_LAUNCH_CONFIG_TRACKER_OPTION)
+            targetoptions["__launch_config__"] = tracker.require()
+            with dispatcher._launch_config_lock:
+                dispatcher._launch_config_generation += 1
+            return CompilerResult(b"stale", stale_setup_callback)
+        assert targetoptions["__launch_config__"] == launch_config
+        return CompilerResult(b"accepted", accepted_setup_callback)
+
+    monkeypatch.setattr(mlir_compiler, "mlir_compiler_entry", mlir_compiler_entry)
+    descriptor_mod._compile_arg_types.types = (types.int32,)
+    descriptor_mod._compile_arg_types.available_launch_config = launch_config
+
+    with pytest.warns(
+        descriptor_mod.NumbaPerformanceWarning,
+        match="Persistent disk cache is disabled for launch-config-specialized compiles",
+    ):
+        assert dispatcher._compile_impl([1]) == (b"accepted", "kernel", False)
+
+    assert len(compile_calls) == 2
+    assert "__launch_config__" not in compile_calls[0]
+    assert compile_calls[1]["__launch_config__"] == launch_config
+    assert dispatcher._requires_launch_config is True
+    assert stale_setup_callback not in dispatcher._module_setup_callbacks
+    assert accepted_setup_callback in dispatcher._module_setup_callbacks
+
+
+def test_compile_impl_reports_unavailable_launch_request(monkeypatch):
     from numba_cuda_mlir import mlir_compiler
 
     def kernel(x):
@@ -1873,17 +1931,6 @@ def test_compile_impl_reports_unavailable_or_repeated_launch_request(monkeypatch
     assert unavailable.value.__cause__ is None
     assert unavailable.value.__suppress_context__ is True
 
-    descriptor_mod._compile_arg_types.available_launch_config = {
-        "grid": (1, 1, 1),
-        "block": (32, 1, 1),
-        "sharedmem": 0,
-        "cluster": None,
-    }
-    with pytest.raises(RuntimeError, match="after a launch-qualified retry") as repeated:
-        dispatcher._compile_impl([1])
-    assert repeated.value.__cause__ is None
-    assert repeated.value.__suppress_context__ is True
-
 
 def test_compile_impl_preserves_invalid_launch_config_type_error(monkeypatch):
     from numba_cuda_mlir import mlir_compiler
@@ -1891,8 +1938,8 @@ def test_compile_impl_preserves_invalid_launch_config_type_error(monkeypatch):
     def kernel(x):
         pass
 
-    def request_launch_config(*args, **kwargs):
-        raise _RequireLaunchConfig("launch config required")
+    def request_launch_config(pyfunc, func_args, targetoptions, override_argtypes):
+        targetoptions[_LAUNCH_CONFIG_TRACKER_OPTION].require()
 
     monkeypatch.setattr(mlir_compiler, "mlir_compiler_entry", request_launch_config)
     descriptor_mod._compile_arg_types.types = (types.int32,)
@@ -1906,6 +1953,47 @@ def test_compile_impl_preserves_invalid_launch_config_type_error(monkeypatch):
 
     with pytest.raises(TypeError, match="sharedmem.*integer-convertible"):
         dispatcher._compile_impl([1])
+
+
+def test_compile_impl_ignores_opaque_available_launch_config_without_demand(monkeypatch):
+    from numba_cuda_mlir import mlir_compiler
+
+    def kernel(x):
+        pass
+
+    compile_calls = []
+
+    class CompilerResult:
+        signature = cuda_typing.signature(types.none, types.int32)
+        metadata = {"cubin": b"generic", "func_name": "kernel"}
+
+    def compile_without_launch_demand(pyfunc, func_args, targetoptions, override_argtypes):
+        compile_calls.append(dict(targetoptions))
+        return CompilerResult()
+
+    monkeypatch.setattr(
+        mlir_compiler,
+        "mlir_compiler_entry",
+        compile_without_launch_demand,
+    )
+    descriptor_mod._compile_arg_types.types = (types.int32,)
+    descriptor_mod._compile_arg_types.available_launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": "dynamic",
+        "cluster": None,
+    }
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+
+    assert dispatcher._compile_impl([1]) == (b"generic", "kernel", False)
+    assert len(compile_calls) == 1
+    tracker = compile_calls[0][_LAUNCH_CONFIG_TRACKER_OPTION]
+    assert tracker.required is False
+    assert tracker._available_launch_config["sharedmem"] == "dynamic"
+    assert "__launch_config__" not in compile_calls[0]
+    assert dispatcher._requires_launch_config is False
+    assert dispatcher.overloads
+    assert not dispatcher._launch_config_overloads
 
 
 def test_disabled_launch_config_reduce_rebuild_restores_launch_sigs(monkeypatch):

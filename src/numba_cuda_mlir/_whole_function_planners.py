@@ -5,12 +5,16 @@
 
 from threading import RLock
 
+from numba_cuda_mlir._launch_config import (
+    _LAUNCH_CONFIG_TRACKER_METADATA_KEY,
+    _LaunchConfigTracker,
+)
 from numba_cuda_mlir.numba_cuda.core import postproc
 from numba_cuda_mlir.numba_cuda.core.ir_utils import build_definitions, simplify_CFG
 
 
 class _RequireLaunchConfig(RuntimeError):
-    """Request a launch-qualified compiler attempt."""
+    """Report that no configured launch metadata is available."""
 
 
 class WholeFunctionPlanner:
@@ -94,7 +98,7 @@ _planner_registry = _WholeFunctionPlannerRegistry()
 
 
 def require_launch_config(state) -> dict:
-    """Return normalized launch metadata or request a launch-qualified retry."""
+    """Return normalized launch metadata for the current compiler attempt."""
 
     metadata = getattr(state, "metadata", None)
     if not isinstance(metadata, dict):
@@ -108,9 +112,13 @@ def require_launch_config(state) -> dict:
         or "grid" not in launch_config
         or "block" not in launch_config
     ):
-        raise _RequireLaunchConfig(
-            "whole-function planner requires metadata from a configured kernel launch"
-        )
+        launch_config_tracker = metadata.get(_LAUNCH_CONFIG_TRACKER_METADATA_KEY)
+        if not isinstance(launch_config_tracker, _LaunchConfigTracker):
+            raise _RequireLaunchConfig(
+                "whole-function planner requires metadata from a configured kernel launch"
+            )
+        launch_config = launch_config_tracker.require()
+        targetoptions["__launch_config__"] = launch_config
     return launch_config
 
 

@@ -65,18 +65,24 @@ should check ``self.is_device_function`` and decline device functions.
 Registration order is preserved, and registering the same planner class more
 than once has no effect. The planner pass snapshots its registry before each
 compiler attempt. A planner registered after that snapshot does not join the
-active attempt, but it can run in a later retry or compilation. Planners
+active attempt, but it can run in a later compilation. Planners
 operate on untyped Numba IR; typing and MLIR lowering extensions remain
 responsible for the later compilation phases.
 
 A planner that needs the configured grid, block, dynamic shared memory, or
 cluster should call
-:py:func:`~numba_cuda_mlir.extending.require_launch_config`. The first generic
-compiler attempt requests a launch-qualified retry; the planner then runs
-again with normalized launch metadata. A retry reruns the complete ordered
-planner set, including planners that did not request the metadata. Planners
-must therefore be pure or idempotent across attempts and should avoid
-externally visible side effects.
+:py:func:`~numba_cuda_mlir.extending.require_launch_config`. A configured
+kernel launch makes normalized launch metadata available to compiler state
+without specializing ordinary kernels up front. The first planner that calls
+``require_launch_config()`` promotes that metadata for the current compiler
+attempt; subsequent planning, typing, and lowering phases observe the same
+launch-qualified target options. The resulting overload is keyed by the
+normalized launch configuration, while planners that never request it keep a
+generic overload.
+
+Extensions that consume launch metadata during the earlier AST-transform phase
+must opt in with ``uses_launch_config = True`` so launch qualification is active
+before whole-function planning begins.
 
 Register every planner before compiling a dispatcher that needs it.
 Registration does not invalidate an overload that the dispatcher has already

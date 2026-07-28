@@ -55,6 +55,10 @@ from numba_cuda_mlir.numbair_transforms import (
 
 import numba_cuda_mlir.mlir_lowering as lowering
 import numba_cuda_mlir.mlir_optimization as opt
+from numba_cuda_mlir._launch_config import (
+    _LAUNCH_CONFIG_TRACKER_METADATA_KEY,
+    _LAUNCH_CONFIG_TRACKER_OPTION,
+)
 from numba_cuda_mlir.decorators import mlir_jit
 from numba_cuda_mlir.ast_transforms import apply_ast_transforms
 from numba_cuda_mlir.errors import (
@@ -208,7 +212,10 @@ class MLIRBackend(LoweringPass):
         return True
 
 
-def get_compiler_class(targetoptions: Dict[str, Any]):
+def get_compiler_class(
+    targetoptions: Dict[str, Any],
+    launch_config_tracker=None,
+):
     class MLIRCompiler(CompilerBase):
         def define_pipelines(self):
             dpb = DefaultPassBuilder
@@ -292,6 +299,8 @@ def get_compiler_class(targetoptions: Dict[str, Any]):
             super().__init__(typingctx, targetctx, library, args, return_type, flags, locals)
             # Attach options early so all passes can see them via state.metadata
             self.state.metadata["targetoptions"] = targetoptions
+            if launch_config_tracker is not None:
+                self.state.metadata[_LAUNCH_CONFIG_TRACKER_METADATA_KEY] = launch_config_tracker
 
     return MLIRCompiler
 
@@ -302,6 +311,7 @@ def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
     from numba_cuda_mlir.tools import resolve_gpu_target
 
     register_lowering()
+    launch_config_tracker = targetoptions.pop(_LAUNCH_CONFIG_TRACKER_OPTION, None)
     gpu_target = resolve_gpu_target(targetoptions)
     targetoptions["chip"] = gpu_target["chip"]
 
@@ -367,9 +377,10 @@ def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
             return_type=return_type,
             flags=flags,
             locals={},
-            pipeline_class=get_compiler_class(targetoptions),
+            pipeline_class=get_compiler_class(targetoptions, launch_config_tracker),
         )
 
+    cres.metadata.pop(_LAUNCH_CONFIG_TRACKER_METADATA_KEY, None)
     cres.metadata["targetoptions"] = targetoptions
     cres.metadata["gpu_target"] = gpu_target
     cres.metadata["transformed_source"] = transformed_source

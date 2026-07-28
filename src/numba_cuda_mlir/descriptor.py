@@ -43,6 +43,14 @@ from numba_cuda_mlir._whole_function_planners import (
     _RequireLaunchConfig,
     _planner_registry,
 )
+from numba_cuda_mlir._launch_config import (
+    _LAUNCH_CONFIG_TRACKER_OPTION,
+    _LaunchConfigTracker,
+    _is_launch_config_key_tuple,
+    _launch_config_dict_from_key,
+    _launch_config_key,
+    _normalize_available_launch_config,
+)
 from numba_cuda_mlir.numba_cuda.core.target_extension import (
     CPU,
     target_registry,
@@ -351,65 +359,8 @@ class LaunchConfigInspectableKey:
     launch_config_key: tuple
 
 
-def _is_launch_config_key_tuple(value):
-    return (
-        isinstance(value, tuple)
-        and len(value) == 4
-        and all(isinstance(item, tuple) and len(item) == 2 for item in value)
-        and value[0][0] == "grid"
-        and value[1][0] == "block"
-        and value[2][0] == "sharedmem"
-        and value[3][0] == "cluster"
-    )
-
-
 def _is_launch_config_dict(value):
     return isinstance(value, dict) and "grid" in value and "block" in value
-
-
-def _launch_config_key(launch_config):
-    """Return the specialization key for a configure-produced launch config."""
-    if launch_config is None:
-        return None
-    block = launch_config.get("block")
-    if block is None:
-        raise ValueError("launch_config must contain a 'block' entry")
-    if not isinstance(block, tuple):
-        raise TypeError("launch_config 'block' must be a normalized tuple")
-    grid = launch_config.get("grid")
-    if grid is None:
-        raise ValueError("launch_config must contain a 'grid' entry")
-    if not isinstance(grid, tuple):
-        raise TypeError("launch_config 'grid' must be a normalized tuple")
-    cluster = launch_config.get("cluster")
-    if cluster is not None and not isinstance(cluster, tuple):
-        raise TypeError("launch_config 'cluster' must be a normalized tuple or None")
-    sharedmem = launch_config.get("sharedmem", 0)
-    if sharedmem is None:
-        sharedmem = 0
-    try:
-        sharedmem = int(sharedmem)
-    except (TypeError, ValueError):
-        raise TypeError("launch_config 'sharedmem' must be integer-convertible") from None
-    return (
-        ("grid", grid),
-        ("block", block),
-        ("sharedmem", sharedmem),
-        ("cluster", cluster),
-    )
-
-
-def _launch_config_dict_from_key(launch_config_key):
-    if not _is_launch_config_key_tuple(launch_config_key):
-        raise TypeError("launch_config_key must be a normalized launch-config key")
-    return {name: value for name, value in launch_config_key}
-
-
-def _normalize_available_launch_config(launch_config):
-    launch_config_key = _launch_config_key(launch_config)
-    if launch_config_key is None:
-        return None
-    return _launch_config_dict_from_key(launch_config_key)
 
 
 def _normalize_launch_sharedmem(sharedmem):
@@ -2651,6 +2602,12 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         if not has_extension_snapshot:
             active_extensions = self.extensions
         force_launch_config = getattr(_compile_arg_types, "force_launch_config", False)
+        available_launch_config = getattr(_compile_arg_types, "available_launch_config", None)
+        launch_config_tracker = (
+            _LaunchConfigTracker(available_launch_config)
+            if available_launch_config is not None
+            else None
+        )
         active_launch_config = None
         if (
             force_launch_config
@@ -2659,9 +2616,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         ):
             active_launch_config = getattr(_compile_arg_types, "launch_config", None)
             if active_launch_config is None:
-                active_launch_config = _normalize_available_launch_config(
-                    getattr(_compile_arg_types, "available_launch_config", None)
-                )
+                active_launch_config = available_launch_config
+            active_launch_config = _normalize_available_launch_config(active_launch_config)
         if self._requires_launch_config and active_launch_config is None:
             raise RuntimeError(
                 "whole-function planner requires launch metadata; compile through a "
@@ -2669,7 +2625,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             )
         active_launch_config_key = _launch_config_key(active_launch_config)
         active_launch_config_generation = None
-        if active_launch_config_key is not None:
+        if active_launch_config_key is not None or launch_config_tracker is not None:
             with self._launch_config_lock:
                 active_launch_config_generation = self._launch_config_generation
 
@@ -2749,10 +2705,18 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
 
         self._resolve_target_options()
         targetoptions = self.targetoptions
-        if active_launch_config is not None or has_extension_snapshot:
+        if (
+            active_launch_config is not None
+            or launch_config_tracker is not None
+            or has_extension_snapshot
+        ):
             targetoptions = self.targetoptions.copy()
             if has_extension_snapshot:
                 targetoptions["extensions"] = active_extensions
+            if launch_config_tracker is not None:
+                # Transport launch metadata to compiler state without exposing
+                # it to AST transforms as active specialization metadata.
+                targetoptions[_LAUNCH_CONFIG_TRACKER_OPTION] = launch_config_tracker
             if active_launch_config is not None:
                 targetoptions["__launch_config__"] = dict(active_launch_config)
 
@@ -2795,20 +2759,21 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                     override_argtypes=override_argtypes,
                 )
         except _RequireLaunchConfig:
-            if active_launch_config is not None:
-                raise RuntimeError(
-                    "whole-function planner requested launch metadata after a "
-                    "launch-qualified retry"
-                ) from None
-            available_launch_config = getattr(_compile_arg_types, "available_launch_config", None)
-            if available_launch_config is None:
-                raise RuntimeError(
-                    "whole-function planner requires launch metadata, but compilation "
-                    "was not initiated by a configured kernel launch"
-                ) from None
-            _normalize_available_launch_config(available_launch_config)
+            raise RuntimeError(
+                "whole-function planner requires launch metadata, but compilation "
+                "was not initiated by a configured kernel launch"
+            ) from None
+
+        if (
+            active_launch_config is None
+            and launch_config_tracker is not None
+            and launch_config_tracker.required
+        ):
+            active_launch_config = launch_config_tracker.launch_config
+            active_launch_config_key = _launch_config_key(active_launch_config)
             self._mark_requires_launch_config()
-            return self._compile_impl(args, launch_config_retry_budget)
+            disk_cache_eligible = False
+
         wrapped = CompileResult(result)
         emit_launch_config_cache_notice = False
         retry_launch_config_compile = False

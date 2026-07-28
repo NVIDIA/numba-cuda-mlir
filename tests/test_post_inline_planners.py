@@ -14,6 +14,10 @@ from numba_cuda_mlir._whole_function_planners import (
     _WholeFunctionPlannerRegistry,
     _planner_registry,
 )
+from numba_cuda_mlir._launch_config import (
+    _LAUNCH_CONFIG_TRACKER_METADATA_KEY,
+    _LaunchConfigTracker,
+)
 from numba_cuda_mlir.extending import (
     WholeFunctionPlanner,
     register_planner,
@@ -131,6 +135,17 @@ def test_require_launch_config_contract():
     assert require_launch_config(state) is launch_config
 
     state.metadata["targetoptions"].pop("__launch_config__")
+    tracker = _LaunchConfigTracker(launch_config)
+    state.metadata[_LAUNCH_CONFIG_TRACKER_METADATA_KEY] = tracker
+    promoted = require_launch_config(state)
+    assert promoted == launch_config
+    assert promoted is state.metadata["targetoptions"]["__launch_config__"]
+    assert promoted is not launch_config
+    assert tracker.required is True
+    assert require_launch_config(state) is promoted
+
+    state.metadata.pop(_LAUNCH_CONFIG_TRACKER_METADATA_KEY)
+    state.metadata["targetoptions"].pop("__launch_config__")
     with pytest.raises(RuntimeError, match="configured kernel launch"):
         require_launch_config(state)
 
@@ -141,6 +156,43 @@ def test_require_launch_config_requires_compiler_metadata():
 
     with pytest.raises(TypeError, match="must contain targetoptions"):
         require_launch_config(SimpleNamespace(metadata={}))
+
+
+def test_launch_config_promotion_is_visible_to_later_planners_in_same_attempt():
+    available_launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": None,
+        "cluster": None,
+    }
+    tracker = _LaunchConfigTracker(available_launch_config)
+    state = _planner_state()
+    state.metadata = {
+        "targetoptions": {},
+        _LAUNCH_CONFIG_TRACKER_METADATA_KEY: tracker,
+    }
+    registry = _WholeFunctionPlannerRegistry()
+    promoted = []
+    observed = []
+
+    class RequiringPlanner(WholeFunctionPlanner):
+        def run(self):
+            promoted.append(require_launch_config(self.state))
+            return False
+
+    class ObservingPlanner(WholeFunctionPlanner):
+        def run(self):
+            observed.append(self.state.metadata["targetoptions"]["__launch_config__"])
+            return False
+
+    registry.register(RequiringPlanner)
+    registry.register(ObservingPlanner)
+
+    assert registry.apply(state) is False
+    assert len(promoted) == 1
+    assert observed == promoted
+    assert promoted[0]["sharedmem"] == 0
+    assert tracker.required is True
 
 
 def test_ir_is_repaired_between_modifying_planners():
@@ -549,10 +601,26 @@ def test_planner_sees_inline_device_function_body(isolated_global_planners):
 @pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
 def test_planner_can_request_distinct_launch_config_specializations(
     isolated_global_planners,
+    monkeypatch,
 ):
+    from numba_cuda_mlir import mlir_compiler
+
     _CountingPlanner.attempts = 0
     _LaunchConfigPlanner.attempts = 0
     _LaunchConfigPlanner.launch_configs = []
+    ast_targetoptions = []
+    apply_ast_transforms = mlir_compiler.apply_ast_transforms
+
+    def observe_ast_targetoptions(pyfunc, targetoptions, args):
+        ast_targetoptions.append(dict(targetoptions))
+        assert "__launch_config_tracker__" not in targetoptions
+        return apply_ast_transforms(pyfunc, targetoptions, args)
+
+    monkeypatch.setattr(
+        mlir_compiler,
+        "apply_ast_transforms",
+        observe_ast_targetoptions,
+    )
     register_planner(_CountingPlanner)
     register_planner(_LaunchConfigPlanner)
 
@@ -571,8 +639,11 @@ def test_planner_can_request_distinct_launch_config_specializations(
 
     assert output32[0] == 32
     assert output64[0] == 64
-    assert _CountingPlanner.attempts == 3
-    assert _LaunchConfigPlanner.attempts == 3
+    assert _CountingPlanner.attempts == 2
+    assert _LaunchConfigPlanner.attempts == 2
+    assert len(ast_targetoptions) == 2
+    assert "__launch_config__" not in ast_targetoptions[0]
+    assert ast_targetoptions[1]["__launch_config__"]["block"] == (64, 1, 1)
     assert [config["block"] for config in _LaunchConfigPlanner.launch_configs] == [
         (32, 1, 1),
         (64, 1, 1),

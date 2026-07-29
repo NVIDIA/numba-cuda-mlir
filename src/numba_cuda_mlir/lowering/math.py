@@ -673,12 +673,14 @@ def math_isnan_cg(mlir_lower, target, args, kwargs):
     mlir_lower.store_var(target, result)
 
 
-@lower(math.exp2, types.Number)
-def math_exp2_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_exp2 does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
-    result = math_dialect.exp2(value)
-    mlir_lower.store_var(target, result)
+if hasattr(math, "exp2"):
+
+    @lower(math.exp2, types.Number)
+    def math_exp2_cg(mlir_lower, target, args, kwargs):
+        assert not kwargs, "math_exp2 does not accept any keyword arguments"
+        value = _ensure_float(mlir_lower.load_var(args[0]))
+        result = math_dialect.exp2(value)
+        mlir_lower.store_var(target, result)
 
 
 @lower(math.tanh, types.Number)

@@ -869,8 +869,9 @@ def convert_none(value: ir.NoneType, target_type: ir.NoneType, **_):
     return value
 
 
-@unverified_convert.register
-def opaque_data_model_convert(value: type | MLIRDispatcher, target_type: ir.NoneType, **_):
+@unverified_convert.register(type)
+@unverified_convert.register(MLIRDispatcher)
+def opaque_data_model_convert(value, target_type: ir.NoneType, **_):
     """
     For types with an opaque data model, we defer the real lowering until later - we
     hopefully resolve this at compile time anyways.
@@ -899,9 +900,13 @@ def _memory_spaces_match(lhs: ir.MemRefType, rhs: ir.MemRefType) -> bool:
             return True
 
 
-@unverified_convert.register
+@unverified_convert.register(ir.Value)
+@unverified_convert.register(int)
+@unverified_convert.register(float)
+@unverified_convert.register(bool)
+@unverified_convert.register(complex)
 def unverified_basic_mlir_convert(
-    value: ir.Value | int | float | bool | complex,
+    value,
     target_type: ir.Type,
     *,
     signed: bool = False,

@@ -2447,7 +2447,6 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 return cres
         return None
 
-    @global_compiler_lock
     def _prepare_for_launch(
         self,
         args,
@@ -2463,11 +2462,20 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             return configured_launch_config
 
         launch_config = active_launch_config()
-        if self._compile_result_for(argtypes, launch_config) is None:
-            self._compile_impl(list(args))
-            launch_config = active_launch_config()
+        compile_result = self._compile_result_for(argtypes, launch_config)
+        if compile_result is None:
+            with global_compiler_lock:
+                # Another launch may have compiled the signature while this
+                # launch waited for the compiler lock. Launch sensitivity may
+                # also have changed, so refresh both inputs before compiling.
+                launch_config = active_launch_config()
+                compile_result = self._compile_result_for(argtypes, launch_config)
+                if compile_result is None:
+                    self._compile_impl(list(args))
+                    launch_config = active_launch_config()
+                    compile_result = self._compile_result_for(argtypes, launch_config)
 
-        if self._compile_result_for(argtypes, launch_config) is None:
+        if compile_result is None:
             raise RuntimeError(
                 "kernel precompilation completed without publishing a matching overload"
             )

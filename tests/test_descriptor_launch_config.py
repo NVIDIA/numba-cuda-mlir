@@ -568,7 +568,79 @@ def test_prelaunch_uses_retained_launch_extension_snapshot(monkeypatch):
         retained_generation,
         retained_launch_config,
     )
-    assert observed_configs == [retained_launch_config, retained_launch_config]
+    assert observed_configs == [retained_launch_config]
+
+
+def test_prelaunch_known_signature_avoids_global_compiler_lock(monkeypatch):
+    def kernel(out):
+        pass
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    argtypes = (types.int32,)
+    dispatcher.overloads[argtypes] = object()
+
+    monkeypatch.setattr(
+        descriptor_mod.global_compiler_lock,
+        "acquire",
+        lambda: pytest.fail("known signatures must not take the global compiler lock"),
+    )
+
+    prepared = dispatcher._prepare_for_launch(
+        (),
+        argtypes,
+        {
+            "grid": (1, 1, 1),
+            "block": (32, 1, 1),
+            "sharedmem": 0,
+            "cluster": None,
+        },
+        None,
+        dispatcher._c,
+        None,
+    )
+
+    assert prepared == (dispatcher._c, None, None)
+
+
+def test_prelaunch_rechecks_signature_after_global_compiler_lock(monkeypatch):
+    def kernel(out):
+        pass
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    argtypes = (types.int32,)
+    lock_entries = []
+
+    class PublishingCompilerLock:
+        def __enter__(self):
+            lock_entries.append(None)
+            dispatcher.overloads[argtypes] = object()
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(descriptor_mod, "global_compiler_lock", PublishingCompilerLock())
+    monkeypatch.setattr(
+        dispatcher,
+        "_compile_impl",
+        lambda args: pytest.fail("the signature was published while waiting for the lock"),
+    )
+
+    prepared = dispatcher._prepare_for_launch(
+        (),
+        argtypes,
+        {
+            "grid": (1, 1, 1),
+            "block": (32, 1, 1),
+            "sharedmem": 0,
+            "cluster": None,
+        },
+        None,
+        dispatcher._c,
+        None,
+    )
+
+    assert lock_entries == [None]
+    assert prepared == (dispatcher._c, None, None)
 
 
 def test_launch_config_configure_reports_invalid_sharedmem():

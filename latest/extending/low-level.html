@@ -517,9 +517,10 @@ the bindings in <code class="xref py py-mod docutils literal notranslate"><span 
 <h2>Whole-function planning<a class="headerlink" href="#whole-function-planning" title="Link to this heading">#</a></h2>
 <p>Extensions that need to inspect or transform a complete function before typing
 can register a <code class="xref py py-class docutils literal notranslate"><span class="pre">WholeFunctionPlanner</span></code>.
-Planners run once after inlineable device functions have been merged into the
-caller and before type inference. This makes calls introduced by device
-helpers visible without rerunning unrelated rewrite registries.</p>
+Each planner runs once per compiler attempt after inlineable device functions
+have been merged into the caller and before type inference. This makes calls
+introduced by device helpers visible without rerunning unrelated rewrite
+registries.</p>
 <p>Implement <code class="docutils literal notranslate"><span class="pre">run()</span></code> and return <code class="docutils literal notranslate"><span class="pre">True</span></code> only when the planner changed
 <code class="docutils literal notranslate"><span class="pre">state.func_ir</span></code>. Before the first planner and after each change,
 Numba-CUDA-MLIR simplifies the control flow graph, refreshes postprocessing
@@ -539,11 +540,24 @@ should check <code class="docutils literal notranslate"><span class="pre">self.i
 </pre></div>
 </div>
 <p>Registration order is preserved, and registering the same planner class more
-than once has no effect. The planner pass snapshots its registry before
-running, so planners registered after that snapshot, including from a running
-planner, start with the next compilation. Planners operate on untyped Numba
-IR; typing and MLIR lowering extensions remain responsible for the later
-compilation phases.</p>
+than once has no effect. The planner pass snapshots its registry before each
+compiler attempt. A planner registered after that snapshot does not join the
+active attempt, but it can run in a later compilation. Planners
+operate on untyped Numba IR; typing and MLIR lowering extensions remain
+responsible for the later compilation phases.</p>
+<p>A planner that needs the configured grid, block, dynamic shared memory, or
+cluster should call
+<code class="xref py py-func docutils literal notranslate"><span class="pre">require_launch_config()</span></code>. A configured
+kernel launch makes normalized launch metadata available to compiler state
+without specializing ordinary kernels up front. The first planner that calls
+<code class="docutils literal notranslate"><span class="pre">require_launch_config()</span></code> promotes that metadata for the current compiler
+attempt; subsequent planning, typing, and lowering phases observe the same
+launch-qualified target options. The resulting overload is keyed by the
+normalized launch configuration, while planners that never request it keep a
+generic overload.</p>
+<p>Extensions that consume launch metadata during the earlier AST-transform phase
+must opt in with <code class="docutils literal notranslate"><span class="pre">uses_launch_config</span> <span class="pre">=</span> <span class="pre">True</span></code> so launch qualification is active
+before whole-function planning begins.</p>
 <p>Register every planner before compiling a dispatcher that needs it.
 Registration does not invalidate an overload that the dispatcher has already
 compiled and cached in memory; a planner registered later applies only when a

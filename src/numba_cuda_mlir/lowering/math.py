@@ -673,6 +673,7 @@ def math_isnan_cg(mlir_lower, target, args, kwargs):
     mlir_lower.store_var(target, result)
 
 
+# Gated for Python 3.11+
 if hasattr(math, "exp2"):
 
     @lower(math.exp2, types.Number)

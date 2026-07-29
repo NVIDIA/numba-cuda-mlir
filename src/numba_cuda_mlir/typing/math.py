@@ -89,6 +89,7 @@ for func in [
 ]:
     _make_unary_math_template(func)
 
+# Gated for Python 3.11+
 if hasattr(math, "exp2"):
     _make_unary_math_template(math.exp2)
 

@@ -558,6 +558,22 @@ generic overload.</p>
 <p>Extensions that consume launch metadata during the earlier AST-transform phase
 must opt in with <code class="docutils literal notranslate"><span class="pre">uses_launch_config</span> <span class="pre">=</span> <span class="pre">True</span></code> so launch qualification is active
 before whole-function planning begins.</p>
+<p>When generated code needs a minimum amount of dynamic shared memory, record it
+with
+<code class="xref py py-func docutils literal notranslate"><span class="pre">set_required_dynamic_shared_memory()</span></code>.
+Repeated calls keep the largest requirement. At launch, Numba-CUDA-MLIR uses
+the larger of this compile-time requirement and the user’s configured
+<code class="docutils literal notranslate"><span class="pre">sharedmem</span></code> value. The configured value remains the specialization and
+configure-cache key; the minimum only adjusts the native launch.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir.extending</span><span class="w"> </span><span class="kn">import</span> <span class="n">set_required_dynamic_shared_memory</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ScratchPlanner</span><span class="p">(</span><span class="n">WholeFunctionPlanner</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">required_bytes</span> <span class="o">=</span> <span class="n">plan_scratch_storage</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">state</span><span class="o">.</span><span class="n">func_ir</span><span class="p">)</span>
+        <span class="n">set_required_dynamic_shared_memory</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">state</span><span class="p">,</span> <span class="n">required_bytes</span><span class="p">)</span>
+        <span class="k">return</span> <span class="kc">False</span>
+</pre></div>
+</div>
 <p>Register every planner before compiling a dispatcher that needs it.
 Registration does not invalidate an overload that the dispatcher has already
 compiled and cached in memory; a planner registered later applies only when a

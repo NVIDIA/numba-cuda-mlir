@@ -2870,7 +2870,6 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         self,
         args,
         launch_config_retry_budget=_CONFIGURE_CACHE_STALE_RETRY_LIMIT,
-        literal_retry_budget=1,
     ):
         from numba_cuda_mlir import mlir_compiler
         from numba_cuda_mlir.compiler import CompileResult
@@ -2889,8 +2888,10 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         else:
             argtypes = tuple(typeof(arg) for arg in args)
         runtime_values = tuple(getattr(_compile_arg_types, "values", tuple(args)))
-        argtypes = self._literalize_argtypes(argtypes, runtime_values, abi_arg_count=len(args))
-        if self._literal_arg_positions:
+        with self._launch_config_lock:
+            attempt_literal_arg_positions = self._literal_arg_positions
+            argtypes = self._literalize_argtypes(argtypes, runtime_values, abi_arg_count=len(args))
+        if attempt_literal_arg_positions:
             override_argtypes = argtypes
         active_extensions = getattr(_compile_arg_types, "extensions", _MISSING)
         has_extension_snapshot = active_extensions is not _MISSING
@@ -3054,32 +3055,25 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                     override_argtypes=override_argtypes,
                 )
         except errors.ForceLiteralArg as exc:
-            if literal_retry_budget <= 0:
-                raise errors.CompilerError(
-                    "Repeated literal typing request during kernel compilation"
-                ) from exc
             with self._launch_config_lock:
-                changed = self._record_literal_arg_positions(
+                self._record_literal_arg_positions(
                     exc.requested_args,
                     runtime_values,
                     len(args),
                 )
+                made_literal_progress = self._literal_arg_positions != attempt_literal_arg_positions
                 if (
-                    changed
+                    made_literal_progress
                     and active_launch_config is None
                     and launch_config_tracker is not None
                     and launch_config_tracker.required
                 ):
                     self._requires_launch_config = True
-            if not changed:
+            if not made_literal_progress:
                 raise errors.CompilerError(
                     "Repeated literal typing request during kernel compilation"
                 ) from exc
-            return self._compile_impl(
-                args,
-                launch_config_retry_budget,
-                literal_retry_budget - 1,
-            )
+            return self._compile_impl(args, launch_config_retry_budget)
         except _RequireLaunchConfig:
             raise RuntimeError(
                 "whole-function planner requires launch metadata, but compilation "
@@ -3136,11 +3130,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                         "Kernel launch configuration was invalidated repeatedly during compile(); "
                         "retry after concurrent recompile() calls finish."
                     )
-                return self._compile_impl(
-                    args,
-                    launch_config_retry_budget - 1,
-                    literal_retry_budget,
-                )
+                return self._compile_impl(args, launch_config_retry_budget - 1)
             if emit_launch_config_cache_notice:
                 message = (
                     "Persistent disk cache is disabled for launch-config-specialized "

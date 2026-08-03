@@ -2402,6 +2402,41 @@ def test_concurrent_literal_requests_rebuild_native_dispatcher_once():
     assert dispatcher._launch_config_generation == generation + 1
 
 
+def test_literal_retry_counts_concurrent_discovery_as_attempt_progress(monkeypatch):
+    from numba_cuda_mlir import mlir_compiler
+
+    def kernel(selector):
+        pass
+
+    compile_calls = []
+
+    class CompilerResult:
+        def __init__(self, argtype):
+            self.signature = cuda_typing.signature(types.none, argtype)
+            self.metadata = {"cubin": b"literal-7", "func_name": "kernel"}
+
+    def mlir_compiler_entry(pyfunc, func_args, targetoptions, override_argtypes):
+        [argtype] = override_argtypes
+        compile_calls.append(argtype)
+        if len(compile_calls) == 1:
+            # Model another compile publishing the requested position after
+            # this attempt selected its generic argument types.
+            assert dispatcher._record_literal_arg_positions({0}, (7,), 1) is True
+            raise ForceLiteralArg({0})
+        assert isinstance(argtype, types.Literal)
+        return CompilerResult(argtype)
+
+    monkeypatch.setattr(mlir_compiler, "mlir_compiler_entry", mlir_compiler_entry)
+    monkeypatch.setattr(_planner_registry, "_planners", [object()])
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    descriptor_mod._compile_arg_types.types = (types.int32,)
+    descriptor_mod._compile_arg_types.values = (7,)
+
+    assert dispatcher._compile_impl([7]) == (b"literal-7", "kernel", False)
+    assert compile_calls == [types.int32, types.literal(7)]
+    assert dispatcher._literal_arg_positions == frozenset({0})
+
+
 def test_literal_retry_preserves_same_attempt_launch_promotion(monkeypatch):
     from numba_cuda_mlir import mlir_compiler
 
@@ -2482,13 +2517,91 @@ def test_literal_retry_preserves_same_attempt_launch_promotion(monkeypatch):
     ) is not dispatcher._compile_result_for((literal9,), normalized_launch_config)
 
 
-def test_literal_retry_rejects_flattened_values_and_repeated_requests(monkeypatch):
+def test_literal_retry_accumulates_staged_requests_with_launch_promotion(monkeypatch):
+    from numba_cuda_mlir import mlir_compiler
+
+    def kernel(first, second):
+        pass
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    available_launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": None,
+        "cluster": None,
+    }
+    compile_calls = []
+
+    class CompilerResult:
+        def __init__(self, argtypes):
+            self.signature = cuda_typing.signature(types.none, *argtypes)
+            self.metadata = {
+                "cubin": b"literal-7-11",
+                "func_name": "kernel",
+                "required_dynamic_shared_memory": 4096,
+            }
+
+    def mlir_compiler_entry(pyfunc, func_args, targetoptions, override_argtypes):
+        call = (tuple(func_args), tuple(override_argtypes), dict(targetoptions))
+        compile_calls.append(call)
+        if len(compile_calls) == 1:
+            # Planner A promotes launch metadata, then asks for its scalar.
+            targetoptions[_LAUNCH_CONFIG_TRACKER_OPTION].require()
+            raise ForceLiteralArg({0})
+        if len(compile_calls) == 2:
+            # Planner B is reached only after Planner A's request is satisfied.
+            raise ForceLiteralArg({1})
+        assert all(isinstance(argtype, types.Literal) for argtype in override_argtypes)
+        return CompilerResult(override_argtypes)
+
+    monkeypatch.setattr(mlir_compiler, "mlir_compiler_entry", mlir_compiler_entry)
+    descriptor_mod._compile_arg_types.types = (types.int32, types.int32)
+    descriptor_mod._compile_arg_types.values = (7, 11)
+    descriptor_mod._compile_arg_types.available_launch_config = available_launch_config
+
+    with pytest.warns(
+        descriptor_mod.NumbaPerformanceWarning,
+        match="Persistent disk cache is disabled for launch-config-specialized compiles",
+    ):
+        result = dispatcher._compile_impl([7, 11])
+
+    normalized_launch_config = {
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "sharedmem": 0,
+        "cluster": None,
+    }
+    launch_key = descriptor_mod._launch_config_key(normalized_launch_config)
+    literal7 = types.literal(7)
+    literal11 = types.literal(11)
+
+    assert result == (b"literal-7-11", "kernel", False)
+    assert [call[1] for call in compile_calls] == [
+        (types.int32, types.int32),
+        (literal7, types.int32),
+        (literal7, literal11),
+    ]
+    assert "__launch_config__" not in compile_calls[0][2]
+    assert compile_calls[0][2][_LAUNCH_CONFIG_TRACKER_OPTION].required is True
+    assert all(
+        call[2].get("__launch_config__") == normalized_launch_config for call in compile_calls[1:]
+    )
+    assert dispatcher._literal_arg_positions == frozenset({0, 1})
+    assert dispatcher._launch_config_generation == 2
+    compile_result = dispatcher._launch_config_overloads[((literal7, literal11), launch_key)]
+    assert compile_result.metadata["required_dynamic_shared_memory"] == 4096
+
+
+def test_literal_retry_rejects_flattened_values_and_no_progress(monkeypatch):
     from numba_cuda_mlir import mlir_compiler
 
     def kernel(value):
         pass
 
+    compile_calls = []
+
     def request_literal(*args, **kwargs):
+        compile_calls.append(tuple(kwargs["override_argtypes"]))
         raise ForceLiteralArg({0})
 
     monkeypatch.setattr(mlir_compiler, "mlir_compiler_entry", request_literal)
@@ -2499,12 +2612,16 @@ def test_literal_retry_rejects_flattened_values_and_repeated_requests(monkeypatc
     with pytest.raises(TypeError, match=r"flattened launch arguments.*issue #60"):
         dispatcher._compile_impl([1, 2])
 
+    compile_calls.clear()
     dispatcher = descriptor_mod.MLIRDispatcher(kernel)
     descriptor_mod._compile_arg_types.types = (types.int32,)
     descriptor_mod._compile_arg_types.values = (7,)
 
     with pytest.raises(cuda_errors.CompilerError, match="Repeated literal typing request"):
         dispatcher._compile_impl([7])
+
+    assert compile_calls == [(types.int32,), (types.literal(7),)]
+    assert dispatcher._literal_arg_positions == frozenset({0})
 
 
 def test_compile_impl_promotes_available_launch_config_in_current_attempt(monkeypatch):

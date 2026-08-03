@@ -792,6 +792,58 @@ def test_literal_retry_crosses_launch_config_and_dynamic_shared_memory(
 
 
 @pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
+def test_literal_retry_accumulates_requests_from_multiple_planners(
+    isolated_global_planners,
+):
+    observed = []
+
+    class FirstLiteralPlanner(WholeFunctionPlanner):
+        def run(self):
+            if self.is_device_function:
+                return False
+            first_type = self.state.args[1]
+            observed.append(("first", first_type))
+            if not isinstance(first_type, types.Literal):
+                raise ForceLiteralArg({1})
+            return False
+
+    class SecondLiteralPlanner(WholeFunctionPlanner):
+        def run(self):
+            if self.is_device_function:
+                return False
+            second_type = self.state.args[2]
+            observed.append(("second", second_type))
+            if not isinstance(second_type, types.Literal):
+                raise ForceLiteralArg({2})
+            return False
+
+    register_planner(FirstLiteralPlanner)
+    register_planner(SecondLiteralPlanner)
+
+    @cuda.jit
+    def kernel(output, first, second):
+        output[0] = first + second
+
+    output = np.zeros(1, dtype=np.int32)
+    kernel[1, 1](output, 7, 9)
+
+    assert output[0] == 16
+    assert kernel._literal_arg_positions == frozenset({1, 2})
+    [(argtypes, _)] = kernel.overloads.items()
+    assert isinstance(argtypes[1], types.IntegerLiteral)
+    assert argtypes[1].literal_value == 7
+    assert isinstance(argtypes[2], types.IntegerLiteral)
+    assert argtypes[2].literal_value == 9
+    assert [name for name, _ in observed] == [
+        "first",
+        "first",
+        "second",
+        "first",
+        "second",
+    ]
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
 def test_literal_retry_overrides_partial_parameter_annotation(isolated_global_planners):
     class LiteralPlanner(WholeFunctionPlanner):
         def run(self):

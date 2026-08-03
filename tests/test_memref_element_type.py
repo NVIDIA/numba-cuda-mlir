@@ -17,6 +17,7 @@ allocation path is exercised end-to-end.
 """
 
 import numpy as np
+import pytest
 
 from numba_cuda_mlir import cuda, extending, types
 from numba_cuda_mlir.extending import lower_cast, lowering_registry
@@ -25,6 +26,7 @@ from numba_cuda_mlir.models import PrimitiveModel, mlir_data_manager, register_m
 from numba_cuda_mlir._mlir import ir as mlir_ir
 from numba_cuda_mlir._mlir.dialects import llvm
 from numba_cuda_mlir.numba_cuda.typeconv import Conversion
+from numba_cuda_mlir.numba_cuda.core.errors import UnsupportedError
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +271,23 @@ def test_extension_type_local_array_round_trip():
 
     mlir = next(iter(kernel.inspect_mlir().values()))
     assert "!llvm.struct<(i8, i64)>" in mlir
+
+
+@pytest.mark.parametrize("shape", [4, 0], ids=["static", "dynamic"])
+def test_extension_type_shared_array_is_rejected(shape):
+    """Shared storage rejects LLVM-backed dtypes before forming an invalid memref."""
+
+    def kernel():
+        values = cuda.shared.array(shape, dtype=mini_masked)
+        values[0] = make_masked(1, 1)
+
+    with pytest.raises(UnsupportedError) as exc_info:
+        cuda.compile_ptx(kernel, (), cc=(8, 0))
+    assert exc_info.value.msg == (
+        "cuda.shared.array does not yet support LLVM-backed element dtypes. "
+        "Use cuda.local.array for per-thread extension storage or a built-in "
+        "shared-memory dtype."
+    )
 
 
 def test_extension_type_local_array_crosses_device_function_boundary():

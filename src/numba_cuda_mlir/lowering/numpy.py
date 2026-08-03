@@ -1569,6 +1569,7 @@ def lower_charseq_array_setitem_string(builder: MLIRLower, target, args, kwargs)
 @lower(operator.setitem, types.Array, types.Integer, types.NPTimedelta)
 @lower(operator.setitem, types.Array, types.Integer, Record)
 @lower(operator.setitem, types.Array, types.Integer, VectorType)
+@lower(operator.setitem, types.Array, types.Integer, types.Any)
 def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
     trace()
 
@@ -1596,6 +1597,7 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
     value = builder.load_var(args[2])
     value_numba_type = builder.get_numba_type(args[2].name)
     signed = get_conversion_signedness(value_numba_type, array_numba_type.dtype)
+    value = _cast_array_store_value(builder, array_numba_type, args[2], value)
     mrt = array.type
     if mrt.rank == 1:
         lowering_utilities.array_element_value_store(
@@ -1656,6 +1658,18 @@ def _setitem_indices_to_memref_indices(
     )
 
 
+def _cast_array_store_value(
+    builder: MLIRLower,
+    array_type: types.Array,
+    value_var: numba_ir.Var,
+    value: ir.Value,
+) -> ir.Value:
+    value_type = builder.get_numba_type(value_var.name)
+    if value_type != array_type.dtype:
+        return builder.lower_cast(value_type, array_type.dtype, value)
+    return value
+
+
 @lower(operator.setitem, types.Array, types.Tuple, types.Any)
 @lower(operator.setitem, types.Array, types.UniTuple, types.Any)
 def lower_array_setitem_tuple(builder, target, args, kwargs):
@@ -1673,6 +1687,7 @@ def lower_array_setitem_tuple(builder, target, args, kwargs):
     tup = builder.load_var(tup) if isinstance(tup, numba_ir.Var) else tup
     indices = _setitem_indices_to_memref_indices(array, tup, builder.get_numba_type(args[1].name))
     value = builder.load_var(args[2])
+    value = _cast_array_store_value(builder, array_numba_type, args[2], value)
     lowering_utilities.array_element_value_store(
         array_numba_type,
         array,
@@ -1688,9 +1703,10 @@ def lower_array_slice_setitem(builder, target, args, kwargs):
     trace()
     array = builder.load_var(args[0])
     slice_val = builder.load_var(args[1])
-    value = builder.load_var(args[2])
-
     array_numba_type = builder.get_numba_type(args[0].name)
+    value = builder.load_var(args[2])
+    value = _cast_array_store_value(builder, array_numba_type, args[2], value)
+
     mr_type = array.type
     rank = mr_type.rank
 
@@ -1814,7 +1830,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
                 array, full_offsets, full_sizes, full_strides, full_is_scalar
             )
             builder.store_var(target, value)
-        case types.Number() | types.Boolean():
+        case types.Type():
             value = lowering_utilities.array_element_value_load(
                 array_numba_type,
                 array,
@@ -1824,7 +1840,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
             builder.store_var(target, value)
         case _:
             raise InternalCompilerError(
-                f"Target type {target_type} is not an array or number, but a tuple was used to index it"
+                f"Target type {target_type} is not an array or scalar, but a tuple was used to index it"
             )
 
 

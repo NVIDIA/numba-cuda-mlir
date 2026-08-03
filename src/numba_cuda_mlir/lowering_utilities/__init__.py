@@ -14,6 +14,7 @@ from numba_cuda_mlir.numba_cuda import types, typing
 from numba_cuda_mlir.annotations import AnyCallable, PS
 from numba_cuda_mlir.lowering_utilities import type_conversions
 from numba_cuda_mlir.lowering_utilities.type_conversions import (
+    is_valid_memref_element_type,
     np_dtype_to_mlir_type as mlir_type_from_numpy_dtype,
     to_mlir_type,
 )
@@ -101,17 +102,17 @@ def llvm_ptr_add_bytes(ptr: ir.Value, byte_offset: ir.Value) -> ir.Value:
 
 
 def _memref_index_offset(array: ir.Value, indices: list[ir.Value]) -> ir.Value:
-    """Return the element offset for indices into a potentially-strided memref."""
+    """Return the logical element offset into a potentially-strided memref."""
     metadata = memref.extract_strided_metadata(array)
     rank = array.type.rank
     ndim = len(indices)
     if ndim == 1 and rank != 1:
-        return convert(indices[0], T.i64())
+        return convert(metadata[1], T.i64()) + convert(indices[0], T.i64())
     if ndim != rank:
         raise ValueError(
             f"Expected either a scalar linear index or {rank} indices for {array.type}, got {ndim}"
         )
-    linear_idx = arith.constant(T.i64(), 0)
+    linear_idx = convert(metadata[1], T.i64())
     for d, index in enumerate(indices):
         idx_val = convert(index, T.i64())
         stride = convert(metadata[2 + rank + d], T.i64())
@@ -119,7 +120,13 @@ def _memref_index_offset(array: ir.Value, indices: list[ir.Value]) -> ir.Value:
     return linear_idx
 
 
-def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value], element_type: ir.Type) -> ir.Value:
+def memref_to_llvm_ptr(
+    array: ir.Value,
+    indices: list[ir.Value],
+    element_type: ir.Type,
+    *,
+    address_space: int | None = None,
+) -> ir.Value:
     """Convert memref + indices to LLVM pointer.
 
     Extracts base pointer from a potentially-strided memref and computes the
@@ -129,12 +136,24 @@ def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value], element_type: i
         array: Memref value (potentially strided)
         indices: List of index values
         element_type: Element type for getelementptr
+        address_space: Override for descriptors whose i8 backing does not
+            encode the pointer's address space.
 
     Returns:
         LLVM pointer (!llvm.ptr) to the indexed element
     """
-    ptr_type = _memref_llvm_pointer_type(ir.MemRefType(array.type))
-    base_ptr = llvm.addrspacecast(ptr_type, memref_data_pointer(array))
+    ptr_type = (
+        llvm.PointerType.get(address_space)
+        if address_space is not None
+        else _memref_llvm_pointer_type(ir.MemRefType(array.type))
+    )
+    # The base buffer has zero offset. Apply the logical offset below using
+    # the actual element type, including padding in byte-backed LLVM values.
+    # Stay in the pointer domain to preserve address-space inference.
+    metadata = memref.extract_strided_metadata(array)
+    base_ptr = memref_data_pointer(metadata[0])
+    if base_ptr.type != ptr_type:
+        base_ptr = llvm.addrspacecast(ptr_type, base_ptr)
 
     linear_idx = _memref_index_offset(array, indices)
     return llvm.getelementptr(
@@ -355,6 +374,22 @@ def storage_itemsize_bytes(numba_type: types.Type) -> int:
     return (bitwidth + 7) // 8
 
 
+def uses_byte_backed_llvm_array_storage(array_type: types.Array) -> bool:
+    """Return whether an array stores LLVM-dialect values behind an i8 memref.
+
+    Record and character arrays have their own byte-oriented lowering paths.
+    This predicate identifies compiler-extension values whose data model uses
+    an LLVM type that cannot legally be a MemRef element type.
+    """
+
+    from numba_cuda_mlir.types import Record
+
+    dtype = array_type.dtype
+    if isinstance(dtype, (Record, types.CharSeq, types.UnicodeCharSeq)):
+        return False
+    return not is_valid_memref_element_type(get_storage_type(dtype))
+
+
 def _is_bool_numba_type(numba_type: types.Type) -> bool:
     return isinstance(numba_type, (types.Boolean, types.BooleanLiteral))
 
@@ -461,9 +496,20 @@ def array_element_value_load(
     *,
     dynamic_shared_memory: bool = False,
 ):
-    if dynamic_shared_memory:
+    byte_backed_llvm = uses_byte_backed_llvm_array_storage(array_type)
+    if dynamic_shared_memory or byte_backed_llvm:
         storage_type = get_storage_type(array_type.dtype)
-        ptr = memref_to_llvm_ptr(array, list(indices), storage_type)
+        # Array types do not retain storage provenance across device-function
+        # boundaries. Reconstruct an NVPTX generic pointer for byte-backed
+        # extension values so one signature can receive local or global
+        # storage. Address-space-specific extension arrays require a distinct
+        # lowering path.
+        ptr = memref_to_llvm_ptr(
+            array,
+            list(indices),
+            storage_type,
+            address_space=0 if byte_backed_llvm else None,
+        )
         stored = llvm_ptr_load(storage_type, ptr)
     else:
         stored = memref.load(array, list(indices))
@@ -480,8 +526,14 @@ def array_element_value_store(
     signed: bool | None = None,
 ):
     stored = value_to_storage(array_type.dtype, value, signed=signed)
-    if dynamic_shared_memory:
-        ptr = memref_to_llvm_ptr(array, list(indices), stored.type)
+    byte_backed_llvm = uses_byte_backed_llvm_array_storage(array_type)
+    if dynamic_shared_memory or byte_backed_llvm:
+        ptr = memref_to_llvm_ptr(
+            array,
+            list(indices),
+            stored.type,
+            address_space=0 if byte_backed_llvm else None,
+        )
         llvm_ptr_store(stored, ptr)
     else:
         memref.store(value=stored, memref=array, indices=list(indices))

@@ -79,6 +79,8 @@ _DISPATCHER_STATE_ATTRS = (
     "_launch_lock",
     "_launch_config_overloads",
     "_launch_config_dispatchers",
+    "_dispatch_tokens",
+    "_next_dispatch_token",
     "_launch_config_generation",
     "_requires_launch_config",
     "_literal_arg_positions",
@@ -420,6 +422,7 @@ class _ArgMarshaller:
         launch_config_generation=None,
         stream_ref=None,
         launch_stream=None,
+        supports_dispatch_token=False,
     ):
         self._launcher = launcher
         self._callbacks = []
@@ -437,6 +440,7 @@ class _ArgMarshaller:
         self._launch_config_generation = launch_config_generation
         self._stream_ref = stream_ref
         self._launch_stream = launch_stream
+        self._supports_dispatch_token = supports_dispatch_token
         self._adjusted_launcher_key = None
         self._adjusted_launcher = None
         self._sig_cache = {}  # {type_key: (argtypes, fast_ok)}
@@ -730,7 +734,11 @@ class _ArgMarshaller:
                 _compile_arg_types.launch_config = active_launch_config
             elif hasattr(_compile_arg_types, "launch_config"):
                 delattr(_compile_arg_types, "launch_config")
-            return launcher(*launch_args)
+            dispatch_token_for = getattr(dispatcher, "_dispatch_token_for", None)
+            if not self._supports_dispatch_token or dispatch_token_for is None:
+                return launcher(*launch_args)
+            dispatch_token = dispatch_token_for(tuple(argtypes))
+            return launcher(*launch_args, _dispatch_token=dispatch_token)
         except UserFacingInternalCompilerError as e:
             if os.environ.get("NUMBA_CUDA_MLIR_ICE_FULL_TB", "0").strip() == "1":
                 raise
@@ -1628,6 +1636,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         # recompile() invalidates old launch-config generations.
         self._launch_config_overloads = {}
         self._launch_config_dispatchers = collections.OrderedDict()
+        self._dispatch_tokens = {}
+        self._next_dispatch_token = 1
         self._launch_config_generation = 0
         self._requires_launch_config = False
         self._literal_arg_positions = frozenset()
@@ -1686,6 +1696,20 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             debug=bool(self.targetoptions.get("debug", False)),
             literal_arg_flags=tuple(literal_args),
         )
+
+    def _dispatch_token_for(self, argtypes):
+        """Return a stable native-cache token for exact top-level Numba types."""
+        self._ensure_dispatcher_state()
+        argtypes = tuple(argtypes)
+        with self._launch_config_lock:
+            token = self._dispatch_tokens.get(argtypes)
+            if token is None:
+                token = self._next_dispatch_token
+                if token > (1 << 64) - 1:
+                    raise OverflowError("native dispatch token space exhausted")
+                self._next_dispatch_token += 1
+                self._dispatch_tokens[argtypes] = token
+            return token
 
     @property
     def _launch_config_enabled(self):
@@ -1888,6 +1912,10 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 self._launch_config_overloads = {}
             if not hasattr(self, "_launch_config_dispatchers"):
                 self._launch_config_dispatchers = collections.OrderedDict()
+            if not hasattr(self, "_dispatch_tokens"):
+                self._dispatch_tokens = {}
+            if not hasattr(self, "_next_dispatch_token"):
+                self._next_dispatch_token = 1
             if not hasattr(self, "_launch_config_generation"):
                 self._launch_config_generation = 0
             if not hasattr(self, "_requires_launch_config"):
@@ -2086,6 +2114,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             launch_config_generation=launch_config_generation,
             stream_ref=stream_ref,
             launch_stream=launch_stream,
+            supports_dispatch_token=True,
         )
 
     def _reduce_states(self):
@@ -3570,6 +3599,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             self._retain_old_dispatcher(self._c)
             self._launch_config_generation += 1
             self._launch_config_overloads.clear()
+            self._dispatch_tokens.clear()
+            self._next_dispatch_token = 1
             old_launch_config_dispatchers = list(self._launch_config_dispatchers.values())
             self._launch_config_dispatchers = collections.OrderedDict()
             for dispatcher in old_launch_config_dispatchers:

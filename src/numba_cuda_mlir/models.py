@@ -509,15 +509,26 @@ class UnionType(PrimitiveModel):
         super().__init__(dmm, fe_type, ele_ty)
 
 
+def _is_valid_memref_element_type(mlir_type):
+    """Return whether *mlir_type* is legal as a MemRef element type."""
+
+    return not str(mlir_type).startswith("!llvm.")
+
+
 @register_model(types.Array)
 class ArrayModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
         from numba_cuda_mlir.types import Record
 
-        # For Record, CharSeq, and UnicodeCharSeq arrays, use byte-based
-        # memref (memref<?xi8>).  Elements are accessed via byte offset
-        # pointer arithmetic.
-        if isinstance(fe_type.dtype, (Record, types.CharSeq, types.UnicodeCharSeq)):
+        ele_ty = dmm.lookup(fe_type.dtype).get_data_type()
+
+        # For Record, CharSeq, UnicodeCharSeq, and extension types whose MLIR
+        # storage representation belongs to the LLVM dialect, use byte-based
+        # memrefs. MemRefs cannot legally use LLVM dialect types as elements;
+        # those elements are accessed through byte-offset pointer arithmetic.
+        if isinstance(
+            fe_type.dtype, (Record, types.CharSeq, types.UnicodeCharSeq)
+        ) or not _is_valid_memref_element_type(ele_ty):
             shape = [ShapedType.get_dynamic_size() for _ in range(fe_type.ndim)]
 
             dyn_stride = MemRefType.get_dynamic_stride_or_offset()
@@ -529,7 +540,6 @@ class ArrayModel(PrimitiveModel):
             super().__init__(dmm, fe_type, be_type)
             return
 
-        ele_ty = dmm.lookup(fe_type.dtype).get_data_type()
         shape = [ShapedType.get_dynamic_size() for _ in range(fe_type.ndim)]
 
         # Create strided layout with all dynamic strides

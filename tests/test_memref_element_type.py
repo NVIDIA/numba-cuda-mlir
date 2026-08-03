@@ -21,7 +21,7 @@ import numpy as np
 from numba_cuda_mlir import cuda, extending, types
 from numba_cuda_mlir.extending import lower_cast, lowering_registry
 from numba_cuda_mlir.lowering_utilities import convert
-from numba_cuda_mlir.models import PrimitiveModel, register_model
+from numba_cuda_mlir.models import PrimitiveModel, mlir_data_manager, register_model
 from numba_cuda_mlir._mlir import ir as mlir_ir
 from numba_cuda_mlir._mlir.dialects import llvm
 from numba_cuda_mlir.numba_cuda.typeconv import Conversion
@@ -119,6 +119,16 @@ extending.refresh_registries()
 # ---------------------------------------------------------------------------
 # Integration tests
 # ---------------------------------------------------------------------------
+
+
+def test_extension_array_model_uses_byte_backed_memref():
+    """Array models must not form memrefs with LLVM-dialect elements."""
+
+    with mlir_ir.Context(), mlir_ir.Location.unknown():
+        array_type = types.Array(mini_masked, 1, "C")
+        model = mlir_data_manager.lookup(array_type)
+
+        assert str(model.get_value_type()).startswith("memref<?xi8")
 
 
 def test_extension_type_multi_assign_uses_alloca():

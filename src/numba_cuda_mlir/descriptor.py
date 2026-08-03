@@ -832,6 +832,7 @@ class _ArgMarshaller:
 
         for i in range(nargs):
             val = args[i]
+            extension_transformed = False
 
             try:
                 ty = typeof(val)
@@ -845,17 +846,21 @@ class _ArgMarshaller:
                         "Please register a typeof_impl for this type."
                     )
                 for ext in reversed_ext:
+                    previous_ty = ty
+                    previous_val = val
                     ty, val = ext.prepare_args(ty, val, stream=None, retr=callbacks)
+                    extension_transformed |= ty != previous_ty or val is not previous_val
                 if val is not args[i]:
                     all_pass_through = False
 
             dev = copy_item(val)
             if dev is not val:
                 all_pass_through = False
-                try:
-                    ty = typeof(dev)
-                except (ValueError, TypeError):
-                    ty = None
+                if not extension_transformed:
+                    try:
+                        ty = typeof(dev)
+                    except (ValueError, TypeError):
+                        ty = None
 
             device_args[i] = dev
             argtypes[i] = ty

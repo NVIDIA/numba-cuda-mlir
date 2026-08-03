@@ -164,7 +164,7 @@ class StructModel(DataModel):
         return self._data_type
 
     def get_argument_type(self):
-        return self.get_data_type()
+        return tuple(model.get_argument_type() for model in self._models)
 
     def get_return_type(self):
         return self.get_data_type()
@@ -189,7 +189,13 @@ class StructModel(DataModel):
         return self._as("as_data", builder, value, self.get_data_type())
 
     def as_argument(self, builder, value):
-        return self.as_data(builder, value)
+        return tuple(
+            model.as_argument(
+                builder,
+                llvm.extractvalue(model.get_value_type(), value, [i]),
+            )
+            for i, model in enumerate(self._models)
+        )
 
     def as_return(self, builder, value):
         return self.as_data(builder, value)
@@ -198,7 +204,11 @@ class StructModel(DataModel):
         return self._from("from_data", builder, value)
 
     def from_argument(self, builder, value):
-        return self.from_data(builder, value)
+        out = llvm.UndefOp(self.get_value_type()).result
+        for i, (model, field) in enumerate(zip(self._models, value)):
+            converted = model.from_argument(builder, field)
+            out = llvm.insertvalue(out, converted, [i])
+        return out
 
     def from_return(self, builder, value):
         return self.from_data(builder, value)

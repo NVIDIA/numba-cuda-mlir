@@ -527,11 +527,12 @@ extern "C" __global__ void
             non_omitted_argtypes = [
                 argty for argty in self.fndesc.argtypes if not _is_omitted_arg(argty)
             ]
-            # Flatten tuple types for MLIR function signature
-            flat_argtypes = []
+            # Flatten each data model's argument ABI for the MLIR function
+            # signature. Composite extension types can expand to multiple
+            # arguments even when their frontend Numba type is not a tuple.
+            argtypes = []
             for argty in non_omitted_argtypes:
-                flat_argtypes.extend(self._flatten_type(argty))
-            argtypes = [self.get_argument_type(argtype) for argtype in flat_argtypes]
+                argtypes.extend(self._flatten_argument_types(argty))
             flat_restypes = self._flatten_type(self.fndesc.restype)
             restypes = [self.get_return_type(rt) for rt in flat_restypes]
             # Opaque types (DType, Function, Module, ...) lower to MLIR NoneType
@@ -1073,20 +1074,11 @@ extern "C" __global__ void
                 # NoneType args are excluded from the MLIR function signature;
                 # store the MLIR NoneType as a placeholder
                 self.store_var(target, ir.NoneType.get())
-            elif isinstance(arg_type, types.BaseTuple):
-                flat_start_idx = self._get_flat_arg_start_index(arg.index)
-                # Reassemble tuple from flattened block arguments
-                arg_value = self._reassemble_tuple_from_block_args(arg_type, flat_start_idx)
-                value = self.from_argument(arg_type, arg_value)
-                target_type = self.get_numba_type(target.name)
-                self.incref(target_type, value)
-                self.store_var(target, value)
             else:
                 flat_start_idx = self._get_flat_arg_start_index(arg.index)
-                # Single argument - get the block argument at the flat index
-                block_arg = self.mlir_funcOp.entry_block.arguments[flat_start_idx]
+                arg_value = self._reassemble_argument_from_block_args(arg_type, flat_start_idx)
                 target_type = self.get_numba_type(target.name)
-                value = self.from_argument(target_type, block_arg)
+                value = self.from_argument(arg_type, arg_value)
                 self.incref(target_type, value)
                 self.store_var(target, value)
 
@@ -2147,7 +2139,9 @@ extern "C" __global__ void
             results = [] if not numba_abi else [self.get_return_type(types.int32)]
         else:
             results = [self.get_return_type(sig.return_type)]
-        inputs = [self.get_argument_type(arg_type) for arg_type in sig.args]
+        inputs = []
+        for arg_type in sig.args:
+            inputs.extend(self._flatten_argument_types(arg_type))
         return ir.FunctionType.get(inputs=inputs, results=results)
 
     def _lower_call_external_numba_abi(self, target, fn_value: ExternFunction, args):
@@ -3712,15 +3706,13 @@ extern "C" __global__ void
 
     def _count_flat_elements(self, numba_type) -> int:
         """Count how many flat MLIR arguments a type expands to."""
+        return len(self._flatten_argument_types(numba_type))
+
+    def _flatten_argument_types(self, numba_type) -> list:
+        """Flatten a data model's argument ABI to MLIR function inputs."""
         if isinstance(numba_type, types.NoneType):
-            return 0
-        if isinstance(numba_type, types.BaseTuple):
-            if isinstance(numba_type, types.UniTuple):
-                return numba_type.count * self._count_flat_elements(numba_type.dtype)
-            else:
-                return sum(self._count_flat_elements(t) for t in numba_type.types)
-        else:
-            return 1
+            return []
+        return self._flatten_abi_value(self.get_argument_type(numba_type))
 
     def _flatten_type(self, numba_type) -> list:
         """Recursively flatten a Numba type to a list of scalar/array types."""
@@ -3746,34 +3738,17 @@ extern "C" __global__ void
                 flat_idx += self._count_flat_elements(self.fndesc.argtypes[i])
         return flat_idx
 
-    def _reassemble_tuple_from_block_args(self, numba_type, start_idx: int) -> tuple:
-        """Reassemble a tuple from flattened block arguments. Returns Python tuple of ir.Values."""
-        if isinstance(numba_type, types.UniTuple):
-            elements = []
-            idx = start_idx
-            for _ in range(numba_type.count):
-                if isinstance(numba_type.dtype, types.BaseTuple):
-                    elem = self._reassemble_tuple_from_block_args(numba_type.dtype, idx)
-                    idx += self._count_flat_elements(numba_type.dtype)
-                else:
-                    elem = self.mlir_funcOp.entry_block.arguments[idx]
-                    idx += 1
-                elements.append(elem)
-            return tuple(elements)
-        elif isinstance(numba_type, types.BaseTuple):
-            elements = []
-            idx = start_idx
-            for elem_type in numba_type.types:
-                if isinstance(elem_type, types.BaseTuple):
-                    elem = self._reassemble_tuple_from_block_args(elem_type, idx)
-                    idx += self._count_flat_elements(elem_type)
-                else:
-                    elem = self.mlir_funcOp.entry_block.arguments[idx]
-                    idx += 1
-                elements.append(elem)
-            return tuple(elements)
-        else:
-            return self.mlir_funcOp.entry_block.arguments[start_idx]
+    def _reassemble_argument_from_block_args(self, numba_type, start_idx: int):
+        """Reassemble a model argument from its flattened block arguments."""
+        assert self.mlir_funcOp is not None
+        block_args = iter(self.mlir_funcOp.entry_block.arguments[start_idx:])
+
+        def reassemble(abi_type):
+            if isinstance(abi_type, (tuple, list)):
+                return tuple(reassemble(element) for element in abi_type)
+            return next(block_args)
+
+        return reassemble(self.get_argument_type(numba_type))
 
     def verify_mlir_module(self):
         trace("Verifying MLIR module:\n%s", str(self.mlir_module))

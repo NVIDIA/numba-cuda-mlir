@@ -13,6 +13,7 @@ import numpy as np
 from numba_cuda_mlir._mlir.ir import IntegerType
 import pytest
 
+from numba_cuda_mlir import descriptor as descriptor_mod
 from numba_cuda_mlir.numba_cuda.datamodel.models import PrimitiveModel
 from numba_cuda_mlir.numba_cuda.typing.templates import AbstractTemplate, signature
 from numba_cuda_mlir.numba_cuda.extending import typeof_impl
@@ -106,6 +107,36 @@ def test_pointer_handler_transforms_pointerwrapper():
     out = np.zeros(1, dtype=np.uint64)
     kernel[1, 1](out, my_wrapper)
     assert out[0] == my_wrapper.ptr
+
+
+def test_value_owned_handler_transforms_without_dispatcher_extension():
+    ptr_value = 0x12345678
+    my_wrapper = PointerWrapper(ptr_value)
+    observed = []
+
+    def prepare_args(ty, val, stream=None, retr=None):
+        assert stream is None
+        assert retr is not None
+        if val is my_wrapper:
+            return types.uint64, val.ptr
+        return ty, val
+
+    my_wrapper.prepare_args = prepare_args
+
+    def launcher(value):
+        observed.append(
+            (
+                getattr(descriptor_mod._compile_arg_types, "launch_args", None),
+                value,
+            )
+        )
+        return "launched"
+
+    marshaller = descriptor_mod._ArgMarshaller(launcher)
+
+    assert marshaller(my_wrapper) == "launched"
+    assert observed == [((my_wrapper,), ptr_value)]
+    assert not hasattr(descriptor_mod._compile_arg_types, "launch_args")
 
 
 def test_multiple_extension_handlers():

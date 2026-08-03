@@ -589,7 +589,7 @@ class _ArgMarshaller:
                 coerced_types.append(runtime_type)
         return coerced_args, coerced_types
 
-    def _launch(self, argtypes, launch_args, launch_values=None):
+    def _launch(self, argtypes, launch_args, launch_values=None, original_args=None):
         """Set compile arg types and invoke the C++ launcher with error handling."""
         # Preserve existing thread-local state for nested launches triggered by
         # compile-time helpers.
@@ -597,6 +597,7 @@ class _ArgMarshaller:
             launch_values = launch_args
         previous_types = getattr(_compile_arg_types, "types", _MISSING)
         previous_values = getattr(_compile_arg_types, "values", _MISSING)
+        previous_launch_args = getattr(_compile_arg_types, "launch_args", _MISSING)
         previous_launch_config = getattr(_compile_arg_types, "launch_config", _MISSING)
         previous_available_launch_config = getattr(
             _compile_arg_types, "available_launch_config", _MISSING
@@ -605,6 +606,10 @@ class _ArgMarshaller:
         try:
             _compile_arg_types.types = argtypes
             _compile_arg_types.values = tuple(launch_values)
+            if original_args is not None:
+                _compile_arg_types.launch_args = tuple(original_args)
+            elif hasattr(_compile_arg_types, "launch_args"):
+                delattr(_compile_arg_types, "launch_args")
             if self._available_launch_config is not None:
                 _compile_arg_types.available_launch_config = self._available_launch_config
             elif hasattr(_compile_arg_types, "available_launch_config"):
@@ -743,6 +748,11 @@ class _ArgMarshaller:
                     delattr(_compile_arg_types, "values")
             else:
                 _compile_arg_types.values = previous_values
+            if previous_launch_args is _MISSING:
+                if hasattr(_compile_arg_types, "launch_args"):
+                    delattr(_compile_arg_types, "launch_args")
+            else:
+                _compile_arg_types.launch_args = previous_launch_args
             if previous_launch_config is _MISSING:
                 if hasattr(_compile_arg_types, "launch_config"):
                     delattr(_compile_arg_types, "launch_config")
@@ -781,7 +791,9 @@ class _ArgMarshaller:
 
     def _call_impl(self, *args):
         nargs = len(args)
-        has_ext = bool(self._extensions)
+        value_extensions = [arg for arg in args if callable(getattr(arg, "prepare_args", None))]
+        extensions = [*self._extensions, *value_extensions]
+        has_ext = bool(extensions)
 
         # Fast caches are only valid when no extension can transform values or
         # register per-launch callbacks through prepare_args().
@@ -810,7 +822,7 @@ class _ArgMarshaller:
                                 _sync_cuda_array_interface_stream(args[idx])
                             return self._launch(cached_argtypes, args)
 
-        reversed_ext = self._extensions[::-1] if has_ext else None
+        reversed_ext = extensions[::-1] if has_ext else None
         copy_item = self._maybe_copy_to_device_item
         callbacks = self._callbacks
 
@@ -857,7 +869,13 @@ class _ArgMarshaller:
         flat_args = []
         for arg in coerced_args:
             _flatten_arg(arg, flat_args)
-        result = self._launch(coerced_types, flat_args, coerced_args)
+        original_args = args if value_extensions else None
+        result = self._launch(
+            coerced_types,
+            flat_args,
+            launch_values=coerced_args,
+            original_args=original_args,
+        )
 
         for callback in callbacks:
             callback()
@@ -2922,6 +2940,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         has_extension_snapshot = active_extensions is not _MISSING
         if not has_extension_snapshot:
             active_extensions = self.extensions
+        active_launch_args = getattr(_compile_arg_types, "launch_args", _MISSING)
         force_launch_config = getattr(_compile_arg_types, "force_launch_config", False)
         available_launch_config = getattr(_compile_arg_types, "available_launch_config", None)
         launch_config_tracker = (
@@ -3030,6 +3049,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             active_launch_config is not None
             or launch_config_tracker is not None
             or has_extension_snapshot
+            or active_launch_args is not _MISSING
         ):
             targetoptions = self.targetoptions.copy()
             if has_extension_snapshot:
@@ -3040,6 +3060,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 targetoptions[_LAUNCH_CONFIG_TRACKER_OPTION] = launch_config_tracker
             if active_launch_config is not None:
                 targetoptions["__launch_config__"] = dict(active_launch_config)
+            if active_launch_args is not _MISSING:
+                targetoptions["__launch_args__"] = tuple(active_launch_args)
 
         # A cached result bypasses compiler passes. Until planner identity and
         # implementation are part of the persistent cache key, active planners

@@ -156,6 +156,25 @@ def test_arg_marshaller_restores_launch_config_after_error():
     assert descriptor_mod._compile_arg_types.launch_config == original_launch_config
 
 
+def test_arg_marshaller_restores_original_launch_args_after_error():
+    outer_launch_args = ("outer",)
+    inner_launch_args = ("inner",)
+    descriptor_mod._compile_arg_types.launch_args = outer_launch_args
+    observed = []
+
+    def launcher():
+        observed.append(descriptor_mod._compile_arg_types.launch_args)
+        raise ValueError("launch failed")
+
+    marshaller = _ArgMarshaller(launcher)
+
+    with pytest.raises(ValueError, match="launch failed"):
+        marshaller._launch((), (), original_args=inner_launch_args)
+
+    assert observed == [inner_launch_args]
+    assert descriptor_mod._compile_arg_types.launch_args is outer_launch_args
+
+
 def test_arg_marshaller_clears_launch_config_after_error():
     dispatcher = _Dispatcher()
     launch_config = {
@@ -1161,6 +1180,34 @@ def test_compile_impl_generic_applies_shared_memory_carveout(monkeypatch):
     assert dispatcher._compile_impl([1]) == (b"generic", "kernel", False)
     assert len(applied) == 1
     assert dispatcher.overloads[(types.int32,)] is applied[0]
+
+
+def test_compile_impl_transports_original_launch_args_without_mutation(monkeypatch):
+    from numba_cuda_mlir import mlir_compiler
+
+    def kernel(x):
+        pass
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    original_arg = object()
+    compile_calls = []
+
+    class CompilerResult:
+        signature = cuda_typing.signature(types.none, types.int32)
+        metadata = {"cubin": b"generic", "func_name": "kernel"}
+
+    def mlir_compiler_entry(pyfunc, func_args, targetoptions, override_argtypes):
+        compile_calls.append((tuple(func_args), dict(targetoptions)))
+        return CompilerResult()
+
+    monkeypatch.setattr(mlir_compiler, "mlir_compiler_entry", mlir_compiler_entry)
+    descriptor_mod._compile_arg_types.types = (types.int32,)
+    descriptor_mod._compile_arg_types.launch_args = (original_arg,)
+
+    assert dispatcher._compile_impl([1]) == (b"generic", "kernel", False)
+    assert compile_calls[0][0] == (1,)
+    assert compile_calls[0][1]["__launch_args__"] == (original_arg,)
+    assert "__launch_args__" not in dispatcher.targetoptions
 
 
 def test_launch_config_key_validation():

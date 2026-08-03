@@ -23,6 +23,9 @@ from numba_cuda_mlir.numba_cuda.datamodel.registry import DataModelManager, regi
 from numba_cuda_mlir.numba_cuda.types import misc as nb_types_misc
 from numba_cuda_mlir.numba_cuda.types.ext_types import GridGroup as GridGroupClass
 from numba_cuda_mlir.type_defs import float_types
+from numba_cuda_mlir.lowering_utilities.type_conversions import (
+    is_valid_memref_element_type,
+)
 from numba_cuda_mlir.numba_cuda.types.containers import (
     NamedTuple,
     NamedUniTuple,
@@ -509,12 +512,6 @@ class UnionType(PrimitiveModel):
         super().__init__(dmm, fe_type, ele_ty)
 
 
-def _is_valid_memref_element_type(mlir_type):
-    """Return whether *mlir_type* is legal as a MemRef element type."""
-
-    return not str(mlir_type).startswith("!llvm.")
-
-
 @register_model(types.Array)
 class ArrayModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
@@ -528,7 +525,7 @@ class ArrayModel(PrimitiveModel):
         # those elements are accessed through byte-offset pointer arithmetic.
         if isinstance(
             fe_type.dtype, (Record, types.CharSeq, types.UnicodeCharSeq)
-        ) or not _is_valid_memref_element_type(ele_ty):
+        ) or not is_valid_memref_element_type(ele_ty):
             shape = [ShapedType.get_dynamic_size() for _ in range(fe_type.ndim)]
 
             dyn_stride = MemRefType.get_dynamic_stride_or_offset()

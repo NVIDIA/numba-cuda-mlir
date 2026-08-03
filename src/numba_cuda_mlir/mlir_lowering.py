@@ -21,6 +21,7 @@ from numba_cuda_mlir.numba_cuda.datamodel.models import ArrayModel
 from numba_cuda_mlir.annotations import Builder, AnyCallable, PS
 from numba_cuda_mlir.errors import InternalCompilerError, ensure_verifies
 from numba_cuda_mlir.lowering_utilities.type_conversions import (
+    is_valid_memref_element_type,
     to_mlir_type,
     to_numba_type,
 )
@@ -112,15 +113,6 @@ def get_mlir_module_str(metadata):
 
 def _is_omitted_arg(argty):
     return isinstance(argty, (types.Omitted, types.NoneType))
-
-
-def _is_valid_memref_element_type(mlir_type: ir.Type) -> bool:
-    """
-    MemRef element types must be builtin/tensor scalars etc.; LLVM dialect
-    types (structs, pointers, llvm.array, ...) are invalid and must use
-    llvm.alloca + llvm.load/store instead.
-    """
-    return not str(mlir_type).startswith("!llvm.")
 
 
 def get_gpu_module_name():
@@ -737,7 +729,7 @@ extern "C" __global__ void
             )
 
         mlir_type = self.get_storage_type(var_type)
-        if not _is_valid_memref_element_type(mlir_type):
+        if not is_valid_memref_element_type(mlir_type):
             return self.alloca(mlir_type, count=1)
 
         memref_type = ir.MemRefType.get(shape=[1], element_type=mlir_type)
@@ -764,7 +756,7 @@ extern "C" __global__ void
                     continue
                 mlir_type = self.get_storage_type(var_type)
 
-                if not _is_valid_memref_element_type(mlir_type):
+                if not is_valid_memref_element_type(mlir_type):
                     self.varmap[var_name] = self.alloca(mlir_type, count=1)
                     trace(
                         f"Allocated LLVM stack space for {type(var_type).__name__} "
@@ -3077,7 +3069,7 @@ extern "C" __global__ void
         if not all(isinstance(x, ir.Value) for x in value):
             raise InternalCompilerError(f"Tuple {value} contains non-MLIR values: {value=}.")
         dtype = value[0].type
-        if _is_valid_memref_element_type(dtype):
+        if is_valid_memref_element_type(dtype):
             with self.alloca_insertion_point():
                 mr_type = T.memref(len(value), element_type=dtype)
                 mr = memref.alloca(memref=mr_type, dynamic_sizes=[], symbol_operands=[])
@@ -3108,7 +3100,7 @@ extern "C" __global__ void
         if not all(isinstance(x, ir.Value) for x in value):
             raise InternalCompilerError(f"Tuple {value} contains non-MLIR values: {value=}.")
         dtype = value[0].type
-        uses_llvm = not _is_valid_memref_element_type(dtype)
+        uses_llvm = not is_valid_memref_element_type(dtype)
         storage = self.concretize_tuple(value)
         return storage, uses_llvm
 

@@ -3,9 +3,9 @@
 """
 Tests for argument handler extensions.
 
-prepare_args transforms both types and values. Original types (from typeof() on
-the original args) are used for compilation. Transformed types/values are used
-at launch time for argument marshalling.
+prepare_args transforms both types and values. Its transformed types are
+authoritative for compilation, while transformed values are flattened and
+marshalled for launch.
 """
 
 import operator
@@ -118,7 +118,7 @@ def test_value_owned_handler_transforms_without_dispatcher_extension():
         assert stream is None
         assert retr is not None
         if val is my_wrapper:
-            return types.uint64, val.ptr
+            return types.uint64, (val.ptr,)
         return ty, val
 
     my_wrapper.prepare_args = prepare_args
@@ -127,6 +127,7 @@ def test_value_owned_handler_transforms_without_dispatcher_extension():
         observed.append(
             (
                 getattr(descriptor_mod._compile_arg_types, "launch_args", None),
+                tuple(descriptor_mod._compile_arg_types.types),
                 value,
             )
         )
@@ -135,7 +136,7 @@ def test_value_owned_handler_transforms_without_dispatcher_extension():
     marshaller = descriptor_mod._ArgMarshaller(launcher)
 
     assert marshaller(my_wrapper) == "launched"
-    assert observed == [((my_wrapper,), ptr_value)]
+    assert observed == [((my_wrapper,), (types.uint64,), ptr_value)]
     assert not hasattr(descriptor_mod._compile_arg_types, "launch_args")
 
 

@@ -19,6 +19,7 @@ from numba_cuda_mlir.numba_cuda.compiler import sigutils
 from numba_cuda_mlir.descriptor import mlir_target
 from numba_cuda_mlir.numba_cuda.core import funcdesc
 from numba_cuda_mlir.logging import trace
+from numba_cuda_mlir._extension_bootstrap import initialize_extensions
 from numba_cuda_mlir.typing.externals import (
     ExternMLIRLibrary,
     ExternMLIRLibraryFunction,
@@ -267,11 +268,13 @@ class CompileResult:
 
 
 def _compile_and_optimize(pyfunc, sig=None, targetoptions=None):
+    initialize_extensions()
     return _compile(pyfunc, sig, targetoptions, optimized=True)
 
 
 def _compile_only(pyfunc, sig=None, targetoptions=None):
     """Compile to MLIR without running the optimization pipeline."""
+    initialize_extensions()
     from numba_cuda_mlir.cuda import jit
     from numba_cuda_mlir import mlir_compiler
     from numba_cuda_mlir._whole_function_planners import _RequireLaunchConfig
@@ -304,6 +307,7 @@ def _compile_only(pyfunc, sig=None, targetoptions=None):
 
 
 def _compile(pyfunc, sig=None, targetoptions=None, optimized=True):
+    initialize_extensions()
     from numba_cuda_mlir.cuda import jit
 
     dispatcher = pyfunc
@@ -335,6 +339,7 @@ def _compile(pyfunc, sig=None, targetoptions=None, optimized=True):
 
 
 def compile_for(func, *args):
+    initialize_extensions()
     from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 
     sig = typing.signature(types.none, *[typeof(arg) for arg in args])
@@ -374,6 +379,74 @@ def compile_ptx(
     )
 
 
+def compile_for_current_device(
+    pyfunc,
+    sig,
+    debug=None,
+    lineinfo=False,
+    device=True,
+    fastmath=False,
+    opt=None,
+    abi="c",
+    abi_info=None,
+    output="ptx",
+    forceinline=False,
+    launch_bounds=None,
+):
+    """Compile for the current device through the MLIR compiler pipeline."""
+
+    initialize_extensions()
+    from numba_cuda_mlir.numba_cuda import get_current_device
+
+    return compile(
+        pyfunc,
+        sig,
+        debug=debug,
+        lineinfo=lineinfo,
+        device=device,
+        fastmath=fastmath,
+        cc=get_current_device().compute_capability,
+        opt=opt,
+        abi=abi,
+        abi_info=abi_info,
+        output=output,
+        forceinline=forceinline,
+        launch_bounds=launch_bounds,
+    )
+
+
+def compile_ptx_for_current_device(
+    pyfunc,
+    sig,
+    debug=None,
+    lineinfo=False,
+    device=False,
+    fastmath=False,
+    opt=None,
+    abi="numba",
+    abi_info=None,
+    forceinline=False,
+    launch_bounds=None,
+):
+    """Compile PTX for the current device through the MLIR compiler pipeline."""
+
+    initialize_extensions()
+    return compile_for_current_device(
+        pyfunc,
+        sig,
+        debug=debug,
+        lineinfo=lineinfo,
+        device=device,
+        fastmath=fastmath,
+        opt=opt,
+        abi=abi,
+        abi_info=abi_info,
+        output="ptx",
+        forceinline=forceinline,
+        launch_bounds=launch_bounds,
+    )
+
+
 def compile(
     pyfunc,
     sig,
@@ -390,6 +463,7 @@ def compile(
     launch_bounds=None,
 ):
     """Compile a Python function to PTX or LTO-IR (numba-cuda compatible API)."""
+    initialize_extensions()
     # Validate output type
     if output not in ("ptx", "ltoir"):
         raise NotImplementedError(f"Unsupported output type: {output}")
@@ -446,10 +520,12 @@ def compile_all(*args, **kwargs):
 
 def compile_result(pyfunc, sig=None):
     """Compile and return full CompileResult for internal use."""
+    initialize_extensions()
     return _compile_and_optimize(pyfunc, sig)
 
 
 def compile_mlir(pyfunc, sig, optimized=False, **targetoptions):
+    initialize_extensions()
     if optimized:
         cres = _compile_and_optimize(pyfunc, sig, targetoptions)
         return cres.metadata["mlir_module_optimized"]
@@ -463,6 +539,7 @@ def compile_mlir(pyfunc, sig, optimized=False, **targetoptions):
 
 
 def compile_cubin(pyfunc, sig, **targetoptions):
+    initialize_extensions()
     cres = _compile_and_optimize(pyfunc, sig, targetoptions)
     return cres.metadata["cubin"]
 

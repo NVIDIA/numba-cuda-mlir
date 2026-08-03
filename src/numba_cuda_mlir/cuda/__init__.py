@@ -20,6 +20,8 @@ from numba_cuda_mlir.decorators import mlir_jit as jit
 from numba_cuda_mlir.compiler import (
     compile,
     compile_ptx,
+    compile_for_current_device,
+    compile_ptx_for_current_device,
     compile_all,
     compile_mlir,
     compile_for,

@@ -13,6 +13,7 @@ import sys
 from textwrap import dedent
 from dataclasses import dataclass
 from numba_cuda_mlir.tools import format_arch
+from numba_cuda_mlir._extension_bootstrap import initialize_extensions
 
 
 @dataclass
@@ -467,6 +468,15 @@ def _extract_signature_from_annotations(func):
     return typing.signature(return_type, *argtypes)
 
 
+def _has_complete_parameter_annotations(func):
+    """Whether *func* has a potentially eager annotation signature."""
+
+    parameters = tuple(inspect.signature(func).parameters.values())
+    return bool(parameters) and all(
+        parameter.annotation != inspect.Parameter.empty for parameter in parameters
+    )
+
+
 def _get_signatures(func_or_sig):
     if sigutils.is_signature(func_or_sig):
         return [func_or_sig]
@@ -616,7 +626,8 @@ def mlir_jit(func_or_sig=None, **kws):
         _maybe_enable_experimental(func)
 
         # Check for conflicting signature sources
-        if annotations_as_signatures:
+        if annotations_as_signatures and _has_complete_parameter_annotations(func):
+            initialize_extensions()
             annotation_sig = _extract_signature_from_annotations(func)
             if annotation_sig is not None:
                 raise TypeError(
@@ -652,7 +663,10 @@ def mlir_jit(func_or_sig=None, **kws):
     def _jit_with_annotations(func):
         """JIT using type annotations as the signature if available."""
         _maybe_enable_experimental(func)
-        sig = _extract_signature_from_annotations(func)
+        sig = None
+        if _has_complete_parameter_annotations(func):
+            initialize_extensions()
+            sig = _extract_signature_from_annotations(func)
 
         disp = MLIRDispatcher(func, targetoptions=targetoptions)
 

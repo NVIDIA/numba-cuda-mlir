@@ -32,6 +32,36 @@ Numba-CUDA-MLIR's lowering callbacks receive an MLIR builder
 (:py:class:`numba_cuda_mlir.mlir_lowering.MLIRLower`) and emit MLIR through
 the bindings in :py:mod:`numba_cuda_mlir._mlir`.
 
+Installed extension initialization
+----------------------------------
+
+Packages that must register compiler hooks before compilation can publish one
+``init`` entry point in the ``numba_cuda_mlir_extensions`` group:
+
+.. code-block:: toml
+
+   [project.entry-points.numba_cuda_mlir_extensions]
+   init = "my_package.compiler_extension:initialize"
+
+The initializer takes no arguments. Numba-CUDA-MLIR discovers entry points
+lazily on the first compilation, runs them in deterministic distribution and
+module order, and initializes them only once per process. Concurrent compiler
+calls wait for the same initialization result. Recursive compilation from an
+initializer is rejected because it could observe partially registered hooks.
+
+An initializer failure rolls planner and rewrite registrations back to their
+pre-initialization state and is re-raised on later compilation attempts. An
+initializer should therefore raise a precise exception when its dependencies
+or compiler requirements are incompatible rather than silently leaving a
+partial registration behind.
+
+CUDA cooperative adapters can compare
+``numba_cuda_mlir.CUDA_COOP_EXTENSION_PROTOCOL`` with the protocol version they
+implement. Version ``1`` is the current contract; adapters should fail
+initialization with an actionable compatibility error when it does not match.
+The existing :py:mod:`numba_cuda_mlir.extending` namespace re-exports the same
+constant for extension-author convenience.
+
 Whole-function planning
 -----------------------
 

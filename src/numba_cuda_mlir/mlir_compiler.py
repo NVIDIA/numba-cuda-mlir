@@ -66,6 +66,7 @@ from numba_cuda_mlir.errors import (
     UserFacingInternalCompilerError,
     handle_lowering_error,
 )
+from numba_cuda_mlir._extension_bootstrap import initialize_extensions
 
 
 @register_pass(mutates_CFG=True, analysis_only=False)
@@ -307,6 +308,7 @@ def get_compiler_class(
 
 @global_compiler_lock
 def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
+    initialize_extensions()
     from numba_cuda_mlir.install_registry import register_lowering
     from numba_cuda_mlir.tools import resolve_gpu_target
 
@@ -425,6 +427,7 @@ def mlir_compiler_entry(
     :return: (code, resty): The compiled code and inferred return type
     :rtype: tuple
     """
+    initialize_extensions()
     if abi not in ("numba", "c"):
         raise NotImplementedError(f"Unsupported ABI: {abi}")
 

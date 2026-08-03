@@ -41,7 +41,8 @@ from numba_cuda_mlir.numba_cuda.compiler import (
     compile_ir,
 )
 from numba_cuda_mlir.numba_cuda import compiler
-from numba_cuda_mlir.numba_cuda.core import sigutils, config, entrypoints
+from numba_cuda_mlir.numba_cuda.core import sigutils, config
+from numba_cuda_mlir._extension_bootstrap import initialize_extensions
 from numba_cuda_mlir.numba_cuda.flags import Flags
 from numba_cuda_mlir.numba_cuda.cudadrv import driver, nvvm
 from numba_cuda_mlir.numba_cuda.locks import module_init_lock
@@ -837,7 +838,7 @@ class _DispatcherBase:  # (_dispatcher.Dispatcher):
         that the compiler knows about additional externally defined types etc
         before it does anything.
         """
-        entrypoints.init_all()
+        initialize_extensions()
 
     def _reset_overloads(self):
         self._clear()

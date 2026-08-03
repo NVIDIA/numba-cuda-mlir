@@ -45,6 +45,7 @@ from numba_cuda_mlir._whole_function_planners import (
     _RequireLaunchConfig,
     _planner_registry,
 )
+from numba_cuda_mlir._extension_bootstrap import initialize_extensions
 from numba_cuda_mlir._launch_config import (
     _LAUNCH_CONFIG_TRACKER_OPTION,
     _LaunchConfigTracker,
@@ -780,6 +781,7 @@ class _ArgMarshaller:
             return self._call_impl(*args)
 
     def _call_impl(self, *args):
+        initialize_extensions()
         nargs = len(args)
         has_ext = bool(self._extensions)
 
@@ -2146,6 +2148,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         Reduce state stores signatures, not runtime argument values, so override_argtypes
         drives compilation while placeholder values satisfy the dispatch entry point.
         """
+        initialize_extensions()
         argtypes, _return_type = sigutils.normalize_signature(sig)
         launch_config = _launch_config_dict_from_key(launch_config_key)
         launch_config_key = _launch_config_key(launch_config)
@@ -2708,6 +2711,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         configured_kernel_dispatcher,
         configured_launch_config_generation,
     ):
+        initialize_extensions()
+
         def active_launch_config():
             if self._requires_launch_config:
                 return _normalize_available_launch_config(available_launch_config)
@@ -2871,6 +2876,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 print(f"Profile saved to: {profile_opt}", file=sys.stderr)
 
     def _compile(self, args):
+        initialize_extensions()
         with global_compiler_lock:
             cubin, func_name, cooperative = self._compile_impl(args)
             if self._module_setup_callbacks or self._module_teardown_callbacks:
@@ -2882,6 +2888,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         args,
         launch_config_retry_budget=_CONFIGURE_CACHE_STALE_RETRY_LIMIT,
     ):
+        initialize_extensions()
         from numba_cuda_mlir import mlir_compiler
         from numba_cuda_mlir.compiler import CompileResult
 
@@ -3163,6 +3170,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         return _result(wrapped)
 
     def compile(self, sig, abi_info=None, output=None):
+        initialize_extensions()
         self._ensure_dispatcher_state()
         launch_lock = self._launch_lock
         if launch_lock is None:
@@ -3171,6 +3179,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             return self._compile_public(sig, abi_info=abi_info, output=output)
 
     def _compile_public(self, sig, abi_info=None, output=None):
+        initialize_extensions()
         from numba_cuda_mlir.mlir_optimization import optimize
         from numba_cuda_mlir import mlir_compiler
         from numba_cuda_mlir.compiler import CompileResult
@@ -3247,6 +3256,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         return wrapped
 
     def compile_for(self, *args):
+        initialize_extensions()
         return_type = types.none
         args = [a if isinstance(a, types.Type) else typeof(a) for a in args]
         sig = typing.signature(return_type, *args)
@@ -3259,6 +3269,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         eagerly finalizing every callee to cubin only adds linker work and
         retained cubin metadata that the parent compilation does not use.
         """
+        initialize_extensions()
         from numba_cuda_mlir import mlir_compiler
         from numba_cuda_mlir.compiler import CompileResult
 
@@ -3302,6 +3313,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
 
     def _compile_as_device_callee(self, sig):
         """Compile this dispatcher through the lightweight device-callee path."""
+        initialize_extensions()
         opts = self.targetoptions.copy()
         opts["device"] = True
         opts["lto"] = False
@@ -3345,6 +3357,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
 
     def specialize(self, *args):
         """Create a new instance specialized for the given *args*."""
+        initialize_extensions()
         from numba_cuda_mlir.numba_cuda import get_current_device
 
         cc = get_current_device().compute_capability
@@ -3459,6 +3472,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     def compile_device(self, sig):
         """Compile as a device function, injecting device=True if needed
         so that the function is not treated as a kernel."""
+        initialize_extensions()
         opts = self.targetoptions.copy()
         opts["device"] = True
         opts["lto"] = False
@@ -3477,6 +3491,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         """Resolve return type when this dispatcher is called from another
         jit function. Always compile as a device function so we don't
         emit kernel metadata for callees."""
+        initialize_extensions()
         pysig, args = self._compiler.fold_argument_types(args, kws)
         kws = {}
         if self._can_compile:

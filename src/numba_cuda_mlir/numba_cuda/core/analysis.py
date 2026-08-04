@@ -64,56 +64,85 @@ def compute_use_defs(blocks):
     return _use_defs_result(usemap=var_use_map, defmap=var_def_map)
 
 
+# Byte value -> tuple of set bit positions, for decoding bitsets.
+_BYTE_BITS = tuple(tuple(bit for bit in range(8) if value & (1 << bit)) for value in range(256))
+
+
 def compute_live_map(cfg, blocks, var_use_map, var_def_map):
     """
     Find variables that must be alive at the ENTRY of each block.
-    We use a simple fix-point algorithm that iterates until the set of
-    live variables is unchanged for each block.
+
+    Both fix points (forward definition reach, backward liveness)
+    run on bitsets: every variable gets a bit index and each
+    per-block set becomes an arbitrary-size integer, so each sweep is
+    bignum bitwise arithmetic instead of hash-set traversal.
     """
+    index = {}
+    names = []
+    for use_def_map in (var_def_map, var_use_map):
+        for name_set in use_def_map.values():
+            for name in name_set:
+                if name not in index:
+                    index[name] = len(names)
+                    names.append(name)
+    nbytes = (len(names) + 7) // 8
 
-    def fix_point_progress(dct):
-        """Helper function to determine if a fix-point has been reached."""
-        return tuple(len(v) for v in dct.values())
+    def to_bits(name_set):
+        buf = bytearray(nbytes)
+        for name in name_set:
+            i = index[name]
+            buf[i >> 3] |= 1 << (i & 7)
+        return int.from_bytes(buf, "little")
 
-    def fix_point(fn, dct):
-        """Helper function to run fix-point algorithm."""
-        old_point = None
-        new_point = fix_point_progress(dct)
-        while old_point != new_point:
-            fn(dct)
-            old_point = new_point
-            new_point = fix_point_progress(dct)
+    offsets = list(blocks.keys())
+    def_bits = {offset: to_bits(var_def_map[offset]) for offset in offsets}
+    use_bits = {offset: to_bits(var_use_map[offset]) for offset in offsets}
 
-    def def_reach(dct):
-        """Find all variable definition reachable at the entry of a block"""
-        for offset in var_def_map:
-            used_or_defined = var_def_map[offset] | var_use_map[offset]
-            dct[offset] |= used_or_defined
-            # Propagate to outgoing nodes
-            for out_blk, _ in cfg.successors(offset):
-                dct[out_blk] |= dct[offset]
+    successors = {offset: [out_blk for out_blk, _ in cfg.successors(offset)] for offset in offsets}
+    predecessors = {
+        offset: [inc_blk for inc_blk, _ in cfg.predecessors(offset)] for offset in offsets
+    }
 
-    def liveness(dct):
-        """Find live variables.
+    # Forward sweep in ascending label order (roughly topological):
+    # propagate each block's defs and uses to its successors.
+    def_reach_map = {offset: def_bits[offset] | use_bits[offset] for offset in offsets}
+    changed = True
+    while changed:
+        changed = False
+        for offset in offsets:
+            cur = def_reach_map[offset]
+            for out_blk in successors[offset]:
+                merged = def_reach_map[out_blk] | cur
+                if merged != def_reach_map[out_blk]:
+                    def_reach_map[out_blk] = merged
+                    changed = True
 
-        Push var usage backward.
-        """
-        for offset in dct:
-            # Live vars here
-            live_vars = dct[offset]
-            for inc_blk, _data in cfg.predecessors(offset):
-                # Reachable at the predecessor
-                reachable = live_vars & def_reach_map[inc_blk]
-                # But not defined in the predecessor
-                dct[inc_blk] |= reachable - var_def_map[inc_blk]
+    # Backward sweep in reverse label order: push live variables to
+    # predecessors.
+    live_bits = {offset: use_bits[offset] for offset in offsets}
+    changed = True
+    while changed:
+        changed = False
+        for offset in reversed(offsets):
+            live_vars = live_bits[offset]
+            for inc_blk in predecessors[offset]:
+                # reachable at, but not defined in, the predecessor
+                incoming = (live_vars & def_reach_map[inc_blk]) & ~def_bits[inc_blk]
+                merged = live_bits[inc_blk] | incoming
+                if merged != live_bits[inc_blk]:
+                    live_bits[inc_blk] = merged
+                    changed = True
 
     live_map = {}
-    for offset in blocks.keys():
-        live_map[offset] = set(var_use_map[offset])
-
-    def_reach_map = defaultdict(set)
-    fix_point(def_reach, def_reach_map)
-    fix_point(liveness, live_map)
+    for offset in offsets:
+        blob = live_bits[offset].to_bytes(nbytes, "little")
+        live = set()
+        for byte_pos, byte in enumerate(blob):
+            if byte:
+                base = byte_pos << 3
+                for bit in _BYTE_BITS[byte]:
+                    live.add(names[base + bit])
+        live_map[offset] = live
     return live_map
 
 

@@ -9,6 +9,10 @@
 
 Status cuda_loader_init();
 
+bool cuda_is_available();
+
+Status ensure_cuda_available();
+
 #define FOREACH_CUDA_FUNCTION_TO_LOAD(X) \
     X(cuInit, 2000) \
     X(cuLibraryLoadData, 12000) \

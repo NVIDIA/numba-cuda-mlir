@@ -94,6 +94,7 @@ KERNEL_ERROR_CODES = {
 }
 # MLIR LLVM dialect dynamic GEP sentinel, LLVM::GEPOp::kDynamicIndex / INT32_MIN.
 _GEP_DYNAMIC_INDEX = -2147483648
+constant_array_id = 0
 
 
 def get_mlir_module_str(metadata):
@@ -165,6 +166,7 @@ class MLIRLower(object):
         )
         self._seen_mlir_libraries = set()
         self._cloned_device_funcs: set[str] = set()
+        self._constant_array_globals = {}
         self._linked_external_items = set()
         self._linked_external_link_items = []
         self._linked_ltoirs = []
@@ -982,37 +984,14 @@ extern "C" __global__ void
             else:
                 self.store_var(target, free_var.value)
 
-    def lower_captured_array_to_memref(self, target, pyval):
-        """Build an MLIR memref value from __cuda_array_interface__ metadata.
-
-        Bakes the captured device array's pointer, shape, and strides as constants
-        into a memref descriptor struct, then casts to the target memref type.
-        Registers ``pyval`` on the active code library to keep the underlying
-        GPU memory alive while the compiled kernel exists.
-        """
-        self.context.active_code_library.referenced_objects[id(pyval)] = pyval
-        array = pyval.__cuda_array_interface__
-        memref_type = self.get_mlir_type(self.get_numba_type(target.name))
-        shape = array["shape"]
+    def _build_memref_descriptor(self, ptr, shape, strides):
         ndim = len(shape)
-        itemsize = np.dtype(array["typestr"]).itemsize
-
-        byte_strides = array.get("strides")
-        if byte_strides:
-            strides = [s // itemsize for s in byte_strides]
-        else:
-            strides, s = [], 1
-            for d in reversed(shape):
-                strides.insert(0, s)
-                s *= d
-
         if ndim > 0:
             struct_type = ir.Type.parse(
                 f"!llvm.struct<(ptr, ptr, i64, array<{ndim} x i64>, array<{ndim} x i64>)>"
             )
         else:
             struct_type = ir.Type.parse("!llvm.struct<(ptr, ptr, i64)>")
-        ptr = llvm.inttoptr(llvm.PointerType.get(), arith.constant(T.i64(), array["data"][0]))
         i64c = lambda v: arith.constant(T.i64(), v)
         ins = lambda d, v, *p: llvm.insertvalue(
             container=d, value=v, position=ir.DenseI64ArrayAttr.get(list(p))
@@ -1026,6 +1005,34 @@ extern "C" __global__ void
             desc = ins(desc, i64c(s), 3, i)
         for i, s in enumerate(strides):
             desc = ins(desc, i64c(s), 4, i)
+
+        return desc
+
+    def lower_captured_array_to_memref(self, target, pyval):
+        """Build an MLIR memref value from __cuda_array_interface__ metadata.
+
+        Bakes the captured device array's pointer, shape, and strides as constants
+        into a memref descriptor struct, then casts to the target memref type.
+        Registers ``pyval`` on the active code library to keep the underlying
+        GPU memory alive while the compiled kernel exists.
+        """
+        self.context.active_code_library.referenced_objects[id(pyval)] = pyval
+        array = pyval.__cuda_array_interface__
+        memref_type = self.get_mlir_type(self.get_numba_type(target.name))
+        shape = array["shape"]
+        itemsize = np.dtype(array["typestr"]).itemsize
+
+        byte_strides = array.get("strides")
+        if byte_strides:
+            strides = [s // itemsize for s in byte_strides]
+        else:
+            strides, s = [], 1
+            for d in reversed(shape):
+                strides.insert(0, s)
+                s *= d
+
+        ptr = llvm.inttoptr(llvm.PointerType.get(), arith.constant(T.i64(), array["data"][0]))
+        desc = self._build_memref_descriptor(ptr, shape, strides)
 
         self.store_var(target, builtin.unrealized_conversion_cast([memref_type], [desc]))
 
@@ -1254,21 +1261,34 @@ extern "C" __global__ void
                     self.store_var(target, value_op)
 
     def lower_array_literal(self, value: np.ndarray) -> ir.Value:
-        from numba_cuda_mlir._mlir.dialects import tensor
-        from numba_cuda_mlir.lowering_utilities import tensor_to_memref
+        global constant_array_id
 
-        with self.alloca_insertion_point():
-            dtype_numba = to_numba_type(value.dtype)
-            dtype = self.get_storage_type(dtype_numba)
-            raveled = value.ravel()
-            elems = [
-                self.as_storage(dtype_numba, self.lower_literal_if_needed(e, dtype_numba))
-                for e in raveled
-            ]
-            mr_type = T.tensor(*value.shape, element_type=dtype)
-            mr = tensor.from_elements(mr_type, elems)
-            mr = tensor_to_memref(mr)
-            return mr
+        array = np.ascontiguousarray(value)
+        dtype_numba = to_numba_type(array.dtype)
+        dtype = self.get_storage_type(dtype_numba)
+        name = self._constant_array_globals.get(id(value))
+        if name is None:
+            name = f"constant_array_{constant_array_id}"
+            constant_array_id += 1
+            self._constant_array_globals[id(value)] = name
+            array_type = ir.Type.parse(f"!llvm.array<{array.nbytes} x i8>")
+            data = "".join(f"\\{byte:02X}" for byte in array.tobytes())
+            with ir.InsertionPoint.at_block_begin(self.mlir_gpu_module.bodyRegion.blocks[0]):
+                llvm.GlobalOp(
+                    array_type,
+                    name,
+                    ir.Attribute.parse("#llvm.linkage<internal>"),
+                    addr_space=4,
+                    constant=True,
+                    alignment=array.dtype.alignment,
+                    value=ir.Attribute.parse(f'"{data}"'),
+                )
+        ptr = llvm.mlir_addressof(llvm.PointerType.get(4), name)
+        ptr = llvm.addrspacecast(llvm.PointerType.get(), ptr)
+        strides = [stride // array.itemsize for stride in array.strides]
+        desc = self._build_memref_descriptor(ptr, array.shape, strides)
+        mr_type = T.memref(*array.shape, element_type=dtype)
+        return builtin.unrealized_conversion_cast([mr_type], [desc])
 
     def lower_literal_if_needed(self, value: ir.Value | np.ndarray, numba_type=None) -> ir.Value:
         match value:

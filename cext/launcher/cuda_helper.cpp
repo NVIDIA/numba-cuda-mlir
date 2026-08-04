@@ -15,6 +15,9 @@ const char* get_cuda_error(CUresult res) {
 }
 
 PyObject* get_max_grid_size(PyObject*, PyObject *args) {
+    if (!ensure_cuda_available())
+        return NULL;
+
     int device_id;
     if (!PyArg_ParseTuple(args, "i", &device_id))
         return NULL;
@@ -38,6 +41,9 @@ PyObject* get_max_grid_size(PyObject*, PyObject *args) {
 }
 
 PyObject* get_compute_capability(PyObject*, PyObject*) {
+    if (!ensure_cuda_available())
+        return NULL;
+
     int major, minor;
     CUdevice dev;
     CUresult res = g_cuDeviceGet(&dev, 0);

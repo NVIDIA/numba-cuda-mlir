@@ -5,7 +5,6 @@ import functools
 from typing import Callable
 from numba_cuda_mlir import lowering_utilities
 from numba_cuda_mlir.lowering_utilities import (
-    coerce_numpy_scalars_for_binary_op,
     numpy_implicit_type_promotion,
     convert,
     get_or_insert_function,
@@ -312,6 +311,16 @@ def pow_cg(builder, target, args, kwargs):
     builder.store_var(target, res)
 
 
+def _convert_integer_operand(value, source_type, target_type):
+    if isinstance(target_type, ir.FloatType):
+        return (
+            arith.sitofp(out=target_type, in_=value)
+            if source_type.signed
+            else arith.uitofp(out=target_type, in_=value)
+        )
+    return lowering_utilities.convert(value, target_type, signed=source_type.signed)
+
+
 def _bin_op_cg(op, builder, target, args, kwargs):
     assert not kwargs, "add_cg does not accept any keyword arguments"
     assert len(args) == 2, "add_cg expects 2 arguments"
@@ -335,6 +344,13 @@ def _bin_op_cg(op, builder, target, args, kwargs):
 
     is_unsigned = _is_unsigned_operand(lhs_type) and _is_unsigned_operand(rhs_type)
 
+    promoted_numba_type = None
+    unified_type = None
+    if isinstance(lhs_type, types.Integer) and isinstance(rhs_type, types.Integer):
+        promoted_numba_type = lhs_type.unify(None, rhs_type)
+        assert promoted_numba_type is not None
+        unified_type = builder.get_mlir_type(promoted_numba_type)
+
     lhs, rhs = builder.load_var(lhs), builder.load_var(rhs)
 
     # Handle cases where load_var returns Python/numpy scalars instead of MLIR values
@@ -343,14 +359,19 @@ def _bin_op_cg(op, builder, target, args, kwargs):
         # Convert numpy scalars to Python scalars
         if hasattr(lhs, "item"):
             lhs = lhs.item()
-        lhs = lowering_utilities.constant(lhs, target_mlir_type)
+        lhs = lowering_utilities.constant(
+            lhs, unified_type if promoted_numba_type is not None else target_mlir_type
+        )
     if not isinstance(rhs, ir.Value):
         # Convert numpy scalars to Python scalars
         if hasattr(rhs, "item"):
             rhs = rhs.item()
-        rhs = lowering_utilities.constant(rhs, target_mlir_type)
+        rhs = lowering_utilities.constant(
+            rhs, unified_type if promoted_numba_type is not None else target_mlir_type
+        )
 
-    unified_type = lowering_utilities.numpy_implicit_type_promotion(lhs.type, rhs.type)
+    if promoted_numba_type is None:
+        unified_type = lowering_utilities.numpy_implicit_type_promotion(lhs.type, rhs.type)
 
     trace("op: %s, target_mlir_type: %s", op, target_mlir_type)
     if found_op := _get_operation_for_op_and_type(op, unified_type, is_unsigned):
@@ -359,8 +380,11 @@ def _bin_op_cg(op, builder, target, args, kwargs):
         if info.cast_to_return_type:
             lhs = lowering_utilities.convert(lhs, target_mlir_type)
             rhs = lowering_utilities.convert(rhs, target_mlir_type)
+        elif promoted_numba_type is not None:
+            lhs = _convert_integer_operand(lhs, lhs_type, unified_type)
+            rhs = _convert_integer_operand(rhs, rhs_type, unified_type)
         else:
-            lhs, rhs = coerce_numpy_scalars_for_binary_op(lhs, rhs)
+            lhs, rhs = lowering_utilities.coerce_numpy_scalars_for_binary_op(lhs, rhs)
         res = op(lhs, rhs)
     else:
         raise ValueError(f"No operation found for {op=} and {target_mlir_type=}")
@@ -673,12 +697,15 @@ def math_isnan_cg(mlir_lower, target, args, kwargs):
     mlir_lower.store_var(target, result)
 
 
-@lower(math.exp2, types.Number)
-def math_exp2_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_exp2 does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
-    result = math_dialect.exp2(value)
-    mlir_lower.store_var(target, result)
+# Gated for Python 3.11+
+if hasattr(math, "exp2"):
+
+    @lower(math.exp2, types.Number)
+    def math_exp2_cg(mlir_lower, target, args, kwargs):
+        assert not kwargs, "math_exp2 does not accept any keyword arguments"
+        value = _ensure_float(mlir_lower.load_var(args[0]))
+        result = math_dialect.exp2(value)
+        mlir_lower.store_var(target, result)
 
 
 @lower(math.tanh, types.Number)

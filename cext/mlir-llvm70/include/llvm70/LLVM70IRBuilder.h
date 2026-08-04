@@ -55,6 +55,9 @@ public:
   LLVMTypeRef ptrTy(LLVMTypeRef elemTy, unsigned addrSpace = 0);
   LLVMTypeRef arrayTy(LLVMTypeRef elemTy, unsigned count);
   LLVMTypeRef structTy(LLVMTypeRef *elems, unsigned count, bool packed);
+  LLVMTypeRef namedStructTy(const char *name);
+  void setStructBody(LLVMTypeRef structTy, LLVMTypeRef *elems, unsigned count,
+                     bool packed);
   LLVMTypeRef funcTy(LLVMTypeRef ret, LLVMTypeRef *params, unsigned count,
                      bool varArg);
   LLVMTypeRef vectorTy(LLVMTypeRef elemTy, unsigned count);
@@ -285,6 +288,9 @@ private:
   LLVM_FN(LLVMTypeRef, fnPointerType, LLVMTypeRef, unsigned)
   LLVM_FN(LLVMTypeRef, fnArrayType, LLVMTypeRef, unsigned)
   LLVM_FN(LLVMTypeRef, fnStructType, LLVMContextRef, LLVMTypeRef *, unsigned,
+           LLVMBool)
+  LLVM_FN(LLVMTypeRef, fnStructCreateNamed, LLVMContextRef, const char *)
+  LLVM_FN(void, fnStructSetBody, LLVMTypeRef, LLVMTypeRef *, unsigned,
            LLVMBool)
   LLVM_FN(LLVMTypeRef, fnFunctionType, LLVMTypeRef, LLVMTypeRef *, unsigned,
            LLVMBool)

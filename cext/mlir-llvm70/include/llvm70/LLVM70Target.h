@@ -87,6 +87,8 @@ private:
       llvm::SmallVector<std::pair<LLVMBasicBlockRef, mlir::OperandRange>>;
   llvm::DenseMap<mlir::Block *, ForwarderList> switchForwarders;
 
+  llvm::StringMap<LLVMTypeRef> namedStructCache;
+
   // Debug info state
   LLVMMetadataRef diCompileUnit = nullptr;
   LLVMMetadataRef diSubroutineType = nullptr;

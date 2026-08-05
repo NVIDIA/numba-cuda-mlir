@@ -21,8 +21,8 @@ MLIR_MODERN_TO_NVVM_EXPORT int mlir_modern_to_nvvm_translate_for_libnvvm(
     const char *mlir_text, size_t mlir_text_len, int ctk_major, int ctk_minor,
     int nvvm_ir_major, int nvvm_ir_minor, int nvvm_debug_major,
     int nvvm_debug_minor,
-    int dump_llvmir, int emit_text_ir, char **out, size_t *out_len,
-    char **error_out);
+    int dump_llvmir, int emit_text_ir, int inspect_llvmir, char **out,
+    size_t *out_len, char **error_out);
 
 MLIR_MODERN_TO_NVVM_EXPORT void mlir_modern_to_nvvm_free(void *ptr);
 

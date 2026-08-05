@@ -1680,6 +1680,12 @@ def test_inspection_keys_keep_generic_overload_shape():
     assert dispatcher.get_metadata(launch_keys[0]) == {"ptx": "launch"}
     assert dispatcher.get_metadata()[launch_keys[0]] == {"ptx": "launch"}
 
+    dispatcher.overloads[generic_sig].metadata["llvmir"] = "generic llvm"
+    launch_result.metadata["llvmir"] = "launch llvm"
+    llvm_ir = dispatcher.inspect_llvm()
+    assert llvm_ir[generic_sig] == "generic llvm"
+    assert llvm_ir[launch_keys[0]] == "launch llvm"
+
     missing_key = descriptor_mod.LaunchConfigInspectableKey(
         launch_sig,
         descriptor_mod._launch_config_key(

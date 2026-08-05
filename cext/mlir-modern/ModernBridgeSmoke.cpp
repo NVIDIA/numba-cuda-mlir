@@ -18,7 +18,7 @@ static int run_case(const char *name, const char *mlir, int ctk_major = 13,
     char *error = nullptr;
     int rc = mlir_modern_to_nvvm_translate_for_libnvvm(
         mlir, std::strlen(mlir), ctk_major, ctk_minor, 2, 0, 3, 2, 0,
-        emit_text_ir ? 1 : 0, &out, &out_len, &error);
+        emit_text_ir ? 1 : 0, 0, &out, &out_len, &error);
     if (rc != 0) {
         std::fprintf(stderr, "bridge smoke case '%s' failed: %s\n", name,
                      error ? error : "unknown error");
@@ -55,7 +55,7 @@ static int run_version_case(const char *mlir, int ir_major, int ir_minor,
     char *error = nullptr;
     int rc = mlir_modern_to_nvvm_translate_for_libnvvm(
         mlir, std::strlen(mlir), 13, 0, ir_major, ir_minor, debug_major,
-        debug_minor, 0, 1, &out, &out_len, &error);
+        debug_minor, 0, 1, 0, &out, &out_len, &error);
     if (rc != 0) {
         std::fprintf(stderr, "concurrent bridge case failed: %s\n",
                      error ? error : "unknown error");

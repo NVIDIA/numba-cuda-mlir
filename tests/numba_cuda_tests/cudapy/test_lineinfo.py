@@ -75,7 +75,6 @@ class TestCudaLineInfo(NumbaCUDATestCase):
         match = re.compile(pat).search(ptx)
         self.assertIsNone(match, msg=ptx)
 
-    @pytest.mark.xfail(True, reason="Uses inspect_llvm")
     def test_no_lineinfo_in_asm(self):
         @numba_cuda_mlir.cuda.jit(lineinfo=False)
         def foo(x):
@@ -91,7 +90,6 @@ class TestCudaLineInfo(NumbaCUDATestCase):
 
         self._check(foo, sig=(int32[:],), expect=True)
 
-    @pytest.mark.xfail(True, reason="Uses inspect_llvm")
     def test_lineinfo_maintains_error_model(self):
         sig = (float32[::1], float32[::1])
 
@@ -107,7 +105,6 @@ class TestCudaLineInfo(NumbaCUDATestCase):
         # lineinfo is enabled) the device function always returns 0.
         self.assertNotIn("ret i32 1", llvm)
 
-    @pytest.mark.xfail(True, reason="Uses inspect_llvm")
     def test_no_lineinfo_in_device_function(self):
         # Ensure that no lineinfo is generated in device functions by default.
         @numba_cuda_mlir.cuda.jit

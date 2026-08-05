@@ -27,12 +27,13 @@ using namespace mlir;
 // Public entry points
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<std::string> llvm70::translateToNVVMIR(gpu::GPUModuleOp gpuMod,
-                                                     const LLVM70Options &opts) {
+static llvm::Expected<std::unique_ptr<LLVM70IRBuilder>>
+translateToLLVM70Module(gpu::GPUModuleOp gpuMod,
+                        const LLVM70Options &opts) {
   auto builderOrErr = LLVM70IRBuilder::create(opts.libLLVMPath);
   if (!builderOrErr)
     return builderOrErr.takeError();
-  auto &builder = *builderOrErr;
+  auto builder = std::move(*builderOrErr);
 
   builder->setTarget(opts.triple.c_str());
   if (!opts.dataLayout.empty())
@@ -42,23 +43,24 @@ llvm::Expected<std::string> llvm70::translateToNVVMIR(gpu::GPUModuleOp gpuMod,
   if (auto err = translator.translate(gpuMod, opts.debugLevel, opts.genLTO, &opts))
     return std::move(err);
 
-  return builder->printModuleToString();
+  return std::move(builder);
+}
+
+llvm::Expected<std::string> llvm70::translateToNVVMIR(gpu::GPUModuleOp gpuMod,
+                                                       const LLVM70Options &opts) {
+  auto builderOrErr = translateToLLVM70Module(gpuMod, opts);
+  if (!builderOrErr)
+    return builderOrErr.takeError();
+  return (*builderOrErr)->printModuleToString();
 }
 
 llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
-                                                  const LLVM70Options &opts) {
-  auto builderOrErr = LLVM70IRBuilder::create(opts.libLLVMPath);
+                                                   const LLVM70Options &opts,
+                                                   std::string *nvvmBitcode) {
+  auto builderOrErr = translateToLLVM70Module(gpuMod, opts);
   if (!builderOrErr)
     return builderOrErr.takeError();
   auto &builder = *builderOrErr;
-
-  builder->setTarget(opts.triple.c_str());
-  if (!opts.dataLayout.empty())
-    builder->setDataLayout(opts.dataLayout.c_str());
-
-  MLIRToLLVM70 translator(*builder);
-  if (auto err = translator.translate(gpuMod, opts.debugLevel, opts.genLTO, &opts))
-    return std::move(err);
 
   LLVM_DEBUG({
     llvm::dbgs() << "=== Generated NVVM IR ===\n"
@@ -69,6 +71,8 @@ llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
   LLVMMemoryBufferRef buf = builder->writeBitcodeToMemoryBuffer();
   const char *bcData = builder->getBufferStart(buf);
   size_t bcSize = builder->getBufferSize(buf);
+  if (nvvmBitcode)
+    nvvmBitcode->assign(bcData, bcSize);
 
   // Collect modules: our bitcode + any link libraries
   llvm::SmallVector<std::pair<const char *, size_t>> modules;

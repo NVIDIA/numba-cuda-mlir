@@ -45,5 +45,9 @@ PyMODINIT_FUNC PyInit__cext() {
     if (!llvm_downgrade_init(m.get()))
         return nullptr;
 
+    if (PyModule_AddIntConstant(m.get(), "cuda_available",
+                                cuda_is_available() ? 1 : 0) < 0)
+        return nullptr;
+
     return m.release();
 }

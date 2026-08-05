@@ -16,6 +16,7 @@ from numba_cuda_mlir.numba_cuda.core import untyped_passes as untyped_passes_mod
 from numba_cuda_mlir.numba_cuda.core.typed_passes import PartialTypeInference
 from numba_cuda_mlir.numba_cuda.core import ir
 from numba_cuda_mlir.numba_cuda.misc.special import literal_unroll
+from numba_cuda_mlir._whole_function_planners import _planner_registry
 
 
 @register_pass(mutates_CFG=True, analysis_only=False)
@@ -119,3 +120,16 @@ class NumbaCudaMlirInlineInlinables(InlineInlinables):
             if instr.opname in ("LOAD_GLOBAL", "LOAD_DEREF") and instr.argval == pyfunc.__name__:
                 return True
         return False
+
+
+@register_pass(mutates_CFG=True, analysis_only=False)
+class PostInlineWholeFunctionPlanners(FunctionPass):
+    """Run extension planners after device-function inlining."""
+
+    _name = "post_inline_whole_function_planners"
+
+    def __init__(self):
+        FunctionPass.__init__(self)
+
+    def run_pass(self, state):
+        return _planner_registry.apply(state)

@@ -46,8 +46,9 @@ class TestCudaMinMax(NumbaCUDATestCase):
 
         kernel[1, c.shape](a, b, c)
         np.testing.assert_array_equal(c, expected)
+        # Mixed-sign zeros: PTX max gives +0.0 and min gives -0.0 in any operand order.
         zero = expected == 0
-        np.testing.assert_array_equal(np.signbit(c[zero]), np.signbit(expected[zero]))
+        np.testing.assert_array_equal(np.signbit(c[zero]), ptx_instruction.startswith("min"))
 
         ptx = next(p for p in kernel.inspect_asm().values())
         self.assertIn(ptx_instruction, ptx)

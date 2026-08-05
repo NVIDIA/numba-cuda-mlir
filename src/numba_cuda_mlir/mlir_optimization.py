@@ -479,7 +479,12 @@ def get_llvmir(cres, target_options=None) -> str:
         cc = chip.replace("sm_", "")
 
         if _needs_llvm70_path(cc):
-            return _call_llvm70_capi(module, target_options, gen_llvmir=True).decode("utf-8")
+            return _call_llvm70_capi(
+                module,
+                target_options,
+                gen_lto=target_options.get("lto", False),
+                gen_llvmir=True,
+            ).decode("utf-8")
 
         gpu_mod = _get_single_gpu_module(module)
         gpu_mod.operation.attributes["llvm.data_layout"] = ir.StringAttr.get(NVPTX64_DATALAYOUT)
@@ -490,7 +495,11 @@ def get_llvmir(cres, target_options=None) -> str:
 
             ctk_major, ctk_minor = get_cuda_runtime_version()
             llvm_ir = translate_gpu_module_to_libnvvm_ir(
-                _operation_to_text(gpu_mod.operation),
+                _operation_to_text(
+                    gpu_mod.operation,
+                    preserve_debug_info=target_options.get("debug", False)
+                    or target_options.get("lineinfo", False),
+                ),
                 ctk_major,
                 ctk_minor,
                 _get_nvvm_ir_version(),

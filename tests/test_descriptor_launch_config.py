@@ -2295,12 +2295,25 @@ def test_literalize_argtypes_matches_numba_scalar_literal_semantics():
 
     assert literalized == (types.literal(7), types.literal(True))
 
+    # Learned positions are conditional hints, not permanent restrictions on
+    # the signatures this dispatcher may compile.
+    assert dispatcher._literalize_argtypes(
+        (types.float64, types.boolean),
+        (1.5, True),
+        abi_arg_count=2,
+    ) == (types.float64, types.literal(True))
+
+    class IntSubclass(int):
+        pass
+
+    assert dispatcher._literalize_argtypes(
+        (types.int64, types.boolean),
+        (IntSubclass(7), True),
+        abi_arg_count=2,
+    ) == (types.int64, types.literal(True))
+
     with pytest.raises(TypeError, match="top-level Python int and bool"):
-        dispatcher._literalize_argtypes(
-            (types.float64, types.boolean),
-            (1.5, True),
-            abi_arg_count=2,
-        )
+        dispatcher._record_literal_arg_positions({0}, (1.5, True), 2)
 
 
 def test_literalize_argtypes_rejects_flattened_extension_abi():
@@ -2339,9 +2352,15 @@ def test_literal_retry_rebuild_preserves_debug_lock_and_serialized_state(monkeyp
     def kernel(output, selector):
         pass
 
-    def kernel_dispatcher(compile_callback, constant_flags, context_callback, debug=False):
+    def kernel_dispatcher(
+        compile_callback,
+        constant_flags,
+        context_callback,
+        debug=False,
+        literal_arg_flags=(),
+    ):
         native = object()
-        native_calls.append((native, tuple(constant_flags), debug))
+        native_calls.append((native, tuple(constant_flags), tuple(literal_arg_flags), debug))
         return native
 
     monkeypatch.setattr(descriptor_mod, "_PY_GIL_DISABLED", True)
@@ -2363,8 +2382,8 @@ def test_literal_retry_rebuild_preserves_debug_lock_and_serialized_state(monkeyp
     assert not dispatcher.overloads
     assert not dispatcher._configure_cache
     assert [call[1:] for call in native_calls] == [
-        ((False, False), True),
-        ((False, True), True),
+        ((False, False), (False, False), True),
+        ((False, False), (False, True), True),
     ]
 
     states = dispatcher._reduce_states()
@@ -2372,7 +2391,7 @@ def test_literal_retry_rebuild_preserves_debug_lock_and_serialized_state(monkeyp
     states["uuid"] = str(uuid4())
     rebuilt = descriptor_mod.MLIRDispatcher._rebuild(**states)
     assert rebuilt._literal_arg_positions == frozenset({1})
-    assert native_calls[-1][1:] == ((False, True), True)
+    assert native_calls[-1][1:] == ((False, False), (False, True), True)
     assert native_calls[-2][0] in rebuilt._old_dispatchers
     assert rebuilt._c is native_calls[-1][0]
 
@@ -2380,7 +2399,7 @@ def test_literal_retry_rebuild_preserves_debug_lock_and_serialized_state(monkeyp
     rebuilt.recompile()
     assert rebuilt._literal_arg_positions == frozenset({1})
     assert rebuilt._launch_lock is rebuilt_lock
-    assert native_calls[-1][1:] == ((False, True), True)
+    assert native_calls[-1][1:] == ((False, False), (False, True), True)
 
 
 def test_concurrent_literal_requests_rebuild_native_dispatcher_once():
@@ -2435,6 +2454,47 @@ def test_literal_retry_counts_concurrent_discovery_as_attempt_progress(monkeypat
     assert dispatcher._compile_impl([7]) == (b"literal-7", "kernel", False)
     assert compile_calls == [types.int32, types.literal(7)]
     assert dispatcher._literal_arg_positions == frozenset({0})
+
+
+def test_literal_retry_allows_later_generic_signature(monkeypatch):
+    from numba_cuda_mlir import mlir_compiler
+
+    def kernel(selector):
+        pass
+
+    compile_calls = []
+
+    class CompilerResult:
+        def __init__(self, argtype):
+            self.signature = cuda_typing.signature(types.none, argtype)
+            self.metadata = {
+                "cubin": str(argtype).encode(),
+                "func_name": "kernel",
+            }
+
+    def mlir_compiler_entry(pyfunc, func_args, targetoptions, override_argtypes):
+        [argtype] = override_argtypes
+        compile_calls.append(argtype)
+        if argtype == types.int32:
+            raise ForceLiteralArg({0})
+        return CompilerResult(argtype)
+
+    monkeypatch.setattr(mlir_compiler, "mlir_compiler_entry", mlir_compiler_entry)
+    monkeypatch.setattr(_planner_registry, "_planners", [object()])
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+
+    descriptor_mod._compile_arg_types.types = (types.int32,)
+    descriptor_mod._compile_arg_types.values = (7,)
+    dispatcher._compile_impl([7])
+
+    descriptor_mod._compile_arg_types.types = (types.float64,)
+    descriptor_mod._compile_arg_types.values = (1.5,)
+    dispatcher._compile_impl([1.5])
+    descriptor_mod._compile_arg_types.values = (2.5,)
+    dispatcher._compile_impl([2.5])
+
+    assert compile_calls == [types.int32, types.literal(7), types.float64]
+    assert set(dispatcher.overloads) == {(types.literal(7),), (types.float64,)}
 
 
 def test_literal_retry_preserves_same_attempt_launch_promotion(monkeypatch):

@@ -174,12 +174,16 @@ typing proceeds, raise
 Kernel dispatch retries such requests with value-specialized argument types as
 long as each request adds at least one new literal position. Pass zero-based,
 top-level argument positions, for example ``ForceLiteralArg({1})``. Runtime
-Python ``int`` and ``bool`` values follow Numba's literal semantics; each
-distinct value receives an exact overload and native constant-argument
-specialization. A request that adds no new positions is diagnosed as a repeated
-literal typing request. Since the recorded position set only grows and is
-bounded by the kernel's parameters, staged requests from multiple planners
-terminate without a fixed retry limit.
+values whose exact type is the built-in Python ``int`` or ``bool`` follow
+Numba's literal semantics; each distinct value receives an exact overload and
+native constant-argument specialization. Recorded positions are conditional
+dispatch hints, not permanent restrictions on later signatures. Other runtime
+types retain their normally inferred type and may compile a generic overload.
+If that compilation itself requests an unsupported literal value, dispatch
+reports the unsupported request. A request that adds no new positions is
+diagnosed as a repeated literal typing request. Since the recorded position set
+only grows and is bounded by the kernel's parameters, staged requests from
+multiple planners terminate without a fixed retry limit.
 
 If a whole-function planner promotes launch metadata before requesting a
 literal, dispatch remembers that launch requirement and activates it for every

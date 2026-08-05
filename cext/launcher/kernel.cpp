@@ -238,6 +238,7 @@ Status check_kernel_error_code(const CudaLibrary& lib) {
 
 enum class ConstantArgType {
     INT64,
+    UINT64,
     BOOL,
     FLOAT64,
     STRING,
@@ -247,6 +248,7 @@ struct ConstantArg {
     ConstantArgType type;
     union {
         int64_t i64;
+        uint64_t u64;
         double f64;
     } value;
     std::string str;
@@ -261,6 +263,13 @@ struct ConstantArg {
         } else {
             value.i64 = static_cast<int64_t>(val);
         }
+    }
+
+    ConstantArg(uint64_t val) :
+        type(ConstantArgType::UINT64),
+        value{}
+    {
+        value.u64 = val;
     }
 
     ConstantArg(bool val) :
@@ -282,6 +291,8 @@ struct ConstantArg {
         case ConstantArgType::INT64:
         case ConstantArgType::BOOL:
             return value.i64 == other.value.i64;
+        case ConstantArgType::UINT64:
+            return value.u64 == other.value.u64;
         case ConstantArgType::FLOAT64:
             // compare bits of two floats directly
             uint64_t this_float_bits, other_float_bits;
@@ -645,16 +656,37 @@ ScalarExtractor get_scalar_extractor(PythonArgKind kind) {
     }
 }
 
+std::vector<bool> effective_constant_arg_flags(
+        const std::vector<bool>& constant_arg_flags,
+        const std::vector<bool>& literal_arg_flags,
+        const std::vector<PyTypeObject*>& arg_types) {
+    assert(constant_arg_flags.size() == literal_arg_flags.size());
+
+    // Tuple/list arguments are flattened before the native launch, while the
+    // flags describe top-level Python parameters. Literal retry rejects that
+    // ABI today, but every profile still needs one safe flag per native arg.
+    std::vector<bool> effective_flags(arg_types.size(), false);
+    const size_t represented_arg_count = std::min(arg_types.size(), constant_arg_flags.size());
+    for (size_t i = 0; i < represented_arg_count; ++i) {
+        // Numba literal typing accepts exact built-in int/bool values, not
+        // int subclasses, IntEnum members, or NumPy integer scalars.
+        bool literal_eligible = arg_types[i] == &PyLong_Type || arg_types[i] == &PyBool_Type;
+        effective_flags[i] = constant_arg_flags[i] || (literal_arg_flags[i] && literal_eligible);
+    }
+    return effective_flags;
+}
+
 struct PythonArgProfile {
     RefPtr<KernelFamily> family;
     std::vector<PythonArgKind> arg_kinds;
+    std::vector<bool> constant_arg_flags;
 
     // Populated on first use: per-arg fast extractors for all-scalar, no-constant profiles.
     // Empty if the profile contains arrays, TMA descriptors, or unsupported scalar types.
     std::vector<ScalarExtractor> fast_extractors;
     bool fast_path_checked = false;
 
-    void maybe_init_fast_path(const std::vector<bool>& constant_flags) {
+    void maybe_init_fast_path() {
         if (fast_path_checked) return;
         fast_path_checked = true;
 
@@ -662,7 +694,7 @@ struct PythonArgProfile {
         std::vector<ScalarExtractor> extractors;
         extractors.reserve(arg_kinds.size());
         for (size_t i = 0; i < arg_kinds.size(); ++i) {
-            if (i < constant_flags.size() && constant_flags[i])
+            if (constant_arg_flags[i])
                 return;  // constant args need the full path
             ScalarExtractor ex = get_scalar_extractor(arg_kinds[i]);
             if (!ex) return;  // unsupported type (array, complex, etc.)
@@ -1062,8 +1094,21 @@ inline Status extract_np_datetime(PyObject* pyobj, bool is_constant, LaunchHelpe
 }
 
 inline Status extract_py_long(PyObject* pyobj, bool is_constant, LaunchHelper& helper) {
-    int64_t value = pylong_as<int64_t>(pyobj);
-    if (PyErr_Occurred()) return ErrorRaised;
+    int64_t value;
+    uint64_t unsigned_value = 0;
+    bool is_unsigned = false;
+    long long signed_value = PyLong_AsLongLong(pyobj);
+    if (PyErr_Occurred()) {
+        if (!PyErr_ExceptionMatches(PyExc_OverflowError)) return ErrorRaised;
+        PyErr_Clear();
+        unsigned long long raw_unsigned_value = PyLong_AsUnsignedLongLong(pyobj);
+        if (PyErr_Occurred()) return ErrorRaised;
+        unsigned_value = static_cast<uint64_t>(raw_unsigned_value);
+        value = static_cast<int64_t>(unsigned_value);
+        is_unsigned = true;
+    } else {
+        value = static_cast<int64_t>(signed_value);
+    }
 
     size_t start_idx = helper.cuargs.size();
     helper.cuargs.push_back(cuda_arg_i64(value));
@@ -1072,6 +1117,8 @@ inline Status extract_py_long(PyObject* pyobj, bool is_constant, LaunchHelper& h
     if (is_constant) {
         if (PyBool_Check(pyobj))
             helper.constants.push_back(ConstantArg(value != 0));
+        else if (is_unsigned)
+            helper.constants.push_back(ConstantArg(unsigned_value));
         else
             helper.constants.push_back(ConstantArg(value));
     }
@@ -1526,6 +1573,7 @@ struct KernelDispatcher {
     PyPtr compile_func;
     PyPtr ensure_context_func;
     std::vector<bool> constant_arg_flags;
+    std::vector<bool> literal_arg_flags;
     ProfileMap arg_profiles;
     FamilyMap kernel_families;
     // When false, launches stay asynchronous: the post-launch device-side error
@@ -1862,13 +1910,20 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
                     std::make_pair(std::move(param_kinds), std::move(new_family))).first;
         }
 
+        std::vector<bool> profile_constant_arg_flags = effective_constant_arg_flags(
+                dispatcher.constant_arg_flags,
+                dispatcher.literal_arg_flags,
+                helper->pyarg_types);
         profile = dispatcher.arg_profiles.insert(
                     std::move(helper->pyarg_types),
-                    PythonArgProfile{family_iter->second, std::move(arg_kinds)});
+                    PythonArgProfile{
+                        family_iter->second,
+                        std::move(arg_kinds),
+                        std::move(profile_constant_arg_flags)});
     }
 
     // Try fast scalar extraction path
-    profile->maybe_init_fast_path(dispatcher.constant_arg_flags);
+    profile->maybe_init_fast_path();
 
     KernelFamily::KernelMap::iterator kernel_iter;
     ContextGuard ctx_guard;
@@ -1930,7 +1985,7 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
     } else {
         // Standard path: full extraction with per-type switch
         if (!extract_cuda_args(pyargs, num_pyargs, profile->arg_kinds,
-                               dispatcher.constant_arg_flags, *helper)) {
+                               profile->constant_arg_flags, *helper)) {
             return ErrorRaised;
         }
 
@@ -2219,23 +2274,37 @@ Result<std::vector<bool>> parse_constant_arg_flags(PyObject* tuple) {
 }
 
 int KernelDispatcher_init(PyObject* self, PyObject* args, PyObject* kwargs) {
-    const char* keywords[] = {"", "", "", "debug", nullptr};
+    const char* keywords[] = {"", "", "", "debug", "literal_arg_flags", nullptr};
     PyObject* compile_func = nullptr;
     PyObject* py_constant_arg_flags = nullptr;
     PyObject* ensure_context_func = Py_None;
+    PyObject* py_literal_arg_flags = Py_None;
     int debug = 0;
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|Op", const_cast<char**>(keywords),
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|OpO", const_cast<char**>(keywords),
                                      &compile_func, &py_constant_arg_flags,
-                                     &ensure_context_func, &debug))
+                                     &ensure_context_func, &debug, &py_literal_arg_flags))
         return -1;
 
     Result<std::vector<bool>> constant_arg_flags = parse_constant_arg_flags(py_constant_arg_flags);
     if (!constant_arg_flags.is_ok()) return -1;
+    std::vector<bool> literal_arg_flags(constant_arg_flags->size(), false);
+    if (py_literal_arg_flags != Py_None) {
+        Result<std::vector<bool>> parsed = parse_constant_arg_flags(py_literal_arg_flags);
+        if (!parsed.is_ok()) return -1;
+        if (parsed->size() != constant_arg_flags->size()) {
+            PyErr_SetString(
+                PyExc_TypeError,
+                "literal_arg_flags must have the same length as constant_arg_flags");
+            return -1;
+        }
+        literal_arg_flags = std::move(*parsed);
+    }
 
     KernelDispatcher& dispatcher = py_unwrap<KernelDispatcher>(self);
     dispatcher.compile_func = newref(compile_func);
     dispatcher.ensure_context_func = newref(ensure_context_func);
     dispatcher.constant_arg_flags = std::move(*constant_arg_flags);
+    dispatcher.literal_arg_flags = std::move(literal_arg_flags);
     dispatcher.debug = (debug != 0);
     return 0;
 }
@@ -2488,6 +2557,9 @@ struct hash<ConstantArg> {
         switch (arg.type) {
         case ConstantArgType::INT64:
             return std::hash<int64_t>{}(arg.value.i64);
+        case ConstantArgType::UINT64:
+            return std::hash<uint64_t>{}(arg.value.u64)
+                 ^ (static_cast<size_t>(ConstantArgType::UINT64) << 1);
         case ConstantArgType::BOOL:
             // Shift the BOOL tag past the 0/1 payload bit before mixing it into
             // the integer hash, so BOOL values do not just swap INT64 0/1 hashes.

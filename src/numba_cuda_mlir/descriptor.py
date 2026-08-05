@@ -1647,18 +1647,20 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         # (cuCtxSynchronize + status D2H). This mirrors numba-cuda, where kernel
         # exceptions (raise/assert/bounds checks) surface only with debug=True;
         # debug=False launches stay asynchronous.
-        constant_args = list(get_constant_args(self.py_func))
+        constant_args = tuple(get_constant_args(self.py_func))
+        literal_args = [False] * len(constant_args)
         for index in self._literal_arg_positions:
-            if index >= len(constant_args):
+            if index >= len(literal_args):
                 raise TypeError(
                     "literal argument request refers to an argument outside the kernel signature"
                 )
-            constant_args[index] = True
+            literal_args[index] = True
         return _cext.KernelDispatcher(
             self._compile,
-            tuple(constant_args),
+            constant_args,
             _ensure_numba_cuda_context,
             debug=bool(self.targetoptions.get("debug", False)),
+            literal_arg_flags=tuple(literal_args),
         )
 
     @property
@@ -1704,10 +1706,17 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         return frozenset(normalized)
 
     @staticmethod
-    def _literal_type_for_value(value, index):
+    def _supports_literal_launch_value(value):
+        # ``types.literal`` supports these built-in scalar values. Keep this
+        # exact: int subclasses, IntEnum, and NumPy scalars are not Numba
+        # literals even when they share the launcher's integer ABI.
+        return type(value) in (int, bool)
+
+    @classmethod
+    def _literal_type_for_value(cls, value, index):
         # Match Numba's literal semantics while limiting launch arguments to
         # scalar kinds understood by the native launcher's constant cache.
-        if not isinstance(value, (bool, int)):
+        if not cls._supports_literal_launch_value(value):
             raise TypeError(
                 "literal launch retry only supports top-level Python int and bool "
                 f"arguments; argument {index} is {type(value).__name__}"
@@ -2614,6 +2623,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                     "literal argument request refers to an argument outside the kernel signature"
                 )
             if isinstance(literalized[index], types.Literal):
+                continue
+            if not self._supports_literal_launch_value(values[index]):
                 continue
             literalized[index] = self._literal_type_for_value(values[index], index)
         return tuple(literalized)

@@ -792,6 +792,89 @@ def test_literal_retry_crosses_launch_config_and_dynamic_shared_memory(
 
 
 @pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
+def test_literal_retry_keeps_later_float_signature_generic(isolated_global_planners):
+    class IntegerLiteralPlanner(WholeFunctionPlanner):
+        def run(self):
+            if self.is_device_function:
+                return False
+            selector_type = self.state.args[1]
+            if isinstance(selector_type, types.Integer) and not isinstance(
+                selector_type, types.Literal
+            ):
+                raise ForceLiteralArg({1})
+            return False
+
+    register_planner(IntegerLiteralPlanner)
+
+    @cuda.jit
+    def kernel(output, selector):
+        output[0] = selector
+
+    native_compile_values = []
+    original_compile = kernel._compile
+
+    def counting_compile(args):
+        native_compile_values.append(args[1])
+        return original_compile(args)
+
+    # The first generic native dispatcher already owns its compile callback.
+    # Literal discovery rebuilds it with this wrapper, allowing the assertions
+    # below to distinguish native cache misses after discovery.
+    kernel._compile = counting_compile
+
+    output = np.zeros(1, dtype=np.float64)
+    kernel[1, 1](output, 7)
+    assert output[0] == 7
+
+    native_compile_values.clear()
+    kernel[1, 1](output, 1.5)
+    assert output[0] == 1.5
+    kernel[1, 1](output, 2.5)
+    assert output[0] == 2.5
+    kernel[1, 1](output, 9)
+    assert output[0] == 9
+
+    assert native_compile_values == [1.5, 9]
+    selector_types = {argtypes[1] for argtypes in kernel.overloads}
+    assert types.float64 in selector_types
+    assert {
+        selector_type.literal_value
+        for selector_type in selector_types
+        if isinstance(selector_type, types.Literal)
+    } == {7, 9}
+    assert len(selector_types) == 3
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
+def test_literal_retry_distinguishes_signed_and_unsigned_native_cache_keys(
+    isolated_global_planners,
+):
+    class IntegerLiteralPlanner(WholeFunctionPlanner):
+        def run(self):
+            if self.is_device_function:
+                return False
+            selector_type = self.state.args[1]
+            if isinstance(selector_type, types.Integer) and not isinstance(
+                selector_type, types.Literal
+            ):
+                raise ForceLiteralArg({1})
+            return False
+
+    register_planner(IntegerLiteralPlanner)
+
+    @cuda.jit
+    def kernel(output, selector):
+        output[0] = selector < 0
+
+    output = np.zeros(1, dtype=np.int32)
+    kernel[1, 1](output, -1)
+    assert output[0] == 1
+
+    kernel[1, 1](output, (1 << 64) - 1)
+    assert output[0] == 0
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
 def test_literal_retry_accumulates_requests_from_multiple_planners(
     isolated_global_planners,
 ):

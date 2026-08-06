@@ -24,7 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # - { python-dir: cp310-cp310, py-tag: cp310 }
+          - { python-dir: cp310-cp310, py-tag: cp310 }
           - { python-dir: cp311-cp311, py-tag: cp311 }
           - { python-dir: cp312-cp312, py-tag: cp312 }
           - { python-dir: cp313-cp313, py-tag: cp313 }
@@ -116,6 +116,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - { name: "LLVM Modern Windows (cp310)", mode: modern, python-version: "3.10",  py-tag: cp310,  install-dir: llvm-modern-install, container-name: llvm-modern-cp310 }
           - { name: "LLVM Modern Windows (cp311)", mode: modern, python-version: "3.11",  py-tag: cp311,  install-dir: llvm-modern-install, container-name: llvm-modern-cp311 }
           - { name: "LLVM Modern Windows (cp312)", mode: modern, python-version: "3.12",  py-tag: cp312,  install-dir: llvm-modern-install, container-name: llvm-modern-cp312 }
           - { name: "LLVM Modern Windows (cp313)", mode: modern, python-version: "3.13",  py-tag: cp313,  install-dir: llvm-modern-install, container-name: llvm-modern-cp313 }

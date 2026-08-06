@@ -157,6 +157,12 @@ class ConstevalTransformer(ast.NodeTransformer):
         value = self._eval_expr(arg)
         self.modified = True
 
+        from numba_cuda_mlir.numba_cuda.core.options import FastMathOptions
+
+        # FastMathOptions materializes as its flag tuple: truthy when any flag is set.
+        if isinstance(value, FastMathOptions):
+            value = tuple(sorted(value.flags))
+
         if self._can_be_constant(value):
             return ast.copy_location(ast.Constant(value=value), node)
         else:

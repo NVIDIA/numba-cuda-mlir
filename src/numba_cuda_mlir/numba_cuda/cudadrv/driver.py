@@ -2185,7 +2185,9 @@ class _NumericBoolLinkerOptions(LinkerOptions):
         flag_opts = ("-ftz", "-prec-div", "-prec-sqrt", "-fma")
         prefixes = tuple(k.encode() for k in flag_opts) if as_bytes else flag_opts
         true_pair, false_pair = (
-            ((b"=true", b"=1"), (b"=false", b"=0")) if as_bytes else (("=true", "=1"), ("=false", "=0"))
+            ((b"=true", b"=1"), (b"=false", b"=0"))
+            if as_bytes
+            else (("=true", "=1"), ("=false", "=0"))
         )
         return [
             o.replace(*true_pair).replace(*false_pair) if o.startswith(prefixes) else o

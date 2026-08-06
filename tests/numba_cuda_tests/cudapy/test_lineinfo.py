@@ -39,7 +39,9 @@ class TestCudaLineInfo(NumbaCUDATestCase):
             # afterwards.
             r"emissionKind:\s+"  # The emissionKind attribute followed by
             # whitespace.
-            r"DebugDirectivesOnly"  # The correct emissionKind.
+            # LLVM 7 prints DebugDirectivesOnly without a name, but it still
+            # emits the required .file/.loc directives.
+            r"(?:DebugDirectivesOnly|(?=,))"  # Correct emissionKind.
         )
         match = re.compile(pat).search(llvm)
         assertfn(match, msg=ptx)
@@ -82,7 +84,6 @@ class TestCudaLineInfo(NumbaCUDATestCase):
 
         self._check(foo, sig=(int32[:],), expect=False)
 
-    @pytest.mark.xfail(True, reason="Uses inspect_llvm")
     def test_lineinfo_in_asm(self):
         @numba_cuda_mlir.cuda.jit(lineinfo=True)
         def foo(x):

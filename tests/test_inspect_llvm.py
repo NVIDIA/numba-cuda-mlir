@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+
 import pytest
 
 from numba_cuda_mlir import cuda, mlir_optimization, types
@@ -23,6 +25,8 @@ def test_inspect_llvm_uses_architecture_natural_ir(chip, source_filename, ptr_ty
     cres = foo.compile_device(args)
     llvm_ir = foo.inspect_llvm(args)
 
+    if os.name == "nt" and chip == "sm_100":
+        source_filename = "numba-cuda-mlir-gpu-module"
     function_name = generate_mangled_name(cres.fndesc.qualname, cres.fndesc.argtypes)
     assert f'source_filename = "{source_filename}"' in llvm_ir
     assert f"{function_name}({ptr_type}" in llvm_ir

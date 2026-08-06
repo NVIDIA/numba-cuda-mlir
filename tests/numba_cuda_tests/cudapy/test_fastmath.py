@@ -263,7 +263,8 @@ class TestFastMathOption(NumbaCUDATestCase):
         m = str(compile_mlir(kernel, sig, fastmath={"nnan", "arcp"}))
         self.assertIn("fastmath<nnan,arcp>", m)
         m = str(compile_mlir(kernel, sig, fastmath=True))
-        self.assertIn("fastmath<fast>", m)
+        self.assertIn("fastmath<reassoc,nsz,arcp,contract,afn>", m)
+        self.assertNotIn("fastmath<fast>", m)
         m = str(compile_mlir(kernel, sig))
         self.assertNotIn("fastmath<", m)
 

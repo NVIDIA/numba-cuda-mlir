@@ -67,12 +67,11 @@ def _fastmath_capable_op_names() -> frozenset:
 
 
 def fastmath_attr(flags: set) -> ir.Attribute:
-    """Build an ``#arith.fastmath<...>`` attribute for the given flag set.
-    Must be called with an active MLIR context."""
+    """Build an ``#arith.fastmath<...>`` attribute; needs an active MLIR context."""
     if "fast" in flags:
-        mnemonic = "fast"
-    else:
-        mnemonic = ",".join(f for f in _FLAG_ORDER if f in flags)
+        # fast keeps NaN/Inf checks intact, as CUDA fast math does; nnan/ninf apply only when named.
+        flags = (flags - {"fast"}) | (set(_FLAG_ORDER) - {"nnan", "ninf"})
+    mnemonic = ",".join(f for f in _FLAG_ORDER if f in flags)
     assert mnemonic, f"no valid fastmath flags in {flags}"
     return ir.Attribute.parse(f"#arith.fastmath<{mnemonic}>")
 

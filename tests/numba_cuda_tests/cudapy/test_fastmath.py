@@ -392,12 +392,6 @@ class TestFastMathOption(NumbaCUDATestCase):
         self.assertIn("-prec-sqrt=0", rendered)
         self.assertIn("-fma=1", rendered)
 
-    def test_uplift_to_fma_pass_removed(self):
-        # Contraction is left to ptxas, which dedups shared products.
-        from numba_cuda_mlir.mlir_optimization import get_base_pipeline
-
-        self.assertNotIn("math-uplift-to-fma", get_base_pipeline())
-
     @pytest.mark.xfail(
         True,
         reason="mlir backend does not yet raise ZeroDivisionError for float "

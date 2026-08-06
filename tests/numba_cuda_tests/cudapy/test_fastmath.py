@@ -334,9 +334,8 @@ class TestFastMathOption(NumbaCUDATestCase):
         sig = (float32[::1], float32, float32)
         cuda.jit(sig, fastmath={"nsz", "arcp"}, lineinfo=True, lto=True)(kernel)
 
-    def test_nvvm_knobs_follow_flags(self):
-        # The module-level libnvvm/ptxas knobs are implied per-flag, with
-        # 'fast' (the bool form) enabling all four as numba-cuda does.
+    def test_nvvm_module_flags_follow_flags(self):
+        # Module-level flags follow the per-op flags; ftz is its own flag.
         from numba_cuda_mlir.fastmath import nvvm_fastmath_options
 
         self.assertEqual(
@@ -348,6 +347,55 @@ class TestFastMathOption(NumbaCUDATestCase):
         self.assertEqual(nvvm_fastmath_options({"afn"}), {"prec_sqrt": False})
         self.assertEqual(nvvm_fastmath_options({"contract"}), {"fma": True})
         self.assertEqual(nvvm_fastmath_options({"nnan", "nsz"}), {})
+        self.assertEqual(nvvm_fastmath_options({"ftz"}), {"ftz": True})
+        self.assertEqual(
+            nvvm_fastmath_options({"ftz", "arcp"}),
+            {"ftz": True, "prec_div": False},
+        )
+
+    def test_ftz_standalone_flag(self):
+        # Standalone ftz skips per-op stamping and sets the module option.
+        def kernel(r, x, y):
+            r[0] = x * y + x
+
+        sig = (float32[::1], float32, float32)
+        jitted = cuda.jit(sig, fastmath={"ftz"})(kernel)
+        self.assertIn(".ftz", _first_asm(jitted, sig))
+
+    def test_lto_link_carries_fastmath_flags(self):
+        # The runtime LTO link codegens under the fastmath flags.
+        def kernel(r, x, y):
+            r[0] = x / y + x
+
+        sig = (float32[::1], float32, float32)
+        cuda.jit(sig, fastmath=True, lto=True)(kernel)
+        cuda.jit(sig, fastmath={"nsz", "contract"}, lto=True)(kernel)
+
+    def test_nvjitlink_bool_options_rendered_numeric(self):
+        # nvJitLink accepts only the numeric bool-option form (-ftz=1).
+        from numba_cuda_mlir.numba_cuda.cudadrv.driver import (
+            _NumericBoolLinkerOptions,
+        )
+
+        options = _NumericBoolLinkerOptions(
+            arch="sm_89",
+            link_time_optimization=True,
+            ftz=True,
+            prec_div=False,
+            prec_sqrt=False,
+            fma=True,
+        )
+        rendered = options._prepare_nvjitlink_options()
+        self.assertIn("-ftz=1", rendered)
+        self.assertIn("-prec-div=0", rendered)
+        self.assertIn("-prec-sqrt=0", rendered)
+        self.assertIn("-fma=1", rendered)
+
+    def test_uplift_to_fma_pass_removed(self):
+        # Contraction is left to ptxas, which dedups shared products.
+        from numba_cuda_mlir.mlir_optimization import get_base_pipeline
+
+        self.assertNotIn("math-uplift-to-fma", get_base_pipeline())
 
     @pytest.mark.xfail(
         True,

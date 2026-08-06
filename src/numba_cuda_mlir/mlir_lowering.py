@@ -163,6 +163,15 @@ class MLIRLower(object):
             ptxas_options=self.targetoptions.get("ptxas_options", None),
             max_registers=self.targetoptions.get("max_registers", None),
         )
+        from numba_cuda_mlir.fastmath import nvvm_fastmath_options
+
+        module_flags = nvvm_fastmath_options(self.targetoptions.get("fastmath", False))
+        self._linker_config.update(
+            ftz=module_flags.get("ftz"),
+            prec_div=module_flags.get("prec_div"),
+            prec_sqrt=module_flags.get("prec_sqrt"),
+            fma=module_flags.get("fma"),
+        )
         self._seen_mlir_libraries = set()
         self._cloned_device_funcs: set[str] = set()
         self._linked_external_items = set()

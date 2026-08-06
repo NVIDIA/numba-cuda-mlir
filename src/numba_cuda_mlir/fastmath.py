@@ -6,7 +6,7 @@
 ``fastmath`` accepts a bool or a set/dict of LLVM fast-math flags, applied
 per-operation as ``#arith.fastmath<...>`` attributes and carried through
 the conversion passes to libnvvm. Three effects need separate handling:
-the module-level libnvvm/ptxas knobs (:func:`nvvm_fastmath_options`), the
+the module-level libnvvm/ptxas flags (:func:`nvvm_fastmath_options`), the
 f32 division rewrite to ``__nv_fast_fdividef`` (libnvvm does not select
 ``div.approx`` from instruction flags), and the f32 tanh rewrite
 (:func:`rewrite_approx_tanh`), which must run before convert-math-to-nvvm
@@ -22,6 +22,9 @@ from numba_cuda_mlir.numba_cuda.core.options import FastMathOptions
 # Canonical flag order used by the MLIR arith fastmath attribute printer.
 _FLAG_ORDER = ("reassoc", "nnan", "ninf", "nsz", "arcp", "contract", "afn")
 
+# Flags with no per-op representation; they only set module-level options.
+_MODULE_ONLY_FLAGS = frozenset({"ftz"})
+
 
 def parse_fastmath(value) -> FastMathOptions:
     """Normalize a user-facing fastmath value (bool | set | dict |
@@ -30,15 +33,10 @@ def parse_fastmath(value) -> FastMathOptions:
 
 
 def nvvm_fastmath_options(fastmath) -> dict:
-    """Map a fastmath flag set to the libnvvm/ptxas knobs it implies.
-
-    A key is absent when the flags do not speak to that knob (the caller
-    keeps the toolchain default). ftz has no per-instruction flag, so
-    only full ``fast`` enables it.
-    """
+    """Map per-op fastmath flags to the module-level libnvvm/ptxas flags they imply; absent keys keep toolchain defaults."""
     flags = parse_fastmath(fastmath).flags
     opts = {}
-    if "fast" in flags:
+    if flags & {"ftz", "fast"}:
         opts["ftz"] = True
     if flags & {"contract", "fast"}:
         opts["fma"] = True
@@ -92,7 +90,7 @@ def apply_fastmath_to_function(func_op, fastmath) -> None:
     in ``func_op``. Device callees are cloned in already stamped under
     their own options, so flags scope per function.
     """
-    flags = parse_fastmath(fastmath).flags
+    flags = parse_fastmath(fastmath).flags - _MODULE_ONLY_FLAGS
     if not flags:
         return
 

@@ -272,14 +272,14 @@ def test_legacy_entry_point_loader_delegates(monkeypatch):
     assert entrypoints.init_all() is report
 
 
-def test_cuda_coop_extension_protocol_is_public():
+def test_cuda_interop_extension_protocol_is_public():
     import numba_cuda_mlir
     from numba_cuda_mlir import extending
 
-    assert numba_cuda_mlir.CUDA_COOP_EXTENSION_PROTOCOL == 1
-    assert "CUDA_COOP_EXTENSION_PROTOCOL" in numba_cuda_mlir.__all__
-    assert extending.CUDA_COOP_EXTENSION_PROTOCOL == 1
-    assert "CUDA_COOP_EXTENSION_PROTOCOL" in extending.__all__
+    assert numba_cuda_mlir.CUDA_INTEROP_EXTENSION_PROTOCOL == 1
+    assert "CUDA_INTEROP_EXTENSION_PROTOCOL" in numba_cuda_mlir.__all__
+    assert extending.CUDA_INTEROP_EXTENSION_PROTOCOL == 1
+    assert "CUDA_INTEROP_EXTENSION_PROTOCOL" in extending.__all__
 
 
 class _BootstrapReached(Exception):

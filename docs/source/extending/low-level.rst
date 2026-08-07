@@ -55,9 +55,9 @@ initializer should therefore raise a precise exception when its dependencies
 or compiler requirements are incompatible rather than silently leaving a
 partial registration behind.
 
-CUDA cooperative adapters can compare
-``numba_cuda_mlir.CUDA_COOP_EXTENSION_PROTOCOL`` with the protocol version they
-implement. Version ``1`` is the current contract; adapters should fail
+CUDA interop extensions can compare
+``numba_cuda_mlir.CUDA_INTEROP_EXTENSION_PROTOCOL`` with the protocol version
+they implement. Version ``1`` is the current contract; extensions should fail
 initialization with an actionable compatibility error when it does not match.
 The existing :py:mod:`numba_cuda_mlir.extending` namespace re-exports the same
 constant for extension-author convenience.

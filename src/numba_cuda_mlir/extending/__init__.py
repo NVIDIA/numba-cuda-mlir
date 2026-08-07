@@ -3,7 +3,7 @@
 import functools
 from types import MappingProxyType
 
-from numba_cuda_mlir import CUDA_COOP_EXTENSION_PROTOCOL
+from numba_cuda_mlir import CUDA_INTEROP_EXTENSION_PROTOCOL
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.datamodel.registry import register
 from numba_cuda_mlir.numba_cuda.typing.asnumbatype import as_numba_type
@@ -41,7 +41,7 @@ register_model = functools.partial(register, mlir_data_manager)
 
 __all__ = [
     "ArgumentHandler",
-    "CUDA_COOP_EXTENSION_PROTOCOL",
+    "CUDA_INTEROP_EXTENSION_PROTOCOL",
     "WholeFunctionPlanner",
     "intrinsic",
     "lowering_registry",

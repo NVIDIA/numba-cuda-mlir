@@ -5,7 +5,7 @@
 # imported, so their symbols cannot be preempted by another in-process
 # LLVM. See #170.
 _mlir_deepbind_handles = []
-CUDA_COOP_EXTENSION_PROTOCOL = 1
+CUDA_INTEROP_EXTENSION_PROTOCOL = 1
 
 
 def _preload_mlir_libs_with_deepbind():
@@ -46,7 +46,7 @@ from numba_cuda_mlir.numba_cuda.np.numpy_support import carray, farray  # noqa: 
 make_nanobind_metaclass_inheritable()
 
 __all__ = [
-    "CUDA_COOP_EXTENSION_PROTOCOL",
+    "CUDA_INTEROP_EXTENSION_PROTOCOL",
     "cuda",
     "carray",
     "farray",

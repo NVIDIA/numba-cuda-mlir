@@ -232,9 +232,7 @@ def _fold_zero_powers(pow_ops):
 
 
 def run_pre_codegen_patterns(module: ir.Module):
-    """Collect every pattern's matches in a single walk, then rewrite;
-    the rewrites erase and insert operations so they run after the walk.
-    """
+    """Collect all pattern matches in one walk, then rewrite."""
     arg_attr_ops = []
     cast_ops = []
     mem_ops = []

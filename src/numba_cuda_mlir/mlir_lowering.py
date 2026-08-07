@@ -377,10 +377,7 @@ class MLIRLower(object):
             numba_cuda_mlir_context._compilation_options.reset(token)
 
     def _apply_fastmath_flags(self):
-        """Stamp per-op ``#arith.fastmath`` attributes and rewrite f32
-        tanh. Runs before ``lower_capi_thunks`` so the C-ABI clone
-        inherits the attributes.
-        """
+        """Stamp per-op ``#arith.fastmath`` attributes and rewrite f32 tanh."""
         from numba_cuda_mlir.fastmath import (
             apply_fastmath_to_function,
             rewrite_approx_tanh,
@@ -523,8 +520,7 @@ extern "C" __global__ void
             from numba_cuda_mlir.fastmath import parse_fastmath
 
             fastmath = parse_fastmath(self.targetoptions.get("fastmath", False))
-            # The module-level target flag is all-or-nothing; selective
-            # subsets are expressed per-op via #arith.fastmath attributes.
+            # The target flag is all-or-nothing; subsets are per-op attributes.
             if "fast" in fastmath.flags:
                 flags.extend(["fast"])
             features = self.targetoptions.get("features", "")

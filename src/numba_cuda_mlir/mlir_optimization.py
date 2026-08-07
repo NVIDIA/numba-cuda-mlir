@@ -156,9 +156,7 @@ def _get_llvm70_capi():
         ctypes.POINTER(ctypes.c_char_p),  # out
         ctypes.POINTER(ctypes.c_size_t),  # out_len
         ctypes.POINTER(ctypes.c_char_p),  # err_out
-        # Deliberately last (matches CAPI.cpp): a stale library ignores a
-        # trailing argument, so the output pointers never shift.
-        ctypes.c_char_p,  # nvvm_options (space-separated, e.g. "-prec-div=0")
+        ctypes.c_char_p,  # nvvm_options, trailing so a stale library ignores it
     ]
     lib.llvm70_free.restype = None
     lib.llvm70_free.argtypes = [ctypes.c_void_p]
@@ -241,8 +239,7 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
     out_len = ctypes.c_size_t()
     err_out = ctypes.c_char_p()
 
-    # Same per-flag gating as _nvvm_options, rendered as
-    # nvvmCompileProgram command-line options.
+    # Module flags rendered as nvvmCompileProgram options.
     from numba_cuda_mlir.fastmath import nvvm_fastmath_options
 
     module_flags = nvvm_fastmath_options(target_options.get("fastmath", False))

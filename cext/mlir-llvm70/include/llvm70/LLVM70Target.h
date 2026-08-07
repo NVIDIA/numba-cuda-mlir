@@ -75,9 +75,7 @@ public:
                         bool omitDebugInfoVersionFlag = false,
                         const LLVM70Options *opts = nullptr);
 
-  /// True when at least one instruction was tagged with a fast-math marker
-  /// name (see tagFastmath). The printed IR must then have the flag
-  /// keywords injected before it reaches libnvvm.
+  /// True when any instruction carries a fast-math marker (see tagFastmath).
   bool hasFastmathMarkers() const { return fmfTagged; }
 
 private:

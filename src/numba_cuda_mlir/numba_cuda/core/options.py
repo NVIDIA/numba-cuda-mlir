@@ -36,7 +36,6 @@ class FastMathOptions(AbstractOptionValue):
             "contract",
             "afn",
             "reassoc",
-            # ftz is the module-level NVVM denormal-flush option, not an LLVM flag.
             "ftz",
         }
 

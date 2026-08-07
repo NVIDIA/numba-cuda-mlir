@@ -23,19 +23,9 @@
 using namespace llvm70;
 using namespace mlir;
 
-//===----------------------------------------------------------------------===//
-// Fast-math flag injection
-//
-// The LLVM 7 C API cannot set per-instruction fast-math flags. Flagged
-// instructions are named __fmf.<mask>_<counter> during translation; the
-// printed module gets the keywords inserted at each marked instruction
-// and goes to libnvvm as text. Python identifiers cannot contain '.', so
-// the marker cannot collide with a user value name.
-//===----------------------------------------------------------------------===//
+// %__fmf.<mask>_<n> values get fast-math keywords injected in the printed IR.
 
-// Keyword string (each keyword preceded by a space) for an
-// mlir::LLVM::FastmathFlags bitmask: nnan=1, ninf=2, nsz=4, arcp=8,
-// contract=16, afn=32, reassoc=64.
+// nnan=1, ninf=2, nsz=4, arcp=8, contract=16, afn=32, reassoc=64.
 static std::string fastmathKeywords(unsigned mask) {
   if ((mask & 127u) == 127u)
     return " fast";
@@ -51,9 +41,7 @@ static std::string fastmathKeywords(unsigned mask) {
   return s;
 }
 
-// If `line` defines a marked value (%__fmf.<mask>_<n> = <opcode> ...), append
-// it to `out` with the flag keywords inserted after the opcode ("tail call"
-// inserts after "call"); otherwise append it unchanged.
+// Insert the keywords after the opcode of a marked definition ("tail call": after "call").
 static void appendLineWithFlags(llvm::StringRef line, std::string &out) {
   llvm::StringRef work = line.ltrim(" \t");
   unsigned mask = 0, counter = 0;
@@ -84,9 +72,7 @@ static void appendLineWithFlags(llvm::StringRef line, std::string &out) {
   out.append(line.data() + insertPos, line.size() - insertPos);
 }
 
-// The compile unit uses emission kind 3 (DebugDirectivesOnly, named in
-// LLVM 8+); LLVM 7 prints it empty. libnvvm's parser accepts the name,
-// so spell it back in. Only metadata lines (leading '!') are rewritten.
+// LLVM 7 prints emissionKind 3 as empty; libnvvm needs it spelled DebugDirectivesOnly.
 static void spellOutEmissionKind(std::string &ir) {
   static constexpr llvm::StringLiteral kEmpty = "emissionKind: ,";
   static constexpr llvm::StringLiteral kFixed =
@@ -165,9 +151,7 @@ llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
                  << builder->printModuleToString() << "\n";
   });
 
-  // With fast-math markers, submit the keyword-injected text; libnvvm's
-  // parser accepts it, including emission kind 3, which LLVM 7 cannot
-  // re-parse without changing the debug output.
+  // Fast-math-marked modules go to libnvvm as keyword-injected text.
   std::string textIR;
   LLVMMemoryBufferRef buf = nullptr;
   const char *modData;
@@ -192,6 +176,7 @@ llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
   for (const auto &libPath : opts.linkLibs) {
     std::ifstream file(libPath, std::ios::binary | std::ios::ate);
     if (!file.is_open()) {
+      // buf is only set on the bitcode path; free it before the error return.
       if (buf)
         builder->disposeMemoryBuffer(buf);
       return llvm::createStringError(llvm::inconvertibleErrorCode(),
@@ -1111,8 +1096,7 @@ llvm::Error MLIRToLLVM70::translateAddressOfOp(Operation *op) {
   return llvm::Error::success();
 }
 
-// Give an instruction with fast-math flags a marker value name;
-// injectFastmathFlags materializes the keywords on the printed IR.
+// Name FMF-carrying instructions %__fmf.<mask>_<n> for later keyword injection.
 void MLIRToLLVM70::tagFastmath(Operation *op, LLVMValueRef inst) {
   if (!inst || !b.isInstruction(inst))
     return;

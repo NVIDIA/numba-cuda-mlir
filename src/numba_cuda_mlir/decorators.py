@@ -227,10 +227,10 @@ def _get_schema() -> tuple[MLIRJITOption, ...]:
             types=(bool, set, dict, FastMathOptions),
             default_value=False,
             help=(
-                "Use faster approximations for floating-point arithmetic. "
-                "True enables all fast-math flags; a set or dict may select "
-                "individual LLVM flags from {'fast', 'nnan', 'ninf', 'nsz', "
-                "'arcp', 'contract', 'afn', 'reassoc'}"
+                "Floating-point approximation settings: a bool, set, or dict "
+                "of flags from {'fast', 'nnan', 'ninf', 'nsz', 'arcp', "
+                "'contract', 'afn', 'reassoc', 'ftz'}. True sets all except "
+                "nnan, ninf"
             ),
             extra_verification=_verify_fastmath,
         ),

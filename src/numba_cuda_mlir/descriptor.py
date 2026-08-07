@@ -1214,6 +1214,7 @@ class MLIRTargetContext(BaseContext):
                 templates.extend(getattr(inner_fnty, "templates", []))
 
         match_args = (sig.recvr, *sig.args) if sig.recvr else sig.args
+        match_args = tuple(types.unliteral(arg) for arg in match_args)
 
         for temp_cls in templates:
             if not hasattr(temp_cls, "_impl_cache"):

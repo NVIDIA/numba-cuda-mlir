@@ -290,9 +290,7 @@ class _BootstrapReached(Exception):
     "invoke",
     [
         lambda dispatcher: dispatcher._compile_launch_config_signature(None, None),
-        lambda dispatcher: dispatcher._prepare_for_launch(
-            None, None, None, None, None, None, None
-        ),
+        lambda dispatcher: dispatcher._prepare_for_launch(None, None, None, None, None, None, None),
         lambda dispatcher: dispatcher._compile(None),
         lambda dispatcher: dispatcher._compile_impl([]),
         lambda dispatcher: dispatcher.compile(None),

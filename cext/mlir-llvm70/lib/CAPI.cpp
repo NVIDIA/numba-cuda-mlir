@@ -41,12 +41,10 @@ int llvm70_translate_gpu_module_from_op(
     void *raw_op,
     const char *chip, const char *data_layout,
     const char *libllvm, const char *libnvvm, const char *libdevice,
-    int gen_lto, int opt_level, int gen_lineinfo,
+    int gen_lto, int opt_level, int gen_lineinfo, const char *nvvm_options,
     int nvvm_ir_major, int nvvm_ir_minor, int nvvm_debug_major,
     int nvvm_debug_minor,
-    char **out, size_t *out_len, char **err_out,
-    // Trailing so a stale library ignores it.
-    const char *nvvm_options) {
+    char **out, size_t *out_len, char **err_out) {
 
   *out = nullptr;
   *out_len = 0;

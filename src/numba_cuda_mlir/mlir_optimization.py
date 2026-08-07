@@ -149,6 +149,7 @@ def _get_llvm70_capi():
         ctypes.c_int,  # gen_lto
         ctypes.c_int,  # opt_level
         ctypes.c_int,  # gen_lineinfo
+        ctypes.c_char_p,  # nvvm_options
         ctypes.c_int,  # nvvm_ir_major
         ctypes.c_int,  # nvvm_ir_minor
         ctypes.c_int,  # nvvm_dbg_major
@@ -156,7 +157,6 @@ def _get_llvm70_capi():
         ctypes.POINTER(ctypes.c_char_p),  # out
         ctypes.POINTER(ctypes.c_size_t),  # out_len
         ctypes.POINTER(ctypes.c_char_p),  # err_out
-        ctypes.c_char_p,  # nvvm_options, trailing so a stale library ignores it
     ]
     lib.llvm70_free.restype = None
     lib.llvm70_free.argtypes = [ctypes.c_void_p]
@@ -265,6 +265,7 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
         1 if gen_lto else 0,
         opt_level,
         debug_level,
+        nvvm_options_arg,
         nvvm_ir_version[0],
         nvvm_ir_version[1],
         nvvm_ir_version[2],
@@ -272,7 +273,6 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
         ctypes.byref(out),
         ctypes.byref(out_len),
         ctypes.byref(err_out),
-        nvvm_options_arg,
     )
 
     if rc != 0:

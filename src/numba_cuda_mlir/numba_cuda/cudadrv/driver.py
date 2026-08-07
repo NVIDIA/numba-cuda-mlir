@@ -2177,6 +2177,24 @@ class CudaPythonFunction:
 Function = CudaPythonFunction
 
 
+class _NumericBoolLinkerOptions(LinkerOptions):
+    # WAR: cuda-core (<= 1.1.1) renders -ftz=true, which nvJitLink's NVVM stage rejects; it requires -ftz=1 / -ftz=0.
+    def _prepare_nvjitlink_options(self, *args, **kwargs):
+        rendered = super()._prepare_nvjitlink_options(*args, **kwargs)
+        as_bytes = bool(rendered) and isinstance(rendered[0], bytes)
+        flag_opts = ("-ftz", "-prec-div", "-prec-sqrt", "-fma")
+        prefixes = tuple(k.encode() for k in flag_opts) if as_bytes else flag_opts
+        true_pair, false_pair = (
+            ((b"=true", b"=1"), (b"=false", b"=0"))
+            if as_bytes
+            else (("=true", "=1"), ("=false", "=0"))
+        )
+        return [
+            o.replace(*true_pair).replace(*false_pair) if o.startswith(prefixes) else o
+            for o in rendered
+        ]
+
+
 class _Linker:
     def __init__(
         self,
@@ -2431,7 +2449,7 @@ class _Linker:
         else:
             opt_level = self._optimization_level
 
-        options = LinkerOptions(
+        options = _NumericBoolLinkerOptions(
             max_register_count=self.max_registers,
             lineinfo=self.lineinfo,
             arch=self.arch,

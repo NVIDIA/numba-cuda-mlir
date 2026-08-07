@@ -163,6 +163,15 @@ class MLIRLower(object):
             ptxas_options=self.targetoptions.get("ptxas_options", None),
             max_registers=self.targetoptions.get("max_registers", None),
         )
+        from numba_cuda_mlir.fastmath import nvvm_fastmath_options
+
+        module_flags = nvvm_fastmath_options(self.targetoptions.get("fastmath", False))
+        self._linker_config.update(
+            ftz=module_flags.get("ftz"),
+            prec_div=module_flags.get("prec_div"),
+            prec_sqrt=module_flags.get("prec_sqrt"),
+            fma=module_flags.get("fma"),
+        )
         self._seen_mlir_libraries = set()
         self._cloned_device_funcs: set[str] = set()
         self._linked_external_items = set()
@@ -349,6 +358,7 @@ class MLIRLower(object):
                 self._mlir_module = ir.Module.create()
                 self.setup_func_op()
                 self.lower_function_body()
+                self._apply_fastmath_flags()
                 self.lower_capi_thunks()
                 needs_nrt = self._function_needs_nrt()
                 if needs_nrt:
@@ -365,6 +375,18 @@ class MLIRLower(object):
                     self.metadata["teardown_callbacks"] = self._teardown_callbacks
         finally:
             numba_cuda_mlir_context._compilation_options.reset(token)
+
+    def _apply_fastmath_flags(self):
+        """Stamp per-op ``#arith.fastmath`` attributes and rewrite f32 tanh."""
+        from numba_cuda_mlir.fastmath import (
+            apply_fastmath_to_function,
+            rewrite_approx_tanh,
+        )
+
+        fastmath = self.targetoptions.get("fastmath", False)
+        if fastmath:
+            apply_fastmath_to_function(self.mlir_funcOp, fastmath)
+            rewrite_approx_tanh(self.mlir_funcOp, fastmath, chip=self.targetoptions.get("chip"))
 
     @property
     def mlir_module(self) -> ir.Module:
@@ -495,7 +517,11 @@ extern "C" __global__ void
             chip = 'chip = "' + self.targetoptions["chip"] + '"'
             opt_level = int(self.targetoptions.get("opt_level", 2))
             flags = []
-            if self.targetoptions.get("fastmath", False):
+            from numba_cuda_mlir.fastmath import parse_fastmath
+
+            fastmath = parse_fastmath(self.targetoptions.get("fastmath", False))
+            # The target flag is all-or-nothing; subsets are per-op attributes.
+            if "fast" in fastmath.flags:
                 flags.extend(["fast"])
             features = self.targetoptions.get("features", "")
             if not features or "+ptx" not in features:

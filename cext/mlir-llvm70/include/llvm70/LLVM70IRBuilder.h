@@ -67,6 +67,7 @@ public:
   LLVMValueRef getParam(LLVMValueRef fn, unsigned idx);
   unsigned countParams(LLVMValueRef fn);
   void setValueName(LLVMValueRef val, const char *name);
+  bool isInstruction(LLVMValueRef val);
 
   // --- Basic blocks ---
   LLVMBasicBlockRef appendBB(LLVMValueRef fn, const char *name);
@@ -299,6 +300,7 @@ private:
   LLVM_FN(LLVMValueRef, fnGetParam, LLVMValueRef, unsigned)
   LLVM_FN(unsigned, fnCountParams, LLVMValueRef)
   LLVM_FN(void, fnSetValueName2, LLVMValueRef, const char *, size_t)
+  LLVM_FN(LLVMValueRef, fnIsAInstruction, LLVMValueRef)
 
   // Basic blocks
   LLVM_FN(LLVMBasicBlockRef, fnAppendBB, LLVMContextRef, LLVMValueRef,

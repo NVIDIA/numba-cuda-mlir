@@ -88,6 +88,7 @@ llvm::Error LLVM70IRBuilder::resolveSymbols() {
   RESOLVE(fnGetParam, "LLVMGetParam");
   RESOLVE(fnCountParams, "LLVMCountParams");
   RESOLVE(fnSetValueName2, "LLVMSetValueName2");
+  RESOLVE(fnIsAInstruction, "LLVMIsAInstruction");
 
   // Basic blocks
   RESOLVE(fnAppendBB, "LLVMAppendBasicBlockInContext");
@@ -294,6 +295,10 @@ LLVMValueRef LLVM70IRBuilder::getParam(LLVMValueRef fn, unsigned idx) {
 unsigned LLVM70IRBuilder::countParams(LLVMValueRef fn) {
   return fnCountParams(fn);
 }
+bool LLVM70IRBuilder::isInstruction(LLVMValueRef v) {
+  return fnIsAInstruction(v) != nullptr;
+}
+
 void LLVM70IRBuilder::setValueName(LLVMValueRef v, const char *name) {
   fnSetValueName2(v, name, strlen(name));
 }

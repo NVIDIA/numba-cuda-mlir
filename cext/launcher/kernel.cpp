@@ -705,12 +705,12 @@ std::vector<bool> effective_constant_arg_flags(
         const std::vector<PyTypeObject*>& arg_types) {
     assert(constant_arg_flags.size() == literal_arg_flags.size());
 
-    // Tuple/list arguments are flattened before the native launch, while the
-    // flags describe top-level Python parameters. Literal retry rejects that
-    // ABI today, but every profile still needs one safe flag per native arg.
+    // Tuple/list and extension-owned arguments can be flattened before the
+    // native launch, while the flags describe top-level Python parameters.
+    // No flag can be mapped safely unless both arities still match exactly.
     std::vector<bool> effective_flags(arg_types.size(), false);
-    const size_t represented_arg_count = std::min(arg_types.size(), constant_arg_flags.size());
-    for (size_t i = 0; i < represented_arg_count; ++i) {
+    if (arg_types.size() != constant_arg_flags.size()) return effective_flags;
+    for (size_t i = 0; i < arg_types.size(); ++i) {
         // Numba literal typing accepts exact built-in int/bool values, not
         // int subclasses, IntEnum members, or NumPy integer scalars.
         bool literal_eligible = arg_types[i] == &PyLong_Type || arg_types[i] == &PyBool_Type;

@@ -121,7 +121,7 @@ def _cast_mini_masked_to_int(context, builder, fromty, toty, val):
         container=val,
         position=mlir_ir.DenseI64ArrayAttr.get([0]),
     )
-    return convert(stored, result_ty)
+    return convert(stored, result_ty, signed=True)
 
 
 @lower_cast(types.Integer, MiniMaskedType)

@@ -98,6 +98,29 @@ def test_extending_overload_without_lowering():
     k[1, 1](x)
 
 
+def test_extending_variadic_overload():
+    def add(*args):
+        raise NotImplementedError
+
+    @extending.overload(add, typing_registry=extending.typing_registry)
+    def add_overload(*args):
+        def impl(*args):
+            return args[0] + args[1]
+
+        return impl
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(out, values):
+        out[0] = add(values[0], values[1])
+
+    out = np.zeros(1, dtype=np.int32)
+    values = np.array([20, 22], dtype=np.int32)
+    kernel[1, 1](out, values)
+    assert out[0] == 42
+
+
 def test_extending_overload_method():
     """User-defined @overload_method dispatches through BoundFunction."""
 

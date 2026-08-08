@@ -1906,8 +1906,9 @@ extern "C" __global__ void
             )
 
         callee_type = get_func_type(callee)
+        flat_call_vars = self._flatten_abi_value(call_vars)
         call_args = [
-            convert(val, ty) for val, ty in zip(self.load_vars(call_vars), callee_type.inputs)
+            convert(val, ty) for val, ty in zip(self.load_vars(flat_call_vars), callee_type.inputs)
         ]
         call_result = func.call(
             result=callee_type.results,

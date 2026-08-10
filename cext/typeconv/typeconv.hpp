@@ -3,6 +3,8 @@
 
 #ifndef NUMBA_TYPECONV_HPP_
 #define NUMBA_TYPECONV_HPP_
+#include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <vector>
 
@@ -86,11 +88,15 @@ public:
                       ) const;
 
 private:
+    void addCompatibilityUnlocked(Type from, Type to, TypeCompatibleCode tcc);
+    TypeCompatibleCode isCompatibleUnlocked(Type from, Type to) const;
+
     int _selectOverload(const Type sig[], const Type ovsigs[], int &selected,
                         int sigsz, int ovct, bool allow_unsafe,
                         bool exact_match_required,
                         Rating ratings[], int candidates[]) const;
 
+    mutable std::shared_mutex mutex;
     TCCMap tccmap;
 };
 

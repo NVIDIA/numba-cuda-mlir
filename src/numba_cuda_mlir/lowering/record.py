@@ -106,6 +106,8 @@ def lower_record_getattr(
     if isinstance(field_numba_type, NestedArray):
         # Nested array field - create a memref pointing to the data
         result = _load_nested_array_field(builder, field_ptr, field_numba_type, record_type)
+    elif isinstance(field_numba_type, Record):
+        result = field_ptr
     else:
         # Scalar field - load directly
         field_mlir_type = builder.get_mlir_type(field_numba_type)
@@ -333,6 +335,8 @@ def lower_record_static_getitem_str(builder, target, args, kwargs):
 
     if isinstance(field_numba_type, NestedArray):
         result = _load_nested_array_field(builder, field_ptr, field_numba_type, record_type)
+    elif isinstance(field_numba_type, Record):
+        result = field_ptr
     else:
         field_mlir_type = builder.get_mlir_type(field_numba_type)
         field_storage_type = builder.get_storage_type(field_numba_type)
@@ -384,6 +388,8 @@ def lower_record_static_getitem_int(builder, target, args, kwargs):
 
     if isinstance(field_numba_type, NestedArray):
         result = _load_nested_array_field(builder, field_ptr, field_numba_type, record_type)
+    elif isinstance(field_numba_type, Record):
+        result = field_ptr
     else:
         field_mlir_type = builder.get_mlir_type(field_numba_type)
         field_storage_type = builder.get_storage_type(field_numba_type)
@@ -508,7 +514,9 @@ def lower_nested_array_getitem_int(builder, target, args, kwargs):
 
     # Load and return the element
     elem_mlir_type = builder.get_mlir_type(nested_type.dtype)
-    if _is_complex_type(elem_mlir_type):
+    if isinstance(nested_type.dtype, Record):
+        result = elem_ptr
+    elif _is_complex_type(elem_mlir_type):
         struct_type = _get_llvm_struct_for_complex(elem_mlir_type)
         struct_val = llvm.load(struct_type, elem_ptr)
         result = _llvm_struct_to_complex(struct_val, elem_mlir_type)
@@ -591,7 +599,9 @@ def lower_nested_array_getitem_tuple(builder, target, args, kwargs):
 
     # Load and return the element
     elem_mlir_type = builder.get_mlir_type(nested_type.dtype)
-    if _is_complex_type(elem_mlir_type):
+    if isinstance(nested_type.dtype, Record):
+        result = elem_ptr
+    elif _is_complex_type(elem_mlir_type):
         struct_type = _get_llvm_struct_for_complex(elem_mlir_type)
         struct_val = llvm.load(struct_type, elem_ptr)
         result = _llvm_struct_to_complex(struct_val, elem_mlir_type)

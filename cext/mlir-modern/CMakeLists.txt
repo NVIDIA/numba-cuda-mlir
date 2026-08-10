@@ -6,6 +6,7 @@ project(MLIRModernToNVVM LANGUAGES C CXX)
 
 find_package(LLVM REQUIRED CONFIG)
 find_package(MLIR REQUIRED CONFIG)
+find_package(Threads REQUIRED)
 
 list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}" "${MLIR_CMAKE_DIR}")
 include(AddLLVM)
@@ -44,6 +45,7 @@ target_link_libraries(MLIRModernToNVVM
     LLVMCore
     LLVMBitWriter
     LLVMSupport
+    Threads::Threads
 )
 
 if(MSVC)
@@ -60,7 +62,11 @@ set_target_properties(MLIRModernToNVVM PROPERTIES
 add_executable(MLIRModernToNVVMSmoke
   ModernBridgeSmoke.cpp
 )
-target_link_libraries(MLIRModernToNVVMSmoke PRIVATE MLIRModernToNVVM)
+target_link_libraries(MLIRModernToNVVMSmoke
+  PRIVATE
+    MLIRModernToNVVM
+    Threads::Threads
+)
 set_target_properties(MLIRModernToNVVMSmoke PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )

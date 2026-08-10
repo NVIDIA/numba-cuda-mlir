@@ -131,6 +131,7 @@ private:
   llvm::Error translateGEPOp(mlir::Operation *op);
   llvm::Error translateCastOp(mlir::Operation *op);
   llvm::Error translateSelectOp(mlir::Operation *op);
+  llvm::Error translateAssumeOp(mlir::Operation *op);
   llvm::Error translateExtractValueOp(mlir::Operation *op);
   llvm::Error translateInsertValueOp(mlir::Operation *op);
   llvm::Error translateExtractElementOp(mlir::Operation *op);

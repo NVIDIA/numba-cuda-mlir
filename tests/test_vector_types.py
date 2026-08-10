@@ -616,3 +616,130 @@ def test_cuda_vector_fancy_creation():
         1.0,  # f4_6: (f1_1, f1_1, f1_1, f1_1)
     ]
     np.testing.assert_allclose(res, expected)
+
+
+# ---------------------------------------------------------------------------
+# Regression: compile-time-constant vector stores.
+#
+# Storing a compile-time-constant floating-point vector into a vector-typed
+# array (the `dense<>` constant path) was miscompiled to an all-zero result on
+# Windows. The bridge and the MLIR Python bindings embed distinct LLVM copies,
+# and without ELF-style symbol interposition APFloat's fltSemantics singletons
+# differ across the module boundary, so the dense float element iterator
+# silently yielded zero. Integer constant vectors and runtime-built floating
+# vectors were unaffected. See LLVM70Target.cpp::translateConstantOp.
+# ---------------------------------------------------------------------------
+
+
+def _store_constant_vector_kernel(vec_type, values):
+    """Build a kernel that stores a constant `vec_type` into a vector view."""
+    if len(values) == 1:
+        (e0,) = values
+
+        @cuda.jit
+        def kernel(out):
+            out.view(vec_type)[0] = vec_type(e0)
+
+    elif len(values) == 2:
+        e0, e1 = values
+
+        @cuda.jit
+        def kernel(out):
+            out.view(vec_type)[0] = vec_type(e0, e1)
+
+    elif len(values) == 3:
+        e0, e1, e2 = values
+
+        @cuda.jit
+        def kernel(out):
+            out.view(vec_type)[0] = vec_type(e0, e1, e2)
+
+    else:
+        e0, e1, e2, e3 = values
+
+        @cuda.jit
+        def kernel(out):
+            out.view(vec_type)[0] = vec_type(e0, e1, e2, e3)
+
+    return kernel
+
+
+_CONSTANT_VECTOR_CASES = [
+    (cuda.float16x2, np.float16, (1.0, 2.0)),
+    (cuda.float16x4, np.float16, (1.0, 2.0, 3.0, 4.0)),
+    (cuda.float32x2, np.float32, (1.0, 2.0)),
+    (cuda.float32x3, np.float32, (1.0, 2.0, 3.0)),
+    (cuda.float32x4, np.float32, (1.0, 2.0, 3.0, 4.0)),
+    (cuda.float64x2, np.float64, (1.0, 2.0)),
+    (cuda.float64x3, np.float64, (1.0, 2.0, 3.0)),
+    (cuda.float64x4, np.float64, (1.0, 2.0, 3.0, 4.0)),
+    # Integer constant vectors were never broken; kept as controls.
+    (cuda.int32x2, np.int32, (5, 6)),
+    (cuda.int32x4, np.int32, (5, 6, 7, 8)),
+]
+
+
+@pytest.mark.parametrize(
+    "vec_type,dtype,values",
+    _CONSTANT_VECTOR_CASES,
+    ids=[case[0].name for case in _CONSTANT_VECTOR_CASES],
+)
+def test_constant_vector_store(vec_type, dtype, values):
+    """A compile-time-constant vector must survive the store round-trip."""
+    kernel = _store_constant_vector_kernel(vec_type, values)
+
+    out = np.zeros(len(values), dtype=dtype)
+    kernel[1, 1](out)
+    cuda.synchronize()
+
+    np.testing.assert_allclose(out.tolist(), values)
+
+
+@pytest.mark.parametrize(
+    "vec_type,dtype,values",
+    [
+        (cuda.float32x2, np.float32, (1.0, 2.0)),
+        (cuda.float64x2, np.float64, (3.0, 4.0)),
+    ],
+    ids=["float32x2", "float64x2"],
+)
+def test_runtime_vector_store_matches_constant(vec_type, dtype, values):
+    """Control: a runtime-built float vector store must also round-trip.
+
+    This exercises the insertelement path (as opposed to the dense<> constant
+    path) and guards against a regression in either construction route.
+    """
+    a, b = values
+
+    @cuda.jit
+    def kernel(out, x, y):
+        out.view(vec_type)[0] = vec_type(x, y)
+
+    out = np.zeros(len(values), dtype=dtype)
+    kernel[1, 1](out, dtype(a), dtype(b))
+    cuda.synchronize()
+
+    np.testing.assert_allclose(out.tolist(), values)
+
+
+def test_constant_vector_store_not_zeroed_in_ptx():
+    """The generated PTX must not collapse the FP constant vector to zero.
+
+    A PTX-level check that pins the exact failure mode (`0f00000000` for every
+    lane) independently of GPU execution.
+    """
+    e0, e1 = 1.0, 2.0
+
+    @cuda.jit
+    def kernel(out):
+        out.view(cuda.float32x2)[0] = cuda.float32x2(e0, e1)
+
+    out = np.zeros(2, dtype=np.float32)
+    kernel[1, 1](out)
+
+    (ptx,) = kernel.inspect_ptx().values()
+    if isinstance(ptx, bytes):
+        ptx = ptx.decode()
+    # 1.0f and 2.0f encode as 0f3F800000 and 0f40000000 respectively.
+    assert "0f3F800000" in ptx
+    assert "0f40000000" in ptx

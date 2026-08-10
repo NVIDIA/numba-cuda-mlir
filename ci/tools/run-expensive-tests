@@ -128,7 +128,7 @@ fi
 "${PIP}" list
 
 echo "Running expensive numba-cuda-mlir tests for CUDA ${CUDA_VERSION}"
-"${PYTHON}" -m pytest tests/benchmarks \
+"${PYTHON}" -m pytest tests/benchmarks tests/test_symbol_isolation.py \
   -v \
   --tb=short \
   -W ignore::UserWarning \

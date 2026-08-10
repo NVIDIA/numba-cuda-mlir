@@ -4,9 +4,12 @@
  */
 #include "ModernBridge.h"
 
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <thread>
+#include <vector>
 
 static int run_case(const char *name, const char *mlir, int ctk_major = 13,
                     int ctk_minor = 0, bool emit_text_ir = false) {
@@ -45,10 +48,71 @@ static int run_case(const char *name, const char *mlir, int ctk_major = 13,
     return 0;
 }
 
-int main() {
-    int failures = 0;
+static int run_version_case(const char *mlir, int ir_major, int ir_minor,
+                            int debug_major, int debug_minor) {
+    char *out = nullptr;
+    size_t out_len = 0;
+    char *error = nullptr;
+    int rc = mlir_modern_to_nvvm_translate_for_libnvvm(
+        mlir, std::strlen(mlir), 13, 0, ir_major, ir_minor, debug_major,
+        debug_minor, 0, 1, &out, &out_len, &error);
+    if (rc != 0) {
+        std::fprintf(stderr, "concurrent bridge case failed: %s\n",
+                     error ? error : "unknown error");
+        mlir_modern_to_nvvm_free(out);
+        mlir_modern_to_nvvm_free(error);
+        return 1;
+    }
 
-    static const char simple_kernel[] = R"MLIR(
+    std::string text(out ? out : "", out_len);
+    char expected[128];
+    std::snprintf(expected, sizeof(expected),
+                  "!{i32 %d, i32 %d, i32 %d, i32 %d}", ir_major,
+                  ir_minor, debug_major, debug_minor);
+    bool found = text.find(expected) != std::string::npos;
+    if (!found)
+        std::fprintf(stderr,
+                     "concurrent bridge case expected NVVM version %s\n",
+                     expected);
+    mlir_modern_to_nvvm_free(out);
+    return found ? 0 : 1;
+}
+
+static int run_concurrent_version_cases(const char *mlir) {
+    constexpr int num_threads = 8;
+    constexpr int rounds = 4;
+    std::atomic<int> ready{0};
+    std::atomic<int> failures{0};
+    std::atomic<bool> start{false};
+    std::vector<std::thread> workers;
+    workers.reserve(num_threads);
+
+    for (int worker = 0; worker < num_threads; ++worker) {
+        workers.emplace_back([&, worker] {
+            ready.fetch_add(1, std::memory_order_release);
+            while (!start.load(std::memory_order_acquire))
+                std::this_thread::yield();
+
+            for (int round = 0; round < rounds; ++round) {
+                int version = 1000 + worker * rounds + round;
+                failures.fetch_add(
+                    run_version_case(mlir, version, version + 100,
+                                     version + 200, version + 300),
+                    std::memory_order_relaxed);
+            }
+        });
+    }
+
+    while (ready.load(std::memory_order_acquire) != num_threads)
+        std::this_thread::yield();
+    start.store(true, std::memory_order_release);
+
+    for (auto &worker : workers)
+        worker.join();
+    return failures.load(std::memory_order_relaxed) == 0 ? 0 : 1;
+}
+
+static const char simple_kernel[] = R"MLIR(
 gpu.module @kernels attributes {
   llvm.data_layout = "e-i64:64-i128:128-v16:16-v32:32-n16:32:64-S128",
   llvm.target_triple = "nvptx64-nvidia-cuda"
@@ -58,8 +122,13 @@ gpu.module @kernels attributes {
   }
 }
 )MLIR";
+
+int main() {
+    int failures = 0;
+
     failures += run_case("simple-kernel", simple_kernel);
     failures += run_case("simple-kernel-text", simple_kernel, 13, 0, true);
+    failures += run_concurrent_version_cases(simple_kernel);
 
     static const char nvvm_intrinsics[] = R"MLIR(
 gpu.module @kernels attributes {

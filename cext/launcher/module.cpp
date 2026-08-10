@@ -31,6 +31,10 @@ PyMODINIT_FUNC PyInit__cext() {
 
     PyPtr m = steal(PyModule_Create(&module_def));
     if (!m) return nullptr;
+#if !defined(Py_LIMITED_API) && defined(Py_GIL_DISABLED)
+    if (PyUnstable_Module_SetGIL(m.get(), Py_MOD_GIL_NOT_USED) < 0)
+        return nullptr;
+#endif
 
     if (!kernel_init(m.get()))
         return nullptr;
@@ -39,6 +43,10 @@ PyMODINIT_FUNC PyInit__cext() {
         return nullptr;
 
     if (!llvm_downgrade_init(m.get()))
+        return nullptr;
+
+    if (PyModule_AddIntConstant(m.get(), "cuda_available",
+                                cuda_is_available() ? 1 : 0) < 0)
         return nullptr;
 
     return m.release();

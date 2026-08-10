@@ -49,6 +49,11 @@ elif [[ "${1}" == "test" ]]; then
   TEST_CUDA_MAJOR="$(cut -d '.' -f 1 <<< ${CUDA_VER})"
   TEST_CUDA_MINOR="$(cut -d '.' -f 2 <<< ${CUDA_VER})"
   NUMBA_CUDA_MLIR_CUDA_ARTIFACT_BASENAME="numba-cuda-mlir-python${PYTHON_VERSION_FORMATTED}-${HOST_PLATFORM}"
+  if [[ "${PY_VER}" == *t ]]; then
+    NUMBA_CUDA_MLIR_FT_STRESS=1
+  else
+    NUMBA_CUDA_MLIR_FT_STRESS=0
+  fi
 #  # We don't test compute-sanitizer on CTK<12 because backporting fixes is too much effort
 #  # We only test compute-sanitizer on python 3.12 arbitrarily; we don't need to use sanitizer on the entire matrix
 #  # Only local ctk installs have compute-sanitizer; there is no wheel for it
@@ -64,6 +69,7 @@ elif [[ "${1}" == "test" ]]; then
     echo "SANITIZER_CMD="
     echo "TEST_CUDA_MAJOR=${TEST_CUDA_MAJOR}"
     echo "TEST_CUDA_MINOR=${TEST_CUDA_MINOR}"
+    echo "NUMBA_CUDA_MLIR_FT_STRESS=${NUMBA_CUDA_MLIR_FT_STRESS}"
   } >> "$GITHUB_ENV"
 fi
 

@@ -777,7 +777,7 @@ def test_mlir_poly_scalar_var_runtime_debug():
 
 
 def test_mlir_di_bitwise_result_int32():
-    """Bitwise AND/OR/XOR on int32 operands must appear as int32 in DWARF (nvbug5936795)."""
+    """Bitwise AND/OR/XOR on int32 operands must appear as int32 in DWARF."""
 
     def k(out, a, b):
         result_and = a & b
@@ -799,6 +799,43 @@ def test_mlir_di_bitwise_result_int32():
         CHECK: di_local_variable<{{.*}}name = "result_and"{{.*}}type = #[[INT32]]
         CHECK: di_local_variable<{{.*}}name = "result_or"{{.*}}type = #[[INT32]]
         CHECK: di_local_variable<{{.*}}name = "result_xor"{{.*}}type = #[[INT32]]
+        """,
+        mlir,
+    )
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize(
+    "int_arg, expected_name, size_bits, encoding",
+    [
+        (np.int8, "int8", 8, "DW_ATE_signed"),
+        (np.int16, "int16", 16, "DW_ATE_signed"),
+        (np.int32, "int32", 32, "DW_ATE_signed"),
+        (np.int64, "int64", 64, "DW_ATE_signed"),
+        (np.uint8, "uint8", 8, "DW_ATE_unsigned"),
+        (np.uint16, "uint16", 16, "DW_ATE_unsigned"),
+        (np.uint32, "uint32", 32, "DW_ATE_unsigned"),
+        (np.uint64, "uint64", 64, "DW_ATE_unsigned"),
+    ],
+)
+def test_mlir_scalar_int_arg_type(int_arg, expected_name, size_bits, encoding):
+    """A numpy integer scalar arg keeps its width on the lazy JIT path."""
+
+    @cuda.jit(debug=True, opt=False)
+    def k(out, x):
+        out[0] = x
+
+    out = np.zeros(1, dtype=np.int64)
+    # Signature-less launch: the scalar's type is inferred from the value.
+    k[1, 1](out, int_arg(42))
+
+    (sig,) = k.overloads
+    mlir = k.inspect_mlir(sig)
+    testing.filecheck(
+        f"""
+        CHECK: di_basic_type<tag = DW_TAG_base_type, name = "{expected_name}"
+        CHECK-SAME: sizeInBits = {size_bits}
+        CHECK-SAME: encoding = {encoding}
         """,
         mlir,
     )

@@ -26,6 +26,12 @@ recordwith2darray = np.dtype([("i", np.int32), ("j", np.float32, (3, 2))])
 
 recordwithvaluestorage = np.dtype([("h", np.float16), ("flag", np.bool_)], align=True)
 
+nestedrecordwitharray = np.dtype([("inner", [("a", np.float64), ("b", np.float64)], (1,))])
+
+nestedrecordwith2darray = np.dtype([("inner", [("a", np.float64), ("b", np.float64)], (2, 2))])
+
+nestedrecord = np.dtype([("inner", [("a", np.float64), ("b", np.float64)])])
+
 
 class TestRecordTypeModel:
     """Test that Record types can be converted to MLIR types."""
@@ -252,6 +258,62 @@ class TestRecordFieldAccess:
         result = arr.copy_to_host()
         np.testing.assert_allclose(result["h"], np.array([1.5, 2.5], dtype=np.float16))
         np.testing.assert_array_equal(result["flag"], np.array([True, False]))
+
+    @pytest.mark.skipif(not cuda.is_available(), reason="CUDA not available")
+    def test_set_nested_record_fields(self):
+        @cuda.jit
+        def set_fields(ary, scalar_ary):
+            ary[0]["inner"][0]["a"] = 11.0
+            ary[0]["inner"][0]["b"] = 22.0
+            scalar_ary[0]["inner"]["a"] = 33.0
+            scalar_ary[0]["inner"]["b"] = 44.0
+
+        arr = cuda.to_device(np.zeros(2, dtype=nestedrecordwitharray))
+        scalar_arr = cuda.to_device(np.zeros(2, dtype=nestedrecord))
+        set_fields[1, 1](arr, scalar_arr)
+        result = arr.copy_to_host()
+        scalar_result = scalar_arr.copy_to_host()
+        np.testing.assert_equal(result[0]["inner"][0]["a"], 11.0)
+        np.testing.assert_equal(result[0]["inner"][0]["b"], 22.0)
+        np.testing.assert_equal(scalar_result[0]["inner"]["a"], 33.0)
+        np.testing.assert_equal(scalar_result[0]["inner"]["b"], 44.0)
+
+    @pytest.mark.skipif(not cuda.is_available(), reason="CUDA not available")
+    def test_read_nested_record_field(self):
+        # Regression for #214: reading a field of a scalar sub-record at a
+        # runtime index (rec[i]["inner"]["a"]) used to scalar-load the
+        # sub-record and dereference that value as a pointer -> illegal memory
+        # access. Fixed by #160; existing coverage only exercised the nested
+        # *array* read and the nested write, not this scalar sub-record read.
+        outer = np.dtype([("inner", [("a", np.float64), ("b", np.float64)]), ("scale", np.float64)])
+
+        @cuda.jit
+        def read_nested(rec, out):
+            i = cuda.grid(1)
+            if i < rec.shape[0]:
+                out[i] = rec[i]["inner"]["a"] * rec[i]["scale"]
+
+        arr = np.zeros(1, dtype=outer)
+        arr["inner"]["a"] = 5.0
+        arr["scale"] = 2.0
+        arr = cuda.to_device(arr)
+        out = cuda.to_device(np.zeros(1, dtype=np.float64))
+
+        read_nested[1, 1](arr, out)
+        np.testing.assert_equal(out.copy_to_host()[0], 10.0)
+
+    def test_read_tuple_indexed_nested_record_field(self):
+        @cuda.jit
+        def read_field(ary, out):
+            out[0] = ary[0]["inner"][0, 1]["a"]
+
+        arr = np.zeros(1, dtype=nestedrecordwith2darray)
+        arr[0]["inner"][0, 1]["a"] = 42.0
+        arr = cuda.to_device(arr)
+        out = cuda.to_device(np.zeros(1, dtype=np.float64))
+
+        read_field[1, 1](arr, out)
+        np.testing.assert_equal(out.copy_to_host()[0], 42.0)
 
 
 @pytest.mark.skip(reason="Causes memory errors")

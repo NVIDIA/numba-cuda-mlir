@@ -50,10 +50,15 @@ from numba_cuda_mlir.numba_cuda.core.untyped_passes import (
 from numba_cuda_mlir.numbair_transforms import (
     NumbaCudaMlirLiteralUnroll,
     NumbaCudaMlirInlineInlinables,
+    PostInlineWholeFunctionPlanners,
 )
 
 import numba_cuda_mlir.mlir_lowering as lowering
 import numba_cuda_mlir.mlir_optimization as opt
+from numba_cuda_mlir._launch_config import (
+    _LAUNCH_CONFIG_TRACKER_METADATA_KEY,
+    _LAUNCH_CONFIG_TRACKER_OPTION,
+)
 from numba_cuda_mlir.decorators import mlir_jit
 from numba_cuda_mlir.ast_transforms import apply_ast_transforms
 from numba_cuda_mlir.errors import (
@@ -207,7 +212,10 @@ class MLIRBackend(LoweringPass):
         return True
 
 
-def get_compiler_class(targetoptions: Dict[str, Any]):
+def get_compiler_class(
+    targetoptions: Dict[str, Any],
+    launch_config_tracker=None,
+):
     class MLIRCompiler(CompilerBase):
         def define_pipelines(self):
             dpb = DefaultPassBuilder
@@ -223,6 +231,12 @@ def get_compiler_class(targetoptions: Dict[str, Any]):
                     modified_passes.append((NumbaCudaMlirLiteralUnroll, desc))
                 elif impl is InlineInlinables:
                     modified_passes.append((NumbaCudaMlirInlineInlinables, desc))
+                    modified_passes.append(
+                        (
+                            PostInlineWholeFunctionPlanners,
+                            "post-inline whole-function extension planners",
+                        )
+                    )
                 else:
                     modified_passes.append((impl, desc))
             pm.passes.extend(modified_passes)
@@ -285,6 +299,8 @@ def get_compiler_class(targetoptions: Dict[str, Any]):
             super().__init__(typingctx, targetctx, library, args, return_type, flags, locals)
             # Attach options early so all passes can see them via state.metadata
             self.state.metadata["targetoptions"] = targetoptions
+            if launch_config_tracker is not None:
+                self.state.metadata[_LAUNCH_CONFIG_TRACKER_METADATA_KEY] = launch_config_tracker
 
     return MLIRCompiler
 
@@ -295,6 +311,7 @@ def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
     from numba_cuda_mlir.tools import resolve_gpu_target
 
     register_lowering()
+    launch_config_tracker = targetoptions.pop(_LAUNCH_CONFIG_TRACKER_OPTION, None)
     gpu_target = resolve_gpu_target(targetoptions)
     targetoptions["chip"] = gpu_target["chip"]
 
@@ -360,9 +377,10 @@ def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
             return_type=return_type,
             flags=flags,
             locals={},
-            pipeline_class=get_compiler_class(targetoptions),
+            pipeline_class=get_compiler_class(targetoptions, launch_config_tracker),
         )
 
+    cres.metadata.pop(_LAUNCH_CONFIG_TRACKER_METADATA_KEY, None)
     cres.metadata["targetoptions"] = targetoptions
     cres.metadata["gpu_target"] = gpu_target
     cres.metadata["transformed_source"] = transformed_source
@@ -434,6 +452,15 @@ def mlir_compiler_entry(
             argtypes.append(types.StarArgTuple.from_types(vararg_types))
             break
 
+        override_argtype = (
+            override_argtypes[i]
+            if override_argtypes is not None and i < len(override_argtypes)
+            else None
+        )
+        if isinstance(override_argtype, types.Literal):
+            argtypes.append(override_argtype)
+            continue
+
         annotation = param.annotation
 
         # If there's a Numba type annotation, use it directly
@@ -446,14 +473,14 @@ def mlir_compiler_entry(
                     argtypes.append(to_numba_type(annotation))
                 except (TypeError, NotImplementedError):
                     # Use override type if provided, otherwise infer from arg
-                    if override_argtypes is not None and i < len(override_argtypes):
-                        argtypes.append(override_argtypes[i])
+                    if override_argtype is not None:
+                        argtypes.append(override_argtype)
                     else:
                         argtypes.append(typeof(func_args_extended[i], Purpose.argument))
             else:
                 # Use override type if provided, otherwise infer from arg
-                if override_argtypes is not None and i < len(override_argtypes):
-                    argtypes.append(override_argtypes[i])
+                if override_argtype is not None:
+                    argtypes.append(override_argtype)
                 else:
                     argtypes.append(typeof(func_args_extended[i], Purpose.argument))
 

@@ -9,17 +9,11 @@ void log_python_error(const char* filename, int line, const char* level, SavedEx
                       const char* fmt, ...) {
     ErrorGuard guard;
 
-    static PyObject* kwnames = NULL;
-    if (!kwnames) {
-        kwnames = Py_BuildValue("(s)", "exc_info");
-        if (!kwnames) return;
-    }
+    PyPtr kwnames = steal(Py_BuildValue("(s)", "exc_info"));
+    if (!kwnames) return;
 
-    static PyObject* logging = NULL;
-    if (!logging) {
-        logging = try_import("logging").release();
-        if (!logging) return;
-    }
+    PyPtr logging = try_import("logging");
+    if (!logging) return;
 
     va_list a;
     va_start(a, fmt);
@@ -41,7 +35,7 @@ void log_python_error(const char* filename, int line, const char* level, SavedEx
                      Py_XNewRef(exc.traceback.get()));
 
     PyObject* args[2] = {formatted_message.get(), Py_True};
-    PyObject* res = PyObject_Vectorcall(func.get(), args, 1, kwnames);
+    PyObject* res = PyObject_Vectorcall(func.get(), args, 1, kwnames.get());
     Py_XDECREF(res);
 
     PyErr_SetExcInfo(old_excinfo_type, old_excinfo_value, old_excinfo_tb);

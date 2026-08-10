@@ -22,7 +22,7 @@ if command -v cygpath >/dev/null 2>&1; then
 fi
 
 coverage_packages=()
-pytest_args=(-v --tb=short -W ignore::UserWarning --ignore=tests/benchmarks -n auto --dist loadscope)
+pytest_args=(-v --tb=short -W ignore::UserWarning --ignore=tests/benchmarks --ignore=tests/test_symbol_isolation.py -n auto --dist loadscope)
 if [[ "${NUMBA_CUDA_MLIR_COVERAGE:-0}" == "1" ]]; then
   coverage_packages=(pytest-cov coverage)
   pytest_args+=(--cov=numba-cuda-mlir --cov=cuda --cov-report=term-missing)

@@ -3,7 +3,9 @@
 import collections
 from contextlib import contextmanager
 from dataclasses import dataclass
+import operator
 import sys
+import sysconfig
 import os
 import threading
 from functools import cached_property
@@ -38,6 +40,19 @@ from numba_cuda_mlir.numba_cuda.core.descriptors import TargetDescriptor
 from numba_cuda_mlir.numba_cuda.core.compiler_lock import global_compiler_lock
 from numba_cuda_mlir.numba_cuda.dispatcher import Dispatcher
 from numba_cuda_mlir.numba_cuda.core.options import TargetOptions
+from numba_cuda_mlir._whole_function_planners import (
+    _REQUIRED_DYNAMIC_SHARED_MEMORY_KEY,
+    _RequireLaunchConfig,
+    _planner_registry,
+)
+from numba_cuda_mlir._launch_config import (
+    _LAUNCH_CONFIG_TRACKER_OPTION,
+    _LaunchConfigTracker,
+    _is_launch_config_key_tuple,
+    _launch_config_dict_from_key,
+    _launch_config_key,
+    _normalize_available_launch_config,
+)
 from numba_cuda_mlir.numba_cuda.core.target_extension import (
     CPU,
     target_registry,
@@ -57,6 +72,27 @@ import pstats
 
 # Thread-local storage for passing original tuple arg types to _compile
 _compile_arg_types = threading.local()
+_PY_GIL_DISABLED = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
+_DISPATCHER_STATE_BOOTSTRAP_LOCK = threading.Lock()
+_DISPATCHER_STATE_ATTRS = (
+    "_launch_config_lock",
+    "_launch_lock",
+    "_launch_config_overloads",
+    "_launch_config_dispatchers",
+    "_launch_config_generation",
+    "_requires_launch_config",
+    "_literal_arg_positions",
+    "_launch_config_cache_misses",
+    "_launch_config_cache_hits",
+    "_launch_config_cache_notice_emitted",
+    "_old_dispatchers",
+    "_configure_cache",
+    "_configure_cache_inflight",
+)
+
+
+def _new_dispatcher_rlock():
+    return threading.RLock()
 
 
 def _is_strided_memory_view(arg):
@@ -326,58 +362,8 @@ class LaunchConfigInspectableKey:
     launch_config_key: tuple
 
 
-def _is_launch_config_key_tuple(value):
-    return (
-        isinstance(value, tuple)
-        and len(value) == 4
-        and all(isinstance(item, tuple) and len(item) == 2 for item in value)
-        and value[0][0] == "grid"
-        and value[1][0] == "block"
-        and value[2][0] == "sharedmem"
-        and value[3][0] == "cluster"
-    )
-
-
 def _is_launch_config_dict(value):
     return isinstance(value, dict) and "grid" in value and "block" in value
-
-
-def _launch_config_key(launch_config):
-    """Return the specialization key for a configure-produced launch config."""
-    if launch_config is None:
-        return None
-    block = launch_config.get("block")
-    if block is None:
-        raise ValueError("launch_config must contain a 'block' entry")
-    if not isinstance(block, tuple):
-        raise TypeError("launch_config 'block' must be a normalized tuple")
-    grid = launch_config.get("grid")
-    if grid is None:
-        raise ValueError("launch_config must contain a 'grid' entry")
-    if not isinstance(grid, tuple):
-        raise TypeError("launch_config 'grid' must be a normalized tuple")
-    cluster = launch_config.get("cluster")
-    if cluster is not None and not isinstance(cluster, tuple):
-        raise TypeError("launch_config 'cluster' must be a normalized tuple or None")
-    sharedmem = launch_config.get("sharedmem", 0)
-    if sharedmem is None:
-        sharedmem = 0
-    try:
-        sharedmem = int(sharedmem)
-    except (TypeError, ValueError):
-        raise TypeError("launch_config 'sharedmem' must be integer-convertible") from None
-    return (
-        ("grid", grid),
-        ("block", block),
-        ("sharedmem", sharedmem),
-        ("cluster", cluster),
-    )
-
-
-def _launch_config_dict_from_key(launch_config_key):
-    if not _is_launch_config_key_tuple(launch_config_key):
-        raise TypeError("launch_config_key must be a normalized launch-config key")
-    return {name: value for name, value in launch_config_key}
 
 
 def _normalize_launch_sharedmem(sharedmem):
@@ -429,9 +415,11 @@ class _ArgMarshaller:
         extensions=None,
         dispatcher=None,
         launch_config=None,
+        available_launch_config=None,
         kernel_dispatcher=None,
         launch_config_generation=None,
         stream_ref=None,
+        launch_stream=None,
     ):
         self._launcher = launcher
         self._callbacks = []
@@ -442,11 +430,15 @@ class _ArgMarshaller:
         self._extensions = list(extensions) if extensions is not None else []
         self._dispatcher = dispatcher
         self._launch_config = launch_config
+        self._available_launch_config = (
+            launch_config if available_launch_config is None else available_launch_config
+        )
         self._kernel_dispatcher = kernel_dispatcher
         self._launch_config_generation = launch_config_generation
         self._stream_ref = stream_ref
-        self._kernel_dispatcher_registered = False
-        self._kernel_dispatcher_registration_lock = threading.Lock()
+        self._launch_stream = launch_stream
+        self._adjusted_launcher_key = None
+        self._adjusted_launcher = None
         self._sig_cache = {}  # {type_key: (argtypes, fast_ok)}
         self._array_sig_cache = {}  # {type_key: [(argtypes, ((idx, array_key), ...))]}
 
@@ -467,7 +459,8 @@ class _ArgMarshaller:
             case np.datetime64() | np.timedelta64():
                 return arg
             case np.integer():
-                return int(arg)
+                # Keep as-is; C++ launcher handles np.integer directly.
+                return arg
             case np.float16():
                 # Keep as-is; C++ launcher handles f16 conversion
                 return arg
@@ -539,9 +532,10 @@ class _ArgMarshaller:
         extensions = (
             self._extensions if self._has_extension_snapshot else getattr(disp, "extensions", ())
         )
-        active_launch_config = (
-            self._launch_config if _extensions_use_launch_config(extensions) else None
+        uses_launch_config = _extensions_use_launch_config(extensions) or getattr(
+            disp, "_requires_launch_config", False
         )
+        active_launch_config = self._available_launch_config if uses_launch_config else None
         active_launch_config_key = _launch_config_key(active_launch_config)
         if active_launch_config_key is None:
             overload_argtypes = tuple(disp.overloads)
@@ -595,51 +589,143 @@ class _ArgMarshaller:
                 coerced_types.append(runtime_type)
         return coerced_args, coerced_types
 
-    def _launch(self, argtypes, launch_args):
+    def _launch(self, argtypes, launch_args, launch_values=None):
         """Set compile arg types and invoke the C++ launcher with error handling."""
         # Preserve existing thread-local state for nested launches triggered by
         # compile-time helpers.
+        if launch_values is None:
+            launch_values = launch_args
         previous_types = getattr(_compile_arg_types, "types", _MISSING)
+        previous_values = getattr(_compile_arg_types, "values", _MISSING)
         previous_launch_config = getattr(_compile_arg_types, "launch_config", _MISSING)
+        previous_available_launch_config = getattr(
+            _compile_arg_types, "available_launch_config", _MISSING
+        )
         previous_extensions = getattr(_compile_arg_types, "extensions", _MISSING)
         try:
             _compile_arg_types.types = argtypes
-            if self._launch_config is not None:
-                _compile_arg_types.launch_config = self._launch_config
-            elif hasattr(_compile_arg_types, "launch_config"):
-                delattr(_compile_arg_types, "launch_config")
+            _compile_arg_types.values = tuple(launch_values)
+            if self._available_launch_config is not None:
+                _compile_arg_types.available_launch_config = self._available_launch_config
+            elif hasattr(_compile_arg_types, "available_launch_config"):
+                delattr(_compile_arg_types, "available_launch_config")
             if self._has_extension_snapshot:
                 _compile_arg_types.extensions = self._extensions
             elif self._dispatcher is not None and hasattr(self._dispatcher, "extensions"):
                 _compile_arg_types.extensions = self._dispatcher.extensions
             elif hasattr(_compile_arg_types, "extensions"):
                 delattr(_compile_arg_types, "extensions")
-            if (
-                self._dispatcher is not None
-                and self._launch_config is not None
-                and self._kernel_dispatcher is not None
+
+            active_launch_config = self._launch_config
+            active_kernel_dispatcher = self._kernel_dispatcher
+            active_launch_config_generation = self._launch_config_generation
+            launcher = self._launcher
+            dispatcher = self._dispatcher
+            literal_prelaunch = bool(getattr(dispatcher, "_literal_arg_positions", ()))
+            literal_prelaunch_check = getattr(
+                dispatcher, "_literal_dispatcher_needs_prelaunch", None
+            )
+            if literal_prelaunch and literal_prelaunch_check is not None:
+                literal_prelaunch = literal_prelaunch_check(
+                    active_launch_config,
+                    active_kernel_dispatcher,
+                    active_launch_config_generation,
+                )
+            if dispatcher is not None and (
+                _planner_registry.has_planners
+                or getattr(dispatcher, "_requires_launch_config", False)
+                or self._launch_config is not None
+                or literal_prelaunch
             ):
-                with self._kernel_dispatcher_registration_lock:
-                    if self._kernel_dispatcher_registered and hasattr(
-                        self._dispatcher, "_is_kernel_dispatcher_registered"
-                    ):
-                        self._kernel_dispatcher_registered = (
-                            self._dispatcher._is_kernel_dispatcher_registered(
-                                self._launch_config,
-                                self._kernel_dispatcher,
-                                self._launch_config_generation,
-                            )
+                effective_argtypes = tuple(argtypes)
+                if getattr(dispatcher, "_literal_arg_positions", ()):
+                    effective_argtypes = dispatcher._literalize_argtypes(
+                        effective_argtypes,
+                        tuple(launch_values),
+                        abi_arg_count=len(launch_args),
+                    )
+                ready_launch = dispatcher._get_ready_launch(
+                    effective_argtypes,
+                    self._available_launch_config,
+                    self._launch_config,
+                    self._kernel_dispatcher,
+                    self._launch_config_generation,
+                )
+                if ready_launch is None:
+                    ready_launch = dispatcher._prepare_for_launch(
+                        tuple(launch_args),
+                        tuple(launch_values),
+                        tuple(argtypes),
+                        self._available_launch_config,
+                        self._launch_config,
+                        self._kernel_dispatcher,
+                        self._launch_config_generation,
+                    )
+                (
+                    active_kernel_dispatcher,
+                    active_launch_config_generation,
+                    active_launch_config,
+                    required_dynamic_shared_memory,
+                ) = ready_launch
+                if (
+                    active_kernel_dispatcher is not self._kernel_dispatcher
+                    or active_launch_config != self._launch_config
+                ):
+                    # A generic compile after recompile() replaces the native
+                    # dispatcher without activating launch metadata. Rebuild
+                    # the launcher from the configure-time geometry while
+                    # keeping launch_config absent from compiler TLS.
+                    launcher_config = (
+                        active_launch_config
+                        if active_launch_config is not None
+                        else self._available_launch_config
+                    )
+                    launcher = LaunchConfiguration(
+                        active_kernel_dispatcher,
+                        launcher_config["grid"],
+                        launcher_config["block"],
+                        self._launch_stream,
+                        launcher_config["sharedmem"],
+                        launcher_config.get("cluster"),
+                    )
+                    self._launcher = launcher
+                    self._launch_config = active_launch_config
+                    self._kernel_dispatcher = active_kernel_dispatcher
+                    self._launch_config_generation = active_launch_config_generation
+
+                launcher_config = (
+                    active_launch_config
+                    if active_launch_config is not None
+                    else self._available_launch_config
+                )
+                # Plain launch configurations may preserve backend-specific
+                # sharedmem sentinels; normalize only when an adjustment is needed.
+                if required_dynamic_shared_memory:
+                    configured_sharedmem = _normalize_launch_sharedmem(launcher_config["sharedmem"])
+                    effective_sharedmem = max(configured_sharedmem, required_dynamic_shared_memory)
+                    if effective_sharedmem > configured_sharedmem:
+                        adjusted_launcher_key = (
+                            id(active_kernel_dispatcher),
+                            active_launch_config_generation,
+                            effective_sharedmem,
                         )
-                    if not self._kernel_dispatcher_registered:
-                        self._kernel_dispatcher_registered = (
-                            self._dispatcher._remember_kernel_dispatcher(
-                                self._launch_config,
-                                self._kernel_dispatcher,
-                                self._launch_config_generation,
-                                replace_existing=False,
+                        if adjusted_launcher_key != self._adjusted_launcher_key:
+                            self._adjusted_launcher = LaunchConfiguration(
+                                active_kernel_dispatcher,
+                                launcher_config["grid"],
+                                launcher_config["block"],
+                                self._launch_stream,
+                                effective_sharedmem,
+                                launcher_config.get("cluster"),
                             )
-                        )
-            return self._launcher(*launch_args)
+                            self._adjusted_launcher_key = adjusted_launcher_key
+                        launcher = self._adjusted_launcher
+
+            if active_launch_config is not None:
+                _compile_arg_types.launch_config = active_launch_config
+            elif hasattr(_compile_arg_types, "launch_config"):
+                delattr(_compile_arg_types, "launch_config")
+            return launcher(*launch_args)
         except UserFacingInternalCompilerError as e:
             if os.environ.get("NUMBA_CUDA_MLIR_ICE_FULL_TB", "0").strip() == "1":
                 raise
@@ -652,11 +738,21 @@ class _ArgMarshaller:
                     delattr(_compile_arg_types, "types")
             else:
                 _compile_arg_types.types = previous_types
+            if previous_values is _MISSING:
+                if hasattr(_compile_arg_types, "values"):
+                    delattr(_compile_arg_types, "values")
+            else:
+                _compile_arg_types.values = previous_values
             if previous_launch_config is _MISSING:
                 if hasattr(_compile_arg_types, "launch_config"):
                     delattr(_compile_arg_types, "launch_config")
             else:
                 _compile_arg_types.launch_config = previous_launch_config
+            if previous_available_launch_config is _MISSING:
+                if hasattr(_compile_arg_types, "available_launch_config"):
+                    delattr(_compile_arg_types, "available_launch_config")
+            else:
+                _compile_arg_types.available_launch_config = previous_available_launch_config
             if previous_extensions is _MISSING:
                 if hasattr(_compile_arg_types, "extensions"):
                     delattr(_compile_arg_types, "extensions")
@@ -664,6 +760,26 @@ class _ArgMarshaller:
                 _compile_arg_types.extensions = previous_extensions
 
     def __call__(self, *args):
+        launch_lock = None
+        if self._dispatcher is not None:
+            launch_lock = getattr(self._dispatcher, "_launch_lock", _MISSING)
+            if launch_lock is _MISSING:
+                ensure_dispatcher_state = getattr(
+                    self._dispatcher, "_ensure_dispatcher_state", None
+                )
+                if ensure_dispatcher_state is not None:
+                    ensure_dispatcher_state()
+                    launch_lock = getattr(self._dispatcher, "_launch_lock", None)
+                else:
+                    launch_lock = None
+        if launch_lock is None:
+            return self._call_impl(*args)
+        # Free-threaded launches share caches, callbacks, and native dispatcher
+        # state across this marshaller path.
+        with launch_lock:
+            return self._call_impl(*args)
+
+    def _call_impl(self, *args):
         nargs = len(args)
         has_ext = bool(self._extensions)
 
@@ -741,7 +857,7 @@ class _ArgMarshaller:
         flat_args = []
         for arg in coerced_args:
             _flatten_arg(arg, flat_args)
-        result = self._launch(coerced_types, flat_args)
+        result = self._launch(coerced_types, flat_args, coerced_args)
 
         for callback in callbacks:
             callback()
@@ -1478,7 +1594,10 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         # created with inline="always".
         self._compiler.pipeline_class = get_compiler_class(targetoptions)
 
-        self._launch_config_lock = threading.RLock()
+        # Free-threaded launches take _launch_lock before configure/cache work
+        # that may take _launch_config_lock. Keep that order one-way.
+        self._launch_config_lock = _new_dispatcher_rlock()
+        self._launch_lock = _new_dispatcher_rlock() if _PY_GIL_DISABLED else None
         # Launch-specialized overloads are retained until either recompile() or
         # cache eviction, whichever happens first. Retained marshallers can
         # reinstall their native dispatcher after dispatcher cache eviction, but
@@ -1486,6 +1605,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         self._launch_config_overloads = {}
         self._launch_config_dispatchers = collections.OrderedDict()
         self._launch_config_generation = 0
+        self._requires_launch_config = False
+        self._literal_arg_positions = frozenset()
         self._c = self._new_kernel_dispatcher()
         self.extensions = targetoptions.get("extensions") or []
         self._specialized = False
@@ -1522,15 +1643,131 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         return MLIRDispatcherType(self)
 
     def _new_kernel_dispatcher(self):
+        # Only debug kernels pay the per-launch device-side error readback
+        # (cuCtxSynchronize + status D2H). This mirrors numba-cuda, where kernel
+        # exceptions (raise/assert/bounds checks) surface only with debug=True;
+        # debug=False launches stay asynchronous.
+        constant_args = tuple(get_constant_args(self.py_func))
+        literal_args = [False] * len(constant_args)
+        for index in self._literal_arg_positions:
+            if index >= len(literal_args):
+                raise TypeError(
+                    "literal argument request refers to an argument outside the kernel signature"
+                )
+            literal_args[index] = True
         return _cext.KernelDispatcher(
             self._compile,
-            get_constant_args(self.py_func),
+            constant_args,
             _ensure_numba_cuda_context,
+            debug=bool(self.targetoptions.get("debug", False)),
+            literal_arg_flags=tuple(literal_args),
         )
 
     @property
     def _launch_config_enabled(self):
-        return _extensions_use_launch_config(self.extensions)
+        return self._requires_launch_config or _extensions_use_launch_config(self.extensions)
+
+    def _literal_dispatcher_needs_prelaunch(
+        self,
+        launch_config,
+        kernel_dispatcher,
+        launch_config_generation,
+    ):
+        """Whether a retained marshaller predates the active constant flags."""
+        if not self._literal_arg_positions:
+            return False
+        if launch_config is None:
+            return kernel_dispatcher is not self._c
+        return not self._is_kernel_dispatcher_registered(
+            launch_config,
+            kernel_dispatcher,
+            launch_config_generation,
+        )
+
+    def _mark_requires_launch_config(self):
+        with self._launch_config_lock:
+            self._requires_launch_config = True
+
+    @staticmethod
+    def _normalize_literal_arg_positions(positions):
+        normalized = set()
+        for index in positions:
+            if isinstance(index, bool):
+                raise TypeError("literal argument positions must be integers")
+            try:
+                index = operator.index(index)
+            except TypeError:
+                raise TypeError("literal argument positions must be integers") from None
+            if index < 0:
+                raise TypeError("literal argument positions must be non-negative")
+            normalized.add(index)
+        if not normalized:
+            raise TypeError("literal argument retry must request at least one argument")
+        return frozenset(normalized)
+
+    @staticmethod
+    def _supports_literal_launch_value(value):
+        # ``types.literal`` supports these built-in scalar values. Keep this
+        # exact: int subclasses, IntEnum, and NumPy scalars are not Numba
+        # literals even when they share the launcher's integer ABI.
+        return type(value) in (int, bool)
+
+    @classmethod
+    def _literal_type_for_value(cls, value, index):
+        # Match Numba's literal semantics while limiting launch arguments to
+        # scalar kinds understood by the native launcher's constant cache.
+        if not cls._supports_literal_launch_value(value):
+            raise TypeError(
+                "literal launch retry only supports top-level Python int and bool "
+                f"arguments; argument {index} is {type(value).__name__}"
+            )
+        try:
+            return types.literal(value)
+        except errors.LiteralTypingError as exc:
+            raise TypeError(
+                "literal launch retry only supports top-level Python int and bool "
+                f"arguments; argument {index} is {value!r}"
+            ) from exc
+
+    def _record_literal_arg_positions(self, positions, values, abi_arg_count):
+        positions = self._normalize_literal_arg_positions(positions)
+        values = tuple(values)
+        parameter_count = len(inspect.signature(self.py_func).parameters)
+        if any(index >= parameter_count for index in positions):
+            raise TypeError(
+                "literal argument request refers to an argument outside the kernel signature"
+            )
+        if len(values) != parameter_count:
+            raise TypeError("literal argument retry requires top-level runtime argument values")
+        if abi_arg_count != len(values):
+            raise TypeError(
+                "literal launch retry does not yet support flattened launch arguments; "
+                "extension struct arguments require issue #60"
+            )
+        for index in positions:
+            self._literal_type_for_value(values[index], index)
+
+        with self._launch_config_lock:
+            updated = self._literal_arg_positions | positions
+            if updated == self._literal_arg_positions:
+                return False
+
+            old_dispatchers = [self._c, *self._launch_config_dispatchers.values()]
+            self._literal_arg_positions = updated
+            self.overloads.clear()
+            self._launch_config_overloads.clear()
+            self._launch_config_generation += 1
+            self._launch_config_dispatchers.clear()
+            self._c = self._new_kernel_dispatcher()
+            for dispatcher in old_dispatchers:
+                self._retain_old_dispatcher(dispatcher)
+
+            self._configure_cache.clear()
+            inflight = tuple(self._configure_cache_inflight.values())
+            self._configure_cache_inflight.clear()
+            for event in inflight:
+                event.set()
+        return True
 
     def _get_kernel_dispatcher(self, launch_config):
         dispatcher, _ = self._get_kernel_dispatcher_and_generation(launch_config)
@@ -1540,6 +1777,12 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         self._ensure_dispatcher_state()
         if not self._launch_config_enabled:
             return self._c, None
+        return self._get_launch_config_dispatcher_and_generation(launch_config)
+
+    def _get_launch_config_dispatcher_and_generation(self, launch_config):
+        """Get a launch-keyed dispatcher independent of current extensions."""
+
+        self._ensure_dispatcher_state()
         launch_config_key = _launch_config_key(launch_config)
         if launch_config_key is None:
             return self._c, None
@@ -1607,28 +1850,40 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     def _ensure_dispatcher_state(self):
         # ReduceMixin restore paths may bypass __init__, so recreate the new
         # mutable caches lazily before paths that append or clear them.
-        if not hasattr(self, "_launch_config_lock"):
-            self._launch_config_lock = threading.RLock()
-        if not hasattr(self, "_launch_config_overloads"):
-            self._launch_config_overloads = {}
-        if not hasattr(self, "_launch_config_dispatchers"):
-            self._launch_config_dispatchers = collections.OrderedDict()
-        if not hasattr(self, "_launch_config_generation"):
-            self._launch_config_generation = 0
-        if not hasattr(self, "_launch_config_cache_misses"):
-            self._launch_config_cache_misses = collections.Counter()
-        if not hasattr(self, "_launch_config_cache_hits"):
-            self._launch_config_cache_hits = collections.Counter()
-        if not hasattr(self, "_launch_config_cache_notice_emitted"):
-            self._launch_config_cache_notice_emitted = False
-        if not hasattr(self, "_old_dispatchers"):
-            self._old_dispatchers = []
-        if not hasattr(self, "_configure_cache"):
-            self._configure_cache = collections.OrderedDict()
-        if not hasattr(self, "_configure_cache_inflight"):
-            self._configure_cache_inflight = {}
-        if "configure" not in self.__dict__:
-            self.configure = _ConfigureProxy(self)
+        if all(hasattr(self, name) for name in _DISPATCHER_STATE_ATTRS) and (
+            "configure" in self.__dict__
+        ):
+            return
+
+        with _DISPATCHER_STATE_BOOTSTRAP_LOCK:
+            if not hasattr(self, "_launch_config_lock"):
+                self._launch_config_lock = _new_dispatcher_rlock()
+            if not hasattr(self, "_launch_lock"):
+                self._launch_lock = _new_dispatcher_rlock() if _PY_GIL_DISABLED else None
+            if not hasattr(self, "_launch_config_overloads"):
+                self._launch_config_overloads = {}
+            if not hasattr(self, "_launch_config_dispatchers"):
+                self._launch_config_dispatchers = collections.OrderedDict()
+            if not hasattr(self, "_launch_config_generation"):
+                self._launch_config_generation = 0
+            if not hasattr(self, "_requires_launch_config"):
+                self._requires_launch_config = False
+            if not hasattr(self, "_literal_arg_positions"):
+                self._literal_arg_positions = frozenset()
+            if not hasattr(self, "_launch_config_cache_misses"):
+                self._launch_config_cache_misses = collections.Counter()
+            if not hasattr(self, "_launch_config_cache_hits"):
+                self._launch_config_cache_hits = collections.Counter()
+            if not hasattr(self, "_launch_config_cache_notice_emitted"):
+                self._launch_config_cache_notice_emitted = False
+            if not hasattr(self, "_old_dispatchers"):
+                self._old_dispatchers = []
+            if not hasattr(self, "_configure_cache"):
+                self._configure_cache = collections.OrderedDict()
+            if not hasattr(self, "_configure_cache_inflight"):
+                self._configure_cache_inflight = {}
+            if "configure" not in self.__dict__:
+                self.configure = _ConfigureProxy(self)
 
     def _clear_configure_cache(self):
         self._ensure_dispatcher_state()
@@ -1774,6 +2029,12 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 warnings.warn(NumbaPerformanceWarning(msg))
 
         launch_config = None
+        available_launch_config = {
+            "grid": griddim,
+            "block": blockdim,
+            "sharedmem": configured_sharedmem,
+            "cluster": cluster,
+        }
         kernel_dispatcher = self._c
         launch_config_generation = None
         stream_ref = None
@@ -1782,12 +2043,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             stream_ref = stream
             launch_stream = int(stream.handle)
         if launch_config_enabled:
-            launch_config = {
-                "grid": griddim,
-                "block": blockdim,
-                "sharedmem": configured_sharedmem,
-                "cluster": cluster,
-            }
+            launch_config = available_launch_config
             (
                 kernel_dispatcher,
                 launch_config_generation,
@@ -1801,9 +2057,11 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             extensions=extensions,
             dispatcher=self,
             launch_config=launch_config,
+            available_launch_config=available_launch_config,
             kernel_dispatcher=kernel_dispatcher,
             launch_config_generation=launch_config_generation,
             stream_ref=stream_ref,
+            launch_stream=launch_stream,
         )
 
     def _reduce_states(self):
@@ -1813,7 +2071,14 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             sigs = []
             launch_config_sigs = []
         else:
-            sigs = [cr.signature for cr in self.overloads.values()]
+            # Once a planner requests launch metadata, generic overloads are
+            # no longer reachable through dispatch. Rebuilding them would also
+            # rerun the active planner without a configured launch.
+            sigs = (
+                []
+                if self._requires_launch_config
+                else [cr.signature for cr in self.overloads.values()]
+            )
             launch_config_sigs = []
             if self._launch_config_enabled:
                 seen = set()
@@ -1834,11 +2099,22 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             can_compile=self._can_compile,
             sigs=sigs,
             launch_config_sigs=launch_config_sigs,
+            requires_launch_config=self._requires_launch_config,
+            literal_arg_positions=tuple(sorted(self._literal_arg_positions)),
         )
 
     @classmethod
     def _rebuild(
-        cls, uuid, py_func, locals, targetoptions, can_compile, sigs, launch_config_sigs=()
+        cls,
+        uuid,
+        py_func,
+        locals,
+        targetoptions,
+        can_compile,
+        sigs,
+        launch_config_sigs=(),
+        requires_launch_config=False,
+        literal_arg_positions=(),
     ):
         """Rebuild an MLIRDispatcher after serialization."""
         try:
@@ -1848,6 +2124,15 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         self = cls(py_func, targetoptions=targetoptions)
         self.locals = locals
         self._set_uuid(uuid)
+        self._requires_launch_config = bool(requires_launch_config)
+        self._literal_arg_positions = (
+            self._normalize_literal_arg_positions(literal_arg_positions)
+            if literal_arg_positions
+            else frozenset()
+        )
+        if self._literal_arg_positions:
+            self._retain_old_dispatcher(self._c)
+            self._c = self._new_kernel_dispatcher()
         for sig in sigs:
             self.compile(sig)
         for sig, launch_config_key in launch_config_sigs:
@@ -1871,11 +2156,16 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 return existing
 
         previous_types = getattr(_compile_arg_types, "types", _MISSING)
+        previous_values = getattr(_compile_arg_types, "values", _MISSING)
         previous_launch_config = getattr(_compile_arg_types, "launch_config", _MISSING)
         previous_extensions = getattr(_compile_arg_types, "extensions", _MISSING)
         previous_force_launch_config = getattr(_compile_arg_types, "force_launch_config", _MISSING)
         try:
             _compile_arg_types.types = argtypes
+            _compile_arg_types.values = tuple(
+                argtype.literal_value if isinstance(argtype, types.Literal) else None
+                for argtype in argtypes
+            )
             _compile_arg_types.launch_config = launch_config
             _compile_arg_types.extensions = self.extensions
             _compile_arg_types.force_launch_config = True
@@ -1886,6 +2176,11 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                     delattr(_compile_arg_types, "types")
             else:
                 _compile_arg_types.types = previous_types
+            if previous_values is _MISSING:
+                if hasattr(_compile_arg_types, "values"):
+                    delattr(_compile_arg_types, "values")
+            else:
+                _compile_arg_types.values = previous_values
             if previous_launch_config is _MISSING:
                 if hasattr(_compile_arg_types, "launch_config"):
                     delattr(_compile_arg_types, "launch_config")
@@ -2213,6 +2508,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         runtime_type, allowing subtype compatibility."""
         if sig_arg == runtime_type:
             return True
+        if isinstance(sig_arg, types.Literal) or isinstance(runtime_type, types.Literal):
+            return False
         # If signature has CPointer and runtime is int (pointer address), accept
         if isinstance(sig_arg, types.CPointer) and isinstance(runtime_type, types.Integer):
             return True
@@ -2235,6 +2532,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         Mirrors numba's Rating.astuple() ordering so lower tuples are better."""
         if sig_arg == runtime_type:
             return (0, 0, 0)
+        if isinstance(sig_arg, types.Literal) or isinstance(runtime_type, types.Literal):
+            return None
         if isinstance(sig_arg, types.Integer) and isinstance(runtime_type, types.Integer):
             if runtime_type.bitwidth <= sig_arg.bitwidth:
                 return (0, 0, 1)
@@ -2301,6 +2600,198 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         best_rate = candidates[0][0]
         tied = [sig_args for rate, sig_args in candidates if rate == best_rate]
         return tied, True
+
+    def _literalize_argtypes(self, argtypes, values, *, abi_arg_count=None):
+        """Apply recorded literal requests to top-level runtime argument types."""
+        argtypes = tuple(argtypes)
+        if not self._literal_arg_positions:
+            return argtypes
+
+        values = tuple(values)
+        if len(values) != len(argtypes):
+            raise TypeError("literal argument retry requires top-level runtime argument values")
+        if abi_arg_count is not None and abi_arg_count != len(values):
+            raise TypeError(
+                "literal launch retry does not yet support flattened launch arguments; "
+                "extension struct arguments require issue #60"
+            )
+
+        literalized = list(argtypes)
+        for index in self._literal_arg_positions:
+            if index >= len(literalized):
+                raise TypeError(
+                    "literal argument request refers to an argument outside the kernel signature"
+                )
+            if isinstance(literalized[index], types.Literal):
+                continue
+            if not self._supports_literal_launch_value(values[index]):
+                continue
+            literalized[index] = self._literal_type_for_value(values[index], index)
+        return tuple(literalized)
+
+    def _compile_result_for(self, argtypes, launch_config):
+        if launch_config is not None:
+            launch_config_key = _launch_config_key(launch_config)
+            with self._launch_config_lock:
+                return self._find_launch_config_overload_locked(argtypes, launch_config_key)
+        exact = self.overloads.get(argtypes)
+        if exact is not None:
+            return exact
+        for sig_args, cres in self.overloads.items():
+            if len(sig_args) == len(argtypes) and all(
+                self._can_reuse_overload(s, r) for s, r in zip(sig_args, argtypes)
+            ):
+                return cres
+        return None
+
+    def _get_ready_launch(
+        self,
+        argtypes,
+        available_launch_config,
+        configured_launch_config,
+        configured_kernel_dispatcher,
+        configured_launch_config_generation,
+    ):
+        """Return current launch state, or None when preparation is required."""
+
+        if configured_launch_config is None and not self._requires_launch_config:
+            kernel_dispatcher = self._c
+            compile_result = self.overloads.get(argtypes)
+            if (
+                configured_kernel_dispatcher is not kernel_dispatcher
+                or configured_launch_config_generation is not None
+                or compile_result is None
+            ):
+                return None
+            # Launch sensitivity or the native dispatcher may have changed
+            # during the unlocked overload lookup.
+            if self._requires_launch_config or self._c is not kernel_dispatcher:
+                return None
+            required_dynamic_shared_memory = compile_result.metadata.get(
+                _REQUIRED_DYNAMIC_SHARED_MEMORY_KEY, 0
+            )
+            return kernel_dispatcher, None, None, required_dynamic_shared_memory
+
+        with self._launch_config_lock:
+            launch_config = (
+                _normalize_available_launch_config(available_launch_config)
+                if self._requires_launch_config
+                else configured_launch_config
+            )
+            if launch_config is None:
+                return None
+            launch_config_key = _launch_config_key(launch_config)
+            compile_result = self._find_launch_config_overload_locked(argtypes, launch_config_key)
+            if (
+                compile_result is None
+                or configured_launch_config_generation != self._launch_config_generation
+                or self._launch_config_dispatchers.get(launch_config_key)
+                is not configured_kernel_dispatcher
+            ):
+                return None
+            self._launch_config_dispatchers.move_to_end(launch_config_key)
+            return (
+                configured_kernel_dispatcher,
+                configured_launch_config_generation,
+                launch_config,
+                compile_result.metadata.get(_REQUIRED_DYNAMIC_SHARED_MEMORY_KEY, 0),
+            )
+
+    @global_compiler_lock
+    def _prepare_for_launch(
+        self,
+        args,
+        values,
+        argtypes,
+        available_launch_config,
+        configured_launch_config,
+        configured_kernel_dispatcher,
+        configured_launch_config_generation,
+    ):
+        def active_launch_config():
+            if self._requires_launch_config:
+                return _normalize_available_launch_config(available_launch_config)
+            return configured_launch_config
+
+        effective_argtypes = self._literalize_argtypes(argtypes, values, abi_arg_count=len(args))
+        ready_launch = self._get_ready_launch(
+            effective_argtypes,
+            available_launch_config,
+            configured_launch_config,
+            configured_kernel_dispatcher,
+            configured_launch_config_generation,
+        )
+        if ready_launch is not None:
+            return ready_launch
+
+        launch_config = active_launch_config()
+        compile_result = self._compile_result_for(effective_argtypes, launch_config)
+        if compile_result is None:
+            if (
+                launch_config is not None
+                and not self._requires_launch_config
+                and configured_launch_config is not None
+                and configured_kernel_dispatcher is not None
+                and configured_launch_config_generation is not None
+            ):
+                # Cache eviction removes both the overload and its native
+                # dispatcher registration. Restore a retained dispatcher only
+                # while its generation is still current.
+                self._remember_kernel_dispatcher(
+                    launch_config,
+                    configured_kernel_dispatcher,
+                    configured_launch_config_generation,
+                    replace_existing=False,
+                )
+            self._compile_impl(list(args))
+            launch_config = active_launch_config()
+            effective_argtypes = self._literalize_argtypes(
+                argtypes, values, abi_arg_count=len(args)
+            )
+            compile_result = self._compile_result_for(effective_argtypes, launch_config)
+
+        if compile_result is None:
+            raise RuntimeError(
+                "kernel precompilation completed without publishing a matching overload"
+            )
+
+        required_dynamic_shared_memory = compile_result.metadata.get(
+            _REQUIRED_DYNAMIC_SHARED_MEMORY_KEY, 0
+        )
+        if launch_config is None:
+            return self._c, None, None, required_dynamic_shared_memory
+        if not self._requires_launch_config and configured_launch_config is not None:
+            if self._is_kernel_dispatcher_registered(
+                configured_launch_config,
+                configured_kernel_dispatcher,
+                configured_launch_config_generation,
+            ):
+                return (
+                    configured_kernel_dispatcher,
+                    configured_launch_config_generation,
+                    configured_launch_config,
+                    required_dynamic_shared_memory,
+                )
+            # A retained marshaller may outlive recompile() or removal of the
+            # extension that originally opted it into launch specialization.
+            # Its extension snapshot still requires a launch-keyed native
+            # dispatcher for the freshly compiled overload.
+            kernel_dispatcher, generation = self._get_launch_config_dispatcher_and_generation(
+                launch_config
+            )
+            return (
+                kernel_dispatcher,
+                generation,
+                launch_config,
+                required_dynamic_shared_memory,
+            )
+        kernel_dispatcher, generation = self._get_kernel_dispatcher_and_generation(launch_config)
+        return (
+            kernel_dispatcher,
+            generation,
+            launch_config,
+            required_dynamic_shared_memory,
+        )
 
     def _raise_ambiguous(self, argtypes, tied):
         sigs_str = "\n".join(f"{sig_args} -> none" for sig_args in tied)
@@ -2386,7 +2877,11 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 return (cubin, func_name, cooperative, self._make_post_load_hook())
             return (cubin, func_name, cooperative)
 
-    def _compile_impl(self, args, launch_config_retry_budget=_CONFIGURE_CACHE_STALE_RETRY_LIMIT):
+    def _compile_impl(
+        self,
+        args,
+        launch_config_retry_budget=_CONFIGURE_CACHE_STALE_RETRY_LIMIT,
+    ):
         from numba_cuda_mlir import mlir_compiler
         from numba_cuda_mlir.compiler import CompileResult
 
@@ -2403,17 +2898,41 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             argtypes = override_argtypes
         else:
             argtypes = tuple(typeof(arg) for arg in args)
+        runtime_values = tuple(getattr(_compile_arg_types, "values", tuple(args)))
+        with self._launch_config_lock:
+            attempt_literal_arg_positions = self._literal_arg_positions
+            argtypes = self._literalize_argtypes(argtypes, runtime_values, abi_arg_count=len(args))
+        if attempt_literal_arg_positions:
+            override_argtypes = argtypes
         active_extensions = getattr(_compile_arg_types, "extensions", _MISSING)
         has_extension_snapshot = active_extensions is not _MISSING
         if not has_extension_snapshot:
             active_extensions = self.extensions
         force_launch_config = getattr(_compile_arg_types, "force_launch_config", False)
+        available_launch_config = getattr(_compile_arg_types, "available_launch_config", None)
+        launch_config_tracker = (
+            _LaunchConfigTracker(available_launch_config)
+            if available_launch_config is not None
+            else None
+        )
         active_launch_config = None
-        if force_launch_config or _extensions_use_launch_config(active_extensions):
+        if (
+            force_launch_config
+            or self._requires_launch_config
+            or _extensions_use_launch_config(active_extensions)
+        ):
             active_launch_config = getattr(_compile_arg_types, "launch_config", None)
+            if active_launch_config is None:
+                active_launch_config = available_launch_config
+            active_launch_config = _normalize_available_launch_config(active_launch_config)
+        if self._requires_launch_config and active_launch_config is None:
+            raise RuntimeError(
+                "whole-function planner requires launch metadata; compile through a "
+                "configured kernel launch"
+            )
         active_launch_config_key = _launch_config_key(active_launch_config)
         active_launch_config_generation = None
-        if active_launch_config_key is not None:
+        if active_launch_config_key is not None or launch_config_tracker is not None:
             with self._launch_config_lock:
                 active_launch_config_generation = self._launch_config_generation
 
@@ -2493,38 +3012,95 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
 
         self._resolve_target_options()
         targetoptions = self.targetoptions
-        if active_launch_config is not None or has_extension_snapshot:
+        if (
+            active_launch_config is not None
+            or launch_config_tracker is not None
+            or has_extension_snapshot
+        ):
             targetoptions = self.targetoptions.copy()
             if has_extension_snapshot:
                 targetoptions["extensions"] = active_extensions
+            if launch_config_tracker is not None:
+                # Transport launch metadata to compiler state without exposing
+                # it to AST transforms as active specialization metadata.
+                targetoptions[_LAUNCH_CONFIG_TRACKER_OPTION] = launch_config_tracker
             if active_launch_config is not None:
                 targetoptions["__launch_config__"] = dict(active_launch_config)
 
-        # Try to load from disk cache
+        # A cached result bypasses compiler passes. Until planner identity and
+        # implementation are part of the persistent cache key, active planners
+        # must compile in-process so their transformations cannot be skipped.
+        disk_cache_eligible = active_launch_config_key is None
+        disk_cache_miss = False
+
+        # Serialize cache-hit publication with planner registration. If an
+        # import during cache loading registers a planner reentrantly, discard
+        # that cached result and compile through the planner pass instead.
         mlir_target.ensure_initialized()
         sig = typing.signature(types.none, *argtypes)
         # Launch-specialized compiles use an in-memory cache because the
         # generic in-memory and on-disk cache keys do not include launch metadata.
-        if active_launch_config_key is None:
-            cres = self._cache.load_overload(sig, mlir_target.target_context)
-            if cres is not None:
-                self._cache_hits[argtypes] += 1
-                wrapped = CompileResult(cres)
-                self.overloads[argtypes] = wrapped
-                return _result(wrapped)
+        if disk_cache_eligible:
+            with _planner_registry._lock:
+                if not _planner_registry._planners:
+                    cres = self._cache.load_overload(sig, mlir_target.target_context)
+                    if not _planner_registry._planners:
+                        if cres is not None:
+                            self._cache_hits[argtypes] += 1
+                            wrapped = CompileResult(cres)
+                            self.overloads[argtypes] = wrapped
+                            return _result(wrapped)
+                        disk_cache_miss = True
 
         # Cache miss - need to compile
-        if active_launch_config_key is None:
+        if disk_cache_miss:
             self._cache_misses[argtypes] += 1
 
         # Compile using mlir_compiler_entry which handles annotations and AST transforms
-        with self._compile_profiler():
-            result = mlir_compiler.mlir_compiler_entry(
-                pyfunc=self.py_func,
-                func_args=list(args),
-                targetoptions=targetoptions,
-                override_argtypes=override_argtypes,
-            )
+        try:
+            with self._compile_profiler():
+                result = mlir_compiler.mlir_compiler_entry(
+                    pyfunc=self.py_func,
+                    func_args=list(runtime_values),
+                    targetoptions=targetoptions,
+                    override_argtypes=override_argtypes,
+                )
+        except errors.ForceLiteralArg as exc:
+            with self._launch_config_lock:
+                self._record_literal_arg_positions(
+                    exc.requested_args,
+                    runtime_values,
+                    len(args),
+                )
+                made_literal_progress = self._literal_arg_positions != attempt_literal_arg_positions
+                if (
+                    made_literal_progress
+                    and active_launch_config is None
+                    and launch_config_tracker is not None
+                    and launch_config_tracker.required
+                ):
+                    self._requires_launch_config = True
+            if not made_literal_progress:
+                raise errors.CompilerError(
+                    "Repeated literal typing request during kernel compilation"
+                ) from exc
+            return self._compile_impl(args, launch_config_retry_budget)
+        except _RequireLaunchConfig:
+            raise RuntimeError(
+                "whole-function planner requires launch metadata, but compilation "
+                "was not initiated by a configured kernel launch"
+            ) from None
+
+        if (
+            active_launch_config is None
+            and launch_config_tracker is not None
+            and launch_config_tracker.required
+        ):
+            active_launch_config = launch_config_tracker.launch_config
+            active_launch_config_key = _launch_config_key(active_launch_config)
+            self._mark_requires_launch_config()
+            disk_cache_eligible = False
+
         wrapped = CompileResult(result)
         emit_launch_config_cache_notice = False
         retry_launch_config_compile = False
@@ -2579,12 +3155,22 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             self.overloads[result.signature.args] = wrapped
 
         # Save to disk cache
-        if active_launch_config_key is None:
-            self._cache.save_overload(sig, result)
+        if disk_cache_eligible:
+            with _planner_registry._lock:
+                if not _planner_registry._planners:
+                    self._cache.save_overload(sig, result)
 
         return _result(wrapped)
 
     def compile(self, sig, abi_info=None, output=None):
+        self._ensure_dispatcher_state()
+        launch_lock = self._launch_lock
+        if launch_lock is None:
+            return self._compile_public(sig, abi_info=abi_info, output=output)
+        with launch_lock:
+            return self._compile_public(sig, abi_info=abi_info, output=output)
+
+    def _compile_public(self, sig, abi_info=None, output=None):
         from numba_cuda_mlir.mlir_optimization import optimize
         from numba_cuda_mlir import mlir_compiler
         from numba_cuda_mlir.compiler import CompileResult
@@ -2600,18 +3186,24 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             return self.overloads[argtypes]
 
         self._resolve_target_options()
+        disk_cache_miss = False
 
-        # Try to load from disk cache
+        # Publish cache hits atomically with respect to planner registration.
         mlir_target.ensure_initialized()
-        cres = self._cache.load_overload(sig, mlir_target.target_context)
-        if cres is not None:
-            self._cache_hits[argtypes] += 1
-            wrapped = CompileResult(cres)
-            self.overloads[argtypes] = wrapped
-            return wrapped
+        with _planner_registry._lock:
+            if not _planner_registry._planners:
+                cres = self._cache.load_overload(sig, mlir_target.target_context)
+                if not _planner_registry._planners:
+                    if cres is not None:
+                        self._cache_hits[argtypes] += 1
+                        wrapped = CompileResult(cres)
+                        self.overloads[argtypes] = wrapped
+                        return wrapped
+                    disk_cache_miss = True
 
         # Cache miss - need to compile
-        self._cache_misses[argtypes] += 1
+        if disk_cache_miss:
+            self._cache_misses[argtypes] += 1
 
         if abi_info is not None:
             self.targetoptions["abi_info"] = abi_info
@@ -2628,6 +3220,11 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 optimize(cres)
 
             cres.target_context.insert_user_function(cres.entry_point, cres.fndesc, [cres.library])
+        except _RequireLaunchConfig:
+            raise RuntimeError(
+                "whole-function planner requires launch metadata; compile through a "
+                "configured kernel launch"
+            ) from None
         finally:
             self._is_compiling = False
 
@@ -2635,7 +3232,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         self._propagate_compile_callbacks(cres.metadata)
 
         # Save to cache
-        self._cache.save_overload(sig, cres)
+        with _planner_registry._lock:
+            if not _planner_registry._planners:
+                self._cache.save_overload(sig, cres)
 
         # Wrap in CompileResult for compatibility attributes
         wrapped = CompileResult(cres)
@@ -2682,6 +3281,11 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 )
 
             cres.target_context.insert_user_function(cres.entry_point, cres.fndesc, [cres.library])
+        except _RequireLaunchConfig:
+            raise RuntimeError(
+                "whole-function planner requires launch metadata; device-function "
+                "compilation has no configured kernel launch"
+            ) from None
         finally:
             self._is_compiling = False
 
@@ -2892,7 +3496,13 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         have changed and you want the kernel to use the new values.
         """
         self._ensure_dispatcher_state()
+        launch_lock = self._launch_lock
+        if launch_lock is None:
+            return self._recompile_impl()
+        with launch_lock:
+            return self._recompile_impl()
 
+    def _recompile_impl(self):
         # Clear Python-side overloads
         self.overloads.clear()
 

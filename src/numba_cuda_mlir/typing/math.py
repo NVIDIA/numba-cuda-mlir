@@ -65,7 +65,6 @@ for func in [
     math.tan,
     math.sqrt,
     math.exp,
-    math.exp2,
     math.expm1,
     math.log,
     math.log2,
@@ -89,6 +88,10 @@ for func in [
     math.erfc,
 ]:
     _make_unary_math_template(func)
+
+# Gated for Python 3.11+
+if hasattr(math, "exp2"):
+    _make_unary_math_template(math.exp2)
 
 
 # Functions that return boolean

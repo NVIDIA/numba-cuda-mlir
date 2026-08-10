@@ -66,22 +66,48 @@ PyMODINIT_FUNC PyInit__helperlib(void) {
 
     if (m == NULL)
         return NULL;
+#if !defined(Py_LIMITED_API) && defined(Py_GIL_DISABLED)
+    if (PyUnstable_Module_SetGIL(m, Py_MOD_GIL_NOT_USED) < 0) {
+        Py_DECREF(m);
+        return NULL;
+    }
+#endif
 
-    PyModule_AddObject(m, "c_helpers", build_c_helpers_dict());
-    PyModule_AddIntConstant(m, "long_min", LONG_MIN);
-    PyModule_AddIntConstant(m, "long_max", LONG_MAX);
-    PyModule_AddIntConstant(m, "py_buffer_size", sizeof(Py_buffer));
-    PyModule_AddIntConstant(m, "py_gil_state_size", sizeof(PyGILState_STATE));
-    PyModule_AddIntConstant(m, "py_unicode_1byte_kind", PyUnicode_1BYTE_KIND);
-    PyModule_AddIntConstant(m, "py_unicode_2byte_kind", PyUnicode_2BYTE_KIND);
-    PyModule_AddIntConstant(m, "py_unicode_4byte_kind", PyUnicode_4BYTE_KIND);
+    PyObject *c_helpers = build_c_helpers_dict();
+    if (c_helpers == NULL)
+        goto error;
+    if (PyModule_AddObjectRef(m, "c_helpers", c_helpers)) {
+        Py_DECREF(c_helpers);
+        goto error;
+    }
+    Py_DECREF(c_helpers);
+
+    if (PyModule_AddIntConstant(m, "long_min", LONG_MIN))
+        goto error;
+    if (PyModule_AddIntConstant(m, "long_max", LONG_MAX))
+        goto error;
+    if (PyModule_AddIntConstant(m, "py_buffer_size", sizeof(Py_buffer)))
+        goto error;
+    if (PyModule_AddIntConstant(m, "py_gil_state_size", sizeof(PyGILState_STATE)))
+        goto error;
+    if (PyModule_AddIntConstant(m, "py_unicode_1byte_kind", PyUnicode_1BYTE_KIND))
+        goto error;
+    if (PyModule_AddIntConstant(m, "py_unicode_2byte_kind", PyUnicode_2BYTE_KIND))
+        goto error;
+    if (PyModule_AddIntConstant(m, "py_unicode_4byte_kind", PyUnicode_4BYTE_KIND))
+        goto error;
 #if (PY_MAJOR_VERSION == 3)
 #if ((PY_MINOR_VERSION == 10) || (PY_MINOR_VERSION == 11))
-    PyModule_AddIntConstant(m, "py_unicode_wchar_kind", PyUnicode_WCHAR_KIND);
+    if (PyModule_AddIntConstant(m, "py_unicode_wchar_kind", PyUnicode_WCHAR_KIND))
+        goto error;
 #endif
 #endif
 
     return m;
+
+error:
+    Py_DECREF(m);
+    return NULL;
 }
 
 } // extern "C"

@@ -10,6 +10,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(ALLOW_WARNINGS "Don't treat warnings as errors" OFF)
+option(
+    NUMBA_CUDA_MLIR_PY_GIL_DISABLED
+    "Build Python extension modules for a free-threaded CPython runtime"
+    OFF
+)
 if (NOT ALLOW_WARNINGS)
     if(MSVC)
         add_compile_options(/WX)

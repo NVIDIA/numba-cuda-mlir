@@ -52,7 +52,6 @@ from numba_cuda_mlir.lowering_utilities import (
     NdIterIterObject,
     is_nonelike,
     storage_itemsize_bytes,
-    false as false_,
 )
 from numba_cuda_mlir.mlir_lowering import KERNEL_ERROR_CODES
 from numba_cuda_mlir.lowering_utilities.linalg_lowering import (
@@ -107,7 +106,7 @@ def lower_zero_fill_array_method(builder: MLIRLower, target, args, kwargs):
         extent = convert(memref_dialect.dim(array, index_of(dim)), T.i64())
         nbytes = arith.muli(nbytes, extent)
 
-    llvm.MemsetOp(dst_ptr, constant(0, T.i8()), nbytes, false_())
+    llvm.MemsetOp(dst_ptr, constant(0, T.i8()), nbytes, False)
     if target is not None:
         builder.store_var(target, ir.NoneType.get())
 
@@ -1491,8 +1490,7 @@ def _lower_record_array_setitem(builder, target, args, kwargs):
 
     # Copy record_size bytes from src to dest using llvm.memcpy
     size_val = arith_dialect.constant(T.i64(), record_size)
-    is_volatile = arith_dialect.constant(T.bool(), 0)
-    llvm.intr_memcpy(dest_ptr, src_ptr, size_val, is_volatile)
+    llvm.intr_memcpy(dest_ptr, src_ptr, size_val, False)
 
     trace("Record array setitem: copied %s bytes", record_size)
 
@@ -1500,7 +1498,7 @@ def _lower_record_array_setitem(builder, target, args, kwargs):
 @lower(operator.setitem, types.Array, types.Integer, types.StringLiteral)
 def lower_charseq_array_setitem_string(builder: MLIRLower, target, args, kwargs):
     """arr[i] = "XYZ" for arrays with CharSeq or UnicodeCharSeq dtype."""
-    from numba_cuda_mlir.lowering_utilities import GEP_DYNAMIC_INDEX, false as false_
+    from numba_cuda_mlir.lowering_utilities import GEP_DYNAMIC_INDEX
 
     array_numba_type = builder.get_numba_type(args[0].name)
     element_type = array_numba_type.dtype
@@ -1540,7 +1538,7 @@ def lower_charseq_array_setitem_string(builder: MLIRLower, target, args, kwargs)
 
     zero = constant(0, T.i8())
     size_val = constant(element_size, T.i64())
-    llvm.MemsetOp(dst_ptr, zero, size_val, false_())
+    llvm.MemsetOp(dst_ptr, zero, size_val, False)
 
     for i, byte_val in enumerate(encoded):
         if i >= element_size:

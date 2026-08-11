@@ -8,7 +8,10 @@ from numba_cuda_mlir import cuda
 import numpy as np
 import pytest
 
-IS_WINDOWS_ARM64 = platform.system() == "Windows" and platform.machine() == "ARM64"
+IS_WINDOWS_ARM64 = platform.system() == "Windows" and platform.machine() in (
+    "ARM64",
+    "AMD64",
+)
 
 
 def test_consteval_freevars():

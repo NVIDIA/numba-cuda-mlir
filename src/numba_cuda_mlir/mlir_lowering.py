@@ -1260,7 +1260,7 @@ extern "C" __global__ void
                     self.incref(target_type, value_op)
                     self.store_var(target, value_op)
 
-    def lower_array_literal(self, value: np.ndarray) -> ir.Value:
+    def lower_array_literal(self, value: np.ndarray, numba_type) -> ir.Value:
         global constant_array_id
 
         array = np.ascontiguousarray(value)
@@ -1287,17 +1287,26 @@ extern "C" __global__ void
         ptr = llvm.addrspacecast(llvm.PointerType.get(), ptr)
         strides = [stride // array.itemsize for stride in array.strides]
         desc = self._build_memref_descriptor(ptr, array.shape, strides)
-        mr_type = T.memref(*array.shape, element_type=dtype)
+        if numba_type is not None:
+            dynamic_size = ir.ShapedType.get_dynamic_size()
+            mr_type = T.memref(*([dynamic_size] * array.ndim), element_type=dtype)
+        else:
+            mr_type = T.memref(*array.shape, element_type=dtype)
         return builtin.unrealized_conversion_cast([mr_type], [desc])
 
     def lower_literal_if_needed(self, value: ir.Value | np.ndarray, numba_type=None) -> ir.Value:
         match value:
             case types.Type() if isinstance(numba_type, types.DTypeSpec):
                 return self._materialize_type_token(numba_type)
+            case tuple() if isinstance(numba_type, types.BaseTuple):
+                return tuple(
+                    self.lower_literal_if_needed(element, element_type)
+                    for element, element_type in zip(value, numba_type.types)
+                )
             case tuple():
                 return tuple(map(self.lower_literal_if_needed, value))
             case np.ndarray():
-                return self.lower_array_literal(value)
+                return self.lower_array_literal(value, numba_type)
             case np.number() | np.bool_():
                 # np.bool_ is not an np.number but lowers the same way.
                 mlir_type = to_mlir_type(value.dtype)

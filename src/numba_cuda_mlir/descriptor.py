@@ -3253,7 +3253,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         sig = typing.signature(return_type, *args)
         return self.compile(sig)
 
-    def _compile_device_callee(self, sig):
+    def _compile_device_callee(self, sig, abi_name=None):
         """Compile enough of a device function to inline/link it into a kernel.
 
         Device callees are cloned from their MLIR into the parent module, so
@@ -3266,7 +3266,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         argtypes, return_type = sigutils.normalize_signature(sig)
 
         if argtypes in self.overloads:
-            return self.overloads[argtypes]
+            cached = self.overloads[argtypes]
+            if abi_name is None or cached.metadata.get("device_callee_abi_name") == abi_name:
+                return cached
 
         self._resolve_target_options()
         self._cache_misses[argtypes] += 1
@@ -3274,12 +3276,18 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         self._is_compiling = True
         try:
             with self._compile_profiler():
+                targetoptions = self.targetoptions.copy()
+                if abi_name is not None:
+                    abi_info = dict(targetoptions.get("abi_info") or {})
+                    abi_info["abi_name"] = abi_name
+                    targetoptions["abi_info"] = abi_info
                 cres = mlir_compiler.compile_mlir(
                     self.py_func,
                     return_type,
                     argtypes,
-                    targetoptions=self.targetoptions,
+                    targetoptions=targetoptions,
                 )
+                cres.metadata["device_callee_abi_name"] = abi_name
 
             cres.target_context.insert_user_function(cres.entry_point, cres.fndesc, [cres.library])
         except _RequireLaunchConfig:
@@ -3301,18 +3309,18 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         self.overloads[argtypes] = wrapped
         return wrapped
 
-    def _compile_as_device_callee(self, sig):
+    def _compile_as_device_callee(self, sig, abi_name=None):
         """Compile this dispatcher through the lightweight device-callee path."""
         opts = self.targetoptions.copy()
         opts["device"] = True
         opts["lto"] = False
         if self.targetoptions.get("device", False):
             self.targetoptions.update(opts)
-            return self._compile_device_callee(sig)
+            return self._compile_device_callee(sig, abi_name=abi_name)
 
         if not hasattr(self, "_device_dispatcher") or self._device_dispatcher.targetoptions != opts:
             self._device_dispatcher = MLIRDispatcher(self.py_func, targetoptions=opts)
-        cres = self._device_dispatcher._compile_device_callee(sig)
+        cres = self._device_dispatcher._compile_device_callee(sig, abi_name=abi_name)
         argtypes, _ = sigutils.normalize_signature(sig)
         if argtypes not in self.overloads:
             self.overloads[argtypes] = cres

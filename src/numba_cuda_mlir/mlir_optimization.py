@@ -314,6 +314,8 @@ def _maybe_dump_nvvm(nvvm_ir: bytes) -> None:
         return
 
     is_bitcode = nvvm_ir[:4] == _BITCODE_MAGIC
+    if target.lower() in {"0", "false", "no", "off"}:
+        return
     if target.lower() in {"1", "true", "yes", "stderr"}:
         if is_bitcode:
             print(

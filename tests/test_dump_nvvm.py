@@ -26,6 +26,14 @@ def test_dump_nvvm_disabled_is_noop(dump_nvvm, tmp_path, capsys):
     assert list(tmp_path.iterdir()) == []
 
 
+@pytest.mark.parametrize("value", ["0", "false", "no", "off"])
+def test_dump_nvvm_false_values_are_noop(dump_nvvm, tmp_path, capsys, value):
+    dump_nvvm(value)
+    mlir_optimization._maybe_dump_nvvm(BITCODE)
+    assert capsys.readouterr().err == ""
+    assert list(tmp_path.iterdir()) == []
+
+
 @pytest.mark.parametrize(
     "value,contents",
     [

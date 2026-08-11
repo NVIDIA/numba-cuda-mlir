@@ -285,6 +285,7 @@ def kernel(arr, val):
 # --- Intrinsics ---
 
 
+@pytest.mark.skipif(IS_WINDOWS_ARM64, reason="NYI: LLVM70 Bridge on Windows ARM64")
 def test_aligned_dynamic_shared_memory_ptx_llvm70():
     def kernel():
         smem = cuda.shared.array(shape=(0,), dtype=np.byte, alignment=16)

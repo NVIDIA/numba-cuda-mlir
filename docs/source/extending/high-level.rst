@@ -77,6 +77,77 @@ finds a matching implementation. If no matching overload is found, then a
 compilation error occurs.
 
 
+Variadic implementations
+------------------------
+
+An implementation function and the implementation it returns may both declare a
+``*args`` parameter, so a single registration serves a whole family of arities.
+The arguments matched by ``*args`` are passed to the implementation function as
+a tuple of Numba types, and are bundled into a single tuple argument in the
+implementation:
+
+.. code-block:: python
+
+   from numba_cuda_mlir import cuda, extending
+
+   def my_sum(*args):
+       return sum(args)
+
+   @extending.overload(my_sum)
+   def my_sum_overload(*args):
+       # ``args`` holds the Numba types of the call site's arguments, so the
+       # arity is known at compile time.
+       def impl(*args):
+           acc = 0.0
+           for a in args:
+               acc += a
+           return acc
+
+       return impl
+
+   @cuda.jit
+   def kernel(out, a, b, c):
+       i = cuda.grid(1)
+       if i < out.size:
+           out[i] = my_sum(a[i], b[i], c[i])
+
+Each arity is compiled as a separate overload, so calling ``my_sum`` with two
+and with three arguments in the same kernel produces two distinct device
+functions. The same applies to
+:py:func:`~numba_cuda_mlir.extending.overload_method` and the other decorators
+below.
+
+``len(args)`` is a compile-time constant in the implementation, and the bundle
+can be indexed with a loop variable, so ``for i in range(len(args))`` works too.
+Both of those rely on the elements sharing a single type, because a loop
+variable must have one type. To consume a bundle whose elements have differing
+types, wrap it in :py:func:`~numba_cuda_mlir.cuda.literal_unroll`, which types
+the loop body once per element:
+
+.. code-block:: python
+
+   from numba_cuda_mlir.cuda import literal_unroll
+
+   @extending.overload(my_sum)
+   def my_sum_overload(*args):
+       def impl(*args):
+           acc = 0.0
+           for a in literal_unroll(args):
+               acc += a
+           return acc
+
+       return impl
+
+   @cuda.jit
+   def kernel(out, floats, ints, doubles):
+       i = cuda.grid(1)
+       if i < out.size:
+           out[i] = my_sum(floats[i], ints[i], doubles[i])
+
+``literal_unroll`` is also what lets an implementation iterate over a bundle of
+arrays, since each array is a distinct type.
+
+
 Implementing methods
 --------------------
 

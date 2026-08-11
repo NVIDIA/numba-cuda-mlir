@@ -78,6 +78,26 @@ def simple_fp16_ne(ary, a, b):
     ary[0] = a != b
 
 
+def simple_uint_gt_literal(ary, a):
+    ary[0] = a > 0
+
+
+def simple_uint_ge_literal(ary, a):
+    ary[0] = a >= 1
+
+
+def simple_uint_gt_large_literal(ary, a):
+    ary[0] = a > 3_000_000_000
+
+
+def simple_int_gt(ary, a, b):
+    ary[0] = a > b
+
+
+def simple_int_lt(ary, a, b):
+    ary[0] = a < b
+
+
 @cuda.jit("b1(f2, f2)", device=True)
 def hlt_func_1(x, y):
     return x < y
@@ -300,6 +320,34 @@ class TestOperatorModule:
         kernel[1, 1](got, arg1[0], arg2[0])
         expected = op(arg1, arg2)
         assert got[0] == expected
+
+    @pytest.mark.parametrize(
+        "explicit_signature", [True, False], ids=["explicit_signature", "lazy_jit"]
+    )
+    def test_integer_comparisons(self, explicit_signature):
+        cases = (
+            (simple_uint_gt_literal, (np.uint32(2**31),), True),
+            (simple_uint_ge_literal, (np.uint32(2**31),), True),
+            (simple_uint_gt_large_literal, (np.uint32(2**32 - 1),), True),
+            (simple_uint_gt_literal, (np.uint64(2**63),), True),
+            (simple_int_gt, (np.int32(-1), np.uint32(5)), False),
+            (simple_int_lt, (np.int32(-1), np.uint32(5)), True),
+            (simple_int_gt, (np.int32(-50), np.uint8(0)), False),
+            (simple_int_gt, (np.int64(-1), np.uint32(5)), False),
+            (simple_int_gt, (np.uint32(2**31), np.uint64(2**40)), False),
+            (simple_int_gt, (np.int8(-1), np.uint8(200)), False),
+        )
+
+        for func, args, expected in cases:
+            if explicit_signature:
+                argtypes = (b1[:], *(from_dtype(arg.dtype) for arg in args))
+                kernel = cuda.jit(signature(types.void, *argtypes))(func)
+            else:
+                kernel = cuda.jit(func)
+
+            got = np.zeros(1, dtype=np.bool_)
+            kernel[1, 1](got, *args)
+            assert got[0] == expected
 
     def test_fp16_comparison(self):
         functions = (

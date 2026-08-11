@@ -10,6 +10,8 @@ import numpy as np
 import pytest
 
 from numba_cuda_mlir import compiler, cuda, types
+from numba_cuda_mlir.cuda.experimental import consteval
+from numba_cuda_mlir.errors import ForceLiteralArg
 from numba_cuda_mlir._whole_function_planners import (
     _WholeFunctionPlannerRegistry,
     _planner_registry,
@@ -22,6 +24,7 @@ from numba_cuda_mlir.extending import (
     WholeFunctionPlanner,
     register_planner,
     require_launch_config,
+    set_required_dynamic_shared_memory,
 )
 from numba_cuda_mlir.numba_cuda.compiler import run_frontend
 from numba_cuda_mlir.numba_cuda.core import ir
@@ -194,6 +197,32 @@ def test_launch_config_promotion_is_visible_to_later_planners_in_same_attempt():
     assert observed == promoted
     assert promoted[0]["sharedmem"] == 0
     assert tracker.required is True
+
+
+def test_required_dynamic_shared_memory_is_max_accumulated():
+    state = SimpleNamespace(metadata={})
+
+    set_required_dynamic_shared_memory(state, 1024)
+    set_required_dynamic_shared_memory(state, np.int64(512))
+    set_required_dynamic_shared_memory(state, 4096)
+
+    assert state.metadata["required_dynamic_shared_memory"] == 4096
+
+
+@pytest.mark.parametrize("value", [True, False, 1.5, "1024", object()])
+def test_required_dynamic_shared_memory_rejects_non_integer_values(value):
+    with pytest.raises(TypeError, match="must be an integer"):
+        set_required_dynamic_shared_memory(SimpleNamespace(metadata={}), value)
+
+
+def test_required_dynamic_shared_memory_rejects_negative_values():
+    with pytest.raises(ValueError, match="cannot be negative"):
+        set_required_dynamic_shared_memory(SimpleNamespace(metadata={}), -1)
+
+
+def test_required_dynamic_shared_memory_requires_compiler_metadata():
+    with pytest.raises(TypeError, match="metadata must be a dict"):
+        set_required_dynamic_shared_memory(SimpleNamespace(), 0)
 
 
 def test_ir_is_repaired_between_modifying_planners():
@@ -661,3 +690,266 @@ def test_planner_can_request_distinct_launch_config_specializations(
 
     configured_after_demand = kernel.configure(1, 32)
     assert configured_after_demand._launch_config["block"] == (32, 1, 1)
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
+def test_planner_dynamic_shared_memory_minimum_reaches_launch(
+    isolated_global_planners,
+):
+    required_bytes = 32 * 1024
+    last_scratch_index = required_bytes // np.dtype(np.int32).itemsize - 1
+
+    class ScratchPlanner(WholeFunctionPlanner):
+        def run(self):
+            if self.is_device_function:
+                return False
+            set_required_dynamic_shared_memory(self.state, required_bytes)
+            return False
+
+    register_planner(ScratchPlanner)
+
+    @cuda.jit
+    def kernel(output):
+        scratch = cuda.shared.array(0, dtype=types.int32)
+        if cuda.threadIdx.x == 0:
+            scratch[last_scratch_index] = 42
+            output[0] = scratch[last_scratch_index]
+
+    output = np.zeros(1, dtype=np.int32)
+    kernel[1, 1](output)
+
+    assert output[0] == 42
+    [compile_result] = kernel.overloads.values()
+    assert compile_result.metadata["required_dynamic_shared_memory"] == required_bytes
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
+def test_literal_retry_crosses_launch_config_and_dynamic_shared_memory(
+    isolated_global_planners,
+):
+    required_bytes = 32 * 1024
+    last_scratch_index = required_bytes // np.dtype(np.int32).itemsize - 1
+    observed = []
+
+    class LiteralScratchPlanner(WholeFunctionPlanner):
+        def run(self):
+            if self.is_device_function:
+                return False
+            launch_config = require_launch_config(self.state)
+            set_required_dynamic_shared_memory(self.state, required_bytes)
+            selector_type = self.state.args[1]
+            observed.append((launch_config["block"], selector_type))
+            if not isinstance(selector_type, types.Literal):
+                raise ForceLiteralArg({1})
+            return False
+
+    register_planner(LiteralScratchPlanner)
+
+    @cuda.jit
+    def kernel(output, selector):
+        scratch = cuda.shared.array(0, dtype=types.int32)
+        type_bias = consteval(1000 if isinstance(selector, types.Boolean) else 0)
+        if cuda.threadIdx.x == 0:
+            scratch[last_scratch_index] = selector
+            output[0] = scratch[last_scratch_index] + cuda.blockDim.x + type_bias
+
+    # Alternate numerically equal int/bool pairs in both insertion orders. They
+    # share an integer launch parameter family but must retain distinct native
+    # constant-cache entries.
+    selector_orders = {
+        32: (1, True, 0, False, 3, 7),
+        64: (True, 1, False, 0, 3, 7),
+    }
+    for block_size, selectors in selector_orders.items():
+        for selector in selectors:
+            output = np.zeros(1, dtype=np.int32)
+            kernel[1, block_size](output, selector)
+            type_bias = 1000 if isinstance(selector, bool) else 0
+            assert output[0] == selector + block_size + type_bias
+
+    assert kernel._requires_launch_config is True
+    assert kernel._literal_arg_positions == frozenset({1})
+    assert not kernel.overloads
+    assert {
+        (
+            dict(launch_config_key)["block"],
+            type(argtypes[1]),
+            argtypes[1].literal_value,
+        )
+        for (argtypes, launch_config_key) in kernel._launch_config_overloads
+    } == {
+        (
+            block,
+            types.BooleanLiteral if isinstance(selector, bool) else types.IntegerLiteral,
+            selector,
+        )
+        for block in ((32, 1, 1), (64, 1, 1))
+        for selector in selector_orders[32]
+    }
+    assert all(
+        compile_result.metadata["required_dynamic_shared_memory"] == required_bytes
+        for compile_result in kernel._launch_config_overloads.values()
+    )
+    assert any(not isinstance(selector_type, types.Literal) for _, selector_type in observed)
+    assert any(isinstance(selector_type, types.Literal) for _, selector_type in observed)
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
+def test_literal_retry_keeps_later_float_signature_generic(isolated_global_planners):
+    class IntegerLiteralPlanner(WholeFunctionPlanner):
+        def run(self):
+            if self.is_device_function:
+                return False
+            selector_type = self.state.args[1]
+            if isinstance(selector_type, types.Integer) and not isinstance(
+                selector_type, types.Literal
+            ):
+                raise ForceLiteralArg({1})
+            return False
+
+    register_planner(IntegerLiteralPlanner)
+
+    @cuda.jit
+    def kernel(output, selector):
+        output[0] = selector
+
+    native_compile_values = []
+    original_compile = kernel._compile
+
+    def counting_compile(args):
+        native_compile_values.append(args[1])
+        return original_compile(args)
+
+    # The first generic native dispatcher already owns its compile callback.
+    # Literal discovery rebuilds it with this wrapper, allowing the assertions
+    # below to distinguish native cache misses after discovery.
+    kernel._compile = counting_compile
+
+    output = np.zeros(1, dtype=np.float64)
+    kernel[1, 1](output, 7)
+    assert output[0] == 7
+
+    native_compile_values.clear()
+    kernel[1, 1](output, 1.5)
+    assert output[0] == 1.5
+    kernel[1, 1](output, 2.5)
+    assert output[0] == 2.5
+    kernel[1, 1](output, 9)
+    assert output[0] == 9
+
+    assert native_compile_values == [1.5, 9]
+    selector_types = {argtypes[1] for argtypes in kernel.overloads}
+    assert types.float64 in selector_types
+    assert {
+        selector_type.literal_value
+        for selector_type in selector_types
+        if isinstance(selector_type, types.Literal)
+    } == {7, 9}
+    assert len(selector_types) == 3
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
+def test_literal_retry_distinguishes_signed_and_unsigned_native_cache_keys(
+    isolated_global_planners,
+):
+    class IntegerLiteralPlanner(WholeFunctionPlanner):
+        def run(self):
+            if self.is_device_function:
+                return False
+            selector_type = self.state.args[1]
+            if isinstance(selector_type, types.Integer) and not isinstance(
+                selector_type, types.Literal
+            ):
+                raise ForceLiteralArg({1})
+            return False
+
+    register_planner(IntegerLiteralPlanner)
+
+    @cuda.jit
+    def kernel(output, selector):
+        output[0] = selector < 0
+
+    output = np.zeros(1, dtype=np.int32)
+    kernel[1, 1](output, -1)
+    assert output[0] == 1
+
+    kernel[1, 1](output, (1 << 64) - 1)
+    assert output[0] == 0
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
+def test_literal_retry_accumulates_requests_from_multiple_planners(
+    isolated_global_planners,
+):
+    observed = []
+
+    class FirstLiteralPlanner(WholeFunctionPlanner):
+        def run(self):
+            if self.is_device_function:
+                return False
+            first_type = self.state.args[1]
+            observed.append(("first", first_type))
+            if not isinstance(first_type, types.Literal):
+                raise ForceLiteralArg({1})
+            return False
+
+    class SecondLiteralPlanner(WholeFunctionPlanner):
+        def run(self):
+            if self.is_device_function:
+                return False
+            second_type = self.state.args[2]
+            observed.append(("second", second_type))
+            if not isinstance(second_type, types.Literal):
+                raise ForceLiteralArg({2})
+            return False
+
+    register_planner(FirstLiteralPlanner)
+    register_planner(SecondLiteralPlanner)
+
+    @cuda.jit
+    def kernel(output, first, second):
+        output[0] = first + second
+
+    output = np.zeros(1, dtype=np.int32)
+    kernel[1, 1](output, 7, 9)
+
+    assert output[0] == 16
+    assert kernel._literal_arg_positions == frozenset({1, 2})
+    [(argtypes, _)] = kernel.overloads.items()
+    assert isinstance(argtypes[1], types.IntegerLiteral)
+    assert argtypes[1].literal_value == 7
+    assert isinstance(argtypes[2], types.IntegerLiteral)
+    assert argtypes[2].literal_value == 9
+    assert [name for name, _ in observed] == [
+        "first",
+        "first",
+        "second",
+        "first",
+        "second",
+    ]
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
+def test_literal_retry_overrides_partial_parameter_annotation(isolated_global_planners):
+    class LiteralPlanner(WholeFunctionPlanner):
+        def run(self):
+            if self.is_device_function:
+                return False
+            if not isinstance(self.state.args[1], types.Literal):
+                raise ForceLiteralArg({1})
+            return False
+
+    register_planner(LiteralPlanner)
+
+    @cuda.jit
+    def kernel(output, selector: types.int64):
+        output[0] = selector
+
+    output = np.zeros(1, dtype=np.int64)
+    kernel[1, 1](output, 7)
+
+    assert output[0] == 7
+    assert kernel._literal_arg_positions == frozenset({1})
+    [(argtypes, _)] = kernel.overloads.items()
+    assert isinstance(argtypes[1], types.IntegerLiteral)
+    assert argtypes[1].literal_value == 7

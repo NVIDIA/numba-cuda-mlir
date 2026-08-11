@@ -658,7 +658,7 @@ LLVMMetadataRef LLVM70IRBuilder::createDICompileUnit(LLVMMetadataRef file,
                                 : static_cast<LLVMDWARFEmissionKind>(3);
   return fnDIBuilderCreateCompileUnit(
       diBuilder, LLVMDWARFSourceLanguageC, file,
-      "llvm70", 5, /*isOptimized=*/false, /*Flags=*/"", 0,
+      "llvm70", 6, /*isOptimized=*/false, /*Flags=*/"", 0,
       /*RuntimeVer=*/0, /*SplitName=*/"", 0,
       emissionKind, /*DWOId=*/0,
       /*SplitDebugInlining=*/false, /*DebugInfoForProfiling=*/false);

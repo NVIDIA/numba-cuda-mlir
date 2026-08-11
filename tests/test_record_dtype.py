@@ -278,6 +278,30 @@ class TestRecordFieldAccess:
         np.testing.assert_equal(scalar_result[0]["inner"]["a"], 33.0)
         np.testing.assert_equal(scalar_result[0]["inner"]["b"], 44.0)
 
+    @pytest.mark.skipif(not cuda.is_available(), reason="CUDA not available")
+    def test_read_nested_record_field(self):
+        # Regression for #214: reading a field of a scalar sub-record at a
+        # runtime index (rec[i]["inner"]["a"]) used to scalar-load the
+        # sub-record and dereference that value as a pointer -> illegal memory
+        # access. Fixed by #160; existing coverage only exercised the nested
+        # *array* read and the nested write, not this scalar sub-record read.
+        outer = np.dtype([("inner", [("a", np.float64), ("b", np.float64)]), ("scale", np.float64)])
+
+        @cuda.jit
+        def read_nested(rec, out):
+            i = cuda.grid(1)
+            if i < rec.shape[0]:
+                out[i] = rec[i]["inner"]["a"] * rec[i]["scale"]
+
+        arr = np.zeros(1, dtype=outer)
+        arr["inner"]["a"] = 5.0
+        arr["scale"] = 2.0
+        arr = cuda.to_device(arr)
+        out = cuda.to_device(np.zeros(1, dtype=np.float64))
+
+        read_nested[1, 1](arr, out)
+        np.testing.assert_equal(out.copy_to_host()[0], 10.0)
+
     def test_read_tuple_indexed_nested_record_field(self):
         @cuda.jit
         def read_field(ary, out):

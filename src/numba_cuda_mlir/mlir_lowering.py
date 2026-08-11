@@ -1679,8 +1679,8 @@ extern "C" __global__ void
             fn = fn._device_dispatcher
 
         folded_argtypes, call_vars, call_argtypes = self._fold_dispatcher_call_args(fn, args, kws)
-        func_name = generate_mangled_name(fn.py_func.__qualname__, call_argtypes)
-        cres = fn._compile_as_device_callee(folded_argtypes)
+        func_name = generate_mangled_name(f"{fn.py_func.__qualname__}_{id(fn)}", call_argtypes)
+        cres = fn._compile_as_device_callee(folded_argtypes, abi_name=func_name)
 
         if callee_linker := cres.metadata.get("linker"):
             self._record_ltoirs_from_linker(callee_linker)

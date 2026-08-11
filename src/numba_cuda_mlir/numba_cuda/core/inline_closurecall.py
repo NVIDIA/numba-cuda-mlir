@@ -4,7 +4,6 @@
 import types as pytypes  # avoid confusion with numba.types
 import copy
 import ctypes
-import weakref
 from numba_cuda_mlir.numba_cuda import HAS_NUMBA
 from numba_cuda_mlir.numba_cuda import types, config, cgutils
 from numba_cuda_mlir.numba_cuda.core import ir
@@ -244,10 +243,7 @@ def check_reduce_func(func_ir, func_var):
     return reduce_func
 
 
-# Canonical callee IR per (function, flags, enable_ssa), shared by all
-# InlineWorker instances. Keyed weakly so IR does not outlive its
-# function.
-_callee_ir_cache = weakref.WeakKeyDictionary()
+_PIPELINE_CALLEE_IR_CACHE_ATTR = "_numba_cuda_callee_ir_cache"
 
 
 def _clone_callee_ir(func_ir):
@@ -522,18 +518,24 @@ class InlineWorker:
         """Return callee IR that is safe for ``inline_ir`` to mutate.
 
         The canonical IR produced by the untyped pipeline for a given
-        function and flags configuration is cached, and each call
-        site receives a structural clone of it. Running the untyped
-        pipeline is far more expensive than cloning, and deeply
-        nested inline='always' functions otherwise recompile their
-        whole subtree at every transitive call site.
+        function and flags configuration is cached for the current
+        compiler pipeline, and each call site receives a structural
+        clone of it.
         """
-        per_func = _callee_ir_cache.setdefault(function, {})
-        key = (str(self.flags), enable_ssa)
-        canonical_ir = per_func.get(key)
+        # enable_ssa gets modified internally, set here so hit/miss keys match
+        self.flags.enable_ssa = enable_ssa
+        # InlineWorker permits a None pipeline
+        holder = self.pipeline if self.pipeline is not None else self
+        cache = getattr(holder, _PIPELINE_CALLEE_IR_CACHE_ATTR, None)
+        if cache is None:
+            cache = {}
+            setattr(holder, _PIPELINE_CALLEE_IR_CACHE_ATTR, cache)
+
+        key = (function, str(self.flags), enable_ssa)
+        canonical_ir = cache.get(key)
         if canonical_ir is None:
             canonical_ir = self.run_untyped_passes(function, enable_ssa)
-            per_func[key] = canonical_ir
+            cache[key] = canonical_ir
         return _clone_callee_ir(canonical_ir)
 
     def run_untyped_passes(self, func, enable_ssa=False):

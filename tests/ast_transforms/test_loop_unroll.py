@@ -93,6 +93,83 @@ def test_unroll_tuple_runs():
     assert all(result == 15.0)
 
 
+def test_unroll_tuple_target():
+    """Test loop unrolling with a tuple target."""
+    PAIRS = ((0, 10), (1, 20), (2, 30))
+
+    @numba_cuda_mlir.cuda.jit
+    def kernel(arr):
+        for idx, val in consteval(PAIRS):
+            arr[idx] = float(val)
+
+    cres = kernel.compile("void(float32[:])")
+    source = cres.metadata["transformed_source"]
+    assert "arr[0] = float(10)" in source
+    assert "arr[1] = float(20)" in source
+    assert "arr[2] = float(30)" in source
+    assert "for idx, val in" not in source
+
+
+def test_unroll_recursive_tuple_list_target():
+    """Test loop unrolling with recursive tuple and list targets."""
+    ITEMS = ((0, [1, 2]), (1, [3, 4]))
+
+    @numba_cuda_mlir.cuda.jit
+    def kernel(arr):
+        for idx, (lhs, rhs) in consteval(ITEMS):
+            value = consteval(idx + lhs + rhs)
+            arr[idx] = float(value)
+
+    cres = kernel.compile("void(float32[:])")
+    source = cres.metadata["transformed_source"]
+    assert "value = 3" in source
+    assert "value = 8" in source
+    assert "arr[0] = float(value)" in source
+    assert "arr[1] = float(value)" in source
+
+
+def test_unroll_tuple_target_with_complex_value():
+    """Test loop unrolling evaluates non-literal target values at compile time."""
+    ITEMS = ((0, [1, 2]),)
+
+    @numba_cuda_mlir.cuda.jit
+    def kernel(arr):
+        for idx, values in consteval(ITEMS):
+            value = consteval(values[0])
+            arr[idx] = float(value)
+
+    cres = kernel.compile("void(float32[:])")
+    source = cres.metadata["transformed_source"]
+    assert "value = 1" in source
+    assert "arr[0] = float(value)" in source
+
+
+def test_unroll_tuple_target_invalid_unpacking_raises():
+    """Test that tuple targets require an exact number of values."""
+    ITEMS = ((0,),)
+
+    @numba_cuda_mlir.cuda.jit
+    def kernel(arr):
+        for idx, val in consteval(ITEMS):
+            arr[idx] = float(val)
+
+    with pytest.raises(ConstevalError, match="Cannot unpack 1 values into"):
+        kernel.compile("void(float32[:])")
+
+
+def test_unroll_starred_target_raises():
+    """Test that starred loop targets are rejected explicitly."""
+    ITEMS = ((0, 1),)
+
+    @numba_cuda_mlir.cuda.jit
+    def kernel(arr):
+        for idx, *values in consteval(ITEMS):
+            arr[idx] = float(values[0])
+
+    with pytest.raises(ConstevalError, match="does not support starred targets"):
+        kernel.compile("void(float32[:])")
+
+
 def test_unroll_list():
     """Test loop unrolling with a list."""
     ITEMS = [10, 20, 30]

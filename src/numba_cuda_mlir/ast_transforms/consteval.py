@@ -43,15 +43,15 @@ class TargetOptionsReplacer(ast.NodeTransformer):
 
 
 class VariableReplacer(ast.NodeTransformer):
-    """Replace a variable name with a constant value throughout an AST."""
+    """Replace a variable name with an expression throughout an AST."""
 
-    def __init__(self, var_name: str, value):
+    def __init__(self, var_name: str, replacement: ast.expr):
         self.var_name = var_name
-        self.value = value
+        self.replacement = replacement
 
     def visit_Name(self, node: ast.Name) -> ast.AST:
         if node.id == self.var_name:
-            return ast.copy_location(ast.Constant(value=self.value), node)
+            return ast.copy_location(copy.deepcopy(self.replacement), node)
         return node
 
 
@@ -103,6 +103,7 @@ class ConstevalTransformer(ast.NodeTransformer):
         """Combined context: base (globals + closure) plus local constants and param types."""
         ctx = self.base_context.copy()
         ctx.update(self.local_consts)
+        ctx.update(self.stored_values)
         # Add parameter types - these shadow any globals with the same name
         ctx.update(self.param_type_map)
         # Add a resolver for current_target_options()
@@ -220,14 +221,6 @@ class ConstevalTransformer(ast.NodeTransformer):
 
     def _unroll_for_loop(self, node: ast.For) -> list[ast.stmt]:
         """Unroll a for loop with consteval iterator."""
-        # Get the loop variable name
-        if not isinstance(node.target, ast.Name):
-            raise ConstevalError(
-                "Loop unrolling only supports simple variable targets, "
-                f"got {type(node.target).__name__}"
-            )
-        var_name = node.target.id
-
         # Evaluate the iterator
         iter_value = self._eval_expr(node.iter.args[0])
         try:
@@ -244,15 +237,25 @@ class ConstevalTransformer(ast.NodeTransformer):
         for value in items:
             # Save current local_consts state
             saved_consts = self.local_consts.copy()
-            # Add loop variable to local_consts for this iteration
-            self.local_consts[var_name] = value
+            bindings = self._bind_loop_target(node.target, value)
+            # Add loop variables to local_consts for this iteration
+            self.local_consts.update(bindings)
+            replacements = {}
+            for var_name, bound_value in bindings.items():
+                if self._can_be_constant(bound_value):
+                    replacements[var_name] = ast.Constant(value=bound_value)
+                else:
+                    replacements[var_name] = ast.Name(
+                        id=self._store_value(bound_value), ctx=ast.Load()
+                    )
 
             for body_stmt in node.body:
                 # Deep copy the statement
                 stmt_copy = copy.deepcopy(body_stmt)
-                # Replace the loop variable with the constant value
-                replacer = VariableReplacer(var_name, value)
-                stmt_copy = replacer.visit(stmt_copy)
+                # Replace each loop variable with its constant value
+                for var_name, replacement in replacements.items():
+                    replacer = VariableReplacer(var_name, replacement)
+                    stmt_copy = replacer.visit(stmt_copy)
                 ast.fix_missing_locations(stmt_copy)
                 # Process the statement (handles nested constevals)
                 transformed = self._transform_statement(stmt_copy)
@@ -267,6 +270,35 @@ class ConstevalTransformer(ast.NodeTransformer):
         # Note: we ignore the else clause (orelse) since unrolled loops
         # don't have a natural "else" semantic
         return unrolled
+
+    def _bind_loop_target(self, target: ast.expr, value) -> dict[str, object]:
+        """Bind a consteval loop target to a compile-time value."""
+        if isinstance(target, ast.Name):
+            return {target.id: value}
+        if isinstance(target, ast.Starred):
+            raise ConstevalError("Loop unrolling does not support starred targets")
+        if not isinstance(target, (ast.Tuple, ast.List)):
+            raise ConstevalError(
+                "Loop unrolling only supports name, tuple, or list targets, "
+                f"got {type(target).__name__}"
+            )
+
+        try:
+            values = list(value)
+        except TypeError as e:
+            raise ConstevalError(
+                f"Cannot unpack {type(value).__name__} into {ast.unparse(target)}"
+            ) from e
+
+        if len(values) != len(target.elts):
+            raise ConstevalError(
+                f"Cannot unpack {len(values)} values into {ast.unparse(target)}"
+            )
+
+        bindings = {}
+        for element, element_value in zip(target.elts, values):
+            bindings.update(self._bind_loop_target(element, element_value))
+        return bindings
 
     def _is_consteval_with(self, node: ast.With) -> bool:
         """Check if this is a 'with consteval():' block."""

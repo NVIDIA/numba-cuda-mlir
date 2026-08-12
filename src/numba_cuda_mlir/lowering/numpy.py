@@ -1,6 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from dataclasses import dataclass
 import functools
 import operator
 from numba_cuda_mlir import lowering_utilities
@@ -842,32 +841,22 @@ def numpy_take(a, indices, axis=None):
 
 
 class Slice:
+    """Store slice bounds as index values."""
+
     def __init__(
         self,
-        start: ir.Value,
+        start: ir.Value | None = None,
         stop: ir.Value | None = None,
         step: ir.Value | None = None,
     ):
-        # Handle None for start (e.g., x[:5] has start=None meaning 0)
-        if isinstance(start, ir.NoneType):
-            start = None
-        self.start: ir.Value = (
-            lowering_utilities.convert(start, T.index())
-            if start is not None
-            else arith.index_cast(arith.constant(result=T.i64(), value=0), to=T.index())
-        )
-        # Handle None for stop (e.g., x[2:] has stop=None meaning end of array)
-        if isinstance(stop, ir.NoneType):
-            stop = None
-        self.stop: ir.Value | None = lowering_utilities.convert(stop, T.index()) if stop else None
-        # Handle None for step (default to 1)
-        if isinstance(step, ir.NoneType):
-            step = None
-        self.step: ir.Value = (
-            lowering_utilities.convert(step, T.index())
-            if step
-            else arith.constant(result=T.index(), value=1)
-        )
+        def as_index(bound):
+            if bound is None or isinstance(bound, ir.NoneType):
+                return None
+            return lowering_utilities.convert(bound, T.index())
+
+        self.start: ir.Value | None = as_index(start)
+        self.stop: ir.Value | None = as_index(stop)
+        self.step: ir.Value | None = as_index(step)
 
     def __str__(self):
         return f"Slice(start={self.start}, stop={self.stop}, step={self.step})"
@@ -879,6 +868,109 @@ class Slice:
         yield self.start
         yield self.stop
         yield self.step
+
+
+def _resolve_slice(builder, slc: Slice, mr: ir.Value, dim_index: int = 0):
+    """Return (start, length, step) index values with Python slice semantics for dim dim_index."""
+    start, stop, step = slc.start, slc.stop, slc.step
+    c_step = 1 if step is None else try_extract_constant(step)
+    if c_step == 0:
+        raise ValueError("slice step cannot be zero")
+    step = index_of(1) if step is None else step
+    extent = mr.type.shape[dim_index]
+    dynamic = ir.ShapedType.get_dynamic_size()
+    ext = index_of(extent) if extent != dynamic else memref.dim(mr, index_of(dim_index))
+    zero = index_of(0)
+    one = index_of(1)
+    neg1 = index_of(-1)
+
+    if c_step is None:
+        is_zero = arith.cmpi(arith.CmpIPredicate.eq, step, zero)
+        error_memref = builder._get_or_create_error_global()
+        if error_memref is not None:
+            with scf.if_ctx_manager(is_zero):
+                set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+                scf.yield_([])
+        # The flagged zero step still reaches the length division; substitute one.
+        step = arith.select(is_zero, one, step)
+
+    is_negative_step = arith.cmpi(arith.CmpIPredicate.slt, step, zero)
+    extent_minus_one = arith.subi(ext, one)
+    lower = arith.select(is_negative_step, neg1, zero)
+    upper = arith.select(is_negative_step, extent_minus_one, ext)
+
+    def fix_bound(bound, default):
+        if bound is None:
+            return default
+        is_negative = arith.cmpi(arith.CmpIPredicate.slt, bound, zero)
+        wrapped = arith.select(is_negative, arith.addi(bound, ext), bound)
+        return arith.minsi(arith.maxsi(wrapped, lower), upper)
+
+    resolved_start = fix_bound(start, arith.select(is_negative_step, extent_minus_one, zero))
+    resolved_stop = fix_bound(stop, arith.select(is_negative_step, neg1, ext))
+
+    delta = arith.subi(resolved_stop, resolved_start)
+    dividend = arith.select(
+        is_negative_step,
+        arith.addi(delta, one),
+        arith.subi(delta, one),
+    )
+    nominal_length = arith.addi(one, arith.divsi(dividend, step))
+    is_empty = arith.select(
+        is_negative_step,
+        arith.cmpi(arith.CmpIPredicate.sge, delta, zero),
+        arith.cmpi(arith.CmpIPredicate.sle, delta, zero),
+    )
+    length = arith.select(is_empty, zero, nominal_length)
+    return resolved_start, length, step
+
+
+def _strided_view(
+    array: ir.Value,
+    offsets: list[ir.Value],
+    sizes: list[ir.Value],
+    strides: list[ir.Value],
+    dims_to_drop: list[bool] | None = None,
+) -> ir.Value:
+    """Build a strided view; dimensions marked in dims_to_drop are dropped from the result."""
+    rank = array.type.rank
+    metadata = memref_dialect.extract_strided_metadata(array)
+    source_strides = list(metadata[2 + rank : 2 + 2 * rank])
+    result_offset = metadata[1]
+    result_strides = []
+    result_sizes = []
+    if dims_to_drop is None:
+        dims_to_drop = [False] * rank
+
+    for offset, size, stride, source_stride, drop in zip(
+        offsets, sizes, strides, source_strides, dims_to_drop
+    ):
+        result_offset = arith.addi(
+            result_offset,
+            arith.muli(index_of(offset), index_of(source_stride)),
+        )
+        if not drop:
+            result_sizes.append(index_of(size))
+            result_strides.append(arith.muli(index_of(source_stride), index_of(stride)))
+
+    dynamic_size = ir.ShapedType.get_dynamic_size()
+    dynamic_stride = ir.ShapedType.get_dynamic_stride_or_offset()
+    result_type = ir.MemRefType.get(
+        [dynamic_size] * len(result_sizes),
+        array.type.element_type,
+        layout=ir.StridedLayoutAttr.get(dynamic_stride, [dynamic_stride] * len(result_sizes)),
+        memory_space=array.type.memory_space,
+    )
+    return memref_dialect.reinterpret_cast(
+        result_type,
+        array,
+        offsets=[result_offset],
+        sizes=result_sizes,
+        strides=result_strides,
+        static_offsets=[dynamic_stride],
+        static_sizes=[dynamic_size] * len(result_sizes),
+        static_strides=[dynamic_stride] * len(result_sizes),
+    )
 
 
 @lower(slice, types.VarArg(types.Any))
@@ -944,90 +1036,6 @@ def _lower_record_array_getitem(builder, target, args, kwargs):
     trace("Record array getitem: stored ptr to %s", target.name)
 
 
-def _get_memref_strides(memref_type: ir.MemRefType) -> list[int]:
-    """Extract static strides from a memref's layout, computing C-contiguous
-    strides when the layout is the default identity map."""
-    dyn = ir.ShapedType.get_dynamic_stride_or_offset()
-    dyn_size = ir.ShapedType.get_dynamic_size()
-    layout = memref_type.layout
-    if isinstance(layout, ir.StridedLayoutAttr):
-        return list(layout.strides)
-    source_shape = list(memref_type.shape)
-    result = []
-    for i in range(memref_type.rank):
-        suffix = source_shape[i + 1 :]
-        if all(d != dyn_size for d in suffix):
-            stride = 1
-            for d in suffix:
-                stride *= d
-            result.append(stride)
-        else:
-            result.append(dyn)
-    return result
-
-
-def _rank_reducing_subview(
-    array: ir.Value,
-    sv_offsets: list[ir.Value],
-    sv_sizes: list[ir.Value],
-    sv_strides: list[ir.Value],
-    dims_to_drop: list[bool],
-) -> ir.Value:
-    """Create a memref.subview that drops dimensions marked in *dims_to_drop*,
-    then collapse_shape to produce the rank-reduced result.  This is used for
-    both ``arr[i]`` and ``arr[(i, j)]`` style indexing where scalar indices
-    reduce the array rank."""
-    array_type: ir.MemRefType = array.type
-    source_rank = array_type.rank
-    dyn = ir.ShapedType.get_dynamic_stride_or_offset()
-    dyn_size = ir.ShapedType.get_dynamic_size()
-
-    subview_shape = [1 if dims_to_drop[i] else dyn_size for i in range(source_rank)]
-    source_strides = _get_memref_strides(array_type)
-
-    subview_type = ir.MemRefType.get(
-        subview_shape,
-        array_type.element_type,
-        layout=ir.StridedLayoutAttr.get(dyn, source_strides),
-        memory_space=array_type.memory_space,
-    )
-    subview = memref.subview(array, sv_offsets, sv_sizes, sv_strides, result_type=subview_type)
-
-    # Build reassociation: group each dropped dim with the next kept dim.
-    reassociation: list[list[int]] = []
-    pending: list[int] = []
-    for i in range(source_rank):
-        pending.append(i)
-        if not dims_to_drop[i]:
-            reassociation.append(pending)
-            pending = []
-    if pending:
-        if reassociation:
-            reassociation[-1].extend(pending)
-        else:
-            reassociation.append(pending)
-
-    # Compute result strides for the collapsed memref. A dimension group
-    # requires a dynamic stride if any source dimension in the group has a
-    # dynamic stride OR a dynamic size (since the product of sizes affects
-    # the effective stride after collapsing).
-    result_strides = []
-    for group in reassociation:
-        needs_dyn = any(source_strides[d] == dyn or subview_shape[d] == dyn_size for d in group)
-        if needs_dyn:
-            result_strides.append(dyn)
-        else:
-            result_strides.append(source_strides[group[-1]])
-    n_kept = len(result_strides)
-    result_type = ir.MemRefType.get(
-        [dyn_size] * n_kept,
-        array_type.element_type,
-        layout=ir.StridedLayoutAttr.get(dyn, result_strides),
-        memory_space=array_type.memory_space,
-    )
-    return memref.collapse_shape(result_type, subview, reassociation)
-
-
 @lower(operator.getitem, types.Array, types.Number)
 @lower(operator.getitem, types.Array, types.Integer)
 @lower(operator.getitem, types.Buffer, types.Integer)
@@ -1071,152 +1079,24 @@ def lower_array_getitem(builder, target, args, kwargs):
         sv_sizes = [index_of(1)] + [memref.dim(array, index_of(i)) for i in range(1, rank)]
         sv_strides = [index_of(1)] * rank
         dims_to_drop = [True] + [False] * (rank - 1)
-        value = _rank_reducing_subview(array, sv_offsets, sv_sizes, sv_strides, dims_to_drop)
+        value = _strided_view(array, sv_offsets, sv_sizes, sv_strides, dims_to_drop)
 
     builder.store_var(target, value)
-
-
-@dataclass
-class MemRefSlice:
-    offset: ir.Value
-    size: ir.Value
-    stride: ir.Value
-    static_offset: int
-    static_size: int
-    static_stride: int
-
-    @staticmethod
-    def get(array: ir.Value, slice: Slice):
-        from numba_cuda_mlir.lowering_utilities import try_extract_constant as extract
-
-        # first, last, step, static first, static last, static step
-        f, l, s, sf, sl, ss = [None for _ in range(6)]
-
-        # size, static size
-        sz, ssz = None, None
-
-        if v := extract(slice.start):
-            sf = v
-        else:
-            f = slice.start
-        if v := extract(slice.stop):
-            sl = v
-        elif slice.stop is None:
-            l = memref.dim(array, index_of(0))
-        else:
-            l = slice.stop
-        if v := extract(slice.step):
-            ss = v
-        else:
-            s = slice.step
-
-        if sf and sl:
-            ssz = sl - sf
-        else:
-            sz = l - f
-
-        return MemRefSlice(
-            offset=f,
-            size=sz,
-            stride=s,
-            static_offset=sf,
-            static_size=ssz,
-            static_stride=ss,
-        )
-
-
-class MemRefSlices:
-    def __init__(self, *slices: list[MemRefSlice]):
-        self.slices = slices
-
-    def __add__(self, other: "MemRefSlices") -> "MemRefSlices":
-        return MemRefSlices(*self.slices, *other.slices)
-
-    def __len__(self):
-        return len(self.slices)
-
-    def subview(self, mr: ir.Value) -> dict[str, list[ir.Value | int]]:
-        # TODO(ajm): replace with tensor.generate
-        kws = {
-            "offsets": [
-                (slice.static_offset if slice.static_offset is not None else slice.offset)
-                for slice in self.slices
-            ],
-            "sizes": [
-                (slice.static_size if slice.static_size is not None else slice.size)
-                for slice in self.slices
-            ],
-            "strides": [
-                (slice.static_stride if slice.static_stride is not None else slice.stride)
-                for slice in self.slices
-            ],
-        }
-        dyn = ir.ShapedType.get_dynamic_stride_or_offset()
-        source_strides, _ = mr.type.get_strides_and_offset()
-        result_strides = []
-        for src_stride, s in zip(source_strides, self.slices):
-            if s.static_stride is not None and src_stride != dyn:
-                result_strides.append(src_stride * s.static_stride)
-            else:
-                result_strides.append(dyn)
-        layout = ir.StridedLayoutAttr.get(offset=dyn, strides=result_strides)
-        mrt = ir.MemRefType.get(
-            element_type=mr.type.element_type,
-            shape=[
-                (slice.static_size if slice.static_size is not None else dyn)
-                for slice in self.slices
-            ],
-            layout=layout,
-            memory_space=mr.type.memory_space,
-        )
-        return memref.subview(mr, **kws, result_type=mrt)
-
-
-def slice_memref(mr: ir.Value, mrs: MemRefSlices) -> ir.Value:
-    value = mrs.subview(mr)
-    return value
 
 
 @lower(operator.getitem, types.Array, types.SliceType)
 def lower_array_slice_getitem(builder, target, args, kwargs):
     trace()
     mr = builder.load_var(args[0])
-    mr_type = mr.type
-    dtype = mr_type.element_type
-    rank = mr_type.rank
-    slice = builder.load_var(args[1])
-    start, stop, step = slice.start, slice.stop, slice.step
-    if start is None:
-        start = arith.index_cast(arith.constant(result=T.i64(), value=0), to=T.index())
-    if stop is None:
-        stop = memref.dim(mr, index_of(0))
-    if step is None:
-        step = index_of(1)
-    starts, stops, steps = [start], [stop], [step]
-    for i in range(1, rank):
-        starts.append(index_of(0))
-        stops.append(memref.dim(mr, index_of(i)))
-        steps.append(index_of(1))
+    rank = mr.type.rank
+    slc = builder.load_var(args[1])
+    start, length, step = _resolve_slice(builder, slc, mr)
 
-    dyn = ir.ShapedType.get_dynamic_stride_or_offset()
-    source_strides, _ = mr_type.get_strides_and_offset()
-    result_strides = []
-    for src_stride, step in zip(source_strides, steps):
-        step_val = try_extract_constant(step)
-        if step_val is not None and src_stride != dyn:
-            result_strides.append(src_stride * step_val)
-        else:
-            result_strides.append(dyn)
-    layout = ir.StridedLayoutAttr.get(offset=dyn, strides=result_strides)
-    mrt = ir.MemRefType.get(
-        element_type=dtype,
-        shape=[dyn for _ in range(rank)],
-        layout=layout,
-        memory_space=mr_type.memory_space,
-    )
-    sizes = [(stop - start) // step for start, stop, step in zip(starts, stops, steps)]
-    mr = memref.subview(mr, offsets=starts, sizes=sizes, strides=steps, result_type=mrt)
-    builder.store_var(target, mr)
+    offsets = [start] + [index_of(0) for _ in range(1, rank)]
+    sizes = [length] + [memref.dim(mr, index_of(i)) for i in range(1, rank)]
+    strides = [step] + [index_of(1) for _ in range(1, rank)]
+    view = _strided_view(mr, offsets, sizes, strides)
+    builder.store_var(target, view)
 
 
 def _idx_c(value: int) -> ir.Value:
@@ -1677,32 +1557,20 @@ def lower_array_slice_setitem(builder, target, args, kwargs):
     mr_type = array.type
     rank = mr_type.rank
 
-    # Parse slice bounds for dimension 0
-    start, stop, step = slice_val.start, slice_val.stop, slice_val.step
-    if start is None:
-        start = index_of(0)
-    else:
-        start = index_of(start)
-    if stop is None:
-        stop = memref.dim(array, index_of(0))
-    else:
-        stop = index_of(stop)
-    if step is None:
-        step = index_of(1)
-    else:
-        step = index_of(step)
+    start, length, step = _resolve_slice(builder, slice_val, array)
 
-    # Build bounds for all dimensions - first dim uses slice, rest use full range
-    starts = [start] + [index_of(0)] * (rank - 1)
-    stops = [stop] + [memref.dim(array, index_of(i + 1)) for i in range(rank - 1)]
-    steps = [step] + [index_of(1)] * (rank - 1)
+    # Map a forward loop onto the resolved slice.
+    starts = [index_of(0)] * rank
+    stops = [length] + [memref.dim(array, index_of(i + 1)) for i in range(rank - 1)]
+    steps = [index_of(1)] * rank
 
     @scf.forall_(starts, stops, steps)
     def fill_all(*indices):
+        idx0 = arith.addi(start, arith.muli(indices[0], step))
         lowering_utilities.array_element_value_store(
             array_numba_type,
             array,
-            list(indices),
+            [idx0, *indices[1:]],
             value,
             dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
         )
@@ -1740,30 +1608,21 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
     n_indexed = len(tuple_indices)
     n_trailing = source_rank - n_indexed
 
-    error_memref = builder._get_or_create_error_global()
-    zero = arith.constant(result=T.index(), value=0)
-    dims = [memref.dim(array, index_of(i)) for i in range(source_rank)]
-
     offsets, sizes, strides, is_scalar = [], [], [], []
     for i, index in enumerate(tuple_indices):
         match index:
-            case Slice(start=start, stop=stop, step=step):
+            case Slice() as slc:
                 if not isinstance(target_type, types.Array):
                     raise TypeError(
                         f"Target type {target_type} is not an array, but a slice was used to index it"
                     )
-                offsets.append(start)
-                end = stop or dims[i]
-                sizes.append(end - start)
-                strides.append(step or 1)
+                s_start, s_length, s_step = _resolve_slice(builder, slc, array, i)
+                offsets.append(s_start)
+                sizes.append(s_length)
+                strides.append(s_step)
                 is_scalar.append(False)
-                if error_memref is not None:
-                    is_not_positive = arith.cmpi(arith.CmpIPredicate.sle, strides[-1], zero)
-                    with scf.if_ctx_manager(is_not_positive):
-                        set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
-                        scf.yield_([])
-            case int() as i:
-                offsets.append(arith.constant(result=T.index(), value=i))
+            case int() as const_index:
+                offsets.append(arith.constant(result=T.index(), value=const_index))
                 sizes.append(1)
                 strides.append(1)
                 is_scalar.append(True)
@@ -1778,8 +1637,9 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
                 )
 
     # Extend with full-extent entries for unindexed trailing dimensions
+    trailing_dims = [memref.dim(array, index_of(n_indexed + i)) for i in range(n_trailing)]
     full_offsets = list(offsets) + [index_of(0)] * n_trailing
-    full_sizes = list(sizes) + [dims[n_indexed + i] for i in range(n_trailing)]
+    full_sizes = list(sizes) + trailing_dims
     full_strides = list(strides) + [index_of(1)] * n_trailing
     full_is_scalar = list(is_scalar) + [False] * n_trailing
 
@@ -1790,9 +1650,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
                 raise InternalCompilerError(
                     f"Result rank {n_kept} does not match target type ndim {target_type.ndim}"
                 )
-            value = _rank_reducing_subview(
-                array, full_offsets, full_sizes, full_strides, full_is_scalar
-            )
+            value = _strided_view(array, full_offsets, full_sizes, full_strides, full_is_scalar)
             builder.store_var(target, value)
         case types.Number() | types.Boolean():
             value = lowering_utilities.array_element_value_load(

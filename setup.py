@@ -13,7 +13,7 @@ from setuptools.extension import Extension
 
 ROOT = Path(__file__).resolve().parent
 IS_WINDOWS = os.name == "nt"
-IS_WINDOWS_ARM64 = IS_WINDOWS and platform.machine() in ("ARM64", "AMD64")
+IS_WINDOWS_ARM64 = IS_WINDOWS and platform.machine() == "ARM64"
 _WINDOWS_DLL_SEARCH_MARKER = "# numba-cuda-mlir: bundled Windows DLL search paths"
 
 

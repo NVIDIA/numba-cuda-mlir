@@ -11,10 +11,7 @@ import textwrap
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir import types
 
-IS_WINDOWS_ARM64 = platform.system() == "Windows" and platform.machine() in (
-    "ARM64",
-    "AMD64",
-)
+IS_WINDOWS_ARM64 = platform.system() == "Windows" and platform.machine() == "ARM64"
 
 
 def _run_in_subprocess(code: str):

@@ -33,10 +33,7 @@ from numba_cuda_mlir.numba_cuda.core.ir_utils import build_definitions
 
 
 _RECOMPILE_VALUE = 1
-IS_WINDOWS_ARM64 = platform.system() == "Windows" and platform.machine() in (
-    "ARM64",
-    "AMD64",
-)
+IS_WINDOWS_ARM64 = platform.system() == "Windows" and platform.machine() == "ARM64"
 
 
 @pytest.fixture

@@ -44,7 +44,9 @@ echo "nvmath-python test commit (${NVMATH_REF}):"
 git -C "${NVMATH_CHECKOUT}" log -1 --format='%H %h %s'
 
 echo "Building and installing nvmath-python from source with device extras"
-python -m pip install "${NVMATH_CHECKOUT}[cu${TEST_CUDA_MAJOR}-dx]"
+# numba-cuda accesses np.row_stack during import, but NumPy removed that alias
+# in 2.5. Keep the integration environment below 2.5 until numba-cuda guards it.
+python -m pip install "${NVMATH_CHECKOUT}[cu${TEST_CUDA_MAJOR}-dx]" "numpy<2.5"
 
 echo "Installing nvmath-python test dependencies"
 python -m pip install \

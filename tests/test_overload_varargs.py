@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from numba_cuda_mlir import cuda
-from numba_cuda_mlir.cuda import literal_unroll
+from numba_cuda_mlir.cuda.experimental import consteval
 from numba_cuda_mlir.extending import (
     overload,
     overload_method,
@@ -19,14 +19,17 @@ from numba_cuda_mlir.numba_cuda import types
 # Implementations below consume the bundle in one of two ways, and both must
 # work over a ``*args`` argument:
 #
-#   ``for a in args``                 types the loop body once, so it requires
-#                                     every element to share a type.
-#   ``for a in literal_unroll(args)`` types the loop body once per element, so
-#                                     the elements may differ (including a
-#                                     bundle of arrays, each its own type).
+#   ``for a in args``               types the loop body once, so it requires
+#                                   every element to share a type.
+#   ``for i in consteval(range(n))`` unrolls before compilation, so each ``i`` is
+#                                   a literal and ``args[i]`` resolves through
+#                                   static getitem. The elements may then differ
+#                                   (including a bundle of arrays, each its own
+#                                   type), and the index is available directly.
 #
 # The plain loop is used where the test calls the overload with a homogeneous
-# bundle, and ``literal_unroll`` where it does not.
+# bundle, and ``consteval`` where it does not. The arity comes from the typing
+# function, so ``n`` reaches the implementation as a freevar.
 
 
 def var_sum(*args):
@@ -79,14 +82,10 @@ def var_store(out, *args):
 
 @overload(var_store, target="cuda", typing_registry=typing_registry)
 def ol_var_store(out, *args):
-    # Unrolling a constant tuple of indices makes ``i`` a literal in each loop
-    # version, so ``args[i]`` resolves through static getitem. Unrolling a
-    # ``range`` would not: the index stays a runtime int and cannot index a
-    # heterogeneous bundle.
-    indices = tuple(range(len(args)))
+    n = len(args)
 
     def impl(out, *args):
-        for i in literal_unroll(indices):
+        for i in consteval(range(n)):
             out[i] = args[i]
 
     return impl
@@ -98,10 +97,12 @@ def var_from_arrays(idx, *cols):
 
 @overload(var_from_arrays, target="cuda", typing_registry=typing_registry)
 def ol_var_from_arrays(idx, *cols):
+    n = len(cols)
+
     def impl(idx, *cols):
         acc = 0.0
-        for c in literal_unroll(cols):
-            acc += c[idx]
+        for i in consteval(range(n)):
+            acc += cols[i][idx]
         return acc
 
     return impl
@@ -139,10 +140,12 @@ def mixed_sum(*args):
 
 @overload(mixed_sum, target="cuda", typing_registry=typing_registry)
 def ol_mixed_sum(*args):
+    n = len(args)
+
     def impl(*args):
         acc = 0.0
-        for a in literal_unroll(args):
-            acc += a
+        for i in consteval(range(n)):
+            acc += args[i]
         return acc
 
     return impl

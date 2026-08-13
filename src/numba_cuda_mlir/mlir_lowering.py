@@ -2653,6 +2653,14 @@ extern "C" __global__ void
             self.store_var(target, const)
             return
 
+        if isinstance(value_type, types.DType) and attr == "type":
+            self.store_var(target, self._materialize_type_token(target_type))
+            return
+
+        if isinstance(value_type, types.DType) and attr == "kind":
+            self.store_var(target, target_type.literal_value)
+            return
+
         if (field_idx := self._get_struct_field_index(value_type, attr)) is not None:
             struct_val = self.load_var(value)
             result = llvm.extractvalue(

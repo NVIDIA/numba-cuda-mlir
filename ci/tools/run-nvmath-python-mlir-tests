@@ -153,9 +153,10 @@ python -m pytest ./tests/example_tests/device_tests/test_device_samples.py \
   "$@" || true
 
 echo "Collecting nvmath-python device tests (numba-cuda-mlir params)"
-# The numba-cuda-only test modules fail to import without numba installed. They
-# hold no numba-cuda-mlir parametrizations, and pytest still collects the rest,
-# so the reported collection errors are expected here.
+# Three modules still fail to import without numba and report as collection
+# errors: the two perf ones, which the -k filter excludes anyway, and
+# test_vector_types_numba, which parametrizes over numba types at module scope -
+# see 0004-collect-device-tests-without-numba.patch. Everything else collects.
 mapfile -t device_nodeids < <(
   python -m pytest ./tests/nvmath_tests/device \
     --collect-only -q -o addopts= \

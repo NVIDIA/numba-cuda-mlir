@@ -8,6 +8,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 source "${SCRIPT_DIR}/llvm-version.env"
 
 MODE="${1:-all}"
+HOST_ARCH="$(uname -m)"
 BUILD_ROOT="${BUILD_ROOT:-${REPO_ROOT}/_build}"
 LLVM7_SRC="${LLVM7_SRC:-${BUILD_ROOT}/llvm7-src}"
 LLVM7_BUILD="${LLVM7_BUILD:-${BUILD_ROOT}/llvm7-build}"
@@ -25,6 +26,11 @@ case "${MODE}" in
     exit 2
     ;;
 esac
+
+if [[ "${HOST_ARCH}" == "arm64" || "${HOST_ARCH}" == "aarch64" ]] && [[ "${MODE}" == "llvm7" ]]; then
+  echo "LLVM 7 is not supported on Windows ARM64" >&2
+  exit 2
+fi
 
 timestamp() {
   date -u +"%Y-%m-%dT%H:%M:%SZ"
@@ -466,7 +472,7 @@ build_modern_to_nvvm_bridge() {
 
 step "Validate Windows build prerequisites" check_prereqs
 
-if [[ "${MODE}" == "all" || "${MODE}" == "llvm7" ]]; then
+if [[ "${MODE}" == "llvm7" || ( "${MODE}" == "all" && "${HOST_ARCH}" != "arm64" && "${HOST_ARCH}" != "aarch64" ) ]]; then
   step "Clone LLVM 7 (${LLVM7_TAG})" clone_llvm7
   step "Build LLVM 7 static install" build_llvm7
 fi

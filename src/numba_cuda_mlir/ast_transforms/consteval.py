@@ -291,9 +291,7 @@ class ConstevalTransformer(ast.NodeTransformer):
             ) from e
 
         if len(values) != len(target.elts):
-            raise ConstevalError(
-                f"Cannot unpack {len(values)} values into {ast.unparse(target)}"
-            )
+            raise ConstevalError(f"Cannot unpack {len(values)} values into {ast.unparse(target)}")
 
         bindings = {}
         for element, element_value in zip(target.elts, values):

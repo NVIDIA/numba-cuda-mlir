@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
 Drop the numba stack from the numba extra
 
 The `cuNN-dx` extras pull in `nvmath-python[numba]`, which installs numba-cuda

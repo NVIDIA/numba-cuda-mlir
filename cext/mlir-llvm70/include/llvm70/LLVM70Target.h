@@ -54,7 +54,8 @@ struct LLVM70Options {
 
 /// Translate a gpu.module (containing LLVM dialect ops) to PTX.
 llvm::Expected<std::string> translateToPTX(mlir::gpu::GPUModuleOp gpuMod,
-                                           const LLVM70Options &opts);
+                                           const LLVM70Options &opts,
+                                           std::string *nvvmBitcode = nullptr);
 
 /// Lower-level: translate a gpu.module to old LLVM IR text (for debugging).
 llvm::Expected<std::string> translateToNVVMIR(mlir::gpu::GPUModuleOp gpuMod,

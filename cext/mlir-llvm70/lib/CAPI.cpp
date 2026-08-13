@@ -41,13 +41,18 @@ int llvm70_translate_gpu_module_from_op(
     void *raw_op,
     const char *chip, const char *data_layout,
     const char *libllvm, const char *libnvvm, const char *libdevice,
-    int gen_lto, int opt_level, int gen_lineinfo,
+    int gen_lto, int gen_llvmir, int opt_level, int gen_lineinfo,
     int nvvm_ir_major, int nvvm_ir_minor, int nvvm_debug_major,
     int nvvm_debug_minor,
-    char **out, size_t *out_len, char **err_out) {
+    char **out, size_t *out_len, char **nvvm_out, size_t *nvvm_out_len,
+    char **err_out) {
 
   *out = nullptr;
   *out_len = 0;
+  if (nvvm_out)
+    *nvvm_out = nullptr;
+  if (nvvm_out_len)
+    *nvvm_out_len = 0;
   *err_out = nullptr;
 
   if (!raw_op) {
@@ -93,23 +98,40 @@ int llvm70_translate_gpu_module_from_op(
   llvm::install_fatal_error_handler(fatalErrorHandler, nullptr);
 
   try {
-    auto ptxOrErr = llvm70::translateToPTX(gpuMod, opts);
+    std::string nvvmBitcode;
+    bool captureNVVM = gen_llvmir == 0 && nvvm_out && nvvm_out_len;
+    auto outputOrErr = gen_llvmir != 0
+                           ? llvm70::translateToNVVMIR(gpuMod, opts)
+                           : llvm70::translateToPTX(
+                                 gpuMod, opts,
+                                 captureNVVM ? &nvvmBitcode : nullptr);
     llvm::remove_fatal_error_handler();
 
-    if (!ptxOrErr) {
-      std::string msg = llvm::toString(ptxOrErr.takeError());
+    if (captureNVVM && !nvvmBitcode.empty()) {
+      *nvvm_out = static_cast<char *>(malloc(nvvmBitcode.size()));
+      if (!*nvvm_out) {
+        *err_out = copyCString("malloc failed");
+        return 1;
+      }
+      memcpy(*nvvm_out, nvvmBitcode.data(), nvvmBitcode.size());
+      *nvvm_out_len = nvvmBitcode.size();
+    }
+
+    if (!outputOrErr) {
+      std::string msg = llvm::toString(outputOrErr.takeError());
       *err_out = copyCString(msg.c_str());
       return 1;
     }
 
-    const std::string &ptx = *ptxOrErr;
-    *out = static_cast<char *>(malloc(ptx.size()));
+    const std::string &output = *outputOrErr;
+    *out = static_cast<char *>(malloc(output.size()));
     if (!*out) {
       *err_out = copyCString("malloc failed");
       return 1;
     }
-    memcpy(*out, ptx.data(), ptx.size());
-    *out_len = ptx.size();
+    memcpy(*out, output.data(), output.size());
+    *out_len = output.size();
+
     return 0;
   } catch (const std::exception &e) {
     llvm::remove_fatal_error_handler();

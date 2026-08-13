@@ -44,7 +44,6 @@ class TestCudaInline(NumbaCUDATestCase):
         # alwaysinline should not be in the IR when the inline kwarg is used
         self.assertNotIn("alwaysinline", llvm_ir)
 
-    @pytest.mark.xfail(True, reason="Uses inspect_llvm")
     def test_call_inline_always(self):
         self._test_call_inline("always", True)
 
@@ -52,7 +51,6 @@ class TestCudaInline(NumbaCUDATestCase):
     def test_call_inline_never(self):
         self._test_call_inline("never", False)
 
-    @pytest.mark.xfail(True, reason="Uses inspect_llvm")
     def test_call_inline_true(self):
         self._test_call_inline(True, True)
 
@@ -67,7 +65,6 @@ class TestCudaInline(NumbaCUDATestCase):
 
         self._test_call_inline(cost_model, False)
 
-    @pytest.mark.xfail(True, reason="Uses inspect_llvm")
     def test_call_inline_costmodel_true(self):
         def cost_model(expr, caller_info, callee_info):
             return True

@@ -2423,11 +2423,24 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             overloads[LaunchConfigInspectableKey(sig_args, launch_config_key)] = cres
         return overloads
 
-    def inspect_llvm(self, sig=None):
-        raise NotImplementedError(
-            "inspect_llvm is not supported. "
-            "Use inspect_mlir() to inspect the MLIR module or inspect_asm() to inspect the PTX."
-        )
+    def inspect_llvm(self, signature=None):
+        """Get architecture-natural LLVM IR.
+
+        With no signature, launch-specialized entries are keyed by
+        LaunchConfigInspectableKey and generic entries keep their argtypes tuple.
+        """
+        if signature is None:
+            return {sig: self.inspect_llvm(sig) for sig in self._inspectable_overloads()}
+        cres = self._find_overload(signature)
+        llvmir = cres.metadata.get("llvmir")
+        if llvmir is not None:
+            return llvmir
+
+        from numba_cuda_mlir.mlir_optimization import get_llvmir
+
+        llvmir = get_llvmir(cres)
+        cres.metadata["llvmir"] = llvmir
+        return llvmir
 
     def inspect_asm(self, signature=None):
         """Get generated PTX.

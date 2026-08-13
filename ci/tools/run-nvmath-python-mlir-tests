@@ -114,8 +114,8 @@ if [[ "${nvmath_has_mlir}" != "True" ]]; then
   exit 1
 fi
 
-# A dependency edge that drags numba-cuda back in would change which backend
-# nvmath exercises, so keep it out of the environment entirely.
+# A dependency edge that drags the numba stack back in would change which
+# backend nvmath exercises, so keep it out of the environment entirely.
 installed_packages="$(python -m pip list --format=freeze)"
 for package in numba numba-cuda; do
   if entry="$(grep -i "^${package}==" <<<"${installed_packages}")"; then

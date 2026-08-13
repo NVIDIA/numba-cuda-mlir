@@ -1,25 +1,22 @@
 Disable nvmath's numba-cuda backend
 
 nvmath gates its numba-cuda backend on `find_spec("numba.cuda")`, which cannot
-express "numba-cuda is absent": with no numba installed the probe raises
-ModuleNotFoundError, and with plain numba installed it matches numba's own
-`numba/cuda` shim and then fails importing the backend modules. This CI job
-installs neither numba nor numba-cuda - it exercises only the numba-cuda-mlir
-backend - so pin the gate off.
+express "numba-cuda is absent". With no numba installed the probe raises
+ModuleNotFoundError, making nvmath.device unimportable; with numba installed it
+matches numba's own `numba/cuda` shim and nvmath then fails importing the
+backend modules. This CI job installs neither - it exercises only the
+numba-cuda-mlir backend - so pin the gate off.
 
-TODO: drop once nvmath-python makes the probe tolerant of a missing numba.
+TODO: drop once nvmath-python probes for numba-cuda itself.
 
+Context is kept to one line so the patch survives edits elsewhere in the file.
 Applied by ci/tools/run-nvmath-python-mlir-tests.
 
 diff --git a/nvmath/device/common.py b/nvmath/device/common.py
 --- a/nvmath/device/common.py
 +++ b/nvmath/device/common.py
-@@ -14,7 +14,7 @@ import numpy as np
-
- from .common_cuda import MAX_SUPPORTED_CC, MIN_SUPPORTED_CC, CodeType, ComputeCapability, get_current_device_cc
+@@ -15,3 +15,3 @@ from .common_cuda import MAX_SUPPORTED_CC, MIN_SUPPORTED_CC, CodeType, ComputeCa
 
 -_HAS_NUMBA = importlib.util.find_spec("numba.cuda") is not None
 +_HAS_NUMBA = False
  _HAS_NUMBA_CUDA_MLIR = importlib.util.find_spec("numba_cuda_mlir") is not None
- # Sentinel (INT64_MIN) marking a shape/stride dim resolved at runtime by libmathdx.
- _LIBMATHDX_RUNTIME = -9223372036854775808

@@ -653,7 +653,8 @@ LLVMMetadataRef LLVM70IRBuilder::createDIFile(const char *filename,
 }
 LLVMMetadataRef LLVM70IRBuilder::createDICompileUnit(LLVMMetadataRef file,
                                                      bool fullDebug) {
-  // DebugDirectivesOnly (3) emits .file/.loc without .target ..., debug
+  // LLVM 7 accepts DebugDirectivesOnly (3), but its IR printer leaves the
+  // emission-kind name empty.
   auto emissionKind = fullDebug ? LLVMDWARFEmissionFull
                                 : static_cast<LLVMDWARFEmissionKind>(3);
   return fnDIBuilderCreateCompileUnit(

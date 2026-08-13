@@ -1,0 +1,69 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+Let the device tests collect without numba
+
+Two test-side blockers stop pytest from collecting any numba-cuda-mlir device
+test when numba is absent:
+
+  * Compiler.is_available probes `find_spec("numba.cuda")`, which raises
+    ModuleNotFoundError with no numba installed - the same defect patched in
+    nvmath itself by 0001-disable-numba-cuda-backend.patch. It is evaluated by
+    the compiler_param() decorators at module scope, so it takes down collection
+    of every parametrized module, mlir params included. Pin it off, matching
+    0001; the numba-cuda params then report as unavailable instead of raising.
+  * test_cublasdx_numba imports pipeline_extensions from the numba-cuda backend
+    at module scope, though it is only used inside two numba-cuda-only tests.
+    Defer it to those call sites so the module's mlir params survive.
+
+test_vector_types_numba is deliberately left alone: it parametrizes over numba
+`types.*` at module scope, so it cannot be collected without numba at all. Its
+mlir params are lost - that module is the one gap in mlir device coverage here.
+
+The perf modules stay uncollectable too, but they are excluded by the -k filter
+and carry no mlir params.
+
+Applied by ci/tools/run-nvmath-python-mlir-tests.
+
+diff --git a/tests/nvmath_tests/device/test_cublasdx_numba.py b/tests/nvmath_tests/device/test_cublasdx_numba.py
+--- a/tests/nvmath_tests/device/test_cublasdx_numba.py
++++ b/tests/nvmath_tests/device/test_cublasdx_numba.py
+@@ -31,7 +31,6 @@ from nvmath.device import (
+ from nvmath.device.common_cuda import ComputeCapability
+ from nvmath.device.cublasdx import DevicePipeline
+ from nvmath.device.cublasdx_backend import MAX_ALIGNMENT, Arrangement, Precision
+-from nvmath.device.cublasdx_numba import pipeline_extensions
+ 
+ from .helpers import (
+     _TOLERANCE,
+@@ -946,6 +945,8 @@ def test_ensure_proper_linking_pipeline(compiler):
+         enable_input_streaming=True,
+     )
+ 
++    from nvmath.device.cublasdx_numba import pipeline_extensions
++
+     @cuda.jit(extensions=pipeline_extensions, launch_bounds=[MM.block_size, 1])
+     def matmul_kernel(alpha, beta, c, device_pipeline: DevicePipeline):
+         smem = cuda.shared.array(shape=(0,), dtype=np.byte, alignment=device_pipeline.buffer_alignment)
+@@ -1045,6 +1046,8 @@ def test_device_pipeline_dlpack(compiler, container):
+         enable_input_streaming=True,
+     )
+ 
++    from nvmath.device.cublasdx_numba import pipeline_extensions
++
+     @cuda.jit(extensions=pipeline_extensions, launch_bounds=[MM.block_size, 1])
+     def matmul_kernel(alpha, beta, c, device_pipeline: DevicePipeline):
+         smem = cuda.shared.array(shape=(0,), dtype=np.byte, alignment=device_pipeline.buffer_alignment)
+diff --git a/tests/nvmath_tests/device/utils/common_axes.py b/tests/nvmath_tests/device/utils/common_axes.py
+--- a/tests/nvmath_tests/device/utils/common_axes.py
++++ b/tests/nvmath_tests/device/utils/common_axes.py
+@@ -16,7 +16,7 @@ class Compiler(StrEnum):
+     @property
+     def is_available(self) -> bool:
+         if self == Compiler.numba_cuda:
+-            return importlib.util.find_spec("numba.cuda") is not None
++            return False
+         if self == Compiler.numba_cuda_mlir:
+             return importlib.util.find_spec("numba_cuda_mlir") is not None
+         return False

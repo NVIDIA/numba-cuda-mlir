@@ -39,7 +39,9 @@ class TestCudaLineInfo(NumbaCUDATestCase):
             # afterwards.
             r"emissionKind:\s+"  # The emissionKind attribute followed by
             # whitespace.
-            r"DebugDirectivesOnly"  # The correct emissionKind.
+            # LLVM 7 prints DebugDirectivesOnly without a name, but it still
+            # emits the required .file/.loc directives.
+            r"(?:DebugDirectivesOnly|(?=,))"  # Correct emissionKind.
         )
         match = re.compile(pat).search(llvm)
         assertfn(match, msg=ptx)
@@ -75,7 +77,6 @@ class TestCudaLineInfo(NumbaCUDATestCase):
         match = re.compile(pat).search(ptx)
         self.assertIsNone(match, msg=ptx)
 
-    @pytest.mark.xfail(True, reason="Uses inspect_llvm")
     def test_no_lineinfo_in_asm(self):
         @numba_cuda_mlir.cuda.jit(lineinfo=False)
         def foo(x):
@@ -83,7 +84,6 @@ class TestCudaLineInfo(NumbaCUDATestCase):
 
         self._check(foo, sig=(int32[:],), expect=False)
 
-    @pytest.mark.xfail(True, reason="Uses inspect_llvm")
     def test_lineinfo_in_asm(self):
         @numba_cuda_mlir.cuda.jit(lineinfo=True)
         def foo(x):
@@ -91,7 +91,6 @@ class TestCudaLineInfo(NumbaCUDATestCase):
 
         self._check(foo, sig=(int32[:],), expect=True)
 
-    @pytest.mark.xfail(True, reason="Uses inspect_llvm")
     def test_lineinfo_maintains_error_model(self):
         sig = (float32[::1], float32[::1])
 
@@ -107,7 +106,6 @@ class TestCudaLineInfo(NumbaCUDATestCase):
         # lineinfo is enabled) the device function always returns 0.
         self.assertNotIn("ret i32 1", llvm)
 
-    @pytest.mark.xfail(True, reason="Uses inspect_llvm")
     def test_no_lineinfo_in_device_function(self):
         # Ensure that no lineinfo is generated in device functions by default.
         @numba_cuda_mlir.cuda.jit

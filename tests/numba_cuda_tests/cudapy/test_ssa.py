@@ -279,7 +279,6 @@ class TestReportedSSAIssues(SSABaseTest):
         result_gpu = np.zeros((3, 2))
         self.check_func(foo, result_gpu, np.zeros((3, 2)))
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_issue3976(self):
         def overload_this(a):
             return 42

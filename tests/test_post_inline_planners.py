@@ -4,6 +4,7 @@
 """Tests for post-inline whole-function extension planning."""
 
 from concurrent.futures import ThreadPoolExecutor
+import platform
 from types import SimpleNamespace
 
 import numpy as np
@@ -32,6 +33,7 @@ from numba_cuda_mlir.numba_cuda.core.ir_utils import build_definitions
 
 
 _RECOMPILE_VALUE = 1
+IS_WINDOWS_ARM64 = platform.system() == "Windows" and platform.machine() == "ARM64"
 
 
 @pytest.fixture
@@ -524,6 +526,7 @@ class _CountingPlanner(WholeFunctionPlanner):
         return False
 
 
+@pytest.mark.skipif(IS_WINDOWS_ARM64, reason="NYI: LLVM70 Bridge on Windows ARM64")
 def test_planner_pass_runs_after_device_inlining_without_gpu(
     isolated_global_planners,
 ):
@@ -555,6 +558,7 @@ def test_planner_pass_runs_after_device_inlining_without_gpu(
     assert _MarkerPlanner.device_runs == 0
 
 
+@pytest.mark.skipif(IS_WINDOWS_ARM64, reason="NYI: LLVM70 Bridge on Windows ARM64")
 def test_planner_runs_for_device_function_compilation_without_gpu(
     isolated_global_planners,
 ):

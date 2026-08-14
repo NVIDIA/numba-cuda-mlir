@@ -591,17 +591,22 @@ below.</p>
 <p><code class="docutils literal notranslate"><span class="pre">len(args)</span></code> is a compile-time constant in the implementation, and the bundle
 can be indexed with a loop variable, so <code class="docutils literal notranslate"><span class="pre">for</span> <span class="pre">i</span> <span class="pre">in</span> <span class="pre">range(len(args))</span></code> works too.
 Both of those rely on the elements sharing a single type, because a loop
-variable must have one type. To consume a bundle whose elements have differing
-types, wrap it in <code class="xref py py-func docutils literal notranslate"><span class="pre">literal_unroll()</span></code>, which types
-the loop body once per element:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir.cuda</span><span class="w"> </span><span class="kn">import</span> <span class="n">literal_unroll</span>
+variable must have one type.</p>
+<p>To consume a bundle whose elements have differing types, unroll the loop with
+<code class="xref py py-func docutils literal notranslate"><span class="pre">consteval()</span></code>. It rewrites the loop
+before compilation, replacing the loop variable with a literal in each copy of
+the body, so <code class="docutils literal notranslate"><span class="pre">args[i]</span></code> resolves to one specific element. The arity is known to
+the implementation function, so pass it in as a closure variable:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir.cuda.experimental</span><span class="w"> </span><span class="kn">import</span> <span class="n">consteval</span>
 
 <span class="nd">@extending</span><span class="o">.</span><span class="n">overload</span><span class="p">(</span><span class="n">my_sum</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">my_sum_overload</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
+    <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+
     <span class="k">def</span><span class="w"> </span><span class="nf">impl</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
         <span class="n">acc</span> <span class="o">=</span> <span class="mf">0.0</span>
-        <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">literal_unroll</span><span class="p">(</span><span class="n">args</span><span class="p">):</span>
-            <span class="n">acc</span> <span class="o">+=</span> <span class="n">a</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">consteval</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">)):</span>   <span class="c1"># unrolls to args[0], args[1], ...</span>
+            <span class="n">acc</span> <span class="o">+=</span> <span class="n">args</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
         <span class="k">return</span> <span class="n">acc</span>
 
     <span class="k">return</span> <span class="n">impl</span>
@@ -613,8 +618,41 @@ the loop body once per element:</p>
         <span class="n">out</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">my_sum</span><span class="p">(</span><span class="n">floats</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">ints</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">doubles</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">literal_unroll</span></code> is also what lets an implementation iterate over a bundle of
-arrays, since each array is a distinct type.</p>
+<p>This is also what lets an implementation iterate over a bundle of arrays, since
+each array is a distinct type. Because the index is a literal rather than a
+counter, it can be used on both sides of an assignment:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@extending</span><span class="o">.</span><span class="n">overload</span><span class="p">(</span><span class="n">my_store</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">my_store_overload</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+    <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">impl</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">consteval</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">)):</span>
+            <span class="n">out</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+
+    <span class="k">return</span> <span class="n">impl</span>
+</pre></div>
+</div>
+<p>Note that <code class="docutils literal notranslate"><span class="pre">consteval</span></code> unrolls over compile-time <em>values</em>, substituting each
+one into the body as a literal. Iterating the bundle itself —
+<code class="docutils literal notranslate"><span class="pre">for</span> <span class="pre">a</span> <span class="pre">in</span> <span class="pre">consteval(args)</span></code> — therefore does not work: the elements of <code class="docutils literal notranslate"><span class="pre">args</span></code>
+are runtime values, and there is no constant to substitute.
+<code class="xref py py-func docutils literal notranslate"><span class="pre">literal_unroll()</span></code> covers that spelling instead,
+typing the loop body once per element without exposing the index:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir.cuda</span><span class="w"> </span><span class="kn">import</span> <span class="n">literal_unroll</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">impl</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
+    <span class="n">acc</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">literal_unroll</span><span class="p">(</span><span class="n">args</span><span class="p">):</span>
+        <span class="n">acc</span> <span class="o">+=</span> <span class="n">a</span>
+    <span class="k">return</span> <span class="n">acc</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code class="xref py py-func docutils literal notranslate"><span class="pre">consteval()</span></code> is experimental.
+Unrolling supports simple loop targets only, so
+<code class="docutils literal notranslate"><span class="pre">for</span> <span class="pre">idx,</span> <span class="pre">val</span> <span class="pre">in</span> <span class="pre">consteval(...)</span></code> is rejected.</p>
+</div>
 </section>
 <section id="implementing-methods">
 <h2>Implementing methods<a class="headerlink" href="#implementing-methods" title="Link to this heading">#</a></h2>

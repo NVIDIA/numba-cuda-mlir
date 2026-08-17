@@ -8,6 +8,11 @@ from numba_cuda_mlir import cuda
 def test_captured_dtype_scalar_metadata():
     int_dtype = np.dtype(np.int32)
     float_dtype = np.dtype(np.float64)
+    int_char = int_dtype.char
+    int_name = int_dtype.name
+    int_str = int_dtype.str
+    int_byteorder = int_dtype.byteorder
+    float_kind = float_dtype.kind
 
     @cuda.jit
     def kernel(out):
@@ -18,18 +23,37 @@ def test_captured_dtype_scalar_metadata():
         out[4] = int_dtype.hasobject
         out[5] = int_dtype.isalignedstruct
         out[6] = int_dtype.isnative
-        out[7] = int_dtype.char == "i"
-        out[8] = int_dtype.name == "int32"
-        out[9] = int_dtype.str == "<i4"
-        out[10] = int_dtype.byteorder == "="
-        out[11] = float_dtype.kind == "f"
+        out[7] = int_dtype.char == int_char
+        out[8] = int_dtype.name == int_name
+        out[9] = int_dtype.str == int_str
+        out[10] = int_dtype.byteorder == int_byteorder
+        out[11] = float_dtype.kind == float_kind
         out[12] = int_dtype.base.itemsize
         out[13] = int_dtype.names is None
         out[14] = len(int_dtype.shape)
 
     out = np.zeros(15, dtype=np.int64)
     kernel[1, 1](out)
-    np.testing.assert_array_equal(out, [4, 5, 4, 1, 0, 0, 1, 1, 1, 1, 1, 1, 4, 1, 0])
+    np.testing.assert_array_equal(
+        out,
+        [
+            int_dtype.itemsize,
+            int_dtype.num,
+            int_dtype.alignment,
+            int_dtype.isbuiltin,
+            int_dtype.hasobject,
+            int_dtype.isalignedstruct,
+            int_dtype.isnative,
+            1,
+            1,
+            1,
+            1,
+            1,
+            int_dtype.base.itemsize,
+            1,
+            0,
+        ],
+    )
 
 
 def test_captured_dtype_structured_metadata():

@@ -15,8 +15,10 @@ def literal_unroll(value: Any) -> Any:
     """
     Unroll a loop at compile time.
 
-    Wrap your range in a loop:
+    For compile-time range unrolling, use ``consteval`` from
+    ``cuda.experimental``:
 
-        >>> for i in cuda.literal_unroll(range(10)):
+        >>> from numba_cuda_mlir.cuda.experimental import consteval
+        >>> for i in consteval(range(10)):
         ...     array[i] = i
     """

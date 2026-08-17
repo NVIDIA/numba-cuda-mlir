@@ -2536,6 +2536,20 @@ extern "C" __global__ void
             return self._zero_value_for_type(self.get_mlir_type(target_type.dtype))
         raise InternalCompilerError(f"Cannot materialize type token for {target_type}.")
 
+    def _materialize_static_dtype_attribute(self, target_type):
+        if isinstance(target_type, types.DTypeSpec):
+            return self._materialize_type_token(target_type)
+        if isinstance(target_type, types.NoneType):
+            return ir.NoneType.get()
+        if isinstance(target_type, types.BaseTuple):
+            return tuple(
+                self._materialize_static_dtype_attribute(element_type)
+                for element_type in self._tuple_element_types(target_type)
+            )
+        if isinstance(target_type, types.Literal):
+            return self.lower_literal_if_needed(target_type.literal_value, target_type)
+        raise InternalCompilerError(f"Cannot materialize static dtype attribute {target_type}.")
+
     def _zero_value_for_type(self, mlir_type):
         if isinstance(mlir_type, (ir.IntegerType, ir.IndexType)):
             return arith.constant(result=mlir_type, value=0)
@@ -2657,8 +2671,24 @@ extern "C" __global__ void
             self.store_var(target, self._materialize_type_token(target_type))
             return
 
-        if isinstance(value_type, types.DType) and attr == "kind":
-            self.store_var(target, target_type.literal_value)
+        if isinstance(value_type, types.DType) and attr in {
+            "alignment",
+            "base",
+            "byteorder",
+            "char",
+            "hasobject",
+            "isalignedstruct",
+            "isbuiltin",
+            "isnative",
+            "itemsize",
+            "kind",
+            "name",
+            "names",
+            "num",
+            "shape",
+            "str",
+        }:
+            self.store_var(target, self._materialize_static_dtype_attribute(target_type))
             return
 
         if (field_idx := self._get_struct_field_index(value_type, attr)) is not None:

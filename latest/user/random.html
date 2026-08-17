@@ -529,7 +529,7 @@ distributed values is half the speed of uniformly distributed values.</p>
 
 <span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">compute_pi</span><span class="p">(</span><span class="n">rng_states</span><span class="p">,</span> <span class="n">iterations</span><span class="p">,</span> <span class="n">out</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find the maximum value in values and store in result[0]&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Find the maximum value in values and store in result[0]"""</span>
     <span class="n">thread_id</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
 
     <span class="c1"># Compute pi by drawing random (x, y) points and finding what</span>
@@ -549,7 +549,7 @@ distributed values is half the speed of uniformly distributed values.</p>
 <span class="n">out</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">threads_per_block</span> <span class="o">*</span> <span class="n">blocks</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
 
 <span class="n">compute_pi</span><span class="p">[</span><span class="n">blocks</span><span class="p">,</span> <span class="n">threads_per_block</span><span class="p">](</span><span class="n">rng_states</span><span class="p">,</span> <span class="mi">10000</span><span class="p">,</span> <span class="n">out</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s1">&#39;pi:&#39;</span><span class="p">,</span> <span class="n">out</span><span class="o">.</span><span class="n">mean</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="s1">'pi:'</span><span class="p">,</span> <span class="n">out</span><span class="o">.</span><span class="n">mean</span><span class="p">())</span>
 </pre></div>
 </div>
 </section>

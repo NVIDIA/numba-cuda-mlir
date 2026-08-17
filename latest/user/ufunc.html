@@ -509,9 +509,9 @@ for launching in asynchronous mode.</p>
 <span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">vectorize</span><span class="p">,</span> <span class="n">cuda</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
-<span class="nd">@vectorize</span><span class="p">([</span><span class="s1">&#39;float32(float32, float32, float32)&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;float64(float64, float64, float64)&#39;</span><span class="p">],</span>
-           <span class="n">target</span><span class="o">=</span><span class="s1">&#39;cuda&#39;</span><span class="p">)</span>
+<span class="nd">@vectorize</span><span class="p">([</span><span class="s1">'float32(float32, float32, float32)'</span><span class="p">,</span>
+            <span class="s1">'float64(float64, float64, float64)'</span><span class="p">],</span>
+           <span class="n">target</span><span class="o">=</span><span class="s1">'cuda'</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">cu_discriminant</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">b</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">-</span> <span class="mi">4</span> <span class="o">*</span> <span class="n">a</span> <span class="o">*</span> <span class="n">c</span><span class="p">)</span>
 
@@ -535,12 +535,12 @@ for launching in asynchronous mode.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">vectorize</span><span class="p">,</span> <span class="n">cuda</span>
 
 <span class="c1"># define a device function</span>
-<span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="s1">&#39;float32(float32, float32, float32)&#39;</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">inline</span><span class="o">=</span><span class="s2">&quot;always&quot;</span><span class="p">)</span>
+<span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="s1">'float32(float32, float32, float32)'</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">inline</span><span class="o">=</span><span class="s2">"always"</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">cu_device_fn</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">x</span> <span class="o">**</span> <span class="n">y</span> <span class="o">/</span> <span class="n">z</span>
 
 <span class="c1"># define a ufunc that calls our device function</span>
-<span class="nd">@vectorize</span><span class="p">([</span><span class="s1">&#39;float32(float32, float32, float32)&#39;</span><span class="p">],</span> <span class="n">target</span><span class="o">=</span><span class="s1">&#39;cuda&#39;</span><span class="p">)</span>
+<span class="nd">@vectorize</span><span class="p">([</span><span class="s1">'float32(float32, float32, float32)'</span><span class="p">],</span> <span class="n">target</span><span class="o">=</span><span class="s1">'cuda'</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">cu_ufunc</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">cu_device_fn</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span>
 </pre></div>
@@ -552,8 +552,8 @@ for launching in asynchronous mode.</p>
 the CUDA ufunc functionality.  This may be accomplished as follows:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">guvectorize</span>
 
-<span class="nd">@guvectorize</span><span class="p">([</span><span class="s1">&#39;void(float32[:,:], float32[:,:], float32[:,:])&#39;</span><span class="p">],</span>
-             <span class="s1">&#39;(m,n),(n,p)-&gt;(m,p)&#39;</span><span class="p">,</span> <span class="n">target</span><span class="o">=</span><span class="s1">&#39;cuda&#39;</span><span class="p">)</span>
+<span class="nd">@guvectorize</span><span class="p">([</span><span class="s1">'void(float32[:,:], float32[:,:], float32[:,:])'</span><span class="p">],</span>
+             <span class="s1">'(m,n),(n,p)-&gt;(m,p)'</span><span class="p">,</span> <span class="n">target</span><span class="o">=</span><span class="s1">'cuda'</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">matmulcore</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">B</span><span class="p">,</span> <span class="n">C</span><span class="p">):</span>
     <span class="o">...</span>
 </pre></div>

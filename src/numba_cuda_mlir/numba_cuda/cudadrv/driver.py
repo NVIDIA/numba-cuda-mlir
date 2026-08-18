@@ -1058,13 +1058,9 @@ class Context:
         self.modules.clear()
         # Clear trash
         self.deallocations.clear()
-        # Reset NRT runtimes so they do not hold handles from the old context.
-        from numba_cuda_mlir.numba_cuda.memory_management.nrt import (
-            rtsys as numba_cuda_rtsys,
-        )
+        # Reset the NRT runtime so it does not hold handles from the old context.
         from numba_cuda_mlir.memory_management.rtsys import rtsys as mlir_rtsys
 
-        numba_cuda_rtsys.close()
         mlir_rtsys.close()
 
     def get_memory_info(self):

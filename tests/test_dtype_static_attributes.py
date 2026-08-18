@@ -67,7 +67,9 @@ def test_captured_dtype_structured_metadata():
         out[2] = subarray_dtype.shape[0]
         out[3] = subarray_dtype.shape[1]
         out[4] = subarray_dtype.base.itemsize
+        out[5] = record_dtype.names is None
+        out[6] = record_dtype.names is not None
 
-    out = np.zeros(5, dtype=np.int64)
+    out = np.zeros(7, dtype=np.int64)
     kernel[1, 1](out)
-    np.testing.assert_array_equal(out, [1, 1, 2, 3, 4])
+    np.testing.assert_array_equal(out, [1, 1, 2, 3, 4, 0, 1])

@@ -839,3 +839,35 @@ def test_mlir_scalar_int_arg_type(int_arg, expected_name, size_bits, encoding):
         """,
         mlir,
     )
+
+
+def test_llvm_ir_array_arg_is_parameter_of_descriptor_type():
+    """An array arg is described by its full descriptor type in the LLVM IR."""
+
+    @cuda.jit(debug=True, opt=False)
+    def k(input_arr, output_arr):
+        idx = cuda.grid(1)
+        output_arr[idx] = input_arr[idx] * 2
+
+    sig = (types.int32[:], types.int32[:])
+    k.compile(types.void(*sig))
+    llvm_ir = k.inspect_llvm(sig)
+
+    testing.filecheck(
+        """
+        CHECK: ![[VAR:[0-9]+]] = !DILocalVariable(name: "input_arr", arg: 1,{{.*}}type: ![[TY:[0-9]+]])
+        CHECK: ![[TY]] = {{(distinct )?}}!DICompositeType(tag: DW_TAG_structure_type,{{.*}}size: 448, {{.*}}elements: ![[ELEMS:[0-9]+]])
+        CHECK: ![[ELEMS]] = !{
+        CHECK-DAG: !DIDerivedType(tag: DW_TAG_member, name: "meminfo",{{.*}}size: 64)
+        CHECK-DAG: !DIDerivedType(tag: DW_TAG_member, name: "nitems",{{.*}}offset: 128)
+        CHECK-DAG: !DIDerivedType(tag: DW_TAG_member, name: "itemsize",{{.*}}offset: 192)
+        CHECK-DAG: !DIDerivedType(tag: DW_TAG_member, name: "data",{{.*}}offset: 256)
+        CHECK-DAG: !DIDerivedType(tag: DW_TAG_member, name: "shape",{{.*}}offset: 320)
+        CHECK-DAG: !DIDerivedType(tag: DW_TAG_member, name: "strides",{{.*}}offset: 384)
+        CHECK-DAG: !DIDerivedType(tag: DW_TAG_pointer_type,{{.*}}size: 64
+        CHECK-DAG: !DICompositeType(tag: DW_TAG_array_type,{{.*}}elements: ![[DIMS:[0-9]+]])
+        CHECK-DAG: !DISubrange(count: 1)
+        CHECK-DAG: !DILocalVariable(name: "output_arr", arg: 2,{{.*}}type: ![[TY]])
+        """,
+        llvm_ir,
+    )

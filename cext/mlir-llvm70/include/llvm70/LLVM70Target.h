@@ -93,6 +93,8 @@ private:
   LLVMMetadataRef diSubroutineType = nullptr;
   llvm::StringMap<LLVMMetadataRef> diFileCache;
   LLVMMetadataRef currentSubprogram = nullptr;
+  // Translated DI types; composites cache a forward decl to break recursion.
+  llvm::DenseMap<mlir::Attribute, LLVMMetadataRef> diTypeCache;
 
   LLVMMetadataRef getOrCreateDIFile(llvm::StringRef filename);
   void setDebugLocFromOp(mlir::Operation *op);
@@ -183,6 +185,12 @@ private:
                                bool isDeclare);
 
   LLVMMetadataRef getOrCreateDIType(mlir::LLVM::DITypeAttr typeAttr);
+  LLVMMetadataRef convertDIBasicType(mlir::LLVM::DIBasicTypeAttr attr);
+  LLVMMetadataRef convertDIDerivedType(mlir::LLVM::DIDerivedTypeAttr attr);
+  LLVMMetadataRef convertDICompositeType(mlir::LLVM::DICompositeTypeAttr attr);
+  LLVMMetadataRef convertDISubrange(mlir::LLVM::DISubrangeAttr attr);
+  LLVMMetadataRef opaqueDIType(uint64_t sizeInBits);
+  LLVMMetadataRef diFileOf(mlir::LLVM::DIFileAttr fileAttr);
 
   void emitKernelMetadata(LLVMValueRef fn, mlir::Operation *funcOp);
 

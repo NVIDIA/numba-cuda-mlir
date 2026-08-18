@@ -3294,7 +3294,9 @@ extern "C" __global__ void
         if isinstance(numba_type, types.BaseTuple) and isinstance(value, tuple):
             aggregate = self._materialize_tuple_value(value, numba_type)
             if aggregate is not None:
-                self._emit_dbg_declare(base_name, aggregate, var_attr)
+                self._emit_dbg_declare(
+                    base_name, aggregate, var_attr, volatile=True
+                )
             return
         mlir_value = self._unwrap_mlir_value(value)
         if mlir_value is None:
@@ -3317,7 +3319,9 @@ extern "C" __global__ void
                 case MemRefType():
                     descriptor = self._build_array_debug_descriptor(mlir_value, numba_type)
                     if descriptor is not None:
-                        self._emit_dbg_declare(base_name, descriptor, var_attr)
+                        self._emit_dbg_declare(
+                            base_name, descriptor, var_attr, volatile=True
+                        )
             return
         is_arg = base_name in self._di_builder.arg_names
         is_boolean = isinstance(numba_type, types.Boolean)
@@ -3332,10 +3336,13 @@ extern "C" __global__ void
                 location_expr=self._di_builder.di_expression,
             )
 
-    def _emit_dbg_declare(self, var_name, value, var_attr):
-        """Emit llvm.intr.dbg.declare for a value materialized in stack storage."""
+    def _emit_dbg_declare(self, var_name, value, var_attr, volatile=False):
+        """Emit llvm.intr.dbg.declare for a value materialized in stack storage.
+
+        Pass volatile for aggregate slots: avoid the slot being optimized away.
+        """
         alloca_ptr = self.alloca(value.type)
-        llvm.store(value, alloca_ptr)
+        llvm.store(value, alloca_ptr, volatile_=volatile)
         llvm.intr_dbg_declare(
             alloca_ptr,
             var_attr,

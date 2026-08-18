@@ -758,6 +758,13 @@ def operator_is_none_lower(builder, target, args, kwargs):
     builder.store_var(target, result)
 
 
+@lower(operator.is_, types.BaseTuple, types.NoneType)
+@lower(operator.is_, types.NoneType, types.BaseTuple)
+def operator_is_tuple_none_lower(builder, target, args, kwargs):
+    result = arith.constant(result=ir.IntegerType.get_signless(1), value=False)
+    builder.store_var(target, result)
+
+
 @lower(operator.is_, types.NoneType, types.NoneType)
 def operator_is_none_none_lower(builder, target, args, kwargs):
     """Lower 'None is None' - always True."""
@@ -810,6 +817,13 @@ def operator_is_bool_literal_lower(builder, target, args, kwargs):
 @lower(operator.is_not, types.Number, types.NoneType)
 @lower(operator.is_not, types.NoneType, types.Number)
 def operator_is_not_none_lower(builder, target, args, kwargs):
+    result = arith.constant(result=ir.IntegerType.get_signless(1), value=True)
+    builder.store_var(target, result)
+
+
+@lower(operator.is_not, types.BaseTuple, types.NoneType)
+@lower(operator.is_not, types.NoneType, types.BaseTuple)
+def operator_is_not_tuple_none_lower(builder, target, args, kwargs):
     result = arith.constant(result=ir.IntegerType.get_signless(1), value=True)
     builder.store_var(target, result)
 

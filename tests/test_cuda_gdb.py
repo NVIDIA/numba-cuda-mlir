@@ -80,13 +80,14 @@ _KERNEL_SRC = textwrap.dedent("""\
 
 @requires_cuda_gdb
 def test_cuda_gdb_debug_kernel():
-    """cuda-gdb hits the kernel launch breakpoint and can inspect locals."""
+    """cuda-gdb hits the kernel launch breakpoint and can inspect args and locals."""
     gdb_commands = textwrap.dedent("""\
         set pagination off
         set cuda break_on_launch application
         run
         next
         next
+        info args
         info locals
         print sum
         continue

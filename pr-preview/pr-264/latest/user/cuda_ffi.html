@@ -503,7 +503,7 @@ of a Python kernel call to a foreign device function are:</p>
 <span id="id1"></span><h2>Device function ABI<a class="headerlink" href="#device-function-abi" title="Link to this heading">#</a></h2>
 <p>The ABI for calling device functions defines the following prototype in
 CUDA C++:</p>
-<div class="highlight-C notranslate"><div class="highlight"><pre><span></span><span class="k">extern</span><span class="w"> </span><span class="s">&quot;C&quot;</span>
+<div class="highlight-C notranslate"><div class="highlight"><pre><span></span><span class="k">extern</span><span class="w"> </span><span class="s">"C"</span>
 <span class="n">__device__</span><span class="w"> </span><span class="kt">int</span>
 <span class="n">function</span><span class="p">(</span>
 <span class="w">  </span><span class="n">T</span><span class="o">*</span><span class="w"> </span><span class="n">return_value</span><span class="p">,</span>
@@ -531,7 +531,7 @@ the function from the Python kernel.</p></li>
 prototype specification.</p>
 <p>A function that accepts two floats and returns a float would have the following
 prototype:</p>
-<div class="highlight-C notranslate"><div class="highlight"><pre><span></span><span class="k">extern</span><span class="w"> </span><span class="s">&quot;C&quot;</span>
+<div class="highlight-C notranslate"><div class="highlight"><pre><span></span><span class="k">extern</span><span class="w"> </span><span class="s">"C"</span>
 <span class="n">__device__</span><span class="w"> </span><span class="kt">int</span>
 <span class="n">mul_f32_f32</span><span class="p">(</span>
 <span class="w">  </span><span class="kt">float</span><span class="o">*</span><span class="w"> </span><span class="n">return_value</span><span class="p">,</span>
@@ -556,7 +556,7 @@ space.</p>
 <p>To declare a foreign device function in Python, use <code class="xref py py-func docutils literal notranslate"><span class="pre">declare_device()</span></code>:</p>
 <p>The returned descriptor name need not match the name of the foreign function.
 For example, when:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">mul</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">declare_device</span><span class="p">(</span><span class="s1">&#39;mul_f32_f32&#39;</span><span class="p">,</span> <span class="s1">&#39;float32(float32, float32)&#39;</span> <span class="p">,</span> <span class="n">link</span><span class="o">=</span><span class="s2">&quot;functions.cu&quot;</span><span class="p">)</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">mul</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">declare_device</span><span class="p">(</span><span class="s1">'mul_f32_f32'</span><span class="p">,</span> <span class="s1">'float32(float32, float32)'</span> <span class="p">,</span> <span class="n">link</span><span class="o">=</span><span class="s2">"functions.cu"</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>is declared, calling <code class="docutils literal notranslate"><span class="pre">mul(a,</span> <span class="pre">b)</span></code> inside a kernel will translate into a call to
@@ -573,7 +573,7 @@ array arguments using C++ pointer types.</p>
 <p>For example, a function with the following prototype:</p>
 <div class="literal-block-wrapper docutils container" id="id3">
 <div class="code-block-caption"><span class="caption-text"><code class="docutils literal notranslate"><span class="pre">tests/doc_examples/ffi/functions.cu</span></code></span><a class="headerlink" href="#id3" title="Link to this code">#</a></div>
-<div class="highlight-C notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="k">extern</span><span class="w"> </span><span class="s">&quot;C&quot;</span>
+<div class="highlight-C notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="k">extern</span><span class="w"> </span><span class="s">"C"</span>
 <span class="linenos">2</span><span class="n">__device__</span><span class="w"> </span><span class="kt">int</span>
 <span class="linenos">3</span><span class="n">sum_reduce</span><span class="p">(</span>
 <span class="linenos">4</span><span class="w">  </span><span class="kt">float</span><span class="o">*</span><span class="w"> </span><span class="n">return_value</span><span class="p">,</span>
@@ -586,8 +586,8 @@ array arguments using C++ pointer types.</p>
 <p>would be declared as follows:</p>
 <div class="literal-block-wrapper docutils container" id="id4">
 <div class="code-block-caption"><span class="caption-text">from <code class="docutils literal notranslate"><span class="pre">test_ex_from_buffer</span></code> in <code class="docutils literal notranslate"><span class="pre">tests/doc_examples/test_ffi.py</span></code></span><a class="headerlink" href="#id4" title="Link to this code">#</a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="n">signature</span> <span class="o">=</span> <span class="s2">&quot;float32(CPointer(float32), int32)&quot;</span>
-<span class="linenos">2</span><span class="n">sum_reduce</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">declare_device</span><span class="p">(</span><span class="s2">&quot;sum_reduce&quot;</span><span class="p">,</span> <span class="n">signature</span><span class="p">,</span> <span class="n">link</span><span class="o">=</span><span class="n">functions_cu</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="n">signature</span> <span class="o">=</span> <span class="s2">"float32(CPointer(float32), int32)"</span>
+<span class="linenos">2</span><span class="n">sum_reduce</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">declare_device</span><span class="p">(</span><span class="s2">"sum_reduce"</span><span class="p">,</span> <span class="n">signature</span><span class="p">,</span> <span class="n">link</span><span class="o">=</span><span class="n">functions_cu</span><span class="p">)</span>
 </pre></div>
 </div>
 </div>
@@ -668,7 +668,7 @@ items to link themselves when writing a kernel.</p>
 following kernel calls the <code class="docutils literal notranslate"><span class="pre">mul()</span></code> function declared above with the
 implementation <code class="docutils literal notranslate"><span class="pre">mul_f32_f32()</span></code> as if it were in a file called <code class="docutils literal notranslate"><span class="pre">functions.cu</span></code>
 that had not been declared as part of the <code class="docutils literal notranslate"><span class="pre">link</span></code> argument in the declaration:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="n">link</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;functions.cu&#39;</span><span class="p">])</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="n">link</span><span class="o">=</span><span class="p">[</span><span class="s1">'functions.cu'</span><span class="p">])</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">multiply_vectors</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">):</span>
     <span class="n">i</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
 
@@ -733,10 +733,10 @@ the foreign device function <code class="docutils literal notranslate"><span cla
 <span class="linenos"> 3</span><span class="cm"> * SPDX-License-Identifier: BSD-2-Clause</span>
 <span class="linenos"> 4</span><span class="cm"> */</span>
 <span class="linenos"> 5</span>
-<span class="linenos"> 6</span><span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;add.cuh&gt;</span><span class="c1"> // In numba/cuda/tests/data/include</span>
-<span class="linenos"> 7</span><span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;mul.cuh&gt;</span><span class="c1"> // In numba/cuda/tests/doc_examples/ffi/include</span>
+<span class="linenos"> 6</span><span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;add.cuh&gt;</span><span class="w"> </span><span class="c1">// In numba/cuda/tests/data/include</span>
+<span class="linenos"> 7</span><span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;mul.cuh&gt;</span><span class="w"> </span><span class="c1">// In numba/cuda/tests/doc_examples/ffi/include</span>
 <span class="linenos"> 8</span>
-<span class="linenos"> 9</span><span class="k">extern</span><span class="w"> </span><span class="s">&quot;C&quot;</span>
+<span class="linenos"> 9</span><span class="k">extern</span><span class="w"> </span><span class="s">"C"</span>
 <span class="linenos">10</span><span class="n">__device__</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">saxpy</span><span class="p">(</span><span class="kt">float</span><span class="w"> </span><span class="o">*</span><span class="n">ret</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">y</span><span class="p">)</span>
 <span class="linenos">11</span><span class="p">{</span>
 <span class="linenos">12</span><span class="w">    </span><span class="o">*</span><span class="n">ret</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">myadd</span><span class="p">(</span><span class="n">mymul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">x</span><span class="p">),</span><span class="w"> </span><span class="n">y</span><span class="p">);</span>
@@ -752,7 +752,7 @@ joined with <code class="docutils literal notranslate"><span class="pre">:</span
 <div class="code-block-caption"><span class="caption-text">from <code class="docutils literal notranslate"><span class="pre">test_ex_extra_includes</span></code> in <code class="docutils literal notranslate"><span class="pre">tests/doc_examples/test_ffi.py</span></code></span><a class="headerlink" href="#id9" title="Link to this code">#</a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba.cuda</span><span class="w"> </span><span class="kn">import</span> <span class="n">config</span>
 <span class="linenos">2</span>
-<span class="linenos">3</span><span class="n">includedir</span> <span class="o">=</span> <span class="s2">&quot;:&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="n">mul_dir</span><span class="p">,</span> <span class="n">add_dir</span><span class="p">])</span>
+<span class="linenos">3</span><span class="n">includedir</span> <span class="o">=</span> <span class="s2">":"</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="n">mul_dir</span><span class="p">,</span> <span class="n">add_dir</span><span class="p">])</span>
 <span class="linenos">4</span><span class="n">config</span><span class="o">.</span><span class="n">CUDA_NVRTC_EXTRA_SEARCH_PATHS</span> <span class="o">=</span> <span class="n">includedir</span>
 </pre></div>
 </div>
@@ -760,8 +760,8 @@ joined with <code class="docutils literal notranslate"><span class="pre">:</span
 <p>Next, use <code class="docutils literal notranslate"><span class="pre">saxpy</span></code> as intended:</p>
 <div class="literal-block-wrapper docutils container" id="id10">
 <div class="code-block-caption"><span class="caption-text">from <code class="docutils literal notranslate"><span class="pre">test_ex_extra_includes</span></code> in <code class="docutils literal notranslate"><span class="pre">tests/doc_examples/test_ffi.py</span></code></span><a class="headerlink" href="#id10" title="Link to this code">#</a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="n">sig</span> <span class="o">=</span> <span class="s2">&quot;float32(float32, float32, float32)&quot;</span>
-<span class="linenos">2</span><span class="n">saxpy</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">declare_device</span><span class="p">(</span><span class="s2">&quot;saxpy&quot;</span><span class="p">,</span> <span class="n">sig</span><span class="o">=</span><span class="n">sig</span><span class="p">,</span> <span class="n">link</span><span class="o">=</span><span class="n">saxpy_cu</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="n">sig</span> <span class="o">=</span> <span class="s2">"float32(float32, float32, float32)"</span>
+<span class="linenos">2</span><span class="n">saxpy</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">declare_device</span><span class="p">(</span><span class="s2">"saxpy"</span><span class="p">,</span> <span class="n">sig</span><span class="o">=</span><span class="n">sig</span><span class="p">,</span> <span class="n">link</span><span class="o">=</span><span class="n">saxpy_cu</span><span class="p">)</span>
 <span class="linenos">3</span>
 <span class="linenos">4</span><span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span>
 <span class="linenos">5</span><span class="k">def</span><span class="w"> </span><span class="nf">vector_saxpy</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">res</span><span class="p">):</span>
@@ -783,7 +783,7 @@ multiply pairs of numbers from two arrays.</p>
 <div class="code-block-caption"><span class="caption-text"><code class="docutils literal notranslate"><span class="pre">tests/doc_examples/ffi/functions.cu</span></code></span><a class="headerlink" href="#id11" title="Link to this code">#</a></div>
 <div class="highlight-C notranslate"><div class="highlight"><pre><span></span><span class="linenos"> 1</span><span class="c1">// Foreign function example: multiplication of a pair of floats</span>
 <span class="linenos"> 2</span>
-<span class="linenos"> 3</span><span class="k">extern</span><span class="w"> </span><span class="s">&quot;C&quot;</span><span class="w"> </span><span class="n">__device__</span><span class="w"> </span><span class="kt">int</span>
+<span class="linenos"> 3</span><span class="k">extern</span><span class="w"> </span><span class="s">"C"</span><span class="w"> </span><span class="n">__device__</span><span class="w"> </span><span class="kt">int</span>
 <span class="linenos"> 4</span><span class="n">mul_f32_f32</span><span class="p">(</span>
 <span class="linenos"> 5</span><span class="w">  </span><span class="kt">float</span><span class="o">*</span><span class="w"> </span><span class="n">return_value</span><span class="p">,</span>
 <span class="linenos"> 6</span><span class="w">  </span><span class="kt">float</span><span class="w"> </span><span class="n">x</span><span class="p">,</span>
@@ -806,12 +806,12 @@ multiply pairs of numbers from two arrays.</p>
 <span class="linenos"> 3</span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 <span class="linenos"> 4</span>
 <span class="linenos"> 5</span><span class="c1"># Path to the source containing the foreign function</span>
-<span class="linenos"> 6</span><span class="c1"># (here assumed to be in a subdirectory called &quot;ffi&quot;)</span>
+<span class="linenos"> 6</span><span class="c1"># (here assumed to be in a subdirectory called "ffi")</span>
 <span class="linenos"> 7</span><span class="n">basedir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">abspath</span><span class="p">(</span><span class="vm">__file__</span><span class="p">))</span>
-<span class="linenos"> 8</span><span class="n">functions_cu</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">basedir</span><span class="p">,</span> <span class="s2">&quot;ffi&quot;</span><span class="p">,</span> <span class="s2">&quot;functions.cu&quot;</span><span class="p">)</span>
+<span class="linenos"> 8</span><span class="n">functions_cu</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">basedir</span><span class="p">,</span> <span class="s2">"ffi"</span><span class="p">,</span> <span class="s2">"functions.cu"</span><span class="p">)</span>
 <span class="linenos"> 9</span>
 <span class="linenos">10</span><span class="c1"># Declaration of the foreign function</span>
-<span class="linenos">11</span><span class="n">mul</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">declare_device</span><span class="p">(</span><span class="s2">&quot;mul_f32_f32&quot;</span><span class="p">,</span> <span class="s2">&quot;float32(float32, float32)&quot;</span><span class="p">,</span> <span class="n">link</span><span class="o">=</span><span class="n">functions_cu</span><span class="p">)</span>
+<span class="linenos">11</span><span class="n">mul</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">declare_device</span><span class="p">(</span><span class="s2">"mul_f32_f32"</span><span class="p">,</span> <span class="s2">"float32(float32, float32)"</span><span class="p">,</span> <span class="n">link</span><span class="o">=</span><span class="n">functions_cu</span><span class="p">)</span>
 <span class="linenos">12</span>
 <span class="linenos">13</span><span class="c1"># A kernel that calls mul; functions.cu is linked automatically due to</span>
 <span class="linenos">14</span><span class="c1"># the call to mul.</span>

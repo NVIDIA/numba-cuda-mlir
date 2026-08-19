@@ -551,7 +551,7 @@ in the CUDA C++ Programming Guide.</p>
 <p>Self-recursive device functions are supported, with the constraint that
 recursive calls must have the same argument types as the initial call to
 the function. For example, the following form of recursion is supported:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="s2">&quot;int64(int64)&quot;</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="s2">"int64(int64)"</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">fib</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
     <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">n</span>

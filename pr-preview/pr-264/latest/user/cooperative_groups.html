@@ -552,7 +552,7 @@ of threads in other blocks, or fail to see updates from their opposite thread.</
 <span class="linenos">14</span>
 <span class="linenos">15</span>    <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">rows</span><span class="p">):</span>
 <span class="linenos">16</span>        <span class="n">opposite</span> <span class="o">=</span> <span class="n">cols</span> <span class="o">-</span> <span class="n">col</span> <span class="o">-</span> <span class="mi">1</span>
-<span class="linenos">17</span>        <span class="c1"># Each row&#39;s elements are one greater than the previous row</span>
+<span class="linenos">17</span>        <span class="c1"># Each row's elements are one greater than the previous row</span>
 <span class="linenos">18</span>        <span class="n">M</span><span class="p">[</span><span class="n">row</span><span class="p">,</span> <span class="n">col</span><span class="p">]</span> <span class="o">=</span> <span class="n">M</span><span class="p">[</span><span class="n">row</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span> <span class="n">opposite</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span>
 <span class="linenos">19</span>        <span class="c1"># Wait until all threads have written their column element,</span>
 <span class="linenos">20</span>        <span class="c1"># and that the write is visible to all other threads</span>

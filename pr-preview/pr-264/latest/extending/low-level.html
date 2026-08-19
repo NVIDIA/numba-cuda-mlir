@@ -664,7 +664,7 @@ property:</p>
 
 <span class="k">class</span><span class="w"> </span><span class="nc">MyBoxedIntType</span><span class="p">(</span><span class="n">types</span><span class="o">.</span><span class="n">Type</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;MyBoxedInt&quot;</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"MyBoxedInt"</span><span class="p">)</span>
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">key</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
@@ -902,7 +902,7 @@ defined function from a lowering.</p></td>
 <span id="lowering-getattr-setattr"></span><h3>Lowering attribute access<a class="headerlink" href="#lowering-attribute-access" title="Link to this heading">#</a></h3>
 <p>Attribute access has its own lowering decorators because the call shape is
 different (no <code class="docutils literal notranslate"><span class="pre">args</span></code>/<code class="docutils literal notranslate"><span class="pre">kwargs</span></code>):</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@lowering_registry</span><span class="o">.</span><span class="n">lower_getattr</span><span class="p">(</span><span class="n">MyType</span><span class="p">,</span> <span class="s2">&quot;field&quot;</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@lowering_registry</span><span class="o">.</span><span class="n">lower_getattr</span><span class="p">(</span><span class="n">MyType</span><span class="p">,</span> <span class="s2">"field"</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">lower_field</span><span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="n">builder</span><span class="p">,</span> <span class="n">typ</span><span class="p">,</span> <span class="n">val</span><span class="p">):</span>
     <span class="o">...</span>
 </pre></div>
@@ -982,7 +982,7 @@ including its integration test — is in <code class="docutils literal notransla
 <span class="c1"># 1. A new Numba type, with an opt-in implicit conversion to Integer.</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">MyBoxedIntType</span><span class="p">(</span><span class="n">types</span><span class="o">.</span><span class="n">Type</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;MyBoxedInt&quot;</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"MyBoxedInt"</span><span class="p">)</span>
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">key</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
@@ -1006,7 +1006,7 @@ including its integration test — is in <code class="docutils literal notransla
 
 <span class="c1"># 3. A constructor callable, with typing and lowering.</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">make_boxed_int</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
-    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;only callable inside a numba_cuda_mlir kernel&quot;</span><span class="p">)</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">"only callable inside a numba_cuda_mlir kernel"</span><span class="p">)</span>
 
 <span class="nd">@extending</span><span class="o">.</span><span class="n">type_callable</span><span class="p">(</span><span class="n">make_boxed_int</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_type_make_boxed_int</span><span class="p">(</span><span class="n">context</span><span class="p">):</span>

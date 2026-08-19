@@ -153,7 +153,9 @@ def test_unroll_tuple_target_invalid_unpacking_raises():
         for idx, val in consteval(ITEMS):
             arr[idx] = float(val)
 
-    with pytest.raises(ConstevalError, match="Cannot unpack 1 values into"):
+    with pytest.raises(
+        ConstevalError, match="not enough values to unpack \(expected 2, got 1\)"
+    ):
         kernel.compile("void(float32[:])")
 
 
@@ -168,6 +170,43 @@ def test_unroll_starred_target_raises():
 
     with pytest.raises(ConstevalError, match="does not support starred targets"):
         kernel.compile("void(float32[:])")
+
+
+def test_unroll_loop_control_raises():
+    """Test that unrolled loops reject break and continue statements."""
+
+    @numba_cuda_mlir.cuda.jit
+    def break_kernel(arr):
+        for i in consteval(range(2)):
+            break
+
+    with pytest.raises(ConstevalError, match="does not support break statements"):
+        break_kernel.compile("void(float32[:])")
+
+    @numba_cuda_mlir.cuda.jit
+    def continue_kernel(arr):
+        for i in consteval(range(2)):
+            continue
+
+    with pytest.raises(ConstevalError, match="does not support continue statements"):
+        continue_kernel.compile("void(float32[:])")
+
+
+def test_unroll_preserves_nested_loop_control():
+    """Test that loop control in nested runtime loops remains valid."""
+
+    @numba_cuda_mlir.cuda.jit
+    def kernel(arr):
+        for i in consteval(range(2)):
+            for j in range(2):
+                if j:
+                    continue
+                arr[i] = float(j)
+
+    cres = kernel.compile("void(float32[:])")
+    source = cres.metadata["transformed_source"]
+    assert "for j in range(2):" in source
+    assert "continue" in source
 
 
 def test_unroll_list():

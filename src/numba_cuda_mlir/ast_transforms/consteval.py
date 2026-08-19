@@ -221,6 +221,8 @@ class ConstevalTransformer(ast.NodeTransformer):
 
     def _unroll_for_loop(self, node: ast.For) -> list[ast.stmt]:
         """Unroll a for loop with consteval iterator."""
+        self._check_unroll_loop_control(node)
+
         # Evaluate the iterator
         iter_value = self._eval_expr(node.iter.args[0])
         try:
@@ -271,6 +273,38 @@ class ConstevalTransformer(ast.NodeTransformer):
         # don't have a natural "else" semantic
         return unrolled
 
+    def _check_unroll_loop_control(self, node: ast.For) -> None:
+        """Reject loop control statements that would escape an unrolled loop."""
+
+        class LoopControlFinder(ast.NodeVisitor):
+            control = None
+
+            def visit_Break(self, node: ast.Break) -> None:
+                self.control = "break"
+
+            def visit_Continue(self, node: ast.Continue) -> None:
+                self.control = "continue"
+
+            def visit_For(self, node: ast.For) -> None:
+                for stmt in node.orelse:
+                    self.visit(stmt)
+
+            def visit_AsyncFor(self, node: ast.AsyncFor) -> None:
+                for stmt in node.orelse:
+                    self.visit(stmt)
+
+            def visit_While(self, node: ast.While) -> None:
+                for stmt in node.orelse:
+                    self.visit(stmt)
+
+        finder = LoopControlFinder()
+        for stmt in node.body:
+            finder.visit(stmt)
+        if finder.control:
+            raise ConstevalError(
+                f"Loop unrolling does not support {finder.control} statements"
+            )
+
     def _bind_loop_target(self, target: ast.expr, value) -> dict[str, object]:
         """Bind a consteval loop target to a compile-time value."""
         if isinstance(target, ast.Name):
@@ -291,7 +325,10 @@ class ConstevalTransformer(ast.NodeTransformer):
             ) from e
 
         if len(values) != len(target.elts):
-            raise ConstevalError(f"Cannot unpack {len(values)} values into {ast.unparse(target)}")
+            direction = "not enough" if len(values) < len(target.elts) else "too many"
+            raise ConstevalError(
+                f"{direction} values to unpack (expected {len(target.elts)}, got {len(values)})"
+            )
 
         bindings = {}
         for element, element_value in zip(target.elts, values):

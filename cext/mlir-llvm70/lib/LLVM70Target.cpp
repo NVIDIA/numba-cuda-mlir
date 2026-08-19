@@ -174,10 +174,37 @@ LLVMTypeRef MLIRToLLVM70::convertType(Type ty) {
         return b.arrayTy(convertType(arrTy.getElementType()),
                          arrTy.getNumElements());
       })
-      .Case<LLVM::LLVMStructType>([&](auto structTy) {
+      .Case<LLVM::LLVMStructType>([&](auto structTy) -> LLVMTypeRef {
+        if (structTy.isIdentified()) {
+          llvm::StringRef name = structTy.getName();
+
+          auto it = namedStructCache.find(name);
+          if (it != namedStructCache.end()) {
+            return it->second;
+          }
+
+          LLVMTypeRef named = b.namedStructTy(name.str().c_str());
+          namedStructCache[name] = named;
+
+          if (!structTy.isOpaque()) {
+            llvm::SmallVector<LLVMTypeRef> elems;
+
+            for (Type e : structTy.getBody()) {
+              elems.push_back(convertType(e));
+            }
+
+            b.setStructBody(named, elems.data(), elems.size(),
+                            structTy.isPacked());
+          }
+
+          return named;
+        }
+
         llvm::SmallVector<LLVMTypeRef> elems;
+
         for (Type e : structTy.getBody())
           elems.push_back(convertType(e));
+
         return b.structTy(elems.data(), elems.size(), structTy.isPacked());
       })
       .Case<LLVM::LLVMFunctionType>([&](auto funcTy) {

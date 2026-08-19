@@ -77,6 +77,8 @@ llvm::Error LLVM70IRBuilder::resolveSymbols() {
   RESOLVE(fnPointerType, "LLVMPointerType");
   RESOLVE(fnArrayType, "LLVMArrayType");
   RESOLVE(fnStructType, "LLVMStructTypeInContext");
+  RESOLVE(fnStructCreateNamed, "LLVMStructCreateNamed");
+  RESOLVE(fnStructSetBody, "LLVMStructSetBody");
   RESOLVE(fnFunctionType, "LLVMFunctionType");
   RESOLVE(fnVectorType, "LLVMVectorType");
 
@@ -266,6 +268,13 @@ LLVMTypeRef LLVM70IRBuilder::arrayTy(LLVMTypeRef e, unsigned n) {
 }
 LLVMTypeRef LLVM70IRBuilder::structTy(LLVMTypeRef *e, unsigned n, bool p) {
   return fnStructType(ctx, e, n, p);
+}
+LLVMTypeRef LLVM70IRBuilder::namedStructTy(const char *name) {
+  return fnStructCreateNamed(ctx, name);
+}
+void LLVM70IRBuilder::setStructBody(LLVMTypeRef st, LLVMTypeRef *e, unsigned n,
+                                    bool p) {
+  fnStructSetBody(st, e, n, p);
 }
 LLVMTypeRef LLVM70IRBuilder::funcTy(LLVMTypeRef r, LLVMTypeRef *p, unsigned n,
                                    bool v) {

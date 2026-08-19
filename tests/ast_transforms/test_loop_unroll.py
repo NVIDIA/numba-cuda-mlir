@@ -153,9 +153,7 @@ def test_unroll_tuple_target_invalid_unpacking_raises():
         for idx, val in consteval(ITEMS):
             arr[idx] = float(val)
 
-    with pytest.raises(
-        ConstevalError, match="not enough values to unpack \(expected 2, got 1\)"
-    ):
+    with pytest.raises(ConstevalError, match="not enough values to unpack \(expected 2, got 1\)"):
         kernel.compile("void(float32[:])")
 
 

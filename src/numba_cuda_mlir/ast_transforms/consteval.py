@@ -301,9 +301,7 @@ class ConstevalTransformer(ast.NodeTransformer):
         for stmt in node.body:
             finder.visit(stmt)
         if finder.control:
-            raise ConstevalError(
-                f"Loop unrolling does not support {finder.control} statements"
-            )
+            raise ConstevalError(f"Loop unrolling does not support {finder.control} statements")
 
     def _bind_loop_target(self, target: ast.expr, value) -> dict[str, object]:
         """Bind a consteval loop target to a compile-time value."""

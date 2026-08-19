@@ -93,6 +93,14 @@ private:
   LLVMMetadataRef diSubroutineType = nullptr;
   llvm::StringMap<LLVMMetadataRef> diFileCache;
   LLVMMetadataRef currentSubprogram = nullptr;
+  // Translated DI types.
+  llvm::DenseMap<mlir::Attribute, LLVMMetadataRef> diTypeCache;
+  // Composites whose members are still being translated, keyed by their
+  // recursion id, holding the temporary node their self-references resolve to.
+  llvm::DenseMap<mlir::Attribute, LLVMMetadataRef> diRecursionStack;
+  // Recursive composites already translated, keyed by their recursion id, for
+  // self-references reached again after the composite is complete.
+  llvm::DenseMap<mlir::Attribute, LLVMMetadataRef> diRecursiveTypes;
 
   LLVMMetadataRef getOrCreateDIFile(llvm::StringRef filename);
   void setDebugLocFromOp(mlir::Operation *op);
@@ -183,6 +191,12 @@ private:
                                bool isDeclare);
 
   LLVMMetadataRef getOrCreateDIType(mlir::LLVM::DITypeAttr typeAttr);
+  LLVMMetadataRef convertDIBasicType(mlir::LLVM::DIBasicTypeAttr attr);
+  LLVMMetadataRef convertDIDerivedType(mlir::LLVM::DIDerivedTypeAttr attr);
+  LLVMMetadataRef convertDICompositeType(mlir::LLVM::DICompositeTypeAttr attr);
+  LLVMMetadataRef convertDISubrange(mlir::LLVM::DISubrangeAttr attr);
+  LLVMMetadataRef opaqueDIType(uint64_t sizeInBits);
+  LLVMMetadataRef diFileOf(mlir::LLVM::DIFileAttr fileAttr);
 
   void emitKernelMetadata(LLVMValueRef fn, mlir::Operation *funcOp);
 

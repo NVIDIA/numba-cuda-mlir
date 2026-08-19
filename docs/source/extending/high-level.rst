@@ -77,6 +77,119 @@ finds a matching implementation. If no matching overload is found, then a
 compilation error occurs.
 
 
+Variadic implementations
+------------------------
+
+An implementation function and the implementation it returns may both declare a
+``*args`` parameter, so a single registration serves a whole family of arities.
+The arguments matched by ``*args`` are passed to the implementation function as
+a tuple of Numba types, and are bundled into a single tuple argument in the
+implementation:
+
+.. code-block:: python
+
+   from numba_cuda_mlir import cuda, extending
+
+   def my_sum(*args):
+       return sum(args)
+
+   @extending.overload(my_sum)
+   def my_sum_overload(*args):
+       # ``args`` holds the Numba types of the call site's arguments, so the
+       # arity is known at compile time.
+       def impl(*args):
+           acc = 0.0
+           for a in args:
+               acc += a
+           return acc
+
+       return impl
+
+   @cuda.jit
+   def kernel(out, a, b, c):
+       i = cuda.grid(1)
+       if i < out.size:
+           out[i] = my_sum(a[i], b[i], c[i])
+
+Each arity is compiled as a separate overload, so calling ``my_sum`` with two
+and with three arguments in the same kernel produces two distinct device
+functions. The same applies to
+:py:func:`~numba_cuda_mlir.extending.overload_method` and the other decorators
+below.
+
+``len(args)`` is a compile-time constant in the implementation, and the bundle
+can be indexed with a loop variable, so ``for i in range(len(args))`` works too.
+Both of those rely on the elements sharing a single type, because a loop
+variable must have one type.
+
+To consume a bundle whose elements have differing types, unroll the loop with
+:py:func:`~numba_cuda_mlir.cuda.experimental.consteval`. It rewrites the loop
+before compilation, replacing the loop variable with a literal in each copy of
+the body, so ``args[i]`` resolves to one specific element. The arity is known to
+the implementation function, so pass it in as a closure variable:
+
+.. code-block:: python
+
+   from numba_cuda_mlir.cuda.experimental import consteval
+
+   @extending.overload(my_sum)
+   def my_sum_overload(*args):
+       n = len(args)
+
+       def impl(*args):
+           acc = 0.0
+           for i in consteval(range(n)):   # unrolls to args[0], args[1], ...
+               acc += args[i]
+           return acc
+
+       return impl
+
+   @cuda.jit
+   def kernel(out, floats, ints, doubles):
+       i = cuda.grid(1)
+       if i < out.size:
+           out[i] = my_sum(floats[i], ints[i], doubles[i])
+
+This is also what lets an implementation iterate over a bundle of arrays, since
+each array is a distinct type. Because the index is a literal rather than a
+counter, it can be used on both sides of an assignment:
+
+.. code-block:: python
+
+   @extending.overload(my_store)
+   def my_store_overload(out, *args):
+       n = len(args)
+
+       def impl(out, *args):
+           for i in consteval(range(n)):
+               out[i] = args[i]
+
+       return impl
+
+Note that ``consteval`` unrolls over compile-time *values*, substituting each
+one into the body as a literal. Iterating the bundle itself —
+``for a in consteval(args)`` — therefore does not work: the elements of ``args``
+are runtime values, and there is no constant to substitute.
+:py:func:`~numba_cuda_mlir.cuda.literal_unroll` covers that spelling instead,
+typing the loop body once per element without exposing the index:
+
+.. code-block:: python
+
+   from numba_cuda_mlir.cuda import literal_unroll
+
+   def impl(*args):
+       acc = 0.0
+       for a in literal_unroll(args):
+           acc += a
+       return acc
+
+.. note::
+
+   :py:func:`~numba_cuda_mlir.cuda.experimental.consteval` is experimental.
+   Unrolling supports simple loop targets only, so
+   ``for idx, val in consteval(...)`` is rejected.
+
+
 Implementing methods
 --------------------
 

@@ -68,3 +68,41 @@ def test_dynamic_shared_after_conditional_runtime_shaped_shared():
     out = cuda.to_device(np.zeros(2, dtype=np.float32))
     k[1, 1, 0, 16](cuda.to_device(flag), cuda.to_device(n_arr), out)
     np.testing.assert_allclose(out.copy_to_host(), np.array([13.0, 21.0], dtype=np.float32))
+
+
+def test_dynamic_shared_runtime_offset_store():
+    """Stores through a runtime-offset view of dynamic shared memory reach memory."""
+
+    @cuda.jit
+    def k(idx, out):
+        shared = cuda.shared.array(0, dtype=float32)
+        shared[0] = 11.0
+        shared[1] = 22.0
+        shared[2] = 33.0
+        view = shared[idx[0] :]
+        view[0] = 99.0
+        for i in range(3):
+            out[i] = shared[i]
+
+    idx = np.array([1], dtype=np.int32)
+    out = cuda.to_device(np.zeros(3, dtype=np.float32))
+    k[1, 1, 0, 16](cuda.to_device(idx), out)
+    np.testing.assert_allclose(out.copy_to_host(), np.array([11.0, 99.0, 33.0], dtype=np.float32))
+
+
+def test_dynamic_shared_arrays_alias():
+    """All shared.array(0) arrays view the same region with the full extent."""
+
+    @cuda.jit
+    def k(out):
+        a = cuda.shared.array(0, dtype=float32)
+        b = cuda.shared.array(0, dtype=float32)
+        a[0] = 11.0
+        b[0] = 22.0
+        out[0] = a[0]
+        out[1] = a.shape[0]
+        out[2] = b.shape[0]
+
+    out = cuda.to_device(np.zeros(3, dtype=np.float32))
+    k[1, 1, 0, 64](out)
+    np.testing.assert_allclose(out.copy_to_host(), np.array([22.0, 16.0, 16.0], dtype=np.float32))

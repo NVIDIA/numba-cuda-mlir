@@ -217,6 +217,9 @@ public:
   LLVMMetadataRef createDIFunction(LLVMMetadataRef scope, const char *name,
                                    size_t nameLen, LLVMMetadataRef file,
                                    unsigned lineNo, LLVMMetadataRef type);
+  LLVMMetadataRef createDILexicalBlockFile(LLVMMetadataRef scope,
+                                           LLVMMetadataRef file,
+                                           unsigned discriminator = 0);
   void setSubprogram(LLVMValueRef fn, LLVMMetadataRef sp);
   void setDebugLocation(unsigned line, unsigned col, LLVMMetadataRef scope);
   void clearDebugLocation();
@@ -443,6 +446,8 @@ private:
            unsigned, LLVMDIFlags, LLVMBool)
   LLVM_FN(LLVMMetadataRef, fnDIBuilderCreateDebugLocation, LLVMContextRef,
            unsigned, unsigned, LLVMMetadataRef, LLVMMetadataRef)
+  LLVM_FN(LLVMMetadataRef, fnDIBuilderCreateLexicalBlockFile,
+           LLVMDIBuilderRef, LLVMMetadataRef, LLVMMetadataRef, unsigned)
   LLVM_FN(void, fnSetCurrentDebugLocation, LLVMBuilderRef, LLVMValueRef)
   LLVM_FN(LLVMValueRef, fnMetadataAsValue, LLVMContextRef, LLVMMetadataRef)
   LLVM_FN(void, fnSetSubprogram, LLVMValueRef, LLVMMetadataRef)

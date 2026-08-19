@@ -2593,12 +2593,16 @@ MLIRToLLVM70::convertDICompositeType(LLVM::DICompositeTypeAttr attr) {
   if (!isStructLike)
     return opaqueDIType(size);
 
-  // Create a forward declaration first: translating the members recurses
-  // through getOrCreateDIType and may come back to this same type.
-  LLVMMetadataRef fwdDecl = b.createDIForwardDecl(
-      tag, name.data(), name.size(), diCompileUnit, diFile, attr.getLine(),
-      size, align);
-  diTypeCache[attr] = fwdDecl;
+  // A recursive type needs something for its self-references to point at
+  // while its members are being translated.
+  DistinctAttr recId = attr.getRecId();
+  LLVMMetadataRef placeholder = nullptr;
+  if (recId) {
+    placeholder = b.createDIForwardDecl(tag, name.data(), name.size(),
+                                        diCompileUnit, diFile, attr.getLine(),
+                                        size, align);
+    diRecursionStack[recId] = placeholder;
+  }
 
   llvm::SmallVector<LLVMMetadataRef> elements;
   for (LLVM::DINodeAttr element : attr.getElements()) {
@@ -2616,7 +2620,12 @@ MLIRToLLVM70::convertDICompositeType(LLVM::DICompositeTypeAttr attr) {
           : b.createDIStructType(diCompileUnit, name.data(), name.size(),
                                  diFile, attr.getLine(), size, align,
                                  elements.data(), elements.size());
-  b.replaceMetadataAllUsesWith(fwdDecl, composite);
+  if (recId) {
+    // Frees the placeholder, so nothing may hold on to it past this point.
+    b.replaceMetadataAllUsesWith(placeholder, composite);
+    diRecursionStack.erase(recId);
+    diRecursiveTypes[recId] = composite;
+  }
   return composite;
 }
 
@@ -2624,6 +2633,24 @@ LLVMMetadataRef MLIRToLLVM70::getOrCreateDIType(LLVM::DITypeAttr typeAttr) {
   if (!typeAttr) {
     // Fallback: opaque byte type
     return b.createDIBasicType("byte", 4, 8, llvm::dwarf::DW_ATE_unsigned);
+  }
+
+  // A cycle is spelled as a rec-self attribute carrying only the recursion id
+  // of the composite it stands for, so it resolves to that composite rather
+  // than being translated: to its placeholder while the composite is still
+  // being built, to the composite itself afterwards. The placeholder is freed
+  // once the composite is complete, hence no caching here.
+  if (auto composite = dyn_cast<LLVM::DICompositeTypeAttr>(typeAttr)) {
+    if (composite.getIsRecSelf()) {
+      mlir::Attribute recId = composite.getRecId();
+      auto pending = diRecursionStack.find(recId);
+      if (pending != diRecursionStack.end())
+        return pending->second;
+      auto translated = diRecursiveTypes.find(recId);
+      if (translated != diRecursiveTypes.end())
+        return translated->second;
+      return opaqueDIType(composite.getSizeInBits());
+    }
   }
 
   auto cached = diTypeCache.find(typeAttr);
@@ -2640,7 +2667,10 @@ LLVMMetadataRef MLIRToLLVM70::getOrCreateDIType(LLVM::DITypeAttr typeAttr) {
   else
     result = opaqueDIType(0);
 
-  diTypeCache[typeAttr] = result;
+  // Nodes built inside a recursive type get re-uniqued when its placeholder is
+  // replaced, which can free them, so only cache once the type is complete.
+  if (diRecursionStack.empty())
+    diTypeCache[typeAttr] = result;
   return result;
 }
 

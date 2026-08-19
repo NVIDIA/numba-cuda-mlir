@@ -45,6 +45,12 @@ def _run_under_cuda_gdb(
         line = raw.strip()
         if line:
             ex_args.extend(("-ex", line))
+    # cuda-gdb shells out to cuobjdump to disassemble, and stepping fails
+    # outright against a cuobjdump older than the cubin, so make sure the one
+    # next to cuda-gdb wins over anything else on PATH.
+    env = os.environ.copy()
+    gdb_dir = os.path.dirname(os.path.abspath(CUDA_GDB))
+    env["PATH"] = os.pathsep.join((gdb_dir, env.get("PATH", "")))
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".py", prefix="ncm_gdb_test_", delete=False
     ) as f:
@@ -56,6 +62,7 @@ def _run_under_cuda_gdb(
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=env,
         )
     finally:
         os.unlink(script)
@@ -70,8 +77,9 @@ _KERNEL_SRC = textwrap.dedent("""\
         i = cuda.threadIdx.x
         sum = arg_a + arg_b
         out[i] = sum
+        cuda.syncthreads()
 
-    out = cuda.device_array(1, dtype=np.float32)
+    out = cuda.to_device(np.full(1, -1.0, dtype=np.float32))
     k[1, 1](out, np.float32(1.5), np.float32(2.5))
     cuda.synchronize()
     assert out.copy_to_host()[0] == 4.0, out.copy_to_host()[0]
@@ -90,6 +98,10 @@ def test_cuda_gdb_debug_kernel():
         info args
         info locals
         print sum
+        print out.nitems
+        print out.data[0]
+        next
+        print out.data[0]
         continue
         quit
     """)
@@ -103,10 +115,14 @@ def test_cuda_gdb_debug_kernel():
     testing.filecheck(
         """
         CHECK: CUDA kernel {{[0-9]+}}, grid {{[0-9]+}}, block {{[(][0-9,]+[)]}}, thread {{[(][0-9,]+[)]}}
+        CHECK-DAG: out = {{[{].*}}nitems = 1, itemsize = 4,{{.*}}shape = {1}, strides = {4}{{[}]}}
         CHECK-DAG: arg_b = 2.5
         CHECK-DAG: arg_a = 1.5
         CHECK-DAG: sum = 4
         CHECK: $1 = 4
+        CHECK: $2 = 1
+        CHECK: $3 = -1
+        CHECK: $4 = 4
         """,
         result.stdout,
     )

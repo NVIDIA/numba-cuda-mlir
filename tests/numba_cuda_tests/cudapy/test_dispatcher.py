@@ -296,7 +296,6 @@ class TestDispatcher(NumbaCUDATestCase):
         ]
         self._test_explicit_signatures(sigs)
 
-    @pytest.mark.xfail(True, reason="Incorrect result")
     def test_explicit_signatures_same_type_class(self):
         # A more interesting one...
         # (Note that the type of r is deliberately float64 in both cases so

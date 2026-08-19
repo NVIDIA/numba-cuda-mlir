@@ -127,6 +127,42 @@ def test_arg_marshaller_exposes_launch_config_during_launch():
     assert not hasattr(descriptor_mod._compile_arg_types, "launch_config")
 
 
+def test_arg_marshaller_passes_call_scoped_dispatch_token():
+    observed = []
+
+    class Dispatcher(_Dispatcher):
+        def _dispatch_token_for(self, argtypes):
+            observed.append(argtypes)
+            return 17
+
+    def launcher(value, **kwargs):
+        observed.append((value, kwargs))
+        return "launched"
+
+    marshaller = _ArgMarshaller(
+        launcher,
+        dispatcher=Dispatcher(),
+        supports_dispatch_token=True,
+    )
+
+    assert marshaller._launch((types.int32,), (np.int32(4),)) == "launched"
+    assert observed == [
+        (types.int32,),
+        (np.int32(4), {"_dispatch_token": 17}),
+    ]
+
+
+def test_dispatch_tokens_are_stable_and_exact():
+    def kernel():
+        pass
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+
+    int32_token = dispatcher._dispatch_token_for((types.int32,))
+    assert dispatcher._dispatch_token_for((types.int32,)) == int32_token
+    assert dispatcher._dispatch_token_for((types.int64,)) != int32_token
+
+
 def test_arg_marshaller_restores_launch_config_after_error():
     original_launch_config = {"block": (16, 1, 1)}
     dispatcher = _Dispatcher()
@@ -154,6 +190,25 @@ def test_arg_marshaller_restores_launch_config_after_error():
 
     assert observed == [launch_config]
     assert descriptor_mod._compile_arg_types.launch_config == original_launch_config
+
+
+def test_arg_marshaller_restores_original_launch_args_after_error():
+    outer_launch_args = ("outer",)
+    inner_launch_args = ("inner",)
+    descriptor_mod._compile_arg_types.launch_args = outer_launch_args
+    observed = []
+
+    def launcher():
+        observed.append(descriptor_mod._compile_arg_types.launch_args)
+        raise ValueError("launch failed")
+
+    marshaller = _ArgMarshaller(launcher)
+
+    with pytest.raises(ValueError, match="launch failed"):
+        marshaller._launch((), (), original_args=inner_launch_args)
+
+    assert observed == [inner_launch_args]
+    assert descriptor_mod._compile_arg_types.launch_args is outer_launch_args
 
 
 def test_arg_marshaller_clears_launch_config_after_error():
@@ -1163,6 +1218,34 @@ def test_compile_impl_generic_applies_shared_memory_carveout(monkeypatch):
     assert dispatcher.overloads[(types.int32,)] is applied[0]
 
 
+def test_compile_impl_transports_original_launch_args_without_mutation(monkeypatch):
+    from numba_cuda_mlir import mlir_compiler
+
+    def kernel(x):
+        pass
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    original_arg = object()
+    compile_calls = []
+
+    class CompilerResult:
+        signature = cuda_typing.signature(types.none, types.int32)
+        metadata = {"cubin": b"generic", "func_name": "kernel"}
+
+    def mlir_compiler_entry(pyfunc, func_args, targetoptions, override_argtypes):
+        compile_calls.append((tuple(func_args), dict(targetoptions)))
+        return CompilerResult()
+
+    monkeypatch.setattr(mlir_compiler, "mlir_compiler_entry", mlir_compiler_entry)
+    descriptor_mod._compile_arg_types.types = (types.int32,)
+    descriptor_mod._compile_arg_types.launch_args = (original_arg,)
+
+    assert dispatcher._compile_impl([1]) == (b"generic", "kernel", False)
+    assert compile_calls[0][0] == (1,)
+    assert compile_calls[0][1]["__launch_args__"] == (original_arg,)
+    assert "__launch_args__" not in dispatcher.targetoptions
+
+
 def test_launch_config_key_validation():
     launch_config = {
         "grid": (2, 1, 1),
@@ -1493,7 +1576,7 @@ def test_launch_config_dispatcher_cache_retains_boundary_before_eviction():
 
 def test_retained_marshaller_reregisters_after_cache_eviction(monkeypatch):
     def launch_configuration(kernel_dispatcher, griddim, blockdim, stream, sharedmem, cluster):
-        return lambda *args: None
+        return lambda *args, **kwargs: None
 
     monkeypatch.setattr(descriptor_mod, "LaunchConfiguration", launch_configuration)
 
@@ -1529,7 +1612,7 @@ def test_retained_marshaller_reregisters_after_cache_eviction(monkeypatch):
 
 def test_retained_marshaller_does_not_reregister_after_recompile(monkeypatch):
     def launch_configuration(kernel_dispatcher, griddim, blockdim, stream, sharedmem, cluster):
-        return lambda *args: None
+        return lambda *args, **kwargs: None
 
     monkeypatch.setattr(descriptor_mod, "LaunchConfiguration", launch_configuration)
 

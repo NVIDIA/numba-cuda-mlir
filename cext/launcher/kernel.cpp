@@ -39,6 +39,7 @@ PyObject* g_data_pyunicode;
 PyObject* g_strides_pyunicode;
 PyObject* g___dlpack___pyunicode;
 PyObject* g_int64_pyunicode;
+PyObject* g__dispatch_token_pyunicode;
 
 PyTypeObject* g_torch_Tensor_type;
 PyTypeObject* g_torch_cuda_Stream_type;
@@ -307,6 +308,30 @@ struct ConstantArg {
     }
 };
 
+size_t hash_constant_arg(const ConstantArg& arg) {
+    switch (arg.type) {
+    case ConstantArgType::INT64:
+        return std::hash<int64_t>{}(arg.value.i64);
+    case ConstantArgType::UINT64:
+        return std::hash<uint64_t>{}(arg.value.u64)
+             ^ (static_cast<size_t>(ConstantArgType::UINT64) << 1);
+    case ConstantArgType::BOOL:
+        // Shift the BOOL tag past the 0/1 payload bit before mixing it into
+        // the integer hash, so BOOL values do not just swap INT64 0/1 hashes.
+        return std::hash<int64_t>{}(arg.value.i64)
+             ^ (static_cast<size_t>(ConstantArgType::BOOL) << 1);
+    case ConstantArgType::FLOAT64: {
+        uint64_t float_bits;
+        std::memcpy(&float_bits, &arg.value.f64, sizeof(arg.value.f64));
+        return std::hash<uint64_t>{}(float_bits);
+    }
+    case ConstantArgType::STRING:
+        return std::hash<std::string>{}(arg.str);
+    }
+    assert(false && "Unsupported constant arg type");
+    return 0;
+}
+
 [[maybe_unused]]
 inline void hash_combine(size_t& h, size_t other) {
     h ^= other + 0x9e3779b9 + (h << 6) + (h >> 2);
@@ -319,6 +344,24 @@ struct HashVector {
         const std::hash<T> elem_hash;
         for (const T& x : v)
             hash_combine(ret, elem_hash(x));
+        return ret;
+    }
+};
+
+struct KernelCacheKey {
+    uint64_t dispatch_token;
+    std::vector<ConstantArg> constants;
+
+    bool operator==(const KernelCacheKey& other) const {
+        return dispatch_token == other.dispatch_token && constants == other.constants;
+    }
+};
+
+struct HashKernelCacheKey {
+    size_t operator()(const KernelCacheKey& key) const {
+        size_t ret = std::hash<uint64_t>{}(key.dispatch_token);
+        for (const ConstantArg& constant : key.constants)
+            hash_combine(ret, hash_constant_arg(constant));
         return ret;
     }
 };
@@ -345,9 +388,9 @@ int64_t pack_dtype_and_ndim(DLDataType dtype, size_t ndim) {
 
 struct KernelFamily : SimpleRefcount<KernelFamily> {
     using KernelMap = std::unordered_map<
-            std::vector<ConstantArg>, CudaKernelHandle, HashVector<ConstantArg>>;
+            KernelCacheKey, CudaKernelHandle, HashKernelCacheKey>;
 
-    KernelMap kernels_by_constants;
+    KernelMap kernels_by_dispatch_key;
 };
 
 union CudaArg {
@@ -662,12 +705,12 @@ std::vector<bool> effective_constant_arg_flags(
         const std::vector<PyTypeObject*>& arg_types) {
     assert(constant_arg_flags.size() == literal_arg_flags.size());
 
-    // Tuple/list arguments are flattened before the native launch, while the
-    // flags describe top-level Python parameters. Literal retry rejects that
-    // ABI today, but every profile still needs one safe flag per native arg.
+    // Tuple/list and extension-owned arguments can be flattened before the
+    // native launch, while the flags describe top-level Python parameters.
+    // No flag can be mapped safely unless both arities still match exactly.
     std::vector<bool> effective_flags(arg_types.size(), false);
-    const size_t represented_arg_count = std::min(arg_types.size(), constant_arg_flags.size());
-    for (size_t i = 0; i < represented_arg_count; ++i) {
+    if (arg_types.size() != constant_arg_flags.size()) return effective_flags;
+    for (size_t i = 0; i < arg_types.size(); ++i) {
         // Numba literal typing accepts exact built-in int/bool values, not
         // int subclasses, IntEnum members, or NumPy integer scalars.
         bool literal_eligible = arg_types[i] == &PyLong_Type || arg_types[i] == &PyBool_Type;
@@ -1473,9 +1516,13 @@ Status extract_cuda_args(PyObject* const* pyargs, size_t num_pyargs,
     helper.record_copies.clear();
 
     helper.cuda_context = nullptr;
+    // Constant flags describe logical Python parameters. Argument handlers can
+    // expand one parameter into multiple ABI leaves, so no flag can be mapped
+    // safely unless the logical and flattened arities still match exactly.
+    bool constant_flags_aligned = num_pyargs == constant_arg_flags.size();
     for (size_t i = 0; i < num_pyargs; ++i) {
         PyObject* pyobj = pyargs[i];
-        bool is_constant = constant_arg_flags[i];
+        bool is_constant = constant_flags_aligned && constant_arg_flags[i];
 
         switch (arg_kinds[i]) {
         case PythonArgKind::TorchTensorDlpack:
@@ -1872,7 +1919,7 @@ bool try_clarify_launch_out_of_resources_error(CUkernel kernel, const Grid& bloc
 }
 
 Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional<Grid> cluster,
-              std::optional<CUstream> stream, int sharedmem,
+              std::optional<CUstream> stream, int sharedmem, uint64_t dispatch_token,
               PyObject* const* pyargs, Py_ssize_t num_pyargs) {
     LaunchHelperPtr helper = launch_helper_get();
     get_pyarg_types(pyargs, num_pyargs, helper->pyarg_types);
@@ -1959,8 +2006,9 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
         if (!ensure_numba_context(dispatcher.ensure_context_func.get()))
             return ErrorRaised;
 
-        KernelFamily::KernelMap& kernel_map = profile->family->kernels_by_constants;
-        kernel_iter = kernel_map.find(helper->constants);
+        KernelFamily::KernelMap& kernel_map = profile->family->kernels_by_dispatch_key;
+        KernelCacheKey cache_key{dispatch_token, helper->constants};
+        kernel_iter = kernel_map.find(cache_key);
         if (kernel_iter == kernel_map.end()) {
             // Slowest path: need to compile a new kernel
             Result<CudaKernelHandle> kernel = compile(dispatcher.compile_func.get(), pyargs, num_pyargs);
@@ -1968,7 +2016,7 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
             // Defer the post-load callback until after emplace so that racing
             // threads that compile the same kernel don't fire duplicate callbacks.
             PyPtr post_load_cb = std::move(kernel->post_load_callback);
-            auto [it, inserted] = kernel_map.emplace(helper->constants, std::move(*kernel));
+            auto [it, inserted] = kernel_map.emplace(std::move(cache_key), std::move(*kernel));
             kernel_iter = it;
             if (inserted && post_load_cb) {
                 PyPtr py_handle = steal(PyLong_FromVoidPtr(
@@ -1997,8 +2045,9 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
                 return ErrorRaised;
         }
 
-        KernelFamily::KernelMap& kernel_map = profile->family->kernels_by_constants;
-        kernel_iter = kernel_map.find(helper->constants);
+        KernelFamily::KernelMap& kernel_map = profile->family->kernels_by_dispatch_key;
+        KernelCacheKey cache_key{dispatch_token, helper->constants};
+        kernel_iter = kernel_map.find(cache_key);
         if (kernel_iter == kernel_map.end()) {
             // Slowest path: need to compile a new kernel
             Result<CudaKernelHandle> kernel = compile(dispatcher.compile_func.get(), pyargs, num_pyargs);
@@ -2007,7 +2056,7 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
             // Defer the post-load callback until after emplace so that racing
             // threads that compile the same kernel don't fire duplicate callbacks.
             PyPtr post_load_cb = std::move(kernel->post_load_callback);
-            auto [it, inserted] = kernel_map.emplace(helper->constants, std::move(*kernel));
+            auto [it, inserted] = kernel_map.emplace(std::move(cache_key), std::move(*kernel));
             kernel_iter = it;
             if (inserted && post_load_cb) {
                 PyPtr py_handle = steal(PyLong_FromVoidPtr(
@@ -2350,28 +2399,60 @@ struct LaunchConfiguration {
     int sharedmem;
 };
 
+Result<uint64_t> parse_dispatch_token(PyObject* value) {
+    unsigned long long token = PyLong_AsUnsignedLongLong(value);
+    if (PyErr_Occurred()) return ErrorRaised;
+    return static_cast<uint64_t>(token);
+}
+
 PyObject* LaunchConfiguration_vectorcall(PyObject* self, PyObject *const *args,
                                              size_t nargsf, PyObject* kwnames) {
-    if (kwnames) {
-        PyErr_SetString(PyExc_TypeError, "Keyword arguments are not supported");
-        return nullptr;
-    }
-
     LaunchConfiguration& config = py_unwrap<LaunchConfiguration>(self);
 
     Py_ssize_t num_args = PyVectorcall_NARGS(nargsf);
+    uint64_t dispatch_token = 0;
+    if (kwnames && PyTuple_GET_SIZE(kwnames) != 0) {
+        if (PyTuple_GET_SIZE(kwnames) != 1) {
+            PyErr_SetString(PyExc_TypeError, "Only _dispatch_token keyword is supported");
+            return nullptr;
+        }
+        PyObject* keyword = PyTuple_GET_ITEM(kwnames, 0);
+        int is_dispatch_token = PyObject_RichCompareBool(
+                keyword, g__dispatch_token_pyunicode, Py_EQ);
+        if (is_dispatch_token < 0) return nullptr;
+        if (!is_dispatch_token) {
+            PyErr_SetString(PyExc_TypeError, "Only _dispatch_token keyword is supported");
+            return nullptr;
+        }
+        Result<uint64_t> parsed_token = parse_dispatch_token(args[num_args]);
+        if (!parsed_token.is_ok()) return nullptr;
+        dispatch_token = *parsed_token;
+    }
 
     KernelDispatcher& dispatcher = py_unwrap<KernelDispatcher>(config.dispatcher.get());
-    if (!launch(dispatcher, config.grid, config.block, config.cluster, config.stream, config.sharedmem, args, num_args))
+    if (!launch(dispatcher, config.grid, config.block, config.cluster, config.stream,
+                config.sharedmem, dispatch_token, args, num_args))
         return nullptr;
 
     return Py_NewRef(Py_None);
 }
 
 PyObject* LaunchConfiguration_call(PyObject* self, PyObject* args, PyObject* kwargs) {
-    if (kwargs) {
-        PyErr_SetString(PyExc_TypeError, "Keyword arguments are not supported");
-        return nullptr;
+    uint64_t dispatch_token = 0;
+    if (kwargs && PyDict_Size(kwargs) != 0) {
+        if (PyDict_Size(kwargs) != 1) {
+            PyErr_SetString(PyExc_TypeError, "Only _dispatch_token keyword is supported");
+            return nullptr;
+        }
+        PyObject* token_value = PyDict_GetItemWithError(kwargs, g__dispatch_token_pyunicode);
+        if (!token_value) {
+            if (!PyErr_Occurred())
+                PyErr_SetString(PyExc_TypeError, "Only _dispatch_token keyword is supported");
+            return nullptr;
+        }
+        Result<uint64_t> parsed_token = parse_dispatch_token(token_value);
+        if (!parsed_token.is_ok()) return nullptr;
+        dispatch_token = *parsed_token;
     }
 
     LaunchConfiguration& config = py_unwrap<LaunchConfiguration>(self);
@@ -2381,7 +2462,8 @@ PyObject* LaunchConfiguration_call(PyObject* self, PyObject* args, PyObject* kwa
     PyObject** pyargs = &_PyTuple_CAST(args)->ob_item[0];
     Py_ssize_t num_pyargs = PyTuple_GET_SIZE(args);
 
-    if (!launch(dispatcher, config.grid, config.block, config.cluster, config.stream, config.sharedmem, pyargs, num_pyargs))
+    if (!launch(dispatcher, config.grid, config.block, config.cluster, config.stream,
+                config.sharedmem, dispatch_token, pyargs, num_pyargs))
         return nullptr;
 
     return Py_NewRef(Py_None);
@@ -2550,37 +2632,6 @@ void try_get_numpy_globals() {
 } // anonymous namespace
 
 
-namespace std {
-template<>
-struct hash<ConstantArg> {
-    size_t operator()(const ConstantArg& arg) const {
-        switch (arg.type) {
-        case ConstantArgType::INT64:
-            return std::hash<int64_t>{}(arg.value.i64);
-        case ConstantArgType::UINT64:
-            return std::hash<uint64_t>{}(arg.value.u64)
-                 ^ (static_cast<size_t>(ConstantArgType::UINT64) << 1);
-        case ConstantArgType::BOOL:
-            // Shift the BOOL tag past the 0/1 payload bit before mixing it into
-            // the integer hash, so BOOL values do not just swap INT64 0/1 hashes.
-            return std::hash<int64_t>{}(arg.value.i64)
-                 ^ (static_cast<size_t>(ConstantArgType::BOOL) << 1);
-        case ConstantArgType::FLOAT64:
-            // hash float bits directly
-            uint64_t float_bits;
-            std::memcpy(&float_bits, &arg.value.f64, sizeof(arg.value.f64));
-            return std::hash<uint64_t>{}(float_bits);
-        case ConstantArgType::STRING:
-            return std::hash<std::string>{}(arg.str);
-        }
-        // unreachable code
-        assert(false && "Unsupported constant arg type");
-        return 0;
-    }
-};
-} // std namespace
-
-
 #define INIT_STRING_CONSTANT(ident) \
     if (!(g_##ident##_pyunicode = PyUnicode_InternFromString(#ident))) return ErrorRaised;
 
@@ -2593,6 +2644,7 @@ Status kernel_init(PyObject* m) {
     INIT_STRING_CONSTANT(strides);
     INIT_STRING_CONSTANT(__dlpack__);
     INIT_STRING_CONSTANT(int64);
+    INIT_STRING_CONSTANT(_dispatch_token);
 
     try_get_torch_globals();
     try_get_cupy_globals();

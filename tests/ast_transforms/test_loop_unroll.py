@@ -429,20 +429,10 @@ def test_unroll_tuple_parameter():
 
 
 def test_unroll_tuple_parameter_runs():
-    """Values reach the body, rather than the parameter's member types."""
+    """Values reach the body rather than the member types, whatever those are.
 
-    @numba_cuda_mlir.cuda.jit
-    def kernel(out, t):
-        for v in consteval(t):
-            out[0] += v
-
-    out = np.zeros(1)
-    kernel[1, 1](out, (1.5, 2.5))
-    np.testing.assert_allclose(out, [4.0])
-
-
-def test_unroll_heterogeneous_tuple_parameter():
-    """Elements may have differing types, since each access is typed separately."""
+    Each element access is typed separately, so the elements may differ.
+    """
 
     @numba_cuda_mlir.cuda.jit
     def kernel(out, t):

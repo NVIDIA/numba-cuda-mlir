@@ -223,14 +223,17 @@ class ConstevalTransformer(ast.NodeTransformer):
         """Unroll a for loop with consteval iterator."""
         self._check_unroll_loop_control(node)
 
-        # Evaluate the iterator
-        iter_value = self._eval_expr(node.iter.args[0])
-        try:
-            items = list(iter_value)
-        except TypeError as e:
-            raise ConstevalError(
-                f"consteval iterator must be iterable, got {type(iter_value).__name__}"
-            ) from e
+        # Evaluate the iterator. A parameter name evaluates to its Numba type,
+        # so it yields element accesses rather than compile-time values.
+        items = self._parameter_element_exprs(node.iter.args[0])
+        if items is None:
+            iter_value = self._eval_expr(node.iter.args[0])
+            try:
+                items = list(iter_value)
+            except TypeError as e:
+                raise ConstevalError(
+                    f"consteval iterator must be iterable, got {type(iter_value).__name__}"
+                ) from e
 
         self.modified = True
 
@@ -244,7 +247,9 @@ class ConstevalTransformer(ast.NodeTransformer):
             self.local_consts.update(bindings)
             replacements = {}
             for var_name, bound_value in bindings.items():
-                if self._can_be_constant(bound_value):
+                if isinstance(bound_value, ast.expr):
+                    replacements[var_name] = bound_value
+                elif self._can_be_constant(bound_value):
                     replacements[var_name] = ast.Constant(value=bound_value)
                 else:
                     replacements[var_name] = ast.Name(
@@ -272,6 +277,37 @@ class ConstevalTransformer(ast.NodeTransformer):
         # Note: we ignore the else clause (orelse) since unrolled loops
         # don't have a natural "else" semantic
         return unrolled
+
+    def _parameter_element_exprs(self, iter_arg: ast.expr) -> list[ast.expr] | None:
+        """Element accesses for ``consteval(<tuple parameter>)``, else ``None``.
+
+        Evaluating a parameter name yields the parameter's Numba type, whose
+        members are *types*. Substituting those into the body would silently
+        replace each element with its type, so a tuple parameter is unrolled
+        into ``p[0]``, ``p[1]``, ... instead, leaving the values at runtime.
+        """
+        if not isinstance(iter_arg, ast.Name):
+            return None
+        # ``context`` lets param types shadow other bindings, so match that here.
+        param_type = self.param_type_map.get(iter_arg.id)
+        if param_type is None:
+            return None
+
+        from numba_cuda_mlir.numba_cuda import types
+
+        if not isinstance(param_type, types.BaseTuple):
+            raise ConstevalError(
+                f"Cannot unroll over parameter '{iter_arg.id}' of type {param_type}: "
+                "only a tuple parameter has a compile-time length"
+            )
+        return [
+            ast.Subscript(
+                value=ast.Name(id=iter_arg.id, ctx=ast.Load()),
+                slice=ast.Constant(value=index),
+                ctx=ast.Load(),
+            )
+            for index in range(len(param_type))
+        ]
 
     def _check_unroll_loop_control(self, node: ast.For) -> None:
         """Reject loop control statements that would escape an unrolled loop."""

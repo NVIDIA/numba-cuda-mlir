@@ -3,12 +3,15 @@
 """Tests for JIT decorator compatibility with numba-cuda options."""
 
 import numpy as np
+import platform
 import pytest
 import subprocess
 import sys
 import textwrap
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir import types
+
+IS_WINDOWS_ARM64 = platform.system() == "Windows" and platform.machine() == "ARM64"
 
 
 def _run_in_subprocess(code: str):
@@ -282,6 +285,7 @@ def kernel(arr, val):
 # --- Intrinsics ---
 
 
+@pytest.mark.skipif(IS_WINDOWS_ARM64, reason="NYI: LLVM70 Bridge on Windows ARM64")
 def test_aligned_dynamic_shared_memory_ptx_llvm70():
     def kernel():
         smem = cuda.shared.array(shape=(0,), dtype=np.byte, alignment=16)
@@ -347,6 +351,7 @@ def kernel(arr, x):
     assert arr.copy_to_host()[0] == expected
 
 
+@pytest.mark.skipif(IS_WINDOWS_ARM64, reason="NYI: LLVM70 Bridge on Windows ARM64")
 def test_chip_forward_compat():
     """Test targeting a lower chip than the current device."""
     from numba_cuda_mlir.numba_cuda.cudadrv import nvrtc

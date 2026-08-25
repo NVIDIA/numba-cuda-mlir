@@ -157,6 +157,7 @@ llvm::Error LLVM70IRBuilder::resolveSymbols() {
   RESOLVE(fnBuildGEP, "LLVMBuildGEP");
   RESOLVE(fnBuildInBoundsGEP, "LLVMBuildInBoundsGEP");
   RESOLVE(fnBuildStructGEP, "LLVMBuildStructGEP");
+  RESOLVE(fnSetVolatile, "LLVMSetVolatile");
 
   // Atomics
   RESOLVE(fnBuildAtomicRMW, "LLVMBuildAtomicRMW");
@@ -216,7 +217,18 @@ llvm::Error LLVM70IRBuilder::resolveSymbols() {
   RESOLVE(fnMetadataAsValue, "LLVMMetadataAsValue");
   RESOLVE(fnSetSubprogram, "LLVMSetSubprogram");
   RESOLVE(fnDIBuilderCreateBasicType, "LLVMDIBuilderCreateBasicType");
+  RESOLVE(fnDIBuilderCreatePointerType, "LLVMDIBuilderCreatePointerType");
+  RESOLVE(fnDIBuilderCreateStructType, "LLVMDIBuilderCreateStructType");
+  RESOLVE(fnDIBuilderCreateUnionType, "LLVMDIBuilderCreateUnionType");
+  RESOLVE(fnDIBuilderCreateArrayType, "LLVMDIBuilderCreateArrayType");
+  RESOLVE(fnDIBuilderCreateMemberType, "LLVMDIBuilderCreateMemberType");
+  RESOLVE(fnDIBuilderGetOrCreateSubrange, "LLVMDIBuilderGetOrCreateSubrange");
+  RESOLVE(fnDIBuilderCreateReplaceableCompositeType,
+          "LLVMDIBuilderCreateReplaceableCompositeType");
+  RESOLVE(fnMetadataReplaceAllUsesWith, "LLVMMetadataReplaceAllUsesWith");
   RESOLVE(fnDIBuilderCreateAutoVariable, "LLVMDIBuilderCreateAutoVariable");
+  RESOLVE(fnDIBuilderCreateParameterVariable,
+          "LLVMDIBuilderCreateParameterVariable");
   RESOLVE(fnDIBuilderCreateExpression, "LLVMDIBuilderCreateExpression");
   RESOLVE(fnDIBuilderInsertDeclareAtEnd, "LLVMDIBuilderInsertDeclareAtEnd");
   RESOLVE(fnDIBuilderInsertDbgValueAtEnd, "LLVMDIBuilderInsertDbgValueAtEnd");
@@ -485,6 +497,10 @@ LLVMValueRef LLVM70IRBuilder::buildArrayAlloca(LLVMTypeRef ty,
 LLVMValueRef LLVM70IRBuilder::buildLoad(LLVMValueRef ptr, const char *n) {
   return fnBuildLoad(builder, ptr, n);
 }
+void LLVM70IRBuilder::setVolatile(LLVMValueRef memAccessInst,
+                                  bool isVolatile) {
+  fnSetVolatile(memAccessInst, isVolatile ? 1 : 0);
+}
 LLVMValueRef LLVM70IRBuilder::buildStore(LLVMValueRef val, LLVMValueRef ptr) {
   return fnBuildStore(builder, val, ptr);
 }
@@ -667,12 +683,13 @@ LLVMMetadataRef LLVM70IRBuilder::createDIFile(const char *filename,
 }
 LLVMMetadataRef LLVM70IRBuilder::createDICompileUnit(LLVMMetadataRef file,
                                                      bool fullDebug) {
-  // DebugDirectivesOnly (3) emits .file/.loc without .target ..., debug
+  // LLVM 7 accepts DebugDirectivesOnly (3), but its IR printer leaves the
+  // emission-kind name empty.
   auto emissionKind = fullDebug ? LLVMDWARFEmissionFull
                                 : static_cast<LLVMDWARFEmissionKind>(3);
   return fnDIBuilderCreateCompileUnit(
       diBuilder, LLVMDWARFSourceLanguageC, file,
-      "llvm70", 5, /*isOptimized=*/false, /*Flags=*/"", 0,
+      "llvm70", 6, /*isOptimized=*/false, /*Flags=*/"", 0,
       /*RuntimeVer=*/0, /*SplitName=*/"", 0,
       emissionKind, /*DWOId=*/0,
       /*SplitDebugInlining=*/false, /*DebugInfoForProfiling=*/false);
@@ -716,6 +733,62 @@ LLVMMetadataRef LLVM70IRBuilder::createDIBasicType(const char *name,
                                                    LLVMDWARFTypeEncoding enc) {
   return fnDIBuilderCreateBasicType(diBuilder, name, nameLen, sizeInBits, enc);
 }
+LLVMMetadataRef LLVM70IRBuilder::createDIPointerType(
+    LLVMMetadataRef pointeeTy, uint64_t sizeInBits, uint32_t alignInBits,
+    unsigned addressSpace, const char *name, size_t nameLen) {
+  return fnDIBuilderCreatePointerType(diBuilder, pointeeTy, sizeInBits,
+                                      alignInBits, addressSpace, name, nameLen);
+}
+LLVMMetadataRef LLVM70IRBuilder::createDIStructType(
+    LLVMMetadataRef scope, const char *name, size_t nameLen,
+    LLVMMetadataRef file, unsigned lineNo, uint64_t sizeInBits,
+    uint32_t alignInBits, LLVMMetadataRef *elements, unsigned numElements) {
+  return fnDIBuilderCreateStructType(
+      diBuilder, scope, name, nameLen, file, lineNo, sizeInBits, alignInBits,
+      LLVMDIFlagZero, /*DerivedFrom=*/nullptr, elements, numElements,
+      /*RunTimeLang=*/0, /*VTableHolder=*/nullptr, /*UniqueId=*/"", 0);
+}
+LLVMMetadataRef LLVM70IRBuilder::createDIUnionType(
+    LLVMMetadataRef scope, const char *name, size_t nameLen,
+    LLVMMetadataRef file, unsigned lineNo, uint64_t sizeInBits,
+    uint32_t alignInBits, LLVMMetadataRef *elements, unsigned numElements) {
+  return fnDIBuilderCreateUnionType(
+      diBuilder, scope, name, nameLen, file, lineNo, sizeInBits, alignInBits,
+      LLVMDIFlagZero, elements, numElements, /*RunTimeLang=*/0,
+      /*UniqueId=*/"", 0);
+}
+LLVMMetadataRef LLVM70IRBuilder::createDIArrayType(uint64_t sizeInBits,
+                                                   uint32_t alignInBits,
+                                                   LLVMMetadataRef elementTy,
+                                                   LLVMMetadataRef *subscripts,
+                                                   unsigned numSubscripts) {
+  return fnDIBuilderCreateArrayType(diBuilder, sizeInBits, alignInBits,
+                                    elementTy, subscripts, numSubscripts);
+}
+LLVMMetadataRef LLVM70IRBuilder::createDIMemberType(
+    LLVMMetadataRef scope, const char *name, size_t nameLen,
+    LLVMMetadataRef file, unsigned lineNo, uint64_t sizeInBits,
+    uint32_t alignInBits, uint64_t offsetInBits, LLVMMetadataRef type) {
+  return fnDIBuilderCreateMemberType(diBuilder, scope, name, nameLen, file,
+                                     lineNo, sizeInBits, alignInBits,
+                                     offsetInBits, LLVMDIFlagZero, type);
+}
+LLVMMetadataRef LLVM70IRBuilder::createDISubrange(int64_t lowerBound,
+                                                  int64_t count) {
+  return fnDIBuilderGetOrCreateSubrange(diBuilder, lowerBound, count);
+}
+LLVMMetadataRef LLVM70IRBuilder::createDIForwardDecl(
+    unsigned tag, const char *name, size_t nameLen, LLVMMetadataRef scope,
+    LLVMMetadataRef file, unsigned lineNo, uint64_t sizeInBits,
+    uint32_t alignInBits) {
+  return fnDIBuilderCreateReplaceableCompositeType(
+      diBuilder, tag, name, nameLen, scope, file, lineNo, /*RuntimeLang=*/0,
+      sizeInBits, alignInBits, LLVMDIFlagFwdDecl, /*UniqueIdentifier=*/"", 0);
+}
+void LLVM70IRBuilder::replaceMetadataAllUsesWith(LLVMMetadataRef temp,
+                                                 LLVMMetadataRef replacement) {
+  fnMetadataReplaceAllUsesWith(temp, replacement);
+}
 LLVMMetadataRef LLVM70IRBuilder::createDIAutoVariable(
     LLVMMetadataRef scope, const char *name, size_t nameLen,
     LLVMMetadataRef file, unsigned lineNo, LLVMMetadataRef type,
@@ -723,6 +796,13 @@ LLVMMetadataRef LLVM70IRBuilder::createDIAutoVariable(
   return fnDIBuilderCreateAutoVariable(diBuilder, scope, name, nameLen, file,
                                        lineNo, type, /*AlwaysPreserve=*/false,
                                        LLVMDIFlagZero, alignInBits);
+}
+LLVMMetadataRef LLVM70IRBuilder::createDIParameterVariable(
+    LLVMMetadataRef scope, const char *name, size_t nameLen, unsigned argNo,
+    LLVMMetadataRef file, unsigned lineNo, LLVMMetadataRef type) {
+  return fnDIBuilderCreateParameterVariable(
+      diBuilder, scope, name, nameLen, argNo, file, lineNo, type,
+      /*AlwaysPreserve=*/false, LLVMDIFlagZero);
 }
 LLVMMetadataRef LLVM70IRBuilder::createDIExpression(int64_t *ops, size_t count) {
   return fnDIBuilderCreateExpression(diBuilder, ops, count);

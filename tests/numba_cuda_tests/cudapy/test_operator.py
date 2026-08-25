@@ -110,6 +110,18 @@ def simple_int_add_literal(ary, a):
     ary[0] = a + 2
 
 
+def simple_literal_mul_int(ary, a):
+    ary[0] = 2 * a
+
+
+def simple_literal_sub_int(ary, a):
+    ary[0] = 2 - a
+
+
+def simple_literal_add_int(ary, a):
+    ary[0] = 2 + a
+
+
 @cuda.jit("b1(f2, f2)", device=True)
 def hlt_func_1(x, y):
     return x < y
@@ -382,6 +394,24 @@ class TestOperatorModule:
             (simple_int_mul_literal, np.int64(-3), np.int64(-6)),
             (simple_int_sub_literal, np.int64(-(2**62)), np.int64(-(2**62) - 2)),
             (simple_int_add_literal, np.int32(-3), np.int32(-1)),
+            # The same promotion has to hold with the literal on the left. It
+            # reaches the operator with the operands in the opposite order, and
+            # subtraction is not commutative, so these are distinct results.
+            (simple_literal_mul_int, np.uint64(5), np.uint64(10)),
+            (simple_literal_mul_int, np.uint64(2**63), np.uint64(0)),
+            (simple_literal_mul_int, np.uint64(2**64 - 1), np.uint64(2**64 - 2)),
+            (simple_literal_mul_int, np.uint64(2**53 + 1), np.uint64(2**54 + 2)),
+            (simple_literal_sub_int, np.uint64(2**63), np.uint64(2**63 + 2)),
+            (simple_literal_sub_int, np.uint64(2**64 - 1), np.uint64(3)),
+            (simple_literal_sub_int, np.uint64(2**53 + 1), np.uint64(2**64 - 2**53 + 1)),
+            (simple_literal_add_int, np.uint64(2**63), np.uint64(2**63 + 2)),
+            (simple_literal_add_int, np.uint64(2**64 - 1), np.uint64(1)),
+            (simple_literal_mul_int, np.uint32(2**31), np.uint32(0)),
+            (simple_literal_mul_int, np.uint8(200), np.uint8(144)),
+            (simple_literal_sub_int, np.uint8(200), np.uint8(58)),
+            (simple_literal_mul_int, np.int64(-3), np.int64(-6)),
+            (simple_literal_sub_int, np.int64(-(2**62)), np.int64(2**62 + 2)),
+            (simple_literal_add_int, np.int32(-3), np.int32(-1)),
         )
 
         for func, arg, expected in cases:

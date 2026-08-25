@@ -28,17 +28,17 @@
   </noscript>
   
   <!-- Loaded before other Sphinx assets -->
-  <link href="../_static/styles/theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
-<link href="../_static/styles/pydata-sphinx-theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
+  <link href="../_static/styles/theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
 
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/nvidia-sphinx-theme.css?v=933278ad" />
   
   <!-- So that users can add custom icons -->
-  <script defer src="../_static/scripts/fontawesome.js?digest=90905a2f556bf617f1a9"></script>
+  <script defer src="../_static/scripts/fontawesome.js?digest=cb8930eaaf36d9849b67"></script>
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9" />
-<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9" />
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67" />
 
 
 
@@ -47,7 +47,7 @@
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'user/debugging';</script>
     <script>
-        DOCUMENTATION_OPTIONS.theme_version = '0.20.0';
+        DOCUMENTATION_OPTIONS.theme_version = '0.21.0';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://nvidia.github.io/numba-cuda-mlir/versions.json';
         DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'latest';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
@@ -643,22 +643,22 @@ Copyright (C) 2023 Free Software Foundation, Inc.
 License GPLv3+: GNU GPL version 3 or later &lt;http://gnu.org/licenses/gpl.html&gt;
 This is free software: you are free to change and redistribute it.
 There is NO WARRANTY, to the extent permitted by law.
-Type &quot;show copying&quot; and &quot;show warranty&quot; for details.
-This CUDA-GDB was configured as &quot;x86_64-pc-linux-gnu&quot;.
-Type &quot;show configuration&quot; for configuration details.
+Type "show copying" and "show warranty" for details.
+This CUDA-GDB was configured as "x86_64-pc-linux-gnu".
+Type "show configuration" for configuration details.
 For bug reporting instructions, please see:
 &lt;https://forums.developer.nvidia.com/c/developer-tools/cuda-developer-tools/cuda-gdb&gt;.
 Find the CUDA-GDB manual and other documentation resources online at:
     &lt;https://docs.nvidia.com/cuda/cuda-gdb/index.html&gt;.
 
-For help, type &quot;help&quot;.
-Type &quot;apropos word&quot; to search for commands related to &quot;word&quot;...
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
 Reading symbols from python3...
 (cuda-gdb) set cuda break_on_launch application
 (cuda-gdb) run hello.py
 Starting program: /home/mmason/anaconda3/envs/Numba-GA-python3.12/bin/python3 hello.py
 [Thread debugging using libthread_db enabled]
-Using host libthread_db library &quot;/lib/x86_64-linux-gnu/libthread_db.so.1&quot;.
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
 [Detaching after fork from child process 1994689]
 [Detaching after fork from child process 1994698]
 input: [0 1 2 3 4 5 6 7]
@@ -713,7 +713,7 @@ output[ 5 ] = 2
 output[ 6 ] = 1
 output[ 7 ] = 0
 
-Thread 1 &quot;python3&quot; received signal SIGTRAP, Trace/breakpoint trap.
+Thread 1 "python3" received signal SIGTRAP, Trace/breakpoint trap.
 hello&lt;&lt;&lt;(1,1,1),(8,1,1)&gt;&gt;&gt; (input=..., output=...) at hello.py:50
 50    shared_array[gid] = - input[size - gid - 1]
 (cuda-gdb) list
@@ -732,7 +732,7 @@ hello&lt;&lt;&lt;(1,1,1),(8,1,1)&gt;&gt;&gt; (input=..., output=...) at hello.py
 <p>Printing array variables without the pretty printer extension loaded will result in a display of the underlying implementation details.
 With the pretty printer extension loaded, the array variables will be displayed in a more human readable format. To load the pretty printer,
 use the cuda-gdb <code class="docutils literal notranslate"><span class="pre">python</span></code> command to import the <code class="docutils literal notranslate"><span class="pre">gdb_print_extension.py</span></code> file. This assumes that the <code class="docutils literal notranslate"><span class="pre">gdb_print_extension.py</span></code> file is in your PYTHONPATH.</p>
-<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>Thread 1 &quot;python3&quot; received signal SIGTRAP, Trace/breakpoint trap.
+<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>Thread 1 "python3" received signal SIGTRAP, Trace/breakpoint trap.
 [Switching focus to CUDA kernel 0, grid 1, block (0,0,0), thread (0,0,0), device 0, sm 0, warp 0, lane 0]
 hello&lt;&lt;&lt;(1,1,1),(8,1,1)&gt;&gt;&gt; (input=..., output=...) at hello.py:50
 50    shared_array[gid] = - input[size - gid - 1]
@@ -778,10 +778,10 @@ type = @local struct variant_wrapper_struct {
 <p>CUDA GDB supports extensions to the debugger written in Python. The Numba CUDA cuda-gdb pretty printer is such an extension. This is used to provide a more readable representation of Numba CUDA arrays in the debugger.</p>
 <p>The Numba CUDA pretty printer extension is located in the <code class="docutils literal notranslate"><span class="pre">numba-cuda/misc/gdb_print_extension.py</span></code> file. This extension is loaded automatically by the <code class="docutils literal notranslate"><span class="pre">launch.json</span></code> file at the beginning of the debugging session. The <code class="docutils literal notranslate"><span class="pre">launch.json</span></code> example below assumes that you’ve opened the <code class="docutils literal notranslate"><span class="pre">debugging.code-workspace</span></code> workspace file in the <code class="docutils literal notranslate"><span class="pre">numba-cuda/examples/debugging</span></code> directory (due to the use of <code class="docutils literal notranslate"><span class="pre">..</span></code>). If the path to the <code class="docutils literal notranslate"><span class="pre">gdb_print_extension.py</span></code> file is not correct, simply edit the path to the <code class="docutils literal notranslate"><span class="pre">misc/</span></code> directory below.</p>
 <div class="highlight-json-object notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;environment&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="nt">"environment"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">        </span><span class="p">{</span>
-<span class="w">            </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;PYTHONPATH&quot;</span><span class="p">,</span>
-<span class="w">            </span><span class="nt">&quot;value&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;${workspaceFolder}/../../misc:${env:PYTHONPATH}&quot;</span>
+<span class="w">            </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"PYTHONPATH"</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">"value"</span><span class="p">:</span><span class="w"> </span><span class="s2">"${workspaceFolder}/../../misc:${env:PYTHONPATH}"</span>
 <span class="w">        </span><span class="p">}</span>
 <span class="w">    </span><span class="p">]</span>
 <span class="p">}</span>
@@ -795,11 +795,11 @@ type = @local struct variant_wrapper_struct {
 <p>These can both use the same Python environment, but that is not required. If the <code class="docutils literal notranslate"><span class="pre">numpy</span></code> package cannot be found in cuda-gdb’s execution environment, the pretty printer will be limited in what details it can provide about the array variables.</p>
 <p>Automatic loading of the pretty printer extension is done by the following in the <code class="docutils literal notranslate"><span class="pre">launch.json</span></code> file. This command is executed before <code class="docutils literal notranslate"><span class="pre">CUDA</span> <span class="pre">GDB</span></code> is started. Failure to find the extension is ignored in case <code class="docutils literal notranslate"><span class="pre">PYTHONPATH</span></code> is not set correctly.</p>
 <div class="highlight-json-object notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;setupCommands&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="nt">"setupCommands"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">        </span><span class="p">{</span>
-<span class="w">            </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Load the Numba CUDA cuda-gdb pretty-printer extension&quot;</span><span class="p">,</span>
-<span class="w">            </span><span class="nt">&quot;text&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;python import gdb_print_extension&quot;</span><span class="p">,</span>
-<span class="w">            </span><span class="nt">&quot;ignoreFailures&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+<span class="w">            </span><span class="nt">"description"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Load the Numba CUDA cuda-gdb pretty-printer extension"</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">"text"</span><span class="p">:</span><span class="w"> </span><span class="s2">"python import gdb_print_extension"</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">"ignoreFailures"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
 <span class="w">        </span><span class="p">}</span>
 <span class="w">    </span><span class="p">]</span>
 <span class="p">}</span>
@@ -893,8 +893,8 @@ type = @local struct variant_wrapper_struct {
   
 
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script defer src="../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9"></script>
-<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9"></script>
+  <script defer src="../_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67"></script>
 
 
   <footer class="bd-footer">

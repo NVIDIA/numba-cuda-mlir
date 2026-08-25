@@ -28,17 +28,17 @@
   </noscript>
   
   <!-- Loaded before other Sphinx assets -->
-  <link href="../_static/styles/theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
-<link href="../_static/styles/pydata-sphinx-theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
+  <link href="../_static/styles/theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
 
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/nvidia-sphinx-theme.css?v=933278ad" />
   
   <!-- So that users can add custom icons -->
-  <script defer src="../_static/scripts/fontawesome.js?digest=90905a2f556bf617f1a9"></script>
+  <script defer src="../_static/scripts/fontawesome.js?digest=cb8930eaaf36d9849b67"></script>
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9" />
-<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9" />
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67" />
 
 
 
@@ -47,7 +47,7 @@
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'user/globals';</script>
     <script>
-        DOCUMENTATION_OPTIONS.theme_version = '0.20.0';
+        DOCUMENTATION_OPTIONS.theme_version = '0.21.0';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://nvidia.github.io/numba-cuda-mlir/versions.json';
         DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'latest';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
@@ -520,7 +520,7 @@ have no effect</strong>—the second kernel call still uses the original values:
 <span class="linenos">15</span>
 <span class="linenos">16</span><span class="c1"># First kernel call - compiles and captures values</span>
 <span class="linenos">17</span><span class="n">compute_totals</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">32</span><span class="p">](</span><span class="n">d_quantities</span><span class="p">,</span> <span class="n">d_totals</span><span class="p">)</span>
-<span class="linenos">18</span><span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Value of d_totals:&quot;</span><span class="p">,</span> <span class="n">d_totals</span><span class="o">.</span><span class="n">copy_to_host</span><span class="p">())</span>
+<span class="linenos">18</span><span class="nb">print</span><span class="p">(</span><span class="s2">"Value of d_totals:"</span><span class="p">,</span> <span class="n">d_totals</span><span class="o">.</span><span class="n">copy_to_host</span><span class="p">())</span>
 <span class="linenos">19</span>
 <span class="linenos">20</span><span class="c1"># These modifications have no effect on subsequent kernel calls</span>
 <span class="linenos">21</span><span class="n">TAX_RATE</span> <span class="o">=</span> <span class="mf">0.10</span>  <span class="c1"># noqa: F841</span>
@@ -528,7 +528,7 @@ have no effect</strong>—the second kernel call still uses the original values:
 <span class="linenos">23</span>
 <span class="linenos">24</span><span class="c1"># Second kernel call still uses the original values</span>
 <span class="linenos">25</span><span class="n">compute_totals</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">32</span><span class="p">](</span><span class="n">d_quantities</span><span class="p">,</span> <span class="n">d_totals</span><span class="p">)</span>
-<span class="linenos">26</span><span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Value of d_totals:&quot;</span><span class="p">,</span> <span class="n">d_totals</span><span class="o">.</span><span class="n">copy_to_host</span><span class="p">())</span>
+<span class="linenos">26</span><span class="nb">print</span><span class="p">(</span><span class="s2">"Value of d_totals:"</span><span class="p">,</span> <span class="n">d_totals</span><span class="o">.</span><span class="n">copy_to_host</span><span class="p">())</span>
 </pre></div>
 </div>
 </div>
@@ -664,8 +664,8 @@ between kernel calls without recompilation.</p>
   
 
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script defer src="../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9"></script>
-<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9"></script>
+  <script defer src="../_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67"></script>
 
 
   <footer class="bd-footer">

@@ -28,17 +28,17 @@
   </noscript>
   
   <!-- Loaded before other Sphinx assets -->
-  <link href="../_static/styles/theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
-<link href="../_static/styles/pydata-sphinx-theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
+  <link href="../_static/styles/theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
 
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/nvidia-sphinx-theme.css?v=933278ad" />
   
   <!-- So that users can add custom icons -->
-  <script defer src="../_static/scripts/fontawesome.js?digest=90905a2f556bf617f1a9"></script>
+  <script defer src="../_static/scripts/fontawesome.js?digest=cb8930eaaf36d9849b67"></script>
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9" />
-<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9" />
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67" />
 
 
 
@@ -47,7 +47,7 @@
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'extending/high-level';</script>
     <script>
-        DOCUMENTATION_OPTIONS.theme_version = '0.20.0';
+        DOCUMENTATION_OPTIONS.theme_version = '0.21.0';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://nvidia.github.io/numba-cuda-mlir/versions.json';
         DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'latest';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
@@ -560,7 +560,7 @@ Numba-CUDA-MLIR:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span><span class="p">,</span> <span class="n">extending</span><span class="p">,</span> <span class="n">types</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
-<span class="nd">@extending</span><span class="o">.</span><span class="n">overload_method</span><span class="p">(</span><span class="n">types</span><span class="o">.</span><span class="n">Array</span><span class="p">,</span> <span class="s2">&quot;doubled_first&quot;</span><span class="p">)</span>
+<span class="nd">@extending</span><span class="o">.</span><span class="n">overload_method</span><span class="p">(</span><span class="n">types</span><span class="o">.</span><span class="n">Array</span><span class="p">,</span> <span class="s2">"doubled_first"</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">array_doubled_first</span><span class="p">(</span><span class="n">arr</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">impl</span><span class="p">(</span><span class="n">arr</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">arr</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="mi">2</span>
@@ -573,7 +573,7 @@ Numba-CUDA-MLIR:</p>
 </div>
 <p>The first argument of the implementation function is the <code class="docutils literal notranslate"><span class="pre">self</span></code> object; any
 additional parameters become method arguments:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@extending</span><span class="o">.</span><span class="n">overload_method</span><span class="p">(</span><span class="n">types</span><span class="o">.</span><span class="n">Array</span><span class="p">,</span> <span class="s2">&quot;elem_plus&quot;</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@extending</span><span class="o">.</span><span class="n">overload_method</span><span class="p">(</span><span class="n">types</span><span class="o">.</span><span class="n">Array</span><span class="p">,</span> <span class="s2">"elem_plus"</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">array_elem_plus</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">idx</span><span class="p">,</span> <span class="n">val</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">impl</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">idx</span><span class="p">,</span> <span class="n">val</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">arr</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">+</span> <span class="n">val</span>
@@ -587,7 +587,7 @@ additional parameters become method arguments:</p>
 implementation function for a read-only attribute on types supported by
 Numba-CUDA-MLIR. The implementation function takes the type of the <code class="docutils literal notranslate"><span class="pre">self</span></code>
 object and must return a function that computes the attribute value:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@extending</span><span class="o">.</span><span class="n">overload_attribute</span><span class="p">(</span><span class="n">types</span><span class="o">.</span><span class="n">Array</span><span class="p">,</span> <span class="s2">&quot;doubled_size&quot;</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@extending</span><span class="o">.</span><span class="n">overload_attribute</span><span class="p">(</span><span class="n">types</span><span class="o">.</span><span class="n">Array</span><span class="p">,</span> <span class="s2">"doubled_size"</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">array_doubled_size</span><span class="p">(</span><span class="n">arr</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="n">arr</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">arr</span><span class="o">.</span><span class="n">size</span> <span class="o">*</span> <span class="mi">2</span>
@@ -611,7 +611,7 @@ write a full overload:</p>
 <span class="k">def</span><span class="w"> </span><span class="nf">kernel</span><span class="p">(</span><span class="n">arr</span><span class="p">):</span>
     <span class="n">arr</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">triple</span><span class="p">(</span><span class="n">arr</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
 
-<span class="c1"># Also works; prints &quot;6&quot;</span>
+<span class="c1"># Also works; prints "6"</span>
 <span class="nb">print</span><span class="p">(</span><span class="n">triple</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
 </pre></div>
 </div>
@@ -644,7 +644,7 @@ responsible for emitting MLIR for the call.</p></li>
 <span class="k">def</span><span class="w"> </span><span class="nf">do_nothing</span><span class="p">(</span><span class="n">typingctx</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">codegen</span><span class="p">(</span><span class="n">builder</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
         <span class="n">true</span> <span class="o">=</span> <span class="n">arith</span><span class="o">.</span><span class="n">constant</span><span class="p">(</span><span class="n">result</span><span class="o">=</span><span class="n">T</span><span class="o">.</span><span class="n">bool</span><span class="p">(),</span> <span class="n">value</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-        <span class="n">cf</span><span class="o">.</span><span class="n">assert_</span><span class="p">(</span><span class="n">true</span><span class="p">,</span> <span class="s2">&quot;This should not be executed&quot;</span><span class="p">)</span>
+        <span class="n">cf</span><span class="o">.</span><span class="n">assert_</span><span class="p">(</span><span class="n">true</span><span class="p">,</span> <span class="s2">"This should not be executed"</span><span class="p">)</span>
         <span class="n">builder</span><span class="o">.</span><span class="n">store_var</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="n">builder</span><span class="o">.</span><span class="n">load_var</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
 
     <span class="k">return</span> <span class="n">x</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">codegen</span>
@@ -668,7 +668,7 @@ constructors of custom types:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir</span><span class="w"> </span><span class="kn">import</span> <span class="n">extending</span><span class="p">,</span> <span class="n">types</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">make_boxed_int</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
-    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;only callable inside a kernel&quot;</span><span class="p">)</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">"only callable inside a kernel"</span><span class="p">)</span>
 
 <span class="nd">@extending</span><span class="o">.</span><span class="n">type_callable</span><span class="p">(</span><span class="n">make_boxed_int</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_type_make_boxed_int</span><span class="p">(</span><span class="n">context</span><span class="p">):</span>
@@ -870,8 +870,8 @@ implementation.</p>
   
 
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script defer src="../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9"></script>
-<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9"></script>
+  <script defer src="../_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67"></script>
 
 
   <footer class="bd-footer">

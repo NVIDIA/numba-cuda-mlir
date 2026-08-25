@@ -28,17 +28,17 @@
   </noscript>
   
   <!-- Loaded before other Sphinx assets -->
-  <link href="../_static/styles/theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
-<link href="../_static/styles/pydata-sphinx-theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
+  <link href="../_static/styles/theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
 
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/nvidia-sphinx-theme.css?v=933278ad" />
   
   <!-- So that users can add custom icons -->
-  <script defer src="../_static/scripts/fontawesome.js?digest=90905a2f556bf617f1a9"></script>
+  <script defer src="../_static/scripts/fontawesome.js?digest=cb8930eaaf36d9849b67"></script>
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9" />
-<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9" />
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67" />
 
 
 
@@ -47,7 +47,7 @@
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'user/examples';</script>
     <script>
-        DOCUMENTATION_OPTIONS.theme_version = '0.20.0';
+        DOCUMENTATION_OPTIONS.theme_version = '0.21.0';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://nvidia.github.io/numba-cuda-mlir/versions.json';
         DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'latest';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
@@ -602,7 +602,7 @@ object, and the value of the element represents the temperature.</p>
 <div class="literal-block-wrapper docutils container" id="id7">
 <div class="code-block-caption"><span class="caption-text">from <code class="docutils literal notranslate"><span class="pre">test_ex_laplace</span></code> in <code class="docutils literal notranslate"><span class="pre">tests/doc_examples/test_laplace.py</span></code></span><a class="headerlink" href="#id7" title="Link to this code">#</a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos"> 1</span><span class="c1"># Use an odd problem size.</span>
-<span class="linenos"> 2</span><span class="c1"># This is so there can be an element truly in the &quot;middle&quot; for symmetry.</span>
+<span class="linenos"> 2</span><span class="c1"># This is so there can be an element truly in the "middle" for symmetry.</span>
 <span class="linenos"> 3</span><span class="n">size</span> <span class="o">=</span> <span class="mi">1001</span>
 <span class="linenos"> 4</span><span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">size</span><span class="p">)</span>
 <span class="linenos"> 5</span>
@@ -629,7 +629,7 @@ synchronization and the use of two buffers swapped at each iteration to avoid ra
 <span class="linenos"> 2</span><span class="k">def</span><span class="w"> </span><span class="nf">solve_heat_equation</span><span class="p">(</span><span class="n">buf_0</span><span class="p">,</span> <span class="n">buf_1</span><span class="p">,</span> <span class="n">timesteps</span><span class="p">,</span> <span class="n">k</span><span class="p">):</span>
 <span class="linenos"> 3</span>    <span class="n">i</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
 <span class="linenos"> 4</span>
-<span class="linenos"> 5</span>    <span class="c1"># Don&#39;t continue if our index is outside the domain</span>
+<span class="linenos"> 5</span>    <span class="c1"># Don't continue if our index is outside the domain</span>
 <span class="linenos"> 6</span>    <span class="k">if</span> <span class="n">i</span> <span class="o">&gt;=</span> <span class="nb">len</span><span class="p">(</span><span class="n">buf_0</span><span class="p">):</span>
 <span class="linenos"> 7</span>        <span class="k">return</span>
 <span class="linenos"> 8</span>
@@ -777,7 +777,7 @@ session. We’ll define the boundary between sessions as when there has been at 
 <span class="linenos">2</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
 <span class="linenos">3</span>
 <span class="linenos">4</span><span class="c1"># Set the timeout to one hour</span>
-<span class="linenos">5</span><span class="n">session_timeout</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">timedelta64</span><span class="p">(</span><span class="s2">&quot;3600&quot;</span><span class="p">,</span> <span class="s2">&quot;s&quot;</span><span class="p">))</span>
+<span class="linenos">5</span><span class="n">session_timeout</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">timedelta64</span><span class="p">(</span><span class="s2">"3600"</span><span class="p">,</span> <span class="s2">"s"</span><span class="p">))</span>
 </pre></div>
 </div>
 </div>
@@ -812,7 +812,7 @@ session. We’ll define the boundary between sessions as when there has been at 
 <span class="linenos">26</span>        <span class="n">grid</span><span class="o">.</span><span class="n">sync</span><span class="p">()</span>
 <span class="linenos">27</span>
 <span class="linenos">28</span>        <span class="n">look_ahead</span> <span class="o">=</span> <span class="mi">1</span>
-<span class="linenos">29</span>        <span class="c1"># Check elements &#39;forward&#39; of this one</span>
+<span class="linenos">29</span>        <span class="c1"># Check elements 'forward' of this one</span>
 <span class="linenos">30</span>        <span class="c1"># until a new session boundary is found</span>
 <span class="linenos">31</span>        <span class="k">while</span> <span class="n">results</span><span class="p">[</span><span class="n">gid</span> <span class="o">+</span> <span class="n">look_ahead</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
 <span class="linenos">32</span>            <span class="n">results</span><span class="p">[</span><span class="n">gid</span> <span class="o">+</span> <span class="n">look_ahead</span><span class="p">]</span> <span class="o">=</span> <span class="n">gid</span>
@@ -895,8 +895,8 @@ session. We’ll define the boundary between sessions as when there has been at 
 <span class="linenos">65</span>            <span class="mi">25002</span><span class="p">,</span>
 <span class="linenos">66</span>            <span class="mi">25003</span><span class="p">,</span>
 <span class="linenos">67</span>        <span class="p">],</span>
-<span class="linenos">68</span>        <span class="n">dtype</span><span class="o">=</span><span class="s2">&quot;datetime64[ns]&quot;</span><span class="p">,</span>
-<span class="linenos">69</span>    <span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">&quot;int64&quot;</span><span class="p">)</span>  <span class="c1"># Cast to int64 for compatibility</span>
+<span class="linenos">68</span>        <span class="n">dtype</span><span class="o">=</span><span class="s2">"datetime64[ns]"</span><span class="p">,</span>
+<span class="linenos">69</span>    <span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"int64"</span><span class="p">)</span>  <span class="c1"># Cast to int64 for compatibility</span>
 <span class="linenos">70</span><span class="p">)</span>
 <span class="linenos">71</span><span class="c1"># Create a vector to hold the results</span>
 <span class="linenos">72</span><span class="n">results</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">ids</span><span class="p">)))</span>
@@ -997,10 +997,10 @@ by its function values.</p>
 <div class="code-block-caption"><span class="caption-text">from <code class="docutils literal notranslate"><span class="pre">test_ex_montecarlo</span></code> in <code class="docutils literal notranslate"><span class="pre">tests/doc_examples/test_montecarlo.py</span></code></span><a class="headerlink" href="#id24" title="Link to this code">#</a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos"> 1</span><span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span>
 <span class="linenos"> 2</span><span class="k">def</span><span class="w"> </span><span class="nf">mc_integrator_kernel</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">rng_states</span><span class="p">,</span> <span class="n">lower_lim</span><span class="p">,</span> <span class="n">upper_lim</span><span class="p">):</span>
-<span class="linenos"> 3</span><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="linenos"> 3</span><span class="w">    </span><span class="sd">"""</span>
 <span class="linenos"> 4</span><span class="sd">    kernel to draw random samples and evaluate the function to</span>
 <span class="linenos"> 5</span><span class="sd">    be integrated at those sample values</span>
-<span class="linenos"> 6</span><span class="sd">    &quot;&quot;&quot;</span>
+<span class="linenos"> 6</span><span class="sd">    """</span>
 <span class="linenos"> 7</span>    <span class="n">size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>
 <span class="linenos"> 8</span>
 <span class="linenos"> 9</span>    <span class="n">gid</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
@@ -1030,11 +1030,11 @@ take sum of the array and compute the final result:</p>
 <span class="linenos"> 3</span>    <span class="k">return</span> <span class="n">a</span> <span class="o">+</span> <span class="n">b</span>
 <span class="linenos"> 4</span>
 <span class="linenos"> 5</span><span class="k">def</span><span class="w"> </span><span class="nf">mc_integrate</span><span class="p">(</span><span class="n">lower_lim</span><span class="p">,</span> <span class="n">upper_lim</span><span class="p">,</span> <span class="n">nsamps</span><span class="p">):</span>
-<span class="linenos"> 6</span><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="linenos"> 6</span><span class="w">    </span><span class="sd">"""</span>
 <span class="linenos"> 7</span><span class="sd">    approximate the definite integral of `func` from</span>
 <span class="linenos"> 8</span><span class="sd">    `lower_lim` to `upper_lim`</span>
-<span class="linenos"> 9</span><span class="sd">    &quot;&quot;&quot;</span>
-<span class="linenos">10</span>    <span class="n">out</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">nsamps</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">&quot;float32&quot;</span><span class="p">))</span>
+<span class="linenos"> 9</span><span class="sd">    """</span>
+<span class="linenos">10</span>    <span class="n">out</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">nsamps</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"float32"</span><span class="p">))</span>
 <span class="linenos">11</span>    <span class="n">rng_states</span> <span class="o">=</span> <span class="n">create_xoroshiro128p_states</span><span class="p">(</span><span class="n">nsamps</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="mi">42</span><span class="p">)</span>
 <span class="linenos">12</span>
 <span class="linenos">13</span>    <span class="c1"># jit the function for use in CUDA kernels</span>
@@ -1081,7 +1081,7 @@ two limits:</p>
 <div class="code-block-caption"><span class="caption-text">from <code class="docutils literal notranslate"><span class="pre">test_ex_matmul</span></code> in <code class="docutils literal notranslate"><span class="pre">tests/doc_examples/test_matmul.py</span></code></span><a class="headerlink" href="#id28" title="Link to this code">#</a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos"> 1</span><span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span>
 <span class="linenos"> 2</span><span class="k">def</span><span class="w"> </span><span class="nf">matmul</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">B</span><span class="p">,</span> <span class="n">C</span><span class="p">):</span>
-<span class="linenos"> 3</span><span class="w">    </span><span class="sd">&quot;&quot;&quot;Perform square matrix multiplication of C = A * B.&quot;&quot;&quot;</span>
+<span class="linenos"> 3</span><span class="w">    </span><span class="sd">"""Perform square matrix multiplication of C = A * B."""</span>
 <span class="linenos"> 4</span>    <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
 <span class="linenos"> 5</span>    <span class="k">if</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">C</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">and</span> <span class="n">j</span> <span class="o">&lt;</span> <span class="n">C</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span>
 <span class="linenos"> 6</span>        <span class="n">tmp</span> <span class="o">=</span> <span class="mf">0.0</span>
@@ -1133,11 +1133,11 @@ memory:</p>
 <span class="linenos"> 5</span>
 <span class="linenos"> 6</span><span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span>
 <span class="linenos"> 7</span><span class="k">def</span><span class="w"> </span><span class="nf">fast_matmul</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">B</span><span class="p">,</span> <span class="n">C</span><span class="p">):</span>
-<span class="linenos"> 8</span><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="linenos"> 8</span><span class="w">    </span><span class="sd">"""</span>
 <span class="linenos"> 9</span><span class="sd">    Perform matrix multiplication of C = A * B using CUDA shared memory.</span>
 <span class="linenos">10</span>
 <span class="linenos">11</span><span class="sd">    Reference: https://stackoverflow.com/a/64198479/13697228 by @RobertCrovella</span>
-<span class="linenos">12</span><span class="sd">    &quot;&quot;&quot;</span>
+<span class="linenos">12</span><span class="sd">    """</span>
 <span class="linenos">13</span>    <span class="c1"># Define an array in the shared memory</span>
 <span class="linenos">14</span>    <span class="c1"># The size and type of the arrays must be known at compile time</span>
 <span class="linenos">15</span>    <span class="n">sA</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">shared</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">TPB</span><span class="p">,</span> <span class="n">TPB</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">)</span>
@@ -1290,7 +1290,7 @@ kernel following this pattern:</p>
 <span class="linenos">15</span><span class="n">f</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">](</span><span class="n">r</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span>
 <span class="linenos">16</span>
 <span class="linenos">17</span><span class="c1"># A quick sanity check demonstrating equality of the sine computed by</span>
-<span class="linenos">18</span><span class="c1"># the sin ufunc inside the kernel, and NumPy&#39;s sin ufunc</span>
+<span class="linenos">18</span><span class="c1"># the sin ufunc inside the kernel, and NumPy's sin ufunc</span>
 <span class="linenos">19</span><span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">x</span><span class="p">))</span>
 </pre></div>
 </div>
@@ -1345,7 +1345,7 @@ another library that doesn’t support the CUDA Array Interface, or from
 <span class="linenos"> 4</span><span class="nb">print</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">copy_to_host</span><span class="p">())</span>  <span class="c1"># [0 1 2 3 4 5 6 7 8 9]</span>
 <span class="linenos"> 5</span>
 <span class="linenos"> 6</span><span class="c1"># Obtain a pointer to the data from from the CUDA Array Interface</span>
-<span class="linenos"> 7</span><span class="n">x_ptr</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">__cuda_array_interface__</span><span class="p">[</span><span class="s2">&quot;data&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+<span class="linenos"> 7</span><span class="n">x_ptr</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">__cuda_array_interface__</span><span class="p">[</span><span class="s2">"data"</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
 <span class="linenos"> 8</span><span class="n">x_len</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
 <span class="linenos"> 9</span>
 <span class="linenos">10</span><span class="c1"># Launch the kernel with the pointer and length</span>
@@ -1435,8 +1435,8 @@ another library that doesn’t support the CUDA Array Interface, or from
   
 
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script defer src="../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9"></script>
-<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9"></script>
+  <script defer src="../_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67"></script>
 
 
   <footer class="bd-footer">

@@ -82,6 +82,8 @@ public:
   LLVMValueRef constNull(LLVMTypeRef ty);
   LLVMValueRef getUndef(LLVMTypeRef ty);
   LLVMValueRef constStruct(LLVMValueRef *vals, unsigned count, bool packed);
+  LLVMValueRef constNamedStruct(LLVMTypeRef structTy, LLVMValueRef *vals,
+                                unsigned count);
   LLVMValueRef constArray(LLVMTypeRef elemTy, LLVMValueRef *vals,
                           unsigned count);
   LLVMValueRef constVector(LLVMValueRef *vals, unsigned count);
@@ -323,6 +325,8 @@ private:
   LLVM_FN(LLVMValueRef, fnGetUndef, LLVMTypeRef)
   LLVM_FN(LLVMValueRef, fnConstStruct, LLVMContextRef, LLVMValueRef *,
            unsigned, LLVMBool)
+  LLVM_FN(LLVMValueRef, fnConstNamedStruct, LLVMTypeRef, LLVMValueRef *,
+           unsigned)
   LLVM_FN(LLVMValueRef, fnConstArray, LLVMTypeRef, LLVMValueRef *, unsigned)
   LLVM_FN(LLVMValueRef, fnConstVector, LLVMValueRef *, unsigned)
   LLVM_FN(LLVMValueRef, fnConstBitCast, LLVMValueRef, LLVMTypeRef)

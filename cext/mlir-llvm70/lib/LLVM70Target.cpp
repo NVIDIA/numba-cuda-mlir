@@ -929,11 +929,17 @@ llvm::Error MLIRToLLVM70::translateConstantOp(Operation *op) {
                                        msg.c_str());
       }
     }
-    bool packed = false;
-    if (auto structTy = dyn_cast<LLVM::LLVMStructType>(result.getType()))
-      packed = structTy.isPacked();
-    mapValue(result,
-             b.constStruct(elems.data(), elems.size(), packed));
+    auto structTy = dyn_cast<LLVM::LLVMStructType>(result.getType());
+    if (structTy && structTy.isIdentified()) {
+      // A literal struct constant would not share the identified type the
+      // value flows into, so anything loading or storing it would disagree on
+      // the pointee type.
+      mapValue(result, b.constNamedStruct(convertType(structTy), elems.data(),
+                                          elems.size()));
+    } else {
+      bool packed = structTy && structTy.isPacked();
+      mapValue(result, b.constStruct(elems.data(), elems.size(), packed));
+    }
     return llvm::Error::success();
   }
 

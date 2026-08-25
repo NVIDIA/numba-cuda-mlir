@@ -106,6 +106,7 @@ llvm::Error LLVM70IRBuilder::resolveSymbols() {
   RESOLVE(fnConstNull, "LLVMConstNull");
   RESOLVE(fnGetUndef, "LLVMGetUndef");
   RESOLVE(fnConstStruct, "LLVMConstStructInContext");
+  RESOLVE(fnConstNamedStruct, "LLVMConstNamedStruct");
   RESOLVE(fnConstArray, "LLVMConstArray");
   RESOLVE(fnConstVector, "LLVMConstVector");
   RESOLVE(fnConstBitCast, "LLVMConstBitCast");
@@ -335,6 +336,10 @@ LLVMValueRef LLVM70IRBuilder::getUndef(LLVMTypeRef ty) {
 LLVMValueRef LLVM70IRBuilder::constStruct(LLVMValueRef *v, unsigned n,
                                          bool p) {
   return fnConstStruct(ctx, v, n, p);
+}
+LLVMValueRef LLVM70IRBuilder::constNamedStruct(LLVMTypeRef st, LLVMValueRef *v,
+                                               unsigned n) {
+  return fnConstNamedStruct(st, v, n);
 }
 LLVMValueRef LLVM70IRBuilder::constArray(LLVMTypeRef e, LLVMValueRef *v,
                                         unsigned n) {

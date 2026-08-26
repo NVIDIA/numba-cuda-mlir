@@ -174,10 +174,37 @@ LLVMTypeRef MLIRToLLVM70::convertType(Type ty) {
         return b.arrayTy(convertType(arrTy.getElementType()),
                          arrTy.getNumElements());
       })
-      .Case<LLVM::LLVMStructType>([&](auto structTy) {
+      .Case<LLVM::LLVMStructType>([&](auto structTy) -> LLVMTypeRef {
+        if (structTy.isIdentified()) {
+          llvm::StringRef name = structTy.getName();
+
+          auto it = namedStructCache.find(name);
+          if (it != namedStructCache.end()) {
+            return it->second;
+          }
+
+          LLVMTypeRef named = b.namedStructTy(name.str().c_str());
+          namedStructCache[name] = named;
+
+          if (!structTy.isOpaque()) {
+            llvm::SmallVector<LLVMTypeRef> elems;
+
+            for (Type e : structTy.getBody()) {
+              elems.push_back(convertType(e));
+            }
+
+            b.setStructBody(named, elems.data(), elems.size(),
+                            structTy.isPacked());
+          }
+
+          return named;
+        }
+
         llvm::SmallVector<LLVMTypeRef> elems;
+
         for (Type e : structTy.getBody())
           elems.push_back(convertType(e));
+
         return b.structTy(elems.data(), elems.size(), structTy.isPacked());
       })
       .Case<LLVM::LLVMFunctionType>([&](auto funcTy) {
@@ -906,11 +933,17 @@ llvm::Error MLIRToLLVM70::translateConstantOp(Operation *op) {
                                        msg.c_str());
       }
     }
-    bool packed = false;
-    if (auto structTy = dyn_cast<LLVM::LLVMStructType>(result.getType()))
-      packed = structTy.isPacked();
-    mapValue(result,
-             b.constStruct(elems.data(), elems.size(), packed));
+    auto structTy = dyn_cast<LLVM::LLVMStructType>(result.getType());
+    if (structTy && structTy.isIdentified()) {
+      // A literal struct constant would not share the identified type the
+      // value flows into, so anything loading or storing it would disagree on
+      // the pointee type.
+      mapValue(result, b.constNamedStruct(convertType(structTy), elems.data(),
+                                          elems.size()));
+    } else {
+      bool packed = structTy && structTy.isPacked();
+      mapValue(result, b.constStruct(elems.data(), elems.size(), packed));
+    }
     return llvm::Error::success();
   }
 

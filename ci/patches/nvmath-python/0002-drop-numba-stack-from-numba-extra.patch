@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+Drop the numba stack from the numba extra
+
+The `cuNN-dx` extras pull in `nvmath-python[numba]`, which installs numba-cuda
+(unused by the numba-cuda-mlir backend) and a released numba-cuda-mlir that
+would shadow the wheel built by this CI run. Reduce the extra to cffi, which the
+numba-cuda-mlir device modules import; everything else in it exists only to
+support numba-cuda.
+
+numba and llvmlite go too: numba ships its own `numba/cuda` shim, so leaving it
+installed would matter to nvmath's backend probe. 0001-disable-numba-cuda-backend.patch
+removes that probe, which is also what makes a numba-free environment importable
+at all.
+
+This keeps `pip install <checkout>[cuNN-dx]` as the single install command, so
+the rest of the dx dependency set stays in sync with upstream.
+
+Context is kept to one line, but the removed lines carry version specifiers, so
+this patch needs a refresh whenever upstream bumps either pin.
+Applied by ci/tools/run-nvmath-python-mlir-tests.
+
+diff --git a/pyproject.toml b/pyproject.toml
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -117,7 +117,2 @@ numba = [
+     "cffi",
+-    "llvmlite",
+-    # numba-cuda defines version restriction
+-    "numba",
+-    "numba-cuda >=0.28.1, <1",
+-    "numba-cuda-mlir >=0.4.1, <1; python_version >= '3.11'",
+ ]

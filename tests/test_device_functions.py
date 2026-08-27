@@ -61,6 +61,26 @@ def test_none_equality_in_device_func():
     assert out[0] == 10
 
 
+def test_factory_device_functions_keep_captures_separate():
+    def make_leaf(offset):
+        @cuda.jit(device=True, inline="never")
+        def leaf(value):
+            return value + offset
+
+        return leaf
+
+    first = make_leaf(3)
+    second = make_leaf(5)
+
+    @cuda.jit
+    def kernel(out):
+        out[0] = second(first(0))
+
+    out = np.zeros(1, dtype=np.int64)
+    kernel[1, 1](out)
+    assert out[0] == 8
+
+
 if __name__ == "__main__":
     test_device_functions()
     test_self_recursion()

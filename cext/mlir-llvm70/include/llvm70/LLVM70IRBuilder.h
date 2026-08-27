@@ -55,6 +55,9 @@ public:
   LLVMTypeRef ptrTy(LLVMTypeRef elemTy, unsigned addrSpace = 0);
   LLVMTypeRef arrayTy(LLVMTypeRef elemTy, unsigned count);
   LLVMTypeRef structTy(LLVMTypeRef *elems, unsigned count, bool packed);
+  LLVMTypeRef namedStructTy(const char *name);
+  void setStructBody(LLVMTypeRef structTy, LLVMTypeRef *elems, unsigned count,
+                     bool packed);
   LLVMTypeRef funcTy(LLVMTypeRef ret, LLVMTypeRef *params, unsigned count,
                      bool varArg);
   LLVMTypeRef vectorTy(LLVMTypeRef elemTy, unsigned count);
@@ -79,6 +82,8 @@ public:
   LLVMValueRef constNull(LLVMTypeRef ty);
   LLVMValueRef getUndef(LLVMTypeRef ty);
   LLVMValueRef constStruct(LLVMValueRef *vals, unsigned count, bool packed);
+  LLVMValueRef constNamedStruct(LLVMTypeRef structTy, LLVMValueRef *vals,
+                                unsigned count);
   LLVMValueRef constArray(LLVMTypeRef elemTy, LLVMValueRef *vals,
                           unsigned count);
   LLVMValueRef constVector(LLVMValueRef *vals, unsigned count);
@@ -139,6 +144,7 @@ public:
                                 unsigned numIdx, const char *name);
   LLVMValueRef buildStructGEP(LLVMValueRef ptr, unsigned idx,
                               const char *name);
+  void setVolatile(LLVMValueRef memAccessInst, bool isVolatile);
 
   // --- Atomics ---
   LLVMValueRef buildAtomicRMW(LLVMAtomicRMWBinOp op, LLVMValueRef ptr,
@@ -225,10 +231,53 @@ public:
   LLVMMetadataRef createDIBasicType(const char *name, size_t nameLen,
                                     uint64_t sizeInBits,
                                     LLVMDWARFTypeEncoding encoding);
+  LLVMMetadataRef createDIPointerType(LLVMMetadataRef pointeeTy,
+                                      uint64_t sizeInBits,
+                                      uint32_t alignInBits,
+                                      unsigned addressSpace, const char *name,
+                                      size_t nameLen);
+  LLVMMetadataRef createDIStructType(LLVMMetadataRef scope, const char *name,
+                                     size_t nameLen, LLVMMetadataRef file,
+                                     unsigned lineNo, uint64_t sizeInBits,
+                                     uint32_t alignInBits,
+                                     LLVMMetadataRef *elements,
+                                     unsigned numElements);
+  LLVMMetadataRef createDIUnionType(LLVMMetadataRef scope, const char *name,
+                                    size_t nameLen, LLVMMetadataRef file,
+                                    unsigned lineNo, uint64_t sizeInBits,
+                                    uint32_t alignInBits,
+                                    LLVMMetadataRef *elements,
+                                    unsigned numElements);
+  LLVMMetadataRef createDIArrayType(uint64_t sizeInBits, uint32_t alignInBits,
+                                    LLVMMetadataRef elementTy,
+                                    LLVMMetadataRef *subscripts,
+                                    unsigned numSubscripts);
+  LLVMMetadataRef createDIMemberType(LLVMMetadataRef scope, const char *name,
+                                     size_t nameLen, LLVMMetadataRef file,
+                                     unsigned lineNo, uint64_t sizeInBits,
+                                     uint32_t alignInBits,
+                                     uint64_t offsetInBits,
+                                     LLVMMetadataRef type);
+  LLVMMetadataRef createDISubrange(int64_t lowerBound, int64_t count);
+  /// Temporary forward declaration, used to break cycles while translating
+  /// self-referential composite types; RAUW'd once the real type exists.
+  LLVMMetadataRef createDIForwardDecl(unsigned tag, const char *name,
+                                      size_t nameLen, LLVMMetadataRef scope,
+                                      LLVMMetadataRef file, unsigned lineNo,
+                                      uint64_t sizeInBits,
+                                      uint32_t alignInBits);
+  void replaceMetadataAllUsesWith(LLVMMetadataRef temp,
+                                  LLVMMetadataRef replacement);
   LLVMMetadataRef createDIAutoVariable(LLVMMetadataRef scope, const char *name,
                                        size_t nameLen, LLVMMetadataRef file,
                                        unsigned lineNo, LLVMMetadataRef type,
                                        uint32_t alignInBits);
+  LLVMMetadataRef createDIParameterVariable(LLVMMetadataRef scope,
+                                            const char *name, size_t nameLen,
+                                            unsigned argNo,
+                                            LLVMMetadataRef file,
+                                            unsigned lineNo,
+                                            LLVMMetadataRef type);
   LLVMMetadataRef createDIExpression(int64_t *ops, size_t count);
   LLVMValueRef insertDbgDeclare(LLVMValueRef storage,
                                 LLVMMetadataRef varInfo,
@@ -286,6 +335,9 @@ private:
   LLVM_FN(LLVMTypeRef, fnArrayType, LLVMTypeRef, unsigned)
   LLVM_FN(LLVMTypeRef, fnStructType, LLVMContextRef, LLVMTypeRef *, unsigned,
            LLVMBool)
+  LLVM_FN(LLVMTypeRef, fnStructCreateNamed, LLVMContextRef, const char *)
+  LLVM_FN(void, fnStructSetBody, LLVMTypeRef, LLVMTypeRef *, unsigned,
+           LLVMBool)
   LLVM_FN(LLVMTypeRef, fnFunctionType, LLVMTypeRef, LLVMTypeRef *, unsigned,
            LLVMBool)
   LLVM_FN(LLVMTypeRef, fnVectorType, LLVMTypeRef, unsigned)
@@ -317,6 +369,8 @@ private:
   LLVM_FN(LLVMValueRef, fnGetUndef, LLVMTypeRef)
   LLVM_FN(LLVMValueRef, fnConstStruct, LLVMContextRef, LLVMValueRef *,
            unsigned, LLVMBool)
+  LLVM_FN(LLVMValueRef, fnConstNamedStruct, LLVMTypeRef, LLVMValueRef *,
+           unsigned)
   LLVM_FN(LLVMValueRef, fnConstArray, LLVMTypeRef, LLVMValueRef *, unsigned)
   LLVM_FN(LLVMValueRef, fnConstVector, LLVMValueRef *, unsigned)
   LLVM_FN(LLVMValueRef, fnConstBitCast, LLVMValueRef, LLVMTypeRef)
@@ -370,6 +424,7 @@ private:
            LLVMValueRef *, unsigned, const char *)
   LLVM_FN(LLVMValueRef, fnBuildStructGEP, LLVMBuilderRef, LLVMValueRef,
            unsigned, const char *)
+  LLVM_FN(void, fnSetVolatile, LLVMValueRef, LLVMBool)
 
   // Atomics
   LLVM_FN(LLVMValueRef, fnBuildAtomicRMW, LLVMBuilderRef, LLVMAtomicRMWBinOp,
@@ -448,9 +503,34 @@ private:
   LLVM_FN(void, fnSetSubprogram, LLVMValueRef, LLVMMetadataRef)
   LLVM_FN(LLVMMetadataRef, fnDIBuilderCreateBasicType, LLVMDIBuilderRef,
            const char *, size_t, uint64_t, LLVMDWARFTypeEncoding)
+  LLVM_FN(LLVMMetadataRef, fnDIBuilderCreatePointerType, LLVMDIBuilderRef,
+           LLVMMetadataRef, uint64_t, uint32_t, unsigned, const char *, size_t)
+  LLVM_FN(LLVMMetadataRef, fnDIBuilderCreateStructType, LLVMDIBuilderRef,
+           LLVMMetadataRef, const char *, size_t, LLVMMetadataRef, unsigned,
+           uint64_t, uint32_t, LLVMDIFlags, LLVMMetadataRef, LLVMMetadataRef *,
+           unsigned, unsigned, LLVMMetadataRef, const char *, size_t)
+  LLVM_FN(LLVMMetadataRef, fnDIBuilderCreateUnionType, LLVMDIBuilderRef,
+           LLVMMetadataRef, const char *, size_t, LLVMMetadataRef, unsigned,
+           uint64_t, uint32_t, LLVMDIFlags, LLVMMetadataRef *, unsigned,
+           unsigned, const char *, size_t)
+  LLVM_FN(LLVMMetadataRef, fnDIBuilderCreateArrayType, LLVMDIBuilderRef,
+           uint64_t, uint32_t, LLVMMetadataRef, LLVMMetadataRef *, unsigned)
+  LLVM_FN(LLVMMetadataRef, fnDIBuilderCreateMemberType, LLVMDIBuilderRef,
+           LLVMMetadataRef, const char *, size_t, LLVMMetadataRef, unsigned,
+           uint64_t, uint32_t, uint64_t, LLVMDIFlags, LLVMMetadataRef)
+  LLVM_FN(LLVMMetadataRef, fnDIBuilderGetOrCreateSubrange, LLVMDIBuilderRef,
+           int64_t, int64_t)
+  LLVM_FN(LLVMMetadataRef, fnDIBuilderCreateReplaceableCompositeType,
+           LLVMDIBuilderRef, unsigned, const char *, size_t, LLVMMetadataRef,
+           LLVMMetadataRef, unsigned, unsigned, uint64_t, uint32_t, LLVMDIFlags,
+           const char *, size_t)
+  LLVM_FN(void, fnMetadataReplaceAllUsesWith, LLVMMetadataRef, LLVMMetadataRef)
   LLVM_FN(LLVMMetadataRef, fnDIBuilderCreateAutoVariable, LLVMDIBuilderRef,
            LLVMMetadataRef, const char *, size_t, LLVMMetadataRef, unsigned,
            LLVMMetadataRef, LLVMBool, LLVMDIFlags, uint32_t)
+  LLVM_FN(LLVMMetadataRef, fnDIBuilderCreateParameterVariable, LLVMDIBuilderRef,
+           LLVMMetadataRef, const char *, size_t, unsigned, LLVMMetadataRef,
+           unsigned, LLVMMetadataRef, LLVMBool, LLVMDIFlags)
   LLVM_FN(LLVMMetadataRef, fnDIBuilderCreateExpression, LLVMDIBuilderRef,
            int64_t *, size_t)
   LLVM_FN(LLVMValueRef, fnDIBuilderInsertDeclareAtEnd, LLVMDIBuilderRef,

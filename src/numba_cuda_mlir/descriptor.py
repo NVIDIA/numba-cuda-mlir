@@ -1221,9 +1221,10 @@ class MLIRTargetContext(BaseContext):
 
     @override
     def refresh(self):
-        if self._registries_unchanged():
-            return
-        self.load_additional_registries()
+        with self._registry_lock:
+            if self._registries_unchanged():
+                return
+            self.load_additional_registries()
 
     def get_overload_builder(self, fn, sig):
         """Return an MLIR builder for an overloaded function, or None.
@@ -1514,18 +1515,19 @@ class MLIRTarget(TargetDescriptor):
                 self._initializing = False
 
     def refresh_registries(self, *, typing=True, target=True):
-        if self._initializing:
-            return
-        self._initializing = True
-        try:
-            if typing:
-                self.typing_context.refresh()
-                self._typingctx_initialized = True
-            if target:
-                self.target_context.refresh()
-                self._targetctx_initialized = True
-        finally:
-            self._initializing = False
+        with self._initialization_lock:
+            if self._initializing:
+                return
+            self._initializing = True
+            try:
+                if typing:
+                    self.typing_context.refresh()
+                    self._typingctx_initialized = True
+                if target:
+                    self.target_context.refresh()
+                    self._targetctx_initialized = True
+            finally:
+                self._initializing = False
 
 
 mlir_target = MLIRTarget("numba_cuda_mlir")

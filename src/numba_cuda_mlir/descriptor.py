@@ -1462,6 +1462,7 @@ class MLIRTarget(TargetDescriptor):
         self._typingctx_initialized = False
         self._targetctx_initialized = False
         self._initializing = False
+        self._initialization_lock = threading.RLock()
         super().__init__(name)
 
     @property
@@ -1480,48 +1481,50 @@ class MLIRTarget(TargetDescriptor):
     def ensure_initialized(self):
         if self._typingctx_initialized and self._targetctx_initialized:
             return
-        if self._initializing:
-            return
+        with self._initialization_lock:
+            if self._typingctx_initialized and self._targetctx_initialized:
+                return
+            if self._initializing:
+                return
 
-        self._initializing = True
-        try:
-            if not self._typingctx_initialized:
-                try:
-                    self.typing_context.refresh()
-                except Exception:
-                    self._typingctx_initialized = False
-                    raise
-                else:
-                    self._typingctx_initialized = True
+            self._initializing = True
+            try:
+                if not self._typingctx_initialized:
+                    try:
+                        self.typing_context.refresh()
+                    except Exception:
+                        self._typingctx_initialized = False
+                        raise
 
-            if not self._targetctx_initialized:
-                try:
-                    self.target_context.refresh()
-                except Exception:
-                    self._targetctx_initialized = False
-                    raise
-                else:
-                    self._targetctx_initialized = True
+                if not self._targetctx_initialized:
+                    try:
+                        self.target_context.refresh()
+                    except Exception:
+                        self._targetctx_initialized = False
+                        raise
 
-            from numba_cuda_mlir.numba_cuda.typing.templates import builtin_registry
+                from numba_cuda_mlir.numba_cuda.typing.templates import builtin_registry
 
-            self.typing_context.install_registry(builtin_registry)
-        finally:
-            self._initializing = False
+                self.typing_context.install_registry(builtin_registry)
+                self._typingctx_initialized = True
+                self._targetctx_initialized = True
+            finally:
+                self._initializing = False
 
     def refresh_registries(self, *, typing=True, target=True):
-        if self._initializing:
-            return
-        self._initializing = True
-        try:
-            if typing:
-                self.typing_context.refresh()
-                self._typingctx_initialized = True
-            if target:
-                self.target_context.refresh()
-                self._targetctx_initialized = True
-        finally:
-            self._initializing = False
+        with self._initialization_lock:
+            if self._initializing:
+                return
+            self._initializing = True
+            try:
+                if typing:
+                    self.typing_context.refresh()
+                    self._typingctx_initialized = True
+                if target:
+                    self.target_context.refresh()
+                    self._targetctx_initialized = True
+            finally:
+                self._initializing = False
 
 
 mlir_target = MLIRTarget("numba_cuda_mlir")

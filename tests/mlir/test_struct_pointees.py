@@ -15,9 +15,14 @@ import pytest
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir.numba_cuda import types as nbt
+import numba_cuda_mlir.types as nt
 
 from numba_cuda_mlir.lowering_utilities.context import get_context
+from numba_cuda_mlir.models import mlir_data_manager
+from numba_cuda_mlir.lowering_utilities.type_conversions import to_mlir_type
 from numba_cuda_mlir.struct_pointees import (
+    _is_translatable,
+    _pointee_type,
     _pointee_types,
     identified_struct_names,
     struct_pointees_attr,
@@ -62,6 +67,101 @@ def test_pointee_recovered_at_the_right_member_index(ctx):
     # Non-pointer members must not shift the rest down: an off-by-one here
     # would refine `size` instead of `data`.
     assert _pointee_types(st) == {1: T.f32(), 3: T.i8()}
+
+
+def test_bool_pointee_is_the_storage_type(ctx):
+    """`bool` is `i8` in memory, not `i1`.
+
+    Taking the value type would spell the member `i1*` where a typed producer
+    has `i8*` -- actively *creating* the mismatch this mechanism removes, since
+    the unrefined default `i8*` would already have been right.
+    """
+    st = AggregateType("P_Bool", [("flag", nbt.CPointer(nbt.boolean))])
+    assert _pointee_types(st) == {0: T.i8()}
+
+
+@pytest.mark.parametrize(
+    "dtype, expected",
+    [
+        (nbt.float16, "i16"),
+        (nt.bf16, "i16"),
+        (nt.f8E5M2, "i8"),
+        (nt.tf32, "i32"),
+        (nbt.float32, "f32"),
+        (nbt.int64, "i64"),
+    ],
+)
+def test_storage_backed_pointees(ctx, dtype, expected):
+    """Types the datamodel stores as integers must point to those integers.
+
+    `f8E5M2` and `tf32` additionally have no `MLIRToLLVM70::convertType` case,
+    so passing the value type down would abort the process, not raise.
+    """
+    st = AggregateType("P_Storage", [("p", nbt.CPointer(dtype))])
+    assert str(_pointee_types(st)[0]) == expected
+
+
+def test_aggregate_pointee_uses_the_canonical_identified_struct(ctx):
+    """A pointer to a struct must point at *the* struct, not a forked copy.
+
+    `new_identified` only fills an opaque struct of the same name; against a
+    bodied one it mints `Name.1`, a different LLVM type -- exactly the mismatch
+    this mechanism exists to remove. Materialising the struct first is what
+    building any body that mentions it does, and is the order that forks.
+    """
+    inner = AggregateType("P_Canon", [("x", nbt.int32)])
+    st = AggregateType("P_HasCanon", [("child", nbt.CPointer(inner))])
+
+    assert str(to_mlir_type(inner)) == '!llvm.struct<"P_Canon", (i32)>'
+    assert str(_pointee_types(st)[0]) == '!llvm.struct<"P_Canon", (i32)>'
+
+
+@pytest.mark.parametrize("materialise_first", [False, True], ids=["model-first", "type-first"])
+def test_datamodel_and_to_mlir_type_agree_on_the_struct(ctx, materialise_first):
+    """`AggregateTypeModel` must resolve an existing struct, not fork `Name.1`.
+
+    The two paths that build an identified struct used to differ:
+    `to_mlir_type` resolves then creates, the datamodel created unconditionally.
+    Whichever ran second forked the type, silently producing two LLVM structs
+    for one Numba type.
+    """
+    name = "P_Agree_" + ("type" if materialise_first else "model")
+    fe = AggregateType(name, [("x", nbt.int32)])
+    if materialise_first:
+        to_mlir_type(fe)
+
+    be = mlir_data_manager.lookup(fe).get_value_type()
+    assert be.name == name, f"datamodel forked the struct: {be.name}"
+    assert be == to_mlir_type(fe)
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [nbt.void, nbt.Array(nbt.float32, 1, "C")],
+    ids=["void", "array"],
+)
+def test_untranslatable_pointee_is_dropped(ctx, dtype):
+    """`convertType` aborts the process on these, so they must not be emitted.
+
+    `CPointer(void)` makes this reachable: its pointee converts to `none`.
+    Dropping the entry leaves the member at `i8*`, which is what translation
+    would have produced anyway.
+    """
+    st = AggregateType("P_Untranslatable", [("p", nbt.CPointer(dtype))])
+    assert _pointee_types(st) == {}
+
+
+def test_is_translatable_recurses_into_aggregates(ctx):
+    """A struct reached only as a pointee still has its body converted."""
+    assert _is_translatable(ir.Type.parse("!llvm.struct<(i32, f32)>"))
+    assert not _is_translatable(ir.Type.parse("!llvm.struct<(i32, f8E5M2)>"))
+    assert _is_translatable(ir.Type.parse("!llvm.array<4 x i32>"))
+    assert not _is_translatable(ir.Type.parse("!llvm.array<4 x f8E5M2>"))
+
+
+def test_pointee_type_returns_none_for_non_types(ctx):
+    """Tuple-valued models (UniTuple) return a tuple, not an `ir.Type`."""
+    assert _pointee_type(nbt.UniTuple(nbt.int32, 2)) is None
 
 
 def test_pointer_to_identified_struct(ctx):

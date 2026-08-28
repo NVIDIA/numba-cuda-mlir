@@ -4,9 +4,9 @@
 
 ``_impl_cache`` keys on the active ConfigStack flags, so resolving the same overloaded
 call under two flag contexts re-runs the potentially expensive overload body once per
-context.  ``_OverloadFunctionTemplate`` memoizes the overload result -- which depends
-only on the argument types, never on the flags -- to collapse those to a single
-execution.  These tests pin that down.
+context.  ``_OverloadFunctionTemplate`` memoizes the overload result -- which is assumed
+to depend only on the overload function and the argument types, never on the flags -- to
+collapse those to a single execution.  These tests pin that down.
 """
 
 import numpy as np
@@ -63,7 +63,7 @@ def test_kwargs_participate_in_key():
     assert len(calls) == 2
 
 
-def test_cache_is_per_template():
+def test_distinct_overloads_do_not_alias():
     calls_a = []
     calls_b = []
 
@@ -91,21 +91,22 @@ def test_cache_is_per_template():
     ra2 = template_a._call_overload_func((argty,), {})
     rb1 = template_b._call_overload_func((argty,), {})
 
-    # Same argument type, but each template keeps its own cache: the two distinct
-    # overloads must not alias one another.
+    # Two unrelated overloads resolved at the same argument type must not hand back one
+    # another's implementation.  ``_overload_func`` is part of the cache key, so this
+    # holds regardless of whether the two templates share a cache dict.
     assert len(calls_a) == 1
     assert len(calls_b) == 1
     assert ra1 is ra2
     assert ra1 is not rb1
 
 
-def test_subclass_does_not_inherit_parent_cache():
-    """A subclass overriding ``_overload_func`` must get its own cache.
+def test_subclass_does_not_reuse_parent_cache_entries():
+    """A subclass overriding ``_overload_func`` must not reuse the parent's results.
 
-    This is what the ``cls.__dict__`` lookup in ``_call_overload_func`` buys: a plain
-    ``getattr`` would find the parent's already-bound cache on the subclass, so the
-    child's overload body would never run and callers would silently receive the
-    *parent's* implementation.
+    ``_overload_result_cache`` is set in the generated template's class dict, so a
+    subclass shares the parent's dict object.  Including ``_overload_func`` in the key is
+    what keeps their entries apart -- without it the child's overload body would never
+    run and callers would silently receive the *parent's* implementation.
     """
     calls_parent = []
     calls_child = []

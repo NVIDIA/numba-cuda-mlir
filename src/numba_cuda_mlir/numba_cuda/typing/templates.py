@@ -939,7 +939,8 @@ def make_overload_template(
         key=func,
         _overload_func=staticmethod(overload_func),
         _impl_cache={},
-        # Like _impl_cache, this is subclass-specific. See _call_overload_func.
+        # Per-template so its entries are collected with the template class; keeping
+        # overloads apart is the cache key's job. See _call_overload_func.
         _overload_result_cache={},
         _compiled_overloads={},
         _jit_options=jit_options,

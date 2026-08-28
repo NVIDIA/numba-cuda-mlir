@@ -13,6 +13,17 @@ from numba_cuda_mlir.testing import NumbaCUDATestCase
 import os
 import io
 import contextlib
+import shutil
+
+
+def _skip_reason_if_no_cuobjdump():
+    """Return a skip reason if `cuobjdump` is unavailable, else None.
+    """
+    if os.getenv("NUMBA_CUDA_MLIR_TEST_WHEEL_ONLY") is not None:
+        return "wheel-only environment does not ship cuobjdump"
+    if shutil.which("cuobjdump") is None:
+        return "cuobjdump not found on PATH"
+    return None
 
 
 @unittest.skipIf(not _have_nvjitlink(), "nvJitLink not installed or new enough (>12.3)")
@@ -108,11 +119,9 @@ class TestLinkerDumpAssembly(NumbaCUDATestCase):
 
         for file in files:
             with self.subTest(file=file):
-                if (
-                    file in binaries.require_cuobjdump
-                    and os.getenv("NUMBA_CUDA_MLIR_TEST_WHEEL_ONLY") is not None
-                ):
-                    self.skipTest("wheel-only environments do not have cuobjdump")
+                if file in binaries.require_cuobjdump:
+                    if reason := _skip_reason_if_no_cuobjdump():
+                        self.skipTest(reason)
 
                 f = io.StringIO()
                 with contextlib.redirect_stdout(f):
@@ -142,11 +151,9 @@ class TestLinkerDumpAssembly(NumbaCUDATestCase):
 
         for file in files:
             with self.subTest(file=file):
-                if (
-                    file in binaries.require_cuobjdump
-                    and os.getenv("NUMBA_CUDA_MLIR_TEST_WHEEL_ONLY") is not None
-                ):
-                    self.skipTest("wheel-only environments do not have cuobjdump")
+                if file in binaries.require_cuobjdump:
+                    if reason := _skip_reason_if_no_cuobjdump():
+                        self.skipTest(reason)
 
                 sig = "uint32(uint32, uint32)"
                 add_from_numba = cuda.declare_device("add_from_numba", sig)

@@ -67,8 +67,6 @@ class CUDATarget:
                     except Exception:
                         self._typingctx_initialized = False
                         raise
-                    else:
-                        self._typingctx_initialized = True
                     finally:
                         self._typingctx_initializing = False
 
@@ -79,8 +77,6 @@ class CUDATarget:
                     except Exception:
                         self._targetctx_initialized = False
                         raise
-                    else:
-                        self._targetctx_initialized = True
                     finally:
                         self._targetctx_initializing = False
 
@@ -91,6 +87,8 @@ class CUDATarget:
 
                 self.typing_context.install_registry(builtin_registry)
                 apply_device_declarations(self.typing_context, self.target_context)
+                self._typingctx_initialized = True
+                self._targetctx_initialized = True
             finally:
                 self._initializing = False
 
@@ -102,16 +100,18 @@ class CUDATarget:
             try:
                 if typing:
                     self.typing_context.refresh()
-                    self._typingctx_initialized = True
                 if target:
                     self.target_context.refresh()
-                    self._targetctx_initialized = True
                 if typing and target:
                     from numba_cuda_mlir.device_declarations import (
                         apply_device_declarations,
                     )
 
                     apply_device_declarations(self.typing_context, self.target_context)
+                if typing:
+                    self._typingctx_initialized = True
+                if target:
+                    self._targetctx_initialized = True
             finally:
                 self._initializing = False
 

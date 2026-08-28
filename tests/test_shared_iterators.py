@@ -211,6 +211,58 @@ def test_cuda_target_initialization_waits_for_concurrent_initialization(monkeypa
     assert typing_context.registry_count == 1
 
 
+def test_cuda_target_initialization_waits_for_declaration_application(monkeypatch):
+    class Context:
+        def refresh(self):
+            pass
+
+        def install_registry(self, registry):
+            pass
+
+    from numba_cuda_mlir import device_declarations
+
+    declarations_started = threading.Event()
+    release_declarations = threading.Event()
+    second_finished = threading.Event()
+    target = CUDATarget("test_cuda_target_declaration_application")
+    target._typingctx = Context()
+    target._targetctx = Context()
+    errors = []
+
+    monkeypatch.setattr(target, "_seed_target_registry", lambda: None)
+
+    def apply_declarations(*args):
+        declarations_started.set()
+        assert release_declarations.wait(timeout=10)
+
+    monkeypatch.setattr(device_declarations, "apply_device_declarations", apply_declarations)
+
+    def ensure_initialized(finished=None):
+        try:
+            target.ensure_initialized()
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            if finished is not None:
+                finished.set()
+
+    first = threading.Thread(target=ensure_initialized)
+    first.start()
+    assert declarations_started.wait(timeout=10)
+
+    second = threading.Thread(target=ensure_initialized, args=(second_finished,))
+    second.start()
+    assert not second_finished.wait(timeout=0.1)
+
+    release_declarations.set()
+    first.join(timeout=10)
+    second.join(timeout=10)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert errors == []
+
+
 def test_call_stack_is_thread_local():
     callstack = CallStack()
     functions = [lambda: None, lambda: None]

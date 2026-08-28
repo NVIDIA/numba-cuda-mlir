@@ -1496,8 +1496,6 @@ class MLIRTarget(TargetDescriptor):
                     except Exception:
                         self._typingctx_initialized = False
                         raise
-                    else:
-                        self._typingctx_initialized = True
 
                 if not self._targetctx_initialized:
                     try:
@@ -1505,12 +1503,12 @@ class MLIRTarget(TargetDescriptor):
                     except Exception:
                         self._targetctx_initialized = False
                         raise
-                    else:
-                        self._targetctx_initialized = True
 
                 from numba_cuda_mlir.numba_cuda.typing.templates import builtin_registry
 
                 self.typing_context.install_registry(builtin_registry)
+                self._typingctx_initialized = True
+                self._targetctx_initialized = True
             finally:
                 self._initializing = False
 

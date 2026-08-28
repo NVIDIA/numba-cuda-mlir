@@ -77,6 +77,8 @@ llvm::Error LLVM70IRBuilder::resolveSymbols() {
   RESOLVE(fnPointerType, "LLVMPointerType");
   RESOLVE(fnArrayType, "LLVMArrayType");
   RESOLVE(fnStructType, "LLVMStructTypeInContext");
+  RESOLVE(fnStructCreateNamed, "LLVMStructCreateNamed");
+  RESOLVE(fnStructSetBody, "LLVMStructSetBody");
   RESOLVE(fnFunctionType, "LLVMFunctionType");
   RESOLVE(fnVectorType, "LLVMVectorType");
 
@@ -104,6 +106,7 @@ llvm::Error LLVM70IRBuilder::resolveSymbols() {
   RESOLVE(fnConstNull, "LLVMConstNull");
   RESOLVE(fnGetUndef, "LLVMGetUndef");
   RESOLVE(fnConstStruct, "LLVMConstStructInContext");
+  RESOLVE(fnConstNamedStruct, "LLVMConstNamedStruct");
   RESOLVE(fnConstArray, "LLVMConstArray");
   RESOLVE(fnConstVector, "LLVMConstVector");
   RESOLVE(fnConstBitCast, "LLVMConstBitCast");
@@ -279,6 +282,13 @@ LLVMTypeRef LLVM70IRBuilder::arrayTy(LLVMTypeRef e, unsigned n) {
 LLVMTypeRef LLVM70IRBuilder::structTy(LLVMTypeRef *e, unsigned n, bool p) {
   return fnStructType(ctx, e, n, p);
 }
+LLVMTypeRef LLVM70IRBuilder::namedStructTy(const char *name) {
+  return fnStructCreateNamed(ctx, name);
+}
+void LLVM70IRBuilder::setStructBody(LLVMTypeRef st, LLVMTypeRef *e, unsigned n,
+                                    bool p) {
+  fnStructSetBody(st, e, n, p);
+}
 LLVMTypeRef LLVM70IRBuilder::funcTy(LLVMTypeRef r, LLVMTypeRef *p, unsigned n,
                                    bool v) {
   return fnFunctionType(r, p, n, v);
@@ -338,6 +348,10 @@ LLVMValueRef LLVM70IRBuilder::getUndef(LLVMTypeRef ty) {
 LLVMValueRef LLVM70IRBuilder::constStruct(LLVMValueRef *v, unsigned n,
                                          bool p) {
   return fnConstStruct(ctx, v, n, p);
+}
+LLVMValueRef LLVM70IRBuilder::constNamedStruct(LLVMTypeRef st, LLVMValueRef *v,
+                                               unsigned n) {
+  return fnConstNamedStruct(st, v, n);
 }
 LLVMValueRef LLVM70IRBuilder::constArray(LLVMTypeRef e, LLVMValueRef *v,
                                         unsigned n) {

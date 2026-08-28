@@ -1221,10 +1221,9 @@ class MLIRTargetContext(BaseContext):
 
     @override
     def refresh(self):
-        with self._registry_lock:
-            if self._registries_unchanged():
-                return
-            self.load_additional_registries()
+        if self._registries_unchanged():
+            return
+        self.load_additional_registries()
 
     def get_overload_builder(self, fn, sig):
         """Return an MLIR builder for an overloaded function, or None.

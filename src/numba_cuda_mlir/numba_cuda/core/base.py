@@ -403,11 +403,7 @@ class BaseContext:
             ):
                 return
 
-            try:
-                loader = self._registries[registry]
-            except KeyError:
-                loader = RegistryLoader(registry)
-                self._registries[registry] = loader
+            loader = self._registries.setdefault(registry, RegistryLoader(registry))
             self.insert_func_defn(loader.new_registrations("functions"))
             self._insert_getattr_defn(loader.new_registrations("getattrs"))
             self._insert_setattr_defn(loader.new_registrations("setattrs"))
@@ -447,11 +443,7 @@ class BaseContext:
                 except (AttributeError, IndexError):
                     return True
 
-            try:
-                loader = self._registries[registry]
-            except KeyError:
-                loader = RegistryLoader(registry)
-                self._registries[registry] = loader
+            loader = self._registries.setdefault(registry, RegistryLoader(registry))
 
             # Filter registrations
             funcs = [

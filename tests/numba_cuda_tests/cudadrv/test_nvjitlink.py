@@ -17,8 +17,7 @@ import shutil
 
 
 def _skip_reason_if_no_cuobjdump():
-    """Return a skip reason if `cuobjdump` is unavailable, else None.
-    """
+    """Return a skip reason if `cuobjdump` is unavailable, else None."""
     if os.getenv("NUMBA_CUDA_MLIR_TEST_WHEEL_ONLY") is not None:
         return "wheel-only environment does not ship cuobjdump"
     if shutil.which("cuobjdump") is None:

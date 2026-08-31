@@ -23,6 +23,9 @@ from numba_cuda_mlir.numba_cuda.datamodel.registry import DataModelManager, regi
 from numba_cuda_mlir.numba_cuda.types import misc as nb_types_misc
 from numba_cuda_mlir.numba_cuda.types.ext_types import GridGroup as GridGroupClass
 from numba_cuda_mlir.type_defs import float_types
+from numba_cuda_mlir.lowering_utilities.type_conversions import (
+    is_valid_memref_element_type,
+)
 from numba_cuda_mlir.numba_cuda.types.containers import (
     NamedTuple,
     NamedUniTuple,
@@ -164,7 +167,7 @@ class StructModel(DataModel):
         return self._data_type
 
     def get_argument_type(self):
-        return self.get_data_type()
+        return tuple(model.get_argument_type() for model in self._models)
 
     def get_return_type(self):
         return self.get_data_type()
@@ -189,7 +192,13 @@ class StructModel(DataModel):
         return self._as("as_data", builder, value, self.get_data_type())
 
     def as_argument(self, builder, value):
-        return self.as_data(builder, value)
+        return tuple(
+            model.as_argument(
+                builder,
+                llvm.extractvalue(model.get_value_type(), value, [i]),
+            )
+            for i, model in enumerate(self._models)
+        )
 
     def as_return(self, builder, value):
         return self.as_data(builder, value)
@@ -198,7 +207,11 @@ class StructModel(DataModel):
         return self._from("from_data", builder, value)
 
     def from_argument(self, builder, value):
-        return self.from_data(builder, value)
+        out = llvm.UndefOp(self.get_value_type()).result
+        for i, (model, field) in enumerate(zip(self._models, value)):
+            converted = model.from_argument(builder, field)
+            out = llvm.insertvalue(out, converted, [i])
+        return out
 
     def from_return(self, builder, value):
         return self.from_data(builder, value)
@@ -504,10 +517,15 @@ class ArrayModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
         from numba_cuda_mlir.types import Record
 
-        # For Record, CharSeq, and UnicodeCharSeq arrays, use byte-based
-        # memref (memref<?xi8>).  Elements are accessed via byte offset
-        # pointer arithmetic.
-        if isinstance(fe_type.dtype, (Record, types.CharSeq, types.UnicodeCharSeq)):
+        ele_ty = dmm.lookup(fe_type.dtype).get_data_type()
+
+        # For Record, CharSeq, UnicodeCharSeq, and extension types whose MLIR
+        # storage representation belongs to the LLVM dialect, use byte-based
+        # memrefs. MemRefs cannot legally use LLVM dialect types as elements;
+        # those elements are accessed through byte-offset pointer arithmetic.
+        if isinstance(
+            fe_type.dtype, (Record, types.CharSeq, types.UnicodeCharSeq)
+        ) or not is_valid_memref_element_type(ele_ty):
             shape = [ShapedType.get_dynamic_size() for _ in range(fe_type.ndim)]
 
             dyn_stride = MemRefType.get_dynamic_stride_or_offset()
@@ -519,7 +537,6 @@ class ArrayModel(PrimitiveModel):
             super().__init__(dmm, fe_type, be_type)
             return
 
-        ele_ty = dmm.lookup(fe_type.dtype).get_data_type()
         shape = [ShapedType.get_dynamic_size() for _ in range(fe_type.ndim)]
 
         # Create strided layout with all dynamic strides

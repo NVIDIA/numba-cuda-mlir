@@ -174,10 +174,37 @@ LLVMTypeRef MLIRToLLVM70::convertType(Type ty) {
         return b.arrayTy(convertType(arrTy.getElementType()),
                          arrTy.getNumElements());
       })
-      .Case<LLVM::LLVMStructType>([&](auto structTy) {
+      .Case<LLVM::LLVMStructType>([&](auto structTy) -> LLVMTypeRef {
+        if (structTy.isIdentified()) {
+          llvm::StringRef name = structTy.getName();
+
+          auto it = namedStructCache.find(name);
+          if (it != namedStructCache.end()) {
+            return it->second;
+          }
+
+          LLVMTypeRef named = b.namedStructTy(name.str().c_str());
+          namedStructCache[name] = named;
+
+          if (!structTy.isOpaque()) {
+            llvm::SmallVector<LLVMTypeRef> elems;
+
+            for (Type e : structTy.getBody()) {
+              elems.push_back(convertType(e));
+            }
+
+            b.setStructBody(named, elems.data(), elems.size(),
+                            structTy.isPacked());
+          }
+
+          return named;
+        }
+
         llvm::SmallVector<LLVMTypeRef> elems;
+
         for (Type e : structTy.getBody())
           elems.push_back(convertType(e));
+
         return b.structTy(elems.data(), elems.size(), structTy.isPacked());
       })
       .Case<LLVM::LLVMFunctionType>([&](auto funcTy) {
@@ -906,11 +933,17 @@ llvm::Error MLIRToLLVM70::translateConstantOp(Operation *op) {
                                        msg.c_str());
       }
     }
-    bool packed = false;
-    if (auto structTy = dyn_cast<LLVM::LLVMStructType>(result.getType()))
-      packed = structTy.isPacked();
-    mapValue(result,
-             b.constStruct(elems.data(), elems.size(), packed));
+    auto structTy = dyn_cast<LLVM::LLVMStructType>(result.getType());
+    if (structTy && structTy.isIdentified()) {
+      // A literal struct constant would not share the identified type the
+      // value flows into, so anything loading or storing it would disagree on
+      // the pointee type.
+      mapValue(result, b.constNamedStruct(convertType(structTy), elems.data(),
+                                          elems.size()));
+    } else {
+      bool packed = structTy && structTy.isPacked();
+      mapValue(result, b.constStruct(elems.data(), elems.size(), packed));
+    }
     return llvm::Error::success();
   }
 
@@ -1211,7 +1244,9 @@ llvm::Error MLIRToLLVM70::translateStoreOp(Operation *op) {
                     .getAddressSpace();
   ptr = b.buildBitCast(ptr, b.ptrTy(elemTy, as), "");
 
-  b.buildStore(val, ptr);
+  LLVMValueRef storeInst = b.buildStore(val, ptr);
+  if (storeOp.getVolatile_())
+    b.setVolatile(storeInst, true);
   return llvm::Error::success();
 }
 
@@ -2509,29 +2544,167 @@ llvm::Error MLIRToLLVM70::translateNVVMOp(Operation *op) {
 // Debug variable declarations
 //===----------------------------------------------------------------------===//
 
+LLVMMetadataRef MLIRToLLVM70::opaqueDIType(uint64_t sizeInBits) {
+  constexpr llvm::StringLiteral name("data");
+  return b.createDIBasicType(name.data(), name.size(), sizeInBits,
+                             llvm::dwarf::DW_ATE_unsigned);
+}
+
+LLVMMetadataRef MLIRToLLVM70::diFileOf(LLVM::DIFileAttr fileAttr) {
+  if (fileAttr && fileAttr.getName())
+    return getOrCreateDIFile(fileAttr.getName().getValue());
+  return getOrCreateDIFile("llvm70_module");
+}
+
+LLVMMetadataRef MLIRToLLVM70::convertDIBasicType(LLVM::DIBasicTypeAttr attr) {
+  llvm::StringRef name = attr.getName() ? attr.getName().getValue() : "";
+  return b.createDIBasicType(name.data(), name.size(), attr.getSizeInBits(),
+                             attr.getEncoding());
+}
+
+LLVMMetadataRef
+MLIRToLLVM70::convertDIDerivedType(LLVM::DIDerivedTypeAttr attr) {
+  LLVMMetadataRef baseType =
+      attr.getBaseType() ? getOrCreateDIType(attr.getBaseType()) : nullptr;
+  llvm::StringRef name = attr.getName() ? attr.getName().getValue() : "";
+  uint64_t size = attr.getSizeInBits();
+
+  switch (attr.getTag()) {
+  case llvm::dwarf::DW_TAG_pointer_type:
+    return b.createDIPointerType(baseType, size ? size : 64,
+                                 attr.getAlignInBits(),
+                                 /*addressSpace=*/0, name.data(), name.size());
+  case llvm::dwarf::DW_TAG_member:
+    return b.createDIMemberType(diCompileUnit, name.data(), name.size(),
+                                diFileOf(attr.getFile()), attr.getLine(), size,
+                                attr.getAlignInBits(), attr.getOffsetInBits(),
+                                baseType);
+  default:
+    return baseType ? baseType : opaqueDIType(size);
+  }
+}
+
+LLVMMetadataRef MLIRToLLVM70::convertDISubrange(LLVM::DISubrangeAttr attr) {
+  int64_t lowerBound = 0;
+  int64_t count = -1;
+  if (auto lb = dyn_cast_or_null<IntegerAttr>(attr.getLowerBound()))
+    lowerBound = lb.getInt();
+  if (auto c = dyn_cast_or_null<IntegerAttr>(attr.getCount()))
+    count = c.getInt();
+  else if (auto ub = dyn_cast_or_null<IntegerAttr>(attr.getUpperBound()))
+    count = ub.getInt() - lowerBound + 1;
+  return b.createDISubrange(lowerBound, count);
+}
+
+LLVMMetadataRef
+MLIRToLLVM70::convertDICompositeType(LLVM::DICompositeTypeAttr attr) {
+  llvm::StringRef name = attr.getName() ? attr.getName().getValue() : "";
+  LLVMMetadataRef diFile = diFileOf(attr.getFile());
+  uint64_t size = attr.getSizeInBits();
+  uint32_t align = static_cast<uint32_t>(attr.getAlignInBits());
+  unsigned tag = attr.getTag();
+
+  if (tag == llvm::dwarf::DW_TAG_array_type) {
+    LLVMMetadataRef elemTy =
+        attr.getBaseType() ? getOrCreateDIType(attr.getBaseType()) : nullptr;
+    if (!elemTy)
+      return opaqueDIType(size);
+    llvm::SmallVector<LLVMMetadataRef> subscripts;
+    for (LLVM::DINodeAttr element : attr.getElements()) {
+      if (auto subrange = dyn_cast<LLVM::DISubrangeAttr>(element))
+        subscripts.push_back(convertDISubrange(subrange));
+    }
+    if (subscripts.empty())
+      subscripts.push_back(b.createDISubrange(0, -1));
+    return b.createDIArrayType(size, align, elemTy, subscripts.data(),
+                               subscripts.size());
+  }
+
+  bool isStructLike = tag == llvm::dwarf::DW_TAG_structure_type ||
+                      tag == llvm::dwarf::DW_TAG_class_type ||
+                      tag == llvm::dwarf::DW_TAG_union_type;
+  if (!isStructLike)
+    return opaqueDIType(size);
+
+  // A recursive type needs something for its self-references to point at
+  // while its members are being translated.
+  DistinctAttr recId = attr.getRecId();
+  LLVMMetadataRef placeholder = nullptr;
+  if (recId) {
+    placeholder = b.createDIForwardDecl(tag, name.data(), name.size(),
+                                        diCompileUnit, diFile, attr.getLine(),
+                                        size, align);
+    diRecursionStack[recId] = placeholder;
+  }
+
+  llvm::SmallVector<LLVMMetadataRef> elements;
+  for (LLVM::DINodeAttr element : attr.getElements()) {
+    if (auto member = dyn_cast<LLVM::DIDerivedTypeAttr>(element)) {
+      if (LLVMMetadataRef converted = getOrCreateDIType(member))
+        elements.push_back(converted);
+    }
+  }
+
+  LLVMMetadataRef composite =
+      tag == llvm::dwarf::DW_TAG_union_type
+          ? b.createDIUnionType(diCompileUnit, name.data(), name.size(), diFile,
+                                attr.getLine(), size, align, elements.data(),
+                                elements.size())
+          : b.createDIStructType(diCompileUnit, name.data(), name.size(),
+                                 diFile, attr.getLine(), size, align,
+                                 elements.data(), elements.size());
+  if (recId) {
+    // Frees the placeholder, so nothing may hold on to it past this point.
+    b.replaceMetadataAllUsesWith(placeholder, composite);
+    diRecursionStack.erase(recId);
+    diRecursiveTypes[recId] = composite;
+  }
+  return composite;
+}
+
 LLVMMetadataRef MLIRToLLVM70::getOrCreateDIType(LLVM::DITypeAttr typeAttr) {
   if (!typeAttr) {
     // Fallback: opaque byte type
     return b.createDIBasicType("byte", 4, 8, llvm::dwarf::DW_ATE_unsigned);
   }
 
-  if (auto basic = dyn_cast<LLVM::DIBasicTypeAttr>(typeAttr)) {
-    llvm::StringRef name = basic.getName() ? basic.getName().getValue() : "";
-    return b.createDIBasicType(name.data(), name.size(), basic.getSizeInBits(),
-                               basic.getEncoding());
+  // A cycle is spelled as a rec-self attribute carrying only the recursion id
+  // of the composite it stands for, so it resolves to that composite rather
+  // than being translated: to its placeholder while the composite is still
+  // being built, to the composite itself afterwards. The placeholder is freed
+  // once the composite is complete, hence no caching here.
+  if (auto composite = dyn_cast<LLVM::DICompositeTypeAttr>(typeAttr)) {
+    if (composite.getIsRecSelf()) {
+      mlir::Attribute recId = composite.getRecId();
+      auto pending = diRecursionStack.find(recId);
+      if (pending != diRecursionStack.end())
+        return pending->second;
+      auto translated = diRecursiveTypes.find(recId);
+      if (translated != diRecursiveTypes.end())
+        return translated->second;
+      return opaqueDIType(composite.getSizeInBits());
+    }
   }
 
-  if (auto derived = dyn_cast<LLVM::DIDerivedTypeAttr>(typeAttr)) {
-    // For pointer types and other derived types, create a basic type
-    // representing the pointer itself (64-bit address on NVPTX).
-    uint64_t size = derived.getSizeInBits();
-    if (size == 0)
-      size = 64; // NVPTX pointers are 64-bit
-    return b.createDIBasicType("ptr", 3, size, llvm::dwarf::DW_ATE_address);
-  }
+  auto cached = diTypeCache.find(typeAttr);
+  if (cached != diTypeCache.end())
+    return cached->second;
 
-  // Composite or unknown types: fall back to sized opaque type
-  return b.createDIBasicType("data", 4, 0, llvm::dwarf::DW_ATE_unsigned);
+  LLVMMetadataRef result = nullptr;
+  if (auto basic = dyn_cast<LLVM::DIBasicTypeAttr>(typeAttr))
+    result = convertDIBasicType(basic);
+  else if (auto derived = dyn_cast<LLVM::DIDerivedTypeAttr>(typeAttr))
+    result = convertDIDerivedType(derived);
+  else if (auto composite = dyn_cast<LLVM::DICompositeTypeAttr>(typeAttr))
+    result = convertDICompositeType(composite);
+  else
+    result = opaqueDIType(0);
+
+  // Nodes built inside a recursive type get re-uniqued when its placeholder is
+  // replaced, which can free them, so only cache once the type is complete.
+  if (diRecursionStack.empty())
+    diTypeCache[typeAttr] = result;
+  return result;
 }
 
 llvm::Error MLIRToLLVM70::translateDbgDeclareOp(Operation *op) {
@@ -2565,9 +2738,12 @@ llvm::Error MLIRToLLVM70::emitDbgIntrinsic(Operation *op, LLVMValueRef val,
   LLVMMetadataRef diType = getOrCreateDIType(varInfo.getType());
   LLVMMetadataRef scope = currentSubprogram ? currentSubprogram : diCompileUnit;
 
+  unsigned argNo = varInfo.getArg();
   LLVMMetadataRef diVar =
-      b.createDIAutoVariable(scope, name.data(), name.size(), diFile, line,
-                              diType, varInfo.getAlignInBits());
+      argNo ? b.createDIParameterVariable(scope, name.data(), name.size(),
+                                          argNo, diFile, line, diType)
+            : b.createDIAutoVariable(scope, name.data(), name.size(), diFile,
+                                     line, diType, varInfo.getAlignInBits());
   LLVMMetadataRef diExpr = b.createDIExpression(nullptr, 0);
 
   auto [filename, opLine, opCol] = extractFileLineCol(op->getLoc());

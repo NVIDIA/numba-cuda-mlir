@@ -2536,6 +2536,20 @@ extern "C" __global__ void
             return self._zero_value_for_type(self.get_mlir_type(target_type.dtype))
         raise InternalCompilerError(f"Cannot materialize type token for {target_type}.")
 
+    def _materialize_static_dtype_attribute(self, target_type):
+        if isinstance(target_type, types.DTypeSpec):
+            return self._materialize_type_token(target_type)
+        if isinstance(target_type, types.NoneType):
+            return ir.NoneType.get()
+        if isinstance(target_type, types.BaseTuple):
+            return tuple(
+                self._materialize_static_dtype_attribute(element_type)
+                for element_type in self._tuple_element_types(target_type)
+            )
+        if isinstance(target_type, types.Literal):
+            return self.lower_literal_if_needed(target_type.literal_value, target_type)
+        raise InternalCompilerError(f"Cannot materialize static dtype attribute {target_type}.")
+
     def _zero_value_for_type(self, mlir_type):
         if isinstance(mlir_type, (ir.IntegerType, ir.IndexType)):
             return arith.constant(result=mlir_type, value=0)
@@ -2657,8 +2671,24 @@ extern "C" __global__ void
             self.store_var(target, self._materialize_type_token(target_type))
             return
 
-        if isinstance(value_type, types.DType) and attr == "kind":
-            self.store_var(target, target_type.literal_value)
+        if isinstance(value_type, types.DType) and attr in {
+            "alignment",
+            "base",
+            "byteorder",
+            "char",
+            "hasobject",
+            "isalignedstruct",
+            "isbuiltin",
+            "isnative",
+            "itemsize",
+            "kind",
+            "name",
+            "names",
+            "num",
+            "shape",
+            "str",
+        }:
+            self.store_var(target, self._materialize_static_dtype_attribute(target_type))
             return
 
         if (field_idx := self._get_struct_field_index(value_type, attr)) is not None:
@@ -3264,7 +3294,7 @@ extern "C" __global__ void
         if isinstance(numba_type, types.BaseTuple) and isinstance(value, tuple):
             aggregate = self._materialize_tuple_value(value, numba_type)
             if aggregate is not None:
-                self._emit_dbg_declare(base_name, aggregate, var_attr)
+                self._emit_dbg_declare(base_name, aggregate, var_attr, volatile=True)
             return
         mlir_value = self._unwrap_mlir_value(value)
         if mlir_value is None:
@@ -3287,7 +3317,7 @@ extern "C" __global__ void
                 case MemRefType():
                     descriptor = self._build_array_debug_descriptor(mlir_value, numba_type)
                     if descriptor is not None:
-                        self._emit_dbg_declare(base_name, descriptor, var_attr)
+                        self._emit_dbg_declare(base_name, descriptor, var_attr, volatile=True)
             return
         is_arg = base_name in self._di_builder.arg_names
         is_boolean = isinstance(numba_type, types.Boolean)
@@ -3302,10 +3332,13 @@ extern "C" __global__ void
                 location_expr=self._di_builder.di_expression,
             )
 
-    def _emit_dbg_declare(self, var_name, value, var_attr):
-        """Emit llvm.intr.dbg.declare for a value materialized in stack storage."""
+    def _emit_dbg_declare(self, var_name, value, var_attr, volatile=False):
+        """Emit llvm.intr.dbg.declare for a value materialized in stack storage.
+
+        Pass volatile for aggregate slots: avoid the slot being optimized away.
+        """
         alloca_ptr = self.alloca(value.type)
-        llvm.store(value, alloca_ptr)
+        llvm.store(value, alloca_ptr, volatile_=volatile)
         llvm.intr_dbg_declare(
             alloca_ptr,
             var_attr,

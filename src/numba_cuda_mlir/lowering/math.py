@@ -347,7 +347,18 @@ def _bin_op_cg(op, builder, target, args, kwargs):
     promoted_numba_type = None
     unified_type = None
     if isinstance(lhs_type, types.Integer) and isinstance(rhs_type, types.Integer):
-        promoted_numba_type = lhs_type.unify(None, rhs_type)
+        # Ask which promotion was actually resolved
+        resolved = builder.context.typing_context.resolve_function_type(
+            op, (lhs_type, rhs_type), {}
+        )
+        if resolved.args[0] == resolved.args[1]:
+            # Comparisons: operands are reported already promoted to a common
+            # type, and the return type is bool.
+            promoted_numba_type = resolved.args[0]
+        else:
+            # Arithmetic: operands are reported unpromoted, and the promotion
+            # is carried by the return type.
+            promoted_numba_type = resolved.return_type
         assert promoted_numba_type is not None
         unified_type = builder.get_mlir_type(promoted_numba_type)
 

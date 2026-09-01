@@ -261,6 +261,8 @@ class InlineWorker:
         validator=callee_ir_validator,
         typemap=None,
         calltypes=None,
+        targetoptions=None,
+        inlinee_transform=None,
     ):
         """
         Instantiate a new InlineWorker, all arguments are optional though some
@@ -270,6 +272,7 @@ class InlineWorker:
         is a function taking Numba IR and validating it for use when inlining
         (this is optional and really to just provide better error messages about
         things which the inliner cannot handle like yield in closure).
+        inlinee_transform(func, callee_targetoptions, targetoptions) runs on chosen inlinees.
         """
 
         def check(arg, name):
@@ -298,6 +301,8 @@ class InlineWorker:
         self.pipeline = pipeline
         self.flags = flags
         self.validator = validator
+        self.targetoptions = targetoptions
+        self.inlinee_transform = inlinee_transform
         self.debug_print = _make_debug_print("InlineWorker")
 
         # check whether this inliner can also support typemap and calltypes
@@ -443,6 +448,12 @@ class InlineWorker:
         freevars = function.__code__.co_freevars
         return self.inline_ir(caller_ir, block, i, callee_ir, freevars, arg_typs=arg_typs)
 
+    def transform_inlinee(self, function, callee_targetoptions):
+        """Apply the configured target-specific transform to an inlinee."""
+        if self.inlinee_transform is None:
+            return function
+        return self.inlinee_transform(function, callee_targetoptions, self.targetoptions)
+
     def run_untyped_passes(self, func, enable_ssa=False):
         """
         Run the compiler frontend's untyped passes over the given Python
@@ -472,6 +483,10 @@ class InlineWorker:
         state.status = _CompileStatus(False)
         state.return_type = None
         state.metadata = {}
+        if self.targetoptions is not None:
+            state.metadata["targetoptions"] = self.targetoptions
+        if self.inlinee_transform is not None:
+            state.metadata["inlinee_transform"] = self.inlinee_transform
 
         ExtractByteCode().run_pass(state)
         # This is a lie, just need *some* args for the case where an obj mode

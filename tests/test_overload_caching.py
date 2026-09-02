@@ -4,16 +4,21 @@
 
 ``_impl_cache`` keys on the active ConfigStack flags, so resolving the same overloaded
 call under two flag contexts re-runs the potentially expensive overload body once per
-context.  ``_OverloadFunctionTemplate`` memoizes the overload result -- which is assumed
-to depend only on the overload function and the argument types, never on the flags -- to
-collapse those to a single execution.  These tests pin that down.
+context.  ``_OverloadFunctionTemplate`` memoizes the overload result to collapse those
+to a single execution, keyed on the overload function, the argument types, and -- for
+bodies that consult the ConfigStack -- only the options they were observed to read.
+These tests pin that down.
 """
 
 import numpy as np
+import pytest
 
 from numba_cuda_mlir import cuda, extending
 from numba_cuda_mlir.extending import overload, refresh_registries, typing_registry
 from numba_cuda_mlir.numba_cuda import types
+from numba_cuda_mlir.numba_cuda.core.errors import TypingError
+from numba_cuda_mlir.numba_cuda.core.targetconfig import ConfigStack
+from numba_cuda_mlir.numba_cuda.flags import CUDAFlags
 from numba_cuda_mlir.numba_cuda.typing.templates import make_overload_template
 
 
@@ -283,3 +288,185 @@ def test_overload_method_and_attribute_across_flag_contexts():
     attr_lto[1, 1](arr, int_out)
     assert int_out[0] == 4
     assert len(attr_calls) == 1
+
+
+def _flag_probe_kernels(body):
+    """Register *body* as a cuda overload and return (lto=False, lto=True) kernels."""
+
+    def target(x):
+        pass
+
+    overload(target, target="cuda", typing_registry=typing_registry)(body)
+    refresh_registries()
+
+    @cuda.jit(lto=False)
+    def kernel_no_lto(out):
+        out[0] = target(out[0])
+
+    @cuda.jit(lto=True)
+    def kernel_lto(out):
+        out[0] = target(out[0])
+
+    return kernel_no_lto, kernel_lto
+
+
+def _read_lto_via_top_or_none():
+    flags = ConfigStack.top_or_none()
+    return bool(flags is not None and flags.lto)
+
+
+def _read_lto_via_stack_top():
+    stack = ConfigStack()
+    flags = stack.top() if len(stack) else None
+    return bool(flags is not None and flags.lto)
+
+
+def _read_lto_via_copy():
+    flags = ConfigStack.top_or_none()
+    flags = flags.copy() if flags is not None else None
+    return bool(flags is not None and flags.lto)
+
+
+def _read_lto_via_values():
+    flags = ConfigStack.top_or_none()
+    return bool(flags is not None and flags.values().get("lto"))
+
+
+def _read_lto_via_values_dict():
+    flags = ConfigStack.top_or_none()
+    return bool(flags is not None and flags._values.get("lto"))
+
+
+@pytest.mark.parametrize(
+    "read_lto",
+    [
+        _read_lto_via_top_or_none,
+        _read_lto_via_stack_top,
+        _read_lto_via_copy,
+        _read_lto_via_values,
+        pytest.param(
+            _read_lto_via_values_dict,
+            marks=pytest.mark.xfail(
+                reason="Reads of the private `_values` dict bypass the recording "
+                "properties. Intercepting it would need __getattribute__, which fires "
+                "on every internal access and would widen every overload's key back "
+                "to the full flag set.",
+                strict=True,
+            ),
+        ),
+    ],
+    ids=["top_or_none", "stack_top", "copy", "values", "values_dict"],
+)
+def test_flag_reads_are_keyed_per_access_path(read_lto):
+    """A body reading a flag is re-resolved per flag context, however it reads it.
+
+    The recorder is installed by pushing recording flags onto the (thread-local)
+    ConfigStack, so it is equally visible to ``top_or_none``, ``top()``, a ``copy()``
+    of the flags (copies share the origin's read-set), and ``values()`` iteration
+    (which reads every option through the recording getters and conservatively widens
+    the key to all of them).  Each entry here was, or would be, a silent miscompile:
+    an unrecorded read memoizes the first context's implementation and serves it to
+    the second.
+    """
+    runs = []
+
+    def body(x):
+        lto = read_lto()
+        runs.append(lto)
+
+        if lto:
+
+            def impl(x):
+                return 1
+        else:
+
+            def impl(x):
+                return 0
+
+        return impl
+
+    k_no_lto, k_lto = _flag_probe_kernels(body)
+    a = np.zeros(1, dtype=np.int64)
+    b = np.zeros(1, dtype=np.int64)
+    k_no_lto[1, 1](a)
+    k_lto[1, 1](b)
+
+    assert (a[0], b[0]) == (0, 1)
+    assert len(runs) == 2
+
+
+def test_unread_flags_do_not_force_re_resolution():
+    """Only the options the body read may widen the key.
+
+    Both kernels have the same ``lto``; they differ in ``debuginfo``, which the body
+    never consults.  Keying on the whole flags object would re-run the body here.
+    """
+    runs = []
+
+    def body(x):
+        flags = ConfigStack.top_or_none()
+        runs.append(bool(flags is not None and flags.lto))
+
+        def impl(x):
+            return 0
+
+        return impl
+
+    def target(x):
+        pass
+
+    overload(target, target="cuda", typing_registry=typing_registry)(body)
+    refresh_registries()
+
+    @cuda.jit()
+    def plain(out):
+        out[0] = target(out[0])
+
+    @cuda.jit(debug=True, opt=False)
+    def with_debug(out):
+        out[0] = target(out[0])
+
+    out = np.zeros(1, dtype=np.int64)
+    plain[1, 1](out)
+    with_debug[1, 1](out)
+
+    assert len(runs) == 1
+
+
+def test_flag_mutation_inside_overload_raises():
+    """Compiler options are read-only while an overload body runs.
+
+    The body is handed a recording copy of the flags, so a write would be silently
+    discarded when the copy is popped -- and the overload is cached per observed
+    option value, so mutating flags here could not affect the compiled result anyway.
+    Every documented write path fails loudly instead.
+    """
+
+    def target(x):
+        pass
+
+    def make_template(mutate):
+        def body(x):
+            mutate(ConfigStack.top_or_none())
+
+            def impl(x):
+                pass
+
+            return impl
+
+        return make_overload_template(target, body, jit_options={}, strict=True, inline="never")
+
+    writes = {
+        "assign": lambda flags: setattr(flags, "lto", True),
+        "delete": lambda flags: delattr(flags, "lto"),
+        "discard": lambda flags: flags.discard("lto"),
+    }
+
+    for label, mutate in writes.items():
+        template_cls = make_template(mutate)
+        flags = CUDAFlags()
+        flags.lto = False
+        with ConfigStack().enter(flags):
+            with pytest.raises(TypingError, match="read-only during type inference"):
+                template_cls(None)._call_overload_func((types.int32,), {})
+        assert flags.lto is False, f"{label} must leave the real flags untouched"

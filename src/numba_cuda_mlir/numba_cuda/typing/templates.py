@@ -530,6 +530,125 @@ class _EmptyImplementationEntry(InternalError):
         )
 
 
+@functools.lru_cache(maxsize=None)
+def _recording_flags_class(cls):
+    """Build a ``cls`` subclass whose option getters record the names they serve.
+
+    Subclassing (rather than wrapping) keeps ``isinstance``, ``values()``, ``__eq__``
+    and ``__hash__`` working, so the object stays safe to use as an ``_impl_cache`` key
+    if a nested resolution puts it there.
+    """
+
+    def _quiet(meth):
+        # values()/__eq__/__hash__ touch every option; recording them would widen the
+        # observed set to "all flags" and defeat the point.
+        def wrapper(self, *a, **k):
+            prev = self._rec_on
+            self._rec_on = False
+            try:
+                return meth(self, *a, **k)
+            finally:
+                self._rec_on = prev
+
+        return wrapper
+
+    def __init__(self, copy_from=None):
+        # ``copy()`` is ``type(self)(self)``, so a copy of a recording instance must
+        # keep recording into the same set -- otherwise a body that reads through
+        # ``flags.copy()`` would look flag-independent.
+        inherited = getattr(copy_from, "_seen", None)
+        self._seen = set() if inherited is None else inherited
+        self._rec_on = getattr(copy_from, "_rec_on", False)
+        cls.__init__(self, copy_from)
+
+    sub = type(
+        "Recording" + cls.__name__,
+        (cls,),
+        {"__slots__": ("_seen", "_rec_on"), "__init__": __init__},
+    )
+
+    def _read_only(name):
+        def blocked(self, *a, **k):
+            raise TypingError(
+                f"cannot set compiler option {name!r} from an overload implementation "
+                "function: the flags on the ConfigStack are read-only during type "
+                "inference. The write would be discarded, and the resolved overload is "
+                "cached per observed option value, so mutating flags here cannot affect "
+                "the compiled result."
+            )
+
+        return blocked
+
+    # The metaclass reinstalls plain properties for every option at class-creation
+    # time, so the recording getters have to be attached afterwards.
+    for name in cls.options:
+        parent = getattr(cls, name)
+
+        def getter(self, _name=name, _parent=parent):
+            if self._rec_on:
+                self._seen.add(_name)
+            return _parent.fget(self)
+
+        setattr(sub, name, property(getter, _read_only(name), _read_only(name)))
+
+    def discard(self, name):
+        _read_only(name)(self)
+
+    sub.discard = discard
+
+    sub.__eq__ = _quiet(cls.__eq__)
+    sub.__hash__ = _quiet(cls.__hash__)
+
+    # is_set() consults ``_values`` directly, so it never reaches the recording
+    # getters; a "is this option set/supported" probe would otherwise go unnoticed.
+    # ``_summary_args`` (and so ``__repr__``/``summary``) gates on it too.
+    def is_set(self, name):
+        if self._rec_on:
+            self._seen.add(name)
+        return cls.is_set(self, name)
+
+    sub.is_set = is_set
+    return sub
+
+
+def _run_recording_flag_reads(func, args, kws, seen):
+    """Call *func*, collecting into *seen* the options it read off the ConfigStack.
+
+    The recording flags are pushed onto the ConfigStack for the duration of the call
+    rather than installed by patching ``top_or_none``.  The stack is thread-local and
+    already the supported way to scope a configuration, so this stays correct under
+    concurrent compilation, nests naturally, and is equally visible to ``top()`` and
+    to any reference to ``top_or_none`` captured before the call.
+
+    *seen* is filled even if *func* raises, so a body that inspects the flags and
+    rejects an unsupported combination still teaches us what it depends on.
+    """
+    stack = targetconfig.ConfigStack()
+    real = stack.top() if len(stack) else None
+    if real is None:
+        return func(*args, **kws)
+
+    proxy = _recording_flags_class(type(real))(copy_from=real)
+    proxy._rec_on = True
+    try:
+        with stack.enter(proxy):
+            return func(*args, **kws)
+    finally:
+        proxy._rec_on = False
+        seen.update(proxy._seen)
+
+
+def _observed_flag_key(names):
+    """Project the active flags down to just *names*, as a hashable tuple."""
+    if not names:
+        return ()
+    flags = targetconfig.ConfigStack.top_or_none()
+    if flags is None:
+        return ()
+    # repr() because some option values (e.g. nvvm_options) are unhashable dicts.
+    return tuple(sorted((n, repr(getattr(flags, n))) for n in names))
+
+
 class _OverloadFunctionTemplate(AbstractTemplate):
     """
     A base class of templates for overload functions.
@@ -756,17 +875,20 @@ class _OverloadFunctionTemplate(AbstractTemplate):
         return mlir_jit
 
     def _call_overload_func(self, args, kws):
-        """Invoke the overload function, memoizing on the argument types only.
+        """Invoke the overload function, memoizing its result.
 
-        The overload function is passed only the argument types, so its result is assumed
-        to depend solely on ``args``/``kws`` -- not on the compiler ``Flags`` on the
-        ConfigStack.  ``_impl_cache`` does key on those flags, so resolving the same call
-        under two flag contexts (e.g. an ``lto=False`` and an ``lto=True`` kernel sharing
-        a device function) re-runs the potentially expensive overload body once per
-        context.  Memoizing here collapses that to one execution per argument-type set,
-        while ``_impl_cache`` still decides which compiled artifact gets built.  Note the
-        ``(signature, pyfunc)`` return path is memoized too, even though ``_build_impl``
-        deliberately keeps it out of ``_impl_cache``.
+        The key is the overload function, the argument types, and -- for bodies that
+        read compiler options off the ConfigStack -- the values of just the options
+        they were observed to read.  A flag-blind body therefore runs once per
+        argument-type set no matter how many flag contexts resolve it (``_impl_cache``
+        keys on the whole flags object, so e.g. an ``lto=False`` and an ``lto=True``
+        kernel sharing a device function would otherwise re-run it), while a body
+        branching on e.g. ``flags.lto`` is re-resolved per distinct value of what it
+        consulted, and ``get_overload_builder`` then picks the implementation matching
+        the flags active at lowering.  The recording flags also reject writes: compiler
+        options are read-only during type inference.  Note the ``(signature, pyfunc)``
+        return path is memoized too, even though ``_build_impl`` deliberately keeps it
+        out of ``_impl_cache``.
 
         This covers ``@overload_method`` and ``@overload_attribute`` too, even though
         ``_OverloadAttributeTemplate`` has no ``_build_impl`` of its own: those decorators
@@ -778,13 +900,27 @@ class _OverloadFunctionTemplate(AbstractTemplate):
         Dispatcher it stores is compiled under the active flags, so sharing one across
         contexts hands back an artifact built for the wrong flags.
         """
-        # ``_overload_func`` is part of the key so that a subclass overriding it still
-        # gets its own entries in the dict it inherits from the parent template.
         cache = self._overload_result_cache
-        key = self._overload_func, tuple(args), tuple(kws.items())
-        if key not in cache:
-            cache[key] = self._overload_func(*args, **kws)
-        return cache[key]
+        base = self._overload_func, tuple(args), tuple(kws.items())
+        reads = self._overload_flag_reads
+        known = reads.get(base, frozenset())
+        key = base + _observed_flag_key(known)
+        if key in cache:
+            return cache[key]
+
+        observed = set()
+        try:
+            result = _run_recording_flag_reads(self._overload_func, args, kws, observed)
+        finally:
+            if not observed <= known:
+                # The body read options we had not seen before (a first run, or a
+                # branch that consults more of them).  Widen the key set from here on
+                # -- including when the body raised, since the read still happened.
+                known = frozenset(known | observed)
+                reads[base] = known
+                key = base + _observed_flag_key(known)
+        cache[key] = result
+        return result
 
     def _build_impl(self, cache_key, args, kws):
         """Build and cache the implementation.
@@ -939,9 +1075,10 @@ def make_overload_template(
         key=func,
         _overload_func=staticmethod(overload_func),
         _impl_cache={},
-        # Per-template so its entries are collected with the template class; keeping
+        # Per-template so their entries are collected with the template class; keeping
         # overloads apart is the cache key's job. See _call_overload_func.
         _overload_result_cache={},
+        _overload_flag_reads={},
         _compiled_overloads={},
         _jit_options=jit_options,
         _strict=strict,

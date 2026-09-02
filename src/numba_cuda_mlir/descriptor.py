@@ -27,7 +27,7 @@ from numba_cuda_mlir.numba_cuda.core.errors import NumbaPerformanceWarning
 from numba_cuda_mlir.numba_cuda.core import config as cuda_config
 from numba_cuda_mlir.numba_cuda.cudadrv import driver as numba_cuda_driver
 from importlib.util import find_spec
-from numba_cuda_mlir.numba_cuda.core import errors, sigutils
+from numba_cuda_mlir.numba_cuda.core import errors, sigutils, targetconfig
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 from numba_cuda_mlir.numba_cuda.cudadecl import registry as cuda_registry
@@ -1243,6 +1243,14 @@ class MLIRTargetContext(BaseContext):
                 inner_fnty = self.typing_context.resolve_value_type(overload_func)
                 templates.extend(getattr(inner_fnty, "templates", []))
 
+        def make_builder(disp):
+            def builder(mlir_lower, target, args, kws, _disp=disp):
+                mlir_lower.lower_overload_call(target, _disp, args, kws)
+
+            return builder
+
+        cur_flags = targetconfig.ConfigStack.top_or_none()
+        fallback = None
         match_args = (sig.recvr, *sig.args) if sig.recvr else sig.args
         match_args = tuple(types.unliteral(arg) for arg in match_args)
 
@@ -1252,7 +1260,7 @@ class MLIRTargetContext(BaseContext):
             for cache_key, cache_value in temp_cls._impl_cache.items():
                 if cache_value is None or len(cache_key) != 4:
                     continue
-                _, args, _, _ = cache_key
+                _, args, _, entry_flags = cache_key
                 cache_args = tuple(args)
                 non_omitted_cache_args = tuple(
                     arg
@@ -1267,12 +1275,13 @@ class MLIRTargetContext(BaseContext):
                 if cache_args == match_args or non_omitted_cache_args == non_omitted_match_args:
                     disp, _ = cache_value
                     if hasattr(disp, "py_func"):
-
-                        def builder(mlir_lower, target, args, kws, _disp=disp):
-                            mlir_lower.lower_overload_call(target, _disp, args, kws)
-
-                        return builder
-        return None
+                        # Prefer the implementation resolved under the currently
+                        # active flags; fall back to the first argument-type match.
+                        if entry_flags is None or cur_flags is None or entry_flags == cur_flags:
+                            return make_builder(disp)
+                        if fallback is None:
+                            fallback = disp
+        return make_builder(fallback) if fallback is not None else None
 
     def get_value_type(self, *args):
         return super().get_value_type(*args)

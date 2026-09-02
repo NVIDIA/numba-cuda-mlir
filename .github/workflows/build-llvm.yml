@@ -66,7 +66,7 @@ jobs:
         if: steps.gha-cache.outputs.cache-hit != 'true'
         run: |
           export PATH="$(dirname $PY):$PATH"
-          "${PY}" -m pip install pybind11 nanobind numpy ninja cmake awscli "typing-extensions; python_version < '3.12'"
+          "${PY}" -m pip install pybind11 "nanobind~=2.9" numpy ninja cmake awscli "typing-extensions; python_version < '3.12'"
           chmod +x ci/*.sh
 
       - name: Install sccache
@@ -251,7 +251,7 @@ jobs:
         if: steps.gha-cache.outputs.cache-hit != 'true'
         run: |
           export PATH="$(dirname $PY):$PATH"
-          "${PY}" -m pip install pybind11 nanobind numpy ninja cmake awscli
+          "${PY}" -m pip install pybind11 "nanobind~=2.9" numpy ninja cmake awscli
           chmod +x ci/*.sh
 
       - name: Install sccache

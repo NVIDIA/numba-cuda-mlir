@@ -10,6 +10,7 @@ import functools
 import sys
 import inspect
 import os.path
+import threading
 from collections import namedtuple
 from collections.abc import Sequence
 from types import MethodType, FunctionType, MappingProxyType
@@ -1187,8 +1188,8 @@ class _TemplateTargetHelperMixin:
         # =====================================================================
 
         # Pick a registry in which to install intrinsics
-        registries = iter(tgtctx._registries)
-        reg = next(registries)
+        with tgtctx._registry_lock:
+            reg = next(iter(tgtctx._registries))
         proxy = _TargetRegistryProxy(reg, tgtctx)
         _TemplateTargetHelperMixin._cached_target_registry_proxy = proxy
         return proxy
@@ -1506,15 +1507,19 @@ class Registry:
         self.attributes = []
         self.globals = []
         self._version = 0
+        self._lock = threading.RLock()
+
+    def _append(self, name, item):
+        with self._lock:
+            getattr(self, name).append(item)
+            self._version += 1
 
     def register(self, item):
-        self.functions.append(item)
-        self._version += 1
+        self._append("functions", item)
         return item
 
     def register_attr(self, item):
-        self.attributes.append(item)
-        self._version += 1
+        self._append("attributes", item)
         return item
 
     def register_global(self, val=None, typ=None, **kwargs):
@@ -1531,8 +1536,7 @@ class Registry:
             # register_global(val, typ)
             assert val is not None
             assert not kwargs
-            self.globals.append((val, typ))
-            self._version += 1
+            self._append("globals", (val, typ))
         else:
 
             def decorate(cls, typing_key):
@@ -1543,8 +1547,7 @@ class Registry:
                     typ = types.Function(Template)
                 else:
                     raise TypeError("cannot infer type for global value %r")
-                self.globals.append((val, typ))
-                self._version += 1
+                self._append("globals", (val, typ))
                 return cls
 
             # register_global(val, typing_key=None)(<template class>)
@@ -1583,13 +1586,25 @@ class BaseRegistryLoader:
     """
 
     def __init__(self, registry):
-        self._registrations = dict(
-            (name, utils.stream_list(getattr(registry, name))) for name in self.registry_items
-        )
+        self._registry = registry
+        self._positions = dict.fromkeys(self.registry_items, 0)
 
     def new_registrations(self, name):
-        for item in next(self._registrations[name]):
+        def snapshot():
+            registrations = getattr(self._registry, name)
+            start = self._positions[name]
+            stop = len(registrations)
+            return registrations[start:stop], stop
+
+        lock = getattr(self._registry, "_lock", None)
+        if lock is None:
+            items, stop = snapshot()
+        else:
+            with lock:
+                items, stop = snapshot()
+        for item in items:
             yield item
+        self._positions[name] = stop
 
 
 class RegistryLoader(BaseRegistryLoader):

@@ -8,6 +8,7 @@ import sys
 from itertools import permutations, takewhile
 from contextlib import contextmanager
 from functools import cached_property
+import threading
 
 
 class _LLVMLiteRemoved:
@@ -246,6 +247,7 @@ class BaseContext:
     fndesc = None
 
     def __init__(self, typing_context, target):
+        self._registry_lock = threading.RLock()
         self.address_size = utils.MACHINE_BITS
         self.typing_context = typing_context
         self.target_name = target
@@ -282,30 +284,32 @@ class BaseContext:
         """
 
     def _registries_unchanged(self):
-        for registry, _loader in self._registries.items():
-            reg_id = id(registry)
-            current = getattr(registry, "_version", None)
-            if current is None:
-                return False
-            if current != self._registry_versions.get(reg_id, -1):
-                return False
-        return bool(self._registries)
+        with self._registry_lock:
+            for registry in self._registries:
+                reg_id = id(registry)
+                current = getattr(registry, "_version", None)
+                if current is None:
+                    return False
+                if current != self._registry_versions.get(reg_id, -1):
+                    return False
+            return bool(self._registries)
 
     def refresh(self):
         """
         Refresh target context with new declarations from known registries.
         Useful for third-party extensions.
         """
-        if self._registries_unchanged():
-            return
-        # load target specific registries
-        self.load_additional_registries()
+        with self._registry_lock:
+            if self._registries_unchanged():
+                return
+            # load target specific registries
+            self.load_additional_registries()
 
-        # Populate the builtin registry, this has to happen after loading
-        # additional registries as some of the "additional" registries write
-        # their implementations into the builtin_registry and would be missed if
-        # this ran first.
-        self.install_registry(builtin_registry)
+            # Populate the builtin registry, this has to happen after loading
+            # additional registries as some of the "additional" registries write
+            # their implementations into the builtin_registry and would be missed if
+            # this ran first.
+            self.install_registry(builtin_registry)
 
     def load_additional_registries(self):
         """
@@ -391,26 +395,23 @@ class BaseContext:
         Install a *registry* (a imputils.Registry instance) of function
         and attribute implementations.
         """
-        reg_id = id(registry)
-        current_version = getattr(registry, "_version", None)
-        if current_version is not None and current_version == self._registry_versions.get(
-            reg_id, -1
-        ):
-            return
+        with self._registry_lock:
+            reg_id = id(registry)
+            current_version = getattr(registry, "_version", None)
+            if current_version is not None and current_version == self._registry_versions.get(
+                reg_id, -1
+            ):
+                return
 
-        try:
-            loader = self._registries[registry]
-        except KeyError:
-            loader = RegistryLoader(registry)
-            self._registries[registry] = loader
-        self.insert_func_defn(loader.new_registrations("functions"))
-        self._insert_getattr_defn(loader.new_registrations("getattrs"))
-        self._insert_setattr_defn(loader.new_registrations("setattrs"))
-        self._insert_cast_defn(loader.new_registrations("casts"))
-        self._insert_get_constant_defn(loader.new_registrations("constants"))
+            loader = self._registries.setdefault(registry, RegistryLoader(registry))
+            self.insert_func_defn(loader.new_registrations("functions"))
+            self._insert_getattr_defn(loader.new_registrations("getattrs"))
+            self._insert_setattr_defn(loader.new_registrations("setattrs"))
+            self._insert_cast_defn(loader.new_registrations("casts"))
+            self._insert_get_constant_defn(loader.new_registrations("constants"))
 
-        if current_version is not None:
-            self._registry_versions[reg_id] = current_version
+            if current_version is not None:
+                self._registry_versions[reg_id] = current_version
 
     def install_external_registry(self, registry):
         """
@@ -426,54 +427,54 @@ class BaseContext:
         always set impl.__module__ = "numba.*" regardless of where they are called from.
         """
 
-        def is_external(obj):
-            """Check if object is from outside numba.* namespace."""
-            try:
-                return not obj.__module__.startswith("numba.")
-            except AttributeError:
-                return True
+        with self._registry_lock:
 
-        def is_external_type_sig(sig):
-            """Check if type in signature is from outside numba.* namespace."""
-            try:
-                return sig and is_external(sig[0])
-            except (AttributeError, IndexError):
-                return True
+            def is_external(obj):
+                """Check if object is from outside numba.* namespace."""
+                try:
+                    return not obj.__module__.startswith("numba.")
+                except AttributeError:
+                    return True
 
-        try:
-            loader = self._registries[registry]
-        except KeyError:
-            loader = RegistryLoader(registry)
-            self._registries[registry] = loader
+            def is_external_type_sig(sig):
+                """Check if type in signature is from outside numba.* namespace."""
+                try:
+                    return sig and is_external(sig[0])
+                except (AttributeError, IndexError):
+                    return True
 
-        # Filter registrations
-        funcs = [
-            (impl, func, sig)
-            for impl, func, sig in loader.new_registrations("functions")
-            if is_external(impl)
-        ]
-        getattrs = [
-            (impl, attr, sig)
-            for impl, attr, sig in loader.new_registrations("getattrs")
-            if is_external_type_sig(sig)
-        ]
-        setattrs = [
-            (impl, attr, sig)
-            for impl, attr, sig in loader.new_registrations("setattrs")
-            if is_external_type_sig(sig)
-        ]
-        casts = [
-            (impl, sig) for impl, sig in loader.new_registrations("casts") if is_external(impl)
-        ]
-        constants = [
-            (impl, sig) for impl, sig in loader.new_registrations("constants") if is_external(impl)
-        ]
+            loader = self._registries.setdefault(registry, RegistryLoader(registry))
 
-        self.insert_func_defn(funcs)
-        self._insert_getattr_defn(getattrs)
-        self._insert_setattr_defn(setattrs)
-        self._insert_cast_defn(casts)
-        self._insert_get_constant_defn(constants)
+            # Filter registrations
+            funcs = [
+                (impl, func, sig)
+                for impl, func, sig in loader.new_registrations("functions")
+                if is_external(impl)
+            ]
+            getattrs = [
+                (impl, attr, sig)
+                for impl, attr, sig in loader.new_registrations("getattrs")
+                if is_external_type_sig(sig)
+            ]
+            setattrs = [
+                (impl, attr, sig)
+                for impl, attr, sig in loader.new_registrations("setattrs")
+                if is_external_type_sig(sig)
+            ]
+            casts = [
+                (impl, sig) for impl, sig in loader.new_registrations("casts") if is_external(impl)
+            ]
+            constants = [
+                (impl, sig)
+                for impl, sig in loader.new_registrations("constants")
+                if is_external(impl)
+            ]
+
+            self.insert_func_defn(funcs)
+            self._insert_getattr_defn(getattrs)
+            self._insert_setattr_defn(setattrs)
+            self._insert_cast_defn(casts)
+            self._insert_get_constant_defn(constants)
 
     def insert_func_defn(self, defns):
         buckets = defaultdict(list)

@@ -2504,7 +2504,14 @@ extern "C" __global__ void
             return cast_impl(self.context, self, source_type, target_type, value)
         if isinstance(source_type, types.BaseTuple) and isinstance(target_type, types.BaseTuple):
             return self._lower_tuple_cast(source_type, target_type, value)
-        return self.mlir_convert(value, self.get_mlir_type(target_type))
+        signed = (
+            source_type.signed
+            if isinstance(source_type, types.Integer)
+            else target_type.signed
+            if isinstance(target_type, types.Integer)
+            else False
+        )
+        return convert(value, self.get_mlir_type(target_type), signed=signed)
 
     def _tuple_element_types(self, tuple_type):
         if isinstance(tuple_type, types.UniTuple):

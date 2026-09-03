@@ -1581,6 +1581,15 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
     index = builder.load_var(args[1])
     index = lowering_utilities.index_of(index)
     value = builder.load_var(args[2])
+    value_numba_type = builder.get_numba_type(args[2].name)
+    if isinstance(value_numba_type, types.Integer):
+        signed = value_numba_type.signed
+    elif isinstance(value_numba_type, types.Boolean):
+        signed = False
+    elif isinstance(array_numba_type.dtype, types.Integer):
+        signed = array_numba_type.dtype.signed
+    else:
+        signed = None
     mrt = array.type
     if mrt.rank == 1:
         lowering_utilities.array_element_value_store(
@@ -1589,6 +1598,7 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
             [index],
             value,
             dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
+            signed=signed,
         )
     else:
         rankm1 = mrt.rank - 1
@@ -1605,6 +1615,7 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
                 [index] + list(indices),
                 value,
                 dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
+                signed=signed,
             )
 
 

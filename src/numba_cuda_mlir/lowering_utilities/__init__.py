@@ -347,14 +347,16 @@ def _integer_storage_type_for_value(numba_type: types.Type, value_type: ir.Type)
     return ir.IntegerType.get_signless(_numba_type_bitwidth(numba_type, value_type))
 
 
-def value_to_storage(numba_type: types.Type, value: ir.Value) -> ir.Value:
+def value_to_storage(
+    numba_type: types.Type, value: ir.Value, *, signed: bool | None = None
+) -> ir.Value:
     """Convert a source-level value to its memory/ABI storage representation."""
     storage_type = get_storage_type(numba_type)
     value_type = get_value_type(numba_type)
     if getattr(value, "type", None) == storage_type and value_type == storage_type:
         return value
     if getattr(value, "type", None) != value_type:
-        value = convert(value, value_type)
+        value = convert(value, value_type, signed=signed)
     if value_type == storage_type:
         return value
 
@@ -371,7 +373,7 @@ def value_to_storage(numba_type: types.Type, value: ir.Value) -> ir.Value:
             return arith.extui(out=storage_type, in_=bits)
         return arith.trunci(out=storage_type, in_=bits)
 
-    return convert(value, storage_type)
+    return convert(value, storage_type, signed=signed)
 
 
 def storage_to_value(numba_type: types.Type, value: ir.Value) -> ir.Value:
@@ -426,8 +428,9 @@ def array_element_value_store(
     value: ir.Value,
     *,
     dynamic_shared_memory: bool = False,
+    signed: bool | None = None,
 ):
-    stored = value_to_storage(array_type.dtype, value)
+    stored = value_to_storage(array_type.dtype, value, signed=signed)
     if dynamic_shared_memory:
         ptr = memref_to_llvm_ptr(array, list(indices), stored.type)
         llvm_ptr_store(stored, ptr)
@@ -851,14 +854,14 @@ def _convert_integer_to_integer(
     return value
 
 
-def convert(value, target_type, *, signed: bool = False):
+def convert(value, target_type, *, signed: bool | None = None):
     if getattr(value, "type", None) == target_type:
         return value
     return ensure_verifies(unverified_convert(value, target_type, signed=signed))
 
 
 @singledispatch
-def unverified_convert(value, target_type, *, signed: bool = False):
+def unverified_convert(value, target_type, *, signed: bool | None = None):
     raise NotImplementedError(f"Not implemented for type {type(value)}")
 
 
@@ -909,7 +912,7 @@ def unverified_basic_mlir_convert(
     value,
     target_type: ir.Type,
     *,
-    signed: bool = False,
+    signed: bool | None = None,
 ) -> ir.Value:
     from numba_cuda_mlir._mlir.dialects import (
         complex as complex_dialect,
@@ -924,6 +927,10 @@ def unverified_basic_mlir_convert(
         return constant(value, target_type)
     value_type = value.type
     trace("value_type: %s, target_type: %s", value_type, target_type)
+
+    def use_signed_conversion(default: bool) -> bool:
+        return default if signed is None else signed
+
     match value_type, target_type:
         case ir.Type() as x, ir.Type() as y if x == y:
             trace("value_type == target_type, returning value")
@@ -966,13 +973,13 @@ def unverified_basic_mlir_convert(
             elif isinstance(elem1, ir.IntegerType) and isinstance(elem2, ir.FloatType):
                 return (
                     arith.sitofp(out=target_type, in_=value)
-                    if elem1.width > 1
+                    if use_signed_conversion(elem1.width > 1)
                     else arith.uitofp(out=target_type, in_=value)
                 )
             elif isinstance(elem1, ir.FloatType) and isinstance(elem2, ir.IntegerType):
                 return (
                     arith.fptosi(out=target_type, in_=value)
-                    if elem2.width > 1
+                    if use_signed_conversion(elem2.width > 1)
                     else arith.fptoui(out=target_type, in_=value)
                 )
             else:
@@ -980,7 +987,7 @@ def unverified_basic_mlir_convert(
         case ir.IntegerType(), ir.FloatType():
             return (
                 arith.sitofp(out=target_type, in_=value)
-                if value_type.width > 1
+                if use_signed_conversion(value_type.width > 1)
                 else arith.uitofp(out=target_type, in_=value)
             )
         case ir.BF16Type(), ir.IntegerType() if target_type.width == 16:
@@ -990,7 +997,7 @@ def unverified_basic_mlir_convert(
         case ir.FloatType(), ir.IntegerType():
             return (
                 arith.fptosi(out=target_type, in_=value)
-                if target_type.width > 1
+                if use_signed_conversion(target_type.width > 1)
                 else arith.fptoui(out=target_type, in_=value)
             )
         case ir.IntegerType(), ir.ComplexType():

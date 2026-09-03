@@ -8,6 +8,7 @@ import ctypes
 import numpy as np
 import pytest
 
+from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.lowering_utilities.type_conversions import to_numba_type
 
@@ -91,3 +92,34 @@ def test_custom_type_conversion():
 
     frontend_val = CustomFrontendType()
     assert to_numba_type(frontend_val) == custom_numba_type_instance
+
+
+INTEGER_FLOAT_CAST_CASES = [
+    pytest.param(np.uint8(200), np.float64, 200.0, id="uint8-to-float64"),
+    pytest.param(np.uint16(60000), np.float64, 60000.0, id="uint16-to-float64"),
+    pytest.param(
+        np.uint32(3_000_000_000),
+        np.float32,
+        np.float32(3_000_000_000),
+        id="uint32-to-float32",
+    ),
+    pytest.param(
+        np.float64(3_000_000_000),
+        np.uint32,
+        np.uint32(3_000_000_000),
+        id="float64-to-uint32",
+    ),
+    pytest.param(np.int8(-56), np.float64, -56.0, id="int8-to-float64"),
+]
+
+
+@pytest.mark.parametrize("source, destination_dtype, expected", INTEGER_FLOAT_CAST_CASES)
+def test_integer_float_cast_preserves_signedness(source, destination_dtype, expected):
+    @cuda.jit
+    def cast(source, destination):
+        destination[0] = source[0]
+
+    source = cuda.to_device(np.array([source]))
+    destination = cuda.device_array(1, dtype=destination_dtype)
+    cast[1, 1](source, destination)
+    np.testing.assert_equal(destination.copy_to_host()[0], expected)

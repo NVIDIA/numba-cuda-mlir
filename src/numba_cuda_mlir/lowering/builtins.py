@@ -473,7 +473,7 @@ def type_convert(builder, target, args, kwargs):
     if isinstance(value.type, ir.BF16Type) and isinstance(to_type, ir.IntegerType):
         value = (
             arith.fptosi(out=to_type, in_=value)
-            if to_type.width > 1
+            if signed
             else arith.fptoui(out=to_type, in_=value)
         )
     else:

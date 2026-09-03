@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 import sys
-from numba_cuda_mlir import cuda
+from numba_cuda_mlir import cuda, compiler, types
 from numba_cuda_mlir.numba_cuda import bf16
 
 pytestmark = [
@@ -51,6 +51,18 @@ BF16_COMPARISON_OPS = [
 ]
 
 
+BF16_INTEGER_CAST_CASES = [
+    pytest.param(np.int8, types.int8, -3, np.int8(-3), "arith.fptosi", id="bf16-to-int8"),
+    pytest.param(np.int16, types.int16, -3, np.int16(-3), "arith.fptosi", id="bf16-to-int16"),
+    pytest.param(np.int32, types.int32, -3, np.int32(-3), "arith.fptosi", id="bf16-to-int32"),
+    pytest.param(np.int64, types.int64, -3, np.int64(-3), "arith.fptosi", id="bf16-to-int64"),
+    pytest.param(np.uint8, types.uint8, 2**7, np.uint8(2**7), "arith.fptoui", id="bf16-to-uint8"),
+    pytest.param(np.uint16, types.uint16, 2**15, np.uint16(2**15), "arith.fptoui", id="bf16-to-uint16"),
+    pytest.param(np.uint32, types.uint32, 2**31, np.uint32(2**31), "arith.fptoui", id="bf16-to-uint32"),
+    pytest.param(np.uint64, types.uint64, 2**63, np.uint64(2**63), "arith.fptoui", id="bf16-to-uint64"),
+]
+
+
 @pytest.mark.parametrize("op,input_val,expected", BF16_UNARY_OPS)
 def test_bf16_unary_intrinsics(op, input_val, expected):
     @cuda.jit
@@ -93,6 +105,25 @@ def test_bf16_constructor(value):
     out = np.zeros(1, dtype=np.float32)
     kernel[1, 1](out, value)
     np.testing.assert_allclose(out[0], float(value), rtol=0.1)
+
+
+@pytest.mark.parametrize(
+    "destination_dtype,destination_type,value,expected,conversion_op",
+    BF16_INTEGER_CAST_CASES,
+)
+def test_bf16_integer_cast_preserves_signedness(
+    destination_dtype, destination_type, value, expected, conversion_op
+):
+    @cuda.jit
+    def kernel(out, x):
+        out[0] = destination_dtype(bf16.bfloat16(x))
+
+    out = np.zeros(1, dtype=destination_dtype)
+    kernel[1, 1](out, np.float64(value))
+    np.testing.assert_equal(out[0], expected)
+
+    mlir = compiler.compile_mlir(kernel, types.void(destination_type[:], types.float64))
+    assert conversion_op in mlir
 
 
 def test_bf16_fma():

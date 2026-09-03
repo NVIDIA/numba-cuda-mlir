@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.errors import TypingError
+import inspect
 import numpy as np
 import pytest
 
@@ -34,11 +35,14 @@ def test_nonvoid_kernel_rejected_before_launch():
         out[0] = a[0]
         return 1
 
+    source, first_line = inspect.getsourcelines(returns_value.py_func)
+    return_line = first_line + next(i for i, line in enumerate(source) if "return 1" in line)
+
     with pytest.raises(TypingError) as excinfo:
         returns_value[1, 1](np.zeros(1, dtype=np.int64), np.zeros(1, dtype=np.int64))
     msg = str(excinfo.value)
     assert "must have void return type" in msg
-    assert "test_device_functions.py" in msg
+    assert 'test_device_functions.py", line %d:' % return_line in msg
 
 
 def test_self_recursion():

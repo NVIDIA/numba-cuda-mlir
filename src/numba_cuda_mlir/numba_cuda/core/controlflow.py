@@ -241,6 +241,10 @@ class CFGraph:
         return self._find_immediate_dominators()
 
     @functools.cached_property
+    def _ipdom(self):
+        return self._find_immediate_post_dominators()
+
+    @functools.cached_property
     def _df(self):
         return self._find_dominance_frontier()
 
@@ -275,7 +279,16 @@ class CFGraph:
          must go through).  By construction, it is non-empty: it contains
          at least the entry point.
         """
-        return self._post_doms[self._entry_point]
+        ipdom = self._ipdom
+        node = self._entry_point
+        if node not in ipdom:
+            return set(self._nodes)
+        backbone = set()
+        while node is not None:
+            backbone.add(node)
+            parent = ipdom[node]
+            node = None if parent == node else parent
+        return backbone
 
     def loops(self):
         """
@@ -425,33 +438,25 @@ class CFGraph:
                 exit_points.add(n)
         return exit_points
 
-    def _find_postorder(self):
-        succs = self._succs
-        back_edges = self._back_edges
-        post_order = []
-        seen = set()
-
-        post_order = []
-
-        # DFS
-        def dfs_rec(node):
-            if node not in seen:
-                seen.add(node)
-                stack.append((post_order.append, node))
-                stack.extend(
-                    (dfs_rec, dest) for dest in succs[node] if (node, dest) not in back_edges
-                )
-
-        stack = [(dfs_rec, self._entry_point)]
-        while stack:
-            cb, data = stack.pop()
-            cb(data)
-
-        return post_order
-
     def _find_immediate_dominators(self):
-        # The algorithm implemented computes the immediate dominator
-        # for each node in the CFG which is equivalent to build a dominator tree
+        return self._immediate_dominators({self._entry_point}, self._preds, self._succs)
+
+    def _find_immediate_post_dominators(self):
+        # Roots: exit points plus the bodies of loops that never exit.
+        roots = set(self._exit_points)
+        for loop in self._loops.values():
+            if not loop.exits:
+                roots.update(loop.body)
+        if not roots:
+            return {}
+        return self._immediate_dominators(roots, self._succs, self._preds)
+
+    def _immediate_dominators(self, roots, preds_table, succs_table):
+        """
+        Cooper-Harvey-Kennedy immediate dominators of the nodes reachable
+        from *roots*, which hang under a shared virtual root.  A root maps
+        to itself; a node dominated only by the virtual root maps to None.
+        """
         # Based on the implementation from NetworkX
         # library - nx.immediate_dominators
         # https://github.com/networkx/networkx/blob/858e7cb183541a78969fed0cbcd02346f5866c02/networkx/algorithms/dominance.py    # noqa: E501
@@ -459,6 +464,25 @@ class CFGraph:
         #   Keith D. Cooper, Timothy J. Harvey, and Ken Kennedy
         #   A Simple, Fast Dominance Algorithm
         #   https://www.cs.rice.edu/~keith/EMBED/dom.pdf
+        order = []
+        seen = set()
+
+        def visit(node):
+            if node not in seen:
+                seen.add(node)
+                stack.append((order.append, node))
+                stack.extend((visit, dest) for dest in succs_table[node])
+
+        stack = [(visit, root) for root in roots]
+        while stack:
+            cb, node = stack.pop()
+            cb(node)
+
+        virtual_root = object()
+        idx = {node: i for i, node in enumerate(order)}
+        idx[virtual_root] = len(order)
+        idom = {virtual_root: virtual_root}
+
         def intersect(u, v):
             while u != v:
                 while idx[u] < idx[v]:
@@ -467,25 +491,42 @@ class CFGraph:
                     v = idom[v]
             return u
 
-        entry = self._entry_point
-        preds_table = self._preds
-
-        order = self._find_postorder()
-        idx = {e: i for i, e in enumerate(order)}  # index of each node
-        idom = {entry: entry}
-        order.pop()
-        order.reverse()
-
+        reverse_postorder = order[::-1]
         changed = True
         while changed:
             changed = False
-            for u in order:
-                new_idom = functools.reduce(intersect, (v for v in preds_table[u] if v in idom))
-                if u not in idom or idom[u] != new_idom:
+            for u in reverse_postorder:
+                preds = [v for v in preds_table[u] if v in idom]
+                if u in roots:
+                    preds.append(virtual_root)
+                new_idom = functools.reduce(intersect, preds)
+                if idom.get(u) != new_idom:
                     idom[u] = new_idom
                     changed = True
 
-        return idom
+        result = {}
+        for u in order:
+            v = idom[u]
+            result[u] = u if u in roots else (None if v is virtual_root else v)
+        return result
+
+    def _dominator_sets(self, idom):
+        # Each node's set is its chain of immediate dominators; unreachable nodes get every node.
+        doms = {}
+        for node in idom:
+            chain = []
+            cur = node
+            while cur is not None and cur not in doms:
+                chain.append(cur)
+                parent = idom[cur]
+                cur = None if parent == cur else parent
+            base = set() if cur is None else doms[cur]
+            for cur in reversed(chain):
+                base = base | {cur}
+                doms[cur] = base
+        for node in self._nodes:
+            doms.setdefault(node, set(self._nodes))
+        return doms
 
     def _find_dominator_tree(self):
         idom = self._idom
@@ -515,67 +556,11 @@ class CFGraph:
 
         return df
 
-    def _find_dominators_internal(self, post=False):
-        # See theoretical description in
-        # http://en.wikipedia.org/wiki/Dominator_%28graph_theory%29
-        # The algorithm implemented here uses a todo-list as described
-        # in http://pages.cs.wisc.edu/~fischer/cs701.f08/finding.loops.html
-        if post:
-            entries = set(self._exit_points)
-            preds_table = self._succs
-            succs_table = self._preds
-        else:
-            entries = set([self._entry_point])
-            preds_table = self._preds
-            succs_table = self._succs
-
-        if not entries:
-            raise RuntimeError("no entry points: dominator algorithm cannot be seeded")
-
-        doms = {}
-        for e in entries:
-            doms[e] = set([e])
-
-        todo = []
-        for n in self._nodes:
-            if n not in entries:
-                doms[n] = set(self._nodes)
-                todo.append(n)
-
-        while todo:
-            n = todo.pop()
-            if n in entries:
-                continue
-            new_doms = set([n])
-            preds = preds_table[n]
-            if preds:
-                new_doms |= functools.reduce(set.intersection, [doms[p] for p in preds])
-            if new_doms != doms[n]:
-                assert len(new_doms) < len(doms[n])
-                doms[n] = new_doms
-                todo.extend(succs_table[n])
-        return doms
-
     def _find_dominators(self):
-        return self._find_dominators_internal(post=False)
+        return self._dominator_sets(self._idom)
 
     def _find_post_dominators(self):
-        # To handle infinite loops correctly, we need to add a dummy
-        # exit point, and link members of infinite loops to it.
-        dummy_exit = object()
-        self._exit_points.add(dummy_exit)
-        for loop in self._loops.values():
-            if not loop.exits:
-                for b in loop.body:
-                    self._add_edge(b, dummy_exit)
-        pdoms = self._find_dominators_internal(post=True)
-        # Fix the _post_doms table to make no reference to the dummy exit
-        del pdoms[dummy_exit]
-        for doms in pdoms.values():
-            doms.discard(dummy_exit)
-        self._remove_node_edges(dummy_exit)
-        self._exit_points.remove(dummy_exit)
-        return pdoms
+        return self._dominator_sets(self._ipdom)
 
     # Finding loops and back edges: see
     # http://pages.cs.wisc.edu/~fischer/cs701.f08/finding.loops.html
@@ -597,6 +582,7 @@ class CFGraph:
         back_edges = set()
         # stack: keeps track of the traversal path
         stack = []
+        on_stack = set()
         # succs_state: keep track of unvisited successors of a node
         succs_state = {}
         entry_point = self.entry_point()
@@ -605,6 +591,7 @@ class CFGraph:
 
         def push_state(node):
             stack.append(node)
+            on_stack.add(node)
             succs_state[node] = [dest for dest in self._succs[node]]
 
         push_state(entry_point)
@@ -620,7 +607,7 @@ class CFGraph:
                 # Check the next successor
                 cur_node = tos_succs.pop()
                 # Is it in our traversal path?
-                if cur_node in stack:
+                if cur_node in on_stack:
                     # Yes, it's a backedge
                     back_edges.add((tos, cur_node))
                 elif cur_node not in checked:
@@ -629,6 +616,7 @@ class CFGraph:
             else:
                 # Checked all successors. Pop
                 stack.pop()
+                on_stack.remove(tos)
                 checked.add(tos)
 
         if stats is not None:

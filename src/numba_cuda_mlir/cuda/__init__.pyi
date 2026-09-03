@@ -22,3 +22,9 @@ def literal_unroll(value: Any) -> Any:
         >>> for i in consteval(range(10)):
         ...     array[i] = i
     """
+
+def unroll(iterable: Any, count: int | None = None) -> Any:
+    """Iterate ``iterable`` with an ``llvm.loop.unroll.full`` hint, or ``.count`` when given."""
+
+def nounroll(iterable: Any) -> Any:
+    """Iterate ``iterable`` with an ``llvm.loop.unroll.disable`` hint."""

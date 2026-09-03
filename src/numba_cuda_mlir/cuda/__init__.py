@@ -149,3 +149,14 @@ def stwb(array, i, value):
 def stwt(array, i, value):
     """Generate a `st.global.wt` instruction for element `i` of an array."""
     pass
+
+
+# Loop unroll hints
+def unroll(iterable, count=None):
+    """Iterate `iterable` with an `llvm.loop.unroll.full` hint, or `.count` when given."""
+    return iterable
+
+
+def nounroll(iterable):
+    """Iterate `iterable` with an `llvm.loop.unroll.disable` hint."""
+    return iterable

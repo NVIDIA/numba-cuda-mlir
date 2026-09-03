@@ -90,6 +90,10 @@ private:
 
   llvm::StringMap<LLVMTypeRef> namedStructCache;
 
+  // `!llvm.loop` ID node by loop annotation.
+  llvm::DenseMap<mlir::Attribute, LLVMValueRef> loopMetadata;
+  LLVMValueRef loopMetadataFor(mlir::LLVM::LoopAnnotationAttr attr);
+
   // Debug info state
   LLVMMetadataRef diCompileUnit = nullptr;
   LLVMMetadataRef diSubroutineType = nullptr;

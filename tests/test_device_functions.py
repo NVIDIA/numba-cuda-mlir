@@ -1,7 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir.errors import TypingError
 import numpy as np
+import pytest
 
 import logging
 
@@ -22,6 +24,21 @@ def test_device_functions():
     a = a.copy_to_host()
     print(a)
     assert a[0] == 0
+
+
+def test_nonvoid_kernel_rejected_before_launch():
+    """A kernel with a non-void return type is rejected at compile time."""
+
+    @cuda.jit
+    def returns_value(a, out):
+        out[0] = a[0]
+        return 1
+
+    with pytest.raises(TypingError) as excinfo:
+        returns_value[1, 1](np.zeros(1, dtype=np.int64), np.zeros(1, dtype=np.int64))
+    msg = str(excinfo.value)
+    assert "must have void return type" in msg
+    assert "test_device_functions.py" in msg
 
 
 def test_self_recursion():

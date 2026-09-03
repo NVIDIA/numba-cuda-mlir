@@ -247,6 +247,64 @@ def test_signed_integer_vector_to_float_vector_cast():
     np.testing.assert_array_equal(out, [-56.0, -1.0])
 
 
+VECTOR_CAST_CASES = [
+    pytest.param(
+        cuda.uint8x2, cuda.float64x2, (200, 255), np.float64, (200.0, 255.0), id="uint8-to-float64"
+    ),
+    pytest.param(
+        cuda.uint16x2,
+        cuda.float64x2,
+        (60000, 65535),
+        np.float64,
+        (60000.0, 65535.0),
+        id="uint16-to-float64",
+    ),
+    pytest.param(
+        cuda.uint32x2,
+        cuda.float64x2,
+        (3_000_000_000, 4_000_000_000),
+        np.float64,
+        (3_000_000_000.0, 4_000_000_000.0),
+        id="uint32-to-float64",
+    ),
+    pytest.param(
+        cuda.uint32x2,
+        cuda.float32x2,
+        (3_000_000_000, 4_000_000_000),
+        np.float32,
+        (np.float32(3_000_000_000), np.float32(4_000_000_000)),
+        id="uint32-to-float32",
+    ),
+    pytest.param(
+        cuda.float64x2,
+        cuda.uint32x2,
+        (3_000_000_000.0, 4_000_000_000.0),
+        np.uint32,
+        (np.uint32(3_000_000_000), np.uint32(4_000_000_000)),
+        id="float64-to-uint32",
+    ),
+    pytest.param(
+        cuda.int8x2, cuda.float64x2, (-56, -1), np.float64, (-56.0, -1.0), id="int8-to-float64"
+    ),
+]
+
+
+@pytest.mark.parametrize("source_type,target_type,values,dtype,expected", VECTOR_CAST_CASES)
+def test_vector_cast_preserves_signedness(source_type, target_type, values, dtype, expected):
+    first, second = values
+
+    @cuda.jit
+    def kernel(out):
+        source = source_type(first, second)
+        target = target_type(source)
+        out[0] = target.x
+        out[1] = target.y
+
+    out = np.zeros(2, dtype=dtype)
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(out, expected)
+
+
 def test_cuda_vector_constructor_from_multidimensional_vector():
     @cuda.jit
     def kernel(arr_in, arr_out):

@@ -44,7 +44,7 @@ def _build_vector_from_scalars(scalars: list, vec_type: ir.VectorType) -> ir.Val
         )
 
     # Convert all scalars to the target element type before building the vector.
-    converted = [convert(s, elem_type) for s in scalars]
+    converted = [convert(s, elem_type, signed=signed) for s, signed in scalars]
 
     # Use vector.from_elements to build the vector.
     return vector.from_elements(vec_type, converted)
@@ -78,12 +78,25 @@ def _constructor_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs)
         arg_type = lower_ctx.get_numba_type(arg.name)
 
         if isinstance(arg_type, VectorType):
-            scalars.extend(_extract_vector_elements(val))
+            if isinstance(arg_type.dtype, types.Integer):
+                signed = arg_type.dtype.signed
+            elif isinstance(target_type.dtype, types.Integer):
+                signed = target_type.dtype.signed
+            else:
+                signed = None
+            scalars.extend((scalar, signed) for scalar in _extract_vector_elements(val))
         elif isinstance(arg_type, types.Complex):
-            scalars.append(complex_dialect.re(val))
-            scalars.append(complex_dialect.im(val))
+            scalars.append((complex_dialect.re(val), None))
+            scalars.append((complex_dialect.im(val), None))
         else:
-            scalars.append(val)
+            signed = (
+                arg_type.signed
+                if isinstance(arg_type, types.Integer)
+                else target_type.dtype.signed
+                if isinstance(target_type.dtype, types.Integer)
+                else None
+            )
+            scalars.append((val, signed))
 
     if len(scalars) == 1 and num_elements > 1:
         scalars = scalars * num_elements

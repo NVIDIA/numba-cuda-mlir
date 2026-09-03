@@ -234,6 +234,19 @@ def test_cuda_vector_float32x4_basic():
     np.testing.assert_allclose(arr, [2.0, 4.0, 6.0, 8.0])
 
 
+def test_signed_integer_vector_to_float_vector_cast():
+    @cuda.jit
+    def kernel(out):
+        integers = cuda.int8x2(-56, -1)
+        floats = cuda.float64x2(integers)
+        out[0] = floats.x
+        out[1] = floats.y
+
+    out = np.zeros(2, dtype=np.float64)
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(out, [-56.0, -1.0])
+
+
 def test_cuda_vector_constructor_from_multidimensional_vector():
     @cuda.jit
     def kernel(arr_in, arr_out):

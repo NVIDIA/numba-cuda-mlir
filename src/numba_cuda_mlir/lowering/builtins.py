@@ -449,8 +449,14 @@ def lower_broadcasted_div(builder, target, args, kwargs):
 def type_convert(builder, target, args, kwargs):
     target_numba_ty = builder.get_numba_type(target)
     to_type = builder.get_mlir_type(target)
-    to_signed = isinstance(target_numba_ty, types.Integer) and target_numba_ty.signed
     source_numba_ty = builder.get_numba_type(args[0])
+    signed = (
+        source_numba_ty.signed
+        if isinstance(source_numba_ty, types.Integer)
+        else target_numba_ty.signed
+        if isinstance(target_numba_ty, types.Integer)
+        else False
+    )
 
     if isinstance(target_numba_ty, (types.IntegerLiteral, types.Literal)):
         result = constant(target_numba_ty.literal_value, to_type)
@@ -474,7 +480,7 @@ def type_convert(builder, target, args, kwargs):
         value = convert(
             value,
             to_type,
-            signed=to_signed and not isinstance(source_numba_ty, types.Boolean),
+            signed=signed and not isinstance(source_numba_ty, types.Boolean),
         )
     builder.store_var(target, value)
 

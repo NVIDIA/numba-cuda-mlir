@@ -123,3 +123,15 @@ def test_integer_float_cast_preserves_signedness(source, destination_dtype, expe
     destination = cuda.device_array(1, dtype=destination_dtype)
     cast[1, 1](source, destination)
     np.testing.assert_equal(destination.copy_to_host()[0], expected)
+
+
+@pytest.mark.parametrize("source, destination_dtype, expected", INTEGER_FLOAT_CAST_CASES)
+def test_explicit_integer_float_cast_preserves_signedness(source, destination_dtype, expected):
+    @cuda.jit
+    def cast(source, destination):
+        destination[0] = destination_dtype(source[0])
+
+    source = cuda.to_device(np.array([source]))
+    destination = cuda.device_array(1, dtype=destination_dtype)
+    cast[1, 1](source, destination)
+    np.testing.assert_equal(destination.copy_to_host()[0], expected)

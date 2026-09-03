@@ -82,6 +82,7 @@ from numba_cuda_mlir.linker import Linker, resolve_link_plan
 from numba_cuda_mlir.memory_management.nrt_mlir import emit_nrt_functions
 from numba_cuda_mlir.nrt_context import MLIRNRTContext
 from numba_cuda_mlir.type_defs.aggregate_types import AggregateType, UnionType
+from numba_cuda_mlir.type_defs.vector_types import VectorType
 from numba_cuda_mlir.types import Record
 
 ERROR_CODE_GLOBAL_NAME = "__numba_cuda_mlir_error_code"
@@ -2504,13 +2505,16 @@ extern "C" __global__ void
             return cast_impl(self.context, self, source_type, target_type, value)
         if isinstance(source_type, types.BaseTuple) and isinstance(target_type, types.BaseTuple):
             return self._lower_tuple_cast(source_type, target_type, value)
-        signed = (
-            source_type.signed
-            if isinstance(source_type, types.Integer)
-            else target_type.signed
-            if isinstance(target_type, types.Integer)
-            else False
-        )
+        if isinstance(source_type, types.Integer):
+            signed = source_type.signed
+        elif isinstance(source_type, VectorType) and isinstance(source_type.dtype, types.Integer):
+            signed = source_type.dtype.signed
+        elif isinstance(target_type, types.Integer):
+            signed = target_type.signed
+        elif isinstance(target_type, VectorType) and isinstance(target_type.dtype, types.Integer):
+            signed = target_type.dtype.signed
+        else:
+            signed = False
         return convert(value, self.get_mlir_type(target_type), signed=signed)
 
     def _tuple_element_types(self, tuple_type):

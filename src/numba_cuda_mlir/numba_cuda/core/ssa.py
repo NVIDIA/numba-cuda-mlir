@@ -410,63 +410,86 @@ class _FixSSAVars(_BaseHandler):
         return selected_def
 
     def _find_def_from_top(self, states, label, loc):
-        """Find definition reaching block of ``label``.
+        """Find definition reaching the top of the block at ``label``,
+        inserting phi nodes where necessary.
 
-        This method would look at all dominance frontiers.
-        Insert phi node if necessary.
+        Runs on an explicit worklist so the search depth does not grow
+        with the CFG. Each ``pending`` item is a ``(phinode, pred, loc)``
+        triple whose resolved incoming definition is appended to
+        ``phinode``; predecessors are pushed in reverse so phi nodes are
+        created, and fresh variables numbered, in depth-first order.
         """
-        _logger.debug("find_def_from_top label %r", label)
+        pending = []
+        result = self._walk_def_chain(states, label, loc, True, pending)
+        while pending:
+            phinode, pred, philoc = pending.pop()
+            incoming_def = self._walk_def_chain(
+                states,
+                pred,
+                philoc,
+                False,
+                pending,
+            )
+            _logger.debug("incoming_def %s", incoming_def)
+            phinode.value.incoming_values.append(incoming_def.target)
+            phinode.value.incoming_blocks.append(pred)
+        return result
+
+    def _walk_def_chain(self, states, label, loc, from_top, pending):
+        """Walk a single def-search chain.
+
+        Alternates between the *from_bottom* step (take the last
+        definition in the block, if any) and the *from_top* step (insert
+        a phi node, or hop to the immediate dominator).  A phi node is
+        registered in ``defmap`` before its predecessors are resolved,
+        so a chain revisiting the block terminates there; resolution of
+        the phi's incoming values is deferred onto ``pending``.
+        """
         cfg = states["cfg"]
         defmap = states["defmap"]
         phimap = states["phimap"]
         phi_locations = states["phi_locations"]
 
-        if label in phi_locations:
-            scope = states["scope"]
-            loc = states["block"].loc
-            # fresh variable
-            freshvar = scope.redefine(states["varname"], loc=loc)
-            # insert phi
-            phinode = ir.Assign(
-                target=freshvar,
-                value=ir.Expr.phi(loc=loc),
-                loc=loc,
-            )
-            _logger.debug("insert phi node %s at %s", phinode, label)
-            defmap[label].insert(0, phinode)
-            phimap[label].append(phinode)
-            # Find incoming values for the Phi node
-            for pred, _ in cfg.predecessors(label):
-                incoming_def = self._find_def_from_bottom(
-                    states,
-                    pred,
+        while True:
+            if not from_top:
+                _logger.debug("find_def_from_bottom label %r", label)
+                defs = defmap[label]
+                if defs:
+                    return defs[-1]
+                from_top = True
+
+            _logger.debug("find_def_from_top label %r", label)
+            if label in phi_locations:
+                scope = states["scope"]
+                loc = states["block"].loc
+                # fresh variable
+                freshvar = scope.redefine(states["varname"], loc=loc)
+                # insert phi
+                phinode = ir.Assign(
+                    target=freshvar,
+                    value=ir.Expr.phi(loc=loc),
                     loc=loc,
                 )
-                _logger.debug("incoming_def %s", incoming_def)
-                phinode.value.incoming_values.append(incoming_def.target)
-                phinode.value.incoming_blocks.append(pred)
-            return phinode
-        else:
-            idom = cfg.immediate_dominators()[label]
-            if idom == label:
-                # We have searched to the top of the idom tree.
-                # Since we still cannot find a definition,
-                # we will warn.
-                _warn_about_uninitialized_variable(states["varname"], loc)
-                return UndefinedVariable
-            _logger.debug("idom %s from label %s", idom, label)
-            return self._find_def_from_bottom(states, idom, loc=loc)
-
-    def _find_def_from_bottom(self, states, label, loc):
-        """Find definition from within the block at ``label``."""
-        _logger.debug("find_def_from_bottom label %r", label)
-        defmap = states["defmap"]
-        defs = defmap[label]
-        if defs:
-            lastdef = defs[-1]
-            return lastdef
-        else:
-            return self._find_def_from_top(states, label, loc=loc)
+                _logger.debug("insert phi node %s at %s", phinode, label)
+                defmap[label].insert(0, phinode)
+                phimap[label].append(phinode)
+                # Defer the search for the phi's incoming values;
+                # reversed so they resolve in predecessor order.
+                preds = [pred for pred, _ in cfg.predecessors(label)]
+                for pred in reversed(preds):
+                    pending.append((phinode, pred, loc))
+                return phinode
+            else:
+                idom = cfg.immediate_dominators()[label]
+                if idom == label:
+                    # We have searched to the top of the idom tree.
+                    # Since we still cannot find a definition,
+                    # we will warn.
+                    _warn_about_uninitialized_variable(states["varname"], loc)
+                    return UndefinedVariable
+                _logger.debug("idom %s from label %s", idom, label)
+                label = idom
+                from_top = False
 
     def _stmt_index(self, defstmt, block, stop=-1):
         """Find the positional index of the statement at ``block``.

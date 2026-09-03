@@ -57,9 +57,15 @@ BF16_INTEGER_CAST_CASES = [
     pytest.param(np.int32, types.int32, -3, np.int32(-3), "arith.fptosi", id="bf16-to-int32"),
     pytest.param(np.int64, types.int64, -3, np.int64(-3), "arith.fptosi", id="bf16-to-int64"),
     pytest.param(np.uint8, types.uint8, 2**7, np.uint8(2**7), "arith.fptoui", id="bf16-to-uint8"),
-    pytest.param(np.uint16, types.uint16, 2**15, np.uint16(2**15), "arith.fptoui", id="bf16-to-uint16"),
-    pytest.param(np.uint32, types.uint32, 2**31, np.uint32(2**31), "arith.fptoui", id="bf16-to-uint32"),
-    pytest.param(np.uint64, types.uint64, 2**63, np.uint64(2**63), "arith.fptoui", id="bf16-to-uint64"),
+    pytest.param(
+        np.uint16, types.uint16, 2**15, np.uint16(2**15), "arith.fptoui", id="bf16-to-uint16"
+    ),
+    pytest.param(
+        np.uint32, types.uint32, 2**31, np.uint32(2**31), "arith.fptoui", id="bf16-to-uint32"
+    ),
+    pytest.param(
+        np.uint64, types.uint64, 2**63, np.uint64(2**63), "arith.fptoui", id="bf16-to-uint64"
+    ),
 ]
 
 

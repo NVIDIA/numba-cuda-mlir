@@ -60,7 +60,7 @@ from numba_cuda_mlir._launch_config import (
     _LAUNCH_CONFIG_TRACKER_OPTION,
 )
 from numba_cuda_mlir.decorators import mlir_jit
-from numba_cuda_mlir.ast_transforms import apply_ast_transforms
+from numba_cuda_mlir.ast_transforms import apply_ast_transforms, transform_inline_callee
 from numba_cuda_mlir.errors import (
     InternalCompilerError,
     UserFacingInternalCompilerError,
@@ -299,6 +299,7 @@ def get_compiler_class(
             super().__init__(typingctx, targetctx, library, args, return_type, flags, locals)
             # Attach options early so all passes can see them via state.metadata
             self.state.metadata["targetoptions"] = targetoptions
+            self.state.metadata["inlinee_transform"] = transform_inline_callee
             if launch_config_tracker is not None:
                 self.state.metadata[_LAUNCH_CONFIG_TRACKER_METADATA_KEY] = launch_config_tracker
 

@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 
 language: en-US
 
@@ -170,13 +171,15 @@ reviews:
       mode: "off"
     custom_checks: []
 
-tools:
-  gitleaks:
-    enabled: true
-  markdownlint:
-    enabled: true
-  shellcheck:
-    enabled: true
+  tools:
+    gitleaks:
+      enabled: true
+    markdownlint:
+      enabled: true
+    shellcheck:
+      enabled: true
+    yamllint:
+      enabled: true
 
 
 knowledge_base:

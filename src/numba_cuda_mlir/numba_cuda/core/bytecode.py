@@ -4,7 +4,6 @@
 from collections import namedtuple, OrderedDict
 import dis
 import inspect
-import itertools
 
 from types import CodeType, ModuleType
 
@@ -12,6 +11,7 @@ from numba_cuda_mlir.numba_cuda.core import errors
 from numba_cuda_mlir.numba_cuda import serialize
 from numba_cuda_mlir.numba_cuda import utils
 from numba_cuda_mlir.numba_cuda.utils import PYVERSION
+from numba_cuda_mlir._threading import _LockedCounter
 
 
 if PYVERSION in ((3, 12), (3, 13), (3, 14)):
@@ -650,7 +650,7 @@ class FunctionIdentity(serialize.ReduceMixin):
     (the two might be distinct).
     """
 
-    _unique_ids = itertools.count(1)
+    _unique_ids = _LockedCounter(1)
 
     @classmethod
     def from_function(cls, pyfunc):

@@ -48,8 +48,16 @@ class CallStack(Sequence):
     """
 
     def __init__(self):
-        self._stack = []
-        self._lock = threading.RLock()
+        self._tls = threading.local()
+
+    @property
+    def _stack(self):
+        try:
+            return self._tls.stack
+        except AttributeError:
+            stack = []
+            self._tls.stack = stack
+            return stack
 
     def __getitem__(self, index):
         """
@@ -67,13 +75,11 @@ class CallStack(Sequence):
         if self.match(func_id.func, args):
             msg = "compiler re-entrant to the same function signature"
             raise errors.NumbaRuntimeError(msg)
-        self._lock.acquire()
         self._stack.append(CallFrame(target, typeinfer, func_id, args))
         try:
             yield
         finally:
             self._stack.pop()
-            self._lock.release()
 
     def finditer(self, py_func):
         """
@@ -135,6 +141,7 @@ class BaseContext:
     """A typing context for storing function typing constrain template."""
 
     def __init__(self):
+        self._registry_lock = threading.RLock()
         # A list of installed registries
         self._registries = {}
         self._registry_versions = {}
@@ -154,24 +161,26 @@ class BaseContext:
         """
 
     def _registries_unchanged(self):
-        for registry, _loader in self._registries.items():
-            reg_id = id(registry)
-            current = getattr(registry, "_version", None)
-            if current is None:
-                return False
-            if current != self._registry_versions.get(reg_id, -1):
-                return False
-        return bool(self._registries)
+        with self._registry_lock:
+            for registry in self._registries:
+                reg_id = id(registry)
+                current = getattr(registry, "_version", None)
+                if current is None:
+                    return False
+                if current != self._registry_versions.get(reg_id, -1):
+                    return False
+            return bool(self._registries)
 
     def refresh(self):
         """
         Refresh context with new declarations from known registries.
         Useful for third-party extensions.
         """
-        if self._registries_unchanged():
-            return
-        self.load_additional_registries()
-        self._load_builtins()
+        with self._registry_lock:
+            if self._registries_unchanged():
+                return
+            self.load_additional_registries()
+            self._load_builtins()
 
     def explain_function_type(self, func):
         """
@@ -442,77 +451,78 @@ class BaseContext:
             a shared registry like Numba's typing registry (builtin_registry).
 
         """
-        reg_id = id(registry)
-        current_version = getattr(registry, "_version", None)
-        if current_version is not None and current_version == self._registry_versions.get(
-            reg_id, -1
-        ):
-            return
+        with self._registry_lock:
+            reg_id = id(registry)
+            current_version = getattr(registry, "_version", None)
+            if current_version is not None and current_version == self._registry_versions.get(
+                reg_id, -1
+            ):
+                return
 
-        try:
-            loader = self._registries[registry]
-        except KeyError:
-            loader = templates.RegistryLoader(registry)
-            self._registries[registry] = loader
-
-        def is_for_this_target(ftcls):
-            metadata = getattr(ftcls, "metadata", None)
-            if metadata is None:
-                return True
-
-            target_str = metadata.get("target")
-            if target_str is None:
-                return True
-
-            # Accept both "cuda" and "generic" targets
-            if target_str in ("cuda", "generic"):
-                return True
-
-            return False
-
-        def is_external(obj):
-            """Check if obj is from outside numba.* namespace."""
             try:
-                is_numba_module = obj.__module__.startswith("numba.")
-                is_test_module = obj.__module__.startswith("numba.cuda.tests.")
-                return not is_numba_module or is_test_module
-            except AttributeError:
-                return True
+                loader = self._registries[registry]
+            except KeyError:
+                loader = templates.RegistryLoader(registry)
+                self._registries[registry] = loader
 
-        for ftcls in loader.new_registrations("functions"):
-            if not is_for_this_target(ftcls):
-                continue
-            # If external_defs_only, install templates only from external modules
-            if external_defs_only and not is_external(ftcls):
-                continue
-            self.insert_function(ftcls(self))
-        for ftcls in loader.new_registrations("attributes"):
-            if not is_for_this_target(ftcls):
-                continue
-            # If external_defs_only, check if the type being registered is external
-            if external_defs_only:
-                key = getattr(ftcls, "key", None)
-                if key is not None and not is_external(key):
-                    continue
-            self.insert_attributes(ftcls(self))
-        for gv, gty in loader.new_registrations("globals"):
-            # If external_defs_only, check the global value's module
-            if external_defs_only:
-                if hasattr(gv, "__module__") and not is_external(gv):
-                    continue
-            existing = self._lookup_global(gv)
-            if existing is None:
-                self.insert_global(gv, gty)
-            else:
-                # A type was already inserted, see if we can add to it
-                newty = existing.augment(gty)
-                if newty is None:
-                    raise TypeError("cannot augment %s with %s" % (existing, gty))
-                self._remove_global(gv)
-                self._insert_global(gv, newty)
+            def is_for_this_target(ftcls):
+                metadata = getattr(ftcls, "metadata", None)
+                if metadata is None:
+                    return True
 
-        if current_version is not None:
-            self._registry_versions[reg_id] = current_version
+                target_str = metadata.get("target")
+                if target_str is None:
+                    return True
+
+                # Accept both "cuda" and "generic" targets
+                if target_str in ("cuda", "generic"):
+                    return True
+
+                return False
+
+            def is_external(obj):
+                """Check if obj is from outside numba.* namespace."""
+                try:
+                    is_numba_module = obj.__module__.startswith("numba.")
+                    is_test_module = obj.__module__.startswith("numba.cuda.tests.")
+                    return not is_numba_module or is_test_module
+                except AttributeError:
+                    return True
+
+            for ftcls in loader.new_registrations("functions"):
+                if not is_for_this_target(ftcls):
+                    continue
+                # If external_defs_only, install templates only from external modules
+                if external_defs_only and not is_external(ftcls):
+                    continue
+                self.insert_function(ftcls(self))
+            for ftcls in loader.new_registrations("attributes"):
+                if not is_for_this_target(ftcls):
+                    continue
+                # If external_defs_only, check if the type being registered is external
+                if external_defs_only:
+                    key = getattr(ftcls, "key", None)
+                    if key is not None and not is_external(key):
+                        continue
+                self.insert_attributes(ftcls(self))
+            for gv, gty in loader.new_registrations("globals"):
+                # If external_defs_only, check the global value's module
+                if external_defs_only:
+                    if hasattr(gv, "__module__") and not is_external(gv):
+                        continue
+                existing = self._lookup_global(gv)
+                if existing is None:
+                    self.insert_global(gv, gty)
+                else:
+                    # A type was already inserted, see if we can add to it
+                    newty = existing.augment(gty)
+                    if newty is None:
+                        raise TypeError("cannot augment %s with %s" % (existing, gty))
+                    self._remove_global(gv)
+                    self._insert_global(gv, newty)
+
+            if current_version is not None:
+                self._registry_versions[reg_id] = current_version
 
     def _lookup_global(self, gv):
         """

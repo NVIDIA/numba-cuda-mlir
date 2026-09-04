@@ -170,13 +170,13 @@ reviews:
       mode: "off"
     custom_checks: []
 
-tools:
-  gitleaks:
-    enabled: true
-  markdownlint:
-    enabled: true
-  shellcheck:
-    enabled: true
+  tools:
+    gitleaks:
+      enabled: true
+    markdownlint:
+      enabled: true
+    shellcheck:
+      enabled: true
 
 
 knowledge_base:

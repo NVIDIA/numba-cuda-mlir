@@ -60,10 +60,11 @@ def _get_float_of_same_size_as(ty: ir.Type) -> ir.Type:
             return T.f64()
         case ir.IntegerType():
             match ty.width:
-                case 32:
-                    return T.f32()
                 case 64:
                     return T.f64()
+                case 1 | 8 | 16 | 32:
+                    # f32 represents every value of these widths exactly.
+                    return T.f32()
                 case _:
                     raise ValueError(f"Unsupported integer type width: {ty.width}")
         case ir.FloatType():

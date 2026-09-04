@@ -131,6 +131,33 @@ def test_math_operand_conversion_preserves_signedness(fn, value, expected):
     np.testing.assert_allclose(out.copy_to_host()[0], expected, rtol=1e-6)
 
 
+NARROW_INTEGER_CASES = [
+    pytest.param(math.sqrt, np.uint8(200), math.sqrt(200), id="sqrt-uint8"),
+    pytest.param(math.sqrt, np.int8(100), math.sqrt(100), id="sqrt-int8"),
+    pytest.param(math.sqrt, np.uint16(60000), math.sqrt(60000), id="sqrt-uint16"),
+    pytest.param(math.sqrt, np.int16(300), math.sqrt(300), id="sqrt-int16"),
+    pytest.param(math.floor, np.uint8(200), 200.0, id="floor-uint8"),
+    pytest.param(math.floor, np.int8(-56), -56.0, id="floor-int8"),
+    pytest.param(math.floor, np.uint16(60000), 60000.0, id="floor-uint16"),
+    pytest.param(math.floor, np.int16(-300), -300.0, id="floor-int16"),
+    pytest.param(math.fabs, np.int8(-56), 56.0, id="fabs-int8"),
+]
+
+
+@pytest.mark.parametrize("fn,value,expected", NARROW_INTEGER_CASES)
+def test_math_accepts_narrow_integer_widths(fn, value, expected):
+    """8- and 16-bit sources used to raise ValueError instead of lowering."""
+
+    @cuda.jit
+    def kernel(src, out):
+        out[0] = fn(src[0])
+
+    src = cuda.to_device(np.array([value]))
+    out = cuda.device_array(1, dtype=np.float64)
+    kernel[1, 1](src, out)
+    np.testing.assert_allclose(out.copy_to_host()[0], expected, rtol=1e-6)
+
+
 def test_math_binary_operand_conversion_preserves_signedness():
     @cuda.jit
     def kernel(x, y, out):

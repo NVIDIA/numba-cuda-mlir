@@ -72,16 +72,26 @@ def _get_float_of_same_size_as(ty: ir.Type) -> ir.Type:
             raise ValueError(f"Unsupported type: {ty}")
 
 
-def _cast_to_float_of_same_size(value: ir.Value) -> ir.Value:
+def _cast_to_float_of_same_size(value: ir.Value, source_type: types.Type | None = None) -> ir.Value:
     float_type = _get_float_of_same_size_as(value.type)
-    return lowering_utilities.convert(value, float_type)
+    signed = None
+    if source_type is not None:
+        target_type = types.float32 if float_type == T.f32() else types.float64
+        signed = get_conversion_signedness(source_type, target_type)
+    return lowering_utilities.convert(value, float_type, signed=signed)
 
 
-def _ensure_float(value: ir.Value) -> ir.Value:
+def _ensure_float(value: ir.Value, source_type: types.Type | None = None) -> ir.Value:
     """Ensure value is floating-point, converting integers to floats if needed."""
     if isinstance(value.type, ir.IntegerType) or isinstance(value.type, ir.IndexType):
-        return _cast_to_float_of_same_size(value)
+        return _cast_to_float_of_same_size(value, source_type)
     return value
+
+
+def _load_as_float(mlir_lower, operand: numba_ir.Var) -> ir.Value:
+    """Load a math operand as a float, interpreting integers per their signedness."""
+    value = mlir_lower.load_var(operand)
+    return _ensure_float(value, mlir_lower.get_numba_type(operand.name))
 
 
 def _is_integer_type(ty: ir.Type) -> bool:
@@ -580,7 +590,7 @@ def math_ceil_cg(mlir_lower, target, args, kwargs):
     value = mlir_lower.load_var(args[0])
     if _is_integer_type(value.type):
         # ceil of an integer is the integer itself, but convert to float for return type
-        result = _cast_to_float_of_same_size(value)
+        result = _cast_to_float_of_same_size(value, mlir_lower.get_numba_type(args[0].name))
     else:
         result = math_dialect.ceil(value)
     mlir_lower.store_var(target, result)
@@ -592,7 +602,7 @@ def math_floor_cg(mlir_lower, target, args, kwargs):
     value = mlir_lower.load_var(args[0])
     if _is_integer_type(value.type):
         # floor of an integer is the integer itself, but convert to float for return type
-        result = _cast_to_float_of_same_size(value)
+        result = _cast_to_float_of_same_size(value, mlir_lower.get_numba_type(args[0].name))
     else:
         result = math_dialect.floor(value)
     mlir_lower.store_var(target, result)
@@ -604,7 +614,7 @@ def math_trunc_cg(mlir_lower, target, args, kwargs):
     value = mlir_lower.load_var(args[0])
     if _is_integer_type(value.type):
         # trunc of an integer is the integer itself, but convert to float for return type
-        result = _cast_to_float_of_same_size(value)
+        result = _cast_to_float_of_same_size(value, mlir_lower.get_numba_type(args[0].name))
     else:
         result = math_dialect.trunc(value)
     mlir_lower.store_var(target, result)
@@ -613,7 +623,7 @@ def math_trunc_cg(mlir_lower, target, args, kwargs):
 @lower(math.sin, types.Number)
 def math_sin_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_sin does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.sin(value)
     mlir_lower.store_var(target, result)
 
@@ -621,7 +631,7 @@ def math_sin_cg(mlir_lower, target, args, kwargs):
 @lower(math.cos, types.Number)
 def math_cos_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_cos does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.cos(value)
     mlir_lower.store_var(target, result)
 
@@ -629,7 +639,7 @@ def math_cos_cg(mlir_lower, target, args, kwargs):
 @lower(math.tan, types.Number)
 def math_tan_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_tan does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.tan(value)
     mlir_lower.store_var(target, result)
 
@@ -637,7 +647,7 @@ def math_tan_cg(mlir_lower, target, args, kwargs):
 @lower(math.sqrt, types.Number)
 def math_sqrt_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_sqrt does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.sqrt(value)
     mlir_lower.store_var(target, result)
 
@@ -645,7 +655,7 @@ def math_sqrt_cg(mlir_lower, target, args, kwargs):
 @lower(math.exp, types.Number)
 def math_exp_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_exp does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.exp(value)
     mlir_lower.store_var(target, result)
 
@@ -653,7 +663,7 @@ def math_exp_cg(mlir_lower, target, args, kwargs):
 @lower(math.log, types.Number)
 def math_log_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_log does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.log(value)
     mlir_lower.store_var(target, result)
 
@@ -661,7 +671,7 @@ def math_log_cg(mlir_lower, target, args, kwargs):
 @lower(math.log2, types.Number)
 def math_log2_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_log2 does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.log2(value)
     mlir_lower.store_var(target, result)
 
@@ -669,7 +679,7 @@ def math_log2_cg(mlir_lower, target, args, kwargs):
 @lower(math.log10, types.Number)
 def math_log10_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_log10 does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.log10(value)
     mlir_lower.store_var(target, result)
 
@@ -677,7 +687,7 @@ def math_log10_cg(mlir_lower, target, args, kwargs):
 @lower(math.fabs, types.Number)
 def math_fabs_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_fabs does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.absf(value)
     mlir_lower.store_var(target, result)
 
@@ -716,7 +726,7 @@ if hasattr(math, "exp2"):
     @lower(math.exp2, types.Number)
     def math_exp2_cg(mlir_lower, target, args, kwargs):
         assert not kwargs, "math_exp2 does not accept any keyword arguments"
-        value = _ensure_float(mlir_lower.load_var(args[0]))
+        value = _load_as_float(mlir_lower, args[0])
         result = math_dialect.exp2(value)
         mlir_lower.store_var(target, result)
 
@@ -724,7 +734,7 @@ if hasattr(math, "exp2"):
 @lower(math.tanh, types.Number)
 def math_tanh_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_tanh does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.tanh(value)
     mlir_lower.store_var(target, result)
 
@@ -732,7 +742,7 @@ def math_tanh_cg(mlir_lower, target, args, kwargs):
 @lower(math.sinh, types.Number)
 def math_sinh_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_sinh does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.sinh(value)
     mlir_lower.store_var(target, result)
 
@@ -740,7 +750,7 @@ def math_sinh_cg(mlir_lower, target, args, kwargs):
 @lower(math.cosh, types.Number)
 def math_cosh_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_cosh does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.cosh(value)
     mlir_lower.store_var(target, result)
 
@@ -748,7 +758,7 @@ def math_cosh_cg(mlir_lower, target, args, kwargs):
 @lower(math.asin, types.Number)
 def math_asin_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_asin does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.asin(value)
     mlir_lower.store_var(target, result)
 
@@ -756,7 +766,7 @@ def math_asin_cg(mlir_lower, target, args, kwargs):
 @lower(math.acos, types.Number)
 def math_acos_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_acos does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.acos(value)
     mlir_lower.store_var(target, result)
 
@@ -764,7 +774,7 @@ def math_acos_cg(mlir_lower, target, args, kwargs):
 @lower(math.atan, types.Number)
 def math_atan_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_atan does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.atan(value)
     mlir_lower.store_var(target, result)
 
@@ -772,7 +782,7 @@ def math_atan_cg(mlir_lower, target, args, kwargs):
 @lower(math.asinh, types.Number)
 def math_asinh_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_asinh does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.asinh(value)
     mlir_lower.store_var(target, result)
 
@@ -780,7 +790,7 @@ def math_asinh_cg(mlir_lower, target, args, kwargs):
 @lower(math.acosh, types.Number)
 def math_acosh_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_acosh does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.acosh(value)
     mlir_lower.store_var(target, result)
 
@@ -788,7 +798,7 @@ def math_acosh_cg(mlir_lower, target, args, kwargs):
 @lower(math.atanh, types.Number)
 def math_atanh_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_atanh does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.atanh(value)
     mlir_lower.store_var(target, result)
 
@@ -810,8 +820,8 @@ def math_isinf_cg(mlir_lower, target, args, kwargs):
 def math_copysign_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_copysign does not accept any keyword arguments"
     assert len(args) == 2, "math_copysign expects 2 arguments"
-    x = _ensure_float(mlir_lower.load_var(args[0]))
-    y = _ensure_float(mlir_lower.load_var(args[1]))
+    x = _load_as_float(mlir_lower, args[0])
+    y = _load_as_float(mlir_lower, args[1])
     # Ensure both have the same type
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
@@ -824,8 +834,8 @@ def math_copysign_cg(mlir_lower, target, args, kwargs):
 def math_atan2_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_atan2 does not accept any keyword arguments"
     assert len(args) == 2, "math_atan2 expects 2 arguments"
-    y = _ensure_float(mlir_lower.load_var(args[0]))
-    x = _ensure_float(mlir_lower.load_var(args[1]))
+    y = _load_as_float(mlir_lower, args[0])
+    x = _load_as_float(mlir_lower, args[1])
     # Ensure both have the same type
     unified_type = lowering_utilities.numpy_implicit_type_promotion(y.type, x.type)
     y = convert(y, unified_type)
@@ -839,8 +849,8 @@ def math_hypot_cg(mlir_lower, target, args, kwargs):
     """hypot(x, y) = sqrt(x^2 + y^2), computed in float64 for precision"""
     assert not kwargs, "math_hypot does not accept any keyword arguments"
     assert len(args) == 2, "math_hypot expects 2 arguments"
-    x = _ensure_float(mlir_lower.load_var(args[0]))
-    y = _ensure_float(mlir_lower.load_var(args[1]))
+    x = _load_as_float(mlir_lower, args[0])
+    y = _load_as_float(mlir_lower, args[1])
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)
@@ -864,7 +874,7 @@ def math_hypot_cg(mlir_lower, target, args, kwargs):
 def math_log1p_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_log1p does not accept any keyword arguments"
     assert len(args) == 1, "math_log1p expects 1 argument"
-    x = _ensure_float(mlir_lower.load_var(args[0]))
+    x = _load_as_float(mlir_lower, args[0])
     result = math_dialect.log1p(x)
     mlir_lower.store_var(target, result)
 
@@ -1174,7 +1184,7 @@ def math_ldexp_cg(mlir_lower, target, args, kwargs):
 @lower(math.expm1, types.Number)
 def math_expm1_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_expm1 does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.expm1(value)
     mlir_lower.store_var(target, result)
 
@@ -1183,7 +1193,7 @@ def math_expm1_cg(mlir_lower, target, args, kwargs):
 def math_degrees_cg(mlir_lower, target, args, kwargs):
     """Convert radians to degrees: x * (180 / pi)"""
     assert not kwargs, "math_degrees does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     # 180 / pi = 57.29577951308232
     factor = lowering_utilities.constant(57.29577951308232, value.type)
     result = arith.mulf(value, factor)
@@ -1194,7 +1204,7 @@ def math_degrees_cg(mlir_lower, target, args, kwargs):
 def math_radians_cg(mlir_lower, target, args, kwargs):
     """Convert degrees to radians: x * (pi / 180)"""
     assert not kwargs, "math_radians does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     # pi / 180 = 0.017453292519943295
     factor = lowering_utilities.constant(0.017453292519943295, value.type)
     result = arith.mulf(value, factor)
@@ -1204,7 +1214,7 @@ def math_radians_cg(mlir_lower, target, args, kwargs):
 @lower(math.erf, types.Number)
 def math_erf_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_erf does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = math_dialect.erf(value)
     mlir_lower.store_var(target, result)
 
@@ -1213,7 +1223,7 @@ def math_erf_cg(mlir_lower, target, args, kwargs):
 def math_erfc_cg(mlir_lower, target, args, kwargs):
     """erfc(x) = complementary error function, using libdevice for precision"""
     assert not kwargs, "math_erfc does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = _call_libdevice_unary(mlir_lower, value, "__nv_erfc", "__nv_erfcf")
     mlir_lower.store_var(target, result)
 
@@ -1222,7 +1232,7 @@ def math_erfc_cg(mlir_lower, target, args, kwargs):
 def math_gamma_cg(mlir_lower, target, args, kwargs):
     """Lower math.gamma using libdevice tgamma"""
     assert not kwargs, "math_gamma does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = _call_libdevice_unary(mlir_lower, value, "__nv_tgamma", "__nv_tgammaf")
     mlir_lower.store_var(target, result)
 
@@ -1231,7 +1241,7 @@ def math_gamma_cg(mlir_lower, target, args, kwargs):
 def math_lgamma_cg(mlir_lower, target, args, kwargs):
     """Lower math.lgamma using libdevice lgamma"""
     assert not kwargs, "math_lgamma does not accept any keyword arguments"
-    value = _ensure_float(mlir_lower.load_var(args[0]))
+    value = _load_as_float(mlir_lower, args[0])
     result = _call_libdevice_unary(mlir_lower, value, "__nv_lgamma", "__nv_lgammaf")
     mlir_lower.store_var(target, result)
 
@@ -1241,8 +1251,8 @@ def math_fmod_cg(mlir_lower, target, args, kwargs):
     """fmod(x, y) - floating point remainder with sign of x (truncated division)"""
     assert not kwargs, "math_fmod does not accept any keyword arguments"
     assert len(args) == 2, "math_fmod expects 2 arguments"
-    x = _ensure_float(mlir_lower.load_var(args[0]))
-    y = _ensure_float(mlir_lower.load_var(args[1]))
+    x = _load_as_float(mlir_lower, args[0])
+    y = _load_as_float(mlir_lower, args[1])
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)
@@ -1260,8 +1270,8 @@ def math_remainder_cg(mlir_lower, target, args, kwargs):
     """IEEE 754 remainder: x - round(x/y) * y"""
     assert not kwargs, "math_remainder does not accept any keyword arguments"
     assert len(args) == 2, "math_remainder expects 2 arguments"
-    x = _ensure_float(mlir_lower.load_var(args[0]))
-    y = _ensure_float(mlir_lower.load_var(args[1]))
+    x = _load_as_float(mlir_lower, args[0])
+    y = _load_as_float(mlir_lower, args[1])
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)
@@ -1278,8 +1288,8 @@ def math_pow_cg(mlir_lower, target, args, kwargs):
     """math.pow(x, y) - x raised to power y"""
     assert not kwargs, "math_pow does not accept any keyword arguments"
     assert len(args) == 2, "math_pow expects 2 arguments"
-    x = _ensure_float(mlir_lower.load_var(args[0]))
-    y = _ensure_float(mlir_lower.load_var(args[1]))
+    x = _load_as_float(mlir_lower, args[0])
+    y = _load_as_float(mlir_lower, args[1])
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)
@@ -1292,8 +1302,8 @@ def math_nextafter_cg(mlir_lower, target, args, kwargs):
     """nextafter(x, y) - next representable floating-point value after x towards y"""
     assert not kwargs, "math_nextafter does not accept any keyword arguments"
     assert len(args) == 2, "math_nextafter expects 2 arguments"
-    x = _ensure_float(mlir_lower.load_var(args[0]))
-    y = _ensure_float(mlir_lower.load_var(args[1]))
+    x = _load_as_float(mlir_lower, args[0])
+    y = _load_as_float(mlir_lower, args[1])
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)

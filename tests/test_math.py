@@ -4,9 +4,93 @@ import logging
 
 logging.basicConfig(level=logging.DEBUG)
 import math
+import operator
 from numba_cuda_mlir import cuda
 import numpy as np
 import pytest
+
+
+ARITHMETIC_SIGNEDNESS_CASES = [
+    pytest.param(operator.add, np.int8(-56), np.int64(0), np.int64(-56), id="add"),
+    pytest.param(operator.sub, np.int8(-56), np.int64(0), np.int64(-56), id="sub"),
+    pytest.param(operator.mul, np.int8(-7), np.int64(2), np.int64(-14), id="mul"),
+    pytest.param(
+        operator.truediv,
+        np.int8(-7),
+        np.int64(2),
+        np.float64(-3.5),
+        id="truediv",
+    ),
+    pytest.param(
+        operator.add,
+        np.uint8(200),
+        np.int64(0),
+        np.int64(200),
+        id="unsigned-control",
+    ),
+    pytest.param(
+        operator.mod,
+        np.uint8(200),
+        np.int64(256),
+        np.int64(200),
+        id="mod-unsigned-source",
+    ),
+    pytest.param(
+        operator.floordiv,
+        np.uint8(200),
+        np.int64(2),
+        np.int64(100),
+        id="floordiv-unsigned-source",
+    ),
+    pytest.param(
+        operator.lshift,
+        np.int8(-56),
+        np.int64(1),
+        np.int64(-112),
+        id="lshift-signed-source",
+    ),
+    pytest.param(
+        operator.rshift,
+        np.int8(-56),
+        np.int64(1),
+        np.int64(-28),
+        id="rshift-signed-source",
+    ),
+    pytest.param(
+        operator.and_,
+        np.int8(-56),
+        np.int64(-1),
+        np.int64(-56),
+        id="and-signed-source",
+    ),
+    pytest.param(
+        operator.or_,
+        np.int8(-56),
+        np.int64(0),
+        np.int64(-56),
+        id="or-signed-source",
+    ),
+    pytest.param(
+        operator.xor,
+        np.int8(-56),
+        np.int64(0),
+        np.int64(-56),
+        id="xor-signed-source",
+    ),
+]
+
+
+@pytest.mark.parametrize("op,lhs,rhs,expected", ARITHMETIC_SIGNEDNESS_CASES)
+def test_arithmetic_operand_conversion_preserves_signedness(op, lhs, rhs, expected):
+    @cuda.jit
+    def kernel(lhs, rhs, out):
+        out[0] = op(lhs[0], rhs[0])
+
+    lhs = cuda.to_device(np.array([lhs]))
+    rhs = cuda.to_device(np.array([rhs]))
+    out = cuda.device_array(1, dtype=type(expected))
+    kernel[1, 1](lhs, rhs, out)
+    np.testing.assert_equal(out.copy_to_host()[0], expected)
 
 
 def test_math_ceil():

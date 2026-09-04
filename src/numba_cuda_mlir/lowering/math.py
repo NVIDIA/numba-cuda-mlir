@@ -7,6 +7,7 @@ from numba_cuda_mlir import lowering_utilities
 from numba_cuda_mlir.lowering_utilities import (
     numpy_implicit_type_promotion,
     convert,
+    get_conversion_signedness,
     get_or_insert_function,
 )
 from numba_cuda_mlir.logging import trace
@@ -311,14 +312,15 @@ def pow_cg(builder, target, args, kwargs):
     builder.store_var(target, res)
 
 
-def _convert_integer_operand(value, source_type, target_type):
-    if isinstance(target_type, ir.FloatType):
-        return (
-            arith.sitofp(out=target_type, in_=value)
-            if source_type.signed
-            else arith.uitofp(out=target_type, in_=value)
-        )
-    return lowering_utilities.convert(value, target_type, signed=source_type.signed)
+def _convert_operand(value, source_type, target_type, target_mlir_type):
+    signed = get_conversion_signedness(source_type, target_type)
+    return lowering_utilities.convert(value, target_mlir_type, signed=signed)
+
+
+def _load_and_convert_operand(builder, operand, target_type, target_mlir_type):
+    source_type = builder.get_numba_type(operand.name)
+    value = builder.load_var(operand)
+    return _convert_operand(value, source_type, target_type, target_mlir_type)
 
 
 def _bin_op_cg(op, builder, target, args, kwargs):
@@ -389,11 +391,11 @@ def _bin_op_cg(op, builder, target, args, kwargs):
         info, op = found_op
         assert op is not None, "Expected operation"
         if info.cast_to_return_type:
-            lhs = lowering_utilities.convert(lhs, target_mlir_type)
-            rhs = lowering_utilities.convert(rhs, target_mlir_type)
+            lhs = _convert_operand(lhs, lhs_type, target_type, target_mlir_type)
+            rhs = _convert_operand(rhs, rhs_type, target_type, target_mlir_type)
         elif promoted_numba_type is not None:
-            lhs = _convert_integer_operand(lhs, lhs_type, unified_type)
-            rhs = _convert_integer_operand(rhs, rhs_type, unified_type)
+            lhs = _convert_operand(lhs, lhs_type, promoted_numba_type, unified_type)
+            rhs = _convert_operand(rhs, rhs_type, promoted_numba_type, unified_type)
         else:
             lhs, rhs = lowering_utilities.coerce_numpy_scalars_for_binary_op(lhs, rhs)
         res = op(lhs, rhs)
@@ -874,17 +876,13 @@ def mod_cg(builder, target, args, kwargs):
     assert len(args) == 2, "mod_cg expects 2 arguments"
     target_type = builder.get_numba_type(target.name)
     target_mlir_type = builder.get_mlir_type(target_type)
-    # MLIR integer types here are signless; signedness must come from the
-    # Numba type so that operand widening sign-extends signed values.
-    # Non-integer targets keep convert's unsigned default.
-    signed = isinstance(target_type, types.Integer) and target_type.signed
     lhs, rhs = args
-    lhs = lowering_utilities.convert(builder.load_var(lhs), target_mlir_type, signed=signed)
-    rhs = lowering_utilities.convert(builder.load_var(rhs), target_mlir_type, signed=signed)
+    lhs = _load_and_convert_operand(builder, lhs, target_type, target_mlir_type)
+    rhs = _load_and_convert_operand(builder, rhs, target_type, target_mlir_type)
 
     match target_mlir_type:
         case ir.IntegerType():
-            if signed:
+            if target_type.signed:
                 # Python floored modulo: the result takes the sign of the
                 # divisor. arith.remsi truncates toward zero, so add the
                 # divisor when the remainder is nonzero and its sign
@@ -916,8 +914,8 @@ def lshift_cg(builder, target, args, kwargs):
     target_type = builder.get_numba_type(target.name)
     target_mlir_type = builder.get_mlir_type(target_type)
     lhs, rhs = args
-    lhs = lowering_utilities.convert(builder.load_var(lhs), target_mlir_type)
-    rhs = lowering_utilities.convert(builder.load_var(rhs), target_mlir_type)
+    lhs = _load_and_convert_operand(builder, lhs, target_type, target_mlir_type)
+    rhs = _load_and_convert_operand(builder, rhs, target_type, target_mlir_type)
     result = arith.shli(lhs, rhs)
     builder.store_var(target, result)
 
@@ -930,8 +928,8 @@ def rshift_cg(builder, target, args, kwargs):
     target_type = builder.get_numba_type(target.name)
     target_mlir_type = builder.get_mlir_type(target_type)
     lhs, rhs = args
-    lhs = lowering_utilities.convert(builder.load_var(lhs), target_mlir_type)
-    rhs = lowering_utilities.convert(builder.load_var(rhs), target_mlir_type)
+    lhs = _load_and_convert_operand(builder, lhs, target_type, target_mlir_type)
+    rhs = _load_and_convert_operand(builder, rhs, target_type, target_mlir_type)
     # Use unsigned right shift for unsigned types, signed for signed types
     if target_type.signed:
         result = arith.shrsi(lhs, rhs)
@@ -962,8 +960,8 @@ def and_cg(builder, target, args, kwargs):
     target_type = builder.get_numba_type(target.name)
     target_mlir_type = builder.get_mlir_type(target_type)
     lhs, rhs = args
-    lhs = lowering_utilities.convert(builder.load_var(lhs), target_mlir_type)
-    rhs = lowering_utilities.convert(builder.load_var(rhs), target_mlir_type)
+    lhs = _load_and_convert_operand(builder, lhs, target_type, target_mlir_type)
+    rhs = _load_and_convert_operand(builder, rhs, target_type, target_mlir_type)
     result = arith.andi(lhs, rhs)
     builder.store_var(target, result)
 
@@ -978,8 +976,8 @@ def or_cg(builder, target, args, kwargs):
     target_type = builder.get_numba_type(target.name)
     target_mlir_type = builder.get_mlir_type(target_type)
     lhs, rhs = args
-    lhs = lowering_utilities.convert(builder.load_var(lhs), target_mlir_type)
-    rhs = lowering_utilities.convert(builder.load_var(rhs), target_mlir_type)
+    lhs = _load_and_convert_operand(builder, lhs, target_type, target_mlir_type)
+    rhs = _load_and_convert_operand(builder, rhs, target_type, target_mlir_type)
     result = arith.ori(lhs, rhs)
     builder.store_var(target, result)
 
@@ -994,8 +992,8 @@ def xor_cg(builder, target, args, kwargs):
     target_type = builder.get_numba_type(target.name)
     target_mlir_type = builder.get_mlir_type(target_type)
     lhs, rhs = args
-    lhs = lowering_utilities.convert(builder.load_var(lhs), target_mlir_type)
-    rhs = lowering_utilities.convert(builder.load_var(rhs), target_mlir_type)
+    lhs = _load_and_convert_operand(builder, lhs, target_type, target_mlir_type)
+    rhs = _load_and_convert_operand(builder, rhs, target_type, target_mlir_type)
     result = arith.xori(lhs, rhs)
     builder.store_var(target, result)
 
@@ -1008,7 +1006,7 @@ def invert_cg(builder, target, args, kwargs):
     assert len(args) == 1, "invert_cg expects 1 argument"
     target_type = builder.get_numba_type(target.name)
     target_mlir_type = builder.get_mlir_type(target_type)
-    operand = lowering_utilities.convert(builder.load_var(args[0]), target_mlir_type)
+    operand = _load_and_convert_operand(builder, args[0], target_type, target_mlir_type)
     fill = 1 if isinstance(target_type, types.Boolean) else -1
     all_ones = lowering_utilities.constant(fill, target_mlir_type)
     result = arith.xori(operand, all_ones)
@@ -1023,24 +1021,18 @@ def floordiv_cg(builder, target, args, kwargs):
     target_type = builder.get_numba_type(target.name)
     target_mlir_type = builder.get_mlir_type(target_type)
     lhs, rhs = args
-    lhs, rhs = builder.load_var(lhs), builder.load_var(rhs)
+    lhs = _load_and_convert_operand(builder, lhs, target_type, target_mlir_type)
+    rhs = _load_and_convert_operand(builder, rhs, target_type, target_mlir_type)
 
     match target_mlir_type:
         case ir.FloatType():
             # For floats: floor(a / b)
-            lhs = lowering_utilities.convert(lhs, target_mlir_type)
-            rhs = lowering_utilities.convert(rhs, target_mlir_type)
             div_result = arith.divf(lhs, rhs)
             result = math_dialect.floor(div_result)
         case ir.IntegerType():
-            # MLIR integer types here are signless (is_signed is always
-            # False), so signedness must come from the Numba type — both
-            # for the widening conversion (extsi vs extui) and for the
-            # choice of division op.
-            signed = target_type.signed
-            lhs = lowering_utilities.convert(lhs, target_mlir_type, signed=signed)
-            rhs = lowering_utilities.convert(rhs, target_mlir_type, signed=signed)
-            if signed:
+            # Result type selects signed or unsigned floor division. Operand
+            # conversion signedness was handled independently above.
+            if target_type.signed:
                 result = arith.floordivsi(lhs, rhs)
             else:
                 # For unsigned, regular division is the same as floor division

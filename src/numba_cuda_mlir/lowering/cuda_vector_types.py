@@ -14,7 +14,11 @@ registry = LoweringRegistry()
 _raw_lower = registry.lower
 lower_getattr = registry.lower_getattr
 from numba_cuda_mlir.mlir_lowering import MLIRLower
-from numba_cuda_mlir.lowering_utilities import convert, _get_mlir_bin_op_for_operator
+from numba_cuda_mlir.lowering_utilities import (
+    convert,
+    get_conversion_signedness,
+    _get_mlir_bin_op_for_operator,
+)
 from numba_cuda_mlir.lowering_utilities.type_conversions import to_mlir_type
 from numba_cuda_mlir.cuda.vector_types import _vector_types
 from numba_cuda_mlir.type_defs.vector_types import VectorType
@@ -76,26 +80,14 @@ def _constructor_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs)
     for arg in args:
         val = lower_ctx.load_var(arg)
         arg_type = lower_ctx.get_numba_type(arg.name)
+        signed = get_conversion_signedness(arg_type, target_type)
 
         if isinstance(arg_type, VectorType):
-            if isinstance(arg_type.dtype, types.Integer):
-                signed = arg_type.dtype.signed
-            elif isinstance(target_type.dtype, types.Integer):
-                signed = target_type.dtype.signed
-            else:
-                signed = None
             scalars.extend((scalar, signed) for scalar in _extract_vector_elements(val))
         elif isinstance(arg_type, types.Complex):
-            scalars.append((complex_dialect.re(val), None))
-            scalars.append((complex_dialect.im(val), None))
+            scalars.append((complex_dialect.re(val), signed))
+            scalars.append((complex_dialect.im(val), signed))
         else:
-            signed = (
-                arg_type.signed
-                if isinstance(arg_type, types.Integer)
-                else target_type.dtype.signed
-                if isinstance(target_type.dtype, types.Integer)
-                else None
-            )
             scalars.append((val, signed))
 
     if len(scalars) == 1 and num_elements > 1:

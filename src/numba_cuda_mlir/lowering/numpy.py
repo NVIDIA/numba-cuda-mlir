@@ -51,6 +51,7 @@ from numba_cuda_mlir.lowering_utilities import (
     try_extract_constant,
     NdIterIterObject,
     is_nonelike,
+    get_conversion_signedness,
     storage_itemsize_bytes,
 )
 from numba_cuda_mlir.mlir_lowering import KERNEL_ERROR_CODES
@@ -1582,14 +1583,7 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
     index = lowering_utilities.index_of(index)
     value = builder.load_var(args[2])
     value_numba_type = builder.get_numba_type(args[2].name)
-    if isinstance(value_numba_type, types.Integer):
-        signed = value_numba_type.signed
-    elif isinstance(value_numba_type, types.Boolean):
-        signed = False
-    elif isinstance(array_numba_type.dtype, types.Integer):
-        signed = array_numba_type.dtype.signed
-    else:
-        signed = None
+    signed = get_conversion_signedness(value_numba_type, array_numba_type.dtype)
     mrt = array.type
     if mrt.rank == 1:
         lowering_utilities.array_element_value_store(

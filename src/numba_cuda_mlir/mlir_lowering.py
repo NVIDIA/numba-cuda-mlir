@@ -45,6 +45,7 @@ from numba_cuda_mlir.lowering_utilities import (
     lookup_callee_in_module,
     get_func_type,
     get_type_size_bytes,
+    get_conversion_signedness,
     storage_itemsize_bytes,
 )
 from numba_cuda_mlir.compiler import (
@@ -2505,16 +2506,7 @@ extern "C" __global__ void
             return cast_impl(self.context, self, source_type, target_type, value)
         if isinstance(source_type, types.BaseTuple) and isinstance(target_type, types.BaseTuple):
             return self._lower_tuple_cast(source_type, target_type, value)
-        if isinstance(source_type, types.Integer):
-            signed = source_type.signed
-        elif isinstance(source_type, VectorType) and isinstance(source_type.dtype, types.Integer):
-            signed = source_type.dtype.signed
-        elif isinstance(target_type, types.Integer):
-            signed = target_type.signed
-        elif isinstance(target_type, VectorType) and isinstance(target_type.dtype, types.Integer):
-            signed = target_type.dtype.signed
-        else:
-            signed = False
+        signed = get_conversion_signedness(source_type, target_type)
         return convert(value, self.get_mlir_type(target_type), signed=signed)
 
     def _tuple_element_types(self, tuple_type):

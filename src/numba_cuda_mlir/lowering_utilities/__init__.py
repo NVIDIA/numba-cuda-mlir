@@ -336,6 +336,32 @@ def _is_bool_numba_type(numba_type: types.Type) -> bool:
     return isinstance(numba_type, (types.Boolean, types.BooleanLiteral))
 
 
+def get_conversion_signedness(source_type: types.Type, target_type: types.Type) -> bool | None:
+    """Return integer signedness required to convert between semantic types.
+
+    Integer sources determine how their bits are interpreted. Otherwise, an
+    integer target determines which float-to-integer conversion is required.
+    MLIR integer types are signless, so callers must make this decision while
+    the corresponding Numba types are still available.
+    """
+    from numba_cuda_mlir.type_defs.vector_types import VectorType
+
+    if isinstance(source_type, VectorType):
+        source_type = source_type.dtype
+    if isinstance(target_type, VectorType):
+        target_type = target_type.dtype
+
+    if _is_bool_numba_type(source_type):
+        return False
+    if isinstance(source_type, types.Integer):
+        return source_type.signed
+    if _is_bool_numba_type(target_type):
+        return False
+    if isinstance(target_type, types.Integer):
+        return target_type.signed
+    return None
+
+
 def _is_float_storage_numba_type(numba_type: types.Type) -> bool:
     from numba_cuda_mlir.type_defs import float_types
     from numba_cuda_mlir.numba_cuda.types.ext_types import Bfloat16
@@ -800,7 +826,7 @@ def convert_tuple_like(values: list[ir.Value], target_type: ir.Type) -> ir.Value
 
 
 def _convert_integer_to_integer(
-    value: ir.Value, target_type: ir.IntegerType, *, signed: bool = False
+    value: ir.Value, target_type: ir.IntegerType, *, signed: bool | None = None
 ) -> ir.Value:
     """
     If possible, we perform the conversion on the types as they are given to us.

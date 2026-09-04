@@ -17,7 +17,7 @@ Numba-CUDA-MLIR can be installed:
 - Python >= 3.11, with:
   - The `cuda.core` and `cuda-bindings` packages
   - NumPy >= 1.22
-- CUDA Toolkit components (CUDA Runtime, NVCC, NVRTC, nvJitLink, and CCCL)
+- CUDA Toolkit components (CUDA Runtime, NVCC, NVRTC, and nvJitLink)
   installed via pip or a system package manager (Linux).
 - NVIDIA GPU with Compute Capability 7.0 or greater and a compatible driver:
   - &gt;= r525 for CUDA 12.x

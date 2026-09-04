@@ -1,0 +1,188 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+language: en-US
+
+tone_instructions: >-
+  Direct, technical, brief. No praise or emojis. Prefix: suggestion, important,
+  or critical. Prioritize correctness, minimality, uniformity, maintainability.
+  State evidence, impact, smallest fix. Avoid style-only notes and broad rewrites.
+
+reviews:
+  profile: chill
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  poem: false
+  in_progress_fortune: false
+  sequence_diagrams: false
+  estimate_code_review_effort: false
+  collapse_walkthrough: true
+  # Reduce noisy status/details sections.
+  request_changes_workflow: false
+  review_status: false
+  review_details: false
+  enable_prompt_for_ai_agents: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "^main$"
+      - "^branch/[0-9]+\\.[0-9]+\\.x$"
+  ignore_usernames: ["copy-pr-bot", "dependabot[bot]", "github-actions[bot]", "nv-automation-bot"]
+
+  path_instructions:
+    - path: "**/*"
+      instructions: |
+        Be direct, technical, brief. No praise, emojis, headings, or collapsible menus.
+        Start each comment with one prefix:
+        - suggestion: optional improvement;
+        - important: must-fix/high-impact risk;
+        - critical: blocking correctness/security/data-loss.
+
+        Lead the walkthrough with a verdict: ready, needs-small-fixes, or
+        needs-design-changes. Then explain changed areas in review order: what changed,
+        why it appears to exist, and how it fits local context.
+
+        Review in this priority order: correctness, minimality, uniformity,
+        maintainability. Correctness risks from the diff and surrounding code come first.
+
+        For each substantive finding, cover: Problem (the violated contract or
+        unsupported behavior), Mechanism (how execution or data reaches the code and why
+        it produces the result), Impact and scope (a concrete failure mode and which
+        inputs/states are affected; distinguish current breakage from future risk),
+        Evidence (exact changed lines plus a caller or interface contract), and Smallest
+        fix (the narrow correction). One to three short paragraphs per finding. Make
+        file/line references supporting evidence, not substitutes for explanation.
+
+        Minimality/uniformity audit: flag over-abstraction, duplication, speculative
+        code, unrelated changes, formatting churn, generated output, and incidental
+        refactors. Check that names, boundaries, errors, logging, config, and data
+        shapes match nearby code. Call out opportunities to make the diff smaller.
+
+        State and lifecycle audit: when the diff touches registries, caches, mutable
+        config, or shared state, trace registration, snapshot/read, use, invalidation,
+        persistence, and teardown. Treat a value read before a callback, compilation,
+        I/O, lock release, or extension hook as potentially stale; check whether it is
+        reused. Audit cache load and save decisions independently. Review tests as state
+        transitions (inactive, active before entry, activated during work, activated
+        before persistence, reused in-memory or persistent), not only steady states.
+
+        Assume tests pass. Do not ask for test execution. Call out missing or weak tests
+        only when the diff changes behavior and coverage is visibly absent or misaligned.
+
+        Do not recommend broad rewrites unless the diff creates real review risk. Do not
+        treat personal style preferences as findings. Do not write long summaries of
+        unchanged code.
+
+    - path: "src/numba_cuda_mlir/**/*"
+      instructions: |
+        Focus on correctness of the MLIR/Numba lowering pipeline, type modeling, codegen,
+        AST transforms, decorator semantics, caching, and error handling. Watch for
+        regressions in kernel compilation, device declarations, and linker behavior.
+        Avoid style-only comments already covered by pre-commit.
+
+    - path: "src/numba_cuda_mlir/cuda/**/*"
+      instructions: |
+        Focus on CUDA runtime/driver integration, intrinsics, libdevice bindings, vector
+        types, shared-memory and tensor-map semantics, and experimental API clarity.
+        Check host/device availability, stream ordering, and ABI stability of public APIs.
+
+    - path: "src/numba_cuda_mlir/lowering/**/*"
+      instructions: |
+        Focus on lowering correctness: builtin/cpython/numpy/math/enum/struct lowering,
+        CUDA-specific lowering, half-precision and exotic-float handling, and NRT
+        reference-counting behavior. Flag missing or incorrect type conversions.
+
+    - path: "src/numba_cuda_mlir/lowering_utilities/**/*"
+      instructions: |
+        Focus on MLIR pass correctness, linalg lowering, LLVM utilities, type-conversion
+        soundness, string handling, and link behavior. Flag issues that could break the
+        MLIR-to-NVVM pipeline.
+
+    - path: "src/numba_cuda_mlir/memory_management/**/*"
+      instructions: |
+        Focus on NRT/memory-system correctness, lifetime/ownership, device-side allocator
+        (memsys.cu/.cuh) safety, and host/device boundary behavior. Flag leaks, double
+        frees, and stream-ordering hazards.
+
+    - path: "src/numba_cuda_mlir/ast_transforms/**/*"
+      instructions: |
+        Focus on AST transform correctness (consteval, constant-if, comprehension, common
+        pipeline), preservation of Numba semantics, and regressions in transform ordering.
+
+    - path: "cext/**/*"
+      instructions: |
+        Focus on C/C++ extension correctness, ABI stability, CUDA loader/launcher behavior,
+        LLVM downgrade pass, MLIR bridge (llvm70 and modern), buffer/view utilities, and
+        type-conversion helpers. Check error handling, memory safety, and build-system
+        (CMake) correctness.
+
+    - path: "cext/launcher/**/*"
+      instructions: |
+        Focus on kernel launch correctness, CUDA helper/shim behavior, LLVM downgrade
+        fidelity, module loading, and ref-count/lifetime safety at the C++ boundary.
+
+    - path: "tests/**/*"
+      instructions: |
+        Focus on test coverage, correctness of assertions, GPU test infra assumptions,
+        and whether changes are adequately exercised. Flag flaky or environment-dependent
+        tests and missing coverage for new functionality.
+
+    - path: "tests/benchmarks/**/*"
+      instructions: |
+        Check that benchmark changes measure meaningful workloads, keep axes comparable,
+        avoid excessive runtime, and preserve useful comparison data.
+
+    - path: "ci/**/*"
+      instructions: |
+        For CI and build scripts, focus on matrix correctness, targeted build/test
+        behavior, cache/artifact handling, environment setup, GPU availability
+        assumptions, clear failures, and avoiding unnecessary expensive jobs.
+
+    - path: "docs/**/*"
+      instructions: |
+        For documentation changes, focus on technical accuracy, buildable examples,
+        API/version consistency, migration impact, and whether public API changes have
+        matching documentation updates.
+
+    - path: "toolshed/**/*"
+      instructions: |
+        Focus on correctness and completeness of repo-automation scripts (e.g. SPDX
+        checks). Flag missing license headers or inconsistent header formatting.
+
+  # Keep Autofix available, but disable the other finishing touch actions.
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+    simplify:
+      enabled: false
+
+  pre_merge_checks:
+    docstrings:
+      mode: "off"
+    title:
+      mode: "off"
+    description:
+      mode: "off"
+    issue_assessment:
+      mode: "off"
+    custom_checks: []
+
+tools:
+  gitleaks:
+    enabled: true
+  markdownlint:
+    enabled: true
+  shellcheck:
+    enabled: true
+
+
+knowledge_base:
+  opt_out: false
+  code_guidelines:
+    filePatterns:
+      - "CONTRIBUTING.md"
+      - "INSTALL.md"
+      - "pyproject.toml"

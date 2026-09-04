@@ -450,6 +450,7 @@ def type_convert(builder, target, args, kwargs):
     target_numba_ty = builder.get_numba_type(target)
     to_type = builder.get_mlir_type(target)
     to_signed = isinstance(target_numba_ty, types.Integer) and target_numba_ty.signed
+    source_numba_ty = builder.get_numba_type(args[0])
 
     if isinstance(target_numba_ty, (types.IntegerLiteral, types.Literal)):
         result = constant(target_numba_ty.literal_value, to_type)
@@ -470,7 +471,11 @@ def type_convert(builder, target, args, kwargs):
             else arith.fptoui(out=to_type, in_=value)
         )
     else:
-        value = convert(value, to_type, signed=to_signed)
+        value = convert(
+            value,
+            to_type,
+            signed=to_signed and not isinstance(source_numba_ty, types.Boolean),
+        )
     builder.store_var(target, value)
 
 
@@ -753,6 +758,13 @@ def operator_is_none_lower(builder, target, args, kwargs):
     builder.store_var(target, result)
 
 
+@lower(operator.is_, types.BaseTuple, types.NoneType)
+@lower(operator.is_, types.NoneType, types.BaseTuple)
+def operator_is_tuple_none_lower(builder, target, args, kwargs):
+    result = arith.constant(result=ir.IntegerType.get_signless(1), value=False)
+    builder.store_var(target, result)
+
+
 @lower(operator.is_, types.NoneType, types.NoneType)
 def operator_is_none_none_lower(builder, target, args, kwargs):
     """Lower 'None is None' - always True."""
@@ -805,6 +817,13 @@ def operator_is_bool_literal_lower(builder, target, args, kwargs):
 @lower(operator.is_not, types.Number, types.NoneType)
 @lower(operator.is_not, types.NoneType, types.Number)
 def operator_is_not_none_lower(builder, target, args, kwargs):
+    result = arith.constant(result=ir.IntegerType.get_signless(1), value=True)
+    builder.store_var(target, result)
+
+
+@lower(operator.is_not, types.BaseTuple, types.NoneType)
+@lower(operator.is_not, types.NoneType, types.BaseTuple)
+def operator_is_not_tuple_none_lower(builder, target, args, kwargs):
     result = arith.constant(result=ir.IntegerType.get_signless(1), value=True)
     builder.store_var(target, result)
 

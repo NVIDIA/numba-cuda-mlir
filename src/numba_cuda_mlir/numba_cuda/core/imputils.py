@@ -8,6 +8,7 @@ Utilities to simplify the boilerplate for native lowering.
 import collections
 import contextlib
 from enum import Enum
+import threading
 
 from numba_cuda_mlir.numba_cuda import typing, cgutils
 from numba_cuda_mlir.numba_cuda import types
@@ -28,6 +29,12 @@ class Registry:
         self.casts = []
         self.constants = []
         self._version = 0
+        self._lock = threading.RLock()
+
+    def _append(self, name, item):
+        with self._lock:
+            getattr(self, name).append(item)
+            self._version += 1
 
     def lower(self, func, *argtys):
         """
@@ -40,16 +47,15 @@ class Registry:
         """
 
         def decorate(impl):
-            self.functions.append((impl, func, argtys))
-            self._version += 1
+            self._append("functions", (impl, func, argtys))
             return impl
 
         return decorate
 
     def _decorate_attr(self, impl, ty, attr, impl_list, decorator):
         real_impl = decorator(impl, ty, attr)
-        impl_list.append((real_impl, attr, real_impl.signature))
-        self._version += 1
+        name = "getattrs" if impl_list is self.getattrs else "setattrs"
+        self._append(name, (real_impl, attr, real_impl.signature))
         return impl
 
     def lower_getattr(self, ty, attr):
@@ -112,8 +118,7 @@ class Registry:
         """
 
         def decorate(impl):
-            self.casts.append((impl, (fromty, toty)))
-            self._version += 1
+            self._append("casts", (impl, (fromty, toty)))
             return impl
 
         return decorate
@@ -127,8 +132,7 @@ class Registry:
         """
 
         def decorate(impl):
-            self.constants.append((impl, (ty,)))
-            self._version += 1
+            self._append("constants", (impl, (ty,)))
             return impl
 
         return decorate

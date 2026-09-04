@@ -1,9 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import ctypes
-import itertools
 import os
 import platform
+
+from numba_cuda_mlir._threading import _LockedCounter
 
 if platform.machine() in ("ARM64", "AMD64"):
     NVPTX64_DATALAYOUT = "e-p:64:64:64-p6:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-i128:128:128-f32:32:32-f64:64:64-f128:128:128-v16:16:16-v32:32:32-v64:64:64-v128:128:128-n16:32:64-a:8:8"
@@ -47,7 +48,7 @@ MODERN_TO_NVVM_BRIDGE_LIB_PATH = _find_modern_to_nvvm_bridge_lib()
 
 _capi = None
 _modern_to_nvvm_bridge = None
-_modern_bridge_dump_counter = itertools.count()
+_modern_bridge_dump_counter = _LockedCounter()
 
 
 def _load_capi_library(path: str, label: str):

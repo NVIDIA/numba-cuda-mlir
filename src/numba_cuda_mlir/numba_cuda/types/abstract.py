@@ -3,13 +3,14 @@
 
 from abc import ABCMeta, abstractmethod, abstractproperty
 from typing import Dict as ptDict, Type as ptType
-import itertools
+import threading
 import weakref
 from functools import cached_property
 
 import numpy as np
 
 from numba_cuda_mlir.numba_cuda.utils import get_hashable_key
+from numba_cuda_mlir._threading import _LockedCounter
 
 # Types are added to a global registry (_typecache) in order to assign
 # them unique integer codes for fast matching in _dispatcher.c.
@@ -18,7 +19,7 @@ from numba_cuda_mlir.numba_cuda.utils import get_hashable_key
 # long as necessary to keep a stable type code.
 # NOTE: some types can still be made immortal elsewhere (for example
 # in _dispatcher.c's internal caches).
-_typecodes = itertools.count()
+_typecodes = _LockedCounter()
 
 
 def _autoincr():
@@ -29,10 +30,12 @@ def _autoincr():
 
 
 _typecache: ptDict[weakref.ref, weakref.ref] = {}
+_typecache_lock = threading.RLock()
 
 
-def _on_type_disposal(wr, _pop=_typecache.pop):
-    _pop(wr, None)
+def _on_type_disposal(wr):
+    with _typecache_lock:
+        _typecache.pop(wr, None)
 
 
 class _TypeMetaclass(ABCMeta):
@@ -55,14 +58,15 @@ class _TypeMetaclass(ABCMeta):
     def _intern(cls, inst):
         # Try to intern the created instance
         wr = weakref.ref(inst, _on_type_disposal)
-        orig = _typecache.get(wr)
-        orig = orig and orig()
-        if orig is not None:
-            return orig
-        else:
-            inst._code = _autoincr()
-            _typecache[wr] = wr
-            return inst
+        with _typecache_lock:
+            orig = _typecache.get(wr)
+            orig = orig and orig()
+            if orig is not None:
+                return orig
+            else:
+                inst._code = _autoincr()
+                _typecache[wr] = wr
+                return inst
 
     def __call__(cls, *args, **kwargs):
         """

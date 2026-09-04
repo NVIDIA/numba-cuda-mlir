@@ -3,13 +3,13 @@
 
 import ctypes
 import functools
-import itertools
 import os
 import sys
 from io import StringIO
 from pathlib import Path
 
 from numba_cuda_mlir._mlir.passmanager import PassManager
+from numba_cuda_mlir._threading import _LockedCounter
 from numba_cuda_mlir._mlir.dialects import llvm
 from numba_cuda_mlir.tools import generate_mangled_name
 from numba_cuda_mlir._mlir import ir
@@ -301,7 +301,7 @@ def _call_llvm70_capi(module, target_options, gen_lto=False, gen_llvmir=False) -
             lib.llvm70_free(nvvm_out)
 
 
-_nvvm_dump_counter = itertools.count()
+_nvvm_dump_counter = _LockedCounter()
 _BITCODE_MAGIC = b"BC\xc0\xde"
 
 

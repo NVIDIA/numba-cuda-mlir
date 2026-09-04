@@ -101,6 +101,62 @@ def restore_compile_arg_types():
     descriptor_mod._compile_arg_types.__dict__.update(state)
 
 
+def test_target_initialization_waits_for_concurrent_initialization():
+    class Context:
+        def __init__(self, started=None, release=None):
+            self.started = started
+            self.release = release
+            self.refresh_count = 0
+            self.registry_count = 0
+
+        def refresh(self):
+            self.refresh_count += 1
+            if self.started is not None:
+                self.started.set()
+                assert self.release.wait(timeout=10)
+
+        def install_registry(self, registry):
+            self.registry_count += 1
+
+    initialized = threading.Event()
+    release_initialization = threading.Event()
+    target = descriptor_mod.MLIRTarget("test_target_initialization")
+    typing_context = Context(initialized, release_initialization)
+    target_context = Context()
+    target._typingctx = typing_context
+    target._targetctx = target_context
+    errors = []
+    second_finished = threading.Event()
+
+    def ensure_initialized(finished=None):
+        try:
+            target.ensure_initialized()
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            if finished is not None:
+                finished.set()
+
+    first = threading.Thread(target=ensure_initialized)
+    first.start()
+    assert initialized.wait(timeout=10)
+
+    second = threading.Thread(target=ensure_initialized, args=(second_finished,))
+    second.start()
+    assert not second_finished.wait(timeout=0.1)
+
+    release_initialization.set()
+    first.join(timeout=10)
+    second.join(timeout=10)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert errors == []
+    assert typing_context.refresh_count == 1
+    assert target_context.refresh_count == 1
+    assert typing_context.registry_count == 1
+
+
 def test_arg_marshaller_exposes_launch_config_during_launch():
     dispatcher = _Dispatcher()
     launch_config = {

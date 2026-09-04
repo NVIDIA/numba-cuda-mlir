@@ -136,20 +136,22 @@ def _make_vector_binop_lowering(op):
         target_type = lower_ctx.get_numba_type(target.name)
         mlir_target_type = to_mlir_type(target_type)
         elem_type = mlir_target_type.element_type
+        lhs_signed = get_conversion_signedness(lhs_type, target_type)
+        rhs_signed = get_conversion_signedness(rhs_type, target_type)
 
         if isinstance(lhs_type, VectorType):
             if not isinstance(rhs_type, VectorType):
                 # rhs is scalar, broadcast it
-                rhs_val = convert(rhs, elem_type)
+                rhs_val = convert(rhs, elem_type, signed=rhs_signed)
                 rhs = vector.broadcast(mlir_target_type, rhs_val)
             else:
-                rhs = convert(rhs, mlir_target_type)
-            lhs = convert(lhs, mlir_target_type)
+                rhs = convert(rhs, mlir_target_type, signed=rhs_signed)
+            lhs = convert(lhs, mlir_target_type, signed=lhs_signed)
         else:
             # lhs is scalar, broadcast it
-            lhs_val = convert(lhs, elem_type)
+            lhs_val = convert(lhs, elem_type, signed=lhs_signed)
             lhs = vector.broadcast(mlir_target_type, lhs_val)
-            rhs = convert(rhs, mlir_target_type)
+            rhs = convert(rhs, mlir_target_type, signed=rhs_signed)
 
         if isinstance(elem_type, ir.IntegerType):
             result = iop(lhs, rhs)
@@ -222,12 +224,14 @@ def _vector_to_complex_cast(lower_ctx: MLIRLower, target, args: list[Any]):
     target_type = lower_ctx.get_numba_type(target.name)
     mlir_target_type = lower_ctx.get_mlir_type(target_type)
     val = lower_ctx.load_var(args[0])
+    source_type = lower_ctx.get_numba_type(args[0].name)
+    signed = get_conversion_signedness(source_type, target_type)
 
     real = vector.extract(val, [], [0])
     imag = vector.extract(val, [], [1])
 
-    real = convert(real, mlir_target_type.element_type)
-    imag = convert(imag, mlir_target_type.element_type)
+    real = convert(real, mlir_target_type.element_type, signed=signed)
+    imag = convert(imag, mlir_target_type.element_type, signed=signed)
 
     result = complex_dialect.create_(
         complex=mlir_target_type,

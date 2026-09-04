@@ -995,7 +995,11 @@ def unverified_basic_mlir_convert(
                 if elem1.width > elem2.width:
                     return arith.trunci(out=target_type, in_=value)
                 else:
-                    return arith.extsi(out=target_type, in_=value)
+                    return (
+                        arith.extsi(out=target_type, in_=value)
+                        if use_signed_conversion(elem1.width > 1)
+                        else arith.extui(out=target_type, in_=value)
+                    )
             elif isinstance(elem1, ir.IntegerType) and isinstance(elem2, ir.FloatType):
                 return (
                     arith.sitofp(out=target_type, in_=value)
@@ -1016,11 +1020,7 @@ def unverified_basic_mlir_convert(
                 if use_signed_conversion(value_type.width > 1)
                 else arith.uitofp(out=target_type, in_=value)
             )
-        case ir.BF16Type(), ir.IntegerType() if target_type.width == 16:
-            # bf16 to int16/uint16: use bitcast to preserve bit pattern
-            trace("bf16 -> i16 bitcast conversion")
-            return arith.bitcast(out=target_type, in_=value)
-        case ir.FloatType(), ir.IntegerType():
+        case (ir.FloatType() | ir.BF16Type()), ir.IntegerType():
             return (
                 arith.fptosi(out=target_type, in_=value)
                 if use_signed_conversion(target_type.width > 1)
@@ -1031,7 +1031,7 @@ def unverified_basic_mlir_convert(
             float_type = target_type.element_type
             float_val = (
                 arith.sitofp(out=float_type, in_=value)
-                if value_type.width > 1
+                if use_signed_conversion(value_type.width > 1)
                 else arith.uitofp(out=float_type, in_=value)
             )
             zero = arith.constant(result=float_type, value=0.0)

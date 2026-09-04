@@ -305,6 +305,31 @@ def test_vector_cast_preserves_signedness(source_type, target_type, values, dtyp
     np.testing.assert_array_equal(out, expected)
 
 
+@pytest.mark.parametrize(
+    "narrow_type,wide_type,values,dtype,expected",
+    [
+        (cuda.uint8x2, cuda.uint16x2, (200, 255), np.uint16, (201, 257)),
+        (cuda.int8x2, cuda.int16x2, (-56, -1), np.int16, (-55, 1)),
+    ],
+)
+def test_mixed_width_integer_vector_addition(
+    narrow_type, wide_type, values, dtype, expected
+):
+    first, second = values
+
+    @cuda.jit
+    def kernel(out):
+        narrow = narrow_type(first, second)
+        wide = wide_type(1, 2)
+        result = narrow + wide
+        out[0] = result.x
+        out[1] = result.y
+
+    out = np.zeros(2, dtype=dtype)
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(out, expected)
+
+
 def test_cuda_vector_constructor_from_multidimensional_vector():
     @cuda.jit
     def kernel(arr_in, arr_out):

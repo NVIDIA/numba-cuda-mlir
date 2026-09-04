@@ -83,7 +83,6 @@ from numba_cuda_mlir.linker import Linker, resolve_link_plan
 from numba_cuda_mlir.memory_management.nrt_mlir import emit_nrt_functions
 from numba_cuda_mlir.nrt_context import MLIRNRTContext
 from numba_cuda_mlir.type_defs.aggregate_types import AggregateType, UnionType
-from numba_cuda_mlir.type_defs.vector_types import VectorType
 from numba_cuda_mlir.types import Record
 
 ERROR_CODE_GLOBAL_NAME = "__numba_cuda_mlir_error_code"

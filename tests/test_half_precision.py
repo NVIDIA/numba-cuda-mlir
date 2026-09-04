@@ -132,6 +132,28 @@ def test_bf16_integer_cast_preserves_signedness(
     assert conversion_op in mlir
 
 
+@pytest.mark.parametrize(
+    "destination_dtype,destination_type,value,expected,conversion_op",
+    [
+        (np.int16, types.int16, -3, np.int16(-3), "arith.fptosi"),
+        (np.uint16, types.uint16, 3, np.uint16(3), "arith.fptoui"),
+    ],
+)
+def test_bf16_integer_assignment_is_numeric(
+    destination_dtype, destination_type, value, expected, conversion_op
+):
+    @cuda.jit
+    def kernel(out, x):
+        out[0] = bf16.bfloat16(x)
+
+    out = np.zeros(1, dtype=destination_dtype)
+    kernel[1, 1](out, np.float64(value))
+    np.testing.assert_equal(out[0], expected)
+
+    mlir = compiler.compile_mlir(kernel, types.void(destination_type[:], types.float64))
+    assert conversion_op in mlir
+
+
 def test_bf16_fma():
     @cuda.jit
     def kernel(out, a, b, c):

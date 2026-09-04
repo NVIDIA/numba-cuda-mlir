@@ -380,26 +380,6 @@ def bit_length(intval):
         return len(bin(-intval - 1)) - 2
 
 
-def stream_list(lst):
-    """
-    Given a list, return an infinite iterator of iterators.
-    Each iterator iterates over the list from the last seen point up to
-    the current end-of-list.
-
-    In effect, each iterator will give the newly appended elements from the
-    previous iterator instantiation time.
-    """
-
-    def sublist_iterator(start, stop):
-        return iter(lst[start:stop])
-
-    start = 0
-    while True:
-        stop = len(lst)
-        yield sublist_iterator(start, stop)
-        start = stop
-
-
 class BenchmarkResult:
     def __init__(self, func, records, loop):
         self.func = func

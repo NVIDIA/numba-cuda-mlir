@@ -334,6 +334,14 @@ class MLIRLower(object):
             numba_type = self._poly_dbg_types.get(var_name, numba_type)
             self._di_builder.add_local_variable(var_name, var_loc, numba_type)
 
+    def _return_loc(self):
+        """Locate the first return statement, for diagnostics about the return type."""
+        for block in self.blocks.values():
+            terminator = block.terminator
+            if isinstance(terminator, numba_ir.Return):
+                return terminator.loc
+        return self.func_ir.loc
+
     def _find_var_def_line(self, var_name):
         """Find the first assignment line for a variable."""
         for block in self.blocks.values():
@@ -545,6 +553,16 @@ extern "C" __global__ void
             # A function is a kernel when device=True is not set AND it returns
             # void.  Non-void functions are always device functions (kernels
             # cannot return values).
+            if (
+                not self.targetoptions.get("device", False)
+                and restypes
+                # compile()/compile_ptx() raise their own TypeError
+                and self.targetoptions.get("_compile_output") is None
+            ):
+                raise errors.TypingError(
+                    "CUDA kernel must have void return type but got %s." % (self.fndesc.restype,),
+                    loc=self._return_loc(),
+                )
             kernel = not self.targetoptions.get("device", False) and not restypes
 
             abi_info = self.targetoptions.get("abi_info") or {}

@@ -349,7 +349,8 @@ def test_mlir_bfloat16_type():
     )
 
 
-def k_complex_add(a, b):
+def d_complex_add(a, b):
+    # A device function that returns a value.
     c = a + b
     return c
 
@@ -357,10 +358,11 @@ def k_complex_add(a, b):
 def test_mlir_fusedloc_tags_complex():
     """Complex vars are tagged for deferred dbg.declare emission."""
     mlir = compiler.compile_mlir(
-        k_complex_add,
+        d_complex_add,
         (types.complex64, types.complex64),
         debug=True,
         opt=False,
+        device=True,
     )
     testing.filecheck(
         """
@@ -375,11 +377,12 @@ def test_mlir_fusedloc_tags_complex():
 def test_mlir_deferred_dbg_declare_complex():
     """Deferred pass emits dbg.declare and complex DI type."""
     optimized_mlir = compiler.compile_mlir(
-        k_complex_add,
+        d_complex_add,
         (types.complex128, types.complex128),
         optimized=True,
         debug=True,
         opt=False,
+        device=True,
     )
     testing.filecheck(
         """

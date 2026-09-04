@@ -135,6 +135,38 @@ NUMERIC_CAST_CASES = [
     ),
     pytest.param(np.int8(-56), np.int64, np.int64(-56), id="int8-to-int64"),
     pytest.param(np.int32(-5), np.int64, np.int64(-5), id="int32-to-int64"),
+    # Below 2**63 a uint64 has the same bit pattern read either way, so only
+    # these values distinguish uitofp from sitofp at the widest integer type.
+    pytest.param(
+        np.uint64(2**64 - 1024),
+        np.float64,
+        1.8446744073709552e19,
+        id="uint64-to-float64",
+    ),
+    pytest.param(
+        np.uint64(2**63),
+        np.float64,
+        9.223372036854776e18,
+        id="uint64-msb-to-float64",
+    ),
+    pytest.param(
+        np.uint64(2**63),
+        np.float32,
+        np.float32(2**63),
+        id="uint64-msb-to-float32",
+    ),
+    pytest.param(
+        np.float64(2**63),
+        np.uint64,
+        np.uint64(9223372036854775808),
+        id="float64-to-uint64",
+    ),
+    pytest.param(
+        np.int64(-1024),
+        np.uint64,
+        np.uint64(18446744073709550592),
+        id="int64-to-uint64",
+    ),
 ]
 
 

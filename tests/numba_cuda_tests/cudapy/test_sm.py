@@ -282,7 +282,6 @@ class TestSharedMemory(NumbaCUDATestCase):
         expected = np.array([99, 1, 2, 99, 3, 4, 99], dtype=np.int32)
         self._test_dynshared_slice(slice_gaps, arr, expected)
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_dynshared_slice_write_backwards(self):
         # Test writing values into disjoint slices of dynamic shared memory
         # with negative steps
@@ -305,7 +304,6 @@ class TestSharedMemory(NumbaCUDATestCase):
         expected = np.array([2, 1, 4, 3], dtype=np.int32)
         self._test_dynshared_slice(slice_write_backwards, arr, expected)
 
-    @pytest.mark.xfail(True, reason="Typing error")
     def test_dynshared_slice_nonunit_stride(self):
         # Test writing values into slice of dynamic shared memory with
         # non-unit stride
@@ -337,7 +335,6 @@ class TestSharedMemory(NumbaCUDATestCase):
         expected = np.array([1, 99, 2, 99, 3, 99], dtype=np.int32)
         self._test_dynshared_slice(slice_nonunit_stride, arr, expected)
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_dynshared_slice_nonunit_reverse_stride(self):
         # Test writing values into slice of dynamic shared memory with
         # reverse non-unit stride

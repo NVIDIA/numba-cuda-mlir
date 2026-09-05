@@ -1953,8 +1953,15 @@ extern "C" __global__ void
             )
 
         callee_type = get_func_type(callee)
+        # A tuple-typed argument expands to one MLIR operand per leaf element in
+        # the callee signature, so flatten before pairing operands with the
+        # callee's input types. ``fold_arguments`` also hands us the ``*args``
+        # bundle as a plain tuple of Vars rather than a single Var.
+        loaded = [
+            self.load_vars(v) if isinstance(v, tuple) else self.load_var(v) for v in call_vars
+        ]
         call_args = [
-            convert(val, ty) for val, ty in zip(self.load_vars(call_vars), callee_type.inputs)
+            convert(val, ty) for val, ty in zip(self._flatten_abi_value(loaded), callee_type.inputs)
         ]
         call_result = func.call(
             result=callee_type.results,

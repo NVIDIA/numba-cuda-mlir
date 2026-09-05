@@ -159,3 +159,34 @@ def test_complex_constructor_2args(complex_type):
     kernel[1, 1](out)
 
     np.testing.assert_equal(out[0], np.complex128(1.5 - 2.5j))
+
+
+@pytest.mark.parametrize(
+    "conversion",
+    ["assignment", "numpy", "builtin-1arg", "builtin-2arg"],
+)
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        (np.uint64(2**63), np.complex128(2**63)),
+        (np.int64(-1024), np.complex128(-1024)),
+    ],
+    ids=["unsigned", "signed"],
+)
+def test_integer_to_complex_preserves_signedness(conversion, source, expected):
+    @cuda.jit
+    def kernel(inp, out):
+        if conversion == "numpy":
+            out[0] = np.complex128(inp[0])
+        elif conversion == "builtin-1arg":
+            out[0] = complex(inp[0])
+        elif conversion == "builtin-2arg":
+            out[0] = complex(inp[0], 0)
+        else:
+            out[0] = inp[0]
+
+    inp = np.array([source])
+    out = np.zeros(1, dtype=np.complex128)
+    kernel[1, 1](inp, out)
+
+    np.testing.assert_equal(out[0], expected)

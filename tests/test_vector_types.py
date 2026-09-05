@@ -234,6 +234,102 @@ def test_cuda_vector_float32x4_basic():
     np.testing.assert_allclose(arr, [2.0, 4.0, 6.0, 8.0])
 
 
+def test_signed_integer_vector_to_float_vector_cast():
+    @cuda.jit
+    def kernel(out):
+        integers = cuda.int8x2(-56, -1)
+        floats = cuda.float64x2(integers)
+        out[0] = floats.x
+        out[1] = floats.y
+
+    out = np.zeros(2, dtype=np.float64)
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(out, [-56.0, -1.0])
+
+
+VECTOR_CAST_CASES = [
+    pytest.param(
+        cuda.uint8x2, cuda.float64x2, (200, 255), np.float64, (200.0, 255.0), id="uint8-to-float64"
+    ),
+    pytest.param(
+        cuda.uint16x2,
+        cuda.float64x2,
+        (60000, 65535),
+        np.float64,
+        (60000.0, 65535.0),
+        id="uint16-to-float64",
+    ),
+    pytest.param(
+        cuda.uint32x2,
+        cuda.float64x2,
+        (3_000_000_000, 4_000_000_000),
+        np.float64,
+        (3_000_000_000.0, 4_000_000_000.0),
+        id="uint32-to-float64",
+    ),
+    pytest.param(
+        cuda.uint32x2,
+        cuda.float32x2,
+        (3_000_000_000, 4_000_000_000),
+        np.float32,
+        (np.float32(3_000_000_000), np.float32(4_000_000_000)),
+        id="uint32-to-float32",
+    ),
+    pytest.param(
+        cuda.float64x2,
+        cuda.uint32x2,
+        (3_000_000_000.0, 4_000_000_000.0),
+        np.uint32,
+        (np.uint32(3_000_000_000), np.uint32(4_000_000_000)),
+        id="float64-to-uint32",
+    ),
+    pytest.param(
+        cuda.int8x2, cuda.float64x2, (-56, -1), np.float64, (-56.0, -1.0), id="int8-to-float64"
+    ),
+]
+
+
+@pytest.mark.parametrize("source_type,target_type,values,dtype,expected", VECTOR_CAST_CASES)
+def test_vector_cast_preserves_signedness(source_type, target_type, values, dtype, expected):
+    first, second = values
+
+    @cuda.jit
+    def kernel(out):
+        source = source_type(first, second)
+        target = target_type(source)
+        out[0] = target.x
+        out[1] = target.y
+
+    out = np.zeros(2, dtype=dtype)
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(out, expected)
+
+
+@pytest.mark.parametrize(
+    "narrow_type,wide_type,values,dtype,expected",
+    [
+        (cuda.uint8x2, cuda.uint16x2, (200, 255), np.uint16, (201, 257)),
+        (cuda.int8x2, cuda.int16x2, (-56, -1), np.int16, (-55, 1)),
+    ],
+)
+def test_mixed_width_integer_vector_addition(
+    narrow_type, wide_type, values, dtype, expected
+):
+    first, second = values
+
+    @cuda.jit
+    def kernel(out):
+        narrow = narrow_type(first, second)
+        wide = wide_type(1, 2)
+        result = narrow + wide
+        out[0] = result.x
+        out[1] = result.y
+
+    out = np.zeros(2, dtype=dtype)
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(out, expected)
+
+
 def test_cuda_vector_constructor_from_multidimensional_vector():
     @cuda.jit
     def kernel(arr_in, arr_out):

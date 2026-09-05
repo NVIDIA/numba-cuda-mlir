@@ -18,6 +18,7 @@ from numba_cuda_mlir.lowering_utilities import (
     tensor_to_memref,
     simple_scalar_conversion_op,
     expensive_coerce_tensor_type,
+    get_conversion_signedness,
     try_extract_constant,
 )
 from numba_cuda_mlir.logging import trace
@@ -449,8 +450,8 @@ def lower_broadcasted_div(builder, target, args, kwargs):
 def type_convert(builder, target, args, kwargs):
     target_numba_ty = builder.get_numba_type(target)
     to_type = builder.get_mlir_type(target)
-    to_signed = isinstance(target_numba_ty, types.Integer) and target_numba_ty.signed
     source_numba_ty = builder.get_numba_type(args[0])
+    signed = get_conversion_signedness(source_numba_ty, target_numba_ty)
 
     if isinstance(target_numba_ty, (types.IntegerLiteral, types.Literal)):
         result = constant(target_numba_ty.literal_value, to_type)
@@ -466,15 +467,13 @@ def type_convert(builder, target, args, kwargs):
 
     if isinstance(value.type, ir.BF16Type) and isinstance(to_type, ir.IntegerType):
         value = (
-            arith.fptosi(out=to_type, in_=value)
-            if to_type.width > 1
-            else arith.fptoui(out=to_type, in_=value)
+            arith.fptosi(out=to_type, in_=value) if signed else arith.fptoui(out=to_type, in_=value)
         )
     else:
         value = convert(
             value,
             to_type,
-            signed=to_signed and not isinstance(source_numba_ty, types.Boolean),
+            signed=signed,
         )
     builder.store_var(target, value)
 

@@ -120,6 +120,62 @@ def test_extending_overload_with_literal_argument():
     assert out[0] == 42
 
 
+def test_extending_overload_with_prefer_literal():
+    """A `prefer_literal=True` overload is typed with — and lowered from — the literal."""
+
+    def tile_size(x):
+        raise NotImplementedError
+
+    @extending.overload(tile_size, typing_registry=extending.typing_registry, prefer_literal=True)
+    def overload_tile_size(x):
+        value = x.literal_value
+
+        def impl(x):
+            return value
+
+        return impl
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def k(out):
+        out[0] = tile_size(32)
+
+    out = np.zeros(1, dtype=np.int64)
+    k[1, 1](out)
+    assert out[0] == 32
+
+
+def test_extending_overload_with_literally():
+    """`literally()` retypes the argument, and the literal signature still lowers."""
+    from numba_cuda_mlir.numba_cuda.misc.special import literally
+
+    def unroll_factor(x):
+        raise NotImplementedError
+
+    @extending.overload(unroll_factor, typing_registry=extending.typing_registry)
+    def overload_unroll_factor(x):
+        if not isinstance(x, types.IntegerLiteral):
+            return lambda x: literally(x)
+
+        value = x.literal_value
+
+        def impl(x):
+            return value
+
+        return impl
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def k(out):
+        out[0] = unroll_factor(8)
+
+    out = np.zeros(1, dtype=np.int64)
+    k[1, 1](out)
+    assert out[0] == 8
+
+
 def test_extending_overload_method():
     """User-defined @overload_method dispatches through BoundFunction."""
 

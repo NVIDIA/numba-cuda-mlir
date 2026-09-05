@@ -28,6 +28,7 @@ from numba_cuda_mlir.lowering_utilities.llvm_utils import (
     dump_llvmir,
 )
 from numba_cuda_mlir.memory_management.rtsys import rtsys
+from numba_cuda_mlir.struct_pointees import struct_pointees_attr
 
 
 def _nrt_memsys_setup_callback(loaded_module):
@@ -204,6 +205,14 @@ def _call_llvm70_capi(module, target_options, gen_lto=False, gen_llvmir=False) -
     lib = _get_llvm70_capi()
     chip = target_options.get("chip", get_gpu_compute_capability())
     gpu_mod = _get_single_gpu_module(module)
+
+    # Pointee types for the pointer members of the identified structs this
+    # module uses, recovered from the Numba types they were built from. Opaque
+    # MLIR pointers would otherwise all become `i8*` here, which stops a struct
+    # matching the same struct from a typed producer.
+    pointees = struct_pointees_attr(gpu_mod.operation)
+    if pointees is not None:
+        gpu_mod.operation.attributes["llvm70.struct_pointees"] = pointees
 
     if target_options.get("dump_mlir") or target_options.get("dump"):
         print(f"=============== LLVM70 MLIR Module ===============\n\n{gpu_mod}\n")

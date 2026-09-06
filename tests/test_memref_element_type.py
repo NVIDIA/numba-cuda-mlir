@@ -11,24 +11,26 @@ For LLVM dialect types (``!llvm.struct<…>``), ``memref`` is not valid and
 ``llvm.alloca`` must be used instead.  This situation arises with any
 extension type whose data model lowers to ``!llvm.struct<…>``.
 
-The integration tests below define a minimal extension type that lowers to
-``!llvm.struct<(i32, i32)>`` and force multi-assignment so the stack
+The integration tests below define a minimal extension type that lowers to a
+padded ``!llvm.struct<(i8, i64)>`` and force multi-assignment so the stack
 allocation path is exercised end-to-end.
 """
 
 import numpy as np
+import pytest
 
 from numba_cuda_mlir import cuda, extending, types
 from numba_cuda_mlir.extending import lower_cast, lowering_registry
-from numba_cuda_mlir.lowering_utilities import convert
-from numba_cuda_mlir.models import PrimitiveModel, register_model
+from numba_cuda_mlir.lowering_utilities import constant, convert
+from numba_cuda_mlir.models import PrimitiveModel, mlir_data_manager, register_model
 from numba_cuda_mlir._mlir import ir as mlir_ir
 from numba_cuda_mlir._mlir.dialects import llvm
 from numba_cuda_mlir.numba_cuda.typeconv import Conversion
+from numba_cuda_mlir.numba_cuda.core.errors import UnsupportedError
 
 
 # ---------------------------------------------------------------------------
-# Custom extension type: two i32 fields packed in an LLVM struct.
+# Custom extension type: i8 and i64 fields in a padded LLVM struct.
 # Represents a (value, valid_bit) pair — a minimal "masked" scalar.
 # ---------------------------------------------------------------------------
 
@@ -46,6 +48,11 @@ class MiniMaskedType(types.Type):
             return Conversion.safe
         return None
 
+    def can_convert_from(self, typingctx, other):
+        if isinstance(other, types.Integer):
+            return Conversion.safe
+        return None
+
 
 mini_masked = MiniMaskedType()
 
@@ -53,8 +60,9 @@ mini_masked = MiniMaskedType()
 @register_model(MiniMaskedType)
 class MiniMaskedModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
-        i32 = mlir_ir.IntegerType.get_signless(32)
-        be_type = llvm.StructType.get_literal([i32, i32])
+        i8 = mlir_ir.IntegerType.get_signless(8)
+        i64 = mlir_ir.IntegerType.get_signless(64)
+        be_type = llvm.StructType.get_literal([i8, i64])
         super().__init__(dmm, fe_type, be_type)
 
 
@@ -80,9 +88,10 @@ def _type_make_masked(context):
 def _lower_make_masked(builder, target, args, kwargs):
     value = builder.load_var(args[0])
     valid = builder.load_var(args[1])
-    i32 = mlir_ir.IntegerType.get_signless(32)
-    value = convert(value, i32)
-    valid = convert(valid, i32)
+    i8 = mlir_ir.IntegerType.get_signless(8)
+    i64 = mlir_ir.IntegerType.get_signless(64)
+    value = convert(value, i8)
+    valid = convert(valid, i64)
     struct_ty = builder.get_mlir_type(mini_masked)
     undef = llvm.UndefOp(struct_ty)
     with_value = llvm.insertvalue(
@@ -106,11 +115,47 @@ def _lower_make_masked(builder, target, args, kwargs):
 @lower_cast(MiniMaskedType, types.Integer)
 def _cast_mini_masked_to_int(context, builder, fromty, toty, val):
     result_ty = builder.get_mlir_type(toty)
-    return llvm.extractvalue(
-        res=result_ty,
+    stored_ty = mlir_ir.IntegerType.get_signless(8)
+    stored = llvm.extractvalue(
+        res=stored_ty,
         container=val,
         position=mlir_ir.DenseI64ArrayAttr.get([0]),
     )
+    return convert(stored, result_ty, signed=True)
+
+
+@lower_cast(types.Integer, MiniMaskedType)
+def _cast_int_to_mini_masked(context, builder, fromty, toty, val):
+    i8 = mlir_ir.IntegerType.get_signless(8)
+    i64 = mlir_ir.IntegerType.get_signless(64)
+    struct_ty = builder.get_mlir_type(toty)
+    undef = llvm.UndefOp(struct_ty)
+    with_value = llvm.insertvalue(
+        container=undef,
+        value=convert(val, i8),
+        position=mlir_ir.DenseI64ArrayAttr.get([0]),
+    )
+    return llvm.insertvalue(
+        container=with_value,
+        value=constant(1, i64),
+        position=mlir_ir.DenseI64ArrayAttr.get([1]),
+    )
+
+
+class _PointerArray:
+    """Keep a device pointer array alive while overriding its Numba dtype."""
+
+    def __init__(self, array):
+        self._array = array
+
+    @property
+    def __cuda_array_interface__(self):
+        return self._array.__cuda_array_interface__
+
+
+@extending.typeof_impl.register(_PointerArray)
+def _typeof_pointer_array(value, context):
+    return types.Array(types.CPointer(types.int32), 1, "C")
 
 
 extending.refresh_registries()
@@ -121,6 +166,24 @@ extending.refresh_registries()
 # ---------------------------------------------------------------------------
 
 
+def test_local_array_public_shape_contract_remains_static():
+    """LLVM-backed storage does not broaden CUDA's literal-shape API."""
+
+    from numba_cuda_mlir.typing.cuda import LocalArrayTemplate
+
+    assert LocalArrayTemplate.allow_dynamic_shape is False
+
+
+def test_extension_array_model_uses_byte_backed_memref():
+    """Array models must not form memrefs with LLVM-dialect elements."""
+
+    with mlir_ir.Context(), mlir_ir.Location.unknown():
+        array_type = types.Array(mini_masked, 1, "C")
+        model = mlir_data_manager.lookup(array_type)
+
+        assert str(model.get_value_type()).startswith("memref<?xi8")
+
+
 def test_extension_type_multi_assign_uses_alloca():
     """A variable of extension type (!llvm.struct) assigned multiple times
     must use llvm.alloca — not memref.alloca which would be invalid.
@@ -128,7 +191,7 @@ def test_extension_type_multi_assign_uses_alloca():
     ``m`` is assigned twice (both as MiniMasked) so
     allocate_stack_space_for_vars_with_multiple_assigns fires.  Without the
     _is_valid_memref_element_type guard this would crash at MLIR verification
-    because memref<!llvm.struct<(i32, i32)>> is not legal.
+    because memref<!llvm.struct<(i8, i64)>> is not legal.
 
     Branch unification (``m`` vs ``int32``) forces a cast that reads ``m``
     back from its alloca slot, verifying the full store-load round trip.
@@ -189,3 +252,148 @@ def test_extension_type_loop_reassign():
     out[0] = 0
     kernel[1, 1](n, out)
     assert out[0] == -1, f"expected -1, got {out[0]}"
+
+
+def test_extension_type_local_array_round_trip():
+    """Local arrays preserve logical shape while storing LLVM-backed values."""
+
+    @cuda.jit
+    def kernel(out):
+        values = cuda.local.array(4, dtype=mini_masked)
+        for i in range(len(values)):
+            values[i] = make_masked(i + 10, 1)
+        for i in range(len(values)):
+            out[i] = values[i]
+
+    out = np.zeros(4, dtype=np.int32)
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(out, np.arange(10, 14, dtype=np.int32))
+
+    mlir = next(iter(kernel.inspect_mlir().values()))
+    assert "!llvm.struct<(i8, i64)>" in mlir
+
+
+@pytest.mark.parametrize("shape", [4, 0], ids=["static", "dynamic"])
+def test_extension_type_shared_array_is_rejected(shape):
+    """Shared storage rejects LLVM-backed dtypes before forming an invalid memref."""
+
+    def kernel():
+        values = cuda.shared.array(shape, dtype=mini_masked)
+        values[0] = make_masked(1, 1)
+
+    with pytest.raises(UnsupportedError) as exc_info:
+        cuda.compile_ptx(kernel, (), cc=(8, 0))
+    assert exc_info.value.msg == (
+        "cuda.shared.array does not yet support LLVM-backed element dtypes. "
+        "Use cuda.local.array for per-thread extension storage or a built-in "
+        "shared-memory dtype."
+    )
+
+
+def test_extension_type_local_array_crosses_device_function_boundary():
+    """Generic pointer reconstruction survives storage-origin erasure."""
+
+    @cuda.jit(device=True, inline="never")
+    def read(values, index):
+        return values[index]
+
+    @cuda.jit
+    def kernel(out):
+        values = cuda.local.array(2, dtype=mini_masked)
+        values[0] = make_masked(77, 1)
+        values[1] = make_masked(88, 1)
+        out[0] = read(values, 0)
+
+    out = np.zeros(1, dtype=np.int32)
+    kernel[1, 1](out)
+    assert out[0] == 77
+
+    mlir = next(iter(kernel.inspect_mlir().values()))
+    assert "func.func" in mlir
+    assert "memref<?xi8" in mlir
+
+
+def test_extension_type_local_array_store_casts():
+    """Scalar, tuple-indexed, and slice stores cast to the array dtype."""
+
+    @cuda.jit
+    def kernel(out):
+        scalar = cuda.local.array(1, dtype=mini_masked)
+        matrix = cuda.local.array((2, 2), dtype=mini_masked)
+        sliced = cuda.local.array(3, dtype=mini_masked)
+
+        scalar[0] = np.int32(31)
+        matrix[1, 1] = np.int32(41)
+        sliced[1:] = np.int32(51)
+
+        out[0] = scalar[0]
+        out[1] = matrix[1, 1]
+        out[2] = sliced[1]
+        out[3] = sliced[2]
+
+    out = np.zeros(4, dtype=np.int32)
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(out, np.array([31, 41, 51, 51], dtype=np.int32))
+
+
+def test_llvm_backed_global_pointer_array_round_trip():
+    """The same generic byte-backed ABI can access global pointer arrays."""
+
+    @cuda.jit
+    def kernel(pointers, out):
+        out[0] = pointers[0][0]
+
+    pointee = cuda.to_device(np.array([123], dtype=np.int32))
+    pointer_value = pointee.__cuda_array_interface__["data"][0]
+    pointer_bits = cuda.to_device(np.array([pointer_value], dtype=np.uint64))
+    pointers = _PointerArray(pointer_bits)
+    out = cuda.to_device(np.zeros(1, dtype=np.int32))
+
+    kernel[1, 1](pointers, out)
+    assert out.copy_to_host()[0] == 123
+
+    mlir = next(iter(kernel.inspect_mlir().values()))
+    assert "memref<?xi8" in mlir
+    assert "llvm.inttoptr" in mlir
+
+
+def test_extension_type_multidimensional_local_array_round_trip():
+    """Logical multidimensional strides address adjacent extension values."""
+
+    @cuda.jit
+    def kernel(out):
+        values = cuda.local.array((2, 3), dtype=mini_masked)
+        for row in range(2):
+            for column in range(3):
+                values[row, column] = make_masked(row * 10 + column, 1)
+        for row in range(2):
+            for column in range(3):
+                out[row, column] = values[row, column]
+
+    out = np.zeros((2, 3), dtype=np.int32)
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(
+        out,
+        np.array([[0, 1, 2], [10, 11, 12]], dtype=np.int32),
+    )
+
+
+def test_extension_type_local_array_slice_preserves_offset():
+    """Subview offsets remain logical element offsets for LLVM-backed values."""
+
+    @cuda.jit
+    def kernel(out):
+        values = cuda.local.array(5, dtype=mini_masked, alignment=16)
+        for i in range(len(values)):
+            values[i] = make_masked(i + 20, 1)
+        tail = values[2:]
+        for i in range(len(tail)):
+            out[i] = tail[i]
+
+    out = np.zeros(3, dtype=np.int32)
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(out, np.arange(22, 25, dtype=np.int32))
+
+    mlir = next(iter(kernel.inspect_mlir().values()))
+    assert "llvm.alloca" in mlir
+    assert "alignment = 16" in mlir

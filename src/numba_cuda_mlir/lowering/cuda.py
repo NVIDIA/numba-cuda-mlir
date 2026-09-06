@@ -33,6 +33,7 @@ from numba_cuda_mlir.lowering_utilities import (
     storage_itemsize_bytes,
     storage_bitwidth,
     memref_llvm_address_space,
+    is_valid_memref_element_type,
 )
 from numba_cuda_mlir.lowering_utilities.type_conversions import (
     to_mlir_type,
@@ -69,6 +70,7 @@ from typing import Any
 from numba_cuda_mlir.logging import trace
 import numpy as np
 from numba_cuda_mlir.numba_cuda.typing.templates import ConcreteTemplate
+from numba_cuda_mlir.numba_cuda.core.errors import UnsupportedError
 from numba_cuda_mlir.numba_cuda import stubs as cuda_stubs
 
 
@@ -364,11 +366,16 @@ def _resolve_numba_dtype(lower, dtype_var):
 
 shmem_id = 0
 
+_LLVM_BACKED_SHARED_DTYPE_ERROR = (
+    "cuda.shared.array does not yet support LLVM-backed element dtypes. "
+    "Use cuda.local.array for per-thread extension storage or a built-in "
+    "shared-memory dtype."
+)
+
 
 def cuda_static_shared_memory(lower: MLIRLower, target, static_shape, dtype, alignas):
     global shmem_id
     shape = tuple(static_shape)
-    dtype = lower.get_storage_type(_resolve_numba_dtype(lower, dtype))
     mspace = ir.Attribute.parse("#gpu.address_space<workgroup>")
     ty = T.memref(*shape, element_type=dtype, memory_space=mspace)
     gpu_module = lower.mlir_gpu_module
@@ -387,30 +394,42 @@ def cuda_static_shared_memory(lower: MLIRLower, target, static_shape, dtype, ali
 
 @lower(cuda.shared.array, types.Number)
 @lower(cuda.shared.array, types.Number, types.DTypeSpec)
+@lower(cuda.shared.array, types.Number, types.TypeRef)
 @lower(cuda.shared.array, types.Number, types.StringLiteral)
 @lower(cuda.shared.array, types.Number, types.DTypeSpec, types.Number)
+@lower(cuda.shared.array, types.Number, types.TypeRef, types.Number)
 @lower(cuda.shared.array, types.Number, types.StringLiteral, types.Number)
 @lower(cuda.shared.array, types.Number, types.DTypeSpec, types.IntegerLiteral)
+@lower(cuda.shared.array, types.Number, types.TypeRef, types.IntegerLiteral)
 @lower(cuda.shared.array, types.Number, types.StringLiteral, types.IntegerLiteral)
 @lower(cuda.shared.array, types.Number, types.DTypeSpec, types.NoneType)
+@lower(cuda.shared.array, types.Number, types.TypeRef, types.NoneType)
 @lower(cuda.shared.array, types.Number, types.StringLiteral, types.NoneType)
 @lower(cuda.shared.array, types.UniTuple)
 @lower(cuda.shared.array, types.UniTuple, types.DTypeSpec)
+@lower(cuda.shared.array, types.UniTuple, types.TypeRef)
 @lower(cuda.shared.array, types.UniTuple, types.StringLiteral)
 @lower(cuda.shared.array, types.UniTuple, types.DTypeSpec, types.Number)
+@lower(cuda.shared.array, types.UniTuple, types.TypeRef, types.Number)
 @lower(cuda.shared.array, types.UniTuple, types.StringLiteral, types.Number)
 @lower(cuda.shared.array, types.UniTuple, types.DTypeSpec, types.IntegerLiteral)
+@lower(cuda.shared.array, types.UniTuple, types.TypeRef, types.IntegerLiteral)
 @lower(cuda.shared.array, types.UniTuple, types.StringLiteral, types.IntegerLiteral)
 @lower(cuda.shared.array, types.UniTuple, types.DTypeSpec, types.NoneType)
+@lower(cuda.shared.array, types.UniTuple, types.TypeRef, types.NoneType)
 @lower(cuda.shared.array, types.UniTuple, types.StringLiteral, types.NoneType)
 @lower(cuda.shared.array, types.Tuple)
 @lower(cuda.shared.array, types.Tuple, types.DTypeSpec)
+@lower(cuda.shared.array, types.Tuple, types.TypeRef)
 @lower(cuda.shared.array, types.Tuple, types.StringLiteral)
 @lower(cuda.shared.array, types.Tuple, types.DTypeSpec, types.Number)
+@lower(cuda.shared.array, types.Tuple, types.TypeRef, types.Number)
 @lower(cuda.shared.array, types.Tuple, types.StringLiteral, types.Number)
 @lower(cuda.shared.array, types.Tuple, types.DTypeSpec, types.IntegerLiteral)
+@lower(cuda.shared.array, types.Tuple, types.TypeRef, types.IntegerLiteral)
 @lower(cuda.shared.array, types.Tuple, types.StringLiteral, types.IntegerLiteral)
 @lower(cuda.shared.array, types.Tuple, types.DTypeSpec, types.NoneType)
+@lower(cuda.shared.array, types.Tuple, types.TypeRef, types.NoneType)
 @lower(cuda.shared.array, types.Tuple, types.StringLiteral, types.NoneType)
 def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
     shape, dtype, alignas = _extract_shape_and_dtype(*args, **dict(kwargs))
@@ -449,14 +468,17 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
 
     static_shape = [_is_static_dim(x) for x in shape_op]
 
+    np_dtype = _resolve_numba_dtype(lower, dtype)
+    dtype = lower.get_storage_type(np_dtype)
+    if not is_valid_memref_element_type(dtype):
+        raise UnsupportedError(_LLVM_BACKED_SHARED_DTYPE_ERROR, loc=target.loc)
+
     is_dynamic_shared_shape = len(static_shape) == 1 and static_shape[0] == 0
     if all([x is not None for x in static_shape]) and not is_dynamic_shared_shape:
         return cuda_static_shared_memory(lower, target, static_shape, dtype, alignas)
 
     shape = coerce_to_shape_tuple(shape_op)
 
-    np_dtype = _resolve_numba_dtype(lower, dtype)
-    dtype = lower.get_storage_type(np_dtype)
     mr_type = ir.MemRefType.get(
         shape=[ir.MemRefType.get_dynamic_size() for _ in shape],
         element_type=dtype,
@@ -471,26 +493,127 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
     lower.store_var(target, array)
 
 
+def _allocate_llvm_backed_local_array(
+    lower: MLIRLower,
+    target,
+    shape: tuple[int, ...],
+    element_type: ir.Type,
+    alignment: int,
+):
+    """Allocate LLVM elements and expose their logical shape as an i8 memref.
+
+    LLVM owns the element ABI layout: the alloca count and typed GEPs are in
+    units of ``element_type``.  The byte-backed memref is descriptor-only and
+    carries logical sizes/strides, so array shape metadata never becomes a byte
+    count. The descriptor wraps the alloca's generic pointer. CUDA's public
+    local-array contract requires literal dimensions, so this helper
+    deliberately accepts only a fully static shape.
+    """
+
+    rank = len(shape)
+    if rank == 0:
+        raise ValueError("cuda.local.array requires at least one shape dimension")
+    if any(not isinstance(dim, int) for dim in shape):
+        raise InternalCompilerError("LLVM-backed cuda.local.array requires a fully static shape")
+
+    dynamic = ir.ShapedType.get_dynamic_size()
+    dynamic_stride = ir.ShapedType.get_dynamic_stride_or_offset()
+    memref_type = ir.MemRefType.get(
+        shape=[dynamic] * rank,
+        element_type=T.i8(),
+        layout=ir.StridedLayoutAttr.get(
+            offset=dynamic_stride,
+            strides=[dynamic_stride] * rank,
+        ),
+    )
+
+    pointer_type = llvm.PointerType.get()
+    descriptor_type = llvm.StructType.get_literal(
+        [
+            pointer_type,
+            pointer_type,
+            T.i64(),
+            llvm.ArrayType.get(T.i64(), rank),
+            llvm.ArrayType.get(T.i64(), rank),
+        ]
+    )
+
+    with lower.alloca_insertion_point():
+        sizes = [constant(dim, T.i64()) for dim in shape]
+
+        element_count = constant(1, T.i64())
+        for size in sizes:
+            element_count = arith.muli(element_count, size)
+
+        if alignment == 8:
+            # Match the existing memref.alloca path: omitting the default lets
+            # LLVM preserve a stricter natural alignment for the element type.
+            pointer = llvm.alloca(pointer_type, element_count, element_type)
+        else:
+            pointer = llvm.alloca(
+                pointer_type,
+                element_count,
+                element_type,
+                alignment=alignment,
+            )
+
+        strides = [None] * rank
+        stride = constant(1, T.i64())
+        for index in range(rank - 1, -1, -1):
+            strides[index] = stride
+            stride = arith.muli(stride, sizes[index])
+
+        descriptor = llvm.UndefOp(descriptor_type).result
+        insert = lambda value, field, *position: llvm.insertvalue(
+            container=value,
+            value=field,
+            position=ir.DenseI64ArrayAttr.get(list(position)),
+        )
+        descriptor = insert(descriptor, pointer, 0)
+        descriptor = insert(descriptor, pointer, 1)
+        descriptor = insert(descriptor, constant(0, T.i64()), 2)
+        for index, size in enumerate(sizes):
+            descriptor = insert(descriptor, size, 3, index)
+        for index, logical_stride in enumerate(strides):
+            descriptor = insert(descriptor, logical_stride, 4, index)
+
+        array = builtin.unrealized_conversion_cast([memref_type], [descriptor])
+
+    lower.store_var(target, array)
+
+
 @lower(cuda.local_array, types.Tuple, types.DTypeSpec, types.Number)
 @lower(cuda.local_array, types.Number, types.DTypeSpec, types.Number)
+@lower(cuda.local_array, types.Tuple, types.TypeRef, types.Number)
+@lower(cuda.local_array, types.Number, types.TypeRef, types.Number)
 @lower(cuda.local_array, types.Tuple, types.DTypeSpec)
 @lower(cuda.local_array, types.Number, types.DTypeSpec)
+@lower(cuda.local_array, types.Tuple, types.TypeRef)
+@lower(cuda.local_array, types.Number, types.TypeRef)
 @lower(cuda.local_array, types.Tuple, types.StringLiteral)
 @lower(cuda.local_array, types.Number, types.StringLiteral)
 @lower(cuda.local_array, types.Tuple, types.DTypeSpec, types.NoneType)
 @lower(cuda.local_array, types.Number, types.DTypeSpec, types.NoneType)
+@lower(cuda.local_array, types.Tuple, types.TypeRef, types.NoneType)
+@lower(cuda.local_array, types.Number, types.TypeRef, types.NoneType)
 @lower(cuda.local_array, types.Tuple, types.StringLiteral, types.NoneType)
 @lower(cuda.local_array, types.Number, types.StringLiteral, types.NoneType)
 @lower(cuda.local_array, types.UniTuple, types.DTypeSpec)
+@lower(cuda.local_array, types.UniTuple, types.TypeRef)
 @lower(cuda.local_array, types.UniTuple, types.StringLiteral)
 @lower(cuda.local_array, types.UniTuple, types.DTypeSpec, types.Number)
+@lower(cuda.local_array, types.UniTuple, types.TypeRef, types.Number)
 @lower(cuda.local_array, types.UniTuple, types.DTypeSpec, types.NoneType)
+@lower(cuda.local_array, types.UniTuple, types.TypeRef, types.NoneType)
 @lower(cuda.local_array, types.UniTuple, types.StringLiteral, types.NoneType)
 @lower(cuda.local_array, types.Tuple, types.DTypeSpec, types.IntegerLiteral)
 @lower(cuda.local_array, types.Number, types.DTypeSpec, types.IntegerLiteral)
+@lower(cuda.local_array, types.Tuple, types.TypeRef, types.IntegerLiteral)
+@lower(cuda.local_array, types.Number, types.TypeRef, types.IntegerLiteral)
 @lower(cuda.local_array, types.Tuple, types.StringLiteral, types.IntegerLiteral)
 @lower(cuda.local_array, types.Number, types.StringLiteral, types.IntegerLiteral)
 @lower(cuda.local_array, types.UniTuple, types.DTypeSpec, types.IntegerLiteral)
+@lower(cuda.local_array, types.UniTuple, types.TypeRef, types.IntegerLiteral)
 @lower(cuda.local_array, types.UniTuple, types.StringLiteral, types.IntegerLiteral)
 def cuda_local_array(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
     shape, dtype, alignas = _extract_shape_and_dtype(*args, **dict(kwargs))
@@ -526,6 +649,23 @@ def cuda_local_array(lower: MLIRLower, target, args: list[Any], kwargs: list[tup
 
     np_dtype = _resolve_numba_dtype(lower, dtype)
     mlir_dtype = lower.get_storage_type(np_dtype)
+
+    from numba_cuda_mlir.types import Record
+
+    if not isinstance(np_dtype, (Record, types.CharSeq, types.UnicodeCharSeq)) and not (
+        is_valid_memref_element_type(mlir_dtype)
+    ):
+        if static_shape is None:
+            raise InternalCompilerError(
+                "LLVM-backed cuda.local.array requires a fully static shape"
+            )
+        return _allocate_llvm_backed_local_array(
+            lower,
+            target,
+            tuple(static_shape),
+            mlir_dtype,
+            alignas,
+        )
 
     if static_shape is not None:
         # Static shape - use static memref allocation

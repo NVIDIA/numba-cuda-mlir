@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 import pytest
+import inspect
 import itertools
+import sys
 
 import unittest
 from numba_cuda_mlir import cuda
@@ -630,6 +632,33 @@ class TestCFGraph(NumbaCUDATestCase):
                 [0, 10, 13, 26, 19, 6],
             ),
         )
+
+    def test_topo_order_deep_graph(self):
+        # Diamond chain longer than the recursion limit.
+        n_diamonds = 2000
+        adj = {}
+        for i in range(n_diamonds):
+            head, body, join = 2 * i, 2 * i + 1, 2 * i + 2
+            adj[head] = [body, join]
+            adj[body] = [join]
+        adj[2 * n_diamonds] = []
+        g = self.from_adj_list(adj)
+        g.set_entry_point(0)
+        g.process()
+
+        current_depth = len(inspect.stack())
+        old_limit = sys.getrecursionlimit()
+        sys.setrecursionlimit(current_depth + 200)
+        try:
+            order = g.topo_order()
+        finally:
+            sys.setrecursionlimit(old_limit)
+
+        self.assertEqual(sorted(order), sorted(adj))
+        position = {node: i for i, node in enumerate(order)}
+        for src, dests in adj.items():
+            for dest in dests:
+                self.assertLess(position[src], position[dest])
 
     def test_topo_sort(self):
         def check_topo_sort(nodes, expected):

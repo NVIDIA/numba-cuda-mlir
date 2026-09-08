@@ -450,11 +450,10 @@ def test_overload_builder_prefers_entry_agreeing_on_observed_options():
 
 
 def test_is_set_probe_is_recorded():
-    """``is_set`` bypasses the option getters, so it must record on its own."""
-    runs = []
+    """``is_set`` bypasses the getters and answers set-ness, so it is recorded as such."""
 
     def body(x):
-        runs.append(ConfigStack.top_or_none().is_set("lto"))
+        ConfigStack.top_or_none().is_set("lto")
 
         def impl(x):
             pass
@@ -462,14 +461,24 @@ def test_is_set_probe_is_recorded():
         return impl
 
     template = _make_template(body)(None)
-    with ConfigStack().enter(CUDAFlags()):
-        template._call_overload_func((types.int32,), {})
-    flags = CUDAFlags()
-    flags.lto = True
-    with ConfigStack().enter(flags):
-        template._call_overload_func((types.int32,), {})
 
-    assert runs == [False, True]
+    def resolve(flags):
+        with ConfigStack().enter(flags):
+            return template._call_overload_func((types.int32,), {})
+
+    explicit_true = CUDAFlags()
+    explicit_true.lto = True
+    explicit_default = CUDAFlags()
+    explicit_default.lto = False
+
+    unset = resolve(CUDAFlags())
+    set_true = resolve(explicit_true)
+    set_default = resolve(explicit_default)
+
+    # is_set differs between unset and explicitly-default, though the values agree...
+    assert set_default is not unset
+    # ...and agrees between the two explicitly-set flags, though the values differ.
+    assert set_default is set_true
 
 
 @pytest.mark.parametrize("kind", ["attribute", "method"])

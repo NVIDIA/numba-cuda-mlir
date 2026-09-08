@@ -583,10 +583,11 @@ def _recording_flags_class(cls):
     def discard(self, name):
         _read_only(name)(self)
 
-    # is_set() reads _values directly and bypasses the getters.
+    # is_set() reads _values directly and bypasses the getters; its answer is set-ness,
+    # not the value, so it is recorded as a distinct kind of read.
     def is_set(self, name):
         if self._rec_on:
-            self._seen.add(name)
+            self._seen.add(("is_set", name))
         return cls.is_set(self, name)
 
     sub.discard = discard
@@ -610,15 +611,22 @@ def _run_recording_flag_reads(func, args, kws):
     return result, frozenset(proxy._seen)
 
 
-def _record_flag_reads(flags, names):
-    """The ``(option, repr(value))`` pairs of *names* in *flags*, as a hashable key."""
+def _read_flag(flags, read):
+    """What *read* -- an option name, or ``("is_set", name)`` -- yields on *flags*."""
     # repr(): some option values (e.g. nvvm_options) are unhashable.
-    return tuple(sorted((name, repr(getattr(flags, name))) for name in names))
+    if isinstance(read, tuple):
+        return repr(flags.is_set(read[1]))
+    return repr(getattr(flags, read, None))
+
+
+def _record_flag_reads(flags, reads):
+    """The ``(read, repr(result))`` pairs of *reads* on *flags*, as a hashable key."""
+    return tuple(sorted(((read, _read_flag(flags, read)) for read in reads), key=str))
 
 
 def _flags_match_reads(flags, reads):
-    """Whether *flags* agrees with every ``(option, repr(value))`` pair in *reads*."""
-    return all(repr(getattr(flags, name, None)) == value for name, value in reads)
+    """Whether every recorded ``(read, repr(result))`` pair in *reads* holds on *flags*."""
+    return all(_read_flag(flags, read) == value for read, value in reads)
 
 
 def _select_overload_dispatcher(templates, args_match, cur_flags):
@@ -647,7 +655,7 @@ def _select_overload_dispatcher(templates, args_match, cur_flags):
             if entry_flags is None or cur_flags is None or entry_flags == cur_flags:
                 return disp
             if observed is None:
-                for reads in result_cache.get((overload_func, args, kws), ()):
+                for reads in tuple(result_cache.get((overload_func, args, kws), ())):
                     if (
                         reads
                         and _flags_match_reads(entry_flags, reads)

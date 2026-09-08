@@ -312,9 +312,7 @@ def test_vector_cast_preserves_signedness(source_type, target_type, values, dtyp
         (cuda.int8x2, cuda.int16x2, (-56, -1), np.int16, (-55, 1)),
     ],
 )
-def test_mixed_width_integer_vector_addition(
-    narrow_type, wide_type, values, dtype, expected
-):
+def test_mixed_width_integer_vector_addition(narrow_type, wide_type, values, dtype, expected):
     first, second = values
 
     @cuda.jit

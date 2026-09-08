@@ -1020,7 +1020,7 @@ def unverified_basic_mlir_convert(
                 if use_signed_conversion(value_type.width > 1)
                 else arith.uitofp(out=target_type, in_=value)
             )
-        case (ir.FloatType() | ir.BF16Type()), ir.IntegerType():
+        case ((ir.FloatType() | ir.BF16Type()), ir.IntegerType()):
             return (
                 arith.fptosi(out=target_type, in_=value)
                 if use_signed_conversion(target_type.width > 1)

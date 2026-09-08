@@ -621,6 +621,45 @@ def _flags_match_reads(flags, reads):
     return all(repr(getattr(flags, name, None)) == value for name, value in reads)
 
 
+def _select_overload_dispatcher(templates, args_match, cur_flags):
+    """Pick the cached overload Dispatcher for *cur_flags* from *templates*.
+
+    Scans every ``_impl_cache`` entry whose argument types satisfy *args_match*:
+    exact flag match first, then flags agreeing on every option the body read, then
+    the first argument match.
+    """
+    observed = fallback = None
+    for temp_cls in templates:
+        if not hasattr(temp_cls, "_impl_cache"):
+            continue
+        result_cache = getattr(temp_cls, "_overload_result_cache", {})
+        overload_func = getattr(temp_cls, "_overload_func", None)
+        for cache_key, cache_value in temp_cls._impl_cache.items():
+            if cache_value is None or len(cache_key) != 4:
+                continue
+            _, args, kws, entry_flags = cache_key
+            args = tuple(args)
+            if not args_match(args):
+                continue
+            disp, _ = cache_value
+            if not hasattr(disp, "py_func"):
+                continue
+            if entry_flags is None or cur_flags is None or entry_flags == cur_flags:
+                return disp
+            if observed is None:
+                for reads in result_cache.get((overload_func, args, kws), ()):
+                    if (
+                        reads
+                        and _flags_match_reads(entry_flags, reads)
+                        and _flags_match_reads(cur_flags, reads)
+                    ):
+                        observed = disp
+                        break
+            if fallback is None:
+                fallback = disp
+    return observed if observed is not None else fallback
+
+
 class _OverloadFunctionTemplate(AbstractTemplate):
     """
     A base class of templates for overload functions.

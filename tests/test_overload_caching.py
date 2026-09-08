@@ -470,3 +470,62 @@ def test_is_set_probe_is_recorded():
         template._call_overload_func((types.int32,), {})
 
     assert runs == [False, True]
+
+
+@pytest.mark.parametrize("kind", ["attribute", "method"])
+def test_flag_reading_attribute_and_method_across_flag_contexts(kind):
+    """Attribute and method overloads reading a flag get an implementation per value."""
+    runs = []
+
+    def body(arr):
+        lto = bool(ConfigStack.top_or_none().lto)
+        runs.append(lto)
+
+        if lto:
+
+            def impl(arr):
+                return 1
+        else:
+
+            def impl(arr):
+                return 0
+
+        return impl
+
+    if kind == "attribute":
+        extending.overload_attribute(
+            types.Array,
+            "flag_probe_attribute",
+            typing_registry=extending.typing_registry,
+            lowering_registry=extending.lowering_registry,
+        )(body)
+
+        @cuda.jit(lto=False)
+        def k_no_lto(arr, out):
+            out[0] = arr.flag_probe_attribute
+
+        @cuda.jit(lto=True)
+        def k_lto(arr, out):
+            out[0] = arr.flag_probe_attribute
+    else:
+        extending.overload_method(
+            types.Array, "flag_probe_method", typing_registry=extending.typing_registry
+        )(body)
+
+        @cuda.jit(lto=False)
+        def k_no_lto(arr, out):
+            out[0] = arr.flag_probe_method()
+
+        @cuda.jit(lto=True)
+        def k_lto(arr, out):
+            out[0] = arr.flag_probe_method()
+
+    extending.refresh_registries()
+    arr = np.zeros(2, dtype=np.float64)
+    a = np.zeros(1, dtype=np.int64)
+    b = np.zeros(1, dtype=np.int64)
+    k_no_lto[1, 1](arr, a)
+    k_lto[1, 1](arr, b)
+
+    assert (a[0], b[0]) == (0, 1)
+    assert len(runs) == 2

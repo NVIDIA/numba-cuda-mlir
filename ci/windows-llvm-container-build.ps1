@@ -34,7 +34,9 @@ Write-Host "Using Python: $pythonExe"
 & $pythonExe -m pip install --upgrade pip
 
 if ($Mode -eq 'modern') {
-    $pkgs = @('pybind11', 'nanobind', 'numpy', 'ninja', 'cmake', 'awscli')
+    # MLIR asks for nanobind 2.9 and nanobind's CMake config only accepts a
+    # matching major version, so 3.x fails the configure step outright.
+    $pkgs = @('pybind11', 'nanobind~=2.9', 'numpy', 'ninja', 'cmake', 'awscli')
     & $pythonExe -m pip install @pkgs
     if ([version]($spec.TrimEnd('t').Trim()) -lt [version]'3.12') {
         & $pythonExe -m pip install 'typing-extensions'

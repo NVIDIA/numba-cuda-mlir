@@ -45,6 +45,7 @@ from numba_cuda_mlir.lowering_utilities import (
     lookup_callee_in_module,
     get_func_type,
     get_type_size_bytes,
+    get_conversion_signedness,
     storage_itemsize_bytes,
 )
 from numba_cuda_mlir.compiler import (
@@ -334,6 +335,14 @@ class MLIRLower(object):
             numba_type = self._poly_dbg_types.get(var_name, numba_type)
             self._di_builder.add_local_variable(var_name, var_loc, numba_type)
 
+    def _return_loc(self):
+        """Locate the first return statement, for diagnostics about the return type."""
+        for block in self.blocks.values():
+            terminator = block.terminator
+            if isinstance(terminator, numba_ir.Return):
+                return terminator.loc
+        return self.func_ir.loc
+
     def _find_var_def_line(self, var_name):
         """Find the first assignment line for a variable."""
         for block in self.blocks.values():
@@ -545,6 +554,16 @@ extern "C" __global__ void
             # A function is a kernel when device=True is not set AND it returns
             # void.  Non-void functions are always device functions (kernels
             # cannot return values).
+            if (
+                not self.targetoptions.get("device", False)
+                and restypes
+                # compile()/compile_ptx() raise their own TypeError
+                and self.targetoptions.get("_compile_output") is None
+            ):
+                raise errors.TypingError(
+                    "CUDA kernel must have void return type but got %s." % (self.fndesc.restype,),
+                    loc=self._return_loc(),
+                )
             kernel = not self.targetoptions.get("device", False) and not restypes
 
             abi_info = self.targetoptions.get("abi_info") or {}
@@ -2504,7 +2523,8 @@ extern "C" __global__ void
             return cast_impl(self.context, self, source_type, target_type, value)
         if isinstance(source_type, types.BaseTuple) and isinstance(target_type, types.BaseTuple):
             return self._lower_tuple_cast(source_type, target_type, value)
-        return self.mlir_convert(value, self.get_mlir_type(target_type))
+        signed = get_conversion_signedness(source_type, target_type)
+        return convert(value, self.get_mlir_type(target_type), signed=signed)
 
     def _tuple_element_types(self, tuple_type):
         if isinstance(tuple_type, types.UniTuple):

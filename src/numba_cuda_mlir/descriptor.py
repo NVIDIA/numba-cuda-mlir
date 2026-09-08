@@ -28,6 +28,7 @@ from numba_cuda_mlir.numba_cuda.core import config as cuda_config
 from numba_cuda_mlir.numba_cuda.cudadrv import driver as numba_cuda_driver
 from importlib.util import find_spec
 from numba_cuda_mlir.numba_cuda.core import errors, sigutils, targetconfig
+from numba_cuda_mlir.numba_cuda.typing.templates import _flags_match_reads
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 from numba_cuda_mlir.numba_cuda.cudadecl import registry as cuda_registry
@@ -1251,16 +1252,19 @@ class MLIRTargetContext(BaseContext):
 
         cur_flags = targetconfig.ConfigStack.top_or_none()
         fallback = None
+        observed_match = None
         match_args = (sig.recvr, *sig.args) if sig.recvr else sig.args
         match_args = tuple(types.unliteral(arg) for arg in match_args)
 
         for temp_cls in templates:
             if not hasattr(temp_cls, "_impl_cache"):
                 continue
+            result_cache = getattr(temp_cls, "_overload_result_cache", {})
+            overload_func = getattr(temp_cls, "_overload_func", None)
             for cache_key, cache_value in temp_cls._impl_cache.items():
                 if cache_value is None or len(cache_key) != 4:
                     continue
-                _, args, _, entry_flags = cache_key
+                _, args, kws, entry_flags = cache_key
                 cache_args = tuple(args)
                 non_omitted_cache_args = tuple(
                     arg
@@ -1275,13 +1279,23 @@ class MLIRTargetContext(BaseContext):
                 if cache_args == match_args or non_omitted_cache_args == non_omitted_match_args:
                     disp, _ = cache_value
                     if hasattr(disp, "py_func"):
-                        # Prefer the implementation resolved under the currently
-                        # active flags; fall back to the first argument-type match.
+                        # Exact flags first; then flags agreeing on every option the
+                        # body read; then the first argument-type match.
                         if entry_flags is None or cur_flags is None or entry_flags == cur_flags:
                             return make_builder(disp)
+                        if observed_match is None:
+                            for reads in result_cache.get((overload_func, tuple(args), kws), ()):
+                                if (
+                                    reads
+                                    and _flags_match_reads(entry_flags, reads)
+                                    and _flags_match_reads(cur_flags, reads)
+                                ):
+                                    observed_match = disp
+                                    break
                         if fallback is None:
                             fallback = disp
-        return make_builder(fallback) if fallback is not None else None
+        chosen = observed_match if observed_match is not None else fallback
+        return make_builder(chosen) if chosen is not None else None
 
     def get_value_type(self, *args):
         return super().get_value_type(*args)

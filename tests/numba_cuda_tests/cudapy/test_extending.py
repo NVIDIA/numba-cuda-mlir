@@ -843,7 +843,6 @@ class TestRegisterJitable(NumbaCUDATestCase):
 
 
 class TestOverloadPreferLiteral(NumbaCUDATestCase):
-    @pytest.mark.xfail(True, reason="ICE")
     def test_overload(self):
         def prefer_lit(x):
             pass

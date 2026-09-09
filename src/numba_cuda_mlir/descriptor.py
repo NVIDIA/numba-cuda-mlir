@@ -1243,8 +1243,8 @@ class MLIRTargetContext(BaseContext):
                 inner_fnty = self.typing_context.resolve_value_type(overload_func)
                 templates.extend(getattr(inner_fnty, "templates", []))
 
-        match_args = (sig.recvr, *sig.args) if sig.recvr else sig.args
-        match_args = tuple(types.unliteral(arg) for arg in match_args)
+        literal_args = tuple((sig.recvr, *sig.args) if sig.recvr else sig.args)
+        match_args = tuple(types.unliteral(arg) for arg in literal_args)
 
         for temp_cls in templates:
             if not hasattr(temp_cls, "_impl_cache"):
@@ -1264,7 +1264,14 @@ class MLIRTargetContext(BaseContext):
                     for arg in match_args
                     if not isinstance(arg, (types.Omitted, types.NoneType))
                 )
-                if cache_args == match_args or non_omitted_cache_args == non_omitted_match_args:
+                # `cache_args` keeps whatever literals the template was
+                # typed with, so an overload registered `prefer_literal=True`
+                # only ever matches the un-unliteral'd form.
+                if (
+                    cache_args == match_args
+                    or cache_args == literal_args
+                    or non_omitted_cache_args == non_omitted_match_args
+                ):
                     disp, _ = cache_value
                     if hasattr(disp, "py_func"):
 

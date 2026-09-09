@@ -538,3 +538,29 @@ def test_flag_reading_attribute_and_method_across_flag_contexts(kind):
 
     assert (a[0], b[0]) == (0, 1)
     assert len(runs) == 2
+
+
+def test_overload_builder_does_not_take_flagless_entry_over_exact_match():
+    """An entry resolved with no flags is a fallback, not an exact match for any flags."""
+
+    class Disp:
+        py_func = None
+
+    template_cls = _make_template(lambda x: None)
+    args = (types.int32,)
+    flags = CUDAFlags()
+    flags.lto = True
+    flagless, exact = Disp(), Disp()
+    template_cls._impl_cache[(None, args, (), None)] = (flagless, args)
+    template_cls._impl_cache[(None, args, (), flags)] = (exact, args)
+    # An is_set read on the flag-less entry must be skipped, not evaluated on None.
+    template_cls._overload_result_cache[(template_cls._overload_func, args, ())] = {
+        ((("is_set", "lto"), "True"),): object(),
+    }
+
+    with ConfigStack().enter(flags):
+        builder = mlir_target.target_context.get_overload_builder(
+            types.Function(template_cls), signature(types.int64, *args)
+        )
+
+    assert builder.__defaults__[0] is exact

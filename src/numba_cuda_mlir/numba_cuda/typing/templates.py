@@ -652,9 +652,10 @@ def _select_overload_dispatcher(templates, args_match, cur_flags):
             disp, _ = cache_value
             if not hasattr(disp, "py_func"):
                 continue
-            if entry_flags is None or cur_flags is None or entry_flags == cur_flags:
+            if cur_flags is None or entry_flags == cur_flags:
                 return disp
-            if observed is None:
+            # An entry resolved with no flags on the stack is only ever a fallback.
+            if observed is None and entry_flags is not None:
                 for reads in tuple(result_cache.get((overload_func, args, kws), ())):
                     if (
                         reads

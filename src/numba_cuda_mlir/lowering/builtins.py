@@ -465,7 +465,14 @@ def type_convert(builder, target, args, kwargs):
         builder.store_var(target, result)
         return
 
-    if isinstance(value.type, ir.BF16Type) and isinstance(to_type, ir.IntegerType):
+    # An i1 target is excluded so it falls through to `convert`, which compares against
+    # zero rather than truncating; fptosi/fptoui to i1 keeps the low bit, so bf16(0.0)
+    # came out True and bf16(2.0) came out False.
+    if (
+        isinstance(value.type, ir.BF16Type)
+        and isinstance(to_type, ir.IntegerType)
+        and to_type.width > 1
+    ):
         value = (
             arith.fptosi(out=to_type, in_=value) if signed else arith.fptoui(out=to_type, in_=value)
         )

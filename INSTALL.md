@@ -114,8 +114,10 @@ LIBLLVM7=$PWD/llvm7-install/lib/libLLVM-7.so \
 If you need to modify LLVM/MLIR or want to build without cached artifacts:
 
 ```shell
-# Install build prerequisites for the LLVM build scripts
-pip install pybind11 nanobind numpy ninja cmake sccache
+# Install build prerequisites for the LLVM build scripts.
+# MLIR asks for nanobind 2.9 and nanobind's CMake config only accepts a
+# matching major version, so 3.x fails the configure step outright.
+pip install pybind11 "nanobind~=2.9" numpy ninja cmake sccache
 
 # Build modern LLVM + MLIR (uses ci/llvm-version.env for the commit)
 ci/build-llvm-modern.sh    # produces llvm-modern-install/

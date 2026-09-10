@@ -27,7 +27,8 @@ from numba_cuda_mlir.numba_cuda.core.errors import NumbaPerformanceWarning
 from numba_cuda_mlir.numba_cuda.core import config as cuda_config
 from numba_cuda_mlir.numba_cuda.cudadrv import driver as numba_cuda_driver
 from importlib.util import find_spec
-from numba_cuda_mlir.numba_cuda.core import errors, sigutils
+from numba_cuda_mlir.numba_cuda.core import errors, sigutils, targetconfig
+from numba_cuda_mlir.numba_cuda.typing.templates import _select_overload_dispatcher
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 from numba_cuda_mlir.numba_cuda.cudadecl import registry as cuda_registry
@@ -1245,34 +1246,23 @@ class MLIRTargetContext(BaseContext):
 
         match_args = (sig.recvr, *sig.args) if sig.recvr else sig.args
         match_args = tuple(types.unliteral(arg) for arg in match_args)
+        omitted = (types.Omitted, types.NoneType)
+        non_omitted_match_args = tuple(a for a in match_args if not isinstance(a, omitted))
 
-        for temp_cls in templates:
-            if not hasattr(temp_cls, "_impl_cache"):
-                continue
-            for cache_key, cache_value in temp_cls._impl_cache.items():
-                if cache_value is None or len(cache_key) != 4:
-                    continue
-                _, args, _, _ = cache_key
-                cache_args = tuple(args)
-                non_omitted_cache_args = tuple(
-                    arg
-                    for arg in cache_args
-                    if not isinstance(arg, (types.Omitted, types.NoneType))
-                )
-                non_omitted_match_args = tuple(
-                    arg
-                    for arg in match_args
-                    if not isinstance(arg, (types.Omitted, types.NoneType))
-                )
-                if cache_args == match_args or non_omitted_cache_args == non_omitted_match_args:
-                    disp, _ = cache_value
-                    if hasattr(disp, "py_func"):
+        def args_match(cache_args):
+            non_omitted = tuple(a for a in cache_args if not isinstance(a, omitted))
+            return cache_args == match_args or non_omitted == non_omitted_match_args
 
-                        def builder(mlir_lower, target, args, kws, _disp=disp):
-                            mlir_lower.lower_overload_call(target, _disp, args, kws)
+        disp = _select_overload_dispatcher(
+            templates, args_match, targetconfig.ConfigStack.top_or_none()
+        )
+        if disp is None:
+            return None
 
-                        return builder
-        return None
+        def builder(mlir_lower, target, args, kws, _disp=disp):
+            mlir_lower.lower_overload_call(target, _disp, args, kws)
+
+        return builder
 
     def get_value_type(self, *args):
         return super().get_value_type(*args)

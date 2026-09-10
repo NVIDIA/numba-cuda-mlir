@@ -7,6 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm70/LLVM70IRBuilder.h"
+#include "llvm/ADT/SmallVector.h"
+
+#include <cstring>
 
 using namespace llvm70;
 
@@ -203,6 +206,10 @@ llvm::Error LLVM70IRBuilder::resolveSymbols() {
   RESOLVE(fnMDString, "LLVMMDStringInContext");
   RESOLVE(fnMDNode, "LLVMMDNodeInContext");
   RESOLVE(fnAddNamedMetadataOperand, "LLVMAddNamedMetadataOperand");
+  RESOLVE(fnGetMDKindIDInContext, "LLVMGetMDKindIDInContext");
+  RESOLVE(fnSetMetadata, "LLVMSetMetadata");
+  RESOLVE(fnValueAsMetadata, "LLVMValueAsMetadata");
+  RESOLVE(fnTemporaryMDNode, "LLVMTemporaryMDNode");
 
   // Debug info
   RESOLVE(fnCreateDIBuilder, "LLVMCreateDIBuilder");
@@ -664,6 +671,24 @@ LLVMValueRef LLVM70IRBuilder::mdNode(LLVMValueRef *vals, unsigned count) {
 void LLVM70IRBuilder::addNamedMetadataOperand(const char *name,
                                              LLVMValueRef val) {
   fnAddNamedMetadataOperand(module, name, val);
+}
+LLVMValueRef LLVM70IRBuilder::selfReferentialMDNode(LLVMValueRef *vals,
+                                                   unsigned count) {
+  // Placeholder operand 0, replaced by the node itself; RAUW frees the placeholder.
+  LLVMMetadataRef placeholder = fnTemporaryMDNode(ctx, nullptr, 0);
+  llvm::SmallVector<LLVMValueRef> operands;
+  operands.push_back(fnMetadataAsValue(ctx, placeholder));
+  operands.append(vals, vals + count);
+  LLVMValueRef node = fnMDNode(ctx, operands.data(), operands.size());
+  fnMetadataReplaceAllUsesWith(placeholder, fnValueAsMetadata(node));
+  return node;
+}
+void LLVM70IRBuilder::setInstructionMetadata(LLVMValueRef inst,
+                                            const char *kindName,
+                                            LLVMValueRef node) {
+  unsigned kind = fnGetMDKindIDInContext(
+      ctx, kindName, static_cast<unsigned>(std::strlen(kindName)));
+  fnSetMetadata(inst, kind, node);
 }
 
 // Debug info

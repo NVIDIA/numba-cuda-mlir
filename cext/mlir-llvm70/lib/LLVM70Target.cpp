@@ -749,9 +749,41 @@ llvm::Error MLIRToLLVM70::translateReturnOp(Operation *op) {
   return llvm::Error::success();
 }
 
+LLVMValueRef MLIRToLLVM70::loopMetadataFor(LLVM::LoopAnnotationAttr attr) {
+  LLVMValueRef &node = loopMetadata[attr];
+  if (node)
+    return node;
+
+  llvm::SmallVector<LLVMValueRef> properties;
+  auto mdString = [&](llvm::StringRef name) {
+    return b.mdString(name.data(), name.size());
+  };
+  auto addFlag = [&](llvm::StringRef name) {
+    LLVMValueRef str = mdString(name);
+    properties.push_back(b.mdNode(&str, 1));
+  };
+  auto isTrue = [](BoolAttr flag) { return flag && flag.getValue(); };
+  if (LLVM::LoopUnrollAttr unroll = attr.getUnroll()) {
+    if (isTrue(unroll.getDisable()))
+      addFlag("llvm.loop.unroll.disable");
+    if (IntegerAttr count = unroll.getCount()) {
+      LLVMValueRef ops[2] = {
+          mdString("llvm.loop.unroll.count"),
+          b.constInt(b.i32Ty(), count.getValue().getZExtValue(), false)};
+      properties.push_back(b.mdNode(ops, 2));
+    }
+    if (isTrue(unroll.getFull()))
+      addFlag("llvm.loop.unroll.full");
+  }
+  node = b.selfReferentialMDNode(properties.data(), properties.size());
+  return node;
+}
+
 llvm::Error MLIRToLLVM70::translateBrOp(Operation *op) {
   auto brOp = cast<LLVM::BrOp>(op);
-  b.buildBr(blockMap[brOp.getDest()]);
+  LLVMValueRef br = b.buildBr(blockMap[brOp.getDest()]);
+  if (LLVM::LoopAnnotationAttr attr = brOp.getLoopAnnotationAttr())
+    b.setInstructionMetadata(br, "llvm.loop", loopMetadataFor(attr));
   return llvm::Error::success();
 }
 

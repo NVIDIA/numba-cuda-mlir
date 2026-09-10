@@ -313,7 +313,6 @@ class TestReportedSSAIssues(SSABaseTest):
 
         self.check_func(foo, np.array([2, 4]), np.array([1, 2]), np.array([3, 4]))
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_issue5219(self):
         def overload_this(a, b=None):
             if isinstance(b, tuple):

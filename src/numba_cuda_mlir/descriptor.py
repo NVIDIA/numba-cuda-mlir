@@ -1088,6 +1088,26 @@ class MLIRTypingContext(typing.BaseContext):
             return super().resolve_value_type(val)
 
 
+def _drop_omitted_args(argtys):
+    return tuple(ty for ty in argtys if not isinstance(ty, (types.Omitted, types.NoneType)))
+
+
+def _overload_args_match(disp, cache_args, match_args):
+    """Whether an ``_impl_cache`` entry describes the call being lowered.
+
+    The cache is keyed on the argument types as they appeared at the call site,
+    which for a ``*args`` implementation differs from the typed signature: the
+    arguments the callee bundles into ``*args`` are folded into a single tuple
+    type.  ``disp`` was compiled from the folded types, so its own signature is
+    what to compare against in that case.
+    """
+    if any(tuple(sig.args) == match_args for sig in getattr(disp, "nopython_signatures", ())):
+        return True
+    return cache_args == match_args or _drop_omitted_args(cache_args) == _drop_omitted_args(
+        match_args
+    )
+
+
 class MLIRCallConv(MinimalCallConv):
     """Use simple default call convention for now"""
 
@@ -1253,19 +1273,8 @@ class MLIRTargetContext(BaseContext):
                 if cache_value is None or len(cache_key) != 4:
                     continue
                 _, args, _, _ = cache_key
-                cache_args = tuple(args)
-                non_omitted_cache_args = tuple(
-                    arg
-                    for arg in cache_args
-                    if not isinstance(arg, (types.Omitted, types.NoneType))
-                )
-                non_omitted_match_args = tuple(
-                    arg
-                    for arg in match_args
-                    if not isinstance(arg, (types.Omitted, types.NoneType))
-                )
-                if cache_args == match_args or non_omitted_cache_args == non_omitted_match_args:
-                    disp, _ = cache_value
+                disp, _ = cache_value
+                if _overload_args_match(disp, tuple(args), match_args):
                     if hasattr(disp, "py_func"):
 
                         def builder(mlir_lower, target, args, kws, _disp=disp):

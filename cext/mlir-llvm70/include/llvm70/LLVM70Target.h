@@ -112,6 +112,7 @@ private:
   // Map an MLIR value to its old-LLVM counterpart.
   void mapValue(mlir::Value v, LLVMValueRef lv) { valueMap[v] = lv; }
   LLVMValueRef lookupValue(mlir::Value v);
+  LLVMValueRef lookupValueAsDeclared(mlir::Value v);
 
   // Type conversion: MLIR type → LLVM 7 type.
   // For ptr types the element type must be recovered from context.

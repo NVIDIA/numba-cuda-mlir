@@ -189,9 +189,8 @@ LLVMTypeRef MLIRToLLVM70::convertType(Type ty) {
           if (!structTy.isOpaque()) {
             llvm::SmallVector<LLVMTypeRef> elems;
 
-            for (Type e : structTy.getBody()) {
-              elems.push_back(convertType(e));
-            }
+            for (unsigned i = 0, e = structTy.getBody().size(); i < e; ++i)
+              elems.push_back(convertStructMemberType(structTy, i));
 
             b.setStructBody(named, elems.data(), elems.size(),
                             structTy.isPacked());
@@ -227,6 +226,40 @@ LLVMTypeRef MLIRToLLVM70::convertType(Type ty) {
         llvm::report_fatal_error(llvm::StringRef(msg),
                                  /*GenCrashDiag=*/false);
       });
+}
+
+LLVMTypeRef MLIRToLLVM70::convertStructMemberType(LLVM::LLVMStructType structTy,
+                                                  unsigned idx) {
+  Type member = structTy.getBody()[idx];
+
+  auto ptrTy = dyn_cast<LLVM::LLVMPointerType>(member);
+  if (ptrTy && structTy.isIdentified()) {
+    auto hint = structPointees.find(structTy.getName());
+    if (hint != structPointees.end() && idx < hint->second.size() &&
+        hint->second[idx])
+      return b.ptrTy(convertType(hint->second[idx]), ptrTy.getAddressSpace());
+  }
+
+  return convertType(member);
+}
+
+LLVMTypeRef
+MLIRToLLVM70::convertAggregateElementType(Type aggTy,
+                                          ArrayRef<int64_t> position) {
+  assert(!position.empty() && "aggregate access with no position");
+
+  // Walk down to the aggregate that directly holds the addressed element.
+  for (int64_t idx : position.drop_back()) {
+    if (auto structTy = dyn_cast<LLVM::LLVMStructType>(aggTy))
+      aggTy = structTy.getBody()[idx];
+    else
+      aggTy = cast<LLVM::LLVMArrayType>(aggTy).getElementType();
+  }
+
+  if (auto structTy = dyn_cast<LLVM::LLVMStructType>(aggTy))
+    return convertStructMemberType(structTy,
+                                   static_cast<unsigned>(position.back()));
+  return convertType(cast<LLVM::LLVMArrayType>(aggTy).getElementType());
 }
 
 //===----------------------------------------------------------------------===//
@@ -301,9 +334,31 @@ void MLIRToLLVM70::setDebugLocFromOp(Operation *op) {
 // Top-level translation
 //===----------------------------------------------------------------------===//
 
+void MLIRToLLVM70::loadStructPointees(gpu::GPUModuleOp gpuMod) {
+  auto dict = gpuMod->getAttrOfType<DictionaryAttr>("llvm70.struct_pointees");
+  if (!dict)
+    return;
+
+  for (NamedAttribute entry : dict) {
+    auto members = dyn_cast<ArrayAttr>(entry.getValue());
+    if (!members)
+      continue;
+
+    llvm::SmallVector<Type> pointees;
+    pointees.reserve(members.size());
+    for (Attribute member : members) {
+      // Not a TypeAttr means "no hint": leave that member as `i8*`.
+      auto typeAttr = dyn_cast<TypeAttr>(member);
+      pointees.push_back(typeAttr ? typeAttr.getValue() : Type());
+    }
+    structPointees[entry.getName().strref()] = std::move(pointees);
+  }
+}
+
 llvm::Error MLIRToLLVM70::translate(gpu::GPUModuleOp gpuMod, int debugLevel,
                                     bool omitDebugInfoVersionFlag,
                                     const LLVM70Options *opts) {
+  loadStructPointees(gpuMod);
   bool needFullDebug = (debugLevel >= 2);
   if (debugLevel > 0) {
     // Upgrade to FullDebug when the IR contains debug variable intrinsics
@@ -1244,6 +1299,11 @@ llvm::Error MLIRToLLVM70::translateStoreOp(Operation *op) {
                     .getAddressSpace();
   ptr = b.buildBitCast(ptr, b.ptrTy(elemTy, as), "");
 
+  // `elemTy` is i8*, but a stored pointer value may be typed (an alloca or GEP
+  // result). Cast to match; a no-op when it is already i8*.
+  if (isa<LLVM::LLVMPointerType>(storeOp.getValue().getType()))
+    val = b.buildBitCast(val, elemTy, "");
+
   LLVMValueRef storeInst = b.buildStore(val, ptr);
   if (storeOp.getVolatile_())
     b.setVolatile(storeInst, true);
@@ -1406,6 +1466,12 @@ llvm::Error MLIRToLLVM70::translateExtractValueOp(Operation *op) {
   LLVMValueRef agg = lookupValue(evOp.getContainer());
   for (int64_t idx : evOp.getPosition())
     agg = b.buildExtractValue(agg, static_cast<unsigned>(idx), "");
+
+  // A refined member comes out typed; restore the `i8*` representation every
+  // other use expects. Folds away when nothing was refined.
+  if (auto ptrTy = dyn_cast<LLVM::LLVMPointerType>(evOp.getResult().getType()))
+    agg = b.buildBitCast(agg, b.ptrTy(b.i8Ty(), ptrTy.getAddressSpace()), "");
+
   mapValue(evOp.getResult(), agg);
   return llvm::Error::success();
 }
@@ -1415,6 +1481,15 @@ llvm::Error MLIRToLLVM70::translateInsertValueOp(Operation *op) {
   LLVMValueRef agg = lookupValue(ivOp.getContainer());
   LLVMValueRef val = lookupValue(ivOp.getValue());
   auto positions = ivOp.getPosition();
+
+  // `val` is `i8*`; the member it lands in may be refined. Folds away when the
+  // two already agree.
+  if (isa<LLVM::LLVMPointerType>(ivOp.getValue().getType())) {
+    LLVMTypeRef memberTy =
+        convertAggregateElementType(ivOp.getContainer().getType(), positions);
+    val = b.buildBitCast(val, memberTy, "");
+  }
+
   if (positions.size() == 1) {
     auto result = b.buildInsertValue(agg, val, positions[0], "");
     mapValue(ivOp.getResult(), result);

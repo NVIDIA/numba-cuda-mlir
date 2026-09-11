@@ -23,6 +23,7 @@ from numba_cuda_mlir.numba_cuda.datamodel.registry import DataModelManager, regi
 from numba_cuda_mlir.numba_cuda.types import misc as nb_types_misc
 from numba_cuda_mlir.numba_cuda.types.ext_types import GridGroup as GridGroupClass
 from numba_cuda_mlir.type_defs import float_types
+from numba_cuda_mlir.lowering_utilities.type_conversions import to_mlir_type
 from numba_cuda_mlir.numba_cuda.types.containers import (
     NamedTuple,
     NamedUniTuple,
@@ -717,17 +718,11 @@ class FloatTF32TypeModel(StoragePrimitiveModel):
 @register_model(types.AggregateType)
 class AggregateTypeModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
-        # Check if this is a bitfield struct
-        if fe_type.is_bitfield_struct:
-            # Bitfield struct: all bitfields are packed into a single storage field
-            storage_type = fe_type.get_bitfield_storage_type()
-            field_types = [dmm.lookup(storage_type).get_value_type()]
-        else:
-            # Regular struct: create a field for each struct field
-            field_types = [
-                dmm.lookup(field_type).get_value_type() for _, field_type, *_ in fe_type.fields
-            ]
-        be_type = llvm.StructType.new_identified(fe_type.name, field_types)
+        # `new_identified` only fills an *opaque* struct of the same name; when a
+        # bodied one already exists it mints `Name.1` instead, so building the
+        # struct here directly would fork the type whenever `to_mlir_type` got
+        # there first. Go through the one path that resolves before creating.
+        be_type = to_mlir_type(fe_type)
         types.AggregateType.record_named_type(be_type.name, fe_type)
         self._fields = tuple(name for name, *_ in fe_type.fields)
         super().__init__(dmm, fe_type, be_type)

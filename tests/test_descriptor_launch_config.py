@@ -92,7 +92,17 @@ class _CompileResult:
 
 
 @pytest.fixture(autouse=True)
-def restore_compile_arg_types():
+def restore_compile_arg_types(monkeypatch):
+    from numba_cuda_mlir._context_cache import _ContextToken
+    from numba_cuda_mlir import tools
+
+    token = _ContextToken()
+    monkeypatch.setattr(descriptor_mod, "current_context_token", lambda: token)
+    monkeypatch.setattr(
+        tools,
+        "get_gpu_compute_capability",
+        lambda as_type=str: (9, 0) if as_type is tuple else "sm_90",
+    )
     # The launch metadata thread-local is only mutated from the test thread in
     # this file, so restoring the current thread's local dict is sufficient.
     state = descriptor_mod._compile_arg_types.__dict__.copy()

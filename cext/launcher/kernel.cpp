@@ -1990,8 +1990,18 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
         }
 
         if (helper->cuda_context) {
-            if (!maybe_switch_context(helper->cuda_context, ctx_guard))
-                return ErrorRaised;
+            // Python selected a context-specific dispatcher before argument
+            // extraction. Switching to an argument's context here would cache
+            // that device's code and loaded functions in the wrong dispatcher.
+            CUcontext current;
+            CUresult res = g_cuCtxGetCurrent(&current);
+            if (res != CUDA_SUCCESS)
+                return raise(PyExc_RuntimeError, "Failed to get current CUDA context: %s",
+                             get_cuda_error(res));
+            if (current != helper->cuda_context)
+                return raise(PyExc_ValueError,
+                             "Device argument belongs to a different CUDA context; "
+                             "select its device before launching this kernel");
         } else {
             if (!ensure_numba_context(dispatcher.ensure_context_func.get()))
                 return ErrorRaised;

@@ -16,8 +16,7 @@ unless working with systems hosting/offering more than one CUDA-capable GPU.
 Device Selection
 ----------------
 
-If at all required, device selection must be done before any CUDA feature is
-used.
+Select the device on which subsequent CUDA operations should run:
 
 ::
 
@@ -30,11 +29,32 @@ The device can be closed by:
 
     cuda.close()
 
-Users can then create a new context with another device.
+Users can select another device and reuse the same kernel dispatcher:
 
 ::
 
-    cuda.select_device(1)  # assuming we have 2 GPUs
+    import numpy as np
+
+    @cuda.jit
+    def increment(out, value):
+        out[0] = value + 1
+
+    configured = increment[1, 1]
+    for device_id in (0, 1, 0):  # assuming we have 2 GPUs
+        with cuda.gpus[device_id]:
+            out = cuda.device_array(1, np.int32)
+            configured(out, np.int32(40))
+            assert out.copy_to_host()[0] == 41
+
+Compilation and launch caches follow the selected device and context lifetime.
+Returning to a device reuses its specialization. Configured calls also remain
+usable across device selection and context recreation; arrays and streams must
+belong to the context in which they are used. Resetting a context invalidates
+its arrays, streams, loaded functions, and allocator state.
+
+An explicit ``chip`` option continues to control compilation. An inferred
+architecture is resolved for each target without changing the dispatcher's
+user-specified options.
 
 
 .. function:: numba_cuda_mlir.cuda.select_device(device_id)
@@ -56,10 +76,8 @@ Users can then create a new context with another device.
    Explicitly close all contexts in the current thread.
 
    .. note::
-      Compiled functions are associated with the CUDA context.
-      This makes it not very useful to close and create new devices, though it
-      is certainly useful for choosing which device to use when the machine
-      has multiple GPUs.
+      Closing contexts discards their cached launch state. A later call to the
+      same dispatcher compiles or reloads code for the new context.
 
 The Device List
 ===============

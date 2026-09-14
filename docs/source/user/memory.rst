@@ -204,9 +204,14 @@ In the above code the kernel launch is configured with 4 parameters:
 
    kernel_func[grid_dim, block_dim, stream, dyn_shared_mem_size]
 
-**Note:** all dynamic shared memory arrays *alias*, so if you want to have
-multiple dynamic shared arrays, you need to take *disjoint* views of the arrays.
-For example, consider:
+Static shared arrays occupy a separate region and do not reduce the dynamic
+byte count supplied at launch. A zero-sized declaration exposes the remaining
+dynamic bytes as elements of its dtype; its ``size`` is determined at runtime.
+
+Runtime-sized declarations consume the dynamic region in execution order.
+Each allocation starts at an offset aligned for its dtype and its
+``alignment`` (8 bytes by default). Include this padding in the launch's
+byte count. For example:
 
 .. code-block:: python
 
@@ -214,57 +219,29 @@ For example, consider:
    import numpy as np
 
    @cuda.jit
-   def f():
-      f32_arr = cuda.shared.array(0, dtype=np.float32)
-      i32_arr = cuda.shared.array(0, dtype=np.int32)
-      f32_arr[0] = 3.14
-      print(f32_arr[0])
-      print(i32_arr[0])
+   def kernel(n, out):
+       prefix = cuda.shared.array(n[0], dtype=np.uint8)
+       tail = cuda.shared.array(0, dtype=np.int32)
+       prefix[0] = 7
+       tail[0] = 13
+       out[0] = prefix[0]
+       out[1] = tail[0]
+       out[2] = tail.size
 
-   f[1, 1, 0, 4]()
-   cuda.synchronize()
+   n = cuda.to_device(np.array([3], dtype=np.int64))
+   out = cuda.device_array(3, dtype=np.int64)
+   kernel[1, 1, 0, 32](n, out)
+   print(out.copy_to_host())  # [7, 13, 6]
 
-This allocates 4 bytes of shared memory (large enough for one ``int32`` or one
-``float32``) and declares dynamic shared memory arrays of type ``int32`` and of
-type ``float32``. When ``f32_arr[0]`` is set, this also sets the value of
-``i32_arr[0]``, because they're pointing at the same memory. So we see as
-output:
+The prefix uses bytes 0 through 2. The tail begins at byte 8 and contains
+six ``int32`` elements. All threads that share these allocations must follow
+the same allocation path and use the same sizes.
 
-.. code-block:: pycon
-
-   3.140000
-   1078523331
-
-because 1078523331 is the ``int32`` represented by the bits of the ``float32``
-value 3.14.
-
-If we take disjoint views of the dynamic shared memory:
-
-.. code-block:: python
-
-   from numba_cuda_mlir import cuda
-   import numpy as np
-
-   @cuda.jit
-   def f_with_view():
-      f32_arr = cuda.shared.array(0, dtype=np.float32)
-      i32_arr = cuda.shared.array(0, dtype=np.int32)[1:] # 1 int32 = 4 bytes
-      f32_arr[0] = 3.14
-      i32_arr[0] = 1
-      print(f32_arr[0])
-      print(i32_arr[0])
-
-   f_with_view[1, 1, 0, 8]()
-   cuda.synchronize()
-
-This time we declare 8 dynamic shared memory bytes, using the first 4 for a
-``float32`` value and the next 4 for an ``int32`` value. Now we can set both the
-``int32`` and ``float32`` value without them aliasing:
-
-.. code-block:: pycon
-
-   3.140000
-   1
+A zero-sized declaration consumes the remaining window, so another
+``cuda.shared.array(0, ...)`` in the same function has zero elements. To
+partition one such array, take disjoint slices from that array. If preceding
+runtime allocations or alignment padding exhaust the window, the remaining
+array has zero elements; this does not make out-of-bounds accesses valid.
 
 
 .. _cuda-local-memory:

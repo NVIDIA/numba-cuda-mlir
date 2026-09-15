@@ -208,7 +208,7 @@ Static shared arrays occupy a separate region and do not reduce the dynamic
 byte count supplied at launch. A zero-sized declaration exposes the remaining
 dynamic bytes as elements of its dtype; its ``size`` is determined at runtime.
 
-Runtime-sized declarations consume the dynamic region in execution order.
+Runtime-sized allocations consume the dynamic region in execution order.
 Each allocation starts at an offset aligned for its dtype and its
 ``alignment`` (8 bytes by default). Include this padding in the launch's
 byte count. For example:
@@ -237,13 +237,26 @@ The prefix uses bytes 0 through 2. The tail begins at byte 8 and contains
 six ``int32`` elements. All threads that share these allocations must follow
 the same allocation path and use the same sizes.
 
-A zero-sized declaration consumes the remaining window, so another
-``cuda.shared.array(0, ...)`` in the same function has zero elements. This
-differs from Numba-CUDA, where every zero-sized declaration aliases the start
-of the dynamic region. To partition one such array, take disjoint slices from
-that array. If preceding runtime allocations or alignment padding exhaust the
-window, the remaining array has zero elements; this does not make
-out-of-bounds accesses valid.
+A zero-sized declaration views the remaining window without consuming it.
+Repeated zero-sized declarations with the same alignment therefore alias,
+unless a runtime-sized allocation intervenes. With no preceding runtime-sized
+allocations, these views start at the beginning of the dynamic region, matching
+Numba-CUDA. Use disjoint slices to partition the region, including across dtypes:
+
+.. code-block:: python
+
+   f32_arr = cuda.shared.array(0, dtype=np.float32)
+   i32_arr = cuda.shared.array(0, dtype=np.int32)[1:]
+   f32_arr[0] = 3.14
+   i32_arr[0] = 1
+
+This example needs eight dynamic bytes: the ``float32`` value uses bytes 0
+through 3, and the ``int32`` value uses bytes 4 through 7. After runtime-sized
+allocations, each view starts at the current allocation offset rounded up to
+its alignment. A later runtime-sized allocation can overlap an earlier view;
+the view does not reserve those bytes. If preceding runtime allocations or
+alignment padding exhaust the window, the remaining array has zero elements;
+this does not make out-of-bounds accesses valid.
 
 
 .. _cuda-local-memory:

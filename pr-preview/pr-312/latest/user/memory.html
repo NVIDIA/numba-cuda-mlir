@@ -613,7 +613,7 @@ size 0:</p>
 <p>Static shared arrays occupy a separate region and do not reduce the dynamic
 byte count supplied at launch. A zero-sized declaration exposes the remaining
 dynamic bytes as elements of its dtype; its <code class="docutils literal notranslate"><span class="pre">size</span></code> is determined at runtime.</p>
-<p>Runtime-sized declarations consume the dynamic region in execution order.
+<p>Runtime-sized allocations consume the dynamic region in execution order.
 Each allocation starts at an offset aligned for its dtype and its
 <code class="docutils literal notranslate"><span class="pre">alignment</span></code> (8 bytes by default). Include this padding in the launch’s
 byte count. For example:</p>
@@ -639,13 +639,24 @@ byte count. For example:</p>
 <p>The prefix uses bytes 0 through 2. The tail begins at byte 8 and contains
 six <code class="docutils literal notranslate"><span class="pre">int32</span></code> elements. All threads that share these allocations must follow
 the same allocation path and use the same sizes.</p>
-<p>A zero-sized declaration consumes the remaining window, so another
-<code class="docutils literal notranslate"><span class="pre">cuda.shared.array(0,</span> <span class="pre">...)</span></code> in the same function has zero elements. This
-differs from Numba-CUDA, where every zero-sized declaration aliases the start
-of the dynamic region. To partition one such array, take disjoint slices from
-that array. If preceding runtime allocations or alignment padding exhaust the
-window, the remaining array has zero elements; this does not make
-out-of-bounds accesses valid.</p>
+<p>A zero-sized declaration views the remaining window without consuming it.
+Repeated zero-sized declarations with the same alignment therefore alias,
+unless a runtime-sized allocation intervenes. With no preceding runtime-sized
+allocations, these views start at the beginning of the dynamic region, matching
+Numba-CUDA. Use disjoint slices to partition the region, including across dtypes:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">f32_arr</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">shared</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">i32_arr</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">shared</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">)[</span><span class="mi">1</span><span class="p">:]</span>
+<span class="n">f32_arr</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mf">3.14</span>
+<span class="n">i32_arr</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+</pre></div>
+</div>
+<p>This example needs eight dynamic bytes: the <code class="docutils literal notranslate"><span class="pre">float32</span></code> value uses bytes 0
+through 3, and the <code class="docutils literal notranslate"><span class="pre">int32</span></code> value uses bytes 4 through 7. After runtime-sized
+allocations, each view starts at the current allocation offset rounded up to
+its alignment. A later runtime-sized allocation can overlap an earlier view;
+the view does not reserve those bytes. If preceding runtime allocations or
+alignment padding exhaust the window, the remaining array has zero elements;
+this does not make out-of-bounds accesses valid.</p>
 </section>
 </section>
 <section id="local-memory">

@@ -316,6 +316,8 @@ class CFGraph:
         The sort isn't guaranteed to be stable.
         """
         nodes = set(nodes)
+        if not nodes:
+            return
         it = self._topo_order
         if reverse:
             it = reversed(it)

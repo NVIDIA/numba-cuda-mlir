@@ -23,12 +23,6 @@ Select the device on which subsequent CUDA operations should run:
     from numba_cuda_mlir import cuda
     cuda.select_device(0)
 
-The device can be closed by:
-
-::
-
-    cuda.close()
-
 Users can select another device and reuse the same kernel dispatcher:
 
 ::
@@ -48,9 +42,9 @@ Users can select another device and reuse the same kernel dispatcher:
 
 Compilation and launch caches follow the selected device and context lifetime.
 Returning to a device reuses its specialization. Configured calls also remain
-usable across device selection and context recreation; arrays and streams must
-belong to the context in which they are used. Resetting a context invalidates
-its arrays, streams, loaded functions, and allocator state.
+usable across device selection. Arrays and streams must belong to the context
+in which they are used. Resetting a context invalidates its arrays, streams,
+loaded functions, and allocator state.
 
 An explicit ``chip`` option continues to control compilation. An inferred
 architecture is resolved for each target without changing the dispatcher's
@@ -76,8 +70,10 @@ user-specified options.
    Explicitly close all contexts in the current thread.
 
    .. note::
-      Closing contexts discards their cached launch state. A later call to the
-      same dispatcher compiles or reloads code for the new context.
+      Closing contexts discards their cached launch state. With
+      ``cuda-core`` 1.1.1, creating a new context afterward can fail with
+      ``CUDA_ERROR_CONTEXT_IS_DESTROYED``. Use ``cuda.gpus[device_id]`` to
+      switch devices while continuing to use existing dispatchers.
 
 The Device List
 ===============

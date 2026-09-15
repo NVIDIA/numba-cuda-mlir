@@ -1703,7 +1703,10 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         root = getattr(self, "_context_root", self)
         if root is not self:
             return self
-        if getattr(root, "_context_dispatchers", None):
+        if (
+            getattr(root, "_context_dispatchers", None)
+            or getattr(root, "_context_token", None) is not None
+        ):
             return root._get_context_dispatcher()
         if getattr(root, "_compile_dispatchers", None):
             return root._get_compile_dispatcher()
@@ -1719,7 +1722,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         from numba_cuda_mlir.tools import resolve_gpu_target
 
         root = self._context_root
-        if root._context_dispatchers:
+        if root._context_dispatchers or root._context_token is not None:
             return root._get_context_dispatcher()
         target = resolve_gpu_target(root.targetoptions)
         key = tuple(target.items())
@@ -1735,10 +1738,15 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                     dispatcher.locals = root.locals
                     dispatcher.extensions = root.extensions
                     dispatcher._specialized = root._specialized
-                    dispatcher._can_compile = root._can_compile
                     if not isinstance(root._cache, NullCache):
                         dispatcher.enable_caching()
                 root._compile_dispatchers[key] = dispatcher
+                if dispatcher is not root and not root._can_compile:
+                    try:
+                        dispatcher._inherit_fixed_signatures(root)
+                    except BaseException:
+                        del root._compile_dispatchers[key]
+                        raise
             return dispatcher
 
     def _get_context_dispatcher(self):
@@ -1777,27 +1785,33 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             if not isinstance(root._cache, NullCache):
                 dispatcher.enable_caching()
             root._context_dispatchers[token] = dispatcher
+            if root._context_token is None:
+                root._context_token = dispatcher._context_token
             if not root._can_compile:
-                dispatcher._literal_arg_positions = root._literal_arg_positions
-                if dispatcher._literal_arg_positions:
-                    dispatcher._c = dispatcher._new_kernel_dispatcher()
-                # These signatures are portable; compiled modules and inferred
-                # target options are not. Rebuild before disabling new signatures.
                 try:
-                    if not root._requires_launch_config:
-                        for cres in tuple(root._overloads.values()):
-                            dispatcher.compile(cres.signature)
-                    else:
-                        dispatcher._requires_launch_config = True
-                        for (_, launch_key), cres in tuple(root._launch_config_overloads.items()):
-                            dispatcher._compile_launch_config_signature(cres.signature, launch_key)
+                    dispatcher._inherit_fixed_signatures(root)
                 except BaseException:
                     del root._context_dispatchers[token]
                     raise
-                dispatcher._can_compile = False
             return dispatcher
 
+    def _inherit_fixed_signatures(self, root):
+        # Register the partition before entering here, so recursive compilation
+        # selects it. Signatures are portable; modules and inferred targets are not.
+        self._literal_arg_positions = root._literal_arg_positions
+        if self._literal_arg_positions:
+            self._c = self._new_kernel_dispatcher()
+        if not root._requires_launch_config:
+            for cres in tuple(root._overloads.values()):
+                self.compile(cres.signature)
+        else:
+            self._requires_launch_config = True
+            for (_, launch_key), cres in tuple(root._launch_config_overloads.items()):
+                self._compile_launch_config_signature(cres.signature, launch_key)
+        self._can_compile = False
+
     @property
+    @_on_inspection_target
     def is_compiling(self):
         return self._is_compiling
 

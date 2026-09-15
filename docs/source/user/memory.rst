@@ -238,10 +238,12 @@ six ``int32`` elements. All threads that share these allocations must follow
 the same allocation path and use the same sizes.
 
 A zero-sized declaration consumes the remaining window, so another
-``cuda.shared.array(0, ...)`` in the same function has zero elements. To
-partition one such array, take disjoint slices from that array. If preceding
-runtime allocations or alignment padding exhaust the window, the remaining
-array has zero elements; this does not make out-of-bounds accesses valid.
+``cuda.shared.array(0, ...)`` in the same function has zero elements. This
+differs from Numba-CUDA, where every zero-sized declaration aliases the start
+of the dynamic region. To partition one such array, take disjoint slices from
+that array. If preceding runtime allocations or alignment padding exhaust the
+window, the remaining array has zero elements; this does not make
+out-of-bounds accesses valid.
 
 
 .. _cuda-local-memory:

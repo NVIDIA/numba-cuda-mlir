@@ -467,7 +467,13 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
     else:
         array = lower._request_shared_memory(shape, mr_type, alignas)
     if alignas != 8:
-        memref.assume_alignment(array, alignas)
+        # assume_alignment yields a new SSA value; an unused result leaves a
+        # dead op that canonicalization erases, silently dropping the
+        # alignment assumption. Keep the aligned value as the array, and keep
+        # it recognizable as dynamic shared memory.
+        array = memref.assume_alignment(array, alignas)
+        if is_dynamic_shared_shape:
+            lower._dynamic_shared_memory_values.append(array)
     lower.store_var(target, array)
 
 

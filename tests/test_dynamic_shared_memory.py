@@ -125,6 +125,35 @@ def test_dynamic_shared_ptx_uses_external_region_and_launch_extent(monkeypatch, 
     assert "ld.shared" in ptx
 
 
+@pytest.mark.parametrize("cc", [(9, 0), (12, 0)])
+def test_explicit_alignment_reaches_ptx_and_optimized_ir(monkeypatch, cc):
+    monkeypatch.setattr(
+        tools,
+        "get_gpu_compute_capability",
+        lambda as_type=str: cc if as_type is tuple else f"sm_{cc[0]}{cc[1]}",
+    )
+
+    @cuda.jit
+    def kernel(n, out):
+        prefix = cuda.shared.array((n[0], n[1]), dtype=np.int32, alignment=16)
+        tail = cuda.shared.array(0, dtype=np.float64)
+        prefix[0, 0] = 7
+        tail[0] = 21.0
+        out[0] = prefix[0, 0]
+        out[1] = tail[0]
+
+    sig = types.void(types.int64[::1], types.int64[::1])
+    # The strongest requested alignment is applied to the external symbol.
+    ptx, _ = compiler.compile_ptx(kernel, sig, cc=cc)
+    assert re.search(
+        r"\.extern \.shared \.align 16 \.b8 __numba_cuda_mlir_dynamic_shared_\w+\[\];", ptx
+    )
+    # The runtime-sized array's alignment assumption must survive optimization
+    # instead of being erased as a dead op with an unused result.
+    optimized = compiler.compile_mlir(kernel, sig, optimized=True)
+    assert re.search(r'llvm\.intr\.assume .*\["align"\(', optimized)
+
+
 def test_runtime_allocations_align_each_window():
     @cuda.jit
     def kernel(n, out):

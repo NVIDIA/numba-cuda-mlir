@@ -128,13 +128,21 @@ class CodeLibrary:
         Returns:
             CUFunc: A wrapper around the CUfunction handle
         """
+        return self._get_module_and_cufunc()[1]
+
+    @property
+    def _module(self):
+        """Current-context module handle for downstream compatibility."""
+        return self._get_module_and_cufunc()[0]
+
+    def _get_module_and_cufunc(self):
         from cuda.bindings import driver
 
         token = current_context_token()
         with self._cufunc_lock:
             cached = self._cufunc_cache.get(token)
             if cached is not None:
-                return cached[1]
+                return cached
 
             result = driver.cuModuleLoadData(self._cubin)
             if result[0].value != 0:
@@ -146,8 +154,9 @@ class CodeLibrary:
                     f"cuModuleGetFunction failed for '{self._func_name}' with error {result[0]}"
                 )
             cufunc = CUFunc(result[1])
-            self._cufunc_cache[token] = (module, cufunc)
-            return cufunc
+            cached = (module, cufunc)
+            self._cufunc_cache[token] = cached
+            return cached
 
     def get_kernel_attributes(self):
         """Query kernel resource usage attributes from the CUDA driver."""

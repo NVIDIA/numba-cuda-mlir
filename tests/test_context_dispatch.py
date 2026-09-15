@@ -98,14 +98,21 @@ def test_capability_and_target_follow_current_device(contexts, monkeypatch):
 
 
 @pytest.mark.parametrize("same_arch", [False, True])
-def test_overloads_and_native_state_follow_context(contexts, compiler_stub, same_arch):
+@pytest.mark.parametrize("fixed_signatures", [False, True])
+def test_overloads_and_native_state_follow_context(
+    contexts, compiler_stub, same_arch, fixed_signatures
+):
     a, b, local = contexts
     if same_arch:
         b.device.compute_capability = a.device.compute_capability
     dispatch = make_dispatcher()
-    dispatch._get_context_dispatcher()
     first = dispatch.compile((types.int32,))
-    native_a = dispatch._get_context_dispatcher()._c
+    if fixed_signatures:
+        dispatch.disable_compile()
+    target_a = dispatch._get_context_dispatcher()
+    native_a = target_a._c
+    assert target_a.overloads[(types.int32,)] is first
+    assert not dispatch._compile_dispatchers
     local.context = b
     second = dispatch.compile((types.int32,))
     native_b = dispatch._get_context_dispatcher()._c
@@ -222,7 +229,7 @@ def test_frozen_signatures_survive_serialization_on_unlaunched_target(
         "current_context_token",
         lambda: pytest.fail("compile-only serialization acquired a CUDA context"),
     )
-    dispatch = make_dispatcher()
+    dispatch = make_dispatcher(chip="sm_90")
     if launch_specialized:
         dispatch._requires_launch_config = True
         dispatch._literal_arg_positions = frozenset({0})
@@ -254,6 +261,58 @@ def test_frozen_signatures_survive_serialization_on_unlaunched_target(
     local.context = a
     assert dispatch.signatures == original_signatures
     assert dispatch._reduce_states() == original_state
+
+
+@pytest.mark.parametrize("launch_specialized", [False, True])
+@pytest.mark.parametrize("expire_contexts", [False, True])
+def test_frozen_signatures_preserve_nonroot_context_state(
+    contexts, compiler_stub, launch_specialized, expire_contexts
+):
+    a, b, local = contexts
+    dispatch = make_dispatcher()
+    dispatch._get_context_dispatcher()
+    dispatch.compile((types.int32,))
+    local.context = b
+    target_b = dispatch._get_context_dispatcher()
+    if launch_specialized:
+        target_b._requires_launch_config = True
+        target_b._literal_arg_positions = frozenset({0})
+        key = descriptor._launch_config_key(
+            {"grid": (1, 1, 1), "block": (32, 1, 1), "sharedmem": 0, "cluster": None}
+        )
+        target_b._compile_launch_config_signature((descriptor.types.literal(7),), key)
+    else:
+        target_b.compile((types.float32,))
+    dispatch.disable_compile()
+    frozen_state = dispatch._reduce_states()
+    if launch_specialized:
+        assert frozen_state["sigs"] == []
+        assert len(frozen_state["launch_config_sigs"]) == 1
+    else:
+        assert {sig.args for sig in frozen_state["sigs"]} == {
+            (types.int32,),
+            (types.float32,),
+        }
+    del target_b
+    if expire_contexts:
+        a.extras.clear()
+        b.extras.clear()
+    local.context = SimpleNamespace(device=b.device, handle=300, extras={})
+    target_c = dispatch._get_context_dispatcher()
+    assert not target_c._can_compile
+    assert target_c._requires_launch_config == launch_specialized
+    assert target_c._literal_arg_positions == (
+        frozenset({0}) if launch_specialized else frozenset()
+    )
+    assert len(target_c._inspectable_overloads()) == (1 if launch_specialized else 2)
+    state = dispatch._reduce_states()
+    for name in ("sigs", "launch_config_sigs", "requires_launch_config", "literal_arg_positions"):
+        assert state[name] == frozen_state[name]
+    state["uuid"] = str(uuid4())
+    rebuilt = descriptor.MLIRDispatcher._rebuild(**state)
+    local.context = SimpleNamespace(device=a.device, handle=400, extras={})
+    assert rebuilt.signatures == target_c.signatures
+    assert not rebuilt._get_compile_dispatcher()._can_compile
 
 
 def test_concurrent_device_selection_keeps_state_separate(contexts, compiler_stub):
@@ -373,9 +432,11 @@ def test_explicit_target_launch_compile_does_not_acquire_context(monkeypatch, co
     assert not dispatch._context_dispatchers
 
 
-def test_context_reset_expires_dispatch_and_allocator_state(contexts):
+def test_context_reset_expires_dispatch_and_allocator_state(contexts, monkeypatch):
     from numba_cuda_mlir.memory_management import rtsys
-    from numba_cuda_mlir.numba_cuda.cudadrv.driver import Context
+    from numba_cuda_mlir.numba_cuda.cudadrv import driver
+
+    monkeypatch.setattr(driver, "_logger", SimpleNamespace(info=lambda *args: None), raising=False)
 
     a, b, local = contexts
     old_token = current_context_token()
@@ -383,7 +444,7 @@ def test_context_reset_expires_dispatch_and_allocator_state(contexts):
     a.memory_manager = SimpleNamespace(reset=lambda: None)
     a.modules = {}
     a.deallocations = SimpleNamespace(clear=lambda: None)
-    Context.reset(a)
+    driver.Context.reset(a)
     assert current_context_token() is not old_token
     assert rtsys._memsys is None
 
@@ -426,7 +487,7 @@ def test_lookup_and_compilation_use_one_capability_snapshot(monkeypatch, compile
         return (9, 0) if len(calls) == 1 else (12, 0)
 
     monkeypatch.setattr(tools, "get_gpu_compute_capability", capability)
-    dispatch = make_dispatcher()
+    dispatch = make_dispatcher(chip="sm_90")
     result = dispatch.compile((types.int32,))
     assert len(calls) == 1
     assert result.metadata["gpu_target"]["chip"] == "sm_90"
@@ -453,7 +514,7 @@ def test_inspection_after_all_contexts_expire_discards_old_results(
     contexts, compiler_stub, prior_offline_compile
 ):
     a, b, local = contexts
-    dispatch = make_dispatcher()
+    dispatch = make_dispatcher(**({"chip": "sm_90"} if prior_offline_compile else {}))
     if prior_offline_compile:
         dispatch.compile((types.int32,))
         # A matching target must not expose the old compile-only cache after reset.
@@ -524,13 +585,15 @@ def test_recursive_device_function_follows_target(contexts, context_partitions, 
     if same_arch:
         b.device.compute_capability = a.device.compute_capability
 
-    @cuda.jit(device=True)
+    options = {} if context_partitions else {"chip": "sm_90"}
+
+    @cuda.jit(device=True, **options)
     def fib(n):
         if n <= 1:
             return n
         return fib(n - 1) + fib(n - 2)
 
-    @cuda.jit
+    @cuda.jit(**options)
     def kernel(out):
         out[0] = fib(10)
 
@@ -553,3 +616,96 @@ def test_recursive_device_function_follows_target(contexts, context_partitions, 
         # Recreate the context lifetime with the same device and raw handle.
         a.extras.clear()
         assert compile_on(a) is not first
+
+
+def test_compile_routing_rechecks_concurrent_runtime_registration(contexts, monkeypatch):
+    from numba_cuda_mlir import cuda
+
+    a, b, local = contexts
+
+    @cuda.jit(device=True, chip="sm_90")
+    def fib(n):
+        if n <= 1:
+            return n
+        return fib(n - 1) + fib(n - 2)
+
+    resolving_target = threading.Event()
+    runtime_registered = threading.Event()
+    resolve_gpu_target = tools.resolve_gpu_target
+
+    def resolve_after_runtime_registration(options=None):
+        if not resolving_target.is_set():
+            resolving_target.set()
+            assert runtime_registered.wait(timeout=10)
+        return resolve_gpu_target(options)
+
+    monkeypatch.setattr(tools, "resolve_gpu_target", resolve_after_runtime_registration)
+
+    def compile_on_a():
+        local.context = a
+        result = fib.compile((types.int64,))
+        assert fib.overloads[(types.int64,)] is result
+        return result
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(compile_on_a)
+        try:
+            assert resolving_target.wait(timeout=10)
+            local.context = b
+            fib._get_context_dispatcher()
+        finally:
+            runtime_registered.set()
+        result = future.result(timeout=20)
+
+    assert result.metadata["cubin"]
+    assert result.metadata["gpu_target"]["host_cc"] == a.device.compute_capability
+    assert not fib._compile_dispatchers
+
+
+def test_compile_routing_stays_selected_during_runtime_registration(contexts, monkeypatch):
+    from numba_cuda_mlir import cuda
+
+    a, b, local = contexts
+
+    @cuda.jit(device=True, chip="sm_90")
+    def fib(n):
+        if n <= 1:
+            return n
+        return fib(n - 1) + fib(n - 2)
+
+    selected = threading.Event()
+    runtime_registered = threading.Event()
+    compile_public = descriptor.MLIRDispatcher._compile_public
+
+    def compile_after_runtime_registration(self, *args, **kwargs):
+        if not selected.is_set():
+            selected.set()
+            assert runtime_registered.wait(timeout=10)
+        return compile_public(self, *args, **kwargs)
+
+    monkeypatch.setattr(
+        descriptor.MLIRDispatcher, "_compile_public", compile_after_runtime_registration
+    )
+
+    def compile_on_a():
+        local.context = a
+        return fib.compile((types.int64,))
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(compile_on_a)
+        try:
+            assert selected.wait(timeout=10)
+            local.context = b
+            fib._get_context_dispatcher()
+        finally:
+            runtime_registered.set()
+        first = future.result(timeout=20)
+        # The first call selected offline state before runtime registration. Its
+        # completed scope must not affect the next call on the same worker thread.
+        second = pool.submit(compile_on_a).result(timeout=20)
+
+    assert first.metadata["cubin"]
+    assert first.metadata["gpu_target"]["host_cc"] == a.device.compute_capability
+    assert second is not first
+    local.context = a
+    assert fib.overloads[(types.int64,)] is second

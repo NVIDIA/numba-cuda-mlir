@@ -48,7 +48,7 @@ def test_retained_configured_launch_across_devices(use_nrt):
 
 
 @pytest.mark.parametrize("warm_cache", [False, True])
-def test_foreign_device_argument_does_not_poison_native_cache(warm_cache):
+def test_managed_argument_from_another_device_preserves_selected_context(warm_cache):
     if len(cuda.gpus) < 2:
         pytest.skip("requires two CUDA devices")
 
@@ -58,16 +58,26 @@ def test_foreign_device_argument_does_not_poison_native_cache(warm_cache):
 
     configured = write[1, 1]
     with cuda.gpus[1]:
-        foreign = cuda.device_array(1, np.int32)
+        if not cuda.current_context().device.MANAGED_MEMORY:
+            pytest.skip("requires managed memory on both devices")
+        foreign = cuda.managed_array(1, np.int32, attach_global=True)
+        foreign[0] = 0
     with cuda.gpus[0]:
-        local = cuda.device_array(1, np.int32)
+        selected = cuda.current_context()
+        if not selected.device.MANAGED_MEMORY:
+            pytest.skip("requires managed memory on both devices")
+        local = cuda.managed_array(1, np.int32, attach_global=True)
         if warm_cache:
             configured(local)
-        with pytest.raises(ValueError, match="different CUDA context"):
-            configured(foreign)
+        configured(foreign)
+        cuda.synchronize()
+        assert foreign[0] == 42
+        assert cuda.current_context() is selected
+        state = write._get_context_dispatcher()
         configured(local)
         cuda.synchronize()
-        assert local.copy_to_host()[0] == 42
+        assert local[0] == 42
+        assert write._get_context_dispatcher() is state
         assert (
             next(iter(write.overloads.values())).metadata["gpu_target"]["host_cc"]
             == cuda.current_context().device.compute_capability

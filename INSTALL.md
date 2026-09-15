@@ -17,7 +17,7 @@ Numba-CUDA-MLIR can be installed:
 - Python >= 3.11, with:
   - The `cuda.core` and `cuda-bindings` packages
   - NumPy >= 1.22
-- CUDA Toolkit components (CUDA Runtime, NVCC, NVRTC, nvJitLink, and CCCL)
+- CUDA Toolkit components (CUDA Runtime, NVCC, NVRTC, and nvJitLink)
   installed via pip or a system package manager (Linux).
 - NVIDIA GPU with Compute Capability 7.0 or greater and a compatible driver:
   - &gt;= r525 for CUDA 12.x
@@ -114,8 +114,10 @@ LIBLLVM7=$PWD/llvm7-install/lib/libLLVM-7.so \
 If you need to modify LLVM/MLIR or want to build without cached artifacts:
 
 ```shell
-# Install build prerequisites for the LLVM build scripts
-pip install pybind11 nanobind numpy ninja cmake sccache
+# Install build prerequisites for the LLVM build scripts.
+# MLIR asks for nanobind 2.9 and nanobind's CMake config only accepts a
+# matching major version, so 3.x fails the configure step outright.
+pip install pybind11 "nanobind~=2.9" numpy ninja cmake sccache
 
 # Build modern LLVM + MLIR (uses ci/llvm-version.env for the commit)
 ci/build-llvm-modern.sh    # produces llvm-modern-install/

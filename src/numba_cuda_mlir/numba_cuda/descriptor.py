@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
+import threading
+
 from numba_cuda_mlir.numba_cuda.core.options import TargetOptions
 from .target import CUDATargetContext, CUDATypingContext
 
@@ -22,6 +24,7 @@ class CUDATarget:
         self._typingctx_initializing = False
         self._targetctx_initializing = False
         self._initializing = False
+        self._initialization_lock = threading.RLock()
         self._target_name = name
 
     @property
@@ -37,75 +40,80 @@ class CUDATarget:
         return self._targetctx
 
     def _seed_target_registry(self):
-        if self.target_context._registries:
-            return
-        from numba_cuda_mlir.numba_cuda.core.imputils import builtin_registry
+        with self.target_context._registry_lock:
+            if self.target_context._registries:
+                return
+            from numba_cuda_mlir.numba_cuda.core.imputils import builtin_registry
 
-        self.target_context.install_registry(builtin_registry)
+            self.target_context.install_registry(builtin_registry)
 
     def ensure_initialized(self):
         if self._typingctx_initialized and self._targetctx_initialized:
             return
-        if self._initializing:
-            return
+        with self._initialization_lock:
+            if self._typingctx_initialized and self._targetctx_initialized:
+                return
+            if self._initializing:
+                return
 
-        self._initializing = True
-        try:
-            self._seed_target_registry()
+            self._initializing = True
+            try:
+                self._seed_target_registry()
 
-            if not self._typingctx_initialized:
-                self._typingctx_initializing = True
-                try:
-                    self.typing_context.refresh()
-                except Exception:
-                    self._typingctx_initialized = False
-                    raise
-                else:
-                    self._typingctx_initialized = True
-                finally:
-                    self._typingctx_initializing = False
+                if not self._typingctx_initialized:
+                    self._typingctx_initializing = True
+                    try:
+                        self.typing_context.refresh()
+                    except Exception:
+                        self._typingctx_initialized = False
+                        raise
+                    finally:
+                        self._typingctx_initializing = False
 
-            if not self._targetctx_initialized:
-                self._targetctx_initializing = True
-                try:
-                    self.target_context.refresh()
-                except Exception:
-                    self._targetctx_initialized = False
-                    raise
-                else:
-                    self._targetctx_initialized = True
-                finally:
-                    self._targetctx_initializing = False
+                if not self._targetctx_initialized:
+                    self._targetctx_initializing = True
+                    try:
+                        self.target_context.refresh()
+                    except Exception:
+                        self._targetctx_initialized = False
+                        raise
+                    finally:
+                        self._targetctx_initializing = False
 
-            from numba_cuda_mlir.device_declarations import (
-                apply_device_declarations,
-            )
-            from numba_cuda_mlir.numba_cuda.typing.templates import builtin_registry
-
-            self.typing_context.install_registry(builtin_registry)
-            apply_device_declarations(self.typing_context, self.target_context)
-        finally:
-            self._initializing = False
-
-    def refresh_registries(self, *, typing=True, target=True):
-        if self._initializing:
-            return
-        self._initializing = True
-        try:
-            if typing:
-                self.typing_context.refresh()
-                self._typingctx_initialized = True
-            if target:
-                self.target_context.refresh()
-                self._targetctx_initialized = True
-            if typing and target:
                 from numba_cuda_mlir.device_declarations import (
                     apply_device_declarations,
                 )
+                from numba_cuda_mlir.numba_cuda.typing.templates import builtin_registry
 
+                self.typing_context.install_registry(builtin_registry)
                 apply_device_declarations(self.typing_context, self.target_context)
-        finally:
-            self._initializing = False
+                self._typingctx_initialized = True
+                self._targetctx_initialized = True
+            finally:
+                self._initializing = False
+
+    def refresh_registries(self, *, typing=True, target=True):
+        with self._initialization_lock:
+            if self._initializing:
+                return
+            self._initializing = True
+            try:
+                if typing:
+                    self.typing_context.refresh()
+                if target:
+                    self.target_context.refresh()
+                if typing and target:
+                    from numba_cuda_mlir.device_declarations import (
+                        apply_device_declarations,
+                    )
+
+                    apply_device_declarations(self.typing_context, self.target_context)
+                if typing:
+                    self._typingctx_initialized = True
+                if target:
+                    self._targetctx_initialized = True
+            finally:
+                self._initializing = False
 
 
 cuda_target = CUDATarget("cuda")

@@ -282,8 +282,9 @@ def test_dispatcher_state_bootstrap_lock_converges(monkeypatch):
 def test_compile_and_recompile_take_launch_lock(monkeypatch):
     from numba_cuda_mlir import descriptor
 
-    dispatcher = object.__new__(descriptor.MLIRDispatcher)
-    descriptor.MLIRDispatcher._ensure_dispatcher_state(dispatcher)
+    dispatcher = descriptor.MLIRDispatcher(lambda: None)
+    monkeypatch.setattr(dispatcher, "_get_compile_dispatcher", lambda: dispatcher)
+    monkeypatch.setattr("numba_cuda_mlir.tools.get_gpu_compute_capability", lambda _: (9, 0))
     launch_lock = threading.RLock()
     dispatcher._launch_lock = launch_lock
     calls = []
@@ -302,7 +303,7 @@ def test_compile_and_recompile_take_launch_lock(monkeypatch):
     monkeypatch.setattr(dispatcher, "_recompile_impl", recompile_impl)
 
     assert dispatcher.compile("sig", abi_info="abi", output="out") == "compiled"
-    assert dispatcher.recompile() == "recompiled"
+    assert dispatcher.recompile() is None
     assert calls == [
         ("compile", "sig", "abi", "out"),
         ("recompile",),

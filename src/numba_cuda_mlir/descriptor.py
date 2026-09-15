@@ -104,7 +104,20 @@ def _dispatch_on(selector):
 
                 with _gpu_target_scope():
                     dispatcher = getattr(self, selector)()
-                    return method(dispatcher, *args, **kwargs)
+                    # Runtime registration in another thread must not change
+                    # compilation or inspection of this already-selected state.
+                    previous = getattr(_compile_arg_types, "active_dispatchers", None)
+                    _compile_arg_types.active_dispatchers = {
+                        **(previous or {}),
+                        dispatcher._context_root: dispatcher,
+                    }
+                    try:
+                        return method(dispatcher, *args, **kwargs)
+                    finally:
+                        if previous is None:
+                            del _compile_arg_types.active_dispatchers
+                        else:
+                            _compile_arg_types.active_dispatchers = previous
             dispatcher = getattr(self, selector)()
             return method(dispatcher, *args, **kwargs)
 
@@ -1610,6 +1623,11 @@ _LaunchConfigCompileStats = collections.namedtuple(
     ),
 )
 
+_FixedSignatures = collections.namedtuple(
+    "_FixedSignatures",
+    ("sigs", "launch_config_sigs", "requires_launch_config", "literal_arg_positions"),
+)
+
 
 class MLIRDispatcherType(types.Dispatcher):
     """The type of MLIR dispatchers"""
@@ -1641,6 +1659,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         self._context_token = None
         self._context_dispatchers = weakref.WeakKeyDictionary()
         self._compile_dispatchers = {}
+        self._fixed_signatures = None
         self._context_dispatchers_lock = threading.RLock()
         super().__init__(py_func, targetoptions=targetoptions.copy())
 
@@ -1700,33 +1719,41 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         self._overloads = value
 
     def _get_inspection_dispatcher(self):
-        root = getattr(self, "_context_root", self)
+        root = getattr(self, "_context_root", None)
+        active = getattr(_compile_arg_types, "active_dispatchers", {}).get(root)
+        if active is not None:
+            return active
         if root is not self:
             return self
-        if (
-            getattr(root, "_context_dispatchers", None)
-            or getattr(root, "_context_token", None) is not None
-        ):
-            return root._get_context_dispatcher()
-        if getattr(root, "_compile_dispatchers", None):
-            return root._get_compile_dispatcher()
-        return self
+        with root._context_dispatchers_lock:
+            if root._context_token is None and not root._compile_dispatchers:
+                return self
+        # The compiler selector rechecks runtime registration after acquiring its
+        # locks. Do not hold the partition lock while it takes the compiler lock.
+        return root._get_compile_dispatcher()
 
     def _get_compile_dispatcher(self):
-        """Compile-only calls need target identity, not a live runtime context.
+        """Keep default-target compilation with its selected runtime context.
 
-        Once launched, use the current context partition so device-specific
-        planner limits and compiled code stay with the matching runtime state.
-        Before any launch, resolved compiler/linker targets key an offline cache.
+        An implicit target already requires the current device. Its compiled
+        state can therefore be reused by the first launch in that context.
+        Explicit targets use an offline cache until runtime context selection.
         """
         from numba_cuda_mlir.tools import resolve_gpu_target
 
         root = self._context_root
-        if root._context_dispatchers or root._context_token is not None:
+        active = getattr(_compile_arg_types, "active_dispatchers", {}).get(root)
+        if active is not None:
+            return active
+        if root._context_token is not None or not root.targetoptions.get("chip"):
             return root._get_context_dispatcher()
         target = resolve_gpu_target(root.targetoptions)
         key = tuple(target.items())
         with global_compiler_lock, root._context_dispatchers_lock:
+            # Another thread may have registered the first runtime partition
+            # during target resolution or while we waited for the compiler lock.
+            if root._context_token is not None:
+                return root._get_context_dispatcher()
             dispatcher = root._compile_dispatchers.get(key)
             if dispatcher is None:
                 # Preserve the historical public state of the first compile.
@@ -1798,16 +1825,16 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     def _inherit_fixed_signatures(self, root):
         # Register the partition before entering here, so recursive compilation
         # selects it. Signatures are portable; modules and inferred targets are not.
-        self._literal_arg_positions = root._literal_arg_positions
+        state = root._fixed_signatures
+        self._literal_arg_positions = state.literal_arg_positions
         if self._literal_arg_positions:
             self._c = self._new_kernel_dispatcher()
-        if not root._requires_launch_config:
-            for cres in tuple(root._overloads.values()):
-                self.compile(cres.signature)
-        else:
-            self._requires_launch_config = True
-            for (_, launch_key), cres in tuple(root._launch_config_overloads.items()):
-                self._compile_launch_config_signature(cres.signature, launch_key)
+        self._requires_launch_config = state.requires_launch_config
+        for sig in state.sigs:
+            self.compile(sig)
+        if self._launch_config_enabled:
+            for sig, launch_key in state.launch_config_sigs:
+                self._compile_launch_config_signature(sig, launch_key)
         self._can_compile = False
 
     @property
@@ -2269,6 +2296,18 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                     seen.add(cres_id)
                     launch_config_sigs.append((cres.signature, launch_config_key))
 
+        state = getattr(getattr(self, "_context_root", self), "_fixed_signatures", None)
+        requires_launch_config = self._requires_launch_config
+        literal_arg_positions = self._literal_arg_positions
+        if state is not None:
+            sigs = list(state.sigs)
+            requires_launch_config = state.requires_launch_config
+            literal_arg_positions = state.literal_arg_positions
+            launch_config_sigs = (
+                list(state.launch_config_sigs)
+                if requires_launch_config or _extensions_use_launch_config(self.extensions)
+                else []
+            )
         return dict(
             uuid=str(self._uuid),
             py_func=self.py_func,
@@ -2277,8 +2316,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             can_compile=self._can_compile,
             sigs=sigs,
             launch_config_sigs=launch_config_sigs,
-            requires_launch_config=self._requires_launch_config,
-            literal_arg_positions=tuple(sorted(self._literal_arg_positions)),
+            requires_launch_config=requires_launch_config,
+            literal_arg_positions=tuple(sorted(literal_arg_positions)),
         )
 
     @classmethod
@@ -2316,6 +2355,13 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         for sig, launch_config_key in launch_config_sigs:
             self._compile_launch_config_signature(sig, launch_config_key)
         self._can_compile = can_compile
+        if not can_compile:
+            self._fixed_signatures = _FixedSignatures(
+                tuple(sigs),
+                tuple(launch_config_sigs),
+                self._requires_launch_config,
+                self._literal_arg_positions,
+            )
         return self
 
     @_on_compilation_target
@@ -3702,12 +3748,43 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     def disable_compile(self, val=True):
         root = self._context_root
         assert not val or self.signatures
-        root._can_compile = not val
-        with root._context_dispatchers_lock:
-            for dispatcher in (
+        with global_compiler_lock, root._context_dispatchers_lock:
+            dispatchers = (
+                root,
                 *root._context_dispatchers.values(),
                 *root._compile_dispatchers.values(),
-            ):
+            )
+            if val:
+                # Keep only portable types and launch keys after context tokens
+                # expire. Existing partitions keep their own compiled overloads;
+                # future partitions and serialization retain the full frozen set.
+                previous = root._fixed_signatures
+                sigs = dict.fromkeys(previous.sigs if previous is not None else ())
+                launch_sigs = dict.fromkeys(
+                    previous.launch_config_sigs if previous is not None else ()
+                )
+                requires_launch = previous.requires_launch_config if previous is not None else False
+                literals = previous.literal_arg_positions if previous is not None else frozenset()
+                for dispatcher in dispatchers:
+                    sigs.update((cres.signature, None) for cres in dispatcher._overloads.values())
+                    with dispatcher._launch_config_lock:
+                        launch_sigs.update(
+                            ((cres.signature, key), None)
+                            for (_, key), cres in dispatcher._launch_config_overloads.items()
+                        )
+                        requires_launch |= dispatcher._requires_launch_config
+                        literals |= dispatcher._literal_arg_positions
+                # Generic overloads cannot be replayed without launch metadata
+                # once a planner has requested it.
+                root._fixed_signatures = _FixedSignatures(
+                    () if requires_launch else tuple(sigs),
+                    tuple(launch_sigs),
+                    requires_launch,
+                    literals,
+                )
+            else:
+                root._fixed_signatures = None
+            for dispatcher in dispatchers:
                 dispatcher._can_compile = not val
 
     def recompile(self):

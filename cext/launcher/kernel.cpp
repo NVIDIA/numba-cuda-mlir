@@ -417,7 +417,6 @@ struct LaunchHelper {
     std::vector<CudaArg> cuargs;  // Flat storage: all ptrs, offsets, shapes, strides, scalars
     std::vector<void*> cuarg_pointers;  // Built just before launch
     std::vector<ConstantArg> constants;
-    CUcontext cuda_context;
     LaunchHelper* next_free;
     std::vector<void*> aligned_tma_descriptors; // 128-byte aligned storage for TMA descriptors
     std::vector<RecordCopyInfo> record_copies; // Info for copying scalar records back to host
@@ -916,10 +915,6 @@ Status extract_cuda_array(PyObject* pyobj, LaunchHelper& helper) {
 
     void* data_ptr = reinterpret_cast<void*>(data_ptr_int);
 
-    if (!helper.cuda_context)
-        g_cuPointerGetAttribute(&helper.cuda_context, CU_POINTER_ATTRIBUTE_CONTEXT,
-                                reinterpret_cast<CUdeviceptr>(data_ptr));
-
     Py_ssize_t ndim = PyTuple_GET_SIZE(shape);
     ASSERT_NDIM(ndim);
 
@@ -990,10 +985,6 @@ Status extract_dlpack_common(PyObject* dlpack_capsule, LaunchHelper& helper) {
     // TODO: check device ID
 
     void* data_ptr = static_cast<char*>(tensor->dl_tensor.data) + tensor->dl_tensor.byte_offset;
-
-    if (!helper.cuda_context)
-        g_cuPointerGetAttribute(&helper.cuda_context, CU_POINTER_ATTRIBUTE_CONTEXT,
-                                reinterpret_cast<CUdeviceptr>(data_ptr));
 
     int32_t ndim = tensor->dl_tensor.ndim;
     ASSERT_NDIM(ndim);
@@ -1441,10 +1432,6 @@ Status extract_device_record(PyObject* pyobj, LaunchHelper& helper) {
     if (PyErr_Occurred()) return ErrorRaised;
     void* device_ptr = reinterpret_cast<void*>(device_ptr_int);
 
-    if (!helper.cuda_context)
-        g_cuPointerGetAttribute(&helper.cuda_context, CU_POINTER_ATTRIBUTE_CONTEXT,
-                                reinterpret_cast<CUdeviceptr>(device_ptr));
-
     size_t start_idx = helper.cuargs.size();
     helper.cuargs.push_back(cuda_arg_device_ptr(device_ptr));
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 0});
@@ -1472,7 +1459,6 @@ Status extract_cuda_args(PyObject* const* pyargs, size_t num_pyargs,
     }
     helper.record_copies.clear();
 
-    helper.cuda_context = nullptr;
     for (size_t i = 0; i < num_pyargs; ++i) {
         PyObject* pyobj = pyargs[i];
         bool is_constant = constant_arg_flags[i];
@@ -1954,7 +1940,6 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
             helper->cuarg_pointers[i] = &base[i];
         }
         helper->constants.clear();
-        helper->cuda_context = nullptr;
 
         if (!ensure_numba_context(dispatcher.ensure_context_func.get()))
             return ErrorRaised;
@@ -1989,23 +1974,11 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
             return ErrorRaised;
         }
 
-        if (helper->cuda_context) {
-            // Python selected a context-specific dispatcher before argument
-            // extraction. Switching to an argument's context here would cache
-            // that device's code and loaded functions in the wrong dispatcher.
-            CUcontext current;
-            CUresult res = g_cuCtxGetCurrent(&current);
-            if (res != CUDA_SUCCESS)
-                return raise(PyExc_RuntimeError, "Failed to get current CUDA context: %s",
-                             get_cuda_error(res));
-            if (current != helper->cuda_context)
-                return raise(PyExc_ValueError,
-                             "Device argument belongs to a different CUDA context; "
-                             "select its device before launching this kernel");
-        } else {
-            if (!ensure_numba_context(dispatcher.ensure_context_func.get()))
-                return ErrorRaised;
-        }
+        // Python selected a context-specific dispatcher before extraction.
+        // An argument's allocation context need not match: managed memory,
+        // mapped host memory, and peer access can make it accessible here.
+        if (!ensure_numba_context(dispatcher.ensure_context_func.get()))
+            return ErrorRaised;
 
         KernelFamily::KernelMap& kernel_map = profile->family->kernels_by_constants;
         kernel_iter = kernel_map.find(helper->constants);
@@ -2029,8 +2002,7 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
             }
         }
 
-        if (!helper->cuda_context
-                && !maybe_switch_context(kernel_iter->second.cukernel.lib.context(), ctx_guard))
+        if (!maybe_switch_context(kernel_iter->second.cukernel.lib.context(), ctx_guard))
             return ErrorRaised;
 
         helper->cuarg_pointers.clear();

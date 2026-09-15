@@ -750,7 +750,7 @@ paths that contain <code class="docutils literal notranslate"><span class="pre">
 joined with <code class="docutils literal notranslate"><span class="pre">:</span></code> before setting <code class="docutils literal notranslate"><span class="pre">config.CUDA_NVRTC_EXTRA_SEARCH_PATHS</span></code>:</p>
 <div class="literal-block-wrapper docutils container" id="id9">
 <div class="code-block-caption"><span class="caption-text">from <code class="docutils literal notranslate"><span class="pre">test_ex_extra_includes</span></code> in <code class="docutils literal notranslate"><span class="pre">tests/doc_examples/test_ffi.py</span></code></span><a class="headerlink" href="#id9" title="Link to this code">#</a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba.cuda</span><span class="w"> </span><span class="kn">import</span> <span class="n">config</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir.cuda</span><span class="w"> </span><span class="kn">import</span> <span class="n">config</span>
 <span class="linenos">2</span>
 <span class="linenos">3</span><span class="n">includedir</span> <span class="o">=</span> <span class="s2">":"</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="n">mul_dir</span><span class="p">,</span> <span class="n">add_dir</span><span class="p">])</span>
 <span class="linenos">4</span><span class="n">config</span><span class="o">.</span><span class="n">CUDA_NVRTC_EXTRA_SEARCH_PATHS</span> <span class="o">=</span> <span class="n">includedir</span>
@@ -801,7 +801,7 @@ multiply pairs of numbers from two arrays.</p>
 <p>The Python code and kernel are:</p>
 <div class="literal-block-wrapper docutils container" id="id12">
 <div class="code-block-caption"><span class="caption-text">from <code class="docutils literal notranslate"><span class="pre">test_ex_linking_cu</span></code> in <code class="docutils literal notranslate"><span class="pre">tests/doc_examples/test_ffi.py</span></code></span><a class="headerlink" href="#id12" title="Link to this code">#</a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos"> 1</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos"> 1</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
 <span class="linenos"> 2</span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="linenos"> 3</span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 <span class="linenos"> 4</span>

@@ -519,12 +519,18 @@ unless working with systems hosting/offering more than one CUDA-capable GPU.</p>
 </div>
 <p>Compilation and launch caches follow the selected device and context lifetime.
 Returning to a device reuses its specialization. Configured calls also remain
-usable across device selection. Arrays and streams must belong to the context
-in which they are used. Resetting a context invalidates its arrays, streams,
+usable across device selection. Array memory must be accessible from the
+selected context, and streams must belong to it. Passing an array does not
+change the selected device. Resetting a context invalidates its arrays, streams,
 loaded functions, and allocator state.</p>
 <p>An explicit <code class="docutils literal notranslate"><span class="pre">chip</span></code> option continues to control compilation. An inferred
 architecture is resolved for each target without changing the dispatcher’s
 user-specified options.</p>
+<p>Calling <code class="docutils literal notranslate"><span class="pre">disable_compile()</span></code> freezes each existing context’s compiled
+signatures. New contexts and serialized dispatchers inherit the combined
+frozen signatures, including literal arguments and launch specializations,
+even after the original contexts expire. Compiled modules remain specific
+to each context.</p>
 <dl class="py function">
 <dt class="sig sig-object py">
 <span class="sig-prename descclassname"><span class="pre">numba_cuda_mlir.cuda.</span></span><span class="sig-name descname"><span class="pre">select_device</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">device_id</span></span></em><span class="sig-paren">)</span></dt>
@@ -541,7 +547,7 @@ the current thread. Only one context per thread is permitted.</p>
 <dd><p>Explicitly close all contexts in the current thread.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Closing contexts discards their cached launch state. With
+<p>Resetting a context discards its cached launch state. With
 <code class="docutils literal notranslate"><span class="pre">cuda-core</span></code> 1.1.1, creating a new context afterward can fail with
 <code class="docutils literal notranslate"><span class="pre">CUDA_ERROR_CONTEXT_IS_DESTROYED</span></code>. Use <code class="docutils literal notranslate"><span class="pre">cuda.gpus[device_id]</span></code> to
 switch devices while continuing to use existing dispatchers.</p>

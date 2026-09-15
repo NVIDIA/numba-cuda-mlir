@@ -42,13 +42,20 @@ Users can select another device and reuse the same kernel dispatcher:
 
 Compilation and launch caches follow the selected device and context lifetime.
 Returning to a device reuses its specialization. Configured calls also remain
-usable across device selection. Arrays and streams must belong to the context
-in which they are used. Resetting a context invalidates its arrays, streams,
+usable across device selection. Array memory must be accessible from the
+selected context, and streams must belong to it. Passing an array does not
+change the selected device. Resetting a context invalidates its arrays, streams,
 loaded functions, and allocator state.
 
 An explicit ``chip`` option continues to control compilation. An inferred
 architecture is resolved for each target without changing the dispatcher's
 user-specified options.
+
+Calling ``disable_compile()`` freezes each existing context's compiled
+signatures. New contexts and serialized dispatchers inherit the combined
+frozen signatures, including literal arguments and launch specializations,
+even after the original contexts expire. Compiled modules remain specific
+to each context.
 
 
 .. function:: numba_cuda_mlir.cuda.select_device(device_id)
@@ -70,7 +77,7 @@ user-specified options.
    Explicitly close all contexts in the current thread.
 
    .. note::
-      Closing contexts discards their cached launch state. With
+      Resetting a context discards its cached launch state. With
       ``cuda-core`` 1.1.1, creating a new context afterward can fail with
       ``CUDA_ERROR_CONTEXT_IS_DESTROYED``. Use ``cuda.gpus[device_id]`` to
       switch devices while continuing to use existing dispatchers.

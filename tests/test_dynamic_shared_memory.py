@@ -188,7 +188,54 @@ def test_remaining_extent_clamps_after_runtime_allocation(prefix_size, expected)
 
     out = cuda.device_array(3, dtype=np.int64)
     kernel[1, 1, 0, 32](cuda.to_device(np.array([prefix_size], dtype=np.int64)), out)
-    np.testing.assert_array_equal(out.copy_to_host(), [prefix_size, expected, 0])
+    np.testing.assert_array_equal(out.copy_to_host(), [prefix_size, expected, expected])
+
+
+@pytest.mark.parametrize("prefix_size", [0, 3])
+def test_zero_sized_shared_views_alias(prefix_size):
+    @cuda.jit
+    def kernel(n, out, extents):
+        if n[0]:
+            prefix = cuda.shared.array(n[0], dtype=np.uint8)
+            prefix[0] = 7
+        # Numba-CUDA's documented mixed-dtype partitioning idiom. The same
+        # views also work after a runtime allocation and its alignment padding.
+        f32_arr = cuda.shared.array(0, dtype=np.float32)
+        i32_arr = cuda.shared.array(0, dtype=np.int32)[1:]
+        f32_arr[0] = 3.14
+        i32_arr[0] = 1
+        out[0] = f32_arr[0]
+        out[1] = i32_arr[0]
+        out[2] = prefix[0] if n[0] else 0
+        extents[0] = f32_arr.size
+        extents[1] = i32_arr.size
+
+    out = cuda.device_array(3, dtype=np.float64)
+    extents = cuda.device_array(2, dtype=np.int64)
+    dynamic_bytes = 16 if prefix_size else 8
+    kernel[1, 1, 0, dynamic_bytes](
+        cuda.to_device(np.array([prefix_size], dtype=np.int64)), out, extents
+    )
+    np.testing.assert_allclose(out.copy_to_host(), [3.14, 1, 7 if prefix_size else 0])
+    np.testing.assert_array_equal(extents.copy_to_host(), [2, 1])
+
+
+def test_zero_sized_shared_view_does_not_reserve_runtime_allocation():
+    @cuda.jit
+    def kernel(n, out):
+        whole = cuda.shared.array(0, dtype=np.int32)
+        prefix = cuda.shared.array(n[0], dtype=np.int32)
+        tail = cuda.shared.array(0, dtype=np.int32)
+        prefix[0] = 7
+        tail[0] = 13
+        out[0] = whole[0]
+        out[1] = whole[4]
+        out[2] = tail.size
+
+    out = cuda.device_array(3, dtype=np.int64)
+    # The three-int prefix reserves [0,12); the tail starts at aligned byte 16.
+    kernel[1, 1, 0, 32](cuda.to_device(np.array([3], dtype=np.int64)), out)
+    np.testing.assert_array_equal(out.copy_to_host(), [7, 13, 4])
 
 
 @pytest.mark.parametrize("take_branch", [0, 1])

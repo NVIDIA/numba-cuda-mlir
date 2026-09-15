@@ -2454,9 +2454,8 @@ extern "C" __global__ void
             byte_shift=total_shared_memory_bytes,
             sizes=[size],
         )
-        self._store_total_shared_memory_bytes(
-            arith.maxui(total_shared_memory_bytes, dynamic_shared_bytes)
-        )
+        # A zero-sized declaration views the remaining region without reserving
+        # it. Repeated views alias; only runtime-sized allocations move the cursor.
         self._dynamic_shared_memory_values.append(view)
         return view
 

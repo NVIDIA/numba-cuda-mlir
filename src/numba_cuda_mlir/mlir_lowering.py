@@ -46,6 +46,7 @@ from numba_cuda_mlir.lowering_utilities import (
     get_func_type,
     get_type_size_bytes,
     get_conversion_signedness,
+    memref_descriptor_type,
     storage_itemsize_bytes,
 )
 from numba_cuda_mlir.compiler import (
@@ -1004,13 +1005,7 @@ extern "C" __global__ void
                 self.store_var(target, free_var.value)
 
     def _build_memref_descriptor(self, ptr, shape, strides):
-        ndim = len(shape)
-        if ndim > 0:
-            struct_type = ir.Type.parse(
-                f"!llvm.struct<(ptr, ptr, i64, array<{ndim} x i64>, array<{ndim} x i64>)>"
-            )
-        else:
-            struct_type = ir.Type.parse("!llvm.struct<(ptr, ptr, i64)>")
+        struct_type = memref_descriptor_type(len(shape))
         i64c = lambda v: arith.constant(T.i64(), v)
         ins = lambda d, v, *p: llvm.insertvalue(
             container=d, value=v, position=ir.DenseI64ArrayAttr.get(list(p))

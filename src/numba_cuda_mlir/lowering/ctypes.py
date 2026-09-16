@@ -13,14 +13,14 @@ from numba_cuda_mlir.lowering_utilities import (
     convert,
     i64_of,
     DeferredLowering,
-    index_of,
+    memref_data_pointer,
     storage_itemsize_bytes,
     is_complex_type as _is_complex_type,
     get_llvm_struct_for_complex as _get_llvm_struct_for_complex,
     complex_to_llvm_struct as _complex_to_llvm_struct,
     llvm_struct_to_complex as _llvm_struct_to_complex,
 )
-from numba_cuda_mlir._mlir.dialects import llvm, arith, memref
+from numba_cuda_mlir._mlir.dialects import llvm
 from numba_cuda_mlir.logging import trace
 from numba_cuda_mlir._mlir.extras import types as T
 
@@ -205,38 +205,8 @@ def lower_aggregate_type_ptr(builder, target, args, kwargs):
 
 class DeferredFFIFromBuffer(DeferredLowering):
     def __call__(self, builder, target, args, kwargs):
-        from numba_cuda_mlir._mlir import ir
-        from numba_cuda_mlir.lowering_utilities import get_type_width
-
         array_value = builder.load_var(args[0])
-        mr_type = ir.MemRefType(array_value.type)
-
-        if mr_type.memory_space is not None:
-            generic_mr_type = ir.MemRefType.get(
-                shape=mr_type.shape,
-                element_type=mr_type.element_type,
-                layout=mr_type.layout,
-            )
-            array_value = memref.memory_space_cast(dest=generic_mr_type, source=array_value)
-            mr_type = ir.MemRefType(array_value.type)
-
-        ptr_as_index = memref.extract_aligned_pointer_as_index(array_value)
-
-        md = memref.extract_strided_metadata(array_value)
-        offset = index_of(md[1])
-
-        elem_type = mr_type.element_type
-        elem_bytes = get_type_width(elem_type) // 8
-
-        byte_offset = arith.muli(
-            offset,
-            arith.constant(T.index(), elem_bytes),
-        )
-        data_ptr_index = arith.addi(ptr_as_index, byte_offset)
-
-        ptr_as_i64 = arith.index_cast(T.i64(), data_ptr_index)
-        ptr = llvm.inttoptr(res=llvm.PointerType.get(), arg=ptr_as_i64)
-        builder.store_var(target, ptr)
+        builder.store_var(target, memref_data_pointer(array_value))
 
 
 @lower_getattr(_numba_ffi_type, "from_buffer")

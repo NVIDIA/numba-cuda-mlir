@@ -63,6 +63,36 @@ def _memref_llvm_pointer_type(memref_type: ir.MemRefType) -> llvm.PointerType:
     return llvm.PointerType.get(memref_llvm_address_space(memref_type))
 
 
+def memref_descriptor_type(rank: int) -> ir.Type:
+    """Return the LLVM struct type the memref-to-LLVM lowering uses for a ranked memref."""
+    fields = "ptr, ptr, i64"
+    if rank > 0:
+        fields += f", array<{rank} x i64>, array<{rank} x i64>"
+    return ir.Type.parse(f"!llvm.struct<({fields})>")
+
+
+def memref_data_pointer(array: ir.Value) -> ir.Value:
+    """Return the memref's data pointer (aligned pointer + offset) as a generic ``!llvm.ptr``.
+
+    Stays in the pointer domain (``extractvalue`` + ``getelementptr``) rather than
+    going through integer arithmetic, so LLVM's address-space inference can follow
+    the pointer back to its origin and emit global/shared rather than generic
+    accesses through it.
+    """
+    mr_type = ir.MemRefType(array.type)
+    if mr_type.memory_space is not None:
+        mr_type = ir.MemRefType.get(mr_type.shape, mr_type.element_type, mr_type.layout)
+        array = memref.memory_space_cast(dest=mr_type, source=array)
+    desc = builtin.unrealized_conversion_cast([memref_descriptor_type(mr_type.rank)], [array])
+    aligned_ptr = llvm.extractvalue(llvm.PointerType.get(), desc, [1])
+    offset = llvm.extractvalue(T.i64(), desc, [2])
+    elem_bytes = arith.constant(T.i64(), get_type_size_bytes(mr_type.element_type))
+    byte_offset = arith.muli(offset, elem_bytes)
+    return llvm.getelementptr(
+        llvm.PointerType.get(), aligned_ptr, [byte_offset], [GEP_DYNAMIC_INDEX], T.i8(), None
+    )
+
+
 def memref_data_pointer_as_index(array: ir.Value, element_type: ir.Type | None = None) -> ir.Value:
     metadata = memref.extract_strided_metadata(array)
     base_ptr_idx = memref.extract_aligned_pointer_as_index(metadata[0])
@@ -1052,9 +1082,8 @@ def unverified_basic_mlir_convert(
             imag = complex_dialect.im(value)
             imag = convert(imag, target_element_type)
             return complex_dialect.create_(complex=target_type, real=real, imaginary=imag)
-        case ir.MemRefType() as mr, ptr_type if str(ptr_type) == "!llvm.ptr":
-            idx = memref_data_pointer_as_index(value, mr.element_type)
-            return convert(idx, target_type)
+        case ir.MemRefType(), ptr_type if str(ptr_type) == "!llvm.ptr":
+            return memref_data_pointer(value)
         case ptr_type, ir.IntegerType() if str(ptr_type) == "!llvm.ptr":
             ptrtoi = llvm.ptrtoint(res=T.i64(), arg=value)
             return convert(ptrtoi, target_type)

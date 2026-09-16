@@ -29,6 +29,7 @@ from numba_cuda_mlir.lowering_utilities import (
     convert,
     f32_of,
     i32_of,
+    memref_descriptor_type,
     memref_to_llvm_ptr,
     storage_itemsize_bytes,
     storage_bitwidth,
@@ -101,14 +102,7 @@ def _lower_cfarray(builder: MLIRLower, target, args, kwargs, name, layout):
     result_mlir_type = builder.get_mlir_type(result_type)
     i64 = T.i64()
 
-    if rank > 0:
-        struct_type = ir.Type.parse(
-            f"!llvm.struct<(ptr, ptr, i64, array<{rank} x i64>, array<{rank} x i64>)>"
-        )
-    else:
-        struct_type = ir.Type.parse("!llvm.struct<(ptr, ptr, i64)>")
-
-    desc = llvm.UndefOp(struct_type).result
+    desc = llvm.UndefOp(memref_descriptor_type(rank)).result
     zero = constant(0, i64)
     ins = lambda d, v, *p: llvm.insertvalue(
         container=d, value=v, position=ir.DenseI64ArrayAttr.get(list(p))

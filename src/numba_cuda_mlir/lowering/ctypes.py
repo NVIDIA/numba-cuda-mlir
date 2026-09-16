@@ -13,6 +13,7 @@ from numba_cuda_mlir.lowering_utilities import (
     convert,
     i64_of,
     DeferredLowering,
+    llvm_ptr_add_bytes,
     memref_data_pointer,
     storage_itemsize_bytes,
     is_complex_type as _is_complex_type,
@@ -160,10 +161,7 @@ def lower_pointer_add(builder, target, args, kwargs):
         )
     w = storage_itemsize_bytes(ele_ty)
     num = convert(num, T.i64())
-    ptri = llvm.ptrtoint(res=T.i64(), arg=ptr)
-    ptri += num * w
-    ptr = llvm.inttoptr(ptr.type, ptri)
-    builder.store_var(target, ptr)
+    builder.store_var(target, llvm_ptr_add_bytes(ptr, num * w))
 
 
 @registry.lower(operator.sub, types.CPointer, types.Number)
@@ -179,10 +177,7 @@ def lower_pointer_sub(builder, target, args, kwargs):
         )
     w = storage_itemsize_bytes(ele_ty)
     num = convert(num, T.i64())
-    ptri = llvm.ptrtoint(res=T.i64(), arg=ptr)
-    ptri -= num * w
-    ptr = llvm.inttoptr(ptr.type, ptri)
-    builder.store_var(target, ptr)
+    builder.store_var(target, llvm_ptr_add_bytes(ptr, i64_of(0) - num * w))
 
 
 @registry.lower(types.ptr, types.CPointer)

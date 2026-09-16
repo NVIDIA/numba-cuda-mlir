@@ -8,6 +8,7 @@ address-space inference and leaves every access through the pointer generic
 (``LD``/``ST`` instead of ``LDG``/``STG`` or ``LDS``/``STS``).
 """
 
+import ctypes
 import re
 import shutil
 
@@ -15,7 +16,9 @@ import numpy as np
 import pytest
 from cffi import FFI
 
-from numba_cuda_mlir import carray, cuda
+from numba_cuda_mlir import carray, cuda, types
+from numba_cuda_mlir._mlir.dialects import llvm
+from numba_cuda_mlir.cuda.experimental import intrin
 
 pytestmark = pytest.mark.skipif(shutil.which("nvdisasm") is None, reason="nvdisasm needed")
 
@@ -82,3 +85,42 @@ def test_atomic_on_sliced_array_is_global():
     assert (host[N // 2 + 4 :] == 0).all()
     assert memory_opcodes(kernel) <= {"REDG", "ATOMG"}
     assert memory_opcodes(kernel)
+
+
+def test_ctypes_pointer_arithmetic_is_global():
+    @cuda.jit
+    def kernel(a):
+        p = ctypes.cast(a, ctypes.POINTER(ctypes.c_float))
+        p += cuda.grid(1)
+        p[0] = 1.0
+
+    a = cuda.device_array(N, np.float32)
+    kernel[1, N](a)
+    assert (a.copy_to_host() == 1).all()
+    assert memory_opcodes(kernel) == {"STG"}
+
+
+def test_types_ptr_arithmetic_is_global():
+    @intrin.define
+    def store_f32(ptr: llvm.PointerType.get, value: types.float32) -> types.none:
+        llvm.store(value, ptr)
+
+    @cuda.jit
+    def kernel(a):
+        store_f32(types.ptr(a) + cuda.grid(1) * 4, np.float32(1.0))
+
+    a = cuda.device_array(N, np.float32)
+    kernel[1, N](a)
+    assert (a.copy_to_host() == 1).all()
+    assert memory_opcodes(kernel) == {"STG"}
+
+
+def test_ctypes_data_includes_view_offset():
+    @cuda.jit
+    def kernel(a, out):
+        out[0] = a[N // 2 :].ctypes.data
+
+    a = cuda.device_array(N, np.float32)
+    out = cuda.device_array(1, np.uint64)
+    kernel[1, 1](a, out)
+    assert out.copy_to_host()[0] == a.__cuda_array_interface__["data"][0] + (N // 2) * 4

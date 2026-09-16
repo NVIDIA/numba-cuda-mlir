@@ -87,21 +87,17 @@ def memref_data_pointer(array: ir.Value) -> ir.Value:
     aligned_ptr = llvm.extractvalue(llvm.PointerType.get(), desc, [1])
     offset = llvm.extractvalue(T.i64(), desc, [2])
     elem_bytes = arith.constant(T.i64(), get_type_size_bytes(mr_type.element_type))
-    byte_offset = arith.muli(offset, elem_bytes)
-    return llvm.getelementptr(
-        llvm.PointerType.get(), aligned_ptr, [byte_offset], [GEP_DYNAMIC_INDEX], T.i8(), None
-    )
+    return llvm_ptr_add_bytes(aligned_ptr, arith.muli(offset, elem_bytes))
 
 
-def memref_data_pointer_as_index(array: ir.Value, element_type: ir.Type | None = None) -> ir.Value:
-    metadata = memref.extract_strided_metadata(array)
-    base_ptr_idx = memref.extract_aligned_pointer_as_index(metadata[0])
-    offset = index_of(metadata[1])
-    if element_type is None:
-        element_type = ir.MemRefType(array.type).element_type
-    elem_bytes = get_type_size_bytes(element_type)
-    byte_offset = arith.muli(offset, arith.constant(T.index(), elem_bytes))
-    return arith.addi(base_ptr_idx, byte_offset)
+def llvm_ptr_add_bytes(ptr: ir.Value, byte_offset: ir.Value) -> ir.Value:
+    """Advance an LLVM pointer by ``byte_offset`` bytes.
+
+    Uses ``getelementptr`` rather than ``ptrtoint``/``add``/``inttoptr`` so the
+    result keeps the provenance of ``ptr`` for LLVM's address-space inference.
+    """
+    byte_offset = convert(byte_offset, T.i64())
+    return llvm.getelementptr(ptr.type, ptr, [byte_offset], [GEP_DYNAMIC_INDEX], T.i8(), None)
 
 
 def _memref_index_offset(array: ir.Value, indices: list[ir.Value]) -> ir.Value:
@@ -137,11 +133,8 @@ def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value], element_type: i
     Returns:
         LLVM pointer (!llvm.ptr) to the indexed element
     """
-    # Extract base pointer from memref and convert to an address-space-preserving
-    # LLVM pointer.
     ptr_type = _memref_llvm_pointer_type(ir.MemRefType(array.type))
-    base_ptr_idx = memref_data_pointer_as_index(array)
-    base_ptr = llvm.inttoptr(res=ptr_type, arg=convert(base_ptr_idx, T.i64()))
+    base_ptr = llvm.addrspacecast(ptr_type, memref_data_pointer(array))
 
     linear_idx = _memref_index_offset(array, indices)
     return llvm.getelementptr(

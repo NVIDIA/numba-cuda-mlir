@@ -54,7 +54,23 @@ function Install-PythonViaNuGet {
         )
         $p = Start-Process -FilePath $nugetExe -ArgumentList $nugetArgs -Wait -NoNewWindow -PassThru
         if ($p.ExitCode -ne 0) {
-            throw "Failed to install $packageId $baseVersion via NuGet"
+            # TODO: remove this fallback once Python 3.15 is officially released
+            # (2026-10-01), at which point the stable range above resolves it.
+            # NuGet skips prereleases unless -PreRelease is passed, and because
+            # 3.15.0-rc2 sorts below 3.15.0 it also falls outside the lower bound
+            # of the range above; the `-0` prerelease label fixes the bound.
+            Write-Host "No stable $baseVersion release, trying prerelease"
+            $nugetArgs = @(
+                'install', $packageId,
+                '-Version', "[${baseVersion}.0-0,${baseVersion}.99999]",
+                '-OutputDirectory', $TargetDir,
+                '-ExcludeVersion',
+                '-PreRelease'
+            )
+            $p = Start-Process -FilePath $nugetExe -ArgumentList $nugetArgs -Wait -NoNewWindow -PassThru
+            if ($p.ExitCode -ne 0) {
+                throw "Failed to install $packageId $baseVersion via NuGet"
+            }
         }
     }
 

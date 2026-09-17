@@ -3,8 +3,8 @@
 
 import unittest
 
-from numba.cuda.testing import CUDATestCase
-from numba.cuda.tests.support import captured_stdout
+from numba_cuda_mlir.numba_cuda.testing import CUDATestCase
+from numba_cuda_mlir.numba_cuda.tests.support import captured_stdout
 
 
 class TestUFunc(CUDATestCase):
@@ -27,7 +27,7 @@ class TestUFunc(CUDATestCase):
     def test_ex_cuda_ufunc_call(self):
         # ex_cuda_ufunc.begin
         import numpy as np
-        from numba import cuda
+        from numba_cuda_mlir import cuda
 
         # A kernel calling a ufunc (sin, in this case)
         @cuda.jit

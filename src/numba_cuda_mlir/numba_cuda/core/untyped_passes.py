@@ -347,6 +347,8 @@ class InlineInlinables(FunctionPass):
             state.pipeline,
             state.flags,
             validator=inline_closurecall.callee_ir_validator,
+            targetoptions=state.metadata.get("targetoptions"),
+            inlinee_transform=state.metadata.get("inlinee_transform"),
         )
 
         modified = False
@@ -443,6 +445,7 @@ class InlineInlinables(FunctionPass):
                             do_inline = inline_type(expr, state.func_ir, py_func_ir)
                         # if do_inline is True then inline!
                         if do_inline:
+                            pyfunc = inline_worker.transform_inlinee(pyfunc, topt)
                             _, _, _, new_blocks = inline_worker.inline_function(
                                 state.func_ir,
                                 block,

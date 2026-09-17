@@ -545,7 +545,7 @@ def lower_max(builder, target, args, kwargs):
 
     # Use appropriate max operation based on type
     if isinstance(a.type, ir.FloatType):
-        result = arith.maximumf(a, b)
+        result = arith.maxnumf(a, b)
     elif isinstance(a.type, ir.IntegerType):
         # For simplicity, use signed max (could enhance to detect signed/unsigned)
         result = arith.maxsi(a, b)
@@ -568,7 +568,7 @@ def lower_min(builder, target, args, kwargs):
 
     # Use appropriate min operation based on type
     if isinstance(a.type, ir.FloatType):
-        result = arith.minimumf(a, b)
+        result = arith.minnumf(a, b)
     elif isinstance(a.type, ir.IntegerType):
         # For simplicity, use signed min (could enhance to detect signed/unsigned)
         result = arith.minsi(a, b)

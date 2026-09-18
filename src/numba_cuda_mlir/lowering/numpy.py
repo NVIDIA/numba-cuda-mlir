@@ -1028,6 +1028,15 @@ def _rank_reducing_subview(
     return memref.collapse_shape(result_type, subview, reassociation)
 
 
+def _normalize_negative_index(array: ir.Value, index: ir.Value | int, dim: int) -> ir.Value:
+    """Normalize a possibly-negative integer index for one array dimension."""
+    index = index_of(index)
+    zero = index_of(0)
+    is_negative = arith.cmpi(arith.CmpIPredicate.slt, index, zero)
+    extent = memref.dim(array, index_of(dim))
+    return arith.select(is_negative, arith.addi(index, extent), index)
+
+
 @lower(operator.getitem, types.Array, types.Number)
 @lower(operator.getitem, types.Array, types.Integer)
 @lower(operator.getitem, types.Buffer, types.Integer)
@@ -1049,15 +1058,15 @@ def lower_array_getitem(builder, target, args, kwargs):
     array = builder.load_var(args[0])
     # Handle both variable and constant indices
     if isinstance(args[1], int):
-        index = index_of(args[1])
+        index = args[1]
     else:
         index = builder.load_var(args[1])
-        index = index_of(index)
     array_type = array.type
 
     if not array_type.has_rank:
         raise NotImplementedError("NYI: unranked memrefs")
 
+    index = _normalize_negative_index(array, index, 0)
     if array_type.rank == 1:
         value = lowering_utilities.array_element_value_load(
             array_numba_type,
@@ -1579,8 +1588,9 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
         return _lower_record_array_setitem(builder, target, args, kwargs)
 
     array = builder.load_var(args[0])
-    index = builder.load_var(args[1])
-    index = lowering_utilities.index_of(index)
+    index_arg = args[1]
+    index = index_arg if isinstance(index_arg, int) else builder.load_var(index_arg)
+    index = _normalize_negative_index(array, index, 0)
     value = builder.load_var(args[2])
     value_numba_type = builder.get_numba_type(args[2].name)
     signed = get_conversion_signedness(value_numba_type, array_numba_type.dtype)
@@ -1613,20 +1623,13 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
             )
 
 
-def _setitem_index_to_memref_index(index: ir.Value | int) -> ir.Value:
-    match index:
-        case ir.Value() | int():
-            return index_of(index)
-        case _:
-            raise InternalCompilerError(f"Index must be an integer or a value, got {type(index)}")
-
-
 def _setitem_indices_to_memref_indices(
+    array: ir.Value,
     indices: tuple[ir.Value | int, ...] | ir.Value,
 ) -> tuple[ir.Value, ...]:
     match indices:
         case tuple():
-            return tuple(_setitem_index_to_memref_index(i) for i in indices)
+            raw_indices = indices
         case ir.Value() as value if (
             isinstance(value.type, ir.MemRefType)
             and value.type.has_rank
@@ -1635,11 +1638,14 @@ def _setitem_indices_to_memref_indices(
         ):
             mr_type = value.type
             num_elements = mr_type.get_dim_size(0)
-            return tuple(index_of(memref.load(value, [index_of(i)])) for i in range(num_elements))
+            raw_indices = tuple(memref.load(value, [index_of(i)]) for i in range(num_elements))
         case _:
             raise InternalCompilerError(
                 f"Indices must be a tuple of integers or a value, got {type(indices)}"
             )
+    return tuple(
+        _normalize_negative_index(array, index, dim) for dim, index in enumerate(raw_indices)
+    )
 
 
 @lower(operator.setitem, types.Array, types.Tuple, types.Any)
@@ -1657,7 +1663,7 @@ def lower_array_setitem_tuple(builder, target, args, kwargs):
     array = builder.load_var(args[0])
     tup = args[1]
     tup = builder.load_var(tup) if isinstance(tup, numba_ir.Var) else tup
-    indices = _setitem_indices_to_memref_indices(tup)
+    indices = _setitem_indices_to_memref_indices(array, tup)
     value = builder.load_var(args[2])
     lowering_utilities.array_element_value_store(
         array_numba_type,
@@ -1748,7 +1754,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
     dims = [memref.dim(array, index_of(i)) for i in range(source_rank)]
 
     offsets, sizes, strides, is_scalar = [], [], [], []
-    for i, index in enumerate(tuple_indices):
+    for dim, index in enumerate(tuple_indices):
         match index:
             case Slice(start=start, stop=stop, step=step):
                 if not isinstance(target_type, types.Array):
@@ -1756,7 +1762,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
                         f"Target type {target_type} is not an array, but a slice was used to index it"
                     )
                 offsets.append(start)
-                end = stop or dims[i]
+                end = stop or dims[dim]
                 sizes.append(end - start)
                 strides.append(step or 1)
                 is_scalar.append(False)
@@ -1765,13 +1771,8 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
                     with scf.if_ctx_manager(is_not_positive):
                         set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
                         scf.yield_([])
-            case int() as i:
-                offsets.append(arith.constant(result=T.index(), value=i))
-                sizes.append(1)
-                strides.append(1)
-                is_scalar.append(True)
-            case ir.Value() as value:
-                offsets.append(lowering_utilities.convert(value, T.index()))
+            case int() | ir.Value() as value:
+                offsets.append(_normalize_negative_index(array, value, dim))
                 sizes.append(1)
                 strides.append(1)
                 is_scalar.append(True)

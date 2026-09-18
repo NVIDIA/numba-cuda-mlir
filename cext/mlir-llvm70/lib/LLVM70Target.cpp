@@ -244,6 +244,21 @@ LLVMValueRef MLIRToLLVM70::lookupValue(Value v) {
   llvm::report_fatal_error(llvm::StringRef(msg), /*GenCrashDiag=*/false);
 }
 
+LLVMValueRef MLIRToLLVM70::lookupValueAsDeclared(Value v) {
+  LLVMValueRef val = lookupValue(v);
+  // convertType renders an opaque !llvm.ptr as i8*, but not every producer
+  // hands back a value of that type: an alloca stays the elemTy* LLVM 7 gives
+  // it, so that dbg.declare still names the stack slot itself. Ops that put a
+  // pointer somewhere already typed as i8* -- an aggregate field, a pointee,
+  // the other arm of a select, a block argument -- have to reconcile the two,
+  // because LLVM 7 has no opaque pointers and libNVVM's bitcode reader rejects
+  // the mismatch. Values that already have the declared type are unaffected;
+  // a no-op bitcast folds away.
+  if (isa<LLVM::LLVMPointerType>(v.getType()))
+    val = b.buildBitCast(val, convertType(v.getType()), "");
+  return val;
+}
+
 //===----------------------------------------------------------------------===//
 // Debug info helpers
 //===----------------------------------------------------------------------===//
@@ -564,19 +579,30 @@ llvm::Error MLIRToLLVM70::translatePhiOps(Block &block) {
       if (!seen.insert(pred).second)
         continue;
       Operation *term = pred->getTerminator();
+      // A coercion for an incoming value has to live in the predecessor, ahead
+      // of its terminator, so that it dominates the phi.
+      auto incoming = [&](Value v) {
+        if (!isa<LLVM::LLVMPointerType>(v.getType()))
+          return lookupValue(v);
+        LLVMBasicBlockRef saved = b.getInsertBlock();
+        b.positionBefore(b.getTerminator(blockMap[pred]));
+        LLVMValueRef val = lookupValueAsDeclared(v);
+        b.positionAtEnd(saved);
+        return val;
+      };
       if (auto brOp = dyn_cast<LLVM::BrOp>(term)) {
-        inVals.push_back(lookupValue(brOp.getDestOperands()[argIdx]));
+        inVals.push_back(incoming(brOp.getDestOperands()[argIdx]));
         inBlocks.push_back(blockMap[pred]);
       } else if (auto condBr = dyn_cast<LLVM::CondBrOp>(term)) {
         // Skip if both branches target the same block — handled by trampolines
         if (condBr.getTrueDest() == condBr.getFalseDest())
           continue;
         if (condBr.getTrueDest() == &block) {
-          inVals.push_back(lookupValue(condBr.getTrueDestOperands()[argIdx]));
+          inVals.push_back(incoming(condBr.getTrueDestOperands()[argIdx]));
           inBlocks.push_back(blockMap[pred]);
         }
         if (condBr.getFalseDest() == &block) {
-          inVals.push_back(lookupValue(condBr.getFalseDestOperands()[argIdx]));
+          inVals.push_back(incoming(condBr.getFalseDestOperands()[argIdx]));
           inBlocks.push_back(blockMap[pred]);
         }
       }
@@ -1234,7 +1260,7 @@ llvm::Error MLIRToLLVM70::translateLoadOp(Operation *op) {
 
 llvm::Error MLIRToLLVM70::translateStoreOp(Operation *op) {
   auto storeOp = cast<LLVM::StoreOp>(op);
-  LLVMValueRef val = lookupValue(storeOp.getValue());
+  LLVMValueRef val = lookupValueAsDeclared(storeOp.getValue());
   LLVMValueRef ptr = lookupValue(storeOp.getAddr());
 
   // Reconstruct pointer type: bitcast i8* → elemTy* to match stored value
@@ -1352,9 +1378,10 @@ llvm::Error MLIRToLLVM70::translateCastOp(Operation *op) {
 
 llvm::Error MLIRToLLVM70::translateSelectOp(Operation *op) {
   auto selectOp = cast<LLVM::SelectOp>(op);
-  auto result = b.buildSelect(lookupValue(selectOp.getCondition()),
-                              lookupValue(selectOp.getTrueValue()),
-                              lookupValue(selectOp.getFalseValue()), "");
+  auto result =
+      b.buildSelect(lookupValue(selectOp.getCondition()),
+                    lookupValueAsDeclared(selectOp.getTrueValue()),
+                    lookupValueAsDeclared(selectOp.getFalseValue()), "");
   mapValue(selectOp.getResult(), result);
   return llvm::Error::success();
 }
@@ -1413,7 +1440,7 @@ llvm::Error MLIRToLLVM70::translateExtractValueOp(Operation *op) {
 llvm::Error MLIRToLLVM70::translateInsertValueOp(Operation *op) {
   auto ivOp = cast<LLVM::InsertValueOp>(op);
   LLVMValueRef agg = lookupValue(ivOp.getContainer());
-  LLVMValueRef val = lookupValue(ivOp.getValue());
+  LLVMValueRef val = lookupValueAsDeclared(ivOp.getValue());
   auto positions = ivOp.getPosition();
   if (positions.size() == 1) {
     auto result = b.buildInsertValue(agg, val, positions[0], "");

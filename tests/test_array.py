@@ -386,16 +386,25 @@ class TestNegativeArrayIndices:
 
     def test_getitem_2d(self):
         @cuda.jit
-        def kernel(arr, out, column):
+        def column_kernel(arr, out, column):
             i = cuda.grid(1)
             if i < arr.shape[0]:
                 out[i, 0] = arr[i, -1]
                 out[i, 1] = arr[i, column]
 
+        @cuda.jit
+        def row_kernel(arr, out, row):
+            out[0] = arr[-1, 0]
+            out[1] = arr[row, 0]
+
         arr = np.arange(12, dtype=np.int64).reshape(3, 4)
-        out = np.zeros((3, 2), dtype=np.int64)
-        kernel[1, 32](arr, out, -2)
-        np.testing.assert_array_equal(out, arr[:, [-1, -2]])
+        column_out = np.zeros((3, 2), dtype=np.int64)
+        column_kernel[1, 32](arr, column_out, -2)
+        np.testing.assert_array_equal(column_out, arr[:, [-1, -2]])
+
+        row_out = np.zeros(2, dtype=np.int64)
+        row_kernel[1, 1](arr, row_out, -2)
+        np.testing.assert_array_equal(row_out, arr[[-1, -2], 0])
 
     def test_getitem_rank_reducing(self):
         @cuda.jit

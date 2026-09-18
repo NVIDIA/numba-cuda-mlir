@@ -98,6 +98,28 @@ def test_extending_overload_without_lowering():
     k[1, 1](x)
 
 
+def test_extending_overload_with_literal_argument():
+    def double(x):
+        raise NotImplementedError
+
+    @extending.overload(double, typing_registry=extending.typing_registry)
+    def overload_double(x):
+        def impl(x):
+            return x + x
+
+        return impl
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def k(out):
+        out[0] = double(21)
+
+    out = np.zeros(1, dtype=np.int64)
+    k[1, 1](out)
+    assert out[0] == 42
+
+
 def test_extending_overload_method():
     """User-defined @overload_method dispatches through BoundFunction."""
 

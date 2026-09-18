@@ -19,7 +19,7 @@ authors = [
 ]
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "typing-extensions; python_version < '3.12'",
@@ -30,7 +30,7 @@ dependencies = [
 [project.optional-dependencies]
 cu12 = [
     "cuda-bindings>=12.9.1,<13.0.0",
-    "cuda-toolkit[cudart,nvcc,nvrtc,cccl]==12.*",
+    "cuda-toolkit[cudart,nvcc,nvrtc]==12.*",
 
     # The nvJitLink library is compatible across minor versions in a release,
     # but may not be compatible across major versions. The library version
@@ -42,7 +42,7 @@ cu12 = [
 ]
 cu13 = [
     "cuda-bindings==13.*",
-    "cuda-toolkit[cudart,nvcc,nvrtc,cccl]==13.*",
+    "cuda-toolkit[cudart,nvcc,nvrtc]==13.*",
 
     # The nvJitLink library is compatible across minor versions in a release,
     # but may not be compatible across major versions. The library version
@@ -67,9 +67,24 @@ test = [
     "filecheck",
     "cffi",
     "ml-dtypes",
+
+    # The cpu/gpu-compat doc examples reuse a `numba.jit` function on both the
+    # host and the device, so they need base numba (not numba-cuda). They are
+    # gated on it being importable, so they skip where it cannot be installed.
+    "numba; python_version < '3.15'",
 ]
-test-cu12 = [{include-group = "test"}]
-test-cu13 = [{include-group = "test"}]
+test-cu12 = [
+    {include-group = "test"},
+
+    # numba-cuda-mlir itself no longer needs CCCL, but the test suite compiles
+    # external C++ sources that reach it (cta_barrier.cu, and cooperative_groups.h
+    # pulls in <nv/target>), so it stays a test-only requirement.
+    "cuda-toolkit[cccl]==12.*",
+]
+test-cu13 = [
+    {include-group = "test"},
+    "cuda-toolkit[cccl]==13.*",
+]
 
 [project.urls]
 Homepage = "https://github.com/NVIDIA/numba-cuda-mlir"

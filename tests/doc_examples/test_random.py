@@ -5,14 +5,14 @@
 # "magictoken" is used for markers as beginning and ending of example text.
 
 import unittest
-from numba.cuda.testing import CUDATestCase
+from numba_cuda_mlir.numba_cuda.testing import CUDATestCase
 
 
 class TestRandom(CUDATestCase):
     def test_ex_3d_grid(self):
         # magictoken.ex_3d_grid.begin
-        from numba import cuda
-        from numba.cuda.random import (
+        from numba_cuda_mlir import cuda
+        from numba_cuda_mlir.cuda.random import (
             create_xoroshiro128p_states,
             xoroshiro128p_uniform_float32,
         )

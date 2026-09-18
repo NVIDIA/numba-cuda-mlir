@@ -28,6 +28,21 @@ from numba_cuda_mlir.numba_cuda.debuginfo import CUDADIBuilder
 from numba_cuda_mlir.numba_cuda.flags import CUDAFlags
 from numba_cuda_mlir.numba_cuda.models import cuda_data_manager
 from numba_cuda_mlir.numba_cuda.core import config, targetconfig
+from numba_cuda_mlir.numba_cuda.utils import _readenv
+
+
+# These were initialized as an import side effect of the numba-cuda NRT
+# runtime, which has since been removed. CUDATargetContext.enable_nrt below is
+# the only reader, so they are seeded here instead.
+if not hasattr(config, "NUMBA_CUDA_NRT_STATS"):
+    config.CUDA_NRT_STATS = _readenv("NUMBA_CUDA_NRT_STATS", bool, False) or getattr(
+        config, "NUMBA_CUDA_NRT_STATS", False
+    )
+
+if not hasattr(config, "NUMBA_CUDA_ENABLE_NRT"):
+    config.CUDA_ENABLE_NRT = _readenv("NUMBA_CUDA_ENABLE_NRT", bool, False) or getattr(
+        config, "NUMBA_CUDA_ENABLE_NRT", False
+    )
 
 
 # -----------------------------------------------------------------------------

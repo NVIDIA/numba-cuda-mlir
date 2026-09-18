@@ -37,9 +37,10 @@ Whole-function planning
 
 Extensions that need to inspect or transform a complete function before typing
 can register a :py:class:`~numba_cuda_mlir.extending.WholeFunctionPlanner`.
-Planners run once after inlineable device functions have been merged into the
-caller and before type inference. This makes calls introduced by device
-helpers visible without rerunning unrelated rewrite registries.
+Each planner runs once per compiler attempt after inlineable device functions
+have been merged into the caller and before type inference. This makes calls
+introduced by device helpers visible without rerunning unrelated rewrite
+registries.
 
 Implement ``run()`` and return ``True`` only when the planner changed
 ``state.func_ir``. Before the first planner and after each change,
@@ -62,11 +63,44 @@ should check ``self.is_device_function`` and decline device functions.
            return bool(modified)
 
 Registration order is preserved, and registering the same planner class more
-than once has no effect. The planner pass snapshots its registry before
-running, so planners registered after that snapshot, including from a running
-planner, start with the next compilation. Planners operate on untyped Numba
-IR; typing and MLIR lowering extensions remain responsible for the later
-compilation phases.
+than once has no effect. The planner pass snapshots its registry before each
+compiler attempt. A planner registered after that snapshot does not join the
+active attempt, but it can run in a later compilation. Planners
+operate on untyped Numba IR; typing and MLIR lowering extensions remain
+responsible for the later compilation phases.
+
+A planner that needs the configured grid, block, dynamic shared memory, or
+cluster should call
+:py:func:`~numba_cuda_mlir.extending.require_launch_config`. A configured
+kernel launch makes normalized launch metadata available to compiler state
+without specializing ordinary kernels up front. The first planner that calls
+``require_launch_config()`` promotes that metadata for the current compiler
+attempt; subsequent planning, typing, and lowering phases observe the same
+launch-qualified target options. The resulting overload is keyed by the
+normalized launch configuration, while planners that never request it keep a
+generic overload.
+
+Extensions that consume launch metadata during the earlier AST-transform phase
+must opt in with ``uses_launch_config = True`` so launch qualification is active
+before whole-function planning begins.
+
+When generated code needs a minimum amount of dynamic shared memory, record it
+with
+:py:func:`~numba_cuda_mlir.extending.set_required_dynamic_shared_memory`.
+Repeated calls keep the largest requirement. At launch, Numba-CUDA-MLIR uses
+the larger of this compile-time requirement and the user's configured
+``sharedmem`` value. The configured value remains the specialization and
+configure-cache key; the minimum only adjusts the native launch.
+
+.. code-block:: python
+
+   from numba_cuda_mlir.extending import set_required_dynamic_shared_memory
+
+   class ScratchPlanner(WholeFunctionPlanner):
+       def run(self):
+           required_bytes = plan_scratch_storage(self.state.func_ir)
+           set_required_dynamic_shared_memory(self.state, required_bytes)
+           return False
 
 Register every planner before compiling a dispatcher that needs it.
 Registration does not invalidate an overload that the dispatcher has already
@@ -81,6 +115,10 @@ cache key. In-memory overload reuse is unchanged.
    :members: is_device_function, run
 
 .. autofunction:: numba_cuda_mlir.extending.register_planner
+
+.. autofunction:: numba_cuda_mlir.extending.require_launch_config
+
+.. autofunction:: numba_cuda_mlir.extending.set_required_dynamic_shared_memory
 
 Typing
 ------
@@ -132,6 +170,34 @@ Numba ``Signature`` for a successful match. Returning ``None`` declines the
 match (other templates are tried). To force a literal to be resolved before
 typing proceeds, raise
 :py:class:`numba_cuda_mlir.errors.ForceLiteralArg`.
+
+Kernel dispatch retries such requests with value-specialized argument types as
+long as each request adds at least one new literal position. Pass zero-based,
+top-level argument positions, for example ``ForceLiteralArg({1})``. Runtime
+values whose exact type is the built-in Python ``int`` or ``bool`` follow
+Numba's literal semantics; each distinct value receives an exact overload and
+native constant-argument specialization. Recorded positions are conditional
+dispatch hints, not permanent restrictions on later signatures. Other runtime
+types retain their normally inferred type and may compile a generic overload.
+If that compilation itself requests an unsupported literal value, dispatch
+reports the unsupported request. A request that adds no new positions is
+diagnosed as a repeated literal typing request. Since the recorded position set
+only grows and is bounded by the kernel's parameters, staged requests from
+multiple planners terminate without a fixed retry limit.
+
+If a whole-function planner promotes launch metadata before requesting a
+literal, dispatch remembers that launch requirement and activates it for every
+literal-qualified attempt. Combining launch promotion with one literal request
+therefore takes two compiler attempts: the initial generic argument typing with
+in-place launch promotion, followed by literal-qualified typing with launch
+metadata active from the beginning. Each additional staged literal discovery
+adds one compiler attempt.
+
+Literal retry does not yet support an extension argument that flattens into
+multiple native launch arguments. Such a request raises a ``TypeError`` rather
+than risking a mismatch between top-level positions and native constant flags.
+Struct-like extension arguments are tracked by `issue #60
+<https://github.com/NVIDIA/numba-cuda-mlir/issues/60>`_.
 
 
 Defining new types

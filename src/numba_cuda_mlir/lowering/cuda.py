@@ -1582,3 +1582,32 @@ def register_cache_hint_lowerings():
 
 
 register_cache_hint_lowerings()
+
+
+def _hint_iterable(builder, target, iterable, unroll):
+    builder.store_var(target, builder.load_var(iterable))
+    builder._unroll_hints[target.name] = ir.Attribute.parse(
+        f"#llvm.loop_annotation<unroll = <{unroll}>>"
+    )
+
+
+def register_loop_unroll_lowerings():
+    """Register lowerings for the loop unroll hints."""
+
+    @lower(cuda.unroll, types.Any)
+    @lower(cuda.unroll, types.Any, types.Any)
+    def unroll(builder, target, args, kwargs):
+        count = args[1] if len(args) == 2 else dict(kwargs).get("count")
+        count_type = types.none if count is None else builder.get_numba_type(count.name)
+        if isinstance(count_type, types.NoneType):
+            unroll = "full = true"
+        else:
+            unroll = f"count = {count_type.literal_value}"
+        _hint_iterable(builder, target, args[0], unroll)
+
+    @lower(cuda.nounroll, types.Any)
+    def nounroll(builder, target, args, kwargs):
+        _hint_iterable(builder, target, args[0], "disable = true")
+
+
+register_loop_unroll_lowerings()

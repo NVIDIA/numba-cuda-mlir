@@ -1063,6 +1063,57 @@ def register_cache_hint_intrinsics():
 register_cache_hint_intrinsics()
 
 
+# `llvm.loop.unroll.count` is an i32 metadata operand that must stay positive.
+UNROLL_COUNT_MAX = 2**31 - 1
+
+
+class UnrollTemplate(AbstractTemplate):
+    from numba_cuda_mlir import cuda
+
+    key = cuda.unroll
+
+    def generic(self, args, kws):
+        from numba_cuda_mlir.numba_cuda.core.errors import TypingError
+
+        if kws:
+            if set(kws) != {"count"}:
+                return None
+            args = (*args, kws["count"])
+        if len(args) not in (1, 2):
+            return None
+        count = args[1] if len(args) == 2 else types.none
+        if not isinstance(count, types.NoneType):
+            if not isinstance(count, types.IntegerLiteral):
+                return None
+            value = count.literal_value
+            if not 1 <= value <= UNROLL_COUNT_MAX:
+                raise TypingError(
+                    f"unroll count must be between 1 and {UNROLL_COUNT_MAX}, got {value}"
+                )
+        return signature(args[0], *args)
+
+
+class NounrollTemplate(AbstractTemplate):
+    from numba_cuda_mlir import cuda
+
+    key = cuda.nounroll
+
+    def generic(self, args, kws):
+        if kws or len(args) != 1:
+            return None
+        return signature(args[0], *args)
+
+
+def register_loop_unroll_intrinsics():
+    from numba_cuda_mlir import cuda
+
+    registry.register_global(cuda.unroll)(UnrollTemplate)
+    registry.register_global(cuda.nounroll)(NounrollTemplate)
+
+
+register_loop_unroll_intrinsics()
+
+
 # Register cuda.bindings.driver.CUtensorMap if available
 try:
     from cuda.bindings import driver

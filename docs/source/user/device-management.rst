@@ -16,25 +16,46 @@ unless working with systems hosting/offering more than one CUDA-capable GPU.
 Device Selection
 ----------------
 
-If at all required, device selection must be done before any CUDA feature is
-used.
+Select the device on which subsequent CUDA operations should run:
 
 ::
 
     from numba_cuda_mlir import cuda
     cuda.select_device(0)
 
-The device can be closed by:
+Users can select another device and reuse the same kernel dispatcher:
 
 ::
 
-    cuda.close()
+    import numpy as np
 
-Users can then create a new context with another device.
+    @cuda.jit
+    def increment(out, value):
+        out[0] = value + 1
 
-::
+    configured = increment[1, 1]
+    for device_id in (0, 1, 0):  # assuming we have 2 GPUs
+        with cuda.gpus[device_id]:
+            out = cuda.device_array(1, np.int32)
+            configured(out, np.int32(40))
+            assert out.copy_to_host()[0] == 41
 
-    cuda.select_device(1)  # assuming we have 2 GPUs
+Compilation and launch caches follow the selected device and context lifetime.
+Returning to a device reuses its specialization. Configured calls also remain
+usable across device selection. Array memory must be accessible from the
+selected context, and streams must belong to it. Passing an array does not
+change the selected device. Resetting a context invalidates its arrays, streams,
+loaded functions, and allocator state.
+
+An explicit ``chip`` option continues to control compilation. An inferred
+architecture is resolved for each target without changing the dispatcher's
+user-specified options.
+
+Calling ``disable_compile()`` freezes each existing context's compiled
+signatures. New contexts and serialized dispatchers inherit the combined
+frozen signatures, including literal arguments and launch specializations,
+even after the original contexts expire. Compiled modules remain specific
+to each context.
 
 
 .. function:: numba_cuda_mlir.cuda.select_device(device_id)
@@ -56,10 +77,10 @@ Users can then create a new context with another device.
    Explicitly close all contexts in the current thread.
 
    .. note::
-      Compiled functions are associated with the CUDA context.
-      This makes it not very useful to close and create new devices, though it
-      is certainly useful for choosing which device to use when the machine
-      has multiple GPUs.
+      Resetting a context discards its cached launch state. With
+      ``cuda-core`` 1.1.1, creating a new context afterward can fail with
+      ``CUDA_ERROR_CONTEXT_IS_DESTROYED``. Use ``cuda.gpus[device_id]`` to
+      switch devices while continuing to use existing dispatchers.
 
 The Device List
 ===============

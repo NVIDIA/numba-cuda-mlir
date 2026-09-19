@@ -641,15 +641,19 @@ class CFGraph:
         post_order = []
         seen = set()
 
-        def _dfs_rec(node):
+        # Successors pushed in reverse so the stack visits them in iteration order.
+        def visit(node):
             if node not in seen:
                 seen.add(node)
-                for dest in succs[node]:
-                    if (node, dest) not in back_edges:
-                        _dfs_rec(dest)
-                post_order.append(node)
+                stack.append((post_order.append, node))
+                forward = [dest for dest in succs[node] if (node, dest) not in back_edges]
+                stack.extend((visit, dest) for dest in reversed(forward))
 
-        _dfs_rec(self._entry_point)
+        stack = [(visit, self._entry_point)]
+        while stack:
+            cb, node = stack.pop()
+            cb(node)
+
         post_order.reverse()
         return post_order
 

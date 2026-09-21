@@ -176,6 +176,40 @@ def test_extending_overload_with_literally():
     assert out[0] == 8
 
 
+def test_extending_overload_method_prefer_literal_omitted_default():
+    """A literal-aware method overload still lowers when a trailing default is omitted.
+
+    The `_impl_cache` key holds only the supplied arguments (receiver plus the
+    literal), while the lowered signature also carries the omitted default, so
+    the lookup has to compare the literal form with the omitted arguments
+    stripped as well.
+    """
+
+    @extending.overload_method(
+        types.Array,
+        "tile_size",
+        typing_registry=extending.typing_registry,
+        prefer_literal=True,
+    )
+    def array_tile_size(arr, n, extra=None):
+        value = n.literal_value
+
+        def impl(arr, n, extra=None):
+            return value
+
+        return impl
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(out):
+        out[0] = out.tile_size(32)
+
+    out = np.zeros(1, dtype=np.int64)
+    kernel[1, 1](out)
+    assert out[0] == 32
+
+
 def test_extending_overload_method():
     """User-defined @overload_method dispatches through BoundFunction."""
 

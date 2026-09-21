@@ -1247,17 +1247,21 @@ class MLIRTargetContext(BaseContext):
         literal_args = tuple((sig.recvr, *sig.args) if sig.recvr else sig.args)
         match_args = tuple(types.unliteral(arg) for arg in literal_args)
         omitted = (types.Omitted, types.NoneType)
-        non_omitted_match_args = tuple(a for a in match_args if not isinstance(a, omitted))
+
+        def drop_omitted(args):
+            return tuple(a for a in args if not isinstance(a, omitted))
+
+        # The cache key only holds the arguments the call actually supplied,
+        # while `sig` also carries omitted defaults; compare with and without
+        # them.  `cache_args` also keeps whatever literals the template was
+        # typed with, so an overload registered `prefer_literal=True` (or one
+        # that requested the constant via `literally()`) only ever matches
+        # the un-unliteral'd form; accept either form in both comparisons.
+        full_forms = (match_args, literal_args)
+        trimmed_forms = (drop_omitted(match_args), drop_omitted(literal_args))
 
         def args_match(cache_args):
-            # `cache_args` keeps whatever literals the template was typed
-            # with, so an overload registered `prefer_literal=True` (or one
-            # that requested the constant via `literally()`) only ever matches
-            # the un-unliteral'd form.
-            if cache_args == match_args or cache_args == literal_args:
-                return True
-            non_omitted = tuple(a for a in cache_args if not isinstance(a, omitted))
-            return non_omitted == non_omitted_match_args
+            return cache_args in full_forms or drop_omitted(cache_args) in trimmed_forms
 
         disp = _select_overload_dispatcher(
             templates, args_match, targetconfig.ConfigStack.top_or_none()

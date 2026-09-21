@@ -256,3 +256,24 @@ def test_bf16_bfloat162float():
     out = np.zeros(1, dtype=np.float32)
     kernel[1, 1](out, 3.14)
     np.testing.assert_allclose(out[0], 3.14, rtol=0.1)
+
+
+@pytest.mark.parametrize("value,expected", [(0.0, False), (2.0, True), (0.5, True), (-1.0, True)])
+def test_bf16_to_boolean_compares_against_zero(value, expected):
+    """A bfloat16 converts to bool by comparing against zero, not by truncating.
+
+    `type_convert` routed every bf16-to-integer cast through fptosi/fptoui, which for an
+    i1 target keeps the low bit of the truncated integer: bf16(0.0) came out True and
+    bf16(2.0) came out False.
+    """
+
+    @cuda.jit
+    def kernel(out, x):
+        out[0] = np.bool_(bf16.bfloat16(x))
+
+    out = np.zeros(1, dtype=np.bool_)
+    kernel[1, 1](out, np.float64(value))
+    np.testing.assert_equal(out[0], expected)
+
+    mlir = compiler.compile_mlir(kernel, types.void(types.boolean[:], types.float64))
+    assert "arith.cmpf" in mlir

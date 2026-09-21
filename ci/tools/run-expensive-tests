@@ -49,7 +49,7 @@ case "${CUDA_VERSION}" in
     NVIDIA_PACKAGES_TO_REMOVE=()
     NVIDIA_PACKAGES_TO_UPGRADE=()
     ;;
-  13.0|13.1|13.2)
+  13.0|13.1|13.2|13.4)
     CUPY_PACKAGE="cupy-cuda13x"
     TORCH_INDEX_URL="https://download.pytorch.org/whl/cu130"
     NVMATH_PACKAGE="nvmath-python[cu13]"

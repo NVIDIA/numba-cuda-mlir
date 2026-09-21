@@ -99,8 +99,7 @@ def lower_zero_fill_array_method(builder: MLIRLower, target, args, kwargs):
     array_var = args[0]
     array = builder.load_var(array_var)
     array_type = builder.get_numba_type(array_var.name)
-    ptr_as_index = memref_dialect.extract_aligned_pointer_as_index(array)
-    dst_ptr = llvm.inttoptr(llvm.PointerType.get(), convert(ptr_as_index, T.i64()))
+    dst_ptr = lowering_utilities.memref_data_pointer(array)
 
     nbytes = constant(storage_itemsize_bytes(array_type.dtype), T.i64())
     for dim in range(array.type.rank):
@@ -915,30 +914,12 @@ def _lower_record_array_getitem(builder, target, args, kwargs):
     else:
         index = builder.load_var(index_var)
 
-    # For Record arrays, the memref is memref<?xi8> with byte strides.
-    # We need to compute: base_ptr + index * record_size
-    # Note: This assumes contiguous arrays (no views with non-zero offsets).
-    # Supporting views would require extract_strided_metadata, but that breaks
-    # pointer extraction on some memref types.
-
-    # Get the aligned pointer directly from the array
-    ptr_as_index = memref_dialect.extract_aligned_pointer_as_index(array)
-
-    # Use record_size as stride (assumes contiguous layout)
-    stride = arith_dialect.constant(T.i64(), record_size)
-
-    # Convert index to i64 for arithmetic
-    index_i64 = convert(index, T.i64())
-
-    # Compute byte offset = index * stride
-    byte_offset = arith.muli(index_i64, stride)
-
-    # Add offset to base pointer
-    ptr_as_i64 = convert(ptr_as_index, T.i64())
-    result_ptr_i64 = arith.addi(ptr_as_i64, byte_offset)
-
-    # Convert back to pointer
-    result_ptr = llvm.inttoptr(llvm.PointerType.get(), result_ptr_i64)
+    # For Record arrays, the memref is memref<?xi8> with byte strides:
+    # element pointer = data_ptr + index * record_size (assumes contiguous layout).
+    byte_offset = arith.muli(convert(index, T.i64()), arith_dialect.constant(T.i64(), record_size))
+    result_ptr = lowering_utilities.llvm_ptr_add_bytes(
+        lowering_utilities.memref_data_pointer(array), byte_offset
+    )
 
     builder.store_var(target, result_ptr)
     trace("Record array getitem: stored ptr to %s", target.name)
@@ -1486,17 +1467,12 @@ def _lower_record_array_setitem(builder, target, args, kwargs):
     index = builder.load_var(index_var)
     src_ptr = builder.load_var(value_var)
 
-    # Get destination pointer - assumes contiguous arrays (no views with non-zero offsets)
-    ptr_as_index = memref_dialect.extract_aligned_pointer_as_index(array)
-
-    # Convert index and pointer to i64 - use convert which handles any source type
+    # Destination pointer = data_ptr + index * record_size (assumes contiguous layout)
     index_i64 = lowering_utilities.convert(index, T.i64())
-    # Use record_size as stride (assumes contiguous layout)
-    stride = arith_dialect.constant(T.i64(), record_size)
-    byte_offset = arith.muli(index_i64, stride)
-    ptr_as_i64 = lowering_utilities.convert(ptr_as_index, T.i64())
-    dest_ptr_i64 = arith.addi(ptr_as_i64, byte_offset)
-    dest_ptr = llvm.inttoptr(llvm.PointerType.get(), dest_ptr_i64)
+    byte_offset = arith.muli(index_i64, arith_dialect.constant(T.i64(), record_size))
+    dest_ptr = lowering_utilities.llvm_ptr_add_bytes(
+        lowering_utilities.memref_data_pointer(array), byte_offset
+    )
 
     # Copy record_size bytes from src to dest using llvm.memcpy
     size_val = arith_dialect.constant(T.i64(), record_size)
@@ -1539,12 +1515,10 @@ def lower_charseq_array_setitem_string(builder: MLIRLower, target, args, kwargs)
             f"String literal assignment not supported for array dtype {element_type}"
         )
 
-    ptr_as_index = memref.extract_aligned_pointer_as_index(array)
-    stride = constant(element_size, T.i64())
-    byte_offset = arith.muli(index_i64, stride)
-    ptr_as_i64 = convert(ptr_as_index, T.i64())
-    result_ptr_i64 = arith.addi(ptr_as_i64, byte_offset)
-    dst_ptr = llvm.inttoptr(llvm.PointerType.get(), result_ptr_i64)
+    byte_offset = arith.muli(index_i64, constant(element_size, T.i64()))
+    dst_ptr = lowering_utilities.llvm_ptr_add_bytes(
+        lowering_utilities.memref_data_pointer(array), byte_offset
+    )
 
     zero = constant(0, T.i8())
     size_val = constant(element_size, T.i64())

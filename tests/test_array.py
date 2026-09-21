@@ -424,6 +424,7 @@ class TestNegativeArrayIndices:
         def kernel(arr1d, arr2d, index, row, column):
             arr1d[-1] = 40
             arr1d[index] = 30
+            arr2d[-1] = 90
             arr2d[-1, -1] = 120
             arr2d[row, column] = 70
 
@@ -435,6 +436,7 @@ class TestNegativeArrayIndices:
         expected1d[-1] = 40
         expected1d[-2] = 30
         expected2d = np.zeros((3, 4), dtype=np.int64)
+        expected2d[-1] = 90
         expected2d[-1, -1] = 120
         expected2d[-2, -2] = 70
         np.testing.assert_array_equal(arr1d, expected1d)

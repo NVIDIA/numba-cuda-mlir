@@ -1021,6 +1021,15 @@ def unverified_basic_mlir_convert(
                 else arith.uitofp(out=target_type, in_=value)
             )
         case ((ir.FloatType() | ir.BF16Type()), ir.IntegerType()):
+            # Special case: converting to i1 (boolean) asks whether the value is non-zero.
+            # fptosi/fptoui to i1 keeps the low bit of the truncated integer instead, so 0.0
+            # comes out True and 2.0 comes out False. `_convert_integer_to_integer` already
+            # special-cases an i1 target the same way. UNE rather than ONE so that NaN is
+            # truthy, matching bool(float("nan")) in Python.
+            if target_type.width == 1:
+                trace("converting float to i1 (boolean) via comparison against zero")
+                zero = arith.constant(value_type, value=0.0)
+                return arith.cmpf(arith.CmpFPredicate.UNE, value, zero)
             return (
                 arith.fptosi(out=target_type, in_=value)
                 if use_signed_conversion(target_type.width > 1)

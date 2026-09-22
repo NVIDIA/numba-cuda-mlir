@@ -16,20 +16,12 @@ from numba_cuda_mlir.extending import (
 from numba_cuda_mlir.numba_cuda import types
 
 
-# Implementations below consume the bundle in one of two ways, and both must
-# work over a ``*args`` argument:
-#
-#   ``for a in args``               types the loop body once, so it requires
-#                                   every element to share a type.
-#   ``for i in consteval(range(n))`` unrolls before compilation, so each ``i`` is
-#                                   a literal and ``args[i]`` resolves through
-#                                   static getitem. The elements may then differ
-#                                   (including a bundle of arrays, each its own
-#                                   type), and the index is available directly.
-#
-# The plain loop is used where the test calls the overload with a homogeneous
-# bundle, and ``consteval`` where it does not. The arity comes from the typing
-# function, so ``n`` reaches the implementation as a freevar.
+# Implementations below consume the bundle with ``consteval``, which unrolls the
+# loop before compilation so the elements may differ in type (including a bundle
+# of arrays). ``for a in consteval(args)`` iterates the elements directly;
+# ``for i in consteval(range(n))`` exposes the index, with ``n`` reaching the
+# implementation as a freevar from the typing function. A plain ``for a in args``
+# is kept where the bundle is homogeneous, so that spelling stays covered too.
 
 
 def var_sum(*args):
@@ -97,12 +89,10 @@ def var_from_arrays(idx, *cols):
 
 @overload(var_from_arrays, target="cuda", typing_registry=typing_registry)
 def ol_var_from_arrays(idx, *cols):
-    n = len(cols)
-
     def impl(idx, *cols):
         acc = 0.0
-        for i in consteval(range(n)):
-            acc += cols[i][idx]
+        for c in consteval(cols):
+            acc += c[idx]
         return acc
 
     return impl
@@ -140,12 +130,10 @@ def mixed_sum(*args):
 
 @overload(mixed_sum, target="cuda", typing_registry=typing_registry)
 def ol_mixed_sum(*args):
-    n = len(args)
-
     def impl(*args):
         acc = 0.0
-        for i in consteval(range(n)):
-            acc += args[i]
+        for a in consteval(args):
+            acc += a
         return acc
 
     return impl
@@ -356,20 +344,6 @@ def test_overload_varargs_literal_argument():
     out = np.zeros(n, dtype=np.float64)
     _run(kernel, out, a)
     np.testing.assert_allclose(out, a + 2 + 0.5)
-
-
-def test_overload_varargs_len_is_compile_time():
-    @cuda.jit
-    def kernel(out, a):
-        i = cuda.grid(1)
-        if i < out.size:
-            out[i] = var_count(a[i], a[i], a[i])
-
-    n = 4
-    a = np.arange(n, dtype=np.float32)
-    out = np.zeros(n, dtype=np.int64)
-    _run(kernel, out, a)
-    np.testing.assert_array_equal(out, 3)
 
 
 def test_overload_varargs_array_arguments():

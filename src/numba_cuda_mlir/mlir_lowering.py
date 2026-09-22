@@ -1944,11 +1944,9 @@ extern "C" __global__ void
             )
 
         callee_type = get_func_type(callee)
-        # A tuple-typed argument expands to one MLIR operand per leaf element in
-        # the callee signature, so flatten before pairing operands with the
-        # callee's input types. ``fold_arguments`` also hands us the ``*args``
-        # bundle as a plain tuple of Vars rather than a single Var. Flattening
-        # is driven by the argument *types* so that leaves with no ABI slot
+        # Tuple-typed arguments -- including the ``*args`` bundle, which
+        # ``fold_arguments`` hands over as a plain tuple of Vars -- expand to one
+        # operand per leaf. Flatten by *type* so leaves with no ABI slot
         # (``None``) are dropped exactly as the callee signature dropped them.
         flat_values = []
         for var, argty in zip(call_vars, call_argtypes):

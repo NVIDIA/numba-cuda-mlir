@@ -1251,20 +1251,16 @@ class MLIRTargetContext(BaseContext):
         def drop_omitted(args):
             return tuple(a for a in args if not isinstance(a, omitted))
 
-        def unfold_stararg(args, *, unliteral):
+        def unfold_stararg(args):
             """Expand a trailing ``*args`` bundle into the arguments it absorbed.
 
             A variadic implementation folds the arguments it collects into a
             single tuple type, so `sig` carries one tuple where the cache key
-            still holds them individually.  `types.unliteral` does not recurse
-            into a tuple, so strip literals from the elements here.
+            still holds them individually.
             """
             if not args or not isinstance(args[-1], types.BaseTuple):
                 return None
-            tail = tuple(args[-1].types)
-            if unliteral:
-                tail = tuple(types.unliteral(a) for a in tail)
-            return args[:-1] + tail
+            return args[:-1] + tuple(args[-1].types)
 
         cur_flags = targetconfig.ConfigStack.top_or_none()
 
@@ -1286,17 +1282,10 @@ class MLIRTargetContext(BaseContext):
         # of a *different* registration's scalar call (``f(a, (x, y))`` against
         # a cached ``f(a, x, y)``), so the unfolded forms are only a fallback.
         disp = select((match_args, literal_args))
-        if disp is None:
-            unfolded = tuple(
-                form
-                for form in (
-                    unfold_stararg(match_args, unliteral=True),
-                    unfold_stararg(literal_args, unliteral=False),
-                )
-                if form is not None
-            )
-            if unfolded:
-                disp = select(unfolded)
+        if disp is None and (unfolded := unfold_stararg(literal_args)) is not None:
+            # Same literal/unliteral pair as above; ``types.unliteral`` does not
+            # recurse into a tuple, so the elements are only stripped here.
+            disp = select((tuple(types.unliteral(a) for a in unfolded), unfolded))
         if disp is None:
             return None
 

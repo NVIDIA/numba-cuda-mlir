@@ -498,7 +498,7 @@ Numba. We’ll begin with some required imports:</p>
 <div class="literal-block-wrapper docutils container" id="id1">
 <div class="code-block-caption"><span class="caption-text">from <code class="docutils literal notranslate"><span class="pre">test_ex_vecadd</span></code> in <code class="docutils literal notranslate"><span class="pre">tests/doc_examples/test_vecadd.py</span></code></span><a class="headerlink" href="#id1" title="Link to this code">#</a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<span class="linenos">2</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
+<span class="linenos">2</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
 </pre></div>
 </div>
 </div>
@@ -594,7 +594,7 @@ object, and the value of the element represents the temperature.</p>
 <div class="literal-block-wrapper docutils container" id="id6">
 <div class="code-block-caption"><span class="caption-text">from <code class="docutils literal notranslate"><span class="pre">test_ex_laplace</span></code> in <code class="docutils literal notranslate"><span class="pre">tests/doc_examples/test_laplace.py</span></code></span><a class="headerlink" href="#id6" title="Link to this code">#</a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<span class="linenos">2</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
+<span class="linenos">2</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
 </pre></div>
 </div>
 </div>
@@ -691,8 +691,8 @@ ways of implementing reductions - see <a class="reference internal" href="#cuda-
 <div class="literal-block-wrapper docutils container" id="id10">
 <div class="code-block-caption"><span class="caption-text">from <code class="docutils literal notranslate"><span class="pre">test_ex_reduction</span></code> in <code class="docutils literal notranslate"><span class="pre">tests/doc_examples/test_reduction.py</span></code></span><a class="headerlink" href="#id10" title="Link to this code">#</a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<span class="linenos">2</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
-<span class="linenos">3</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba.cuda.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">int32</span>
+<span class="linenos">2</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
+<span class="linenos">3</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir.cuda.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">int32</span>
 </pre></div>
 </div>
 </div>
@@ -774,7 +774,7 @@ session. We’ll define the boundary between sessions as when there has been at 
 <div class="literal-block-wrapper docutils container" id="id14">
 <div class="code-block-caption"><span class="caption-text">from <code class="docutils literal notranslate"><span class="pre">test_ex_sessionize</span></code> in <code class="docutils literal notranslate"><span class="pre">tests/doc_examples/test_sessionize.py</span></code></span><a class="headerlink" href="#id14" title="Link to this code">#</a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<span class="linenos">2</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
+<span class="linenos">2</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
 <span class="linenos">3</span>
 <span class="linenos">4</span><span class="c1"># Set the timeout to one hour</span>
 <span class="linenos">5</span><span class="n">session_timeout</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">timedelta64</span><span class="p">(</span><span class="s2">"3600"</span><span class="p">,</span> <span class="s2">"s"</span><span class="p">))</span>
@@ -976,8 +976,8 @@ by its function values.</p>
 <div class="code-block-caption"><span class="caption-text">from <code class="docutils literal notranslate"><span class="pre">test_ex_montecarlo</span></code> in <code class="docutils literal notranslate"><span class="pre">tests/doc_examples/test_montecarlo.py</span></code></span><a class="headerlink" href="#id22" title="Link to this code">#</a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="kn">import</span><span class="w"> </span><span class="nn">numba</span>
 <span class="linenos">2</span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<span class="linenos">3</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
-<span class="linenos">4</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba.cuda.random</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+<span class="linenos">3</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
+<span class="linenos">4</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir.cuda.random</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
 <span class="linenos">5</span>    <span class="n">create_xoroshiro128p_states</span><span class="p">,</span>
 <span class="linenos">6</span>    <span class="n">xoroshiro128p_uniform_float32</span><span class="p">,</span>
 <span class="linenos">7</span><span class="p">)</span>
@@ -1069,8 +1069,8 @@ two limits:</p>
 <p>First, import the modules needed for this example:</p>
 <div class="literal-block-wrapper docutils container" id="id27">
 <div class="code-block-caption"><span class="caption-text">from <code class="docutils literal notranslate"><span class="pre">test_ex_matmul</span></code> in <code class="docutils literal notranslate"><span class="pre">tests/doc_examples/test_matmul.py</span></code></span><a class="headerlink" href="#id27" title="Link to this code">#</a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
-<span class="linenos">2</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba.cuda</span><span class="w"> </span><span class="kn">import</span> <span class="n">float32</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
+<span class="linenos">2</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir.cuda</span><span class="w"> </span><span class="kn">import</span> <span class="n">float32</span>
 <span class="linenos">3</span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="linenos">4</span><span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
 </pre></div>
@@ -1206,7 +1206,7 @@ iteration.</p>
 </pre></div>
 </div>
 </div>
-<p>This passes a <a class="reference external" href="https://numba.readthedocs.io/en/latest/user/troubleshoot.html#debugging-cuda-python-code" title="(in Numba v0.68)"><span class="xref std std-ref">CUDA memory check test</span></a>, which
+<p>This passes a <a class="reference external" href="https://numba.readthedocs.io/en/latest/user/troubleshoot.html#debugging-cuda-python-code" title="(in Numba v0.69)"><span class="xref std std-ref">CUDA memory check test</span></a>, which
 can help with debugging. Running the code above produces the following output:</p>
 <div class="highlight-none notranslate"><div class="highlight"><pre><span></span>$ python fast_matmul.py
 [[ 6.  6.  6.  6.]
@@ -1274,7 +1274,7 @@ kernel following this pattern:</p>
 <div class="literal-block-wrapper docutils container" id="id33">
 <div class="code-block-caption"><span class="caption-text">from <code class="docutils literal notranslate"><span class="pre">test_ex_cuda_ufunc_call</span></code> in <code class="docutils literal notranslate"><span class="pre">tests/doc_examples/test_ufunc.py</span></code></span><a class="headerlink" href="#id33" title="Link to this code">#</a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos"> 1</span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<span class="linenos"> 2</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
+<span class="linenos"> 2</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
 <span class="linenos"> 3</span>
 <span class="linenos"> 4</span><span class="c1"># A kernel calling a ufunc (sin, in this case)</span>
 <span class="linenos"> 5</span><span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span>
@@ -1306,8 +1306,8 @@ can create them with <code class="docutils literal notranslate"><span class="pre
 <div class="literal-block-wrapper docutils container" id="id34">
 <div class="code-block-caption"><span class="caption-text">from <code class="docutils literal notranslate"><span class="pre">test_ex_cpointer</span></code> in <code class="docutils literal notranslate"><span class="pre">tests/doc_examples/test_cpointer.py</span></code></span><a class="headerlink" href="#id34" title="Link to this code">#</a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<span class="linenos">2</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
-<span class="linenos">3</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba.cuda</span><span class="w"> </span><span class="kn">import</span> <span class="n">types</span>
+<span class="linenos">2</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
+<span class="linenos">3</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir.cuda</span><span class="w"> </span><span class="kn">import</span> <span class="n">types</span>
 <span class="linenos">4</span>
 <span class="linenos">5</span><span class="c1"># The first kernel argument is a pointer to a uint8 array.</span>
 <span class="linenos">6</span><span class="c1"># The second argument holds the length as a uint32.</span>
@@ -1333,7 +1333,7 @@ an array.</p>
 </div>
 </div>
 <p>To set up an example using the kernel and passing a pointer as an integer, we
-create a device array in the usual way, then use the <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda/cuda_array_interface.html#cuda-array-interface" title="(in Numba v0.68)"><span class="xref std std-ref">CUDA Array Interface</span></a> to obtain the pointer for the purpose of this example.
+create a device array in the usual way, then use the <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda/cuda_array_interface.html#cuda-array-interface" title="(in Numba v0.69)"><span class="xref std std-ref">CUDA Array Interface</span></a> to obtain the pointer for the purpose of this example.
 However, the pointer could have been provided from anywhere - for example, from
 another library that doesn’t support the CUDA Array Interface, or from
 <code class="docutils literal notranslate"><span class="pre">cudaMalloc</span></code> in a C / C++ program, etc..</p>

@@ -1266,28 +1266,37 @@ class MLIRTargetContext(BaseContext):
                 tail = tuple(types.unliteral(a) for a in tail)
             return args[:-1] + tail
 
-        # The cache key only holds the arguments the call actually supplied,
-        # while `sig` also carries omitted defaults; compare with and without
-        # them.  `cache_args` also keeps whatever literals the template was
-        # typed with, so an overload registered `prefer_literal=True` (or one
-        # that requested the constant via `literally()`) only ever matches
-        # the un-unliteral'd form; accept either form in both comparisons.
-        full_forms = (match_args, literal_args) + tuple(
-            form
-            for form in (
-                unfold_stararg(match_args, unliteral=True),
-                unfold_stararg(literal_args, unliteral=False),
+        cur_flags = targetconfig.ConfigStack.top_or_none()
+
+        def select(forms):
+            # The cache key only holds the arguments the call actually supplied,
+            # while `sig` also carries omitted defaults; compare with and without
+            # them.  `cache_args` also keeps whatever literals the template was
+            # typed with, so an overload registered `prefer_literal=True` (or one
+            # that requested the constant via `literally()`) only ever matches
+            # the un-unliteral'd form; accept either form in both comparisons.
+            trimmed = tuple(drop_omitted(form) for form in forms)
+
+            def args_match(cache_args):
+                return cache_args in forms or drop_omitted(cache_args) in trimmed
+
+            return _select_overload_dispatcher(templates, args_match, cur_flags)
+
+        # Exact keys first. Unfolding a trailing tuple can coincide with the key
+        # of a *different* registration's scalar call (``f(a, (x, y))`` against
+        # a cached ``f(a, x, y)``), so the unfolded forms are only a fallback.
+        disp = select((match_args, literal_args))
+        if disp is None:
+            unfolded = tuple(
+                form
+                for form in (
+                    unfold_stararg(match_args, unliteral=True),
+                    unfold_stararg(literal_args, unliteral=False),
+                )
+                if form is not None
             )
-            if form is not None
-        )
-        trimmed_forms = tuple(drop_omitted(form) for form in full_forms)
-
-        def args_match(cache_args):
-            return cache_args in full_forms or drop_omitted(cache_args) in trimmed_forms
-
-        disp = _select_overload_dispatcher(
-            templates, args_match, targetconfig.ConfigStack.top_or_none()
-        )
+            if unfolded:
+                disp = select(unfolded)
         if disp is None:
             return None
 

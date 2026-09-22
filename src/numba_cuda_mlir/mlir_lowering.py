@@ -1947,13 +1947,19 @@ extern "C" __global__ void
         # A tuple-typed argument expands to one MLIR operand per leaf element in
         # the callee signature, so flatten before pairing operands with the
         # callee's input types. ``fold_arguments`` also hands us the ``*args``
-        # bundle as a plain tuple of Vars rather than a single Var.
-        loaded = [
-            self.load_vars(v) if isinstance(v, tuple) else self.load_var(v) for v in call_vars
-        ]
-        call_args = [
-            convert(val, ty) for val, ty in zip(self._flatten_abi_value(loaded), callee_type.inputs)
-        ]
+        # bundle as a plain tuple of Vars rather than a single Var. Flattening
+        # is driven by the argument *types* so that leaves with no ABI slot
+        # (``None``) are dropped exactly as the callee signature dropped them.
+        flat_values = []
+        for var, argty in zip(call_vars, call_argtypes):
+            value = self.load_vars(var) if isinstance(var, tuple) else self.load_var(var)
+            flat_values.extend(self._flatten_abi_operands(argty, value))
+        if len(flat_values) != len(callee_type.inputs):
+            raise InternalCompilerError(
+                f"Overload call to {func_name} produced {len(flat_values)} operands for a "
+                f"callee with {len(callee_type.inputs)} inputs."
+            )
+        call_args = [convert(val, ty) for val, ty in zip(flat_values, callee_type.inputs)]
         call_result = func.call(
             result=callee_type.results,
             callee=callee.name.value,
@@ -3637,6 +3643,22 @@ extern "C" __global__ void
         except TypeError:
             return (results,)
 
+    def _flatten_abi_operands(self, numba_type, value) -> list:
+        """Flatten ``value`` to the operands its type occupies in the ABI.
+
+        Mirrors ``_flatten_type``: a ``NoneType`` leaf has no MLIR operand, so
+        it must be dropped here too, or every operand after it shifts by one.
+        """
+        if isinstance(numba_type, types.NoneType):
+            return []
+        if isinstance(numba_type, types.BaseTuple):
+            return [
+                operand
+                for elem_type, elem in zip(self._tuple_element_types(numba_type), value)
+                for operand in self._flatten_abi_operands(elem_type, elem)
+            ]
+        return [value]
+
     def _flatten_abi_value(self, value):
         if isinstance(value, (tuple, list)):
             out = []
@@ -3760,32 +3782,24 @@ extern "C" __global__ void
 
     def _reassemble_tuple_from_block_args(self, numba_type, start_idx: int) -> tuple:
         """Reassemble a tuple from flattened block arguments. Returns Python tuple of ir.Values."""
-        if isinstance(numba_type, types.UniTuple):
-            elements = []
-            idx = start_idx
-            for _ in range(numba_type.count):
-                if isinstance(numba_type.dtype, types.BaseTuple):
-                    elem = self._reassemble_tuple_from_block_args(numba_type.dtype, idx)
-                    idx += self._count_flat_elements(numba_type.dtype)
-                else:
-                    elem = self.mlir_funcOp.entry_block.arguments[idx]
-                    idx += 1
-                elements.append(elem)
-            return tuple(elements)
-        elif isinstance(numba_type, types.BaseTuple):
-            elements = []
-            idx = start_idx
-            for elem_type in numba_type.types:
-                if isinstance(elem_type, types.BaseTuple):
-                    elem = self._reassemble_tuple_from_block_args(elem_type, idx)
-                    idx += self._count_flat_elements(elem_type)
-                else:
-                    elem = self.mlir_funcOp.entry_block.arguments[idx]
-                    idx += 1
-                elements.append(elem)
-            return tuple(elements)
-        else:
+        if not isinstance(numba_type, types.BaseTuple):
             return self.mlir_funcOp.entry_block.arguments[start_idx]
+        elements = []
+        idx = start_idx
+        for elem_type in self._tuple_element_types(numba_type):
+            if isinstance(elem_type, types.NoneType):
+                # ``_flatten_type`` gives a None leaf no block argument, so do
+                # not consume one; use the same placeholder as a top-level
+                # None argument in ``lower_arg_assign``.
+                elem = ir.NoneType.get()
+            elif isinstance(elem_type, types.BaseTuple):
+                elem = self._reassemble_tuple_from_block_args(elem_type, idx)
+                idx += self._count_flat_elements(elem_type)
+            else:
+                elem = self.mlir_funcOp.entry_block.arguments[idx]
+                idx += 1
+            elements.append(elem)
+        return tuple(elements)
 
     def verify_mlir_module(self):
         trace("Verifying MLIR module:\n%s", str(self.mlir_module))

@@ -151,6 +151,53 @@ def ol_mixed_sum(*args):
     return impl
 
 
+def skip_none_sum(*args):
+    pass
+
+
+@overload(skip_none_sum, target="cuda", typing_registry=typing_registry)
+def ol_skip_none_sum(*args):
+    keep = [i for i, t in enumerate(args) if not isinstance(t, types.NoneType)]
+
+    def impl(*args):
+        acc = 0.0
+        for i in consteval(keep):
+            acc += args[i]
+        return acc
+
+    return impl
+
+
+def two_way(a, *rest):
+    pass
+
+
+# Registered first: variadic, and declines tuple elements so typing never
+# selects it for the tuple-argument call below.
+@overload(two_way, target="cuda", typing_registry=typing_registry)
+def ol_two_way_variadic(a, *rest):
+    if any(isinstance(r, types.BaseTuple) for r in rest):
+        return None
+    n = len(rest)
+
+    def impl(a, *rest):
+        return a + 10.0 * n
+
+    return impl
+
+
+# Registered second: takes the tuple. Its result is distinguishable.
+@overload(two_way, target="cuda", typing_registry=typing_registry)
+def ol_two_way_tuple(a, t):
+    if not isinstance(t, types.BaseTuple):
+        return None
+
+    def impl(a, t):
+        return a + 1000.0
+
+    return impl
+
+
 @overload_method(types.Array, "var_scale", target="cuda", typing_registry=typing_registry)
 def ol_array_var_scale(arr, idx, *factors):
     def impl(arr, idx, *factors):
@@ -341,6 +388,47 @@ def test_overload_varargs_array_arguments():
     out = np.zeros(n, dtype=np.float32)
     _run(kernel, out, a, b, c)
     np.testing.assert_allclose(out, a + b + c)
+
+
+def test_overload_varargs_none_leaf_in_bundle():
+    """A ``None`` inside the bundle has no ABI slot and must not shift operands.
+
+    The callee signature drops ``None`` leaves; the call site has to drop them
+    the same way, or every operand after the ``None`` pairs with the wrong input.
+    """
+
+    @cuda.jit
+    def kernel(out, a, b):
+        i = cuda.grid(1)
+        if i < out.size:
+            out[i] = skip_none_sum(a[i], None, b[i])
+
+    n = 4
+    a = np.arange(n, dtype=np.float32)
+    b = np.arange(n, dtype=np.float32) * 10
+    out = np.zeros(n, dtype=np.float32)
+    _run(kernel, out, a, b)
+    np.testing.assert_allclose(out, a + b)
+
+
+def test_overload_tuple_call_prefers_exact_cache_key():
+    """An exact cache key must win over an unfolded ``*args`` form.
+
+    Unfolding the tuple call's signature ``(f64, UniTuple(f64, 2))`` yields
+    ``(f64, f64, f64)`` -- the cache key of the *variadic* registration's
+    scalar call. Matching that first would silently lower the tuple call
+    through the wrong implementation.
+    """
+
+    @cuda.jit
+    def kernel(out, x):
+        if cuda.grid(1) == 0:
+            out[0] = two_way(x, 2.0, 3.0)  # scalar form, populates the variadic cache
+            out[1] = two_way(x, (2.0, 3.0))  # tuple form, typed to the tuple overload
+
+    out = np.zeros(2)
+    kernel[1, 1](out, 1.0)
+    np.testing.assert_allclose(out, [21.0, 1001.0])
 
 
 def test_overload_varargs_no_return_value():

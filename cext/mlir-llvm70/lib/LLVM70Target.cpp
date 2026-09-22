@@ -568,6 +568,20 @@ llvm::Error MLIRToLLVM70::translatePhiOps(Block &block) {
   if (block.isEntryBlock())
     return llvm::Error::success();
 
+  // A coercion for an incoming value has to live in the predecessor, ahead of
+  // its terminator, so that it dominates the phi. The predecessor is not always
+  // the MLIR block holding the terminator: an edge that needed a trampoline
+  // enters the phi from the trampoline instead.
+  auto incomingFrom = [&](Value v, LLVMBasicBlockRef predBB) {
+    if (!isa<LLVM::LLVMPointerType>(v.getType()))
+      return lookupValue(v);
+    LLVMBasicBlockRef saved = b.getInsertBlock();
+    b.positionBefore(b.getTerminator(predBB));
+    LLVMValueRef val = lookupValueAsDeclared(v);
+    b.positionAtEnd(saved);
+    return val;
+  };
+
   for (auto [argIdx, arg] : llvm::enumerate(block.getArguments())) {
     LLVMValueRef phi = lookupValue(arg);
 
@@ -579,17 +593,7 @@ llvm::Error MLIRToLLVM70::translatePhiOps(Block &block) {
       if (!seen.insert(pred).second)
         continue;
       Operation *term = pred->getTerminator();
-      // A coercion for an incoming value has to live in the predecessor, ahead
-      // of its terminator, so that it dominates the phi.
-      auto incoming = [&](Value v) {
-        if (!isa<LLVM::LLVMPointerType>(v.getType()))
-          return lookupValue(v);
-        LLVMBasicBlockRef saved = b.getInsertBlock();
-        b.positionBefore(b.getTerminator(blockMap[pred]));
-        LLVMValueRef val = lookupValueAsDeclared(v);
-        b.positionAtEnd(saved);
-        return val;
-      };
+      auto incoming = [&](Value v) { return incomingFrom(v, blockMap[pred]); };
       if (auto brOp = dyn_cast<LLVM::BrOp>(term)) {
         inVals.push_back(incoming(brOp.getDestOperands()[argIdx]));
         inBlocks.push_back(blockMap[pred]);
@@ -611,7 +615,7 @@ llvm::Error MLIRToLLVM70::translatePhiOps(Block &block) {
     auto it = switchForwarders.find(&block);
     if (it != switchForwarders.end()) {
       for (auto &[trampBB, ops] : it->second) {
-        inVals.push_back(lookupValue(ops[argIdx]));
+        inVals.push_back(incomingFrom(ops[argIdx], trampBB));
         inBlocks.push_back(trampBB);
       }
     }

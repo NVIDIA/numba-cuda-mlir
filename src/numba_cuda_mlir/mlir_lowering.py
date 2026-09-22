@@ -45,6 +45,10 @@ from numba_cuda_mlir.lowering_utilities import (
     lookup_callee_in_module,
     get_func_type,
     get_type_size_bytes,
+    get_conversion_signedness,
+    llvm_ptr_add_bytes,
+    memref_data_pointer,
+    memref_descriptor_type,
     storage_itemsize_bytes,
 )
 from numba_cuda_mlir.compiler import (
@@ -334,6 +338,14 @@ class MLIRLower(object):
             numba_type = self._poly_dbg_types.get(var_name, numba_type)
             self._di_builder.add_local_variable(var_name, var_loc, numba_type)
 
+    def _return_loc(self):
+        """Locate the first return statement, for diagnostics about the return type."""
+        for block in self.blocks.values():
+            terminator = block.terminator
+            if isinstance(terminator, numba_ir.Return):
+                return terminator.loc
+        return self.func_ir.loc
+
     def _find_var_def_line(self, var_name):
         """Find the first assignment line for a variable."""
         for block in self.blocks.values():
@@ -545,6 +557,16 @@ extern "C" __global__ void
             # A function is a kernel when device=True is not set AND it returns
             # void.  Non-void functions are always device functions (kernels
             # cannot return values).
+            if (
+                not self.targetoptions.get("device", False)
+                and restypes
+                # compile()/compile_ptx() raise their own TypeError
+                and self.targetoptions.get("_compile_output") is None
+            ):
+                raise errors.TypingError(
+                    "CUDA kernel must have void return type but got %s." % (self.fndesc.restype,),
+                    loc=self._return_loc(),
+                )
             kernel = not self.targetoptions.get("device", False) and not restypes
 
             abi_info = self.targetoptions.get("abi_info") or {}
@@ -985,13 +1007,7 @@ extern "C" __global__ void
                 self.store_var(target, free_var.value)
 
     def _build_memref_descriptor(self, ptr, shape, strides):
-        ndim = len(shape)
-        if ndim > 0:
-            struct_type = ir.Type.parse(
-                f"!llvm.struct<(ptr, ptr, i64, array<{ndim} x i64>, array<{ndim} x i64>)>"
-            )
-        else:
-            struct_type = ir.Type.parse("!llvm.struct<(ptr, ptr, i64)>")
+        struct_type = memref_descriptor_type(len(shape))
         i64c = lambda v: arith.constant(T.i64(), v)
         ins = lambda d, v, *p: llvm.insertvalue(
             container=d, value=v, position=ir.DenseI64ArrayAttr.get(list(p))
@@ -1841,13 +1857,9 @@ extern "C" __global__ void
         array_val = self.load_var(value)
         target_mlir_type = self.get_mlir_type(target_type)
 
-        ptr_as_index = memref.extract_aligned_pointer_as_index(array_val)
-        ptr_i64 = arith.index_cast(T.i64(), ptr_as_index)
-
+        ptr = memref_data_pointer(array_val)
         if field_offset > 0:
-            ptr_i64 = arith.addi(ptr_i64, arith.constant(T.i64(), field_offset))
-
-        ptr = llvm.inttoptr(llvm.PointerType.get(), ptr_i64)
+            ptr = llvm_ptr_add_bytes(ptr, arith.constant(T.i64(), field_offset))
 
         md = memref.extract_strided_metadata(array_val)
 
@@ -1861,15 +1873,12 @@ extern "C" __global__ void
             stride_i64 = convert(md[2 + rank + i], T.i64())
             strides_i64.append(arith.muli(stride_i64, arith.constant(T.i64(), stride_multiplier)))
 
-        struct_type = ir.Type.parse(
-            f"!llvm.struct<(ptr, ptr, i64, array<{rank} x i64>, array<{rank} x i64>)>"
-        )
         i64c = lambda v: arith.constant(T.i64(), v)
         ins = lambda d, v, *p: llvm.insertvalue(
             container=d, value=v, position=ir.DenseI64ArrayAttr.get(list(p))
         )
 
-        desc = llvm.UndefOp(struct_type).result
+        desc = llvm.UndefOp(memref_descriptor_type(rank)).result
         desc = ins(desc, ptr, 0)
         desc = ins(desc, ptr, 1)
         desc = ins(desc, i64c(0), 2)
@@ -2504,7 +2513,8 @@ extern "C" __global__ void
             return cast_impl(self.context, self, source_type, target_type, value)
         if isinstance(source_type, types.BaseTuple) and isinstance(target_type, types.BaseTuple):
             return self._lower_tuple_cast(source_type, target_type, value)
-        return self.mlir_convert(value, self.get_mlir_type(target_type))
+        signed = get_conversion_signedness(source_type, target_type)
+        return convert(value, self.get_mlir_type(target_type), signed=signed)
 
     def _tuple_element_types(self, tuple_type):
         if isinstance(tuple_type, types.UniTuple):
@@ -2651,10 +2661,7 @@ extern "C" __global__ void
         if isinstance(value_type, types.ArrayCTypes) and attr == "data":
             # Get the underlying array/memref
             array_value = self.load_var(value)
-            # Extract the aligned pointer as an index
-            ptr_as_index = memref.extract_aligned_pointer_as_index(array_value)
-            # Convert index to uintp
-            result = arith.index_cast(T.i64(), ptr_as_index)
+            result = llvm.ptrtoint(T.i64(), memref_data_pointer(array_value))
             self.store_var(target, result)
             return
 
@@ -3190,12 +3197,7 @@ extern "C" __global__ void
         )
 
         md = memref.extract_strided_metadata(array_value)
-        base_ptr_idx = memref.extract_aligned_pointer_as_index(md[0])
-        base_ptr_i64 = arith.index_cast(i64, base_ptr_idx)
-        offset_i64 = convert(md[1], i64)
-        byte_offset = arith.muli(offset_i64, i64c(itemsize))
-        data_ptr_i64 = arith.addi(base_ptr_i64, byte_offset)
-        data_ptr = llvm.inttoptr(ptr_type, data_ptr_i64)
+        data_ptr = memref_data_pointer(array_value)
 
         nitems = i64c(1)
         shape = llvm.UndefOp(array_type).result

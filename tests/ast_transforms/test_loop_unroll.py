@@ -457,6 +457,38 @@ def test_unroll_varargs_bundle_runs():
     np.testing.assert_allclose(out, [4.0])
 
 
+def test_unroll_tuple_parameter_preserves_else_clause():
+    """The else clause runs after the last iteration, as break is rejected."""
+
+    @numba_cuda_mlir.cuda.jit
+    def kernel(out, t):
+        for v in consteval(t):
+            out[0] += v
+        else:
+            out[1] = 1.0
+
+    sig = types.void(types.float64[:], types.UniTuple(types.float64, 2))
+    source = kernel.compile(sig).metadata["transformed_source"]
+    assert source.index("out[0] += t[1]") < source.index("out[1] = 1.0")
+
+    out = np.zeros(2)
+    kernel[1, 1](out, (1.0, 2.0))
+    np.testing.assert_allclose(out, [3.0, 1.0])
+
+
+def test_unroll_tuple_parameter_rebinding_rejected():
+    """Rebinding the loop variable must not become a store into the tuple."""
+
+    @numba_cuda_mlir.cuda.jit
+    def kernel(out, t):
+        for v in consteval(t):
+            v = 0
+            out[0] += v
+
+    with pytest.raises(ConstevalError, match="rebinding loop variable 'v'"):
+        kernel.compile(types.void(types.float64[:], types.UniTuple(types.float64, 2)))
+
+
 def test_unroll_non_tuple_parameter_rejected():
     """A parameter with no compile-time length is diagnosed, not substituted."""
 

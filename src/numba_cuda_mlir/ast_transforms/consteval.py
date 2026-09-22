@@ -222,6 +222,7 @@ class ConstevalTransformer(ast.NodeTransformer):
     def _unroll_for_loop(self, node: ast.For) -> list[ast.stmt]:
         """Unroll a for loop with consteval iterator."""
         self._check_unroll_loop_control(node)
+        self._check_unroll_loop_variables(node)
 
         # Evaluate the iterator. A parameter name evaluates to its Numba type,
         # so it yields element accesses rather than compile-time values.
@@ -274,8 +275,9 @@ class ConstevalTransformer(ast.NodeTransformer):
             # Restore local_consts state
             self.local_consts = saved_consts
 
-        # Note: we ignore the else clause (orelse) since unrolled loops
-        # don't have a natural "else" semantic
+        # ``break`` is rejected above, so the loop always completes normally
+        # and its ``else`` clause runs after the last iteration.
+        unrolled.extend(self._process_statement_list(node.orelse))
         return unrolled
 
     def _parameter_element_exprs(self, iter_arg: ast.expr) -> list[ast.expr] | None:
@@ -338,6 +340,25 @@ class ConstevalTransformer(ast.NodeTransformer):
             finder.visit(stmt)
         if finder.control:
             raise ConstevalError(f"Loop unrolling does not support {finder.control} statements")
+
+    def _check_unroll_loop_variables(self, node: ast.For) -> None:
+        """Reject bodies that rebind a loop variable of an unrolled loop.
+
+        Unrolling substitutes the bound value for every use of the variable,
+        which has no meaning for an assignment target: ``v = 0`` would become
+        ``3 = 0`` or ``t[0] = 0``.
+        """
+        loop_vars = {name.id for name in ast.walk(node.target) if isinstance(name, ast.Name)}
+        for stmt in node.body:
+            for name in ast.walk(stmt):
+                if (
+                    isinstance(name, ast.Name)
+                    and name.id in loop_vars
+                    and isinstance(name.ctx, (ast.Store, ast.Del))
+                ):
+                    raise ConstevalError(
+                        f"Loop unrolling does not support rebinding loop variable '{name.id}'"
+                    )
 
     def _bind_loop_target(self, target: ast.expr, value) -> dict[str, object]:
         """Bind a consteval loop target to a compile-time value."""

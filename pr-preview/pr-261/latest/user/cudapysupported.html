@@ -28,17 +28,17 @@
   </noscript>
   
   <!-- Loaded before other Sphinx assets -->
-  <link href="../_static/styles/theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
-<link href="../_static/styles/pydata-sphinx-theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
+  <link href="../_static/styles/theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
 
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/nvidia-sphinx-theme.css?v=933278ad" />
   
   <!-- So that users can add custom icons -->
-  <script defer src="../_static/scripts/fontawesome.js?digest=90905a2f556bf617f1a9"></script>
+  <script defer src="../_static/scripts/fontawesome.js?digest=cb8930eaaf36d9849b67"></script>
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9" />
-<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9" />
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67" />
 
 
 
@@ -47,7 +47,7 @@
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'user/cudapysupported';</script>
     <script>
-        DOCUMENTATION_OPTIONS.theme_version = '0.20.0';
+        DOCUMENTATION_OPTIONS.theme_version = '0.21.0';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://nvidia.github.io/numba-cuda-mlir/versions.json';
         DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'latest';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
@@ -513,7 +513,7 @@ model, division by zero raises no exception and instead produces a result of
 <code class="docutils literal notranslate"><span class="pre">inf</span></code>, <code class="docutils literal notranslate"><span class="pre">-inf</span></code> or <code class="docutils literal notranslate"><span class="pre">nan</span></code>. This differs from the normal Python error model,
 in which division by zero raises a <code class="docutils literal notranslate"><span class="pre">ZeroDivisionError</span></code>.</p>
 <p>When debug is enabled (by passing <code class="docutils literal notranslate"><span class="pre">debug=True</span></code> to the
-<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.jit" title="(in Numba v0.68)"><code class="xref py py-func docutils literal notranslate"><span class="pre">&#64;cuda.jit</span></code></a> decorator), the Python error model is used.
+<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.jit" title="(in Numba v0.69)"><code class="xref py py-func docutils literal notranslate"><span class="pre">&#64;cuda.jit</span></code></a> decorator), the Python error model is used.
 This allows division-by-zero errors during kernel execution to be identified.</p>
 </section>
 <section id="constructs">
@@ -530,13 +530,13 @@ constraints:</p>
 <ul class="simple">
 <li><p>They can only be used in kernels, not in device functions.</p></li>
 <li><p>They only have an effect when <code class="docutils literal notranslate"><span class="pre">debug=True</span></code> is passed to the
-<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.jit" title="(in Numba v0.68)"><code class="xref py py-func docutils literal notranslate"><span class="pre">&#64;cuda.jit</span></code></a> decorator. This is similar to the behavior
+<a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/kernel.html#numba.cuda.jit" title="(in Numba v0.69)"><code class="xref py py-func docutils literal notranslate"><span class="pre">&#64;cuda.jit</span></code></a> decorator. This is similar to the behavior
 of the <code class="docutils literal notranslate"><span class="pre">assert</span></code> keyword in CUDA C/C++, which is ignored unless compiling
 with device debug turned on.</p></li>
 </ul>
 <p>Printing of strings, integers, and floats is supported, but printing is an
 asynchronous operation - in order to ensure that all output is printed after a
-kernel launch, it is necessary to call <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/host.html#numba.cuda.synchronize" title="(in Numba v0.68)"><code class="xref py py-func docutils literal notranslate"><span class="pre">numba.cuda.synchronize()</span></code></a>. Eliding
+kernel launch, it is necessary to call <a class="reference external" href="https://numba.readthedocs.io/en/latest/cuda-reference/host.html#numba.cuda.synchronize" title="(in Numba v0.69)"><code class="xref py py-func docutils literal notranslate"><span class="pre">numba.cuda.synchronize()</span></code></a>. Eliding
 the call to <code class="docutils literal notranslate"><span class="pre">synchronize</span></code> is acceptable, but output from a kernel may appear
 during other later driver operations (e.g. subsequent kernel launches, memory
 transfers, etc.), or fail to appear before the program execution completes. Up
@@ -551,7 +551,7 @@ in the CUDA C++ Programming Guide.</p>
 <p>Self-recursive device functions are supported, with the constraint that
 recursive calls must have the same argument types as the initial call to
 the function. For example, the following form of recursion is supported:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="s2">&quot;int64(int64)&quot;</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="s2">"int64(int64)"</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">fib</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
     <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">n</span>
@@ -598,7 +598,7 @@ which explicitly states when stack overflow has occurred.</p>
 <li><p>tuple</p></li>
 <li><p>Enum, IntEnum</p></li>
 </ul>
-<p>See <a class="reference external" href="https://numba.readthedocs.io/en/latest/reference/pysupported.html#pysupported-builtin-types" title="(in Numba v0.68)"><span class="xref std std-ref">nopython built-in types</span></a>.</p>
+<p>See <a class="reference external" href="https://numba.readthedocs.io/en/latest/reference/pysupported.html#pysupported-builtin-types" title="(in Numba v0.69)"><span class="xref std std-ref">nopython built-in types</span></a>.</p>
 <p>There is also some very limited support for character sequences (bytes and
 unicode strings) used in NumPy arrays.</p>
 </section>
@@ -606,19 +606,19 @@ unicode strings) used in NumPy arrays.</p>
 <h2>Built-in functions<a class="headerlink" href="#built-in-functions" title="Link to this heading">#</a></h2>
 <p>The following built-in functions are supported:</p>
 <ul class="simple">
-<li><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#abs" title="(in Python v3.14)"><code class="xref py py-func docutils literal notranslate"><span class="pre">abs()</span></code></a></p></li>
-<li><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></p></li>
-<li><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">complex</span></code></a></p></li>
-<li><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#enumerate" title="(in Python v3.14)"><code class="xref py py-func docutils literal notranslate"><span class="pre">enumerate()</span></code></a></p></li>
-<li><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></a></p></li>
-<li><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a>: only the one-argument form</p></li>
-<li><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#len" title="(in Python v3.14)"><code class="xref py py-func docutils literal notranslate"><span class="pre">len()</span></code></a></p></li>
-<li><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#min" title="(in Python v3.14)"><code class="xref py py-func docutils literal notranslate"><span class="pre">min()</span></code></a>: only the multiple-argument form</p></li>
-<li><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#max" title="(in Python v3.14)"><code class="xref py py-func docutils literal notranslate"><span class="pre">max()</span></code></a>: only the multiple-argument form</p></li>
-<li><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#pow" title="(in Python v3.14)"><code class="xref py py-func docutils literal notranslate"><span class="pre">pow()</span></code></a></p></li>
-<li><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#range" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">range</span></code></a></p></li>
-<li><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#round" title="(in Python v3.14)"><code class="xref py py-func docutils literal notranslate"><span class="pre">round()</span></code></a></p></li>
-<li><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#zip" title="(in Python v3.14)"><code class="xref py py-func docutils literal notranslate"><span class="pre">zip()</span></code></a></p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#abs" title="(in Python v3.14)"><code class="xref py py-func docutils literal notranslate"><span class="pre">abs()</span></code></a></p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#complex" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">complex</span></code></a></p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#enumerate" title="(in Python v3.14)"><code class="xref py py-func docutils literal notranslate"><span class="pre">enumerate()</span></code></a></p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></a></p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a>: only the one-argument form</p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#len" title="(in Python v3.14)"><code class="xref py py-func docutils literal notranslate"><span class="pre">len()</span></code></a></p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#min" title="(in Python v3.14)"><code class="xref py py-func docutils literal notranslate"><span class="pre">min()</span></code></a>: only the multiple-argument form</p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#max" title="(in Python v3.14)"><code class="xref py py-func docutils literal notranslate"><span class="pre">max()</span></code></a>: only the multiple-argument form</p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#pow" title="(in Python v3.14)"><code class="xref py py-func docutils literal notranslate"><span class="pre">pow()</span></code></a></p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#range" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">range</span></code></a></p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#round" title="(in Python v3.14)"><code class="xref py py-func docutils literal notranslate"><span class="pre">round()</span></code></a></p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#zip" title="(in Python v3.14)"><code class="xref py py-func docutils literal notranslate"><span class="pre">zip()</span></code></a></p></li>
 </ul>
 </section>
 <section id="standard-library-modules">
@@ -898,8 +898,8 @@ functions (see the <a class="reference internal" href="cuda_ffi.html#cuda-ffi"><
   
 
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script defer src="../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9"></script>
-<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9"></script>
+  <script defer src="../_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67"></script>
 
 
   <footer class="bd-footer">

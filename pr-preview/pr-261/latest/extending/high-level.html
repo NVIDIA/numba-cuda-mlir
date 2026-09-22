@@ -28,17 +28,17 @@
   </noscript>
   
   <!-- Loaded before other Sphinx assets -->
-  <link href="../_static/styles/theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
-<link href="../_static/styles/pydata-sphinx-theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
+  <link href="../_static/styles/theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
 
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/nvidia-sphinx-theme.css?v=933278ad" />
   
   <!-- So that users can add custom icons -->
-  <script defer src="../_static/scripts/fontawesome.js?digest=90905a2f556bf617f1a9"></script>
+  <script defer src="../_static/scripts/fontawesome.js?digest=cb8930eaaf36d9849b67"></script>
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9" />
-<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9" />
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67" />
 
 
 
@@ -47,7 +47,7 @@
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'extending/high-level';</script>
     <script>
-        DOCUMENTATION_OPTIONS.theme_version = '0.20.0';
+        DOCUMENTATION_OPTIONS.theme_version = '0.21.0';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://nvidia.github.io/numba-cuda-mlir/versions.json';
         DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'latest';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
@@ -558,55 +558,25 @@ compilation error occurs.</p>
 <code class="docutils literal notranslate"><span class="pre">*args</span></code> parameter, so a single registration serves a whole family of arities.
 The arguments matched by <code class="docutils literal notranslate"><span class="pre">*args</span></code> are passed to the implementation function as
 a tuple of Numba types, and are bundled into a single tuple argument in the
-implementation:</p>
+implementation.</p>
+<p>Consume the bundle with <code class="xref py py-func docutils literal notranslate"><span class="pre">consteval()</span></code>.
+The arity is fixed for each compiled overload, so <code class="docutils literal notranslate"><span class="pre">consteval</span></code> unrolls the loop
+before compilation into one copy of the body per element: no loop and no tuple
+indexing remain at runtime, and the elements may have differing types, including
+arrays.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span><span class="p">,</span> <span class="n">extending</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir.cuda.experimental</span><span class="w"> </span><span class="kn">import</span> <span class="n">consteval</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">my_sum</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
     <span class="k">return</span> <span class="nb">sum</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
 
 <span class="nd">@extending</span><span class="o">.</span><span class="n">overload</span><span class="p">(</span><span class="n">my_sum</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">my_sum_overload</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
-    <span class="c1"># ``args`` holds the Numba types of the call site&#39;s arguments, so the</span>
-    <span class="c1"># arity is known at compile time.</span>
+    <span class="c1"># ``args`` holds the Numba types of the call site's arguments.</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">impl</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
         <span class="n">acc</span> <span class="o">=</span> <span class="mf">0.0</span>
-        <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">args</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">consteval</span><span class="p">(</span><span class="n">args</span><span class="p">):</span>        <span class="c1"># unrolls to args[0], args[1], ...</span>
             <span class="n">acc</span> <span class="o">+=</span> <span class="n">a</span>
-        <span class="k">return</span> <span class="n">acc</span>
-
-    <span class="k">return</span> <span class="n">impl</span>
-
-<span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">kernel</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">):</span>
-    <span class="n">i</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">out</span><span class="o">.</span><span class="n">size</span><span class="p">:</span>
-        <span class="n">out</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">my_sum</span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">b</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">c</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
-</pre></div>
-</div>
-<p>Each arity is compiled as a separate overload, so calling <code class="docutils literal notranslate"><span class="pre">my_sum</span></code> with two
-and with three arguments in the same kernel produces two distinct device
-functions. The same applies to
-<a class="reference internal" href="#numba_cuda_mlir.extending.overload_method" title="numba_cuda_mlir.extending.overload_method"><code class="xref py py-func docutils literal notranslate"><span class="pre">overload_method()</span></code></a> and the other decorators
-below.</p>
-<p><code class="docutils literal notranslate"><span class="pre">len(args)</span></code> is a compile-time constant in the implementation, and the bundle
-can be indexed with a loop variable, so <code class="docutils literal notranslate"><span class="pre">for</span> <span class="pre">i</span> <span class="pre">in</span> <span class="pre">range(len(args))</span></code> works too.
-Both of those rely on the elements sharing a single type, because a loop
-variable must have one type.</p>
-<p>To consume a bundle whose elements have differing types, unroll the loop with
-<code class="xref py py-func docutils literal notranslate"><span class="pre">consteval()</span></code>. It rewrites the loop
-before compilation, replacing the loop variable with a literal in each copy of
-the body, so <code class="docutils literal notranslate"><span class="pre">args[i]</span></code> resolves to one specific element. The arity is known to
-the implementation function, so pass it in as a closure variable:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir.cuda.experimental</span><span class="w"> </span><span class="kn">import</span> <span class="n">consteval</span>
-
-<span class="nd">@extending</span><span class="o">.</span><span class="n">overload</span><span class="p">(</span><span class="n">my_sum</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">my_sum_overload</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
-    <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">impl</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
-        <span class="n">acc</span> <span class="o">=</span> <span class="mf">0.0</span>
-        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">consteval</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">)):</span>   <span class="c1"># unrolls to args[0], args[1], ...</span>
-            <span class="n">acc</span> <span class="o">+=</span> <span class="n">args</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
         <span class="k">return</span> <span class="n">acc</span>
 
     <span class="k">return</span> <span class="n">impl</span>
@@ -618,9 +588,15 @@ the implementation function, so pass it in as a closure variable:</p>
         <span class="n">out</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">my_sum</span><span class="p">(</span><span class="n">floats</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">ints</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">doubles</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
 </pre></div>
 </div>
-<p>This is also what lets an implementation iterate over a bundle of arrays, since
-each array is a distinct type. Because the index is a literal rather than a
-counter, it can be used on both sides of an assignment:</p>
+<p>Each arity is compiled as a separate overload, so calling <code class="docutils literal notranslate"><span class="pre">my_sum</span></code> with two
+and with three arguments in the same kernel produces two distinct device
+functions. Variadic implementations are also supported by
+<a class="reference internal" href="#numba_cuda_mlir.extending.overload_method" title="numba_cuda_mlir.extending.overload_method"><code class="xref py py-func docutils literal notranslate"><span class="pre">overload_method()</span></code></a>, and a variadic
+<a class="reference internal" href="#numba_cuda_mlir.extending.register_jitable" title="numba_cuda_mlir.extending.register_jitable"><code class="xref py py-func docutils literal notranslate"><span class="pre">register_jitable()</span></code></a> function is supported as
+well.</p>
+<p>When the body needs an element’s position, unroll over the indices instead.
+<code class="docutils literal notranslate"><span class="pre">len(args)</span></code> is known to the implementation function, so pass it in as a
+closure variable; each <code class="docutils literal notranslate"><span class="pre">i</span></code> is then a literal and <code class="docutils literal notranslate"><span class="pre">args[i]</span></code> a static access:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@extending</span><span class="o">.</span><span class="n">overload</span><span class="p">(</span><span class="n">my_store</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">my_store_overload</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
     <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
@@ -632,26 +608,25 @@ counter, it can be used on both sides of an assignment:</p>
     <span class="k">return</span> <span class="n">impl</span>
 </pre></div>
 </div>
-<p>Note that <code class="docutils literal notranslate"><span class="pre">consteval</span></code> unrolls over compile-time <em>values</em>, substituting each
-one into the body as a literal. Iterating the bundle itself —
-<code class="docutils literal notranslate"><span class="pre">for</span> <span class="pre">a</span> <span class="pre">in</span> <span class="pre">consteval(args)</span></code> — therefore does not work: the elements of <code class="docutils literal notranslate"><span class="pre">args</span></code>
-are runtime values, and there is no constant to substitute.
-<code class="xref py py-func docutils literal notranslate"><span class="pre">literal_unroll()</span></code> covers that spelling instead,
-typing the loop body once per element without exposing the index:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir.cuda</span><span class="w"> </span><span class="kn">import</span> <span class="n">literal_unroll</span>
+<p>Any compile-time sequence the implementation function builds can be unrolled
+the same way, and destructuring loop targets are supported:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@extending</span><span class="o">.</span><span class="n">overload</span><span class="p">(</span><span class="n">my_store</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">my_store_overload</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+    <span class="n">pairs</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">enumerate</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">))))</span>
 
-<span class="k">def</span><span class="w"> </span><span class="nf">impl</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
-    <span class="n">acc</span> <span class="o">=</span> <span class="mf">0.0</span>
-    <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">literal_unroll</span><span class="p">(</span><span class="n">args</span><span class="p">):</span>
-        <span class="n">acc</span> <span class="o">+=</span> <span class="n">a</span>
-    <span class="k">return</span> <span class="n">acc</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">impl</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">consteval</span><span class="p">(</span><span class="n">pairs</span><span class="p">):</span>
+            <span class="n">out</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="n">val</span><span class="p">]</span>
+
+    <span class="k">return</span> <span class="n">impl</span>
 </pre></div>
 </div>
+<p>A plain <code class="docutils literal notranslate"><span class="pre">for</span> <span class="pre">a</span> <span class="pre">in</span> <span class="pre">args</span></code> also compiles, but only when every element shares a
+type, since a loop variable has a single type. Prefer <code class="docutils literal notranslate"><span class="pre">consteval</span></code> so one
+implementation serves any bundle.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p><code class="xref py py-func docutils literal notranslate"><span class="pre">consteval()</span></code> is experimental.
-Unrolling supports simple loop targets only, so
-<code class="docutils literal notranslate"><span class="pre">for</span> <span class="pre">idx,</span> <span class="pre">val</span> <span class="pre">in</span> <span class="pre">consteval(...)</span></code> is rejected.</p>
+<p><code class="xref py py-func docutils literal notranslate"><span class="pre">consteval()</span></code> is experimental.</p>
 </div>
 </section>
 <section id="implementing-methods">
@@ -662,7 +637,7 @@ Numba-CUDA-MLIR:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span><span class="p">,</span> <span class="n">extending</span><span class="p">,</span> <span class="n">types</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
-<span class="nd">@extending</span><span class="o">.</span><span class="n">overload_method</span><span class="p">(</span><span class="n">types</span><span class="o">.</span><span class="n">Array</span><span class="p">,</span> <span class="s2">&quot;doubled_first&quot;</span><span class="p">)</span>
+<span class="nd">@extending</span><span class="o">.</span><span class="n">overload_method</span><span class="p">(</span><span class="n">types</span><span class="o">.</span><span class="n">Array</span><span class="p">,</span> <span class="s2">"doubled_first"</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">array_doubled_first</span><span class="p">(</span><span class="n">arr</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">impl</span><span class="p">(</span><span class="n">arr</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">arr</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="mi">2</span>
@@ -675,7 +650,7 @@ Numba-CUDA-MLIR:</p>
 </div>
 <p>The first argument of the implementation function is the <code class="docutils literal notranslate"><span class="pre">self</span></code> object; any
 additional parameters become method arguments:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@extending</span><span class="o">.</span><span class="n">overload_method</span><span class="p">(</span><span class="n">types</span><span class="o">.</span><span class="n">Array</span><span class="p">,</span> <span class="s2">&quot;elem_plus&quot;</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@extending</span><span class="o">.</span><span class="n">overload_method</span><span class="p">(</span><span class="n">types</span><span class="o">.</span><span class="n">Array</span><span class="p">,</span> <span class="s2">"elem_plus"</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">array_elem_plus</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">idx</span><span class="p">,</span> <span class="n">val</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">impl</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">idx</span><span class="p">,</span> <span class="n">val</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">arr</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">+</span> <span class="n">val</span>
@@ -689,7 +664,7 @@ additional parameters become method arguments:</p>
 implementation function for a read-only attribute on types supported by
 Numba-CUDA-MLIR. The implementation function takes the type of the <code class="docutils literal notranslate"><span class="pre">self</span></code>
 object and must return a function that computes the attribute value:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@extending</span><span class="o">.</span><span class="n">overload_attribute</span><span class="p">(</span><span class="n">types</span><span class="o">.</span><span class="n">Array</span><span class="p">,</span> <span class="s2">&quot;doubled_size&quot;</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@extending</span><span class="o">.</span><span class="n">overload_attribute</span><span class="p">(</span><span class="n">types</span><span class="o">.</span><span class="n">Array</span><span class="p">,</span> <span class="s2">"doubled_size"</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">array_doubled_size</span><span class="p">(</span><span class="n">arr</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="n">arr</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">arr</span><span class="o">.</span><span class="n">size</span> <span class="o">*</span> <span class="mi">2</span>
@@ -713,7 +688,7 @@ write a full overload:</p>
 <span class="k">def</span><span class="w"> </span><span class="nf">kernel</span><span class="p">(</span><span class="n">arr</span><span class="p">):</span>
     <span class="n">arr</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">triple</span><span class="p">(</span><span class="n">arr</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
 
-<span class="c1"># Also works; prints &quot;6&quot;</span>
+<span class="c1"># Also works; prints "6"</span>
 <span class="nb">print</span><span class="p">(</span><span class="n">triple</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
 </pre></div>
 </div>
@@ -746,7 +721,7 @@ responsible for emitting MLIR for the call.</p></li>
 <span class="k">def</span><span class="w"> </span><span class="nf">do_nothing</span><span class="p">(</span><span class="n">typingctx</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">codegen</span><span class="p">(</span><span class="n">builder</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
         <span class="n">true</span> <span class="o">=</span> <span class="n">arith</span><span class="o">.</span><span class="n">constant</span><span class="p">(</span><span class="n">result</span><span class="o">=</span><span class="n">T</span><span class="o">.</span><span class="n">bool</span><span class="p">(),</span> <span class="n">value</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-        <span class="n">cf</span><span class="o">.</span><span class="n">assert_</span><span class="p">(</span><span class="n">true</span><span class="p">,</span> <span class="s2">&quot;This should not be executed&quot;</span><span class="p">)</span>
+        <span class="n">cf</span><span class="o">.</span><span class="n">assert_</span><span class="p">(</span><span class="n">true</span><span class="p">,</span> <span class="s2">"This should not be executed"</span><span class="p">)</span>
         <span class="n">builder</span><span class="o">.</span><span class="n">store_var</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="n">builder</span><span class="o">.</span><span class="n">load_var</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
 
     <span class="k">return</span> <span class="n">x</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">codegen</span>
@@ -770,7 +745,7 @@ constructors of custom types:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir</span><span class="w"> </span><span class="kn">import</span> <span class="n">extending</span><span class="p">,</span> <span class="n">types</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">make_boxed_int</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
-    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;only callable inside a kernel&quot;</span><span class="p">)</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">"only callable inside a kernel"</span><span class="p">)</span>
 
 <span class="nd">@extending</span><span class="o">.</span><span class="n">type_callable</span><span class="p">(</span><span class="n">make_boxed_int</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_type_make_boxed_int</span><span class="p">(</span><span class="n">context</span><span class="p">):</span>
@@ -973,8 +948,8 @@ implementation.</p>
   
 
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script defer src="../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9"></script>
-<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9"></script>
+  <script defer src="../_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67"></script>
 
 
   <footer class="bd-footer">

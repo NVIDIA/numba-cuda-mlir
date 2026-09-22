@@ -87,6 +87,59 @@ module {
       llvm.store %v, %out : i64, !llvm.ptr<1>
       llvm.return
     }
+
+    // A function declared to return !llvm.ptr has an i8* return type, so the
+    // typed pointer an alloca produces has to be reconciled at the return.
+    llvm.func @returns_alloca() -> !llvm.ptr {
+      %c1 = llvm.mlir.constant(1 : i64) : i64
+      %a = llvm.alloca %c1 x i64 : (i64) -> !llvm.ptr
+      llvm.return %a : !llvm.ptr
+    }
+
+    // Both icmp operands are declared i8*. Two allocas of differing element
+    // type would otherwise be compared as i64* against i32*, and a GEP result
+    // is typed as well, so it is compared against an i8* argument here.
+    llvm.func @alloca_compared(%out: !llvm.ptr<1>, %other: !llvm.ptr) attributes {gpu.kernel} {
+      %c1 = llvm.mlir.constant(1 : i64) : i64
+      %a = llvm.alloca %c1 x i64 : (i64) -> !llvm.ptr
+      %b = llvm.alloca %c1 x i32 : (i64) -> !llvm.ptr
+      %eq = llvm.icmp "eq" %a, %b : !llvm.ptr
+      %g = llvm.getelementptr %other[1] : (!llvm.ptr) -> !llvm.ptr, i64
+      %ne = llvm.icmp "ne" %g, %other : !llvm.ptr
+      %z1 = llvm.zext %eq : i1 to i64
+      %z2 = llvm.zext %ne : i1 to i64
+      %s = llvm.add %z1, %z2 : i64
+      llvm.store %s, %out : i64, !llvm.ptr<1>
+      llvm.return
+    }
+
+    // A vector of pointers converts to <N x i8*>, so inserting a typed pointer
+    // into one needs the same reconciliation insertvalue does.
+    llvm.func @alloca_into_vector(%out: !llvm.ptr<1>) attributes {gpu.kernel} {
+      %c1 = llvm.mlir.constant(1 : i64) : i64
+      %i0 = llvm.mlir.constant(0 : i32) : i32
+      %a = llvm.alloca %c1 x i64 : (i64) -> !llvm.ptr
+      %u = llvm.mlir.poison : vector<2x!llvm.ptr>
+      %v = llvm.insertelement %a, %u[%i0 : i32] : vector<2x!llvm.ptr>
+      %e = llvm.extractelement %v[%i0 : i32] : vector<2x!llvm.ptr>
+      %l = llvm.load %e : !llvm.ptr -> i64
+      llvm.store %l, %out : i64, !llvm.ptr<1>
+      llvm.return
+    }
+
+    // cmpxchg is legal on pointer-typed values, where the compared and stored
+    // operands are declared i8* just like the pointee.
+    llvm.func @alloca_cmpxchged(%out: !llvm.ptr<1>) attributes {gpu.kernel} {
+      %c1 = llvm.mlir.constant(1 : i64) : i64
+      %a = llvm.alloca %c1 x i64 : (i64) -> !llvm.ptr
+      %slot = llvm.alloca %c1 x !llvm.ptr : (i64) -> !llvm.ptr
+      %null = llvm.mlir.zero : !llvm.ptr
+      %r = llvm.cmpxchg %slot, %null, %a acq_rel monotonic : !llvm.ptr, !llvm.ptr
+      %ok = llvm.extractvalue %r[1] : !llvm.struct<(ptr, i1)>
+      %z = llvm.zext %ok : i1 to i64
+      llvm.store %z, %out : i64, !llvm.ptr<1>
+      llvm.return
+    }
   }
 }
 
@@ -117,9 +170,33 @@ module {
 // CHECK: %[[CB_TRUE]] = bitcast i64* %{{[0-9]+}} to i8*
 // CHECK: %[[CB_FALSE]] = bitcast i32* %{{[0-9]+}} to i8*
 
+// The declared return type is i8*, so the typed alloca is coerced first.
+// CHECK-LABEL: define i8* @returns_alloca
+// CHECK: %[[RET:[0-9]+]] = bitcast i64* %{{[0-9]+}} to i8*
+// CHECK: ret i8* %[[RET]]
+
+// Both operands reach the comparison as i8*. The second pair also proves a GEP
+// result is a typed pointer and gets reconciled the same way.
+// CHECK-LABEL: define ptx_kernel void @alloca_compared
+// CHECK: icmp eq i8* %{{[0-9]+}}, %{{[0-9]+}}
+// CHECK: getelementptr i64, i64* %
+// CHECK: %[[GEPC:[0-9]+]] = bitcast i64* %{{[0-9]+}} to i8*
+// CHECK: icmp ne i8* %[[GEPC]], %{{[0-9]+}}
+
+// CHECK-LABEL: define ptx_kernel void @alloca_into_vector
+// CHECK: %[[VEC:[0-9]+]] = bitcast i64* %{{[0-9]+}} to i8*
+// CHECK: insertelement <2 x i8*> undef, i8* %[[VEC]], i32 0
+
+// CHECK-LABEL: define ptx_kernel void @alloca_cmpxchged
+// CHECK: %[[XCHG:[0-9]+]] = bitcast i64* %{{[0-9]+}} to i8*
+// CHECK: cmpxchg i8** %{{[0-9]+}}, i8* null, i8* %[[XCHG]]
+
 // CHECK-PTX: .visible .entry alloca_into_struct
 // CHECK-PTX: .visible .entry alloca_stored_as_ptr
 // CHECK-PTX: .visible .entry alloca_selected
 // CHECK-PTX: .visible .entry alloca_through_block_arg
 // CHECK-PTX: .visible .entry alloca_through_switch
 // CHECK-PTX: .visible .entry alloca_through_cond_br_same_dest
+// CHECK-PTX: .visible .entry alloca_compared
+// CHECK-PTX: .visible .entry alloca_into_vector
+// CHECK-PTX: .visible .entry alloca_cmpxchged

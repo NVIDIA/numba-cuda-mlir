@@ -775,7 +775,7 @@ llvm::Error MLIRToLLVM70::translateReturnOp(Operation *op) {
   if (retOp.getNumOperands() == 0)
     b.buildRetVoid();
   else
-    b.buildRet(lookupValue(retOp.getOperand(0)));
+    b.buildRet(lookupValueAsDeclared(retOp.getOperand(0)));
   return llvm::Error::success();
 }
 
@@ -1173,8 +1173,8 @@ llvm::Error MLIRToLLVM70::translateICmpOp(Operation *op) {
     break;
   }
 
-  auto result = b.buildICmp(lp, lookupValue(icmpOp.getLhs()),
-                            lookupValue(icmpOp.getRhs()), "");
+  auto result = b.buildICmp(lp, lookupValueAsDeclared(icmpOp.getLhs()),
+                            lookupValueAsDeclared(icmpOp.getRhs()), "");
   mapValue(icmpOp.getResult(), result);
   return llvm::Error::success();
 }
@@ -1476,7 +1476,7 @@ llvm::Error MLIRToLLVM70::translateExtractElementOp(Operation *op) {
 llvm::Error MLIRToLLVM70::translateInsertElementOp(Operation *op) {
   auto ieOp = cast<LLVM::InsertElementOp>(op);
   LLVMValueRef vec = lookupValue(ieOp.getVector());
-  LLVMValueRef val = lookupValue(ieOp.getValue());
+  LLVMValueRef val = lookupValueAsDeclared(ieOp.getValue());
   LLVMValueRef idx = lookupValue(ieOp.getPosition());
   mapValue(ieOp.getResult(), b.buildInsertElement(vec, val, idx, ""));
   return llvm::Error::success();
@@ -2165,8 +2165,8 @@ llvm::Error MLIRToLLVM70::translateAtomicCmpXchgOp(Operation *op) {
   auto cmpxchgOp = cast<LLVM::AtomicCmpXchgOp>(op);
 
   LLVMValueRef ptr = lookupValue(cmpxchgOp.getPtr());
-  LLVMValueRef cmp = lookupValue(cmpxchgOp.getCmp());
-  LLVMValueRef newVal = lookupValue(cmpxchgOp.getVal());
+  LLVMValueRef cmp = lookupValueAsDeclared(cmpxchgOp.getCmp());
+  LLVMValueRef newVal = lookupValueAsDeclared(cmpxchgOp.getVal());
 
   // Bitcast to the expected pointer type.
   LLVMTypeRef cmpTy = convertType(cmpxchgOp.getCmp().getType());

@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Stage cuda-bindings and cuda-core wheels for a Python version that cuda-python
+# does not publish to PyPI yet, by pulling them from cuda-python's CI artifacts.
+#
+# TODO: delete this script, its workflow callers, and the
+# CUDA_PYTHON_ARTIFACTS_TOKEN secret once cuda-python ships cp315 wheels to
+# PyPI, which is expected alongside Python 3.15.0 itself.
+# See https://github.com/NVIDIA/cuda-python/issues/2163.
+#
+# Inputs:  PY_VER, HOST_PLATFORM, GH_TOKEN (needs actions:read on cuda-python).
+# Output:  a wheelhouse directory, exported as CUDA_PYTHON_WHEELHOUSE for
+#          run-tests to feed to pip as --find-links.
+
+set -euo pipefail
+
+: "${PY_VER:?PY_VER must be set}"
+: "${HOST_PLATFORM:?HOST_PLATFORM must be set}"
+
+if [[ -z "${GH_TOKEN:-}" ]]; then
+  echo "::error::CUDA_PYTHON_ARTIFACTS_TOKEN is empty, so the cp315 wheels cannot be fetched."
+  echo "::error::Python 3.15 jobs need a token with actions:read on NVIDIA/cuda-python until"
+  echo "::error::cuda-python publishes cp315 wheels to PyPI. See ci/tools/fetch-cuda-python-wheels."
+  exit 1
+fi
+
+# cuda-python names its artifacts by interpreter tag: 3.15 -> python315,
+# 3.15t -> python315t.
+py_tag="python${PY_VER//./}"
+
+case "${HOST_PLATFORM}" in
+  linux-64|linux-aarch64|win-64) plat="${HOST_PLATFORM}" ;;
+  *) echo "::error::unsupported host platform for artifact fetch: ${HOST_PLATFORM}"; exit 1 ;;
+esac
+
+# Filter on conclusion client-side: `gh run list -s success` does not preserve
+# chronological ordering and can hand back a run that is weeks old.
+run_id="$(gh run list -R NVIDIA/cuda-python -w CI -b main -L 30 \
+            --json databaseId,conclusion,createdAt \
+            -q '[.[] | select(.conclusion == "success")]
+                | sort_by(.createdAt) | reverse | .[0].databaseId')"
+if [[ -z "${run_id}" ]]; then
+  echo "::error::found no successful CI run on NVIDIA/cuda-python main"
+  exit 1
+fi
+echo "Using cuda-python run https://github.com/NVIDIA/cuda-python/actions/runs/${run_id}"
+
+staging="$(mktemp -d)"
+wheelhouse="${PWD}/cuda-python-wheelhouse"
+rm -rf "${wheelhouse}"
+mkdir -p "${wheelhouse}"
+
+# The bindings artifact name embeds the CTK it was built against, which follows
+# cuda-python's main rather than our test matrix, so match it with a glob. Only
+# CUDA 13 artifacts are produced, which is why the 3.15 rows in test-matrix.yml
+# are CUDA 13 only.
+for pattern in "cuda-bindings-${py_tag}-cuda13.*-${plat}-*" "cuda-core-${py_tag}-${plat}-*"; do
+  echo "Downloading artifacts matching ${pattern}"
+  gh run download "${run_id}" -R NVIDIA/cuda-python -p "${pattern}" --dir "${staging}"
+done
+
+find "${staging}" -name '*.whl' -exec cp {} "${wheelhouse}/" \;
+rm -rf "${staging}"
+
+echo "Staged wheels:"
+ls -la "${wheelhouse}"
+
+for pkg in cuda_bindings cuda_core; do
+  if ! compgen -G "${wheelhouse}/${pkg}-*.whl" > /dev/null; then
+    echo "::error::no ${pkg} wheel for ${py_tag} on ${plat} in cuda-python run ${run_id}"
+    exit 1
+  fi
+done
+
+if [[ -n "${GITHUB_ENV:-}" ]]; then
+  echo "CUDA_PYTHON_WHEELHOUSE=${wheelhouse}" >> "${GITHUB_ENV}"
+fi

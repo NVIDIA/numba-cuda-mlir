@@ -18,6 +18,10 @@ on:
       matrix_filter:
         type: string
         default: "."
+    secrets:
+      # Only consumed by Python 3.15 rows; see ci/tools/fetch-cuda-python-wheels.
+      CUDA_PYTHON_ARTIFACTS_TOKEN:
+        required: false
 
 defaults:
   run:
@@ -118,6 +122,7 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ matrix.PY_VER }}
+          allow-prereleases: ${{ startsWith(matrix.PY_VER, '3.15') }}
 
       - name: Set up mini CTK
         if: ${{ matrix.LOCAL_CTK == '1' }}
@@ -127,6 +132,15 @@ jobs:
           host-platform: ${{ inputs.host-platform }}
           cuda-version: ${{ matrix.CUDA_VER }}
           cuda-components: "cuda_nvcc,cuda_cudart,cuda_crt,libnvvm,cuda_nvrtc,cuda_cccl,libnvjitlink,cuda_cuobjdump"
+
+      # TODO: remove once cuda-python publishes cp315 wheels to PyPI.
+      - name: Stage cuda-python wheels for Python 3.15
+        if: ${{ startsWith(matrix.PY_VER, '3.15') }}
+        env:
+          GH_TOKEN: ${{ secrets.CUDA_PYTHON_ARTIFACTS_TOKEN }}
+          HOST_PLATFORM: ${{ inputs.host-platform }}
+          PY_VER: ${{ matrix.PY_VER }}
+        run: ./ci/tools/fetch-cuda-python-wheels
 
       - name: Run numba-cuda-mlir tests
         env:

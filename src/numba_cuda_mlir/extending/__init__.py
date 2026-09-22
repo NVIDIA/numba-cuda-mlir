@@ -4,6 +4,7 @@ import functools
 from types import MappingProxyType
 
 from numba_cuda_mlir.numba_cuda import types
+from numba_cuda_mlir.numba_cuda.core import targetconfig
 from numba_cuda_mlir.numba_cuda.datamodel.registry import register
 from numba_cuda_mlir.numba_cuda.typing.asnumbatype import as_numba_type
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof_impl
@@ -11,6 +12,7 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
     Registry,
     _OverloadAttributeTemplate,
     _OverloadFunctionTemplate,
+    _select_overload_dispatcher,
     _OverloadMethodTemplate,
     make_overload_template,
     make_overload_attribute_template,
@@ -224,21 +226,13 @@ class _NumbaCudaMlirOverloadAttributeTemplate(_OverloadAttributeTemplate):
 
     @classmethod
     def _find_overload_dispatcher(cls, typing_context, typ):
-        """Find the cached overload Dispatcher for the given type."""
-        overload_func = cls._overload_func
-        fnty = typing_context.resolve_value_type(overload_func)
-        for temp_cls in getattr(fnty, "templates", []):
-            if not hasattr(temp_cls, "_impl_cache"):
-                continue
-            for cache_key, cache_value in temp_cls._impl_cache.items():
-                if cache_value is None or len(cache_key) != 4:
-                    continue
-                _, args, _, _ = cache_key
-                if args == (typ,):
-                    disp, _ = cache_value
-                    if hasattr(disp, "py_func"):
-                        return disp
-        return None
+        """Find the cached overload Dispatcher for *typ* under the active flags."""
+        fnty = typing_context.resolve_value_type(cls._overload_func)
+        return _select_overload_dispatcher(
+            getattr(fnty, "templates", []),
+            lambda args: args == (typ,),
+            targetconfig.ConfigStack.top_or_none(),
+        )
 
 
 class _NumbaCudaMlirOverloadMethodTemplate(_OverloadMethodTemplate):

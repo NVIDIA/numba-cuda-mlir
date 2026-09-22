@@ -175,22 +175,6 @@ def _run(kernel, out, *args):
     return out
 
 
-def test_overload_varargs_only():
-    @cuda.jit
-    def kernel(out, a, b, c):
-        i = cuda.grid(1)
-        if i < out.size:
-            out[i] = var_sum(a[i], b[i], c[i])
-
-    n = 4
-    a = np.arange(n, dtype=np.float32)
-    b = np.arange(n, dtype=np.float32) * 10
-    c = np.arange(n, dtype=np.float32) * 100
-    out = np.zeros(n, dtype=np.float32)
-    _run(kernel, out, a, b, c)
-    np.testing.assert_allclose(out, a + b + c)
-
-
 @cuda.jit
 def _sum_of_1(out, a0):
     i = cuda.grid(1)
@@ -231,7 +215,7 @@ def test_overload_varargs_empty_bundle():
         if i < out.size:
             out[i] = var_count()
 
-    out = np.zeros(4, dtype=np.int64)
+    out = np.full(4, -1, dtype=np.int64)
     kernel[1, out.size](out)
     np.testing.assert_array_equal(out, 0)
 

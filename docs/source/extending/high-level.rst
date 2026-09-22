@@ -113,9 +113,10 @@ implementation:
 
 Each arity is compiled as a separate overload, so calling ``my_sum`` with two
 and with three arguments in the same kernel produces two distinct device
-functions. The same applies to
-:py:func:`~numba_cuda_mlir.extending.overload_method` and the other decorators
-below.
+functions. Variadic implementations are also supported by
+:py:func:`~numba_cuda_mlir.extending.overload_method`, and a variadic
+:py:func:`~numba_cuda_mlir.extending.register_jitable` function is supported as
+well.
 
 ``len(args)`` is a compile-time constant in the implementation, and the bundle
 can be indexed with a loop variable, so ``for i in range(len(args))`` works too.
@@ -166,28 +167,40 @@ counter, it can be used on both sides of an assignment:
 
        return impl
 
-Note that ``consteval`` unrolls over compile-time *values*, substituting each
-one into the body as a literal. Iterating the bundle itself —
-``for a in consteval(args)`` — therefore does not work: the elements of ``args``
-are runtime values, and there is no constant to substitute.
-:py:func:`~numba_cuda_mlir.cuda.literal_unroll` covers that spelling instead,
-typing the loop body once per element without exposing the index:
+When the index is not needed, the bundle can be unrolled directly.
+``consteval`` recognises a tuple-typed parameter and unrolls over its element
+accesses, so this is equivalent to the indexed form above:
 
 .. code-block:: python
 
-   from numba_cuda_mlir.cuda import literal_unroll
-
    def impl(*args):
        acc = 0.0
-       for a in literal_unroll(args):
+       for a in consteval(args):       # unrolls to args[0], args[1], ...
            acc += a
        return acc
+
+:py:func:`~numba_cuda_mlir.cuda.literal_unroll` accepts the same spelling,
+typing the loop body once per element instead of unrolling it before
+compilation.
+
+Destructuring loop targets are supported, so an index can be paired with any
+other compile-time value the implementation function computes:
+
+.. code-block:: python
+
+   @extending.overload(my_store)
+   def my_store_overload(out, *args):
+       pairs = list(enumerate(range(len(args))))
+
+       def impl(out, *args):
+           for idx, val in consteval(pairs):
+               out[idx] = args[val]
+
+       return impl
 
 .. note::
 
    :py:func:`~numba_cuda_mlir.cuda.experimental.consteval` is experimental.
-   Unrolling supports simple loop targets only, so
-   ``for idx, val in consteval(...)`` is rejected.
 
 
 Implementing methods

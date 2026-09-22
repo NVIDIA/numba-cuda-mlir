@@ -3,8 +3,8 @@
 
 import unittest
 
-from numba.cuda.testing import CUDATestCase
-from numba.cuda.tests.support import captured_stdout
+from numba_cuda_mlir.numba_cuda.testing import CUDATestCase
+from numba_cuda_mlir.numba_cuda.tests.support import captured_stdout
 
 
 class TestVecAdd(CUDATestCase):
@@ -27,7 +27,7 @@ class TestVecAdd(CUDATestCase):
     def test_ex_vecadd(self):
         # ex_vecadd.import.begin
         import numpy as np
-        from numba import cuda
+        from numba_cuda_mlir import cuda
         # ex_vecadd.import.end
 
         # ex_vecadd.kernel.begin

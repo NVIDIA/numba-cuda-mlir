@@ -19,7 +19,7 @@ on:
         type: string
         default: "."
     secrets:
-      # Only consumed by Python 3.15 rows; see ci/tools/fetch-cuda-python-wheels.
+      # Only consumed by Python 3.15 rows; see ci/tools/fetch_cuda_python_wheels.py.
       CUDA_PYTHON_ARTIFACTS_TOKEN:
         required: false
 
@@ -140,7 +140,9 @@ jobs:
           GH_TOKEN: ${{ secrets.CUDA_PYTHON_ARTIFACTS_TOKEN }}
           HOST_PLATFORM: ${{ inputs.host-platform }}
           PY_VER: ${{ matrix.PY_VER }}
-        run: ./ci/tools/fetch-cuda-python-wheels
+        run: |
+          PYTHON_EXE="$(command -v python || command -v python3)"
+          "$PYTHON_EXE" ./ci/tools/fetch_cuda_python_wheels.py
 
       - name: Run numba-cuda-mlir tests
         env:

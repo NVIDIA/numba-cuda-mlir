@@ -33,7 +33,7 @@ if [[ "${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}" == "12.2" ]]; then
   CUDA_BINDINGS_SPEC="cuda-bindings>=12.9.1,<13.0.0"
 fi
 
-# TODO: drop along with ci/tools/fetch-cuda-python-wheels once cp315 wheels are
+# TODO: drop along with ci/tools/fetch_cuda_python_wheels.py once cp315 wheels are
 # on PyPI. Wheels staged from cuda-python's CI are dev builds whose version
 # follows cuda-python's main rather than our matrix, so pin the CUDA major only
 # and let --pre accept them.

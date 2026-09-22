@@ -36,42 +36,39 @@ function Install-PythonViaNuGet {
         $packageId = 'python'
     }
 
-    Write-Host "Installing $packageId $baseVersion via NuGet to $TargetDir"
+    # `nuget install -Version` takes an exact version, not a range, and it skips
+    # prereleases by default. Ask the flat container index which versions exist
+    # and pick the best match for $baseVersion, preferring a stable release.
+    # Python 3.15 only has prereleases until it ships on 2026-10-01, after which
+    # this resolves 3.15.x stable with no change here.
+    $indexUrl = "https://api.nuget.org/v3-flatcontainer/$($packageId.ToLower())/index.json"
+    Write-Host "Resolving $packageId $baseVersion from $indexUrl"
+    $available = (Invoke-RestMethod -Uri $indexUrl -UseBasicParsing).versions
+    # The index is ordered oldest to newest, so the last match is the newest.
+    $matching = @($available | Where-Object { $_ -eq $baseVersion -or $_.StartsWith("${baseVersion}.") })
+    if ($matching.Count -eq 0) {
+        throw "No $packageId version matching $baseVersion published on nuget.org"
+    }
+    $stable = @($matching | Where-Object { $_ -notmatch '-' })
+    if ($stable.Count -gt 0) {
+        $version = $stable[-1]
+    }
+    else {
+        $version = $matching[-1]
+        Write-Host "No stable $baseVersion release yet, using prerelease $version"
+    }
+
+    Write-Host "Installing $packageId $version via NuGet to $TargetDir"
     $nugetArgs = @(
         'install', $packageId,
-        '-Version', $baseVersion,
+        '-Version', $version,
         '-OutputDirectory', $TargetDir,
-        '-ExcludeVersion'
+        '-ExcludeVersion',
+        '-PreRelease'
     )
     $p = Start-Process -FilePath $nugetExe -ArgumentList $nugetArgs -Wait -NoNewWindow -PassThru
     if ($p.ExitCode -ne 0) {
-        Write-Host "Exact version $baseVersion not found, trying version prefix"
-        $nugetArgs = @(
-            'install', $packageId,
-            '-Version', "[${baseVersion},${baseVersion}.99999]",
-            '-OutputDirectory', $TargetDir,
-            '-ExcludeVersion'
-        )
-        $p = Start-Process -FilePath $nugetExe -ArgumentList $nugetArgs -Wait -NoNewWindow -PassThru
-        if ($p.ExitCode -ne 0) {
-            # TODO: remove this fallback once Python 3.15 is officially released
-            # (2026-10-01), at which point the stable range above resolves it.
-            # NuGet skips prereleases unless -PreRelease is passed, and because
-            # 3.15.0-rc2 sorts below 3.15.0 it also falls outside the lower bound
-            # of the range above; the `-0` prerelease label fixes the bound.
-            Write-Host "No stable $baseVersion release, trying prerelease"
-            $nugetArgs = @(
-                'install', $packageId,
-                '-Version', "[${baseVersion}.0-0,${baseVersion}.99999]",
-                '-OutputDirectory', $TargetDir,
-                '-ExcludeVersion',
-                '-PreRelease'
-            )
-            $p = Start-Process -FilePath $nugetExe -ArgumentList $nugetArgs -Wait -NoNewWindow -PassThru
-            if ($p.ExitCode -ne 0) {
-                throw "Failed to install $packageId $baseVersion via NuGet"
-            }
-        }
+        throw "Failed to install $packageId $version via NuGet"
     }
 
     $pkgDir = Join-Path $TargetDir $packageId

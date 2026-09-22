@@ -27,7 +27,8 @@ from numba_cuda_mlir.numba_cuda.core.errors import NumbaPerformanceWarning
 from numba_cuda_mlir.numba_cuda.core import config as cuda_config
 from numba_cuda_mlir.numba_cuda.cudadrv import driver as numba_cuda_driver
 from importlib.util import find_spec
-from numba_cuda_mlir.numba_cuda.core import errors, sigutils
+from numba_cuda_mlir.numba_cuda.core import errors, sigutils, targetconfig
+from numba_cuda_mlir.numba_cuda.typing.templates import _select_overload_dispatcher
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 from numba_cuda_mlir.numba_cuda.cudadecl import registry as cuda_registry
@@ -1243,36 +1244,35 @@ class MLIRTargetContext(BaseContext):
                 inner_fnty = self.typing_context.resolve_value_type(overload_func)
                 templates.extend(getattr(inner_fnty, "templates", []))
 
-        match_args = (sig.recvr, *sig.args) if sig.recvr else sig.args
-        match_args = tuple(types.unliteral(arg) for arg in match_args)
+        literal_args = tuple((sig.recvr, *sig.args) if sig.recvr else sig.args)
+        match_args = tuple(types.unliteral(arg) for arg in literal_args)
+        omitted = (types.Omitted, types.NoneType)
 
-        for temp_cls in templates:
-            if not hasattr(temp_cls, "_impl_cache"):
-                continue
-            for cache_key, cache_value in temp_cls._impl_cache.items():
-                if cache_value is None or len(cache_key) != 4:
-                    continue
-                _, args, _, _ = cache_key
-                cache_args = tuple(args)
-                non_omitted_cache_args = tuple(
-                    arg
-                    for arg in cache_args
-                    if not isinstance(arg, (types.Omitted, types.NoneType))
-                )
-                non_omitted_match_args = tuple(
-                    arg
-                    for arg in match_args
-                    if not isinstance(arg, (types.Omitted, types.NoneType))
-                )
-                if cache_args == match_args or non_omitted_cache_args == non_omitted_match_args:
-                    disp, _ = cache_value
-                    if hasattr(disp, "py_func"):
+        def drop_omitted(args):
+            return tuple(a for a in args if not isinstance(a, omitted))
 
-                        def builder(mlir_lower, target, args, kws, _disp=disp):
-                            mlir_lower.lower_overload_call(target, _disp, args, kws)
+        # The cache key only holds the arguments the call actually supplied,
+        # while `sig` also carries omitted defaults; compare with and without
+        # them.  `cache_args` also keeps whatever literals the template was
+        # typed with, so an overload registered `prefer_literal=True` (or one
+        # that requested the constant via `literally()`) only ever matches
+        # the un-unliteral'd form; accept either form in both comparisons.
+        full_forms = (match_args, literal_args)
+        trimmed_forms = (drop_omitted(match_args), drop_omitted(literal_args))
 
-                        return builder
-        return None
+        def args_match(cache_args):
+            return cache_args in full_forms or drop_omitted(cache_args) in trimmed_forms
+
+        disp = _select_overload_dispatcher(
+            templates, args_match, targetconfig.ConfigStack.top_or_none()
+        )
+        if disp is None:
+            return None
+
+        def builder(mlir_lower, target, args, kws, _disp=disp):
+            mlir_lower.lower_overload_call(target, _disp, args, kws)
+
+        return builder
 
     def get_value_type(self, *args):
         return super().get_value_type(*args)

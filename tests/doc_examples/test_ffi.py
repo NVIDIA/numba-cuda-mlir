@@ -5,15 +5,15 @@
 # "magictoken" is used for markers as beginning and ending of example text.
 
 import unittest
-from numba.cuda.testing import CUDATestCase
-from numba.cuda.tests.support import skip_unless_cffi, override_config
+from numba_cuda_mlir.numba_cuda.testing import CUDATestCase
+from numba_cuda_mlir.numba_cuda.tests.support import skip_unless_cffi, override_config
 
 
 @skip_unless_cffi
 class TestFFI(CUDATestCase):
     def test_ex_linking_cu(self):
         # magictoken.ex_linking_cu.begin
-        from numba import cuda
+        from numba_cuda_mlir import cuda
         import numpy as np
         import os
 
@@ -49,7 +49,7 @@ class TestFFI(CUDATestCase):
         # magictoken.ex_linking_cu.end
 
     def test_ex_from_buffer(self):
-        from numba import cuda
+        from numba_cuda_mlir import cuda
         import os
 
         basedir = os.path.dirname(os.path.abspath(__file__))
@@ -85,8 +85,8 @@ class TestFFI(CUDATestCase):
 
     def test_ex_extra_includes(self):
         import numpy as np
-        from numba import cuda
-        from numba.cuda import config
+        from numba_cuda_mlir import cuda
+        from numba_cuda_mlir.cuda import config
         import os
 
         basedir = os.path.dirname(os.path.abspath(__file__))
@@ -99,7 +99,7 @@ class TestFFI(CUDATestCase):
         includedir = ":".join([mul_dir, add_dir])
         with override_config("CUDA_NVRTC_EXTRA_SEARCH_PATHS", includedir):
             # magictoken.ex_extra_search_paths.begin
-            from numba.cuda import config
+            from numba_cuda_mlir.cuda import config
 
             includedir = ":".join([mul_dir, add_dir])
             config.CUDA_NVRTC_EXTRA_SEARCH_PATHS = includedir

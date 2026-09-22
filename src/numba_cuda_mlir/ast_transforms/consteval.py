@@ -43,16 +43,16 @@ class TargetOptionsReplacer(ast.NodeTransformer):
 
 
 class VariableReplacer(ast.NodeTransformer):
-    """Replace a variable name with an expression throughout an AST."""
+    """Replace variable names with expressions throughout an AST."""
 
-    def __init__(self, var_name: str, replacement: ast.expr):
-        self.var_name = var_name
-        self.replacement = replacement
+    def __init__(self, replacements: dict[str, ast.expr]):
+        self.replacements = replacements
 
     def visit_Name(self, node: ast.Name) -> ast.AST:
-        if node.id == self.var_name:
-            return ast.copy_location(copy.deepcopy(self.replacement), node)
-        return node
+        replacement = self.replacements.get(node.id)
+        if replacement is None:
+            return node
+        return ast.copy_location(copy.deepcopy(replacement), node)
 
 
 class ConstevalTransformer(ast.NodeTransformer):
@@ -154,16 +154,17 @@ class ConstevalTransformer(ast.NodeTransformer):
         if len(node.args) != 1 or node.keywords:
             raise ConstevalError("consteval expects exactly one positional argument")
 
-        arg = node.args[0]
-        value = self._eval_expr(arg)
+        value = self._eval_expr(node.args[0])
         self.modified = True
+        return ast.copy_location(self._value_expr(value), node)
 
+    def _value_expr(self, value) -> ast.expr:
+        """An expression yielding ``value``: a constant, or a reference to a stored value."""
+        if isinstance(value, ast.expr):
+            return value
         if self._can_be_constant(value):
-            return ast.copy_location(ast.Constant(value=value), node)
-        else:
-            # Store complex value and reference it by name
-            name = self._store_value(value)
-            return ast.copy_location(ast.Name(id=name, ctx=ast.Load()), node)
+            return ast.Constant(value=value)
+        return ast.Name(id=self._store_value(value), ctx=ast.Load())
 
     def _process_statement_list(self, stmts: list[ast.stmt]) -> list[ast.stmt]:
         """Process a list of statements in order, tracking consteval assignments."""
@@ -240,45 +241,28 @@ class ConstevalTransformer(ast.NodeTransformer):
 
         # Unroll: for each value, copy the body and replace the variable
         unrolled = []
+        bindings = {}
         for value in items:
-            # Save current local_consts state
-            saved_consts = self.local_consts.copy()
             bindings = self._bind_loop_target(node.target, value)
-            # Add loop variables to local_consts for this iteration
-            self.local_consts.update(bindings)
-            replacements = {}
-            for var_name, bound_value in bindings.items():
-                if isinstance(bound_value, ast.expr):
-                    replacements[var_name] = bound_value
-                elif self._can_be_constant(bound_value):
-                    replacements[var_name] = ast.Constant(value=bound_value)
-                else:
-                    replacements[var_name] = ast.Name(
-                        id=self._store_value(bound_value), ctx=ast.Load()
-                    )
-
-            for body_stmt in node.body:
-                # Deep copy the statement
-                stmt_copy = copy.deepcopy(body_stmt)
-                # Replace each loop variable with its constant value
-                for var_name, replacement in replacements.items():
-                    replacer = VariableReplacer(var_name, replacement)
-                    stmt_copy = replacer.visit(stmt_copy)
-                ast.fix_missing_locations(stmt_copy)
-                # Process the statement (handles nested constevals)
-                transformed = self._transform_statement(stmt_copy)
-                if isinstance(transformed, list):
-                    unrolled.extend(transformed)
-                else:
-                    unrolled.append(transformed)
-
-            # Restore local_consts state
-            self.local_consts = saved_consts
+            unrolled.extend(self._unroll_statements(node.body, bindings))
 
         # ``break`` is rejected above, so the loop always completes normally
-        # and its ``else`` clause runs after the last iteration.
-        unrolled.extend(self._process_statement_list(node.orelse))
+        # and its ``else`` clause runs after the last iteration, where the
+        # loop variables still hold their final values.
+        unrolled.extend(self._unroll_statements(node.orelse, bindings))
         return unrolled
+
+    def _unroll_statements(self, stmts: list[ast.stmt], bindings: dict) -> list[ast.stmt]:
+        """Copy ``stmts`` with the loop variables in ``bindings`` substituted."""
+        replacer = VariableReplacer({name: self._value_expr(v) for name, v in bindings.items()})
+        copies = [ast.fix_missing_locations(replacer.visit(copy.deepcopy(s))) for s in stmts]
+
+        # Make the loop variables visible to nested constevals for these statements only
+        saved_consts = self.local_consts.copy()
+        self.local_consts.update(bindings)
+        result = self._process_statement_list(copies)
+        self.local_consts = saved_consts
+        return result
 
     def _parameter_element_exprs(self, iter_arg: ast.expr) -> list[ast.expr] | None:
         """Element accesses for ``consteval(<tuple parameter>)``, else ``None``.
@@ -349,7 +333,7 @@ class ConstevalTransformer(ast.NodeTransformer):
         ``3 = 0`` or ``t[0] = 0``.
         """
         loop_vars = {name.id for name in ast.walk(node.target) if isinstance(name, ast.Name)}
-        for stmt in node.body:
+        for stmt in node.body + node.orelse:
             for name in ast.walk(stmt):
                 if (
                     isinstance(name, ast.Name)

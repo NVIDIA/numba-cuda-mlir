@@ -63,6 +63,28 @@ module {
       llvm.return
     }
 
+    // The contrast with the kernel above: `llvm.extractvalue` normalises its own
+    // result, so a stored extracted member is already `i8*` and needs no cast.
+    // A pointer that is still *typed* when it reaches `llvm.store` -- an alloca
+    // or a GEP result -- does, or the store gets mismatched operand types.
+    // CHECK-LABEL: define ptx_kernel void @store_typed_ptr
+    // CHECK: %[[A:.*]] = alloca float
+    // CHECK: %[[SLOT:.*]] = bitcast i8* %1 to i8**
+    // CHECK: %[[AC:.*]] = bitcast float* %[[A]] to i8*
+    // CHECK: store i8* %[[AC]], i8** %[[SLOT]]
+    // CHECK: %[[G:.*]] = getelementptr %Arr
+    // CHECK: %[[SLOT2:.*]] = bitcast i8* %1 to i8 addrspace(1)**
+    // CHECK: %[[GC:.*]] = bitcast %Arr addrspace(1)* %[[G]] to i8 addrspace(1)*
+    // CHECK: store i8 addrspace(1)* %[[GC]], i8 addrspace(1)** %[[SLOT2]]
+    llvm.func @store_typed_ptr(%base: !llvm.ptr<1>, %slot: !llvm.ptr) attributes {gpu.kernel} {
+      %c1 = llvm.mlir.constant(1 : i64) : i64
+      %a = llvm.alloca %c1 x f32 : (i64) -> !llvm.ptr
+      llvm.store %a, %slot : !llvm.ptr, !llvm.ptr
+      %g = llvm.getelementptr %base[%c1] : (!llvm.ptr<1>, i64) -> !llvm.ptr<1>, !llvm.struct<"Arr", (ptr<1>, ptr, i64)>
+      llvm.store %g, %slot : !llvm.ptr<1>, !llvm.ptr
+      llvm.return
+    }
+
     // A struct with no entry keeps the old behaviour: every pointer is i8* and
     // insertvalue needs no cast.
     // CHECK-LABEL: define ptx_kernel void @undeclared_struct

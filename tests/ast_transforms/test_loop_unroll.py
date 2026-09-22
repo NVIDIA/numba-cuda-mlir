@@ -458,7 +458,7 @@ def test_unroll_varargs_bundle_runs():
 
 
 def test_unroll_tuple_parameter_preserves_else_clause():
-    """The else clause runs after the last iteration and sees its loop value."""
+    """The else clause and the code after the loop see the final loop value."""
 
     @numba_cuda_mlir.cuda.jit
     def kernel(out, t):
@@ -466,14 +466,15 @@ def test_unroll_tuple_parameter_preserves_else_clause():
             out[0] += v
         else:
             out[1] = v
+        out[2] = v
 
     sig = types.void(types.float64[:], types.UniTuple(types.float64, 2))
     source = kernel.compile(sig).metadata["transformed_source"]
-    assert source.index("out[0] += t[1]") < source.index("out[1] = t[1]")
+    assert source.index("out[0] += t[1]") < source.index("v = t[1]") < source.index("out[1] = v")
 
-    out = np.zeros(2)
+    out = np.zeros(3)
     kernel[1, 1](out, (1.0, 2.0))
-    np.testing.assert_allclose(out, [3.0, 2.0])
+    np.testing.assert_allclose(out, [3.0, 2.0, 2.0])
 
 
 def test_unroll_tuple_parameter_rebinding_rejected():

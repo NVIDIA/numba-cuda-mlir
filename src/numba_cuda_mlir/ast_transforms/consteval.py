@@ -246,10 +246,14 @@ class ConstevalTransformer(ast.NodeTransformer):
             bindings = self._bind_loop_target(node.target, value)
             unrolled.extend(self._unroll_statements(node.body, bindings))
 
-        # ``break`` is rejected above, so the loop always completes normally
-        # and its ``else`` clause runs after the last iteration, where the
-        # loop variables still hold their final values.
-        unrolled.extend(self._unroll_statements(node.orelse, bindings))
+        # The loop variables keep their final values after the loop, and
+        # ``break`` is rejected above, so the ``else`` clause always runs.
+        self.local_consts.update(bindings)
+        for name, value in bindings.items():
+            target = ast.Name(id=name, ctx=ast.Store())
+            assign = ast.Assign(targets=[target], value=self._value_expr(value))
+            unrolled.append(ast.fix_missing_locations(ast.copy_location(assign, node)))
+        unrolled.extend(self._process_statement_list(node.orelse))
         return unrolled
 
     def _unroll_statements(self, stmts: list[ast.stmt], bindings: dict) -> list[ast.stmt]:
@@ -333,7 +337,7 @@ class ConstevalTransformer(ast.NodeTransformer):
         ``3 = 0`` or ``t[0] = 0``.
         """
         loop_vars = {name.id for name in ast.walk(node.target) if isinstance(name, ast.Name)}
-        for stmt in node.body + node.orelse:
+        for stmt in node.body:
             for name in ast.walk(stmt):
                 if (
                     isinstance(name, ast.Name)

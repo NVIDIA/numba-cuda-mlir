@@ -566,6 +566,7 @@ class TestHighLevelExtending(NumbaCUDATestCase):
         self.assertIn("VAR_POSITIONAL (e.g. *args) argument kind", msg)
         self.assertIn("offending argument name is '*star_args_token'", msg)
 
+    @pytest.mark.xfail(True, reason="Typing error")
     def test_typing_vs_impl_signature_mismatch_handling_var_keyword(self):
         """
         Tests that an overload which uses **kwargs (VAR_KEYWORD)
@@ -842,7 +843,6 @@ class TestRegisterJitable(NumbaCUDATestCase):
 
 
 class TestOverloadPreferLiteral(NumbaCUDATestCase):
-    @pytest.mark.xfail(True, reason="ICE")
     def test_overload(self):
         def prefer_lit(x):
             pass

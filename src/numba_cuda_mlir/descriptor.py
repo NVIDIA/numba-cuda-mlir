@@ -27,7 +27,8 @@ from numba_cuda_mlir.numba_cuda.core.errors import NumbaPerformanceWarning
 from numba_cuda_mlir.numba_cuda.core import config as cuda_config
 from numba_cuda_mlir.numba_cuda.cudadrv import driver as numba_cuda_driver
 from importlib.util import find_spec
-from numba_cuda_mlir.numba_cuda.core import errors, sigutils
+from numba_cuda_mlir.numba_cuda.core import errors, sigutils, targetconfig
+from numba_cuda_mlir.numba_cuda.typing.templates import _select_overload_dispatcher
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 from numba_cuda_mlir.numba_cuda.cudadecl import registry as cuda_registry
@@ -1088,26 +1089,6 @@ class MLIRTypingContext(typing.BaseContext):
             return super().resolve_value_type(val)
 
 
-def _drop_omitted_args(argtys):
-    return tuple(ty for ty in argtys if not isinstance(ty, (types.Omitted, types.NoneType)))
-
-
-def _overload_args_match(disp, cache_args, match_args):
-    """Whether an ``_impl_cache`` entry describes the call being lowered.
-
-    The cache is keyed on the argument types as they appeared at the call site,
-    which for a ``*args`` implementation differs from the typed signature: the
-    arguments the callee bundles into ``*args`` are folded into a single tuple
-    type.  ``disp`` was compiled from the folded types, so its own signature is
-    what to compare against in that case.
-    """
-    if any(tuple(sig.args) == match_args for sig in getattr(disp, "nopython_signatures", ())):
-        return True
-    return cache_args == match_args or _drop_omitted_args(cache_args) == _drop_omitted_args(
-        match_args
-    )
-
-
 class MLIRCallConv(MinimalCallConv):
     """Use simple default call convention for now"""
 
@@ -1263,25 +1244,57 @@ class MLIRTargetContext(BaseContext):
                 inner_fnty = self.typing_context.resolve_value_type(overload_func)
                 templates.extend(getattr(inner_fnty, "templates", []))
 
-        match_args = (sig.recvr, *sig.args) if sig.recvr else sig.args
-        match_args = tuple(types.unliteral(arg) for arg in match_args)
+        literal_args = tuple((sig.recvr, *sig.args) if sig.recvr else sig.args)
+        match_args = tuple(types.unliteral(arg) for arg in literal_args)
+        omitted = (types.Omitted, types.NoneType)
 
-        for temp_cls in templates:
-            if not hasattr(temp_cls, "_impl_cache"):
-                continue
-            for cache_key, cache_value in temp_cls._impl_cache.items():
-                if cache_value is None or len(cache_key) != 4:
-                    continue
-                _, args, _, _ = cache_key
-                disp, _ = cache_value
-                if _overload_args_match(disp, tuple(args), match_args):
-                    if hasattr(disp, "py_func"):
+        def drop_omitted(args):
+            return tuple(a for a in args if not isinstance(a, omitted))
 
-                        def builder(mlir_lower, target, args, kws, _disp=disp):
-                            mlir_lower.lower_overload_call(target, _disp, args, kws)
+        def unfold_stararg(args, *, unliteral):
+            """Expand a trailing ``*args`` bundle into the arguments it absorbed.
 
-                        return builder
-        return None
+            A variadic implementation folds the arguments it collects into a
+            single tuple type, so `sig` carries one tuple where the cache key
+            still holds them individually.  `types.unliteral` does not recurse
+            into a tuple, so strip literals from the elements here.
+            """
+            if not args or not isinstance(args[-1], types.BaseTuple):
+                return None
+            tail = tuple(args[-1].types)
+            if unliteral:
+                tail = tuple(types.unliteral(a) for a in tail)
+            return args[:-1] + tail
+
+        # The cache key only holds the arguments the call actually supplied,
+        # while `sig` also carries omitted defaults; compare with and without
+        # them.  `cache_args` also keeps whatever literals the template was
+        # typed with, so an overload registered `prefer_literal=True` (or one
+        # that requested the constant via `literally()`) only ever matches
+        # the un-unliteral'd form; accept either form in both comparisons.
+        full_forms = (match_args, literal_args) + tuple(
+            form
+            for form in (
+                unfold_stararg(match_args, unliteral=True),
+                unfold_stararg(literal_args, unliteral=False),
+            )
+            if form is not None
+        )
+        trimmed_forms = tuple(drop_omitted(form) for form in full_forms)
+
+        def args_match(cache_args):
+            return cache_args in full_forms or drop_omitted(cache_args) in trimmed_forms
+
+        disp = _select_overload_dispatcher(
+            templates, args_match, targetconfig.ConfigStack.top_or_none()
+        )
+        if disp is None:
+            return None
+
+        def builder(mlir_lower, target, args, kws, _disp=disp):
+            mlir_lower.lower_overload_call(target, _disp, args, kws)
+
+        return builder
 
     def get_value_type(self, *args):
         return super().get_value_type(*args)

@@ -277,6 +277,21 @@ LLVMValueRef MLIRToLLVM70::lookupValue(Value v) {
   llvm::report_fatal_error(llvm::StringRef(msg), /*GenCrashDiag=*/false);
 }
 
+LLVMValueRef MLIRToLLVM70::lookupValueAsDeclared(Value v) {
+  LLVMValueRef val = lookupValue(v);
+  // convertType renders an opaque !llvm.ptr as i8*, but not every producer
+  // hands back a value of that type: an alloca stays the elemTy* LLVM 7 gives
+  // it, so that dbg.declare still names the stack slot itself. Ops that put a
+  // pointer somewhere already typed as i8* -- an aggregate field, a pointee,
+  // the other arm of a select, a block argument -- have to reconcile the two,
+  // because LLVM 7 has no opaque pointers and libNVVM's bitcode reader rejects
+  // the mismatch. Values that already have the declared type are unaffected;
+  // a no-op bitcast folds away.
+  if (isa<LLVM::LLVMPointerType>(v.getType()))
+    val = b.buildBitCast(val, convertType(v.getType()), "");
+  return val;
+}
+
 //===----------------------------------------------------------------------===//
 // Debug info helpers
 //===----------------------------------------------------------------------===//
@@ -608,6 +623,20 @@ llvm::Error MLIRToLLVM70::translatePhiOps(Block &block) {
   if (block.isEntryBlock())
     return llvm::Error::success();
 
+  // A coercion for an incoming value has to live in the predecessor, ahead of
+  // its terminator, so that it dominates the phi. The predecessor is not always
+  // the MLIR block holding the terminator: an edge that needed a trampoline
+  // enters the phi from the trampoline instead.
+  auto incomingFrom = [&](Value v, LLVMBasicBlockRef predBB) {
+    if (!isa<LLVM::LLVMPointerType>(v.getType()))
+      return lookupValue(v);
+    LLVMBasicBlockRef saved = b.getInsertBlock();
+    b.positionBefore(b.getTerminator(predBB));
+    LLVMValueRef val = lookupValueAsDeclared(v);
+    b.positionAtEnd(saved);
+    return val;
+  };
+
   for (auto [argIdx, arg] : llvm::enumerate(block.getArguments())) {
     LLVMValueRef phi = lookupValue(arg);
 
@@ -619,19 +648,20 @@ llvm::Error MLIRToLLVM70::translatePhiOps(Block &block) {
       if (!seen.insert(pred).second)
         continue;
       Operation *term = pred->getTerminator();
+      auto incoming = [&](Value v) { return incomingFrom(v, blockMap[pred]); };
       if (auto brOp = dyn_cast<LLVM::BrOp>(term)) {
-        inVals.push_back(lookupValue(brOp.getDestOperands()[argIdx]));
+        inVals.push_back(incoming(brOp.getDestOperands()[argIdx]));
         inBlocks.push_back(blockMap[pred]);
       } else if (auto condBr = dyn_cast<LLVM::CondBrOp>(term)) {
         // Skip if both branches target the same block — handled by trampolines
         if (condBr.getTrueDest() == condBr.getFalseDest())
           continue;
         if (condBr.getTrueDest() == &block) {
-          inVals.push_back(lookupValue(condBr.getTrueDestOperands()[argIdx]));
+          inVals.push_back(incoming(condBr.getTrueDestOperands()[argIdx]));
           inBlocks.push_back(blockMap[pred]);
         }
         if (condBr.getFalseDest() == &block) {
-          inVals.push_back(lookupValue(condBr.getFalseDestOperands()[argIdx]));
+          inVals.push_back(incoming(condBr.getFalseDestOperands()[argIdx]));
           inBlocks.push_back(blockMap[pred]);
         }
       }
@@ -640,7 +670,7 @@ llvm::Error MLIRToLLVM70::translatePhiOps(Block &block) {
     auto it = switchForwarders.find(&block);
     if (it != switchForwarders.end()) {
       for (auto &[trampBB, ops] : it->second) {
-        inVals.push_back(lookupValue(ops[argIdx]));
+        inVals.push_back(incomingFrom(ops[argIdx], trampBB));
         inBlocks.push_back(trampBB);
       }
     }
@@ -800,7 +830,7 @@ llvm::Error MLIRToLLVM70::translateReturnOp(Operation *op) {
   if (retOp.getNumOperands() == 0)
     b.buildRetVoid();
   else
-    b.buildRet(lookupValue(retOp.getOperand(0)));
+    b.buildRet(lookupValueAsDeclared(retOp.getOperand(0)));
   return llvm::Error::success();
 }
 
@@ -1198,8 +1228,8 @@ llvm::Error MLIRToLLVM70::translateICmpOp(Operation *op) {
     break;
   }
 
-  auto result = b.buildICmp(lp, lookupValue(icmpOp.getLhs()),
-                            lookupValue(icmpOp.getRhs()), "");
+  auto result = b.buildICmp(lp, lookupValueAsDeclared(icmpOp.getLhs()),
+                            lookupValueAsDeclared(icmpOp.getRhs()), "");
   mapValue(icmpOp.getResult(), result);
   return llvm::Error::success();
 }
@@ -1289,7 +1319,7 @@ llvm::Error MLIRToLLVM70::translateLoadOp(Operation *op) {
 
 llvm::Error MLIRToLLVM70::translateStoreOp(Operation *op) {
   auto storeOp = cast<LLVM::StoreOp>(op);
-  LLVMValueRef val = lookupValue(storeOp.getValue());
+  LLVMValueRef val = lookupValueAsDeclared(storeOp.getValue());
   LLVMValueRef ptr = lookupValue(storeOp.getAddr());
 
   // Reconstruct pointer type: bitcast i8* → elemTy* to match stored value
@@ -1412,9 +1442,10 @@ llvm::Error MLIRToLLVM70::translateCastOp(Operation *op) {
 
 llvm::Error MLIRToLLVM70::translateSelectOp(Operation *op) {
   auto selectOp = cast<LLVM::SelectOp>(op);
-  auto result = b.buildSelect(lookupValue(selectOp.getCondition()),
-                              lookupValue(selectOp.getTrueValue()),
-                              lookupValue(selectOp.getFalseValue()), "");
+  auto result =
+      b.buildSelect(lookupValue(selectOp.getCondition()),
+                    lookupValueAsDeclared(selectOp.getTrueValue()),
+                    lookupValueAsDeclared(selectOp.getFalseValue()), "");
   mapValue(selectOp.getResult(), result);
   return llvm::Error::success();
 }
@@ -1479,7 +1510,7 @@ llvm::Error MLIRToLLVM70::translateExtractValueOp(Operation *op) {
 llvm::Error MLIRToLLVM70::translateInsertValueOp(Operation *op) {
   auto ivOp = cast<LLVM::InsertValueOp>(op);
   LLVMValueRef agg = lookupValue(ivOp.getContainer());
-  LLVMValueRef val = lookupValue(ivOp.getValue());
+  LLVMValueRef val = lookupValueAsDeclared(ivOp.getValue());
   auto positions = ivOp.getPosition();
 
   // `val` is `i8*`; the member it lands in may be refined. Folds away when the
@@ -1520,7 +1551,7 @@ llvm::Error MLIRToLLVM70::translateExtractElementOp(Operation *op) {
 llvm::Error MLIRToLLVM70::translateInsertElementOp(Operation *op) {
   auto ieOp = cast<LLVM::InsertElementOp>(op);
   LLVMValueRef vec = lookupValue(ieOp.getVector());
-  LLVMValueRef val = lookupValue(ieOp.getValue());
+  LLVMValueRef val = lookupValueAsDeclared(ieOp.getValue());
   LLVMValueRef idx = lookupValue(ieOp.getPosition());
   mapValue(ieOp.getResult(), b.buildInsertElement(vec, val, idx, ""));
   return llvm::Error::success();
@@ -2209,8 +2240,8 @@ llvm::Error MLIRToLLVM70::translateAtomicCmpXchgOp(Operation *op) {
   auto cmpxchgOp = cast<LLVM::AtomicCmpXchgOp>(op);
 
   LLVMValueRef ptr = lookupValue(cmpxchgOp.getPtr());
-  LLVMValueRef cmp = lookupValue(cmpxchgOp.getCmp());
-  LLVMValueRef newVal = lookupValue(cmpxchgOp.getVal());
+  LLVMValueRef cmp = lookupValueAsDeclared(cmpxchgOp.getCmp());
+  LLVMValueRef newVal = lookupValueAsDeclared(cmpxchgOp.getVal());
 
   // Bitcast to the expected pointer type.
   LLVMTypeRef cmpTy = convertType(cmpxchgOp.getCmp().getType());

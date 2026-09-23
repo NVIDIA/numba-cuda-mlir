@@ -98,6 +98,8 @@ llvm::Error LLVM70IRBuilder::resolveSymbols() {
   // Builder
   RESOLVE(fnCreateBuilder, "LLVMCreateBuilderInContext");
   RESOLVE(fnPositionAtEnd, "LLVMPositionBuilderAtEnd");
+  RESOLVE(fnPositionBefore, "LLVMPositionBuilderBefore");
+  RESOLVE(fnGetTerminator, "LLVMGetBasicBlockTerminator");
   RESOLVE(fnDisposeBuilder, "LLVMDisposeBuilder");
 
   // Constants
@@ -326,6 +328,12 @@ LLVMBasicBlockRef LLVM70IRBuilder::appendBB(LLVMValueRef fn, const char *name) {
 }
 void LLVM70IRBuilder::positionAtEnd(LLVMBasicBlockRef bb) {
   fnPositionAtEnd(builder, bb);
+}
+void LLVM70IRBuilder::positionBefore(LLVMValueRef inst) {
+  fnPositionBefore(builder, inst);
+}
+LLVMValueRef LLVM70IRBuilder::getTerminator(LLVMBasicBlockRef bb) {
+  return fnGetTerminator(bb);
 }
 LLVMBasicBlockRef LLVM70IRBuilder::getInsertBlock() {
   return fnGetInsertBlock(builder);

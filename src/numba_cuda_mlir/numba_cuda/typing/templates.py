@@ -531,6 +531,144 @@ class _EmptyImplementationEntry(InternalError):
         )
 
 
+@functools.lru_cache(maxsize=None)
+def _recording_flags_class(cls):
+    """Subclass of *cls* whose option reads are recorded and whose writes raise."""
+
+    def _quiet(meth):
+        # __eq__/__hash__ read every option; recording those would widen every key.
+        def wrapper(self, *a, **k):
+            prev = self._rec_on
+            self._rec_on = False
+            try:
+                return meth(self, *a, **k)
+            finally:
+                self._rec_on = prev
+
+        return wrapper
+
+    def __init__(self, copy_from=None):
+        # copy() must keep recording into the same set.
+        inherited = getattr(copy_from, "_seen", None)
+        self._seen = set() if inherited is None else inherited
+        self._rec_on = getattr(copy_from, "_rec_on", False)
+        cls.__init__(self, copy_from)
+
+    sub = type(
+        "Recording" + cls.__name__,
+        (cls,),
+        {"__slots__": ("_seen", "_rec_on"), "__init__": __init__},
+    )
+
+    def _read_only(name):
+        def blocked(self, *a, **k):
+            raise TypingError(
+                f"compiler option {name!r} is read-only during type inference; "
+                "an overload implementation function cannot change it"
+            )
+
+        return blocked
+
+    # The metaclass installs plain properties at class creation; override them after.
+    for name in cls.options:
+        parent = getattr(cls, name)
+
+        def getter(self, _name=name, _parent=parent):
+            if self._rec_on:
+                self._seen.add(_name)
+            return _parent.fget(self)
+
+        setattr(sub, name, property(getter, _read_only(name), _read_only(name)))
+
+    def discard(self, name):
+        _read_only(name)(self)
+
+    # is_set() reads _values directly and bypasses the getters; its answer is set-ness,
+    # not the value, so it is recorded as a distinct kind of read.
+    def is_set(self, name):
+        if self._rec_on:
+            self._seen.add(("is_set", name))
+        return cls.is_set(self, name)
+
+    sub.discard = discard
+    sub.is_set = is_set
+    sub.__eq__ = _quiet(cls.__eq__)
+    sub.__hash__ = _quiet(cls.__hash__)
+    return sub
+
+
+def _run_recording_flag_reads(func, args, kws):
+    """Call *func* with recording flags on the ConfigStack; return ``(result, names read)``."""
+    stack = targetconfig.ConfigStack()
+    real = stack.top()
+    proxy = _recording_flags_class(type(real))(copy_from=real)
+    proxy._rec_on = True
+    try:
+        with stack.enter(proxy):
+            result = func(*args, **kws)
+    finally:
+        proxy._rec_on = False
+    return result, frozenset(proxy._seen)
+
+
+def _read_flag(flags, read):
+    """What *read* -- an option name, or ``("is_set", name)`` -- yields on *flags*."""
+    # repr(): some option values (e.g. nvvm_options) are unhashable.
+    if isinstance(read, tuple):
+        return repr(flags.is_set(read[1]))
+    return repr(getattr(flags, read, None))
+
+
+def _record_flag_reads(flags, reads):
+    """The ``(read, repr(result))`` pairs of *reads* on *flags*, as a hashable key."""
+    return tuple(sorted(((read, _read_flag(flags, read)) for read in reads), key=str))
+
+
+def _flags_match_reads(flags, reads):
+    """Whether every recorded ``(read, repr(result))`` pair in *reads* holds on *flags*."""
+    return all(_read_flag(flags, read) == value for read, value in reads)
+
+
+def _select_overload_dispatcher(templates, args_match, cur_flags):
+    """Pick the cached overload Dispatcher for *cur_flags* from *templates*.
+
+    Scans every ``_impl_cache`` entry whose argument types satisfy *args_match*:
+    exact flag match first, then flags agreeing on every option the body read, then
+    the first argument match.
+    """
+    observed = fallback = None
+    for temp_cls in templates:
+        if not hasattr(temp_cls, "_impl_cache"):
+            continue
+        result_cache = getattr(temp_cls, "_overload_result_cache", {})
+        overload_func = getattr(temp_cls, "_overload_func", None)
+        for cache_key, cache_value in temp_cls._impl_cache.items():
+            if cache_value is None or len(cache_key) != 4:
+                continue
+            _, args, kws, entry_flags = cache_key
+            args = tuple(args)
+            if not args_match(args):
+                continue
+            disp, _ = cache_value
+            if not hasattr(disp, "py_func"):
+                continue
+            if cur_flags is None or entry_flags == cur_flags:
+                return disp
+            # An entry resolved with no flags on the stack is only ever a fallback.
+            if observed is None and entry_flags is not None:
+                for reads in tuple(result_cache.get((overload_func, args, kws), ())):
+                    if (
+                        reads
+                        and _flags_match_reads(entry_flags, reads)
+                        and _flags_match_reads(cur_flags, reads)
+                    ):
+                        observed = disp
+                        break
+            if fallback is None:
+                fallback = disp
+    return observed if observed is not None else fallback
+
+
 class _OverloadFunctionTemplate(AbstractTemplate):
     """
     A base class of templates for overload functions.
@@ -756,6 +894,27 @@ class _OverloadFunctionTemplate(AbstractTemplate):
 
         return mlir_jit
 
+    def _call_overload_func(self, args, kws):
+        """Run the overload body, memoized on the option values it was observed to read.
+
+        Each entry records the ``(option, repr)`` pairs its run read; a lookup reuses
+        the first entry the active flags agree with.  Without flags on the stack
+        nothing can be observed, so nothing is cached.
+        """
+        flags = targetconfig.ConfigStack.top_or_none()
+        if flags is None:
+            return self._overload_func(*args, **kws)
+
+        base = self._overload_func, tuple(args), tuple(kws.items())
+        entries = self._overload_result_cache.setdefault(base, {})
+        for reads, result in tuple(entries.items()):
+            if _flags_match_reads(flags, reads):
+                return result
+
+        result, names = _run_recording_flag_reads(self._overload_func, args, kws)
+        entries[_record_flag_reads(flags, names)] = result
+        return result
+
     def _build_impl(self, cache_key, args, kws):
         """Build and cache the implementation.
 
@@ -793,7 +952,7 @@ class _OverloadFunctionTemplate(AbstractTemplate):
             # problems
             raise TypingError(str(e)) from e
         else:
-            ovf_result = self._overload_func(*args, **kws)
+            ovf_result = self._call_overload_func(args, kws)
 
         if ovf_result is None:
             # No implementation => fail typing
@@ -909,6 +1068,7 @@ def make_overload_template(
         key=func,
         _overload_func=staticmethod(overload_func),
         _impl_cache={},
+        _overload_result_cache={},
         _compiled_overloads={},
         _jit_options=jit_options,
         _strict=strict,

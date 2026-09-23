@@ -120,6 +120,96 @@ def test_extending_overload_with_literal_argument():
     assert out[0] == 42
 
 
+def test_extending_overload_with_prefer_literal():
+    """A `prefer_literal=True` overload is typed with — and lowered from — the literal."""
+
+    def tile_size(x):
+        raise NotImplementedError
+
+    @extending.overload(tile_size, typing_registry=extending.typing_registry, prefer_literal=True)
+    def overload_tile_size(x):
+        value = x.literal_value
+
+        def impl(x):
+            return value
+
+        return impl
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def k(out):
+        out[0] = tile_size(32)
+
+    out = np.zeros(1, dtype=np.int64)
+    k[1, 1](out)
+    assert out[0] == 32
+
+
+def test_extending_overload_with_literally():
+    """`literally()` retypes the argument, and the literal signature still lowers."""
+    from numba_cuda_mlir.numba_cuda.misc.special import literally
+
+    def unroll_factor(x):
+        raise NotImplementedError
+
+    @extending.overload(unroll_factor, typing_registry=extending.typing_registry)
+    def overload_unroll_factor(x):
+        if not isinstance(x, types.IntegerLiteral):
+            return lambda x: literally(x)
+
+        value = x.literal_value
+
+        def impl(x):
+            return value
+
+        return impl
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def k(out):
+        out[0] = unroll_factor(8)
+
+    out = np.zeros(1, dtype=np.int64)
+    k[1, 1](out)
+    assert out[0] == 8
+
+
+def test_extending_overload_method_prefer_literal_omitted_default():
+    """A literal-aware method overload still lowers when a trailing default is omitted.
+
+    The `_impl_cache` key holds only the supplied arguments (receiver plus the
+    literal), while the lowered signature also carries the omitted default, so
+    the lookup has to compare the literal form with the omitted arguments
+    stripped as well.
+    """
+
+    @extending.overload_method(
+        types.Array,
+        "tile_size",
+        typing_registry=extending.typing_registry,
+        prefer_literal=True,
+    )
+    def array_tile_size(arr, n, extra=None):
+        value = n.literal_value
+
+        def impl(arr, n, extra=None):
+            return value
+
+        return impl
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(out):
+        out[0] = out.tile_size(32)
+
+    out = np.zeros(1, dtype=np.int64)
+    kernel[1, 1](out)
+    assert out[0] == 32
+
+
 def test_extending_overload_method():
     """User-defined @overload_method dispatches through BoundFunction."""
 

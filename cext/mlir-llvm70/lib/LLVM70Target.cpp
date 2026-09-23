@@ -189,9 +189,8 @@ LLVMTypeRef MLIRToLLVM70::convertType(Type ty) {
           if (!structTy.isOpaque()) {
             llvm::SmallVector<LLVMTypeRef> elems;
 
-            for (Type e : structTy.getBody()) {
-              elems.push_back(convertType(e));
-            }
+            for (unsigned i = 0, e = structTy.getBody().size(); i < e; ++i)
+              elems.push_back(convertStructMemberType(structTy, i));
 
             b.setStructBody(named, elems.data(), elems.size(),
                             structTy.isPacked());
@@ -229,6 +228,40 @@ LLVMTypeRef MLIRToLLVM70::convertType(Type ty) {
       });
 }
 
+LLVMTypeRef MLIRToLLVM70::convertStructMemberType(LLVM::LLVMStructType structTy,
+                                                  unsigned idx) {
+  Type member = structTy.getBody()[idx];
+
+  auto ptrTy = dyn_cast<LLVM::LLVMPointerType>(member);
+  if (ptrTy && structTy.isIdentified()) {
+    auto hint = structPointees.find(structTy.getName());
+    if (hint != structPointees.end() && idx < hint->second.size() &&
+        hint->second[idx])
+      return b.ptrTy(convertType(hint->second[idx]), ptrTy.getAddressSpace());
+  }
+
+  return convertType(member);
+}
+
+LLVMTypeRef
+MLIRToLLVM70::convertAggregateElementType(Type aggTy,
+                                          ArrayRef<int64_t> position) {
+  assert(!position.empty() && "aggregate access with no position");
+
+  // Walk down to the aggregate that directly holds the addressed element.
+  for (int64_t idx : position.drop_back()) {
+    if (auto structTy = dyn_cast<LLVM::LLVMStructType>(aggTy))
+      aggTy = structTy.getBody()[idx];
+    else
+      aggTy = cast<LLVM::LLVMArrayType>(aggTy).getElementType();
+  }
+
+  if (auto structTy = dyn_cast<LLVM::LLVMStructType>(aggTy))
+    return convertStructMemberType(structTy,
+                                   static_cast<unsigned>(position.back()));
+  return convertType(cast<LLVM::LLVMArrayType>(aggTy).getElementType());
+}
+
 //===----------------------------------------------------------------------===//
 // Value lookup
 //===----------------------------------------------------------------------===//
@@ -242,6 +275,21 @@ LLVMValueRef MLIRToLLVM70::lookupValue(Value v) {
   os << "llvm70: unmapped MLIR value: " << v
      << "\nThis is a translator bug — the value was used before being defined.";
   llvm::report_fatal_error(llvm::StringRef(msg), /*GenCrashDiag=*/false);
+}
+
+LLVMValueRef MLIRToLLVM70::lookupValueAsDeclared(Value v) {
+  LLVMValueRef val = lookupValue(v);
+  // convertType renders an opaque !llvm.ptr as i8*, but not every producer
+  // hands back a value of that type: an alloca stays the elemTy* LLVM 7 gives
+  // it, so that dbg.declare still names the stack slot itself. Ops that put a
+  // pointer somewhere already typed as i8* -- an aggregate field, a pointee,
+  // the other arm of a select, a block argument -- have to reconcile the two,
+  // because LLVM 7 has no opaque pointers and libNVVM's bitcode reader rejects
+  // the mismatch. Values that already have the declared type are unaffected;
+  // a no-op bitcast folds away.
+  if (isa<LLVM::LLVMPointerType>(v.getType()))
+    val = b.buildBitCast(val, convertType(v.getType()), "");
+  return val;
 }
 
 //===----------------------------------------------------------------------===//
@@ -301,9 +349,31 @@ void MLIRToLLVM70::setDebugLocFromOp(Operation *op) {
 // Top-level translation
 //===----------------------------------------------------------------------===//
 
+void MLIRToLLVM70::loadStructPointees(gpu::GPUModuleOp gpuMod) {
+  auto dict = gpuMod->getAttrOfType<DictionaryAttr>("llvm70.struct_pointees");
+  if (!dict)
+    return;
+
+  for (NamedAttribute entry : dict) {
+    auto members = dyn_cast<ArrayAttr>(entry.getValue());
+    if (!members)
+      continue;
+
+    llvm::SmallVector<Type> pointees;
+    pointees.reserve(members.size());
+    for (Attribute member : members) {
+      // Not a TypeAttr means "no hint": leave that member as `i8*`.
+      auto typeAttr = dyn_cast<TypeAttr>(member);
+      pointees.push_back(typeAttr ? typeAttr.getValue() : Type());
+    }
+    structPointees[entry.getName().strref()] = std::move(pointees);
+  }
+}
+
 llvm::Error MLIRToLLVM70::translate(gpu::GPUModuleOp gpuMod, int debugLevel,
                                     bool omitDebugInfoVersionFlag,
                                     const LLVM70Options *opts) {
+  loadStructPointees(gpuMod);
   bool needFullDebug = (debugLevel >= 2);
   if (debugLevel > 0) {
     // Upgrade to FullDebug when the IR contains debug variable intrinsics
@@ -553,6 +623,20 @@ llvm::Error MLIRToLLVM70::translatePhiOps(Block &block) {
   if (block.isEntryBlock())
     return llvm::Error::success();
 
+  // A coercion for an incoming value has to live in the predecessor, ahead of
+  // its terminator, so that it dominates the phi. The predecessor is not always
+  // the MLIR block holding the terminator: an edge that needed a trampoline
+  // enters the phi from the trampoline instead.
+  auto incomingFrom = [&](Value v, LLVMBasicBlockRef predBB) {
+    if (!isa<LLVM::LLVMPointerType>(v.getType()))
+      return lookupValue(v);
+    LLVMBasicBlockRef saved = b.getInsertBlock();
+    b.positionBefore(b.getTerminator(predBB));
+    LLVMValueRef val = lookupValueAsDeclared(v);
+    b.positionAtEnd(saved);
+    return val;
+  };
+
   for (auto [argIdx, arg] : llvm::enumerate(block.getArguments())) {
     LLVMValueRef phi = lookupValue(arg);
 
@@ -564,19 +648,20 @@ llvm::Error MLIRToLLVM70::translatePhiOps(Block &block) {
       if (!seen.insert(pred).second)
         continue;
       Operation *term = pred->getTerminator();
+      auto incoming = [&](Value v) { return incomingFrom(v, blockMap[pred]); };
       if (auto brOp = dyn_cast<LLVM::BrOp>(term)) {
-        inVals.push_back(lookupValue(brOp.getDestOperands()[argIdx]));
+        inVals.push_back(incoming(brOp.getDestOperands()[argIdx]));
         inBlocks.push_back(blockMap[pred]);
       } else if (auto condBr = dyn_cast<LLVM::CondBrOp>(term)) {
         // Skip if both branches target the same block — handled by trampolines
         if (condBr.getTrueDest() == condBr.getFalseDest())
           continue;
         if (condBr.getTrueDest() == &block) {
-          inVals.push_back(lookupValue(condBr.getTrueDestOperands()[argIdx]));
+          inVals.push_back(incoming(condBr.getTrueDestOperands()[argIdx]));
           inBlocks.push_back(blockMap[pred]);
         }
         if (condBr.getFalseDest() == &block) {
-          inVals.push_back(lookupValue(condBr.getFalseDestOperands()[argIdx]));
+          inVals.push_back(incoming(condBr.getFalseDestOperands()[argIdx]));
           inBlocks.push_back(blockMap[pred]);
         }
       }
@@ -585,7 +670,7 @@ llvm::Error MLIRToLLVM70::translatePhiOps(Block &block) {
     auto it = switchForwarders.find(&block);
     if (it != switchForwarders.end()) {
       for (auto &[trampBB, ops] : it->second) {
-        inVals.push_back(lookupValue(ops[argIdx]));
+        inVals.push_back(incomingFrom(ops[argIdx], trampBB));
         inBlocks.push_back(trampBB);
       }
     }
@@ -745,7 +830,7 @@ llvm::Error MLIRToLLVM70::translateReturnOp(Operation *op) {
   if (retOp.getNumOperands() == 0)
     b.buildRetVoid();
   else
-    b.buildRet(lookupValue(retOp.getOperand(0)));
+    b.buildRet(lookupValueAsDeclared(retOp.getOperand(0)));
   return llvm::Error::success();
 }
 
@@ -1143,8 +1228,8 @@ llvm::Error MLIRToLLVM70::translateICmpOp(Operation *op) {
     break;
   }
 
-  auto result = b.buildICmp(lp, lookupValue(icmpOp.getLhs()),
-                            lookupValue(icmpOp.getRhs()), "");
+  auto result = b.buildICmp(lp, lookupValueAsDeclared(icmpOp.getLhs()),
+                            lookupValueAsDeclared(icmpOp.getRhs()), "");
   mapValue(icmpOp.getResult(), result);
   return llvm::Error::success();
 }
@@ -1234,7 +1319,7 @@ llvm::Error MLIRToLLVM70::translateLoadOp(Operation *op) {
 
 llvm::Error MLIRToLLVM70::translateStoreOp(Operation *op) {
   auto storeOp = cast<LLVM::StoreOp>(op);
-  LLVMValueRef val = lookupValue(storeOp.getValue());
+  LLVMValueRef val = lookupValueAsDeclared(storeOp.getValue());
   LLVMValueRef ptr = lookupValue(storeOp.getAddr());
 
   // Reconstruct pointer type: bitcast i8* → elemTy* to match stored value
@@ -1243,6 +1328,11 @@ llvm::Error MLIRToLLVM70::translateStoreOp(Operation *op) {
   unsigned as = cast<LLVM::LLVMPointerType>(storeOp.getAddr().getType())
                     .getAddressSpace();
   ptr = b.buildBitCast(ptr, b.ptrTy(elemTy, as), "");
+
+  // `elemTy` is i8*, but a stored pointer value may be typed (an alloca or GEP
+  // result). Cast to match; a no-op when it is already i8*.
+  if (isa<LLVM::LLVMPointerType>(storeOp.getValue().getType()))
+    val = b.buildBitCast(val, elemTy, "");
 
   LLVMValueRef storeInst = b.buildStore(val, ptr);
   if (storeOp.getVolatile_())
@@ -1352,9 +1442,10 @@ llvm::Error MLIRToLLVM70::translateCastOp(Operation *op) {
 
 llvm::Error MLIRToLLVM70::translateSelectOp(Operation *op) {
   auto selectOp = cast<LLVM::SelectOp>(op);
-  auto result = b.buildSelect(lookupValue(selectOp.getCondition()),
-                              lookupValue(selectOp.getTrueValue()),
-                              lookupValue(selectOp.getFalseValue()), "");
+  auto result =
+      b.buildSelect(lookupValue(selectOp.getCondition()),
+                    lookupValueAsDeclared(selectOp.getTrueValue()),
+                    lookupValueAsDeclared(selectOp.getFalseValue()), "");
   mapValue(selectOp.getResult(), result);
   return llvm::Error::success();
 }
@@ -1406,6 +1497,12 @@ llvm::Error MLIRToLLVM70::translateExtractValueOp(Operation *op) {
   LLVMValueRef agg = lookupValue(evOp.getContainer());
   for (int64_t idx : evOp.getPosition())
     agg = b.buildExtractValue(agg, static_cast<unsigned>(idx), "");
+
+  // A refined member comes out typed; restore the `i8*` representation every
+  // other use expects. Folds away when nothing was refined.
+  if (auto ptrTy = dyn_cast<LLVM::LLVMPointerType>(evOp.getResult().getType()))
+    agg = b.buildBitCast(agg, b.ptrTy(b.i8Ty(), ptrTy.getAddressSpace()), "");
+
   mapValue(evOp.getResult(), agg);
   return llvm::Error::success();
 }
@@ -1413,8 +1510,17 @@ llvm::Error MLIRToLLVM70::translateExtractValueOp(Operation *op) {
 llvm::Error MLIRToLLVM70::translateInsertValueOp(Operation *op) {
   auto ivOp = cast<LLVM::InsertValueOp>(op);
   LLVMValueRef agg = lookupValue(ivOp.getContainer());
-  LLVMValueRef val = lookupValue(ivOp.getValue());
+  LLVMValueRef val = lookupValueAsDeclared(ivOp.getValue());
   auto positions = ivOp.getPosition();
+
+  // `val` is `i8*`; the member it lands in may be refined. Folds away when the
+  // two already agree.
+  if (isa<LLVM::LLVMPointerType>(ivOp.getValue().getType())) {
+    LLVMTypeRef memberTy =
+        convertAggregateElementType(ivOp.getContainer().getType(), positions);
+    val = b.buildBitCast(val, memberTy, "");
+  }
+
   if (positions.size() == 1) {
     auto result = b.buildInsertValue(agg, val, positions[0], "");
     mapValue(ivOp.getResult(), result);
@@ -1445,7 +1551,7 @@ llvm::Error MLIRToLLVM70::translateExtractElementOp(Operation *op) {
 llvm::Error MLIRToLLVM70::translateInsertElementOp(Operation *op) {
   auto ieOp = cast<LLVM::InsertElementOp>(op);
   LLVMValueRef vec = lookupValue(ieOp.getVector());
-  LLVMValueRef val = lookupValue(ieOp.getValue());
+  LLVMValueRef val = lookupValueAsDeclared(ieOp.getValue());
   LLVMValueRef idx = lookupValue(ieOp.getPosition());
   mapValue(ieOp.getResult(), b.buildInsertElement(vec, val, idx, ""));
   return llvm::Error::success();
@@ -2134,8 +2240,8 @@ llvm::Error MLIRToLLVM70::translateAtomicCmpXchgOp(Operation *op) {
   auto cmpxchgOp = cast<LLVM::AtomicCmpXchgOp>(op);
 
   LLVMValueRef ptr = lookupValue(cmpxchgOp.getPtr());
-  LLVMValueRef cmp = lookupValue(cmpxchgOp.getCmp());
-  LLVMValueRef newVal = lookupValue(cmpxchgOp.getVal());
+  LLVMValueRef cmp = lookupValueAsDeclared(cmpxchgOp.getCmp());
+  LLVMValueRef newVal = lookupValueAsDeclared(cmpxchgOp.getVal());
 
   // Bitcast to the expected pointer type.
   LLVMTypeRef cmpTy = convertType(cmpxchgOp.getCmp().getType());

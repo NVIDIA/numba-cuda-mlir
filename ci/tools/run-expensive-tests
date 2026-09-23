@@ -49,13 +49,17 @@ case "${CUDA_VERSION}" in
     NVIDIA_PACKAGES_TO_REMOVE=()
     NVIDIA_PACKAGES_TO_UPGRADE=()
     ;;
-  13.0|13.1|13.2)
+  13.0|13.1|13.2|13.4)
     CUPY_PACKAGE="cupy-cuda13x"
     TORCH_INDEX_URL="https://download.pytorch.org/whl/cu130"
     NVMATH_PACKAGE="nvmath-python[cu13]"
     NVIDIA_PACKAGES=(
       "nvidia-cublas==${CUDA_VERSION}.*"
-      "nvidia-cuda-cccl==${CUDA_VERSION}.*"
+      # nvidia-cuda-cccl is deliberately absent: its wheel version stopped
+      # tracking the CTK minor after 13.2 (13.2.86 is followed by 13.3.4.2.1),
+      # so a ${CUDA_VERSION}.* pin cannot resolve for 13.3 or newer. CCCL is
+      # header-only and already supplied by the mini-CTK, so nothing here
+      # needs it pinned to the CTK under test.
       "nvidia-cuda-cupti==${CUDA_VERSION}.*"
       "nvidia-cuda-nvrtc==${CUDA_VERSION}.*"
       "nvidia-cuda-runtime==${CUDA_VERSION}.*"

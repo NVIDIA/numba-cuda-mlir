@@ -31,7 +31,6 @@ def test_inlined_callee_consteval_loop():
     np.testing.assert_array_equal(out.copy_to_host(), [10, 11, 12, 13, 0, 0, 0, 0])
 
 
-@pytest.mark.xfail(strict=True, reason="fold_arguments cannot bind keyword-only arguments")
 def test_inlined_callee_keyword_only_default():
     @cuda.jit(device=True, inline=True)
     def fill(out, *, base=7):

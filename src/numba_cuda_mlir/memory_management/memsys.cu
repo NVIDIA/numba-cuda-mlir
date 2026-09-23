@@ -23,7 +23,7 @@ extern "C" __global__ void NRT_MemSys_set(NRT_MemSys *memsys_ptr)
   TheMSys = memsys_ptr;
 }
 
-extern "C" __global__ void NRT_MemSys_read(uint64_t *managed_memsys)
+extern "C" __global__ void NRT_MemSys_read(unsigned long long *managed_memsys)
 {
   detail::check_memsys();
   managed_memsys[0] = TheMSys->stats.alloc;
@@ -32,25 +32,25 @@ extern "C" __global__ void NRT_MemSys_read(uint64_t *managed_memsys)
   managed_memsys[3] = TheMSys->stats.mi_free;
 }
 
-extern "C" __global__ void NRT_MemSys_read_alloc(uint64_t *managed_result)
+extern "C" __global__ void NRT_MemSys_read_alloc(unsigned long long *managed_result)
 {
   detail::check_memsys();
   managed_result[0] = TheMSys->stats.alloc;
 }
 
-extern "C" __global__ void NRT_MemSys_read_free(uint64_t *managed_result)
+extern "C" __global__ void NRT_MemSys_read_free(unsigned long long *managed_result)
 {
   detail::check_memsys();
   managed_result[0] = TheMSys->stats.free;
 }
 
-extern "C" __global__ void NRT_MemSys_read_mi_alloc(uint64_t *managed_result)
+extern "C" __global__ void NRT_MemSys_read_mi_alloc(unsigned long long *managed_result)
 {
   detail::check_memsys();
   managed_result[0] = TheMSys->stats.mi_alloc;
 }
 
-extern "C" __global__ void NRT_MemSys_read_mi_free(uint64_t *managed_result)
+extern "C" __global__ void NRT_MemSys_read_mi_free(unsigned long long *managed_result)
 {
   detail::check_memsys();
   managed_result[0] = TheMSys->stats.mi_free;
@@ -78,10 +78,10 @@ extern "C" __global__ void NRT_MemSys_disable_stats(void)
   TheMSys->stats.enabled = false;
 }
 
-extern "C" __global__ void NRT_MemSys_stats_enabled(uint8_t *enabled)
+extern "C" __global__ void NRT_MemSys_stats_enabled(unsigned char *enabled)
 {
   detail::check_memsys();
-  *enabled = static_cast<uint8_t>(TheMSys->stats.enabled);
+  *enabled = static_cast<unsigned char>(TheMSys->stats.enabled);
 }
 
 extern "C" __global__ void NRT_MemSys_print(void)
@@ -89,10 +89,10 @@ extern "C" __global__ void NRT_MemSys_print(void)
   if (TheMSys != nullptr)
   {
     printf("TheMSys->stats.enabled %d\n", TheMSys->stats.enabled);
-    printf("TheMSys->stats.alloc %zu\n", TheMSys->stats.alloc.load());
-    printf("TheMSys->stats.free %zu\n", TheMSys->stats.free.load());
-    printf("TheMSys->stats.mi_alloc %zu\n", TheMSys->stats.mi_alloc.load());
-    printf("TheMSys->stats.mi_free %zu\n", TheMSys->stats.mi_free.load());
+    printf("TheMSys->stats.alloc %llu\n", TheMSys->stats.alloc);
+    printf("TheMSys->stats.free %llu\n", TheMSys->stats.free);
+    printf("TheMSys->stats.mi_alloc %llu\n", TheMSys->stats.mi_alloc);
+    printf("TheMSys->stats.mi_free %llu\n", TheMSys->stats.mi_free);
   } else {
     printf("TheMsys is null.\n");
   }

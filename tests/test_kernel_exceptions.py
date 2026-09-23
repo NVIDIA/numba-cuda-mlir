@@ -1,7 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for kernel exception handling via error code mechanism."""
+"""Tests for kernel exception handling via error code mechanism.
+
+Kernel exceptions (``raise``/``assert``/bounds checks) surface to the host only
+when the kernel is compiled with ``debug=True``. This matches numba-cuda and the
+documented behavior in ``docs/source/user/cudapysupported.rst``: with
+``debug=False`` the launch stays asynchronous and no device-side error readback
+(``cuCtxSynchronize`` + status ``cuMemcpyDtoH``) is performed. See issue #232.
+"""
 
 import numpy as np
 import pytest
@@ -13,40 +20,74 @@ from numba_cuda_mlir.tools import get_gpu_compute_capability
 
 @cuda.jit
 def tuple_bounds_check_kernel(out, idx):
-    """Kernel that accesses a tuple with bounds checking."""
+    """Kernel that accesses a tuple with bounds checking (debug=False)."""
     t = (10, 20, 30)
     out[0] = t[idx]
 
 
-def test_tuple_index_out_of_bounds_raises():
-    """Test that out-of-bounds tuple access raises IndexError."""
+@cuda.jit(debug=True, opt=False)
+def tuple_bounds_check_kernel_debug(out, idx):
+    """Same kernel compiled with debug=True, so kernel exceptions surface."""
+    t = (10, 20, 30)
+    out[0] = t[idx]
+
+
+def test_tuple_index_in_bounds():
+    """In-bounds tuple access works regardless of debug."""
     out = cuda.device_array(1, dtype=np.int32)
 
-    # Valid access should work
     tuple_bounds_check_kernel[1, 1](out, 0)
-    result = out.copy_to_host()
-    assert result[0] == 10
+    cuda.synchronize()
+    assert out.copy_to_host()[0] == 10
 
     tuple_bounds_check_kernel[1, 1](out, 2)
-    result = out.copy_to_host()
-    assert result[0] == 30
-
-    # Out-of-bounds access should raise IndexError
-    with pytest.raises(IndexError, match="out of bounds"):
-        tuple_bounds_check_kernel[1, 1](out, 5)
+    cuda.synchronize()
+    assert out.copy_to_host()[0] == 30
 
 
-def test_multiple_errors_first_wins():
-    """Test that when multiple errors occur, the first one wins."""
+def test_tuple_index_out_of_bounds_raises_with_debug():
+    """Out-of-bounds tuple access raises IndexError when debug=True."""
     out = cuda.device_array(1, dtype=np.int32)
 
-    # First error should be captured
-    with pytest.raises(IndexError):
-        tuple_bounds_check_kernel[1, 1](out, 100)
+    # Valid access should still work.
+    tuple_bounds_check_kernel_debug[1, 1](out, 0)
+    cuda.synchronize()
+    assert out.copy_to_host()[0] == 10
 
-    # Error should be reset, so another error can be raised
+    # Out-of-bounds access should raise IndexError. With debug=True the check
+    # runs inside the (now synchronous) launch, so the launch call itself raises.
+    with pytest.raises(IndexError, match="out of bounds"):
+        tuple_bounds_check_kernel_debug[1, 1](out, 5)
+        cuda.synchronize()
+
+
+def test_tuple_index_out_of_bounds_no_raise_without_debug():
+    """With debug=False, kernel exceptions do not surface: the launch stays
+    asynchronous and no device-side error readback is performed."""
+    out = cuda.device_array(1, dtype=np.int32)
+
+    # Out-of-bounds index, but debug=False -> must not raise.
+    tuple_bounds_check_kernel[1, 1](out, 5)
+    cuda.synchronize()
+
+
+def test_error_resets_between_launches():
+    """The device error global is reset after each debug=True readback, so a
+    later launch surfaces its own error instead of being masked (or falsely
+    triggered) by a prior launch's code.
+
+    With debug=True the readback runs inside the launch call, so each launch
+    raises directly.
+    """
+    out = cuda.device_array(1, dtype=np.int32)
+
+    # First launch's out-of-bounds access is read back and raises.
     with pytest.raises(IndexError):
-        tuple_bounds_check_kernel[1, 1](out, 200)
+        tuple_bounds_check_kernel_debug[1, 1](out, 100)
+
+    # The global was reset to 0, so the second launch surfaces its own error.
+    with pytest.raises(IndexError):
+        tuple_bounds_check_kernel_debug[1, 1](out, 200)
 
 
 def test_error_global_in_ptx():
@@ -111,12 +152,18 @@ def test_ltoir_device_functions_share_error_global():
     ],
 )
 def test_raise_only_kernel(debug, opt):
-    """Test that raise-only kernel compiles and surfaces RuntimeError to host."""
+    """A raise-only kernel compiles; the RuntimeError surfaces only with debug=True."""
 
     @cuda.jit(debug=debug, opt=opt)
     def k():
         raise RuntimeError("Error")
 
-    with pytest.raises(RuntimeError, match="Runtime error in kernel"):
+    if debug:
+        with pytest.raises(RuntimeError, match="Runtime error in kernel"):
+            k[1, 1]()
+            cuda.synchronize()
+    else:
+        # debug=False: exceptions are not checked; the launch is asynchronous
+        # and must not raise.
         k[1, 1]()
         cuda.synchronize()

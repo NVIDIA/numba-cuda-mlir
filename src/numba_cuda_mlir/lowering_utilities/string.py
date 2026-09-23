@@ -10,15 +10,15 @@ that accept both ``UnicodeType`` and ``StringLiteral`` operands).
 """
 
 import sys
-import itertools
 
 from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir.mlir.dialect_exts import llvm
 from numba_cuda_mlir.lowering_utilities import constant
+from numba_cuda_mlir._threading import _LockedCounter
 
 _HASH_WIDTH = 64 if sys.maxsize > 2**32 else 32
-_counter = itertools.count(1)
+_counter = _LockedCounter(1)
 
 
 def materialize_string_constant_if_needed(gpu_module, val):

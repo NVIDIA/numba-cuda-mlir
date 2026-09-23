@@ -13,6 +13,7 @@ import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 
 from numba_cuda_mlir.numba_cuda import types
+from numba_cuda_mlir.numba_cuda.testing import skip_if_curand_kernel_missing
 from numba_cuda_mlir.numba_cuda.types import float32, int32
 from numba_cuda_mlir.numba_cuda.core.errors import TypingError
 from types import ModuleType
@@ -337,7 +338,7 @@ class TestDeclareDevice(NumbaCUDATestCase):
         expected = np.ones(2, dtype=np.int32)
         np.testing.assert_equal(x, expected)
 
-    @pytest.mark.xfail(True, reason="curand includes not present")
+    @skip_if_curand_kernel_missing
     def test_include_cuda_header(self):
         sig = types.int32(types.uint64)
         link = [rng_cu]

@@ -16,6 +16,9 @@ from numba_cuda_mlir.numba_cuda.core import ir
 import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda.core import errors
+from numba_cuda_mlir.numba_cuda.compiler import run_frontend
+from numba_cuda_mlir.numba_cuda.core.analysis import compute_cfg_from_blocks
+from numba_cuda_mlir.numba_cuda.core.ssa import _find_defs_violators
 
 from numba_cuda_mlir.extending import overload, typing_registry
 from numba_cuda_mlir.testing import NumbaCUDATestCase
@@ -281,7 +284,6 @@ class TestReportedSSAIssues(SSABaseTest):
         result_gpu = np.zeros((3, 2))
         self.check_func(foo, result_gpu, np.zeros((3, 2)))
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_issue3976(self):
         def overload_this(a):
             return 42
@@ -446,6 +448,34 @@ class TestReportedSSAIssues(SSABaseTest):
         np.testing.assert_array_equal(nb, expect)
 
 
+class TestSSAViolators(NumbaCUDATestCase):
+    def _violators(self, pyfunc):
+        func_ir = run_frontend(pyfunc)
+        cfg = compute_cfg_from_blocks(func_ir.blocks)
+        return set(_find_defs_violators(func_ir.blocks, cfg))
+
+    def test_single_def_dominating_uses(self):
+        def foo(c):
+            a = 1
+            if c:
+                b = a
+            else:
+                b = a + 1
+            return a + b
+
+        violators = self._violators(foo)
+        self.assertNotIn("a", violators)
+        self.assertIn("b", violators)
+
+    def test_single_def_not_dominating_use(self):
+        def foo(c):
+            if c:
+                a = 1
+            return a
+
+        self.assertIn("a", self._violators(foo))
+
+
 class TestSSADeepCFG(NumbaCUDATestCase):
     """
     The reaching-definition search must not recurse per CFG block,
@@ -457,7 +487,6 @@ class TestSSADeepCFG(NumbaCUDATestCase):
     """
 
     def test_deep_dominator_chain_def_search(self):
-        from numba_cuda_mlir.numba_cuda.compiler import run_frontend
         from numba_cuda_mlir.numba_cuda.core.ssa import reconstruct_ssa
 
         # `a` is an SSA violator (two definitions) whose use sits at the

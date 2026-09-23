@@ -49,6 +49,11 @@ def consteval(value=None):
 
         x = consteval(GLOBAL_CONST * 2)
 
+    Usage in a loop (unrolls each compile-time iteration)::
+
+        for i in consteval(range(10)):
+            array[i] = i
+
     Usage as context manager (executes block at compile time)::
 
         with consteval():

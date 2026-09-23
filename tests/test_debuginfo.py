@@ -3,10 +3,11 @@
 
 import numpy as np
 from enum import IntEnum
+from types import SimpleNamespace
 
 import pytest
 from numba_cuda_mlir import cuda
-from numba_cuda_mlir import types, compiler, testing
+from numba_cuda_mlir import types, compiler, mlir_optimization, testing
 from numba_cuda_mlir.numba_cuda.types.ext_types import bfloat16
 from numba_cuda_mlir.numba_cuda.np import numpy_support
 
@@ -348,7 +349,8 @@ def test_mlir_bfloat16_type():
     )
 
 
-def k_complex_add(a, b):
+def d_complex_add(a, b):
+    # A device function that returns a value.
     c = a + b
     return c
 
@@ -356,10 +358,11 @@ def k_complex_add(a, b):
 def test_mlir_fusedloc_tags_complex():
     """Complex vars are tagged for deferred dbg.declare emission."""
     mlir = compiler.compile_mlir(
-        k_complex_add,
+        d_complex_add,
         (types.complex64, types.complex64),
         debug=True,
         opt=False,
+        device=True,
     )
     testing.filecheck(
         """
@@ -374,11 +377,12 @@ def test_mlir_fusedloc_tags_complex():
 def test_mlir_deferred_dbg_declare_complex():
     """Deferred pass emits dbg.declare and complex DI type."""
     optimized_mlir = compiler.compile_mlir(
-        k_complex_add,
+        d_complex_add,
         (types.complex128, types.complex128),
         optimized=True,
         debug=True,
         opt=False,
+        device=True,
     )
     testing.filecheck(
         """
@@ -777,7 +781,7 @@ def test_mlir_poly_scalar_var_runtime_debug():
 
 
 def test_mlir_di_bitwise_result_int32():
-    """Bitwise AND/OR/XOR on int32 operands must appear as int32 in DWARF (nvbug5936795)."""
+    """Bitwise AND/OR/XOR on int32 operands must appear as int32 in DWARF."""
 
     def k(out, a, b):
         result_and = a & b
@@ -801,4 +805,141 @@ def test_mlir_di_bitwise_result_int32():
         CHECK: di_local_variable<{{.*}}name = "result_xor"{{.*}}type = #[[INT32]]
         """,
         mlir,
+    )
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize(
+    "int_arg, expected_name, size_bits, encoding",
+    [
+        (np.int8, "int8", 8, "DW_ATE_signed"),
+        (np.int16, "int16", 16, "DW_ATE_signed"),
+        (np.int32, "int32", 32, "DW_ATE_signed"),
+        (np.int64, "int64", 64, "DW_ATE_signed"),
+        (np.uint8, "uint8", 8, "DW_ATE_unsigned"),
+        (np.uint16, "uint16", 16, "DW_ATE_unsigned"),
+        (np.uint32, "uint32", 32, "DW_ATE_unsigned"),
+        (np.uint64, "uint64", 64, "DW_ATE_unsigned"),
+    ],
+)
+def test_mlir_scalar_int_arg_type(int_arg, expected_name, size_bits, encoding):
+    """A numpy integer scalar arg keeps its width on the lazy JIT path."""
+
+    @cuda.jit(debug=True, opt=False)
+    def k(out, x):
+        out[0] = x
+
+    out = np.zeros(1, dtype=np.int64)
+    # Signature-less launch: the scalar's type is inferred from the value.
+    k[1, 1](out, int_arg(42))
+
+    (sig,) = k.overloads
+    mlir = k.inspect_mlir(sig)
+    testing.filecheck(
+        f"""
+        CHECK: di_basic_type<tag = DW_TAG_base_type, name = "{expected_name}"
+        CHECK-SAME: sizeInBits = {size_bits}
+        CHECK-SAME: encoding = {encoding}
+        """,
+        mlir,
+    )
+
+
+def test_llvm_ir_array_arg_is_parameter_of_descriptor_type():
+    """An array arg is described by its full descriptor type in the LLVM IR."""
+
+    @cuda.jit(debug=True, opt=False)
+    def k(input_arr, output_arr):
+        idx = cuda.grid(1)
+        output_arr[idx] = input_arr[idx] * 2
+
+    sig = (types.int32[:], types.int32[:])
+    k.compile(types.void(*sig))
+    llvm_ir = k.inspect_llvm(sig)
+
+    testing.filecheck(
+        """
+        CHECK: ![[VAR:[0-9]+]] = !DILocalVariable(name: "input_arr", arg: 1,{{.*}}type: ![[TY:[0-9]+]])
+        CHECK: ![[TY]] = {{(distinct )?}}!DICompositeType(tag: DW_TAG_structure_type,{{.*}}size: 448, {{.*}}elements: ![[ELEMS:[0-9]+]])
+        CHECK: ![[ELEMS]] = !{
+        CHECK-DAG: !DIDerivedType(tag: DW_TAG_member, name: "meminfo",{{.*}}size: 64)
+        CHECK-DAG: !DIDerivedType(tag: DW_TAG_member, name: "nitems",{{.*}}offset: 128)
+        CHECK-DAG: !DIDerivedType(tag: DW_TAG_member, name: "itemsize",{{.*}}offset: 192)
+        CHECK-DAG: !DIDerivedType(tag: DW_TAG_member, name: "data",{{.*}}offset: 256)
+        CHECK-DAG: !DIDerivedType(tag: DW_TAG_member, name: "shape",{{.*}}offset: 320)
+        CHECK-DAG: !DIDerivedType(tag: DW_TAG_member, name: "strides",{{.*}}offset: 384)
+        CHECK-DAG: !DIDerivedType(tag: DW_TAG_pointer_type,{{.*}}size: 64
+        CHECK-DAG: !DICompositeType(tag: DW_TAG_array_type,{{.*}}elements: ![[DIMS:[0-9]+]])
+        CHECK-DAG: !DISubrange(count: 1)
+        CHECK-DAG: !DILocalVariable(name: "output_arr", arg: 2,{{.*}}type: ![[TY]])
+        """,
+        llvm_ir,
+    )
+
+
+# struct Node { int32 value; Node *next; }. MLIR attributes are immutable and
+# uniqued, so #di_node cannot appear inside its own element list; the cycle goes
+# through #di_self instead, a composite carrying nothing but the same
+# recId = distinct[2]<> that #di_node carries. Following "next" leads
+# #di_next -> #di_next_ptr -> #di_self, never back to #di_node itself, so the
+# shared recursion id is all a translator has to reconnect them.
+_RECURSIVE_TYPE_MODULE = """
+#di_file = #llvm.di_file<"test.py" in ".">
+#di_cu = #llvm.di_compile_unit<id = distinct[0]<>, sourceLanguage = DW_LANG_C, file = #di_file, isOptimized = false, emissionKind = Full>
+#di_i32 = #llvm.di_basic_type<tag = DW_TAG_base_type, name = "int32", sizeInBits = 32, encoding = DW_ATE_signed>
+#di_subroutine = #llvm.di_subroutine_type<types = #di_i32>
+#di_subprogram = #llvm.di_subprogram<id = distinct[1]<>, compileUnit = #di_cu, scope = #di_file, name = "rec_kernel", file = #di_file, line = 5, subprogramFlags = "Definition", type = #di_subroutine>
+#di_self = #llvm.di_composite_type<recId = distinct[2]<>, isRecSelf = true>
+#di_next_ptr = #llvm.di_derived_type<tag = DW_TAG_pointer_type, baseType = #di_self, sizeInBits = 64>
+#di_value = #llvm.di_derived_type<tag = DW_TAG_member, name = "value", baseType = #di_i32, sizeInBits = 32>
+#di_next = #llvm.di_derived_type<tag = DW_TAG_member, name = "next", baseType = #di_next_ptr, sizeInBits = 64, offsetInBits = 64>
+#di_node = #llvm.di_composite_type<recId = distinct[2]<>, tag = DW_TAG_structure_type, name = "Node", file = #di_file, line = 3, sizeInBits = 128, elements = #di_value, #di_next>
+#di_var_node = #llvm.di_local_variable<scope = #di_subprogram, name = "node", file = #di_file, line = 5, type = #di_node>
+#di_var_head = #llvm.di_local_variable<scope = #di_subprogram, name = "head", file = #di_file, line = 5, type = #di_next_ptr>
+#loc_fn = loc(fused<#di_subprogram>["test.py":5:0])
+#loc_stmt = loc(fused<#di_subprogram>["test.py":6:0])
+
+module attributes {gpu.container_module} {
+  gpu.module @kernels {
+    llvm.func @rec_kernel(%out: !llvm.ptr<1>) attributes {gpu.kernel} {
+      %one = llvm.mlir.constant(1 : i64) : i64
+      %slot = llvm.alloca %one x !llvm.struct<(i32, ptr)> : (i64) -> !llvm.ptr loc(#loc_stmt)
+      llvm.intr.dbg.declare #di_var_node = %slot : !llvm.ptr loc(#loc_stmt)
+      %head = llvm.alloca %one x !llvm.ptr : (i64) -> !llvm.ptr loc(#loc_stmt)
+      llvm.intr.dbg.declare #di_var_head = %head : !llvm.ptr loc(#loc_stmt)
+      %c = llvm.mlir.constant(42 : i32) : i32
+      llvm.store %c, %out : i32, !llvm.ptr<1> loc(#loc_stmt)
+      llvm.return loc(#loc_stmt)
+    } loc(#loc_fn)
+  }
+}
+"""
+
+
+def test_recursive_type_refers_back_to_itself():
+    """A type that reaches itself survives translation instead of going opaque.
+
+    The "head" variable reaches the cycle without going through the composite,
+    which is the case that regresses if self-references are only resolved while
+    the composite is being translated.
+    """
+    options = {"debug": True, "opt": False}
+    cres = SimpleNamespace(
+        metadata={
+            "mlir_module_optimized": _RECURSIVE_TYPE_MODULE,
+            "targetoptions": options,
+        }
+    )
+    llvm_ir = mlir_optimization.get_llvmir(cres, options)
+
+    testing.filecheck(
+        """
+        CHECK: ![[NODE:[0-9]+]] = {{(distinct )?}}!DICompositeType(tag: DW_TAG_structure_type, name: "Node",{{.*}}size: 128, elements: ![[ELEMS:[0-9]+]])
+        CHECK: ![[ELEMS]] = !{![[VALUE:[0-9]+]], ![[NEXT:[0-9]+]]}
+        CHECK: ![[VALUE]] = !DIDerivedType(tag: DW_TAG_member, name: "value",{{.*}}size: 32)
+        CHECK: ![[NEXT]] = !DIDerivedType(tag: DW_TAG_member, name: "next",{{.*}}baseType: ![[PTR:[0-9]+]], size: 64, offset: 64)
+        CHECK: ![[PTR]] = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: ![[NODE]], size: 64
+        CHECK: !DILocalVariable(name: "head",{{.*}}type: ![[PTR]])
+        """,
+        llvm_ir,
     )

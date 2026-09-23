@@ -161,17 +161,36 @@ def _find_defs_violators(blocks, cfg):
     # scan from the first to the last basic-block as they occur in bytecode.
     violators = {k: None for k, vs in defs.items() if len(vs) > 1}
     # Gather violators by uses not dominated by the one def
-    doms = cfg.dominators()
+    enter, leave = _dominator_tree_intervals(cfg)
     for k, use_blocks in uses.items():
         if k not in violators:
+            def_labels = [label for _assign, label in defs[k] if label in enter]
             for label in use_blocks:
-                dom = doms[label]
-                def_labels = {label for _assign, label in defs[k]}
-                if not def_labels.intersection(dom):
+                use_enter = enter[label]
+                if not any(enter[d] <= use_enter < leave[d] for d in def_labels):
                     violators[k] = None
                     break
     _logger.debug("SSA violators %s", _lazy_pformat(list(violators)))
     return violators
+
+
+def _dominator_tree_intervals(cfg):
+    """Return ``(enter, leave)``: ``a`` dominates ``b`` iff ``enter[a] <= enter[b] < leave[a]``."""
+    domtree = cfg.dominator_tree()
+    enter = {}
+    leave = {}
+    counter = 0
+    stack = [(cfg.entry_point(), False)]
+    while stack:
+        node, done = stack.pop()
+        if done:
+            leave[node] = counter
+            continue
+        enter[node] = counter
+        counter += 1
+        stack.append((node, True))
+        stack.extend((child, False) for child in domtree[node])
+    return enter, leave
 
 
 def _run_block_analysis(blocks, states, handler):

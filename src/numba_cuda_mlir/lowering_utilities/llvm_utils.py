@@ -1,10 +1,15 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import ctypes
-import itertools
 import os
 
-NVPTX64_DATALAYOUT = "e-i64:64-i128:128-v16:16-v32:32-n16:32:64-S128"
+from numba_cuda_mlir._threading import _LockedCounter
+
+NVPTX64_DATALAYOUT = (
+    "e-p:64:64:64-p6:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64"
+    "-i128:128:128-f32:32:32-f64:64:64-f128:128:128-v16:16:16-v32:32:32"
+    "-v64:64:64-v128:128:128-n16:32:64-a:8:8"
+)
 NVPTX64_TRIPLE = "nvptx64-nvidia-cuda"
 
 
@@ -43,7 +48,7 @@ MODERN_TO_NVVM_BRIDGE_LIB_PATH = _find_modern_to_nvvm_bridge_lib()
 
 _capi = None
 _modern_to_nvvm_bridge = None
-_modern_bridge_dump_counter = itertools.count()
+_modern_bridge_dump_counter = _LockedCounter()
 
 
 def _load_capi_library(path: str, label: str):
@@ -73,6 +78,8 @@ def _get_capi():
     _capi.LLVMPrintModuleToString.argtypes = [ctypes.c_void_p]
     _capi.LLVMDisposeMessage.restype = None
     _capi.LLVMDisposeMessage.argtypes = [ctypes.c_void_p]
+    _capi.LLVMDisposeModule.restype = None
+    _capi.LLVMDisposeModule.argtypes = [ctypes.c_void_p]
     _capi.LLVMContextDispose.restype = None
     _capi.LLVMContextDispose.argtypes = [ctypes.c_void_p]
     return _capi
@@ -88,6 +95,7 @@ def _get_modern_to_nvvm_bridge():
     lib.mlir_modern_to_nvvm_translate_for_libnvvm.argtypes = [
         ctypes.c_char_p,
         ctypes.c_size_t,
+        ctypes.c_int,
         ctypes.c_int,
         ctypes.c_int,
         ctypes.c_int,
@@ -170,6 +178,7 @@ def translate_gpu_module_to_libnvvm_ir(
     nvvm_ir_version,
     dump=False,
     emit_text_ir=False,
+    inspect_llvmir=False,
 ):
     """Translate gpu.module text to libnvvm-compatible LLVM IR bytes."""
     lib = _get_modern_to_nvvm_bridge()
@@ -190,6 +199,7 @@ def translate_gpu_module_to_libnvvm_ir(
         nvvm_ir_version[3],
         int(bool(dump)),
         int(bool(emit_text_ir)),
+        int(bool(inspect_llvmir)),
         ctypes.byref(out),
         ctypes.byref(out_len),
         ctypes.byref(err_out),
@@ -221,3 +231,14 @@ def dump_llvmir(llvm_mod_ptr):
     result = ctypes.string_at(raw).decode("utf-8")
     capi.LLVMDisposeMessage(raw)
     return result
+
+
+def translate_to_llvmir_text(op):
+    """Translate an MLIR gpu.module operation to readable LLVM IR text."""
+    llvm_mod, llvm_ctx = translate_to_llvmir(op)
+    capi = _get_capi()
+    try:
+        return dump_llvmir(llvm_mod)
+    finally:
+        capi.LLVMDisposeModule(llvm_mod)
+        capi.LLVMContextDispose(llvm_ctx)

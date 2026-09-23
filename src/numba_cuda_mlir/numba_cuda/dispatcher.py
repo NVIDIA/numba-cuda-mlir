@@ -53,7 +53,6 @@ from numba_cuda_mlir.numba_cuda.errors import (
 )
 from numba_cuda_mlir.numba_cuda.cudadrv.linkable_code import LinkableCode
 from numba_cuda_mlir.numba_cuda.cudadrv.devices import get_context
-from numba_cuda_mlir.numba_cuda.memory_management.nrt import rtsys
 import numba_cuda_mlir.numba_cuda.core.event as ev
 
 # from numba_cuda_mlir.numba_cuda.cext import _dispatcher
@@ -349,17 +348,6 @@ class _Kernel(serialize.ReduceMixin):
 
         if self.shared_memory_carveout is not None:
             cufunc.set_shared_memory_carveout(self.shared_memory_carveout)
-
-        if (
-            hasattr(self, "target_context")
-            and self.target_context.enable_nrt
-            and config.CUDA_NRT_STATS
-        ):
-            rtsys.ensure_initialized()
-            rtsys.set_memsys_to_module(cufunc.module)
-            # We don't know which stream the kernel will be launched on, so
-            # we force synchronize here.
-            cuda.synchronize()
 
     @property
     def regs_per_thread(self):

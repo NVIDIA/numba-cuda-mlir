@@ -160,3 +160,4 @@ jobs:
           target-folder: /
           commit-message: "Deploy ${{ (inputs.is-release && 'release') || 'latest' }} docs: ${{ env.COMMIT_HASH }}"
           clean: false
+          force: false

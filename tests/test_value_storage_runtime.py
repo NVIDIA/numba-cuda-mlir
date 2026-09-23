@@ -61,6 +61,20 @@ def test_bool_reductions_read_value_elements():
     np.testing.assert_array_equal(flags_out, np.array([1, 0], dtype=np.int32))
 
 
+def test_bool_to_integer_constructor_conversion_uses_zero_extension():
+    @cuda.jit
+    def kernel(out, values):
+        out[0] = int(values[0])
+        out[1] = int(values[1])
+        out[2] = np.int64(values[0])
+        out[3] = np.int64(values[1])
+
+    values = np.array([True, False], dtype=np.bool_)
+    out = np.zeros(4, dtype=np.int64)
+    kernel[1, 1](out, values)
+    np.testing.assert_array_equal(out, np.array([1, 0, 1, 0], dtype=np.int64))
+
+
 def test_heterogeneous_tuple_reassignment_uses_storage_slots():
     @cuda.jit
     def kernel(out, values, flags):

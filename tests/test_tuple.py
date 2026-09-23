@@ -312,5 +312,78 @@ def test_hetero_tuple_multi_assign_from_inlined_device_function():
     np.testing.assert_array_equal(out.copy_to_host(), [14, 2, 1])
 
 
+def test_dynamic_index_tuple_of_tuples():
+    """Runtime indexing into a tuple of tuples (e.g. coefficient rows)."""
+    rows = ((1.0, 2.0), (3.0, 4.0), (5.0, 6.0))
+
+    @cuda.jit
+    def kernel(out):
+        for i in range(len(rows)):
+            row = rows[i]
+            out[i] = row[0] + row[1]
+
+    out = np.zeros(3, dtype=np.float64)
+    kernel[1, 1](out)
+    np.testing.assert_allclose(out, [3.0, 7.0, 11.0])
+
+
+def test_dynamic_index_tuple_of_hetero_tuples():
+    rows = ((1, 2.5), (3, 4.5))
+
+    @cuda.jit
+    def kernel(out):
+        for i in range(len(rows)):
+            row = rows[i]
+            out[i] = row[0] + row[1]
+
+    out = np.zeros(2, dtype=np.float64)
+    kernel[1, 1](out)
+    np.testing.assert_allclose(out, [3.5, 7.5])
+
+
+def test_dynamic_index_deeply_nested_tuple():
+    nested = (((1.0, 2.0), (3.0, 4.0)), ((5.0, 6.0), (7.0, 8.0)))
+
+    @cuda.jit
+    def kernel(out):
+        for i in range(len(nested)):
+            block = nested[i]
+            out[i] = block[0][0] + block[1][1]
+
+    out = np.zeros(2, dtype=np.float64)
+    kernel[1, 1](out)
+    np.testing.assert_allclose(out, [5.0, 13.0])
+
+
+def test_dynamic_index_scalar_tuple_still_works():
+    values = (10.0, 20.0, 30.0)
+
+    @cuda.jit
+    def kernel(out):
+        for i in range(len(values)):
+            out[i] = values[i]
+
+    out = np.zeros(3, dtype=np.float64)
+    kernel[1, 1](out)
+    np.testing.assert_allclose(out, [10.0, 20.0, 30.0])
+
+
+def test_dynamic_index_tuple_of_empty_tuples_bounds_check():
+    """Out-of-range indexing raises even when the selected elements
+    are empty tuples, which emit no leaf switches."""
+    empties = ((), ())
+
+    @cuda.jit(debug=True, opt=False)
+    def kernel(idx_arr, out):
+        row = empties[idx_arr[0]]
+        out[0] = len(row)
+
+    out = cuda.to_device(np.zeros(1, dtype=np.int32))
+    kernel[1, 1](cuda.to_device(np.array([1], dtype=np.int64)), out)
+    assert out.copy_to_host()[0] == 0
+    with pytest.raises(IndexError):
+        kernel[1, 1](cuda.to_device(np.array([5], dtype=np.int64)), out)
+
+
 if __name__ == "__main__":
     test_tuple_concat((1, 2), (3, 4, 5))

@@ -629,6 +629,22 @@ def _flags_match_reads(flags, reads):
     return all(_read_flag(flags, read) == value for read, value in reads)
 
 
+def _captures_an_intrinsic(impl):
+    """Whether *impl* closes over an ``@intrinsic``, making it unsafe to memoize."""
+    # Imported lazily: numba_cuda_mlir.numba_cuda.extending imports this module.
+    from numba_cuda_mlir.numba_cuda.extending import _Intrinsic
+
+    for cell in getattr(impl, "__closure__", None) or ():
+        try:
+            captured = cell.cell_contents
+        except ValueError:
+            # An empty cell, as in a closure that refers to itself.
+            continue
+        if isinstance(captured, _Intrinsic):
+            return True
+    return False
+
+
 def _select_overload_dispatcher(templates, args_match, cur_flags):
     """Pick the cached overload Dispatcher for *cur_flags* from *templates*.
 
@@ -899,7 +915,8 @@ class _OverloadFunctionTemplate(AbstractTemplate):
 
         Each entry records the ``(option, repr)`` pairs its run read; a lookup reuses
         the first entry the active flags agree with.  Without flags on the stack
-        nothing can be observed, so nothing is cached.
+        nothing can be observed, so nothing is cached.  A body that mints an
+        ``@intrinsic`` is never cached; see ``_captures_an_intrinsic``.
         """
         flags = targetconfig.ConfigStack.top_or_none()
         if flags is None:
@@ -912,7 +929,8 @@ class _OverloadFunctionTemplate(AbstractTemplate):
                 return result
 
         result, names = _run_recording_flag_reads(self._overload_func, args, kws)
-        entries[_record_flag_reads(flags, names)] = result
+        if not _captures_an_intrinsic(result):
+            entries[_record_flag_reads(flags, names)] = result
         return result
 
     def _build_impl(self, cache_key, args, kws):

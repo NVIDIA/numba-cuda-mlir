@@ -540,6 +540,40 @@ def test_flag_reading_attribute_and_method_across_flag_contexts(kind):
     assert len(runs) == 2
 
 
+def test_overload_minting_an_intrinsic_survives_a_registry_refresh():
+    """An overload body that mints a fresh ``@intrinsic`` must not have that
+    intrinsic handed back on a later compilation.
+
+    ``@overload(carray, inline="always")`` builds a new ``@intrinsic`` every
+    time it runs and returns an implementation closing over it.  Memoizing the
+    body returns the *same* intrinsic to a later compile, and by then that
+    intrinsic has registered its numba-convention lowering into the target
+    context's ``_defns``.  ``MLIRLower._lookup_actual_function`` then finds it
+    and calls it as if it were an MLIR builder -- ``(builder, target, args,
+    kwargs)`` rather than ``(context, builder, sig, args)`` -- so the argument
+    list lands in the ``sig`` slot and lowering dies far from the cause with
+    ``AttributeError: 'list' object has no attribute 'args'``.
+
+    A refresh between compilations is what installs the stale lowering into
+    ``_defns``, so it is required to reproduce; cuda.compute does one between
+    operators, which is how this surfaced.
+    """
+    sig = types.void(types.voidptr, types.CPointer(types.float32))
+
+    def make_kernel():
+        # A distinct function object each time, so nothing but the overload
+        # cache can carry state between the two compilations.
+        def kernel(ptr, out):
+            arr = cuda.carray(ptr, (4,), np.float32)
+            out[0] = arr[0]
+
+        return kernel
+
+    cuda.compile_ptx(make_kernel(), sig, device=True, cc=(8, 0))
+    refresh_registries()
+    cuda.compile_ptx(make_kernel(), sig, device=True, cc=(8, 0))
+
+
 def test_overload_builder_does_not_take_flagless_entry_over_exact_match():
     """An entry resolved with no flags is a fallback, not an exact match for any flags."""
 

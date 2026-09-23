@@ -88,6 +88,7 @@ def recompile_function(func: Callable, tree: ast.Module, stored_values: dict = N
         func.__defaults__,
         new_closure,
     )
+    new_func.__kwdefaults__ = func.__kwdefaults__
     new_func.__annotations__ = func.__annotations__
     new_func.__doc__ = func.__doc__
     new_func.__module__ = func.__module__

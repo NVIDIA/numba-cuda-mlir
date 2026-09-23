@@ -31,6 +31,22 @@ def test_inlined_callee_consteval_loop():
     np.testing.assert_array_equal(out.copy_to_host(), [10, 11, 12, 13, 0, 0, 0, 0])
 
 
+@pytest.mark.xfail(strict=True, reason="fold_arguments cannot bind keyword-only arguments")
+def test_inlined_callee_keyword_only_default():
+    @cuda.jit(device=True, inline=True)
+    def fill(out, *, base=7):
+        for i in consteval(range(2)):
+            out[i] = base + i
+
+    @cuda.jit
+    def kernel(out):
+        fill(out)
+
+    out = cuda.to_device(np.zeros(2, dtype=np.int32))
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(out.copy_to_host(), [7, 8])
+
+
 def test_nested_inlined_callees_transform():
     n = 3
 

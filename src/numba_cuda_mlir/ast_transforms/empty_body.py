@@ -12,6 +12,9 @@ class EmptyBodyRepairer(ast.NodeTransformer):
     def __init__(self):
         self.modified = False
 
+    def visit_Module(self, node: ast.Module) -> ast.Module:
+        return super().generic_visit(node)
+
     def generic_visit(self, node: ast.AST) -> ast.AST:
         node = super().generic_visit(node)
         body = getattr(node, "body", None)

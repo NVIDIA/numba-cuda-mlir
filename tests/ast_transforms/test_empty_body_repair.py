@@ -29,6 +29,13 @@ def test_repair_leaves_populated_bodies_alone():
     assert ast.unparse(tree) == "def f(x):\n    if x:\n        return 1\n    return 2"
 
 
+def test_repair_leaves_empty_module_alone():
+    """An empty module is valid and is not rewritten."""
+    tree, modified = repair_empty_bodies(ast.parse(""))
+    assert not modified
+    assert tree.body == []
+
+
 def test_zero_trip_loop_as_only_statement():
     """A zero-trip consteval loop that is the whole kernel body compiles to pass."""
 

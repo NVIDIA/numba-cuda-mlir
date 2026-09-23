@@ -29,10 +29,10 @@ from numba_cuda_mlir.lowering_utilities import (
     convert,
     f32_of,
     i32_of,
+    memref_descriptor_type,
     memref_to_llvm_ptr,
     storage_itemsize_bytes,
     storage_bitwidth,
-    memref_llvm_address_space,
 )
 from numba_cuda_mlir.lowering_utilities.type_conversions import (
     to_mlir_type,
@@ -101,14 +101,7 @@ def _lower_cfarray(builder: MLIRLower, target, args, kwargs, name, layout):
     result_mlir_type = builder.get_mlir_type(result_type)
     i64 = T.i64()
 
-    if rank > 0:
-        struct_type = ir.Type.parse(
-            f"!llvm.struct<(ptr, ptr, i64, array<{rank} x i64>, array<{rank} x i64>)>"
-        )
-    else:
-        struct_type = ir.Type.parse("!llvm.struct<(ptr, ptr, i64)>")
-
-    desc = llvm.UndefOp(struct_type).result
+    desc = llvm.UndefOp(memref_descriptor_type(rank)).result
     zero = constant(0, i64)
     ins = lambda d, v, *p: llvm.insertvalue(
         container=d, value=v, position=ir.DenseI64ArrayAttr.get(list(p))
@@ -1192,27 +1185,6 @@ def cuda_generic_atomic_cg(builder, target, mr, indices, value, body_builder):
     builder.store_var(target, ir.Value(rmw))
 
 
-def _atomic_ptr(mr: ir.Value, indices: list[ir.Value], value_type: ir.Type) -> ir.Value:
-    llvm_kDynamic = -2147483648
-    addrspace = memref_llvm_address_space(mr.type)
-    ptr_type = llvm.PointerType.get(addrspace)
-
-    md = memref.extract_strided_metadata(mr)
-    base_mr = md[0]
-    base_ptr_idx = memref.extract_aligned_pointer_as_index(base_mr)
-    base_ptr_i64 = arith.index_cast(T.i64(), base_ptr_idx)
-    base_ptr = llvm.inttoptr(ptr_type, base_ptr_i64)
-
-    ndim = len(indices)
-    offset = convert(md[1], T.i64())  # base offset
-    for d in range(ndim):
-        idx_val = convert(indices[d], T.i64())
-        stride = convert(md[2 + ndim + d], T.i64())  # strides start after sizes
-        offset = offset + idx_val * stride
-
-    return llvm.getelementptr(ptr_type, base_ptr, [offset], [llvm_kDynamic], value_type, None)
-
-
 def cuda_atomic_cg(oper, builder, target, mr, indices, value):
     value_type = mr.type.element_type
     binop = atomic_binop_for_operator(oper, value_type)
@@ -1220,7 +1192,7 @@ def cuda_atomic_cg(oper, builder, target, mr, indices, value):
     if oper == cuda.atomic.sub:
         value = 0 - value
     indices = list(map(index_of, indices))
-    ptr = _atomic_ptr(mr, indices, value_type)
+    ptr = memref_to_llvm_ptr(mr, indices, value_type)
     result = llvm.atomicrmw(binop, ptr, value, llvm.AtomicOrdering.monotonic)
     builder.store_var(target, result)
 
@@ -1260,7 +1232,7 @@ def cuda_atomic_exch_cg(builder, target, mr, indices, value_to_store):
     value_type = mr.type.element_type
     value_to_store = convert(value_to_store, value_type)
     indices = list(map(index_of, indices))
-    ptr = _atomic_ptr(mr, indices, value_type)
+    ptr = memref_to_llvm_ptr(mr, indices, value_type)
     rmw = llvm.atomicrmw(llvm.AtomicBinOp.xchg, ptr, value_to_store, llvm.AtomicOrdering.monotonic)
     builder.store_var(target, rmw)
 

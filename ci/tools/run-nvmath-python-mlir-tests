@@ -43,8 +43,35 @@ fi
 echo "nvmath-python test commit (${NVMATH_REF}):"
 git -C "${NVMATH_CHECKOUT}" log -1 --format='%H %h %s'
 
+# Local fixups the nvmath-python checkout needs to run against numba-cuda-mlir
+# alone. Each patch documents its own rationale and the condition for dropping
+# it; a patch that no longer applies is a hard error, so upstream drift shows up
+# here instead of silently changing what the job tests.
+NVMATH_PATCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../patches/nvmath-python" && pwd)"
+shopt -s nullglob
+nvmath_patches=("${NVMATH_PATCH_DIR}"/*.patch)
+shopt -u nullglob
+
+if [[ ${#nvmath_patches[@]} -eq 0 ]]; then
+  echo "ERROR: no patches found in ${NVMATH_PATCH_DIR}"
+  exit 1
+fi
+
+for patch in "${nvmath_patches[@]}"; do
+  echo "Applying $(basename "${patch}") to the nvmath-python checkout"
+  if ! git -C "${NVMATH_CHECKOUT}" apply --verbose "${patch}"; then
+    echo "ERROR: $(basename "${patch}") does not apply to ${NVMATH_REF}; it likely needs a refresh"
+    exit 1
+  fi
+done
+
+echo "Patched nvmath-python checkout:"
+git -C "${NVMATH_CHECKOUT}" diff --stat
+
 echo "Building and installing nvmath-python from source with device extras"
-python -m pip install "${NVMATH_CHECKOUT}[cu${TEST_CUDA_MAJOR}-dx]"
+# numba-cuda accesses np.row_stack during import, but NumPy removed that alias
+# in 2.5. Keep the integration environment below 2.5 until numba-cuda guards it.
+python -m pip install "${NVMATH_CHECKOUT}[cu${TEST_CUDA_MAJOR}-dx]" "numpy<2.5"
 
 echo "Installing nvmath-python test dependencies"
 python -m pip install \
@@ -60,15 +87,51 @@ else
 fi
 
 echo "Checking numba-cuda-mlir and nvmath imports"
-python - <<'PY'
+{
+  read -r numba_cuda_mlir_version
+  read -r numba_cuda_mlir_file
+  read -r nvmath_version
+  read -r nvmath_file
+  read -r nvmath_has_mlir
+} < <(python - <<'PY'
 import importlib.metadata
 
 import numba_cuda_mlir
 import nvmath
+import nvmath.device
 
-print(f"numba_cuda_mlir {numba_cuda_mlir.__version__} from {numba_cuda_mlir.__file__}")
-print(f"nvmath {importlib.metadata.version('nvmath-python')} from {nvmath.__file__}")
+print(importlib.metadata.version("numba_cuda_mlir"))
+print(numba_cuda_mlir.__file__)
+print(importlib.metadata.version("nvmath-python"))
+print(nvmath.__file__)
+print(nvmath.device.common._HAS_NUMBA_CUDA_MLIR)
 PY
+)
+
+echo "numba_cuda_mlir ${numba_cuda_mlir_version} from ${numba_cuda_mlir_file}"
+echo "nvmath ${nvmath_version} from ${nvmath_file}"
+
+if [[ "${nvmath_has_mlir}" != "True" ]]; then
+  echo "ERROR: nvmath did not detect numba-cuda-mlir"
+  exit 1
+fi
+
+# A dependency edge that drags the numba stack back in would change which
+# backend nvmath exercises, so keep it out of the environment entirely.
+installed_packages="$(python -m pip list --format=freeze)"
+for package in numba numba-cuda; do
+  if entry="$(grep -i "^${package}==" <<<"${installed_packages}")"; then
+    echo "ERROR: ${entry} is installed - a dependency reintroduced the numba stack"
+    exit 1
+  fi
+done
+
+# Guard against a released numba-cuda-mlir replacing this run's build artifact.
+wheel_version="$(basename "${wheel}" | cut -d- -f2)"
+if [[ "${numba_cuda_mlir_version}" != "${wheel_version}" ]]; then
+  echo "ERROR: installed numba-cuda-mlir ${numba_cuda_mlir_version} != built wheel ${wheel_version}"
+  exit 1
+fi
 
 export NUMBA_CUDA_MLIR_ICE_FULL_TB=1
 
@@ -90,6 +153,10 @@ python -m pytest ./tests/example_tests/device_tests/test_device_samples.py \
   "$@" || true
 
 echo "Collecting nvmath-python device tests (numba-cuda-mlir params)"
+# Three modules still fail to import without numba and report as collection
+# errors: the two perf ones, which the -k filter excludes anyway, and
+# test_vector_types_numba, which parametrizes over numba types at module scope -
+# see 0004-collect-device-tests-without-numba.patch. Everything else collects.
 mapfile -t device_nodeids < <(
   python -m pytest ./tests/nvmath_tests/device \
     --collect-only -q -o addopts= \

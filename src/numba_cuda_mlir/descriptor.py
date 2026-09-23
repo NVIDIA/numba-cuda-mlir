@@ -27,7 +27,8 @@ from numba_cuda_mlir.numba_cuda.core.errors import NumbaPerformanceWarning
 from numba_cuda_mlir.numba_cuda.core import config as cuda_config
 from numba_cuda_mlir.numba_cuda.cudadrv import driver as numba_cuda_driver
 from importlib.util import find_spec
-from numba_cuda_mlir.numba_cuda.core import errors, sigutils
+from numba_cuda_mlir.numba_cuda.core import errors, sigutils, targetconfig
+from numba_cuda_mlir.numba_cuda.typing.templates import _select_overload_dispatcher
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 from numba_cuda_mlir.numba_cuda.cudadecl import registry as cuda_registry
@@ -1243,35 +1244,35 @@ class MLIRTargetContext(BaseContext):
                 inner_fnty = self.typing_context.resolve_value_type(overload_func)
                 templates.extend(getattr(inner_fnty, "templates", []))
 
-        match_args = (sig.recvr, *sig.args) if sig.recvr else sig.args
+        literal_args = tuple((sig.recvr, *sig.args) if sig.recvr else sig.args)
+        match_args = tuple(types.unliteral(arg) for arg in literal_args)
+        omitted = (types.Omitted, types.NoneType)
 
-        for temp_cls in templates:
-            if not hasattr(temp_cls, "_impl_cache"):
-                continue
-            for cache_key, cache_value in temp_cls._impl_cache.items():
-                if cache_value is None or len(cache_key) != 4:
-                    continue
-                _, args, _, _ = cache_key
-                cache_args = tuple(args)
-                non_omitted_cache_args = tuple(
-                    arg
-                    for arg in cache_args
-                    if not isinstance(arg, (types.Omitted, types.NoneType))
-                )
-                non_omitted_match_args = tuple(
-                    arg
-                    for arg in match_args
-                    if not isinstance(arg, (types.Omitted, types.NoneType))
-                )
-                if cache_args == match_args or non_omitted_cache_args == non_omitted_match_args:
-                    disp, _ = cache_value
-                    if hasattr(disp, "py_func"):
+        def drop_omitted(args):
+            return tuple(a for a in args if not isinstance(a, omitted))
 
-                        def builder(mlir_lower, target, args, kws, _disp=disp):
-                            mlir_lower.lower_overload_call(target, _disp, args, kws)
+        # The cache key only holds the arguments the call actually supplied,
+        # while `sig` also carries omitted defaults; compare with and without
+        # them.  `cache_args` also keeps whatever literals the template was
+        # typed with, so an overload registered `prefer_literal=True` (or one
+        # that requested the constant via `literally()`) only ever matches
+        # the un-unliteral'd form; accept either form in both comparisons.
+        full_forms = (match_args, literal_args)
+        trimmed_forms = (drop_omitted(match_args), drop_omitted(literal_args))
 
-                        return builder
-        return None
+        def args_match(cache_args):
+            return cache_args in full_forms or drop_omitted(cache_args) in trimmed_forms
+
+        disp = _select_overload_dispatcher(
+            templates, args_match, targetconfig.ConfigStack.top_or_none()
+        )
+        if disp is None:
+            return None
+
+        def builder(mlir_lower, target, args, kws, _disp=disp):
+            mlir_lower.lower_overload_call(target, _disp, args, kws)
+
+        return builder
 
     def get_value_type(self, *args):
         return super().get_value_type(*args)
@@ -1461,6 +1462,7 @@ class MLIRTarget(TargetDescriptor):
         self._typingctx_initialized = False
         self._targetctx_initialized = False
         self._initializing = False
+        self._initialization_lock = threading.RLock()
         super().__init__(name)
 
     @property
@@ -1479,48 +1481,50 @@ class MLIRTarget(TargetDescriptor):
     def ensure_initialized(self):
         if self._typingctx_initialized and self._targetctx_initialized:
             return
-        if self._initializing:
-            return
+        with self._initialization_lock:
+            if self._typingctx_initialized and self._targetctx_initialized:
+                return
+            if self._initializing:
+                return
 
-        self._initializing = True
-        try:
-            if not self._typingctx_initialized:
-                try:
-                    self.typing_context.refresh()
-                except Exception:
-                    self._typingctx_initialized = False
-                    raise
-                else:
-                    self._typingctx_initialized = True
+            self._initializing = True
+            try:
+                if not self._typingctx_initialized:
+                    try:
+                        self.typing_context.refresh()
+                    except Exception:
+                        self._typingctx_initialized = False
+                        raise
 
-            if not self._targetctx_initialized:
-                try:
-                    self.target_context.refresh()
-                except Exception:
-                    self._targetctx_initialized = False
-                    raise
-                else:
-                    self._targetctx_initialized = True
+                if not self._targetctx_initialized:
+                    try:
+                        self.target_context.refresh()
+                    except Exception:
+                        self._targetctx_initialized = False
+                        raise
 
-            from numba_cuda_mlir.numba_cuda.typing.templates import builtin_registry
+                from numba_cuda_mlir.numba_cuda.typing.templates import builtin_registry
 
-            self.typing_context.install_registry(builtin_registry)
-        finally:
-            self._initializing = False
+                self.typing_context.install_registry(builtin_registry)
+                self._typingctx_initialized = True
+                self._targetctx_initialized = True
+            finally:
+                self._initializing = False
 
     def refresh_registries(self, *, typing=True, target=True):
-        if self._initializing:
-            return
-        self._initializing = True
-        try:
-            if typing:
-                self.typing_context.refresh()
-                self._typingctx_initialized = True
-            if target:
-                self.target_context.refresh()
-                self._targetctx_initialized = True
-        finally:
-            self._initializing = False
+        with self._initialization_lock:
+            if self._initializing:
+                return
+            self._initializing = True
+            try:
+                if typing:
+                    self.typing_context.refresh()
+                    self._typingctx_initialized = True
+                if target:
+                    self.target_context.refresh()
+                    self._targetctx_initialized = True
+            finally:
+                self._initializing = False
 
 
 mlir_target = MLIRTarget("numba_cuda_mlir")
@@ -2422,11 +2426,24 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             overloads[LaunchConfigInspectableKey(sig_args, launch_config_key)] = cres
         return overloads
 
-    def inspect_llvm(self, sig=None):
-        raise NotImplementedError(
-            "inspect_llvm is not supported. "
-            "Use inspect_mlir() to inspect the MLIR module or inspect_asm() to inspect the PTX."
-        )
+    def inspect_llvm(self, signature=None):
+        """Get architecture-natural LLVM IR.
+
+        With no signature, launch-specialized entries are keyed by
+        LaunchConfigInspectableKey and generic entries keep their argtypes tuple.
+        """
+        if signature is None:
+            return {sig: self.inspect_llvm(sig) for sig in self._inspectable_overloads()}
+        cres = self._find_overload(signature)
+        llvmir = cres.metadata.get("llvmir")
+        if llvmir is not None:
+            return llvmir
+
+        from numba_cuda_mlir.mlir_optimization import get_llvmir
+
+        llvmir = get_llvmir(cres)
+        cres.metadata["llvmir"] = llvmir
+        return llvmir
 
     def inspect_asm(self, signature=None):
         """Get generated PTX.
@@ -3252,7 +3269,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         sig = typing.signature(return_type, *args)
         return self.compile(sig)
 
-    def _compile_device_callee(self, sig):
+    def _compile_device_callee(self, sig, abi_name=None):
         """Compile enough of a device function to inline/link it into a kernel.
 
         Device callees are cloned from their MLIR into the parent module, so
@@ -3265,7 +3282,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         argtypes, return_type = sigutils.normalize_signature(sig)
 
         if argtypes in self.overloads:
-            return self.overloads[argtypes]
+            cached = self.overloads[argtypes]
+            if abi_name is None or cached.metadata.get("device_callee_abi_name") == abi_name:
+                return cached
 
         self._resolve_target_options()
         self._cache_misses[argtypes] += 1
@@ -3273,12 +3292,18 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         self._is_compiling = True
         try:
             with self._compile_profiler():
+                targetoptions = self.targetoptions.copy()
+                if abi_name is not None:
+                    abi_info = dict(targetoptions.get("abi_info") or {})
+                    abi_info["abi_name"] = abi_name
+                    targetoptions["abi_info"] = abi_info
                 cres = mlir_compiler.compile_mlir(
                     self.py_func,
                     return_type,
                     argtypes,
-                    targetoptions=self.targetoptions,
+                    targetoptions=targetoptions,
                 )
+                cres.metadata["device_callee_abi_name"] = abi_name
 
             cres.target_context.insert_user_function(cres.entry_point, cres.fndesc, [cres.library])
         except _RequireLaunchConfig:
@@ -3300,18 +3325,18 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         self.overloads[argtypes] = wrapped
         return wrapped
 
-    def _compile_as_device_callee(self, sig):
+    def _compile_as_device_callee(self, sig, abi_name=None):
         """Compile this dispatcher through the lightweight device-callee path."""
         opts = self.targetoptions.copy()
         opts["device"] = True
         opts["lto"] = False
         if self.targetoptions.get("device", False):
             self.targetoptions.update(opts)
-            return self._compile_device_callee(sig)
+            return self._compile_device_callee(sig, abi_name=abi_name)
 
         if not hasattr(self, "_device_dispatcher") or self._device_dispatcher.targetoptions != opts:
             self._device_dispatcher = MLIRDispatcher(self.py_func, targetoptions=opts)
-        cres = self._device_dispatcher._compile_device_callee(sig)
+        cres = self._device_dispatcher._compile_device_callee(sig, abi_name=abi_name)
         argtypes, _ = sigutils.normalize_signature(sig)
         if argtypes not in self.overloads:
             self.overloads[argtypes] = cres

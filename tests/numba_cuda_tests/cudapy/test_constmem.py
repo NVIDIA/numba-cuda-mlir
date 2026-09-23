@@ -91,7 +91,6 @@ def cuconstAlign(z):
 
 
 class TestCudaConstantMemory(NumbaCUDATestCase):
-    @pytest.mark.xfail(True, reason="Regex doesn't match")
     def test_const_array(self):
         sig = (float64[:],)
         jcuconst = numba_cuda_mlir.cuda.jit(sig)(cuconst)
@@ -117,7 +116,6 @@ class TestCudaConstantMemory(NumbaCUDATestCase):
         jcuconstAlign[1, 3](A)
         self.assertTrue(np.all(A == (CONST3BYTES + CONST1D[:3])))
 
-    @pytest.mark.xfail(True, reason="Regex doesn't match")
     def test_const_array_2d(self):
         sig = (int32[:, :],)
         jcuconst2d = numba_cuda_mlir.cuda.jit(sig)(cuconst2d)

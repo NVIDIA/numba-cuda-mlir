@@ -379,7 +379,6 @@ class TestLinker(NumbaCUDATestCase):
         compiled = cuda.jit(sig, max_registers=38)(func_with_lots_of_registers)
         self.assertLessEqual(compiled.get_regs_per_thread(), 38)
 
-    @pytest.mark.xfail(reason="const memory not supported")
     def test_get_const_mem_size(self):
         sig = void(float64[::1])
         compiled = cuda.jit(sig)(simple_const_mem)

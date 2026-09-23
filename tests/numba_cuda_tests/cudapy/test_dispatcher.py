@@ -597,7 +597,6 @@ class TestDispatcherKernelProperties(NumbaCUDATestCase):
         self.assertEqual(const_mem_size_all[sig_i64.args], const_mem_size_i64)
         self.assertEqual(const_mem_size_all[sig_f64.args], const_mem_size_f64)
 
-    @pytest.mark.xfail(True, reason="Incorrect result")
     def test_get_const_mem_specialized(self):
         arr = np.arange(32, dtype=np.int64)
         sig = void(int64[::1])

@@ -445,36 +445,48 @@ def truediv_cg(builder, target, args, kwargs):
 
 
 @lower(operator.ne, types.Number, types.Number)
+@lower(operator.ne, types.Boolean, types.Number)
+@lower(operator.ne, types.Number, types.Boolean)
 @lower(operator.ne, types.Boolean, types.Boolean)
 def ne_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ne, builder, target, args, kwargs)
 
 
 @lower(operator.eq, types.Number, types.Number)
+@lower(operator.eq, types.Boolean, types.Number)
+@lower(operator.eq, types.Number, types.Boolean)
 @lower(operator.eq, types.Boolean, types.Boolean)
 def eq_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.eq, builder, target, args, kwargs)
 
 
 @lower(operator.lt, types.Number, types.Number)
+@lower(operator.lt, types.Boolean, types.Number)
+@lower(operator.lt, types.Number, types.Boolean)
 @lower(operator.lt, types.Boolean, types.Boolean)
 def lt_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.lt, builder, target, args, kwargs)
 
 
 @lower(operator.le, types.Number, types.Number)
+@lower(operator.le, types.Boolean, types.Number)
+@lower(operator.le, types.Number, types.Boolean)
 @lower(operator.le, types.Boolean, types.Boolean)
 def le_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.le, builder, target, args, kwargs)
 
 
 @lower(operator.gt, types.Number, types.Number)
+@lower(operator.gt, types.Boolean, types.Number)
+@lower(operator.gt, types.Number, types.Boolean)
 @lower(operator.gt, types.Boolean, types.Boolean)
 def gt_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.gt, builder, target, args, kwargs)
 
 
 @lower(operator.ge, types.Number, types.Number)
+@lower(operator.ge, types.Boolean, types.Number)
+@lower(operator.ge, types.Number, types.Boolean)
 @lower(operator.ge, types.Boolean, types.Boolean)
 def ge_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ge, builder, target, args, kwargs)

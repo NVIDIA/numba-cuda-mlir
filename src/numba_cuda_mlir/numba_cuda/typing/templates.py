@@ -631,14 +631,6 @@ def _flags_match_reads(flags, reads):
 
 def _captures_an_intrinsic(impl):
     """Whether *impl* closes over an ``@intrinsic``, making it unsafe to memoize.
-
-    An overload body may mint a fresh ``@intrinsic`` per run and return an
-    implementation closing over it -- ``@overload(carray)`` does exactly this.
-    Each such intrinsic registers a lowering keyed to that object, so replaying
-    the closure on a later compilation reuses a registration the target context
-    has since installed in ``_defns``.  Lowering then resolves the call to the
-    intrinsic's numba-convention implementation and invokes it with the MLIR
-    builder convention, which fails far from here.  Re-run those bodies instead.
     """
     # Imported lazily: numba_cuda_mlir.numba_cuda.extending imports this module.
     from numba_cuda_mlir.numba_cuda.extending import _Intrinsic

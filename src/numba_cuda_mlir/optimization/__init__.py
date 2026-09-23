@@ -192,10 +192,28 @@ def _resolve_shared_bit_storage_float_accesses(module: ir.Module):
         op.operation.erase()
 
 
+def _externalize_dynamic_shared_globals(module: ir.Module):
+    """Give zero-length ``__dynamic_shmem__`` globals external linkage so their size is unknown."""
+    external = ir.Attribute.parse("#llvm.linkage<external>")
+
+    def walk(op):
+        for region in op.regions:
+            for block in region.blocks:
+                for child in block.operations:
+                    if child.operation.name == "llvm.mlir.global":
+                        sym = ir.StringAttr(child.attributes["sym_name"]).value
+                        if sym.startswith("__dynamic_shmem__"):
+                            child.attributes["linkage"] = external
+                    walk(child.operation)
+
+    walk(module.operation)
+
+
 def run_pre_codegen_patterns(module: ir.Module):
     fixup_nvvm_arg_attrs(module.operation)
     _resolve_exotic_float_casts(module)
     _resolve_shared_bit_storage_float_accesses(module)
+    _externalize_dynamic_shared_globals(module)
     # TODO(ajm): why does this not trigger?
     # patterns = RewritePatternSet()
     # patterns.add(gpu.GPUFuncOp, fixup_nvvm_arg_attrs)

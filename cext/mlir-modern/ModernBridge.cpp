@@ -563,8 +563,8 @@ mlir_modern_to_nvvm_translate_for_libnvvm(
     const char *mlir_text, size_t mlir_text_len, int ctk_major, int ctk_minor,
     int nvvm_ir_major, int nvvm_ir_minor, int nvvm_debug_major,
     int nvvm_debug_minor,
-    int dump_llvmir, int emit_text_ir, char **out, size_t *out_len,
-    char **error_out) {
+    int dump_llvmir, int emit_text_ir, int inspect_llvmir, char **out,
+    size_t *out_len, char **error_out) {
     if (out)
         *out = nullptr;
     if (out_len)
@@ -621,6 +621,11 @@ mlir_modern_to_nvvm_translate_for_libnvvm(
 
     if (dump_llvmir && !dump_module_to_stderr(*llvm_module, error_out))
         return 1;
+
+    if (inspect_llvmir)
+        return serialize_module_as_text(*llvm_module, out, out_len, error_out)
+                   ? 0
+                   : 1;
 
     {
         std::lock_guard<std::mutex> guard(g_nvvm_ir_version_mutex);

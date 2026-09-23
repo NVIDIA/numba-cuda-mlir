@@ -14,7 +14,6 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof_impl
 from numba_cuda_mlir.numba_cuda.core.imputils import lower_builtin
 from pathlib import Path
-from numba_cuda_mlir.mlir_optimization import optimize
 from numba_cuda_mlir.numba_cuda.codegen import ExternalCodeLibrary
 from numba_cuda_mlir.numba_cuda.compiler import sigutils
 from numba_cuda_mlir.descriptor import mlir_target
@@ -275,6 +274,7 @@ def _compile_only(pyfunc, sig=None, targetoptions=None):
     """Compile to MLIR without running the optimization pipeline."""
     from numba_cuda_mlir.cuda import jit
     from numba_cuda_mlir import mlir_compiler
+    from numba_cuda_mlir._whole_function_planners import _RequireLaunchConfig
     from numba_cuda_mlir.numba_cuda.core import sigutils
 
     dispatcher = pyfunc
@@ -288,12 +288,18 @@ def _compile_only(pyfunc, sig=None, targetoptions=None):
         sig = to_numba_type(inspect.signature(pyfunc))
 
     argtypes, return_type = sigutils.normalize_signature(sig)
-    cres = mlir_compiler.compile_mlir(
-        dispatcher.py_func,
-        return_type,
-        argtypes,
-        targetoptions=dispatcher.targetoptions,
-    )
+    try:
+        cres = mlir_compiler.compile_mlir(
+            dispatcher.py_func,
+            return_type,
+            argtypes,
+            targetoptions=dispatcher.targetoptions,
+        )
+    except _RequireLaunchConfig:
+        raise RuntimeError(
+            "whole-function planner requires launch metadata; compile through a "
+            "configured kernel launch"
+        ) from None
     return CompileResult(cres)
 
 
@@ -325,8 +331,6 @@ def _compile(pyfunc, sig=None, targetoptions=None, optimized=True):
 
     abi_info = targetoptions.get("abi_info", None) if targetoptions is not None else None
     cres = dispatcher.compile(sig, abi_info=abi_info, output=output)
-    if optimized:
-        optimize(cres)
     return CompileResult(cres)
 
 

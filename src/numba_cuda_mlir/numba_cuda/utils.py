@@ -380,26 +380,6 @@ def bit_length(intval):
         return len(bin(-intval - 1)) - 2
 
 
-def stream_list(lst):
-    """
-    Given a list, return an infinite iterator of iterators.
-    Each iterator iterates over the list from the last seen point up to
-    the current end-of-list.
-
-    In effect, each iterator will give the newly appended elements from the
-    previous iterator instantiation time.
-    """
-
-    def sublist_iterator(start, stop):
-        return iter(lst[start:stop])
-
-    start = 0
-    while True:
-        stop = len(lst)
-        yield sublist_iterator(start, stop)
-        start = stop
-
-
 class BenchmarkResult:
     def __init__(self, func, records, loop):
         self.func = func
@@ -615,12 +595,22 @@ def dump_llvm(fndesc, module):
 
 
 class _lazy_pformat:
+    """
+    Lazily generate strings that may be useful only for debugging.
+    pformat is the default formatter but you can pass lazy_func kwarg
+    to use a different formatter.
+    """
+
     def __init__(self, *args, **kwargs):
+        self.func = pformat
         self.args = args
         self.kwargs = kwargs
+        if "lazy_func" in kwargs:
+            self.func = kwargs["lazy_func"]
+            del kwargs["lazy_func"]
 
     def __str__(self):
-        return pformat(*self.args, **self.kwargs)
+        return self.func(*self.args, **self.kwargs)
 
 
 class _LazyJSONEncoder(json.JSONEncoder):

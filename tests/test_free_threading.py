@@ -46,6 +46,46 @@ def _require_free_threaded_python():
         pytest.skip("requires a free-threaded CPython build")
 
 
+def test_concurrent_cold_cuda_compile():
+    result = _run_python(
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+
+        from numba_cuda_mlir import cuda, types
+
+        def add(a, b):
+            return a + b
+
+        workers = 4
+        start = threading.Barrier(workers, timeout=60)
+
+        def compile_add():
+            start.wait()
+            cuda.compile(
+                add,
+                (types.int32, types.int32),
+                device=True,
+                cc=(8, 9),
+                abi="c",
+                abi_info={"abi_name": "add"},
+                output="ltoir",
+            )
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(compile_add) for _ in range(workers)]
+            for future in futures:
+                future.result()
+
+        print("concurrent-compile-ok")
+        """,
+        timeout=180,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "concurrent-compile-ok" in result.stdout
+
+
 def test_imports_do_not_enable_gil_by_default():
     _require_free_threaded_python()
 
@@ -279,6 +319,7 @@ def test_nvvm_ir_version_adaptation_is_thread_safe():
     from numba_cuda_mlir._mlir.dialects import gpu, llvm
     from numba_cuda_mlir.lowering_utilities.llvm_utils import (
         LLVM_C_LIB_PATH,
+        NVPTX64_DATALAYOUT,
         translate_to_llvmir,
     )
 
@@ -288,7 +329,7 @@ def test_nvvm_ir_version_adaptation_is_thread_safe():
     module_text = """
     module {
       gpu.module @kernels attributes {
-        llvm.data_layout = "e-i64:64-i128:128-v16:16-v32:32-n16:32:64-S128",
+        llvm.data_layout = "__DATALAYOUT__",
         llvm.target_triple = "nvptx64-nvidia-cuda"
       } {
         llvm.func @simple_kernel() attributes {gpu.kernel} {
@@ -296,7 +337,7 @@ def test_nvvm_ir_version_adaptation_is_thread_safe():
         }
       }
     }
-    """
+    """.replace("__DATALAYOUT__", NVPTX64_DATALAYOUT)
 
     def make_llvm_module():
         with ir.Context():

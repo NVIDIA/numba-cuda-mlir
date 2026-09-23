@@ -7,6 +7,7 @@ from collections import namedtuple
 
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda import utils
+from numba_cuda_mlir.numba_cuda.np import numpy_support
 from numba_cuda_mlir.numba_cuda.typing.templates import (
     AttributeTemplate,
     AbstractTemplate,
@@ -568,6 +569,14 @@ class ArrayAttribute(AttributeTemplate):
 class DTypeAttr(AttributeTemplate):
     key = types.DType
 
+    @staticmethod
+    def _dtype(ary):
+        return numpy_support.as_dtype(ary.dtype)
+
+    @classmethod
+    def _literal_attr(cls, ary, attr):
+        return types.literal(getattr(cls._dtype(ary), attr))
+
     def resolve_type(self, ary):
         # Wrap the numeric type in NumberClass
         return types.NumberClass(ary.dtype)
@@ -580,6 +589,51 @@ class DTypeAttr(AttributeTemplate):
         else:
             return None  # other types not supported yet
         return types.StringLiteral(val)
+
+    def resolve_itemsize(self, ary):
+        return self._literal_attr(ary, "itemsize")
+
+    def resolve_num(self, ary):
+        return self._literal_attr(ary, "num")
+
+    def resolve_alignment(self, ary):
+        return self._literal_attr(ary, "alignment")
+
+    def resolve_isbuiltin(self, ary):
+        return self._literal_attr(ary, "isbuiltin")
+
+    def resolve_hasobject(self, ary):
+        return self._literal_attr(ary, "hasobject")
+
+    def resolve_isalignedstruct(self, ary):
+        return self._literal_attr(ary, "isalignedstruct")
+
+    def resolve_isnative(self, ary):
+        return self._literal_attr(ary, "isnative")
+
+    def resolve_char(self, ary):
+        return self._literal_attr(ary, "char")
+
+    def resolve_name(self, ary):
+        return self._literal_attr(ary, "name")
+
+    def resolve_str(self, ary):
+        return self._literal_attr(ary, "str")
+
+    def resolve_byteorder(self, ary):
+        return self._literal_attr(ary, "byteorder")
+
+    def resolve_names(self, ary):
+        names = self._dtype(ary).names
+        if names is None:
+            return types.none
+        return types.Tuple(tuple(types.literal(name) for name in names))
+
+    def resolve_shape(self, ary):
+        return types.Tuple(tuple(types.literal(size) for size in self._dtype(ary).shape))
+
+    def resolve_base(self, ary):
+        return types.DType(numpy_support.from_dtype(self._dtype(ary).base))
 
 
 @infer

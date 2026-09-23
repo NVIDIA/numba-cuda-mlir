@@ -54,7 +54,8 @@ struct LLVM70Options {
 
 /// Translate a gpu.module (containing LLVM dialect ops) to PTX.
 llvm::Expected<std::string> translateToPTX(mlir::gpu::GPUModuleOp gpuMod,
-                                           const LLVM70Options &opts);
+                                           const LLVM70Options &opts,
+                                           std::string *nvvmBitcode = nullptr);
 
 /// Lower-level: translate a gpu.module to old LLVM IR text (for debugging).
 llvm::Expected<std::string> translateToNVVMIR(mlir::gpu::GPUModuleOp gpuMod,
@@ -87,6 +88,30 @@ private:
       llvm::SmallVector<std::pair<LLVMBasicBlockRef, mlir::OperandRange>>;
   llvm::DenseMap<mlir::Block *, ForwarderList> switchForwarders;
 
+  llvm::StringMap<LLVMTypeRef> namedStructCache;
+
+  /// Pointee type per member of an identified struct, by struct name, so that
+  /// members do not all flatten to `i8*` and stop matching the same struct
+  /// coming from a typed producer. Supplied by the frontend in the
+  /// `llvm70.struct_pointees` attribute (see `struct_pointees.py`); entries are
+  /// optional and a null Type means "leave this member alone".
+  ///
+  /// A refinement stays inside the struct layout -- values of MLIR `!llvm.ptr`
+  /// type are `i8*` everywhere else -- so insertvalue casts in and extractvalue
+  /// casts back out.
+  llvm::StringMap<llvm::SmallVector<mlir::Type>> structPointees;
+
+  /// Read `llvm70.struct_pointees` off the module into `structPointees`.
+  void loadStructPointees(mlir::gpu::GPUModuleOp gpuMod);
+
+  /// Member `idx` of `structTy`, refined by `structPointees`.
+  LLVMTypeRef convertStructMemberType(mlir::LLVM::LLVMStructType structTy,
+                                      unsigned idx);
+
+  /// The element of `aggTy` at an insertvalue/extractvalue `position`.
+  LLVMTypeRef convertAggregateElementType(mlir::Type aggTy,
+                                          llvm::ArrayRef<int64_t> position);
+
   // Debug info state
   LLVMMetadataRef diCompileUnit = nullptr;
   LLVMMetadataRef diSubroutineType = nullptr;
@@ -96,6 +121,14 @@ private:
   // through a DILexicalBlockFile so DWARF attributes them correctly.
   llvm::StringRef currentSubprogramFile;
   llvm::StringMap<LLVMMetadataRef> fileScopeCache;
+  // Translated DI types.
+  llvm::DenseMap<mlir::Attribute, LLVMMetadataRef> diTypeCache;
+  // Composites whose members are still being translated, keyed by their
+  // recursion id, holding the temporary node their self-references resolve to.
+  llvm::DenseMap<mlir::Attribute, LLVMMetadataRef> diRecursionStack;
+  // Recursive composites already translated, keyed by their recursion id, for
+  // self-references reached again after the composite is complete.
+  llvm::DenseMap<mlir::Attribute, LLVMMetadataRef> diRecursiveTypes;
 
   LLVMMetadataRef getOrCreateDIFile(llvm::StringRef filename);
   LLVMMetadataRef getOrCreateFileScope(llvm::StringRef filename);
@@ -106,6 +139,7 @@ private:
   // Map an MLIR value to its old-LLVM counterpart.
   void mapValue(mlir::Value v, LLVMValueRef lv) { valueMap[v] = lv; }
   LLVMValueRef lookupValue(mlir::Value v);
+  LLVMValueRef lookupValueAsDeclared(mlir::Value v);
 
   // Type conversion: MLIR type → LLVM 7 type.
   // For ptr types the element type must be recovered from context.
@@ -187,6 +221,12 @@ private:
                                bool isDeclare);
 
   LLVMMetadataRef getOrCreateDIType(mlir::LLVM::DITypeAttr typeAttr);
+  LLVMMetadataRef convertDIBasicType(mlir::LLVM::DIBasicTypeAttr attr);
+  LLVMMetadataRef convertDIDerivedType(mlir::LLVM::DIDerivedTypeAttr attr);
+  LLVMMetadataRef convertDICompositeType(mlir::LLVM::DICompositeTypeAttr attr);
+  LLVMMetadataRef convertDISubrange(mlir::LLVM::DISubrangeAttr attr);
+  LLVMMetadataRef opaqueDIType(uint64_t sizeInBits);
+  LLVMMetadataRef diFileOf(mlir::LLVM::DIFileAttr fileAttr);
 
   void emitKernelMetadata(LLVMValueRef fn, mlir::Operation *funcOp);
 

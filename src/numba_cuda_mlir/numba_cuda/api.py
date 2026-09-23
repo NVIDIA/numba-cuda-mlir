@@ -490,7 +490,7 @@ def close():
     contexts if the current thread is the main thread.
     """
     # Must clear memsys object in case it has been used already
-    from .memory_management import rtsys
+    from numba_cuda_mlir.memory_management import rtsys
 
     rtsys.close()
 

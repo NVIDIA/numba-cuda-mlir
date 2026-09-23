@@ -51,8 +51,8 @@ from numba_cuda_mlir.lowering_utilities import (
     try_extract_constant,
     NdIterIterObject,
     is_nonelike,
+    get_conversion_signedness,
     storage_itemsize_bytes,
-    false as false_,
 )
 from numba_cuda_mlir.mlir_lowering import KERNEL_ERROR_CODES
 from numba_cuda_mlir.lowering_utilities.linalg_lowering import (
@@ -99,15 +99,14 @@ def lower_zero_fill_array_method(builder: MLIRLower, target, args, kwargs):
     array_var = args[0]
     array = builder.load_var(array_var)
     array_type = builder.get_numba_type(array_var.name)
-    ptr_as_index = memref_dialect.extract_aligned_pointer_as_index(array)
-    dst_ptr = llvm.inttoptr(llvm.PointerType.get(), convert(ptr_as_index, T.i64()))
+    dst_ptr = lowering_utilities.memref_data_pointer(array)
 
     nbytes = constant(storage_itemsize_bytes(array_type.dtype), T.i64())
     for dim in range(array.type.rank):
         extent = convert(memref_dialect.dim(array, index_of(dim)), T.i64())
         nbytes = arith.muli(nbytes, extent)
 
-    llvm.MemsetOp(dst_ptr, constant(0, T.i8()), nbytes, false_())
+    llvm.MemsetOp(dst_ptr, constant(0, T.i8()), nbytes, False)
     if target is not None:
         builder.store_var(target, ir.NoneType.get())
 
@@ -915,30 +914,12 @@ def _lower_record_array_getitem(builder, target, args, kwargs):
     else:
         index = builder.load_var(index_var)
 
-    # For Record arrays, the memref is memref<?xi8> with byte strides.
-    # We need to compute: base_ptr + index * record_size
-    # Note: This assumes contiguous arrays (no views with non-zero offsets).
-    # Supporting views would require extract_strided_metadata, but that breaks
-    # pointer extraction on some memref types.
-
-    # Get the aligned pointer directly from the array
-    ptr_as_index = memref_dialect.extract_aligned_pointer_as_index(array)
-
-    # Use record_size as stride (assumes contiguous layout)
-    stride = arith_dialect.constant(T.i64(), record_size)
-
-    # Convert index to i64 for arithmetic
-    index_i64 = convert(index, T.i64())
-
-    # Compute byte offset = index * stride
-    byte_offset = arith.muli(index_i64, stride)
-
-    # Add offset to base pointer
-    ptr_as_i64 = convert(ptr_as_index, T.i64())
-    result_ptr_i64 = arith.addi(ptr_as_i64, byte_offset)
-
-    # Convert back to pointer
-    result_ptr = llvm.inttoptr(llvm.PointerType.get(), result_ptr_i64)
+    # For Record arrays, the memref is memref<?xi8> with byte strides:
+    # element pointer = data_ptr + index * record_size (assumes contiguous layout).
+    byte_offset = arith.muli(convert(index, T.i64()), arith_dialect.constant(T.i64(), record_size))
+    result_ptr = lowering_utilities.llvm_ptr_add_bytes(
+        lowering_utilities.memref_data_pointer(array), byte_offset
+    )
 
     builder.store_var(target, result_ptr)
     trace("Record array getitem: stored ptr to %s", target.name)
@@ -1028,6 +1009,15 @@ def _rank_reducing_subview(
     return memref.collapse_shape(result_type, subview, reassociation)
 
 
+def _normalize_negative_index(array: ir.Value, index: ir.Value | int, dim: int) -> ir.Value:
+    """Normalize a possibly-negative integer index for one array dimension."""
+    index = index_of(index)
+    zero = index_of(0)
+    is_negative = arith.cmpi(arith.CmpIPredicate.slt, index, zero)
+    extent = memref.dim(array, index_of(dim))
+    return arith.select(is_negative, arith.addi(index, extent), index)
+
+
 @lower(operator.getitem, types.Array, types.Number)
 @lower(operator.getitem, types.Array, types.Integer)
 @lower(operator.getitem, types.Buffer, types.Integer)
@@ -1049,15 +1039,15 @@ def lower_array_getitem(builder, target, args, kwargs):
     array = builder.load_var(args[0])
     # Handle both variable and constant indices
     if isinstance(args[1], int):
-        index = index_of(args[1])
+        index = args[1]
     else:
         index = builder.load_var(args[1])
-        index = index_of(index)
     array_type = array.type
 
     if not array_type.has_rank:
         raise NotImplementedError("NYI: unranked memrefs")
 
+    index = _normalize_negative_index(array, index, 0)
     if array_type.rank == 1:
         value = lowering_utilities.array_element_value_load(
             array_numba_type,
@@ -1363,6 +1353,11 @@ def lower_uni_tuple_getitem(builder, target, args, kwargs):
     """
     Tuples are always Python tuples in the varmap. Static integer indices
     resolve at compile time; dynamic indices emit an scf.index_switch.
+
+    scf.index_switch results must be scalar MLIR types, so when the selected
+    element is itself a tuple (e.g. indexing a tuple of coefficient rows with
+    a loop variable), the selection is decomposed into one switch per leaf
+    position and the result is stored as a Python tuple of switch results.
     """
     trace("args=%s", args)
     from numba_cuda_mlir.lowering_utilities import convert
@@ -1375,28 +1370,60 @@ def lower_uni_tuple_getitem(builder, target, args, kwargs):
         case tuple(), ir.Value():
             tup = builder.lower_literal_if_needed(tup)
             index = index_of(index)
-            result_type = builder.get_mlir_type(target_type)
             error_memref = builder._get_or_create_error_global()
+            cases = ir.DenseI64ArrayAttr.get(range(len(tup)))
 
-            def default(op):
-                if error_memref is not None:
+            if error_memref is not None:
+                # The bounds check lives in its own zero-result switch
+                # so that selections with no leaf switches (empty-tuple
+                # elements) are still checked; the leaf switches below
+                # only select.
+                def oob_default(op):
                     set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[IndexError])
-                result = convert(tup[0], result_type)
-                scf.yield_([result])
+                    scf.yield_([])
 
-            def case_builder(op, case_index, case_value):
-                result = convert(tup[case_value], result_type)
-                scf.yield_([result])
+                def oob_case(op, case_index, case_value):
+                    scf.yield_([])
 
-            cases = range(len(tup))
-            cases = ir.DenseI64ArrayAttr.get(cases)
-            result = scf.index_switch(
-                results=[result_type],
-                arg=index,
-                cases=cases,
-                default_body_builder=default,
-                case_body_builder=case_builder,
-            )
+                scf.index_switch(
+                    results=[],
+                    arg=index,
+                    cases=cases,
+                    default_body_builder=oob_default,
+                    case_body_builder=oob_case,
+                )
+
+            def select(candidates, element_type):
+                # candidates[i] is the value this selection yields when the
+                # runtime index equals i.
+                if isinstance(element_type, types.BaseTuple):
+                    sub_types = (
+                        [element_type.dtype] * element_type.count
+                        if isinstance(element_type, types.UniTuple)
+                        else list(element_type.types)
+                    )
+                    return tuple(
+                        select([candidate[i] for candidate in candidates], sub_type)
+                        for i, sub_type in enumerate(sub_types)
+                    )
+
+                result_type = builder.get_mlir_type(element_type)
+
+                def default(op):
+                    scf.yield_([convert(candidates[0], result_type)])
+
+                def case_builder(op, case_index, case_value):
+                    scf.yield_([convert(candidates[case_value], result_type)])
+
+                return scf.index_switch(
+                    results=[result_type],
+                    arg=index,
+                    cases=cases,
+                    default_body_builder=default,
+                    case_body_builder=case_builder,
+                )
+
+            result = select(list(tup), target_type)
             builder.store_var(target, result)
             if isinstance(result, ir.Value):
                 builder.incref(target_type, result)
@@ -1440,22 +1467,16 @@ def _lower_record_array_setitem(builder, target, args, kwargs):
     index = builder.load_var(index_var)
     src_ptr = builder.load_var(value_var)
 
-    # Get destination pointer - assumes contiguous arrays (no views with non-zero offsets)
-    ptr_as_index = memref_dialect.extract_aligned_pointer_as_index(array)
-
-    # Convert index and pointer to i64 - use convert which handles any source type
+    # Destination pointer = data_ptr + index * record_size (assumes contiguous layout)
     index_i64 = lowering_utilities.convert(index, T.i64())
-    # Use record_size as stride (assumes contiguous layout)
-    stride = arith_dialect.constant(T.i64(), record_size)
-    byte_offset = arith.muli(index_i64, stride)
-    ptr_as_i64 = lowering_utilities.convert(ptr_as_index, T.i64())
-    dest_ptr_i64 = arith.addi(ptr_as_i64, byte_offset)
-    dest_ptr = llvm.inttoptr(llvm.PointerType.get(), dest_ptr_i64)
+    byte_offset = arith.muli(index_i64, arith_dialect.constant(T.i64(), record_size))
+    dest_ptr = lowering_utilities.llvm_ptr_add_bytes(
+        lowering_utilities.memref_data_pointer(array), byte_offset
+    )
 
     # Copy record_size bytes from src to dest using llvm.memcpy
     size_val = arith_dialect.constant(T.i64(), record_size)
-    is_volatile = arith_dialect.constant(T.bool(), 0)
-    llvm.intr_memcpy(dest_ptr, src_ptr, size_val, is_volatile)
+    llvm.intr_memcpy(dest_ptr, src_ptr, size_val, False)
 
     trace("Record array setitem: copied %s bytes", record_size)
 
@@ -1463,7 +1484,7 @@ def _lower_record_array_setitem(builder, target, args, kwargs):
 @lower(operator.setitem, types.Array, types.Integer, types.StringLiteral)
 def lower_charseq_array_setitem_string(builder: MLIRLower, target, args, kwargs):
     """arr[i] = "XYZ" for arrays with CharSeq or UnicodeCharSeq dtype."""
-    from numba_cuda_mlir.lowering_utilities import GEP_DYNAMIC_INDEX, false as false_
+    from numba_cuda_mlir.lowering_utilities import GEP_DYNAMIC_INDEX
 
     array_numba_type = builder.get_numba_type(args[0].name)
     element_type = array_numba_type.dtype
@@ -1494,16 +1515,14 @@ def lower_charseq_array_setitem_string(builder: MLIRLower, target, args, kwargs)
             f"String literal assignment not supported for array dtype {element_type}"
         )
 
-    ptr_as_index = memref.extract_aligned_pointer_as_index(array)
-    stride = constant(element_size, T.i64())
-    byte_offset = arith.muli(index_i64, stride)
-    ptr_as_i64 = convert(ptr_as_index, T.i64())
-    result_ptr_i64 = arith.addi(ptr_as_i64, byte_offset)
-    dst_ptr = llvm.inttoptr(llvm.PointerType.get(), result_ptr_i64)
+    byte_offset = arith.muli(index_i64, constant(element_size, T.i64()))
+    dst_ptr = lowering_utilities.llvm_ptr_add_bytes(
+        lowering_utilities.memref_data_pointer(array), byte_offset
+    )
 
     zero = constant(0, T.i8())
     size_val = constant(element_size, T.i64())
-    llvm.MemsetOp(dst_ptr, zero, size_val, false_())
+    llvm.MemsetOp(dst_ptr, zero, size_val, False)
 
     for i, byte_val in enumerate(encoded):
         if i >= element_size:
@@ -1543,9 +1562,12 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
         return _lower_record_array_setitem(builder, target, args, kwargs)
 
     array = builder.load_var(args[0])
-    index = builder.load_var(args[1])
-    index = lowering_utilities.index_of(index)
+    index_arg = args[1]
+    index = index_arg if isinstance(index_arg, int) else builder.load_var(index_arg)
+    index = _normalize_negative_index(array, index, 0)
     value = builder.load_var(args[2])
+    value_numba_type = builder.get_numba_type(args[2].name)
+    signed = get_conversion_signedness(value_numba_type, array_numba_type.dtype)
     mrt = array.type
     if mrt.rank == 1:
         lowering_utilities.array_element_value_store(
@@ -1554,6 +1576,7 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
             [index],
             value,
             dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
+            signed=signed,
         )
     else:
         rankm1 = mrt.rank - 1
@@ -1570,23 +1593,17 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
                 [index] + list(indices),
                 value,
                 dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
+                signed=signed,
             )
 
 
-def _setitem_index_to_memref_index(index: ir.Value | int) -> ir.Value:
-    match index:
-        case ir.Value() | int():
-            return index_of(index)
-        case _:
-            raise InternalCompilerError(f"Index must be an integer or a value, got {type(index)}")
-
-
 def _setitem_indices_to_memref_indices(
+    array: ir.Value,
     indices: tuple[ir.Value | int, ...] | ir.Value,
 ) -> tuple[ir.Value, ...]:
     match indices:
         case tuple():
-            return tuple(_setitem_index_to_memref_index(i) for i in indices)
+            raw_indices = indices
         case ir.Value() as value if (
             isinstance(value.type, ir.MemRefType)
             and value.type.has_rank
@@ -1595,11 +1612,14 @@ def _setitem_indices_to_memref_indices(
         ):
             mr_type = value.type
             num_elements = mr_type.get_dim_size(0)
-            return tuple(index_of(memref.load(value, [index_of(i)])) for i in range(num_elements))
+            raw_indices = tuple(memref.load(value, [index_of(i)]) for i in range(num_elements))
         case _:
             raise InternalCompilerError(
                 f"Indices must be a tuple of integers or a value, got {type(indices)}"
             )
+    return tuple(
+        _normalize_negative_index(array, index, dim) for dim, index in enumerate(raw_indices)
+    )
 
 
 @lower(operator.setitem, types.Array, types.Tuple, types.Any)
@@ -1617,7 +1637,7 @@ def lower_array_setitem_tuple(builder, target, args, kwargs):
     array = builder.load_var(args[0])
     tup = args[1]
     tup = builder.load_var(tup) if isinstance(tup, numba_ir.Var) else tup
-    indices = _setitem_indices_to_memref_indices(tup)
+    indices = _setitem_indices_to_memref_indices(array, tup)
     value = builder.load_var(args[2])
     lowering_utilities.array_element_value_store(
         array_numba_type,
@@ -1708,7 +1728,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
     dims = [memref.dim(array, index_of(i)) for i in range(source_rank)]
 
     offsets, sizes, strides, is_scalar = [], [], [], []
-    for i, index in enumerate(tuple_indices):
+    for dim, index in enumerate(tuple_indices):
         match index:
             case Slice(start=start, stop=stop, step=step):
                 if not isinstance(target_type, types.Array):
@@ -1716,7 +1736,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
                         f"Target type {target_type} is not an array, but a slice was used to index it"
                     )
                 offsets.append(start)
-                end = stop or dims[i]
+                end = stop or dims[dim]
                 sizes.append(end - start)
                 strides.append(step or 1)
                 is_scalar.append(False)
@@ -1725,13 +1745,8 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
                     with scf.if_ctx_manager(is_not_positive):
                         set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
                         scf.yield_([])
-            case int() as i:
-                offsets.append(arith.constant(result=T.index(), value=i))
-                sizes.append(1)
-                strides.append(1)
-                is_scalar.append(True)
-            case ir.Value() as value:
-                offsets.append(lowering_utilities.convert(value, T.index()))
+            case int() | ir.Value() as value:
+                offsets.append(_normalize_negative_index(array, value, dim))
                 sizes.append(1)
                 strides.append(1)
                 is_scalar.append(True)

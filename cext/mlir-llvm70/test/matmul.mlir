@@ -200,7 +200,7 @@ module {
     ^bb13:  // 2 preds: ^bb11, ^bb12
       %143 = llvm.load %31 : !llvm.ptr -> f64
       llvm.store %143, %32 : f64, !llvm.ptr
-      nvvm.barrier0
+      nvvm.barrier
       llvm.store %8, %76 : i64, !llvm.ptr
       %144 = llvm.getelementptr inbounds|nuw %76[1] : (!llvm.ptr) -> !llvm.ptr, i64
       llvm.store %11, %144 : i64, !llvm.ptr
@@ -249,7 +249,7 @@ module {
     ^bb16:  // pred: ^bb14
       %174 = llvm.load %32 : !llvm.ptr -> f64
       llvm.store %174, %31 : f64, !llvm.ptr
-      nvvm.barrier0
+      nvvm.barrier
       llvm.br ^bb4
     ^bb17:  // pred: ^bb4
       %175 = llvm.load %31 : !llvm.ptr -> f64

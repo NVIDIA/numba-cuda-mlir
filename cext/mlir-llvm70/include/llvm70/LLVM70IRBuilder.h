@@ -74,6 +74,8 @@ public:
   // --- Basic blocks ---
   LLVMBasicBlockRef appendBB(LLVMValueRef fn, const char *name);
   void positionAtEnd(LLVMBasicBlockRef bb);
+  void positionBefore(LLVMValueRef inst);
+  LLVMValueRef getTerminator(LLVMBasicBlockRef bb);
   LLVMBasicBlockRef getInsertBlock();
 
   // --- Constants ---
@@ -360,6 +362,8 @@ private:
   // Builder
   LLVM_FN(LLVMBuilderRef, fnCreateBuilder, LLVMContextRef)
   LLVM_FN(void, fnPositionAtEnd, LLVMBuilderRef, LLVMBasicBlockRef)
+  LLVM_FN(void, fnPositionBefore, LLVMBuilderRef, LLVMValueRef)
+  LLVM_FN(LLVMValueRef, fnGetTerminator, LLVMBasicBlockRef)
   LLVM_FN(void, fnDisposeBuilder, LLVMBuilderRef)
 
   // Constants

@@ -4,9 +4,170 @@ import logging
 
 logging.basicConfig(level=logging.DEBUG)
 import math
+import operator
 from numba_cuda_mlir import cuda
 import numpy as np
 import pytest
+
+
+ARITHMETIC_SIGNEDNESS_CASES = [
+    pytest.param(operator.add, np.int8(-56), np.int64(0), np.int64(-56), id="add"),
+    pytest.param(operator.sub, np.int8(-56), np.int64(0), np.int64(-56), id="sub"),
+    pytest.param(operator.mul, np.int8(-7), np.int64(2), np.int64(-14), id="mul"),
+    pytest.param(
+        operator.truediv,
+        np.int8(-7),
+        np.int64(2),
+        np.float64(-3.5),
+        id="truediv",
+    ),
+    pytest.param(
+        operator.add,
+        np.uint8(200),
+        np.int64(0),
+        np.int64(200),
+        id="unsigned-control",
+    ),
+    pytest.param(
+        operator.mod,
+        np.uint8(200),
+        np.int64(256),
+        np.int64(200),
+        id="mod-unsigned-source",
+    ),
+    pytest.param(
+        operator.floordiv,
+        np.uint8(200),
+        np.int64(2),
+        np.int64(100),
+        id="floordiv-unsigned-source",
+    ),
+    pytest.param(
+        operator.lshift,
+        np.int8(-56),
+        np.int64(1),
+        np.int64(-112),
+        id="lshift-signed-source",
+    ),
+    pytest.param(
+        operator.rshift,
+        np.int8(-56),
+        np.int64(1),
+        np.int64(-28),
+        id="rshift-signed-source",
+    ),
+    pytest.param(
+        operator.and_,
+        np.int8(-56),
+        np.int64(-1),
+        np.int64(-56),
+        id="and-signed-source",
+    ),
+    pytest.param(
+        operator.or_,
+        np.int8(-56),
+        np.int64(0),
+        np.int64(-56),
+        id="or-signed-source",
+    ),
+    pytest.param(
+        operator.xor,
+        np.int8(-56),
+        np.int64(0),
+        np.int64(-56),
+        id="xor-signed-source",
+    ),
+]
+
+
+@pytest.mark.parametrize("op,lhs,rhs,expected", ARITHMETIC_SIGNEDNESS_CASES)
+def test_arithmetic_operand_conversion_preserves_signedness(op, lhs, rhs, expected):
+    @cuda.jit
+    def kernel(lhs, rhs, out):
+        out[0] = op(lhs[0], rhs[0])
+
+    lhs = cuda.to_device(np.array([lhs]))
+    rhs = cuda.to_device(np.array([rhs]))
+    out = cuda.device_array(1, dtype=type(expected))
+    kernel[1, 1](lhs, rhs, out)
+    np.testing.assert_equal(out.copy_to_host()[0], expected)
+
+
+# Every value below has its high bit set, so reading it as signed yields a
+# negative number and the wrong answer is obvious rather than a rounding
+# difference. math.ceil/floor/trunc of an integer are pure conversions, which
+# makes them the most direct probe of the integer-to-float widening itself.
+BIG_UINT64 = np.uint64(2**64 - 1024)
+BIG_UINT64_AS_FLOAT = 1.8446744073709552e19
+BIG_UINT32 = np.uint32(4000000000)
+
+MATH_SIGNEDNESS_CASES = [
+    pytest.param(math.floor, BIG_UINT64, BIG_UINT64_AS_FLOAT, id="floor-uint64"),
+    pytest.param(math.ceil, BIG_UINT64, BIG_UINT64_AS_FLOAT, id="ceil-uint64"),
+    pytest.param(math.trunc, BIG_UINT64, BIG_UINT64_AS_FLOAT, id="trunc-uint64"),
+    pytest.param(math.fabs, BIG_UINT64, BIG_UINT64_AS_FLOAT, id="fabs-uint64"),
+    pytest.param(math.sqrt, BIG_UINT64, 4294967296.0, id="sqrt-uint64"),
+    pytest.param(math.log, BIG_UINT64, math.log(BIG_UINT64_AS_FLOAT), id="log-uint64"),
+    pytest.param(math.floor, BIG_UINT32, 4000000000.0, id="floor-uint32"),
+    pytest.param(math.sqrt, BIG_UINT32, math.sqrt(4000000000.0), id="sqrt-uint32"),
+    pytest.param(math.floor, np.int64(-1024), -1024.0, id="floor-int64-control"),
+    pytest.param(math.fabs, np.int64(-1024), 1024.0, id="fabs-int64-control"),
+    pytest.param(math.sqrt, np.int64(1024), 32.0, id="sqrt-int64-control"),
+    pytest.param(math.floor, np.int32(-4), -4.0, id="floor-int32-control"),
+]
+
+
+@pytest.mark.parametrize("fn,value,expected", MATH_SIGNEDNESS_CASES)
+def test_math_operand_conversion_preserves_signedness(fn, value, expected):
+    @cuda.jit
+    def kernel(src, out):
+        out[0] = fn(src[0])
+
+    src = cuda.to_device(np.array([value]))
+    out = cuda.device_array(1, dtype=np.float64)
+    kernel[1, 1](src, out)
+    # The f32 conversion path for 32-bit sources costs a few digits, so compare
+    # with a tolerance rather than exactly.
+    np.testing.assert_allclose(out.copy_to_host()[0], expected, rtol=1e-6)
+
+
+NARROW_INTEGER_CASES = [
+    pytest.param(math.sqrt, np.uint8(200), math.sqrt(200), id="sqrt-uint8"),
+    pytest.param(math.sqrt, np.int8(100), math.sqrt(100), id="sqrt-int8"),
+    pytest.param(math.sqrt, np.uint16(60000), math.sqrt(60000), id="sqrt-uint16"),
+    pytest.param(math.sqrt, np.int16(300), math.sqrt(300), id="sqrt-int16"),
+    pytest.param(math.floor, np.uint8(200), 200.0, id="floor-uint8"),
+    pytest.param(math.floor, np.int8(-56), -56.0, id="floor-int8"),
+    pytest.param(math.floor, np.uint16(60000), 60000.0, id="floor-uint16"),
+    pytest.param(math.floor, np.int16(-300), -300.0, id="floor-int16"),
+    pytest.param(math.fabs, np.int8(-56), 56.0, id="fabs-int8"),
+]
+
+
+@pytest.mark.parametrize("fn,value,expected", NARROW_INTEGER_CASES)
+def test_math_accepts_narrow_integer_widths(fn, value, expected):
+    """8- and 16-bit sources used to raise ValueError instead of lowering."""
+
+    @cuda.jit
+    def kernel(src, out):
+        out[0] = fn(src[0])
+
+    src = cuda.to_device(np.array([value]))
+    out = cuda.device_array(1, dtype=np.float64)
+    kernel[1, 1](src, out)
+    np.testing.assert_allclose(out.copy_to_host()[0], expected, rtol=1e-6)
+
+
+def test_math_binary_operand_conversion_preserves_signedness():
+    @cuda.jit
+    def kernel(x, y, out):
+        out[0] = math.hypot(x[0], y[0])
+
+    x = cuda.to_device(np.array([BIG_UINT64]))
+    y = cuda.to_device(np.array([np.uint64(0)]))
+    out = cuda.device_array(1, dtype=np.float64)
+    kernel[1, 1](x, y, out)
+    np.testing.assert_allclose(out.copy_to_host()[0], BIG_UINT64_AS_FLOAT, rtol=1e-6)
 
 
 def test_math_ceil():

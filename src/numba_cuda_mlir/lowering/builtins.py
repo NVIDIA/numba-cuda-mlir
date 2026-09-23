@@ -18,6 +18,7 @@ from numba_cuda_mlir.lowering_utilities import (
     tensor_to_memref,
     simple_scalar_conversion_op,
     expensive_coerce_tensor_type,
+    get_conversion_signedness,
     try_extract_constant,
 )
 from numba_cuda_mlir.logging import trace
@@ -449,7 +450,8 @@ def lower_broadcasted_div(builder, target, args, kwargs):
 def type_convert(builder, target, args, kwargs):
     target_numba_ty = builder.get_numba_type(target)
     to_type = builder.get_mlir_type(target)
-    to_signed = isinstance(target_numba_ty, types.Integer) and target_numba_ty.signed
+    source_numba_ty = builder.get_numba_type(args[0])
+    signed = get_conversion_signedness(source_numba_ty, target_numba_ty)
 
     if isinstance(target_numba_ty, (types.IntegerLiteral, types.Literal)):
         result = constant(target_numba_ty.literal_value, to_type)
@@ -463,14 +465,23 @@ def type_convert(builder, target, args, kwargs):
         builder.store_var(target, result)
         return
 
-    if isinstance(value.type, ir.BF16Type) and isinstance(to_type, ir.IntegerType):
+    # An i1 target is excluded so it falls through to `convert`, which compares against
+    # zero rather than truncating; fptosi/fptoui to i1 keeps the low bit, so bf16(0.0)
+    # came out True and bf16(2.0) came out False.
+    if (
+        isinstance(value.type, ir.BF16Type)
+        and isinstance(to_type, ir.IntegerType)
+        and to_type.width > 1
+    ):
         value = (
-            arith.fptosi(out=to_type, in_=value)
-            if to_type.width > 1
-            else arith.fptoui(out=to_type, in_=value)
+            arith.fptosi(out=to_type, in_=value) if signed else arith.fptoui(out=to_type, in_=value)
         )
     else:
-        value = convert(value, to_type, signed=to_signed)
+        value = convert(
+            value,
+            to_type,
+            signed=signed,
+        )
     builder.store_var(target, value)
 
 
@@ -541,7 +552,7 @@ def lower_max(builder, target, args, kwargs):
 
     # Use appropriate max operation based on type
     if isinstance(a.type, ir.FloatType):
-        result = arith.maximumf(a, b)
+        result = arith.maxnumf(a, b)
     elif isinstance(a.type, ir.IntegerType):
         # For simplicity, use signed max (could enhance to detect signed/unsigned)
         result = arith.maxsi(a, b)
@@ -564,7 +575,7 @@ def lower_min(builder, target, args, kwargs):
 
     # Use appropriate min operation based on type
     if isinstance(a.type, ir.FloatType):
-        result = arith.minimumf(a, b)
+        result = arith.minnumf(a, b)
     elif isinstance(a.type, ir.IntegerType):
         # For simplicity, use signed min (could enhance to detect signed/unsigned)
         result = arith.minsi(a, b)
@@ -753,6 +764,13 @@ def operator_is_none_lower(builder, target, args, kwargs):
     builder.store_var(target, result)
 
 
+@lower(operator.is_, types.BaseTuple, types.NoneType)
+@lower(operator.is_, types.NoneType, types.BaseTuple)
+def operator_is_tuple_none_lower(builder, target, args, kwargs):
+    result = arith.constant(result=ir.IntegerType.get_signless(1), value=False)
+    builder.store_var(target, result)
+
+
 @lower(operator.is_, types.NoneType, types.NoneType)
 def operator_is_none_none_lower(builder, target, args, kwargs):
     """Lower 'None is None' - always True."""
@@ -805,6 +823,13 @@ def operator_is_bool_literal_lower(builder, target, args, kwargs):
 @lower(operator.is_not, types.Number, types.NoneType)
 @lower(operator.is_not, types.NoneType, types.Number)
 def operator_is_not_none_lower(builder, target, args, kwargs):
+    result = arith.constant(result=ir.IntegerType.get_signless(1), value=True)
+    builder.store_var(target, result)
+
+
+@lower(operator.is_not, types.BaseTuple, types.NoneType)
+@lower(operator.is_not, types.NoneType, types.BaseTuple)
+def operator_is_not_tuple_none_lower(builder, target, args, kwargs):
     result = arith.constant(result=ir.IntegerType.get_signless(1), value=True)
     builder.store_var(target, result)
 

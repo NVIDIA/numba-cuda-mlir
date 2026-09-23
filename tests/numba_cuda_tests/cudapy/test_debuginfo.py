@@ -55,7 +55,6 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         def f(x):
             x[0] = 0
 
-    @pytest.mark.xfail(True, reason="debuginfo issues")
     def test_issue_9888(self):
         # Compiler created symbol should not be emitted in DILocalVariable
         # See Numba Issue #9888 https://github.com/numba/numba/pull/9888
@@ -74,7 +73,6 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         match = re.compile(pat).search(llvm_ir)
         self.assertIsNone(match, msg=llvm_ir)
 
-    @pytest.mark.xfail(True, reason="debuginfo issues")
     def test_bool_type(self):
         sig = (types.int32, types.int32)
 
@@ -326,7 +324,6 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         ir = foo.inspect_llvm()[sig]
         self.assertFileCheckMatches(ir, foo.__doc__)
 
-    @pytest.mark.xfail(True, reason="debuginfo issues")
     def test_no_user_var_alias(self):
         sig = (types.int32, types.int32)
 
@@ -340,7 +337,6 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         match = re.compile(pat).search(llvm_ir)
         self.assertIsNone(match, msg=llvm_ir)
 
-    @pytest.mark.xfail(True, reason="debuginfo issues")
     def test_no_literal_type(self):
         sig = (types.int32,)
 
@@ -596,7 +592,6 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
             # Clean up linecache
             linecache.cache.pop(fake_filename, None)
 
-    @pytest.mark.xfail(True, reason="debuginfo issues")
     def test_no_if_op_bools_declared(self):
         @numba_cuda_mlir.cuda.jit(
             "int64(boolean, boolean)",
@@ -1030,7 +1025,6 @@ class TestCudaDebugInfo(NumbaCUDATestCase):
         match = re.search(pattern, llvm_ir)
         self.assertIsNotNone(match, f"No non-zero store to 'bar.N' with !dbg !{continue_dbg_id}")
 
-    @pytest.mark.xfail(True, reason="debuginfo issues")
     def test_arg_load_has_dbg_location(self):
         """Loads of arg-named variables must carry !dbg in the body.
 

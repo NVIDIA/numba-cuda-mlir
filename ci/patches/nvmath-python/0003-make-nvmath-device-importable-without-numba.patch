@@ -1,0 +1,432 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+Make nvmath.device importable without numba
+
+On this ref the numba-cuda backend is not optional: device/__init__.py imports
+cublasdx unconditionally, which pulls common_opaque_tensor -> common_numba ->
+{llvm_array, vector_types_numba}, and cusolverdx pulls cusolverdx_backend. Those
+modules import numba, numba.cuda and llvmlite at module scope, so
+`import nvmath.device` fails outright unless numba-cuda is installed - the
+_HAS_NUMBA gate below them never gets a chance to run.
+
+This CI job exercises only the numba-cuda-mlir backend, so move the numba-only
+code off the unconditional import path:
+
+  * split common_opaque_tensor into a numba-free half (OpaqueLayout,
+    _LIBMATHDX_RUNTIME - both pure Python/numpy, and all cublasdx needs) and a
+    new common_opaque_tensor_numba holding the type/model registrations;
+  * import the new module from the existing `if _HAS_NUMBA:` block and repoint
+    cublasdx_numba at it;
+  * make cusolverdx_backend's `from numba import cuda` lazy by splitting out
+    get_universal_fatbin_data(), which returns the raw bytes, and have the
+    numba-cuda-mlir backend use that instead of unwrapping numba's Fatbin.
+
+Applied by ci/tools/run-nvmath-python-mlir-tests.
+
+diff --git a/nvmath/device/__init__.py b/nvmath/device/__init__.py
+--- a/nvmath/device/__init__.py
++++ b/nvmath/device/__init__.py
+@@ -17,6 +17,7 @@ from .common import _HAS_NUMBA, _HAS_NUMBA_CUDA_MLIR
+ 
+ if _HAS_NUMBA:
+     from . import (
++        common_opaque_tensor_numba,  # noqa: F401
+         cublasdx_numba,  # noqa: F401
+         cufftdx_numba,  # noqa: F401
+         cusolverdx_numba,  # noqa: F401
+diff --git a/nvmath/device/common_opaque_tensor.py b/nvmath/device/common_opaque_tensor.py
+--- a/nvmath/device/common_opaque_tensor.py
++++ b/nvmath/device/common_opaque_tensor.py
+@@ -5,16 +5,8 @@
+ from functools import cached_property
+ 
+ import numpy
+-from llvmlite import ir as llir
+-from numba.core import cgutils
+-from numba.core.base import BaseContext
+-from numba.cuda.extending import lower_builtin, make_attribute_wrapper, type_callable
+-from numba.cuda.models import register_model
+-from numba.extending import models, types
++from nvmath.device.common import Layout
+ 
+-from nvmath.device.common import Layout, OpaqueTensor
+-from nvmath.device.common_numba import NUMBA_FE_TYPES_TO_NUMBA_IR, overload_type_attribute
+-from nvmath.device.llvm_array import LLVMArray
+ 
+ _LIBMATHDX_RUNTIME = -9223372036854775808
+ 
+@@ -59,143 +51,3 @@ class OpaqueLayout(Layout):
+     @property
+     def strides(self) -> tuple[int, ...]:
+         return self._strides
+-
+-
+-class LayoutType(types.Type):
+-    """
+-    Type class associated with opaque tensor layouts.
+-    """
+-
+-    def __init__(
+-        self,
+-        layout: OpaqueLayout,
+-    ):
+-        self._layout = layout
+-        super().__init__(
+-            f"Layout(dynamic_shape_size={layout.dynamic_shape_size}, dynamic_strides_size={layout.dynamic_strides_size})"
+-        )
+-
+-    @property
+-    def layout(self) -> OpaqueLayout:
+-        return self._layout
+-
+-    @cached_property
+-    def dtype(self) -> types.Number:
+-        return NUMBA_FE_TYPES_TO_NUMBA_IR[self._layout.dtype]
+-
+-
+-@register_model(LayoutType)
+-class LayoutModel(models.StructModel):
+-    def __init__(self, dmm, fe_type: LayoutType):
+-        members = []
+-
+-        strides_size = fe_type.layout.dynamic_strides_size
+-        if strides_size > 0:
+-            array_type = LLVMArray(types.int64, strides_size)
+-            members += [("strides", array_type)]
+-
+-        shape_size = fe_type.layout.dynamic_shape_size
+-        if shape_size > 0:
+-            array_type = LLVMArray(types.int64, shape_size)
+-            members += [("shape", array_type)]
+-
+-        models.StructModel.__init__(self, dmm, fe_type, members)
+-
+-
+-make_attribute_wrapper(LayoutType, "strides", "strides")
+-make_attribute_wrapper(LayoutType, "shape", "shape")
+-
+-for attribute in ("uid", "alignment", "storage_bytes"):
+-    overload_type_attribute(LayoutType, "", attribute)
+-
+-
+-class OpaqueTensorType(types.Type):
+-    def __init__(self, layout: LayoutType):
+-        super().__init__(f"OpaqueTensor(layout={layout})")
+-        self._layout = layout
+-
+-    @property
+-    def uid(self):
+-        return self._layout.layout.uid
+-
+-    @property
+-    def layout(self) -> LayoutType:
+-        return self._layout
+-
+-    @cached_property
+-    def ndim(self):
+-        return 2
+-
+-    @cached_property
+-    def dtype(self):
+-        return self._layout.dtype
+-
+-
+-class OpaqueTensorModel(models.StructModel):
+-    def __init__(self, dmm, fe_type: OpaqueTensorType):
+-        members = [
+-            ("ptr", types.voidptr),
+-        ]
+-        layout = fe_type.layout.layout
+-
+-        strides_size = layout.dynamic_strides_size
+-        if strides_size > 0:
+-            array_type = LLVMArray(types.int64, strides_size)
+-            members += [("strides", array_type)]
+-
+-        shape_size = layout.dynamic_shape_size
+-        if shape_size > 0:
+-            array_type = LLVMArray(types.int64, shape_size)
+-            members += [("shape", array_type)]
+-
+-        models.StructModel.__init__(self, dmm, fe_type, members)
+-
+-
+-register_model(OpaqueTensorType)(OpaqueTensorModel)
+-
+-
+-@type_callable(OpaqueTensor)
+-def type_callable_OpaqueTensor(context):
+-    def typer(buffer_ty, layout_ty):
+-        if not isinstance(buffer_ty, types.Array):
+-            return
+-        if not isinstance(layout_ty, LayoutType):
+-            return
+-        assert buffer_ty.dtype == layout_ty.dtype
+-        return OpaqueTensorType(layout_ty)
+-
+-    return typer
+-
+-
+-@lower_builtin(OpaqueTensor, types.Array, LayoutType)
+-def impl_opaque_tensor(context: BaseContext, builder: llir.IRBuilder, sig, args):
+-    tensor_ty: OpaqueTensorType = sig.return_type
+-    buffer, buffer_ty = args[0], sig.args[0]
+-    layout, layout_ty = args[1], sig.args[1]
+-
+-    ptr = cgutils.create_struct_proxy(buffer_ty)(context, builder, buffer).data
+-    # Future release of numba-cuda may have support for address spaces.
+-    # It is not supported to pass a non generic pointer to device function
+-    # call.
+-    if ptr.type.addrspace != 0:
+-        ptr = builder.addrspacecast(ptr, llir.PointerType(ptr.type.pointee), "generic")
+-
+-    voidPtrTy = llir.PointerType(llir.IntType(8))
+-    ptr = builder.bitcast(ptr, voidPtrTy)
+-
+-    opaque_tensor = cgutils.create_struct_proxy(tensor_ty)(context, builder)
+-    opaque_tensor.ptr = ptr
+-
+-    layout_struct = cgutils.create_struct_proxy(layout_ty)(context, builder, layout)
+-
+-    if tensor_ty.layout.layout.dynamic_shape_size > 0:
+-        opaque_tensor.shape = layout_struct.shape
+-
+-    if tensor_ty.layout.layout.dynamic_strides_size > 0:
+-        opaque_tensor.strides = layout_struct.strides
+-
+-    return opaque_tensor._getvalue()
+-
+-
+-make_attribute_wrapper(OpaqueTensorType, "ptr", "ptr")
+-overload_type_attribute(OpaqueTensorType, "layout", "layout")
+diff --git a/nvmath/device/common_opaque_tensor_numba.py b/nvmath/device/common_opaque_tensor_numba.py
+new file mode 100644
+--- /dev/null
++++ b/nvmath/device/common_opaque_tensor_numba.py
+@@ -0,0 +1,157 @@
++# Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. ALL RIGHTS RESERVED.
++#
++# SPDX-License-Identifier: Apache-2.0
++
++from functools import cached_property
++
++from llvmlite import ir as llir
++from numba.core import cgutils
++from numba.core.base import BaseContext
++from numba.cuda.extending import lower_builtin, make_attribute_wrapper, type_callable
++from numba.cuda.models import register_model
++from numba.extending import models, types
++
++from nvmath.device.common import OpaqueTensor
++from nvmath.device.common_numba import NUMBA_FE_TYPES_TO_NUMBA_IR, overload_type_attribute
++from nvmath.device.llvm_array import LLVMArray
++from nvmath.device.common_opaque_tensor import OpaqueLayout
++
++
++class LayoutType(types.Type):
++    """
++    Type class associated with opaque tensor layouts.
++    """
++
++    def __init__(
++        self,
++        layout: OpaqueLayout,
++    ):
++        self._layout = layout
++        super().__init__(
++            f"Layout(dynamic_shape_size={layout.dynamic_shape_size}, dynamic_strides_size={layout.dynamic_strides_size})"
++        )
++
++    @property
++    def layout(self) -> OpaqueLayout:
++        return self._layout
++
++    @cached_property
++    def dtype(self) -> types.Number:
++        return NUMBA_FE_TYPES_TO_NUMBA_IR[self._layout.dtype]
++
++
++@register_model(LayoutType)
++class LayoutModel(models.StructModel):
++    def __init__(self, dmm, fe_type: LayoutType):
++        members = []
++
++        strides_size = fe_type.layout.dynamic_strides_size
++        if strides_size > 0:
++            array_type = LLVMArray(types.int64, strides_size)
++            members += [("strides", array_type)]
++
++        shape_size = fe_type.layout.dynamic_shape_size
++        if shape_size > 0:
++            array_type = LLVMArray(types.int64, shape_size)
++            members += [("shape", array_type)]
++
++        models.StructModel.__init__(self, dmm, fe_type, members)
++
++
++make_attribute_wrapper(LayoutType, "strides", "strides")
++make_attribute_wrapper(LayoutType, "shape", "shape")
++
++for attribute in ("uid", "alignment", "storage_bytes"):
++    overload_type_attribute(LayoutType, "", attribute)
++
++
++class OpaqueTensorType(types.Type):
++    def __init__(self, layout: LayoutType):
++        super().__init__(f"OpaqueTensor(layout={layout})")
++        self._layout = layout
++
++    @property
++    def uid(self):
++        return self._layout.layout.uid
++
++    @property
++    def layout(self) -> LayoutType:
++        return self._layout
++
++    @cached_property
++    def ndim(self):
++        return 2
++
++    @cached_property
++    def dtype(self):
++        return self._layout.dtype
++
++
++class OpaqueTensorModel(models.StructModel):
++    def __init__(self, dmm, fe_type: OpaqueTensorType):
++        members = [
++            ("ptr", types.voidptr),
++        ]
++        layout = fe_type.layout.layout
++
++        strides_size = layout.dynamic_strides_size
++        if strides_size > 0:
++            array_type = LLVMArray(types.int64, strides_size)
++            members += [("strides", array_type)]
++
++        shape_size = layout.dynamic_shape_size
++        if shape_size > 0:
++            array_type = LLVMArray(types.int64, shape_size)
++            members += [("shape", array_type)]
++
++        models.StructModel.__init__(self, dmm, fe_type, members)
++
++
++register_model(OpaqueTensorType)(OpaqueTensorModel)
++
++
++@type_callable(OpaqueTensor)
++def type_callable_OpaqueTensor(context):
++    def typer(buffer_ty, layout_ty):
++        if not isinstance(buffer_ty, types.Array):
++            return
++        if not isinstance(layout_ty, LayoutType):
++            return
++        assert buffer_ty.dtype == layout_ty.dtype
++        return OpaqueTensorType(layout_ty)
++
++    return typer
++
++
++@lower_builtin(OpaqueTensor, types.Array, LayoutType)
++def impl_opaque_tensor(context: BaseContext, builder: llir.IRBuilder, sig, args):
++    tensor_ty: OpaqueTensorType = sig.return_type
++    buffer, buffer_ty = args[0], sig.args[0]
++    layout, layout_ty = args[1], sig.args[1]
++
++    ptr = cgutils.create_struct_proxy(buffer_ty)(context, builder, buffer).data
++    # Future release of numba-cuda may have support for address spaces.
++    # It is not supported to pass a non generic pointer to device function
++    # call.
++    if ptr.type.addrspace != 0:
++        ptr = builder.addrspacecast(ptr, llir.PointerType(ptr.type.pointee), "generic")
++
++    voidPtrTy = llir.PointerType(llir.IntType(8))
++    ptr = builder.bitcast(ptr, voidPtrTy)
++
++    opaque_tensor = cgutils.create_struct_proxy(tensor_ty)(context, builder)
++    opaque_tensor.ptr = ptr
++
++    layout_struct = cgutils.create_struct_proxy(layout_ty)(context, builder, layout)
++
++    if tensor_ty.layout.layout.dynamic_shape_size > 0:
++        opaque_tensor.shape = layout_struct.shape
++
++    if tensor_ty.layout.layout.dynamic_strides_size > 0:
++        opaque_tensor.strides = layout_struct.strides
++
++    return opaque_tensor._getvalue()
++
++
++make_attribute_wrapper(OpaqueTensorType, "ptr", "ptr")
++overload_type_attribute(OpaqueTensorType, "layout", "layout")
+diff --git a/nvmath/device/cublasdx_numba.py b/nvmath/device/cublasdx_numba.py
+--- a/nvmath/device/cublasdx_numba.py
++++ b/nvmath/device/cublasdx_numba.py
+@@ -36,7 +36,7 @@ from .common_numba import (
+     get_value_ptr,
+     overload_type_attribute,
+ )
+-from .common_opaque_tensor import (
++from .common_opaque_tensor_numba import (
+     LayoutModel,
+     LayoutType,
+     OpaqueTensorModel,
+diff --git a/nvmath/device/cusolverdx_backend.py b/nvmath/device/cusolverdx_backend.py
+--- a/nvmath/device/cusolverdx_backend.py
++++ b/nvmath/device/cusolverdx_backend.py
+@@ -7,7 +7,6 @@ from collections.abc import Sequence
+ from functools import lru_cache, partial
+ 
+ import numpy as np
+-from numba import cuda
+ 
+ from nvmath.bindings import mathdx
+ from nvmath.device.common_cuda import ComputeCapability
+@@ -430,11 +429,20 @@ def generate_code(handle, version: ComputeCapability):
+ 
+ 
+ @lru_cache
+-def get_universal_fatbin():
++def get_universal_fatbin_data():
+     h = mathdx.cusolverdx_create_descriptor()
+     fatbin_size = mathdx.cusolverdx_get_universal_fatbin_size(h)
+     fatbin = bytearray(fatbin_size)
+     mathdx.cusolverdx_get_universal_fatbin(h, fatbin_size, fatbin)
+     mathdx.cusolverdx_destroy_descriptor(h)
+ 
+-    return cuda.Fatbin(bytes(fatbin))
++    return bytes(fatbin)
++
++
++@lru_cache
++def get_universal_fatbin():
++    # Imported lazily: this is the numba-cuda backend's entry point, and
++    # nvmath.device must stay importable without numba installed.
++    from numba import cuda
++
++    return cuda.Fatbin(get_universal_fatbin_data())
+diff --git a/nvmath/device/cusolverdx_numba_cuda_mlir.py b/nvmath/device/cusolverdx_numba_cuda_mlir.py
+--- a/nvmath/device/cusolverdx_numba_cuda_mlir.py
++++ b/nvmath/device/cusolverdx_numba_cuda_mlir.py
+@@ -14,7 +14,7 @@ from numba_cuda_mlir.numba_cuda.cudadrv.linkable_code import LTOIR, Fatbin
+ 
+ from nvmath.device.common_cuda import get_default_code_type
+ from nvmath.device.cusolverdx import Solver, compile_solver_execute
+-from nvmath.device.cusolverdx_backend import get_universal_fatbin
++from nvmath.device.cusolverdx_backend import get_universal_fatbin_data
+ 
+ from .common_numba_cuda_mlir import (
+     HostDescriptorBase,
+@@ -157,7 +157,7 @@ def _compile_device_function(solver_type: SolverNumbaType, signature: _Signature
+         execution_api=signature.api,
+     )
+ 
+-    fatbin = Fatbin(get_universal_fatbin().data)
++    fatbin = Fatbin(get_universal_fatbin_data())
+ 
+     numba_args = [_get_libmathdx_type(_convert_to_ir_type(arg_spec.arg_type, solver_type)) for arg_spec in signature.args]
+     sig = types.void(*numba_args)

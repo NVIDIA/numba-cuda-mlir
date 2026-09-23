@@ -182,6 +182,7 @@ class Event:
 
 
 _registered = defaultdict(list)
+_registered_lock = threading.RLock()
 
 
 def register(kind, listener):
@@ -194,7 +195,8 @@ def register(kind, listener):
     """
     assert isinstance(listener, Listener)
     kind = _guard_kind(kind)
-    _registered[kind].append(listener)
+    with _registered_lock:
+        _registered[kind].append(listener)
 
 
 def unregister(kind, listener):
@@ -207,8 +209,9 @@ def unregister(kind, listener):
     """
     assert isinstance(listener, Listener)
     kind = _guard_kind(kind)
-    lst = _registered[kind]
-    lst.remove(listener)
+    with _registered_lock:
+        lst = _registered[kind]
+        lst.remove(listener)
 
 
 def broadcast(event):
@@ -218,7 +221,9 @@ def broadcast(event):
     ----------
     event : Event
     """
-    for listener in _registered[event.kind]:
+    with _registered_lock:
+        listeners = tuple(_registered[event.kind])
+    for listener in listeners:
         listener.notify(event)
 
 

@@ -110,12 +110,14 @@ static std::string injectFastmathFlags(llvm::StringRef ir) {
 // Public entry points
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<std::string> llvm70::translateToNVVMIR(gpu::GPUModuleOp gpuMod,
-                                                     const LLVM70Options &opts) {
+static llvm::Expected<std::unique_ptr<LLVM70IRBuilder>>
+translateToLLVM70Module(gpu::GPUModuleOp gpuMod,
+                        const LLVM70Options &opts,
+                        bool *hasFastmathMarkers = nullptr) {
   auto builderOrErr = LLVM70IRBuilder::create(opts.libLLVMPath);
   if (!builderOrErr)
     return builderOrErr.takeError();
-  auto &builder = *builderOrErr;
+  auto builder = std::move(*builderOrErr);
 
   builder->setTarget(opts.triple.c_str());
   if (!opts.dataLayout.empty())
@@ -125,26 +127,31 @@ llvm::Expected<std::string> llvm70::translateToNVVMIR(gpu::GPUModuleOp gpuMod,
   if (auto err = translator.translate(gpuMod, opts.debugLevel, opts.genLTO, &opts))
     return std::move(err);
 
-  std::string ir = builder->printModuleToString();
-  if (translator.hasFastmathMarkers())
+  if (hasFastmathMarkers)
+    *hasFastmathMarkers = translator.hasFastmathMarkers();
+  return std::move(builder);
+}
+
+llvm::Expected<std::string> llvm70::translateToNVVMIR(gpu::GPUModuleOp gpuMod,
+                                                       const LLVM70Options &opts) {
+  bool fmfTagged = false;
+  auto builderOrErr = translateToLLVM70Module(gpuMod, opts, &fmfTagged);
+  if (!builderOrErr)
+    return builderOrErr.takeError();
+  std::string ir = (*builderOrErr)->printModuleToString();
+  if (fmfTagged)
     ir = injectFastmathFlags(ir);
   return ir;
 }
 
 llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
-                                                  const LLVM70Options &opts) {
-  auto builderOrErr = LLVM70IRBuilder::create(opts.libLLVMPath);
+                                                   const LLVM70Options &opts,
+                                                   std::string *nvvmBitcode) {
+  bool fmfTagged = false;
+  auto builderOrErr = translateToLLVM70Module(gpuMod, opts, &fmfTagged);
   if (!builderOrErr)
     return builderOrErr.takeError();
   auto &builder = *builderOrErr;
-
-  builder->setTarget(opts.triple.c_str());
-  if (!opts.dataLayout.empty())
-    builder->setDataLayout(opts.dataLayout.c_str());
-
-  MLIRToLLVM70 translator(*builder);
-  if (auto err = translator.translate(gpuMod, opts.debugLevel, opts.genLTO, &opts))
-    return std::move(err);
 
   LLVM_DEBUG({
     llvm::dbgs() << "=== Generated NVVM IR ===\n"
@@ -156,7 +163,7 @@ llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
   LLVMMemoryBufferRef buf = nullptr;
   const char *modData;
   size_t modSize;
-  if (translator.hasFastmathMarkers()) {
+  if (fmfTagged) {
     textIR = injectFastmathFlags(builder->printModuleToString());
     spellOutEmissionKind(textIR);
     modData = textIR.data();
@@ -166,6 +173,8 @@ llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
     modData = builder->getBufferStart(buf);
     modSize = builder->getBufferSize(buf);
   }
+  if (nvvmBitcode)
+    nvvmBitcode->assign(modData, modSize);
 
   // Collect modules: the kernel module + any link libraries
   llvm::SmallVector<std::pair<const char *, size_t>> modules;
@@ -271,10 +280,36 @@ LLVMTypeRef MLIRToLLVM70::convertType(Type ty) {
         return b.arrayTy(convertType(arrTy.getElementType()),
                          arrTy.getNumElements());
       })
-      .Case<LLVM::LLVMStructType>([&](auto structTy) {
+      .Case<LLVM::LLVMStructType>([&](auto structTy) -> LLVMTypeRef {
+        if (structTy.isIdentified()) {
+          llvm::StringRef name = structTy.getName();
+
+          auto it = namedStructCache.find(name);
+          if (it != namedStructCache.end()) {
+            return it->second;
+          }
+
+          LLVMTypeRef named = b.namedStructTy(name.str().c_str());
+          namedStructCache[name] = named;
+
+          if (!structTy.isOpaque()) {
+            llvm::SmallVector<LLVMTypeRef> elems;
+
+            for (unsigned i = 0, e = structTy.getBody().size(); i < e; ++i)
+              elems.push_back(convertStructMemberType(structTy, i));
+
+            b.setStructBody(named, elems.data(), elems.size(),
+                            structTy.isPacked());
+          }
+
+          return named;
+        }
+
         llvm::SmallVector<LLVMTypeRef> elems;
+
         for (Type e : structTy.getBody())
           elems.push_back(convertType(e));
+
         return b.structTy(elems.data(), elems.size(), structTy.isPacked());
       })
       .Case<LLVM::LLVMFunctionType>([&](auto funcTy) {
@@ -299,6 +334,40 @@ LLVMTypeRef MLIRToLLVM70::convertType(Type ty) {
       });
 }
 
+LLVMTypeRef MLIRToLLVM70::convertStructMemberType(LLVM::LLVMStructType structTy,
+                                                  unsigned idx) {
+  Type member = structTy.getBody()[idx];
+
+  auto ptrTy = dyn_cast<LLVM::LLVMPointerType>(member);
+  if (ptrTy && structTy.isIdentified()) {
+    auto hint = structPointees.find(structTy.getName());
+    if (hint != structPointees.end() && idx < hint->second.size() &&
+        hint->second[idx])
+      return b.ptrTy(convertType(hint->second[idx]), ptrTy.getAddressSpace());
+  }
+
+  return convertType(member);
+}
+
+LLVMTypeRef
+MLIRToLLVM70::convertAggregateElementType(Type aggTy,
+                                          ArrayRef<int64_t> position) {
+  assert(!position.empty() && "aggregate access with no position");
+
+  // Walk down to the aggregate that directly holds the addressed element.
+  for (int64_t idx : position.drop_back()) {
+    if (auto structTy = dyn_cast<LLVM::LLVMStructType>(aggTy))
+      aggTy = structTy.getBody()[idx];
+    else
+      aggTy = cast<LLVM::LLVMArrayType>(aggTy).getElementType();
+  }
+
+  if (auto structTy = dyn_cast<LLVM::LLVMStructType>(aggTy))
+    return convertStructMemberType(structTy,
+                                   static_cast<unsigned>(position.back()));
+  return convertType(cast<LLVM::LLVMArrayType>(aggTy).getElementType());
+}
+
 //===----------------------------------------------------------------------===//
 // Value lookup
 //===----------------------------------------------------------------------===//
@@ -312,6 +381,21 @@ LLVMValueRef MLIRToLLVM70::lookupValue(Value v) {
   os << "llvm70: unmapped MLIR value: " << v
      << "\nThis is a translator bug — the value was used before being defined.";
   llvm::report_fatal_error(llvm::StringRef(msg), /*GenCrashDiag=*/false);
+}
+
+LLVMValueRef MLIRToLLVM70::lookupValueAsDeclared(Value v) {
+  LLVMValueRef val = lookupValue(v);
+  // convertType renders an opaque !llvm.ptr as i8*, but not every producer
+  // hands back a value of that type: an alloca stays the elemTy* LLVM 7 gives
+  // it, so that dbg.declare still names the stack slot itself. Ops that put a
+  // pointer somewhere already typed as i8* -- an aggregate field, a pointee,
+  // the other arm of a select, a block argument -- have to reconcile the two,
+  // because LLVM 7 has no opaque pointers and libNVVM's bitcode reader rejects
+  // the mismatch. Values that already have the declared type are unaffected;
+  // a no-op bitcast folds away.
+  if (isa<LLVM::LLVMPointerType>(v.getType()))
+    val = b.buildBitCast(val, convertType(v.getType()), "");
+  return val;
 }
 
 //===----------------------------------------------------------------------===//
@@ -371,9 +455,31 @@ void MLIRToLLVM70::setDebugLocFromOp(Operation *op) {
 // Top-level translation
 //===----------------------------------------------------------------------===//
 
+void MLIRToLLVM70::loadStructPointees(gpu::GPUModuleOp gpuMod) {
+  auto dict = gpuMod->getAttrOfType<DictionaryAttr>("llvm70.struct_pointees");
+  if (!dict)
+    return;
+
+  for (NamedAttribute entry : dict) {
+    auto members = dyn_cast<ArrayAttr>(entry.getValue());
+    if (!members)
+      continue;
+
+    llvm::SmallVector<Type> pointees;
+    pointees.reserve(members.size());
+    for (Attribute member : members) {
+      // Not a TypeAttr means "no hint": leave that member as `i8*`.
+      auto typeAttr = dyn_cast<TypeAttr>(member);
+      pointees.push_back(typeAttr ? typeAttr.getValue() : Type());
+    }
+    structPointees[entry.getName().strref()] = std::move(pointees);
+  }
+}
+
 llvm::Error MLIRToLLVM70::translate(gpu::GPUModuleOp gpuMod, int debugLevel,
                                     bool omitDebugInfoVersionFlag,
                                     const LLVM70Options *opts) {
+  loadStructPointees(gpuMod);
   bool needFullDebug = (debugLevel >= 2);
   if (debugLevel > 0) {
     // Upgrade to FullDebug when the IR contains debug variable intrinsics
@@ -623,6 +729,20 @@ llvm::Error MLIRToLLVM70::translatePhiOps(Block &block) {
   if (block.isEntryBlock())
     return llvm::Error::success();
 
+  // A coercion for an incoming value has to live in the predecessor, ahead of
+  // its terminator, so that it dominates the phi. The predecessor is not always
+  // the MLIR block holding the terminator: an edge that needed a trampoline
+  // enters the phi from the trampoline instead.
+  auto incomingFrom = [&](Value v, LLVMBasicBlockRef predBB) {
+    if (!isa<LLVM::LLVMPointerType>(v.getType()))
+      return lookupValue(v);
+    LLVMBasicBlockRef saved = b.getInsertBlock();
+    b.positionBefore(b.getTerminator(predBB));
+    LLVMValueRef val = lookupValueAsDeclared(v);
+    b.positionAtEnd(saved);
+    return val;
+  };
+
   for (auto [argIdx, arg] : llvm::enumerate(block.getArguments())) {
     LLVMValueRef phi = lookupValue(arg);
 
@@ -634,19 +754,20 @@ llvm::Error MLIRToLLVM70::translatePhiOps(Block &block) {
       if (!seen.insert(pred).second)
         continue;
       Operation *term = pred->getTerminator();
+      auto incoming = [&](Value v) { return incomingFrom(v, blockMap[pred]); };
       if (auto brOp = dyn_cast<LLVM::BrOp>(term)) {
-        inVals.push_back(lookupValue(brOp.getDestOperands()[argIdx]));
+        inVals.push_back(incoming(brOp.getDestOperands()[argIdx]));
         inBlocks.push_back(blockMap[pred]);
       } else if (auto condBr = dyn_cast<LLVM::CondBrOp>(term)) {
         // Skip if both branches target the same block — handled by trampolines
         if (condBr.getTrueDest() == condBr.getFalseDest())
           continue;
         if (condBr.getTrueDest() == &block) {
-          inVals.push_back(lookupValue(condBr.getTrueDestOperands()[argIdx]));
+          inVals.push_back(incoming(condBr.getTrueDestOperands()[argIdx]));
           inBlocks.push_back(blockMap[pred]);
         }
         if (condBr.getFalseDest() == &block) {
-          inVals.push_back(lookupValue(condBr.getFalseDestOperands()[argIdx]));
+          inVals.push_back(incoming(condBr.getFalseDestOperands()[argIdx]));
           inBlocks.push_back(blockMap[pred]);
         }
       }
@@ -655,7 +776,7 @@ llvm::Error MLIRToLLVM70::translatePhiOps(Block &block) {
     auto it = switchForwarders.find(&block);
     if (it != switchForwarders.end()) {
       for (auto &[trampBB, ops] : it->second) {
-        inVals.push_back(lookupValue(ops[argIdx]));
+        inVals.push_back(incomingFrom(ops[argIdx], trampBB));
         inBlocks.push_back(trampBB);
       }
     }
@@ -815,7 +936,7 @@ llvm::Error MLIRToLLVM70::translateReturnOp(Operation *op) {
   if (retOp.getNumOperands() == 0)
     b.buildRetVoid();
   else
-    b.buildRet(lookupValue(retOp.getOperand(0)));
+    b.buildRet(lookupValueAsDeclared(retOp.getOperand(0)));
   return llvm::Error::success();
 }
 
@@ -1004,11 +1125,17 @@ llvm::Error MLIRToLLVM70::translateConstantOp(Operation *op) {
                                        msg.c_str());
       }
     }
-    bool packed = false;
-    if (auto structTy = dyn_cast<LLVM::LLVMStructType>(result.getType()))
-      packed = structTy.isPacked();
-    mapValue(result,
-             b.constStruct(elems.data(), elems.size(), packed));
+    auto structTy = dyn_cast<LLVM::LLVMStructType>(result.getType());
+    if (structTy && structTy.isIdentified()) {
+      // A literal struct constant would not share the identified type the
+      // value flows into, so anything loading or storing it would disagree on
+      // the pointee type.
+      mapValue(result, b.constNamedStruct(convertType(structTy), elems.data(),
+                                          elems.size()));
+    } else {
+      bool packed = structTy && structTy.isPacked();
+      mapValue(result, b.constStruct(elems.data(), elems.size(), packed));
+    }
     return llvm::Error::success();
   }
 
@@ -1234,8 +1361,8 @@ llvm::Error MLIRToLLVM70::translateICmpOp(Operation *op) {
     break;
   }
 
-  auto result = b.buildICmp(lp, lookupValue(icmpOp.getLhs()),
-                            lookupValue(icmpOp.getRhs()), "");
+  auto result = b.buildICmp(lp, lookupValueAsDeclared(icmpOp.getLhs()),
+                            lookupValueAsDeclared(icmpOp.getRhs()), "");
   mapValue(icmpOp.getResult(), result);
   return llvm::Error::success();
 }
@@ -1326,7 +1453,7 @@ llvm::Error MLIRToLLVM70::translateLoadOp(Operation *op) {
 
 llvm::Error MLIRToLLVM70::translateStoreOp(Operation *op) {
   auto storeOp = cast<LLVM::StoreOp>(op);
-  LLVMValueRef val = lookupValue(storeOp.getValue());
+  LLVMValueRef val = lookupValueAsDeclared(storeOp.getValue());
   LLVMValueRef ptr = lookupValue(storeOp.getAddr());
 
   // Reconstruct pointer type: bitcast i8* → elemTy* to match stored value
@@ -1336,7 +1463,14 @@ llvm::Error MLIRToLLVM70::translateStoreOp(Operation *op) {
                     .getAddressSpace();
   ptr = b.buildBitCast(ptr, b.ptrTy(elemTy, as), "");
 
-  b.buildStore(val, ptr);
+  // `elemTy` is i8*, but a stored pointer value may be typed (an alloca or GEP
+  // result). Cast to match; a no-op when it is already i8*.
+  if (isa<LLVM::LLVMPointerType>(storeOp.getValue().getType()))
+    val = b.buildBitCast(val, elemTy, "");
+
+  LLVMValueRef storeInst = b.buildStore(val, ptr);
+  if (storeOp.getVolatile_())
+    b.setVolatile(storeInst, true);
   return llvm::Error::success();
 }
 
@@ -1442,9 +1576,10 @@ llvm::Error MLIRToLLVM70::translateCastOp(Operation *op) {
 
 llvm::Error MLIRToLLVM70::translateSelectOp(Operation *op) {
   auto selectOp = cast<LLVM::SelectOp>(op);
-  auto result = b.buildSelect(lookupValue(selectOp.getCondition()),
-                              lookupValue(selectOp.getTrueValue()),
-                              lookupValue(selectOp.getFalseValue()), "");
+  auto result =
+      b.buildSelect(lookupValue(selectOp.getCondition()),
+                    lookupValueAsDeclared(selectOp.getTrueValue()),
+                    lookupValueAsDeclared(selectOp.getFalseValue()), "");
   mapValue(selectOp.getResult(), result);
   return llvm::Error::success();
 }
@@ -1496,6 +1631,12 @@ llvm::Error MLIRToLLVM70::translateExtractValueOp(Operation *op) {
   LLVMValueRef agg = lookupValue(evOp.getContainer());
   for (int64_t idx : evOp.getPosition())
     agg = b.buildExtractValue(agg, static_cast<unsigned>(idx), "");
+
+  // A refined member comes out typed; restore the `i8*` representation every
+  // other use expects. Folds away when nothing was refined.
+  if (auto ptrTy = dyn_cast<LLVM::LLVMPointerType>(evOp.getResult().getType()))
+    agg = b.buildBitCast(agg, b.ptrTy(b.i8Ty(), ptrTy.getAddressSpace()), "");
+
   mapValue(evOp.getResult(), agg);
   return llvm::Error::success();
 }
@@ -1503,8 +1644,17 @@ llvm::Error MLIRToLLVM70::translateExtractValueOp(Operation *op) {
 llvm::Error MLIRToLLVM70::translateInsertValueOp(Operation *op) {
   auto ivOp = cast<LLVM::InsertValueOp>(op);
   LLVMValueRef agg = lookupValue(ivOp.getContainer());
-  LLVMValueRef val = lookupValue(ivOp.getValue());
+  LLVMValueRef val = lookupValueAsDeclared(ivOp.getValue());
   auto positions = ivOp.getPosition();
+
+  // `val` is `i8*`; the member it lands in may be refined. Folds away when the
+  // two already agree.
+  if (isa<LLVM::LLVMPointerType>(ivOp.getValue().getType())) {
+    LLVMTypeRef memberTy =
+        convertAggregateElementType(ivOp.getContainer().getType(), positions);
+    val = b.buildBitCast(val, memberTy, "");
+  }
+
   if (positions.size() == 1) {
     auto result = b.buildInsertValue(agg, val, positions[0], "");
     mapValue(ivOp.getResult(), result);
@@ -1535,7 +1685,7 @@ llvm::Error MLIRToLLVM70::translateExtractElementOp(Operation *op) {
 llvm::Error MLIRToLLVM70::translateInsertElementOp(Operation *op) {
   auto ieOp = cast<LLVM::InsertElementOp>(op);
   LLVMValueRef vec = lookupValue(ieOp.getVector());
-  LLVMValueRef val = lookupValue(ieOp.getValue());
+  LLVMValueRef val = lookupValueAsDeclared(ieOp.getValue());
   LLVMValueRef idx = lookupValue(ieOp.getPosition());
   mapValue(ieOp.getResult(), b.buildInsertElement(vec, val, idx, ""));
   return llvm::Error::success();
@@ -2227,8 +2377,8 @@ llvm::Error MLIRToLLVM70::translateAtomicCmpXchgOp(Operation *op) {
   auto cmpxchgOp = cast<LLVM::AtomicCmpXchgOp>(op);
 
   LLVMValueRef ptr = lookupValue(cmpxchgOp.getPtr());
-  LLVMValueRef cmp = lookupValue(cmpxchgOp.getCmp());
-  LLVMValueRef newVal = lookupValue(cmpxchgOp.getVal());
+  LLVMValueRef cmp = lookupValueAsDeclared(cmpxchgOp.getCmp());
+  LLVMValueRef newVal = lookupValueAsDeclared(cmpxchgOp.getVal());
 
   // Bitcast to the expected pointer type.
   LLVMTypeRef cmpTy = convertType(cmpxchgOp.getCmp().getType());
@@ -2637,29 +2787,167 @@ llvm::Error MLIRToLLVM70::translateNVVMOp(Operation *op) {
 // Debug variable declarations
 //===----------------------------------------------------------------------===//
 
+LLVMMetadataRef MLIRToLLVM70::opaqueDIType(uint64_t sizeInBits) {
+  constexpr llvm::StringLiteral name("data");
+  return b.createDIBasicType(name.data(), name.size(), sizeInBits,
+                             llvm::dwarf::DW_ATE_unsigned);
+}
+
+LLVMMetadataRef MLIRToLLVM70::diFileOf(LLVM::DIFileAttr fileAttr) {
+  if (fileAttr && fileAttr.getName())
+    return getOrCreateDIFile(fileAttr.getName().getValue());
+  return getOrCreateDIFile("llvm70_module");
+}
+
+LLVMMetadataRef MLIRToLLVM70::convertDIBasicType(LLVM::DIBasicTypeAttr attr) {
+  llvm::StringRef name = attr.getName() ? attr.getName().getValue() : "";
+  return b.createDIBasicType(name.data(), name.size(), attr.getSizeInBits(),
+                             attr.getEncoding());
+}
+
+LLVMMetadataRef
+MLIRToLLVM70::convertDIDerivedType(LLVM::DIDerivedTypeAttr attr) {
+  LLVMMetadataRef baseType =
+      attr.getBaseType() ? getOrCreateDIType(attr.getBaseType()) : nullptr;
+  llvm::StringRef name = attr.getName() ? attr.getName().getValue() : "";
+  uint64_t size = attr.getSizeInBits();
+
+  switch (attr.getTag()) {
+  case llvm::dwarf::DW_TAG_pointer_type:
+    return b.createDIPointerType(baseType, size ? size : 64,
+                                 attr.getAlignInBits(),
+                                 /*addressSpace=*/0, name.data(), name.size());
+  case llvm::dwarf::DW_TAG_member:
+    return b.createDIMemberType(diCompileUnit, name.data(), name.size(),
+                                diFileOf(attr.getFile()), attr.getLine(), size,
+                                attr.getAlignInBits(), attr.getOffsetInBits(),
+                                baseType);
+  default:
+    return baseType ? baseType : opaqueDIType(size);
+  }
+}
+
+LLVMMetadataRef MLIRToLLVM70::convertDISubrange(LLVM::DISubrangeAttr attr) {
+  int64_t lowerBound = 0;
+  int64_t count = -1;
+  if (auto lb = dyn_cast_or_null<IntegerAttr>(attr.getLowerBound()))
+    lowerBound = lb.getInt();
+  if (auto c = dyn_cast_or_null<IntegerAttr>(attr.getCount()))
+    count = c.getInt();
+  else if (auto ub = dyn_cast_or_null<IntegerAttr>(attr.getUpperBound()))
+    count = ub.getInt() - lowerBound + 1;
+  return b.createDISubrange(lowerBound, count);
+}
+
+LLVMMetadataRef
+MLIRToLLVM70::convertDICompositeType(LLVM::DICompositeTypeAttr attr) {
+  llvm::StringRef name = attr.getName() ? attr.getName().getValue() : "";
+  LLVMMetadataRef diFile = diFileOf(attr.getFile());
+  uint64_t size = attr.getSizeInBits();
+  uint32_t align = static_cast<uint32_t>(attr.getAlignInBits());
+  unsigned tag = attr.getTag();
+
+  if (tag == llvm::dwarf::DW_TAG_array_type) {
+    LLVMMetadataRef elemTy =
+        attr.getBaseType() ? getOrCreateDIType(attr.getBaseType()) : nullptr;
+    if (!elemTy)
+      return opaqueDIType(size);
+    llvm::SmallVector<LLVMMetadataRef> subscripts;
+    for (LLVM::DINodeAttr element : attr.getElements()) {
+      if (auto subrange = dyn_cast<LLVM::DISubrangeAttr>(element))
+        subscripts.push_back(convertDISubrange(subrange));
+    }
+    if (subscripts.empty())
+      subscripts.push_back(b.createDISubrange(0, -1));
+    return b.createDIArrayType(size, align, elemTy, subscripts.data(),
+                               subscripts.size());
+  }
+
+  bool isStructLike = tag == llvm::dwarf::DW_TAG_structure_type ||
+                      tag == llvm::dwarf::DW_TAG_class_type ||
+                      tag == llvm::dwarf::DW_TAG_union_type;
+  if (!isStructLike)
+    return opaqueDIType(size);
+
+  // A recursive type needs something for its self-references to point at
+  // while its members are being translated.
+  DistinctAttr recId = attr.getRecId();
+  LLVMMetadataRef placeholder = nullptr;
+  if (recId) {
+    placeholder = b.createDIForwardDecl(tag, name.data(), name.size(),
+                                        diCompileUnit, diFile, attr.getLine(),
+                                        size, align);
+    diRecursionStack[recId] = placeholder;
+  }
+
+  llvm::SmallVector<LLVMMetadataRef> elements;
+  for (LLVM::DINodeAttr element : attr.getElements()) {
+    if (auto member = dyn_cast<LLVM::DIDerivedTypeAttr>(element)) {
+      if (LLVMMetadataRef converted = getOrCreateDIType(member))
+        elements.push_back(converted);
+    }
+  }
+
+  LLVMMetadataRef composite =
+      tag == llvm::dwarf::DW_TAG_union_type
+          ? b.createDIUnionType(diCompileUnit, name.data(), name.size(), diFile,
+                                attr.getLine(), size, align, elements.data(),
+                                elements.size())
+          : b.createDIStructType(diCompileUnit, name.data(), name.size(),
+                                 diFile, attr.getLine(), size, align,
+                                 elements.data(), elements.size());
+  if (recId) {
+    // Frees the placeholder, so nothing may hold on to it past this point.
+    b.replaceMetadataAllUsesWith(placeholder, composite);
+    diRecursionStack.erase(recId);
+    diRecursiveTypes[recId] = composite;
+  }
+  return composite;
+}
+
 LLVMMetadataRef MLIRToLLVM70::getOrCreateDIType(LLVM::DITypeAttr typeAttr) {
   if (!typeAttr) {
     // Fallback: opaque byte type
     return b.createDIBasicType("byte", 4, 8, llvm::dwarf::DW_ATE_unsigned);
   }
 
-  if (auto basic = dyn_cast<LLVM::DIBasicTypeAttr>(typeAttr)) {
-    llvm::StringRef name = basic.getName() ? basic.getName().getValue() : "";
-    return b.createDIBasicType(name.data(), name.size(), basic.getSizeInBits(),
-                               basic.getEncoding());
+  // A cycle is spelled as a rec-self attribute carrying only the recursion id
+  // of the composite it stands for, so it resolves to that composite rather
+  // than being translated: to its placeholder while the composite is still
+  // being built, to the composite itself afterwards. The placeholder is freed
+  // once the composite is complete, hence no caching here.
+  if (auto composite = dyn_cast<LLVM::DICompositeTypeAttr>(typeAttr)) {
+    if (composite.getIsRecSelf()) {
+      mlir::Attribute recId = composite.getRecId();
+      auto pending = diRecursionStack.find(recId);
+      if (pending != diRecursionStack.end())
+        return pending->second;
+      auto translated = diRecursiveTypes.find(recId);
+      if (translated != diRecursiveTypes.end())
+        return translated->second;
+      return opaqueDIType(composite.getSizeInBits());
+    }
   }
 
-  if (auto derived = dyn_cast<LLVM::DIDerivedTypeAttr>(typeAttr)) {
-    // For pointer types and other derived types, create a basic type
-    // representing the pointer itself (64-bit address on NVPTX).
-    uint64_t size = derived.getSizeInBits();
-    if (size == 0)
-      size = 64; // NVPTX pointers are 64-bit
-    return b.createDIBasicType("ptr", 3, size, llvm::dwarf::DW_ATE_address);
-  }
+  auto cached = diTypeCache.find(typeAttr);
+  if (cached != diTypeCache.end())
+    return cached->second;
 
-  // Composite or unknown types: fall back to sized opaque type
-  return b.createDIBasicType("data", 4, 0, llvm::dwarf::DW_ATE_unsigned);
+  LLVMMetadataRef result = nullptr;
+  if (auto basic = dyn_cast<LLVM::DIBasicTypeAttr>(typeAttr))
+    result = convertDIBasicType(basic);
+  else if (auto derived = dyn_cast<LLVM::DIDerivedTypeAttr>(typeAttr))
+    result = convertDIDerivedType(derived);
+  else if (auto composite = dyn_cast<LLVM::DICompositeTypeAttr>(typeAttr))
+    result = convertDICompositeType(composite);
+  else
+    result = opaqueDIType(0);
+
+  // Nodes built inside a recursive type get re-uniqued when its placeholder is
+  // replaced, which can free them, so only cache once the type is complete.
+  if (diRecursionStack.empty())
+    diTypeCache[typeAttr] = result;
+  return result;
 }
 
 llvm::Error MLIRToLLVM70::translateDbgDeclareOp(Operation *op) {
@@ -2693,9 +2981,12 @@ llvm::Error MLIRToLLVM70::emitDbgIntrinsic(Operation *op, LLVMValueRef val,
   LLVMMetadataRef diType = getOrCreateDIType(varInfo.getType());
   LLVMMetadataRef scope = currentSubprogram ? currentSubprogram : diCompileUnit;
 
+  unsigned argNo = varInfo.getArg();
   LLVMMetadataRef diVar =
-      b.createDIAutoVariable(scope, name.data(), name.size(), diFile, line,
-                              diType, varInfo.getAlignInBits());
+      argNo ? b.createDIParameterVariable(scope, name.data(), name.size(),
+                                          argNo, diFile, line, diType)
+            : b.createDIAutoVariable(scope, name.data(), name.size(), diFile,
+                                     line, diType, varInfo.getAlignInBits());
   LLVMMetadataRef diExpr = b.createDIExpression(nullptr, 0);
 
   auto [filename, opLine, opCol] = extractFileLineCol(op->getLoc());

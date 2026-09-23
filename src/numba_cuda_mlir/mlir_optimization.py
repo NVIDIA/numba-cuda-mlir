@@ -4,9 +4,12 @@
 import ctypes
 import functools
 import os
+import sys
 from io import StringIO
+from pathlib import Path
 
 from numba_cuda_mlir._mlir.passmanager import PassManager
+from numba_cuda_mlir._threading import _LockedCounter
 from numba_cuda_mlir._mlir.dialects import llvm
 from numba_cuda_mlir.tools import generate_mangled_name
 from numba_cuda_mlir._mlir import ir
@@ -20,10 +23,12 @@ from numba_cuda_mlir.lowering_utilities.llvm_utils import (
     NVPTX64_DATALAYOUT,
     NVPTX64_TRIPLE,
     translate_to_llvmir,
+    translate_to_llvmir_text,
     translate_gpu_module_to_libnvvm_ir,
     dump_llvmir,
 )
 from numba_cuda_mlir.memory_management.rtsys import rtsys
+from numba_cuda_mlir.struct_pointees import struct_pointees_attr
 
 
 def _nrt_memsys_setup_callback(loaded_module):
@@ -147,6 +152,7 @@ def _get_llvm70_capi():
         ctypes.c_char_p,  # libnvvm
         ctypes.c_char_p,  # libdevice
         ctypes.c_int,  # gen_lto
+        ctypes.c_int,  # gen_llvmir
         ctypes.c_int,  # opt_level
         ctypes.c_int,  # gen_lineinfo
         ctypes.c_char_p,  # nvvm_options
@@ -154,8 +160,10 @@ def _get_llvm70_capi():
         ctypes.c_int,  # nvvm_ir_minor
         ctypes.c_int,  # nvvm_dbg_major
         ctypes.c_int,  # nvvm_dbg_minor
-        ctypes.POINTER(ctypes.c_char_p),  # out
+        ctypes.POINTER(ctypes.c_void_p),  # out
         ctypes.POINTER(ctypes.c_size_t),  # out_len
+        ctypes.POINTER(ctypes.c_void_p),  # nvvm_out
+        ctypes.POINTER(ctypes.c_size_t),  # nvvm_out_len
         ctypes.POINTER(ctypes.c_char_p),  # err_out
     ]
     lib.llvm70_free.restype = None
@@ -180,19 +188,31 @@ def _get_op_ptr(op) -> ctypes.c_void_p:
     return ptr(capsule, b"numba_cuda_mlir._mlir.ir.Operation._CAPIPtr")
 
 
-def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
-    """Compile MLIR gpu.module via in-process LLVM70 C API (raw Operation*)."""
+def _get_single_gpu_module(module):
     from numba_cuda_mlir._mlir.dialects import gpu
+
+    gpu_modules = [op for op in module.body if isinstance(op, gpu.GPUModuleOp)]
+    if len(gpu_modules) != 1:
+        raise ValueError(f"Expected exactly one gpu.module, found {len(gpu_modules)}")
+    return gpu_modules[0]
+
+
+def _call_llvm70_capi(module, target_options, gen_lto=False, gen_llvmir=False) -> bytes:
+    """Compile MLIR gpu.module via in-process LLVM70 C API (raw Operation*)."""
     from numba_cuda_mlir.tools import get_gpu_compute_capability
     from numba_cuda_mlir.numba_cuda.cudadrv.libs import get_libdevice
 
     lib = _get_llvm70_capi()
     chip = target_options.get("chip", get_gpu_compute_capability())
+    gpu_mod = _get_single_gpu_module(module)
 
-    gpu_modules = [op for op in module.body if isinstance(op, gpu.GPUModuleOp)]
-    if len(gpu_modules) != 1:
-        raise ValueError(f"Expected exactly one gpu.module, found {len(gpu_modules)}")
-    gpu_mod = gpu_modules[0]
+    # Pointee types for the pointer members of the identified structs this
+    # module uses, recovered from the Numba types they were built from. Opaque
+    # MLIR pointers would otherwise all become `i8*` here, which stops a struct
+    # matching the same struct from a typed producer.
+    pointees = struct_pointees_attr(gpu_mod.operation)
+    if pointees is not None:
+        gpu_mod.operation.attributes["llvm70.struct_pointees"] = pointees
 
     if target_options.get("dump_mlir") or target_options.get("dump"):
         print(f"=============== LLVM70 MLIR Module ===============\n\n{gpu_mod}\n")
@@ -235,9 +255,14 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
         debug_level = 0
 
     nvvm_ir_version = _get_nvvm_ir_version()
-    out = ctypes.c_char_p()
+    out = ctypes.c_void_p()
     out_len = ctypes.c_size_t()
+    nvvm_out = ctypes.c_void_p()
+    nvvm_out_len = ctypes.c_size_t()
     err_out = ctypes.c_char_p()
+    from numba_cuda_mlir.numba_cuda import config
+
+    capture_nvvm = bool(config.CUDA_DUMP_NVVM) and not gen_llvmir
 
     # Module flags rendered as nvvmCompileProgram options.
     from numba_cuda_mlir.fastmath import nvvm_fastmath_options
@@ -263,6 +288,7 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
         libnvvm.encode(),
         libdevice.encode(),
         1 if gen_lto else 0,
+        1 if gen_llvmir else 0,
         opt_level,
         debug_level,
         nvvm_options_arg,
@@ -272,18 +298,71 @@ def _call_llvm70_capi(module, target_options, gen_lto=False) -> bytes:
         nvvm_ir_version[3],
         ctypes.byref(out),
         ctypes.byref(out_len),
+        ctypes.byref(nvvm_out) if capture_nvvm else None,
+        ctypes.byref(nvvm_out_len) if capture_nvvm else None,
         ctypes.byref(err_out),
     )
 
     if rc != 0:
         msg = err_out.value.decode() if err_out.value else "unknown error"
-        if err_out.value:
-            lib.llvm70_free(err_out)
+        try:
+            if nvvm_out.value:
+                _maybe_dump_nvvm(ctypes.string_at(nvvm_out.value, nvvm_out_len.value))
+        finally:
+            if err_out.value:
+                lib.llvm70_free(err_out)
+            if nvvm_out.value:
+                lib.llvm70_free(nvvm_out)
         raise RuntimeError(f"llvm70 translation failed: {msg}")
 
-    result = ctypes.string_at(out, out_len.value)
-    lib.llvm70_free(out)
-    return result
+    try:
+        result = ctypes.string_at(out.value, out_len.value)
+        if nvvm_out.value:
+            _maybe_dump_nvvm(ctypes.string_at(nvvm_out.value, nvvm_out_len.value))
+        return result
+    finally:
+        if out.value:
+            lib.llvm70_free(out)
+        if nvvm_out.value:
+            lib.llvm70_free(nvvm_out)
+
+
+_nvvm_dump_counter = _LockedCounter()
+_BITCODE_MAGIC = b"BC\xc0\xde"
+
+
+def _maybe_dump_nvvm(nvvm_ir: bytes) -> None:
+    """Dump the NVVM IR fed to libnvvm when configured."""
+    from numba_cuda_mlir.numba_cuda import config
+
+    target = config.CUDA_DUMP_NVVM
+    if not target:
+        return
+
+    is_bitcode = nvvm_ir[:4] == _BITCODE_MAGIC
+    if target.lower() in {"0", "false", "no", "off"}:
+        return
+    if target.lower() in {"1", "true", "yes", "stderr"}:
+        if is_bitcode:
+            print(
+                f"=============== NVVM IR (bitcode, {len(nvvm_ir)} bytes) ===============\n"
+                "Set NUMBA_CUDA_MLIR_DUMP_NVVM=<file|dir> to write the bitcode to disk.\n",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"=============== NVVM IR ===============\n\n"
+                f"{nvvm_ir.decode('utf-8', errors='replace')}\n",
+                file=sys.stderr,
+            )
+        return
+
+    path = Path(target)
+    if path.exists() and path.is_dir():
+        extension = "bc" if is_bitcode else "ll"
+        path = path / f"nvvm-{os.getpid()}-{next(_nvvm_dump_counter)}.{extension}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(nvvm_ir)
 
 
 def _operation_to_text(operation, *, preserve_debug_info=False) -> str:
@@ -296,21 +375,16 @@ def _operation_to_text(operation, *, preserve_debug_info=False) -> str:
 
 def _prepare_llvm_ir(module, dump=False, preserve_debug_info=False) -> bytes:
     """Translate gpu.module to LLVM IR and apply libnvvm compatibility downgrades."""
-    from numba_cuda_mlir._mlir.dialects import gpu
     from numba_cuda_mlir.tools import get_cuda_runtime_version
 
-    gpu_modules = [op for op in module.body if isinstance(op, gpu.GPUModuleOp)]
-    if len(gpu_modules) != 1:
-        raise ValueError(f"Expected exactly one gpu.module, found {len(gpu_modules)}")
-
-    gpu_mod = gpu_modules[0]
+    gpu_mod = _get_single_gpu_module(module)
     gpu_mod.operation.attributes["llvm.data_layout"] = ir.StringAttr.get(NVPTX64_DATALAYOUT)
     gpu_mod.operation.attributes["llvm.target_triple"] = ir.StringAttr.get(NVPTX64_TRIPLE)
     ctk_major, ctk_minor = get_cuda_runtime_version()
     nvvm_ir_version = _get_nvvm_ir_version()
 
     if os.name == "nt":
-        return translate_gpu_module_to_libnvvm_ir(
+        nvvm_ir = translate_gpu_module_to_libnvvm_ir(
             _operation_to_text(gpu_mod.operation, preserve_debug_info=preserve_debug_info),
             ctk_major,
             ctk_minor,
@@ -318,6 +392,8 @@ def _prepare_llvm_ir(module, dump=False, preserve_debug_info=False) -> bytes:
             dump=dump,
             emit_text_ir=preserve_debug_info,
         )
+        _maybe_dump_nvvm(nvvm_ir)
+        return nvvm_ir
 
     from numba_cuda_mlir._cext import downgrade_for_libnvvm
 
@@ -326,7 +402,7 @@ def _prepare_llvm_ir(module, dump=False, preserve_debug_info=False) -> bytes:
     if dump:
         print(f"=============== LLVM IR ===============\n\n{dump_llvmir(llvm_mod)}\n\n")
 
-    return downgrade_for_libnvvm(
+    nvvm_ir = downgrade_for_libnvvm(
         llvm_mod,
         llvm_ctx,
         ctk_major,
@@ -337,6 +413,8 @@ def _prepare_llvm_ir(module, dump=False, preserve_debug_info=False) -> bytes:
         nvvm_ir_version[3],
         LLVM_C_LIB_PATH,
     )
+    _maybe_dump_nvvm(nvvm_ir)
+    return nvvm_ir
 
 
 def _nvvm_options(cc: str, target_options=None, **extra) -> dict:
@@ -411,6 +489,54 @@ def _get_ltoir(cres, target_options) -> bytes:
 
     cres.metadata["ltoir"] = ltoir
     return ltoir
+
+
+def get_llvmir(cres, target_options=None) -> str:
+    """Return architecture-natural LLVM IR lazily for inspection."""
+    if target_options is None:
+        target_options = cres.metadata["targetoptions"]
+
+    with context.get_context():
+        module = ir.Module.parse(cres.metadata["mlir_module_optimized"])
+        run_pre_codegen_patterns(module)
+
+        chip = target_options.get("chip")
+        if not chip:
+            from numba_cuda_mlir.tools import get_gpu_compute_capability
+
+            chip = get_gpu_compute_capability()
+        cc = chip.replace("sm_", "")
+
+        if _needs_llvm70_path(cc):
+            return _call_llvm70_capi(
+                module,
+                target_options,
+                gen_lto=target_options.get("lto", False),
+                gen_llvmir=True,
+            ).decode("utf-8")
+
+        gpu_mod = _get_single_gpu_module(module)
+        gpu_mod.operation.attributes["llvm.data_layout"] = ir.StringAttr.get(NVPTX64_DATALAYOUT)
+        gpu_mod.operation.attributes["llvm.target_triple"] = ir.StringAttr.get(NVPTX64_TRIPLE)
+
+        if os.name == "nt":
+            from numba_cuda_mlir.tools import get_cuda_runtime_version
+
+            ctk_major, ctk_minor = get_cuda_runtime_version()
+            llvm_ir = translate_gpu_module_to_libnvvm_ir(
+                _operation_to_text(
+                    gpu_mod.operation,
+                    preserve_debug_info=target_options.get("debug", False)
+                    or target_options.get("lineinfo", False),
+                ),
+                ctk_major,
+                ctk_minor,
+                _get_nvvm_ir_version(),
+                inspect_llvmir=True,
+            )
+            return llvm_ir.decode("utf-8")
+
+        return translate_to_llvmir_text(gpu_mod.operation)
 
 
 def get_ptx(cres, target_options=None) -> str:

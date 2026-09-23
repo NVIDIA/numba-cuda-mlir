@@ -50,7 +50,7 @@ def _verify_chip(value: Any, targetoptions: dict[str, Any]) -> str | None:
 def _verify_inline(value: Any, targetoptions: dict[str, Any]) -> str | None:
     if isinstance(value, bool) or callable(value):
         return None
-    options = ["always", "never", "auto"]
+    options = ["always", "never"]
     if value not in options:
         return f"Expected inline to be one of {options}, True, False, or a callable, got {value}"
     return None

@@ -98,6 +98,30 @@ def simple_int_lt(ary, a, b):
     ary[0] = a < b
 
 
+def simple_int_mul_literal(ary, a):
+    ary[0] = a * 2
+
+
+def simple_int_sub_literal(ary, a):
+    ary[0] = a - 2
+
+
+def simple_int_add_literal(ary, a):
+    ary[0] = a + 2
+
+
+def simple_literal_mul_int(ary, a):
+    ary[0] = 2 * a
+
+
+def simple_literal_sub_int(ary, a):
+    ary[0] = 2 - a
+
+
+def simple_literal_add_int(ary, a):
+    ary[0] = 2 + a
+
+
 @cuda.jit("b1(f2, f2)", device=True)
 def hlt_func_1(x, y):
     return x < y
@@ -348,6 +372,58 @@ class TestOperatorModule:
             got = np.zeros(1, dtype=np.bool_)
             kernel[1, 1](got, *args)
             assert got[0] == expected
+
+    @pytest.mark.parametrize(
+        "explicit_signature", [True, False], ids=["explicit_signature", "lazy_jit"]
+    )
+    def test_integer_arithmetic_with_literal(self, explicit_signature):
+        cases = (
+            (simple_int_mul_literal, np.uint64(5), np.uint64(10)),
+            (simple_int_mul_literal, np.uint64(2**63), np.uint64(0)),
+            (simple_int_mul_literal, np.uint64(2**64 - 1), np.uint64(2**64 - 2)),
+            (simple_int_mul_literal, np.uint64(2**53 + 1), np.uint64(2**54 + 2)),
+            (simple_int_sub_literal, np.uint64(2**63), np.uint64(2**63 - 2)),
+            (simple_int_sub_literal, np.uint64(2**64 - 1), np.uint64(2**64 - 3)),
+            (simple_int_sub_literal, np.uint64(2**53 + 1), np.uint64(2**53 - 1)),
+            (simple_int_add_literal, np.uint64(2**63), np.uint64(2**63 + 2)),
+            (simple_int_add_literal, np.uint64(2**64 - 1), np.uint64(1)),
+            (simple_int_mul_literal, np.uint32(2**31), np.uint32(0)),
+            (simple_int_mul_literal, np.uint8(200), np.uint8(144)),
+            (simple_int_sub_literal, np.uint8(0), np.uint8(254)),
+            # Signed operands must keep signed semantics.
+            (simple_int_mul_literal, np.int64(-3), np.int64(-6)),
+            (simple_int_sub_literal, np.int64(-(2**62)), np.int64(-(2**62) - 2)),
+            (simple_int_add_literal, np.int32(-3), np.int32(-1)),
+            # The same promotion has to hold with the literal on the left. It
+            # reaches the operator with the operands in the opposite order, and
+            # subtraction is not commutative, so these are distinct results.
+            (simple_literal_mul_int, np.uint64(5), np.uint64(10)),
+            (simple_literal_mul_int, np.uint64(2**63), np.uint64(0)),
+            (simple_literal_mul_int, np.uint64(2**64 - 1), np.uint64(2**64 - 2)),
+            (simple_literal_mul_int, np.uint64(2**53 + 1), np.uint64(2**54 + 2)),
+            (simple_literal_sub_int, np.uint64(2**63), np.uint64(2**63 + 2)),
+            (simple_literal_sub_int, np.uint64(2**64 - 1), np.uint64(3)),
+            (simple_literal_sub_int, np.uint64(2**53 + 1), np.uint64(2**64 - 2**53 + 1)),
+            (simple_literal_add_int, np.uint64(2**63), np.uint64(2**63 + 2)),
+            (simple_literal_add_int, np.uint64(2**64 - 1), np.uint64(1)),
+            (simple_literal_mul_int, np.uint32(2**31), np.uint32(0)),
+            (simple_literal_mul_int, np.uint8(200), np.uint8(144)),
+            (simple_literal_sub_int, np.uint8(200), np.uint8(58)),
+            (simple_literal_mul_int, np.int64(-3), np.int64(-6)),
+            (simple_literal_sub_int, np.int64(-(2**62)), np.int64(2**62 + 2)),
+            (simple_literal_add_int, np.int32(-3), np.int32(-1)),
+        )
+
+        for func, arg, expected in cases:
+            argty = from_dtype(arg.dtype)
+            if explicit_signature:
+                kernel = cuda.jit(signature(types.void, argty[:], argty))(func)
+            else:
+                kernel = cuda.jit(func)
+
+            got = np.zeros(1, dtype=arg.dtype)
+            kernel[1, 1](got, arg)
+            assert got[0] == expected, f"{func.__name__}({arg}) -> {got[0]}"
 
     def test_fp16_comparison(self):
         functions = (

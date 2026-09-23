@@ -145,7 +145,6 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
         compiled[1, nelem](ary, xor)
         self.assertTrue(np.all(ary == exp))
 
-    @pytest.mark.xfail(True, reason="Uses inspect_llvm")
     def test_shfl_sync_const_mode_val(self):
         # Test `mode` argument is constant in shfl_sync calls.
         # Related to https://github.com/NVIDIA/numba-cuda/pull/231

@@ -128,7 +128,11 @@ def compile(src, name, cc, ltoir=False, lineinfo=False, debug=False):
     else:
         extra_includes = []
 
-    nrt_include = os.path.join(numba_cuda_path, "memory_management")
+    # memsys.cu is handed to NVRTC as a string, so its #include "memsys.cuh"
+    # has no directory of its own to search and resolves through this path.
+    from numba_cuda_mlir.memory_management.nrt import get_include
+
+    nrt_include = get_include()
 
     includes = [numba_include, *cuda_includes, nrt_include, *extra_includes]
 

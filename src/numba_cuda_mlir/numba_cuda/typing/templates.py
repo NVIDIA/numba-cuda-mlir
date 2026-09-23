@@ -630,8 +630,7 @@ def _flags_match_reads(flags, reads):
 
 
 def _captures_an_intrinsic(impl):
-    """Whether *impl* closes over an ``@intrinsic``, making it unsafe to memoize.
-    """
+    """Whether *impl* closes over an ``@intrinsic``, making it unsafe to memoize."""
     # Imported lazily: numba_cuda_mlir.numba_cuda.extending imports this module.
     from numba_cuda_mlir.numba_cuda.extending import _Intrinsic
 

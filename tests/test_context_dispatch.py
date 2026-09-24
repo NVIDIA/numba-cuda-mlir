@@ -1,0 +1,711 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Device/context partitioning without requiring a CUDA driver."""
+
+from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
+import threading
+from uuid import uuid4
+
+import pytest
+
+from numba_cuda_mlir import descriptor, mlir_compiler, tools, types
+from numba_cuda_mlir._context_cache import current_context_token
+from numba_cuda_mlir.compiler import CodeLibrary
+from numba_cuda_mlir.numba_cuda import typing
+from numba_cuda_mlir.numba_cuda.cudadrv import devices
+
+
+@pytest.fixture
+def contexts(monkeypatch):
+    def context(device, cc, handle):
+        return SimpleNamespace(
+            device=SimpleNamespace(id=device, compute_capability=cc), handle=handle, extras={}
+        )
+
+    a = context(0, (9, 0), 100)
+    b = context(1, (12, 0), 200)
+    local = threading.local()
+    local.context = a
+    monkeypatch.setattr(devices, "get_context", lambda: local.context)
+    return a, b, local
+
+
+@pytest.fixture
+def compiler_stub(monkeypatch):
+    calls = []
+
+    def compile_mlir(pyfunc, return_type, args, targetoptions):
+        target = tools.resolve_gpu_target(targetoptions)
+        metadata = {
+            "targetoptions": targetoptions.copy(),
+            "gpu_target": target,
+            "cubin": target["chip"].encode(),
+            "func_name": pyfunc.__name__,
+            "required_dynamic_shared_memory": target["host_cc"][0] * 128,
+        }
+        calls.append(metadata)
+        return SimpleNamespace(
+            signature=typing.signature(types.none, *args),
+            metadata=metadata,
+            target_context=SimpleNamespace(insert_user_function=lambda *args: None),
+            entry_point=None,
+            fndesc=None,
+            library=None,
+            objectmode=False,
+        )
+
+    monkeypatch.setattr(mlir_compiler, "compile_mlir", compile_mlir)
+    monkeypatch.setattr(
+        mlir_compiler,
+        "mlir_compiler_entry",
+        lambda pyfunc, func_args, targetoptions, override_argtypes: compile_mlir(
+            pyfunc, types.none, override_argtypes, targetoptions
+        ),
+    )
+    from numba_cuda_mlir import mlir_optimization
+
+    monkeypatch.setattr(mlir_optimization, "optimize", lambda cres: None)
+    monkeypatch.setattr(descriptor.mlir_target, "ensure_initialized", lambda: None)
+    return calls
+
+
+def make_dispatcher(**options):
+    def kernel(x):
+        pass
+
+    return descriptor.MLIRDispatcher(kernel, targetoptions=options)
+
+
+def test_capability_and_target_follow_current_device(contexts, monkeypatch):
+    a, b, local = contexts
+    assert tools.get_gpu_compute_capability(tuple) == (9, 0)
+    local.context = b
+    assert tools.get_gpu_compute_capability() == "sm_120"
+    assert tools.resolve_gpu_target()["linker_arch"] == "sm_120"
+    assert tools.resolve_gpu_target({"chip": "sm_90a"})["chip"] == "sm_90a"
+    local.context = a
+    assert tools.get_gpu_compute_capability() == "sm_90"
+
+    calls = []
+    monkeypatch.setattr(
+        tools, "get_gpu_compute_capability", lambda as_type: calls.append(as_type) or (9, 0)
+    )
+    target = tools.resolve_gpu_target()
+    assert target["chip"] == target["linker_arch"] == "sm_90"
+    assert calls == [tuple]
+
+
+@pytest.mark.parametrize("same_arch", [False, True])
+@pytest.mark.parametrize("fixed_signatures", [False, True])
+def test_overloads_and_native_state_follow_context(
+    contexts, compiler_stub, same_arch, fixed_signatures
+):
+    a, b, local = contexts
+    if same_arch:
+        b.device.compute_capability = a.device.compute_capability
+    dispatch = make_dispatcher()
+    first = dispatch.compile((types.int32,))
+    if fixed_signatures:
+        dispatch.disable_compile()
+    target_a = dispatch._get_context_dispatcher()
+    native_a = target_a._c
+    assert target_a.overloads[(types.int32,)] is first
+    assert not dispatch._compile_dispatchers
+    local.context = b
+    second = dispatch.compile((types.int32,))
+    native_b = dispatch._get_context_dispatcher()._c
+    assert second is not first
+    assert native_b is not native_a
+    assert dispatch.overloads[(types.int32,)] is second
+    assert dispatch.get_metadata((types.int32,)) is second.metadata
+    assert "chip" not in dispatch.targetoptions
+    local.context = a
+    assert dispatch.compile((types.int32,)) is first
+    assert dispatch._get_context_dispatcher()._c is native_a
+    assert len(compiler_stub) == 2
+
+
+def test_explicit_chip_is_preserved_with_device_specific_linker(contexts, compiler_stub):
+    a, b, local = contexts
+    dispatch = make_dispatcher(chip="sm_90a")
+    assert dispatch.compile((types.int32,)).metadata["gpu_target"]["linker_arch"] == "sm_90a"
+    local.context = b
+    result = dispatch.compile((types.int32,))
+    assert result.metadata["gpu_target"]["linker_arch"] == "sm_120"
+    assert dispatch.targetoptions["chip"] == "sm_90a"
+    assert all(call["targetoptions"]["chip"] == "sm_90a" for call in compiler_stub)
+
+
+def test_context_reset_and_handle_reuse_get_fresh_native_state(contexts, compiler_stub):
+    a, b, local = contexts
+    dispatch = make_dispatcher()
+    dispatch._get_context_dispatcher()
+    first = dispatch.compile((types.int32,))
+    native = dispatch._get_context_dispatcher()._c
+    token = current_context_token()
+    # The reset hook removes this entry even when the Context and handle survive.
+    a.extras.pop("numba_cuda_mlir.context_token")
+    assert current_context_token() is not token
+    second = dispatch.compile((types.int32,))
+    assert second is not first
+    assert dispatch._get_context_dispatcher()._c is not native
+    local.context = SimpleNamespace(device=a.device, handle=a.handle, extras={})
+    assert dispatch.compile((types.int32,)) is not second
+
+
+def test_fixed_signatures_recompile_for_each_device(contexts, compiler_stub):
+    a, b, local = contexts
+    dispatch = make_dispatcher()
+    first = dispatch.compile((types.float32,))
+    dispatch.disable_compile()
+    local.context = b
+    target = dispatch._get_context_dispatcher()
+    assert not target._can_compile
+    assert target.overloads[(types.float32,)] is not first
+    assert target.overloads[(types.float32,)].metadata["gpu_target"]["chip"] == "sm_120"
+    assert target.signatures == [(types.float32,)]
+
+
+def test_retained_configuration_preserves_per_device_smem(contexts, compiler_stub, monkeypatch):
+    a, b, local = contexts
+    launches = []
+
+    class Extension:
+        uses_launch_config = True
+
+        def prepare_args(self, ty, val, stream=None, retr=None):
+            return ty, val
+
+    def launch_config(native, grid, block, stream, sharedmem, cluster):
+        return lambda *args: launches.append((native, sharedmem, args))
+
+    monkeypatch.setattr(descriptor, "LaunchConfiguration", launch_config)
+    dispatch = make_dispatcher(extensions=[Extension()])
+    configured = dispatch[1, 32]
+    configured(1)
+    first = launches[-1]
+    local.context = b
+    configured(1)
+    second = launches[-1]
+    assert first[0] is not second[0]
+    assert (first[1], second[1]) == (9 * 128, 12 * 128)
+    local.context = a
+    configured(1)
+    assert launches[-1] == first
+    assert len(compiler_stub) == 2
+    dispatch.recompile()
+    configured(1)
+    assert launches[-1][0] is not first[0]
+    local.context = b
+    configured(1)
+    assert launches[-1][0] is not second[0]
+    assert len(compiler_stub) == 4
+
+
+def test_serialization_keeps_portable_signatures_only(contexts, compiler_stub):
+    a, b, local = contexts
+    dispatch = make_dispatcher()
+    dispatch.compile((types.int32,))
+    dispatch.disable_compile()
+    state = dispatch._reduce_states()
+    assert "chip" not in state["targetoptions"]
+    assert all("context" not in key for key in state)
+    local.context = b
+    state["uuid"] = str(uuid4())
+    rebuilt = descriptor.MLIRDispatcher._rebuild(**state)
+    assert rebuilt.overloads[(types.int32,)].metadata["gpu_target"]["chip"] == "sm_120"
+    assert not rebuilt._can_compile
+
+
+@pytest.mark.parametrize("launch_specialized", [False, True])
+def test_frozen_signatures_survive_serialization_on_unlaunched_target(
+    contexts, compiler_stub, monkeypatch, launch_specialized
+):
+    a, b, local = contexts
+    monkeypatch.setattr(
+        descriptor,
+        "current_context_token",
+        lambda: pytest.fail("compile-only serialization acquired a CUDA context"),
+    )
+    dispatch = make_dispatcher(chip="sm_90")
+    if launch_specialized:
+        dispatch._requires_launch_config = True
+        dispatch._literal_arg_positions = frozenset({0})
+        key = descriptor._launch_config_key(
+            {"grid": (1, 1, 1), "block": (32, 1, 1), "sharedmem": 0, "cluster": None}
+        )
+        dispatch._compile_launch_config_signature((descriptor.types.literal(7),), key)
+    else:
+        dispatch.compile((types.float32,))
+    dispatch.disable_compile()
+    original_state = dispatch._reduce_states()
+    original_signatures = dispatch.signatures
+    assert original_signatures
+
+    local.context = b
+    state = dispatch._reduce_states()
+    assert state["sigs"] == original_state["sigs"]
+    assert state["launch_config_sigs"] == original_state["launch_config_sigs"]
+    assert state["literal_arg_positions"] == original_state["literal_arg_positions"]
+    state["uuid"] = str(uuid4())
+    rebuilt = descriptor.MLIRDispatcher._rebuild(**state)
+    assert rebuilt.signatures == original_signatures
+    assert not rebuilt._can_compile
+    assert all(
+        result.metadata["gpu_target"]["host_cc"] == b.device.compute_capability
+        for result in rebuilt._inspectable_overloads().values()
+    )
+
+    local.context = a
+    assert dispatch.signatures == original_signatures
+    assert dispatch._reduce_states() == original_state
+
+
+@pytest.mark.parametrize("launch_specialized", [False, True])
+@pytest.mark.parametrize("expire_contexts", [False, True])
+def test_frozen_signatures_preserve_nonroot_context_state(
+    contexts, compiler_stub, launch_specialized, expire_contexts
+):
+    a, b, local = contexts
+    dispatch = make_dispatcher()
+    dispatch._get_context_dispatcher()
+    dispatch.compile((types.int32,))
+    local.context = b
+    target_b = dispatch._get_context_dispatcher()
+    if launch_specialized:
+        target_b._requires_launch_config = True
+        target_b._literal_arg_positions = frozenset({0})
+        key = descriptor._launch_config_key(
+            {"grid": (1, 1, 1), "block": (32, 1, 1), "sharedmem": 0, "cluster": None}
+        )
+        target_b._compile_launch_config_signature((descriptor.types.literal(7),), key)
+    else:
+        target_b.compile((types.float32,))
+    dispatch.disable_compile()
+    frozen_state = dispatch._reduce_states()
+    if launch_specialized:
+        assert frozen_state["sigs"] == []
+        assert len(frozen_state["launch_config_sigs"]) == 1
+    else:
+        assert {sig.args for sig in frozen_state["sigs"]} == {
+            (types.int32,),
+            (types.float32,),
+        }
+    del target_b
+    if expire_contexts:
+        a.extras.clear()
+        b.extras.clear()
+    local.context = SimpleNamespace(device=b.device, handle=300, extras={})
+    target_c = dispatch._get_context_dispatcher()
+    assert not target_c._can_compile
+    assert target_c._requires_launch_config == launch_specialized
+    assert target_c._literal_arg_positions == (
+        frozenset({0}) if launch_specialized else frozenset()
+    )
+    assert len(target_c._inspectable_overloads()) == (1 if launch_specialized else 2)
+    state = dispatch._reduce_states()
+    for name in ("sigs", "launch_config_sigs", "requires_launch_config", "literal_arg_positions"):
+        assert state[name] == frozen_state[name]
+    state["uuid"] = str(uuid4())
+    rebuilt = descriptor.MLIRDispatcher._rebuild(**state)
+    local.context = SimpleNamespace(device=a.device, handle=400, extras={})
+    assert rebuilt.signatures == target_c.signatures
+    assert not rebuilt._get_compile_dispatcher()._can_compile
+
+
+def test_concurrent_device_selection_keeps_state_separate(contexts, compiler_stub):
+    a, b, local = contexts
+    dispatch = make_dispatcher()
+    barrier = threading.Barrier(2)
+
+    def compile_on(context):
+        local.context = context
+        barrier.wait(timeout=10)
+        dispatch._get_context_dispatcher()
+        result = dispatch.compile((types.int32,))
+        return result, dispatch._get_context_dispatcher()._c
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        fa, fb = (pool.submit(compile_on, context) for context in (a, b))
+        (ra, na), (rb, nb) = fa.result(timeout=10), fb.result(timeout=10)
+    assert ra.metadata["gpu_target"]["chip"] == "sm_90"
+    assert rb.metadata["gpu_target"]["chip"] == "sm_120"
+    assert na is not nb
+    assert len(compiler_stub) == 2
+
+
+def test_code_library_reload_after_reset(contexts, monkeypatch):
+    from cuda.bindings import driver
+
+    a, b, local = contexts
+    modules = []
+    ok = driver.CUresult.CUDA_SUCCESS
+
+    def load(data):
+        module = object()
+        modules.append(module)
+        return ok, module
+
+    monkeypatch.setattr(driver, "cuModuleLoadData", load)
+    monkeypatch.setattr(driver, "cuModuleGetFunction", lambda module, name: (ok, module))
+    library = CodeLibrary(b"cubin", "kernel")
+    fa = library.get_cufunc()
+    local.context = b
+    fb = library.get_cufunc()
+    local.context = a
+    assert library.get_cufunc() is fa
+    assert fb is not fa
+    a.extras.pop("numba_cuda_mlir.context_token")
+    assert library.get_cufunc() is not fa
+    assert len(modules) == 3
+
+
+def test_explicit_target_compile_does_not_acquire_runtime_context(monkeypatch, compiler_stub):
+    cc = [(9, 0)]
+    monkeypatch.setattr(
+        tools,
+        "get_gpu_compute_capability",
+        lambda as_type=str: cc[0] if as_type is tuple else tools.format_arch(cc[0]),
+    )
+    monkeypatch.setattr(
+        descriptor,
+        "current_context_token",
+        lambda: pytest.fail("compile-only path acquired a CUDA context"),
+    )
+    dispatch = make_dispatcher(chip="sm_90")
+    first = dispatch.compile((types.int32,))
+    cc[0] = (12, 0)
+    second = dispatch.compile((types.int32,))
+    assert first is not second
+    assert second.metadata["gpu_target"]["linker_arch"] == "sm_120"
+    cc[0] = (9, 0)
+    assert dispatch.compile((types.int32,)) is first
+    assert len(compiler_stub) == 2
+    assert not dispatch._context_dispatchers
+
+
+def test_nrt_allocator_state_belongs_to_context(contexts):
+    from numba_cuda_mlir.memory_management import rtsys
+
+    a, b, local = contexts
+    allocation_a, library_a = object(), object()
+    rtsys._memsys = allocation_a
+    rtsys._memsys_library = library_a
+    rtsys._initialized = True
+    local.context = b
+    assert rtsys._memsys is None
+    assert rtsys._memsys_library is None
+    assert not rtsys._initialized
+    allocation_b = object()
+    rtsys._memsys = allocation_b
+    local.context = a
+    assert rtsys._memsys is allocation_a
+    assert rtsys._memsys_library is library_a
+    assert rtsys._initialized
+    # A context can be reset while a different context is current.
+    rtsys.close(b)
+    assert rtsys._memsys is allocation_a
+    local.context = b
+    assert rtsys._memsys is None
+
+
+def test_explicit_target_launch_compile_does_not_acquire_context(monkeypatch, compiler_stub):
+    monkeypatch.setattr(
+        tools,
+        "get_gpu_compute_capability",
+        lambda as_type=str: (9, 0) if as_type is tuple else "sm_90",
+    )
+    monkeypatch.setattr(
+        descriptor,
+        "current_context_token",
+        lambda: pytest.fail("launch-config compilation acquired a CUDA context"),
+    )
+    dispatch = make_dispatcher(chip="sm_90")
+    key = descriptor._launch_config_key(
+        {"grid": (1, 1, 1), "block": (32, 1, 1), "sharedmem": 0, "cluster": None}
+    )
+    result = dispatch._compile_launch_config_signature((types.int32,), key)
+    assert result.metadata["gpu_target"]["chip"] == "sm_90"
+    assert dispatch._compile_launch_config_signature((types.int32,), key) is result
+    assert not dispatch._context_dispatchers
+
+
+def test_context_reset_expires_dispatch_and_allocator_state(contexts, monkeypatch):
+    from numba_cuda_mlir.memory_management import rtsys
+    from numba_cuda_mlir.numba_cuda.cudadrv import driver
+
+    monkeypatch.setattr(driver, "_logger", SimpleNamespace(info=lambda *args: None), raising=False)
+
+    a, b, local = contexts
+    old_token = current_context_token()
+    rtsys._memsys = object()
+    a.memory_manager = SimpleNamespace(reset=lambda: None)
+    a.modules = {}
+    a.deallocations = SimpleNamespace(clear=lambda: None)
+    driver.Context.reset(a)
+    assert current_context_token() is not old_token
+    assert rtsys._memsys is None
+
+
+def test_production_explicit_target_compile_stays_offline(monkeypatch):
+    from numba_cuda_mlir import cuda
+
+    monkeypatch.setattr(
+        tools,
+        "get_gpu_compute_capability",
+        lambda as_type=str: (9, 0) if as_type is tuple else "sm_90",
+    )
+    monkeypatch.setattr(
+        descriptor,
+        "current_context_token",
+        lambda: pytest.fail("offline compilation acquired a CUDA context"),
+    )
+
+    @cuda.jit(chip="sm_90")
+    def write(out, value):
+        out[0] = value
+
+    signature = (types.int32[::1], types.int32)
+    result = write.compile(signature)
+    assert result.metadata["cubin"]
+    assert result.metadata["gpu_target"]["chip"] == "sm_90"
+    key = descriptor._launch_config_key(
+        {"grid": (1, 1, 1), "block": (32, 1, 1), "sharedmem": 0, "cluster": None}
+    )
+    launch_result = write._compile_launch_config_signature(signature, key)
+    assert launch_result.metadata["cubin"]
+    assert write.targetoptions["chip"] == "sm_90"
+
+
+def test_lookup_and_compilation_use_one_capability_snapshot(monkeypatch, compiler_stub):
+    calls = []
+
+    def capability(as_type=str):
+        calls.append(as_type)
+        return (9, 0) if len(calls) == 1 else (12, 0)
+
+    monkeypatch.setattr(tools, "get_gpu_compute_capability", capability)
+    dispatch = make_dispatcher(chip="sm_90")
+    result = dispatch.compile((types.int32,))
+    assert len(calls) == 1
+    assert result.metadata["gpu_target"]["chip"] == "sm_90"
+    assert result.metadata["gpu_target"]["linker_arch"] == "sm_90"
+    assert dict(next(iter(dispatch._compile_dispatchers)))["chip"] == "sm_90"
+
+
+def test_compile_after_all_contexts_expire_uses_new_target(contexts, compiler_stub):
+    a, b, local = contexts
+    dispatch = make_dispatcher()
+    dispatch._get_context_dispatcher()
+    first = dispatch.compile((types.int32,))
+    a.extras.clear()
+    assert not dispatch._context_dispatchers
+    local.context = b
+    second = dispatch.compile((types.int32,))
+    assert second is not first
+    assert second.metadata["gpu_target"]["chip"] == "sm_120"
+    assert dispatch.get_metadata((types.int32,)) is second.metadata
+
+
+@pytest.mark.parametrize("prior_offline_compile", [False, True])
+def test_inspection_after_all_contexts_expire_discards_old_results(
+    contexts, compiler_stub, prior_offline_compile
+):
+    a, b, local = contexts
+    dispatch = make_dispatcher(**({"chip": "sm_90"} if prior_offline_compile else {}))
+    if prior_offline_compile:
+        dispatch.compile((types.int32,))
+        # A matching target must not expose the old compile-only cache after reset.
+        b.device.compute_capability = a.device.compute_capability
+    dispatch._get_context_dispatcher()
+    first = dispatch.compile((types.int32,))
+    a.extras.clear()
+    assert not dispatch._context_dispatchers
+    local.context = b
+
+    assert dispatch.signatures == []
+    assert dispatch.get_metadata() == {}
+    assert dispatch._specialized_compile_result() is None
+    # Signature-specific inspection may compile the missing current-target entry.
+    metadata = dispatch.get_metadata((types.int32,))
+    assert metadata["gpu_target"]["host_cc"] == b.device.compute_capability
+
+    second = dispatch.compile((types.int32,))
+    assert second is not first
+    assert second.metadata is metadata
+
+
+def test_fixed_literal_signatures_keep_native_literal_flags(contexts, compiler_stub, monkeypatch):
+    a, b, local = contexts
+    monkeypatch.setattr(
+        descriptor.MLIRDispatcher,
+        "_new_kernel_dispatcher",
+        lambda self: SimpleNamespace(literal_positions=self._literal_arg_positions),
+    )
+    dispatch = make_dispatcher()
+    dispatch._get_context_dispatcher()
+    dispatch._literal_arg_positions = frozenset({0})
+    dispatch._requires_launch_config = True
+    key = descriptor._launch_config_key(
+        {"grid": (1, 1, 1), "block": (32, 1, 1), "sharedmem": 0, "cluster": None}
+    )
+    dispatch._compile_launch_config_signature((descriptor.types.literal(7),), key)
+    dispatch.disable_compile()
+    local.context = b
+    state = dispatch._get_context_dispatcher()
+    assert state._c.literal_positions == frozenset({0})
+    assert not state._can_compile
+
+
+def test_copied_context_cannot_inherit_a_compile_target(contexts, compiler_stub):
+    from contextvars import copy_context
+
+    a, b, local = contexts
+    with tools._gpu_target_scope():
+        inherited = copy_context()
+
+    def compile_on_b():
+        local.context = b
+        return inherited.run(make_dispatcher().compile, (types.int32,))
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        result = pool.submit(compile_on_b).result(timeout=10)
+    assert result.metadata["gpu_target"]["chip"] == "sm_120"
+
+
+@pytest.mark.parametrize(
+    "context_partitions,same_arch", [(False, False), (True, False), (True, True)]
+)
+def test_recursive_device_function_follows_target(contexts, context_partitions, same_arch):
+    from numba_cuda_mlir import cuda
+
+    a, b, local = contexts
+    if same_arch:
+        b.device.compute_capability = a.device.compute_capability
+
+    options = {} if context_partitions else {"chip": "sm_90"}
+
+    @cuda.jit(device=True, **options)
+    def fib(n):
+        if n <= 1:
+            return n
+        return fib(n - 1) + fib(n - 2)
+
+    @cuda.jit(**options)
+    def kernel(out):
+        out[0] = fib(10)
+
+    def compile_on(context):
+        local.context = context
+        if context_partitions:
+            kernel._get_context_dispatcher()
+            fib._get_context_dispatcher()
+        result = kernel.compile((types.int64[::1],))
+        assert result.metadata["cubin"]
+        assert result.metadata["gpu_target"]["host_cc"] == context.device.compute_capability
+        assert not fib.is_compiling
+        return result
+
+    first = compile_on(a)
+    assert compile_on(b) is not first
+    assert compile_on(a) is first
+
+    if context_partitions:
+        # Recreate the context lifetime with the same device and raw handle.
+        a.extras.clear()
+        assert compile_on(a) is not first
+
+
+def test_compile_routing_rechecks_concurrent_runtime_registration(contexts, monkeypatch):
+    from numba_cuda_mlir import cuda
+
+    a, b, local = contexts
+
+    @cuda.jit(device=True, chip="sm_90")
+    def fib(n):
+        if n <= 1:
+            return n
+        return fib(n - 1) + fib(n - 2)
+
+    resolving_target = threading.Event()
+    runtime_registered = threading.Event()
+    resolve_gpu_target = tools.resolve_gpu_target
+
+    def resolve_after_runtime_registration(options=None):
+        if not resolving_target.is_set():
+            resolving_target.set()
+            assert runtime_registered.wait(timeout=10)
+        return resolve_gpu_target(options)
+
+    monkeypatch.setattr(tools, "resolve_gpu_target", resolve_after_runtime_registration)
+
+    def compile_on_a():
+        local.context = a
+        result = fib.compile((types.int64,))
+        assert fib.overloads[(types.int64,)] is result
+        return result
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(compile_on_a)
+        try:
+            assert resolving_target.wait(timeout=10)
+            local.context = b
+            fib._get_context_dispatcher()
+        finally:
+            runtime_registered.set()
+        result = future.result(timeout=20)
+
+    assert result.metadata["cubin"]
+    assert result.metadata["gpu_target"]["host_cc"] == a.device.compute_capability
+    assert not fib._compile_dispatchers
+
+
+def test_compile_routing_stays_selected_during_runtime_registration(contexts, monkeypatch):
+    from numba_cuda_mlir import cuda
+
+    a, b, local = contexts
+
+    @cuda.jit(device=True, chip="sm_90")
+    def fib(n):
+        if n <= 1:
+            return n
+        return fib(n - 1) + fib(n - 2)
+
+    selected = threading.Event()
+    runtime_registered = threading.Event()
+    compile_public = descriptor.MLIRDispatcher._compile_public
+
+    def compile_after_runtime_registration(self, *args, **kwargs):
+        if not selected.is_set():
+            selected.set()
+            assert runtime_registered.wait(timeout=10)
+        return compile_public(self, *args, **kwargs)
+
+    monkeypatch.setattr(
+        descriptor.MLIRDispatcher, "_compile_public", compile_after_runtime_registration
+    )
+
+    def compile_on_a():
+        local.context = a
+        return fib.compile((types.int64,))
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(compile_on_a)
+        try:
+            assert selected.wait(timeout=10)
+            local.context = b
+            fib._get_context_dispatcher()
+        finally:
+            runtime_registered.set()
+        first = future.result(timeout=20)
+        # The first call selected offline state before runtime registration. Its
+        # completed scope must not affect the next call on the same worker thread.
+        second = pool.submit(compile_on_a).result(timeout=20)
+
+    assert first.metadata["cubin"]
+    assert first.metadata["gpu_target"]["host_cc"] == a.device.compute_capability
+    assert second is not first
+    local.context = a
+    assert fib.overloads[(types.int64,)] is second

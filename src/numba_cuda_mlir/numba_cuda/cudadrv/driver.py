@@ -1058,10 +1058,12 @@ class Context:
         self.modules.clear()
         # Clear trash
         self.deallocations.clear()
+        # Invalidate context-lifetime caches even if the driver reuses this handle.
+        self.extras.pop("numba_cuda_mlir.context_token", None)
         # Reset the NRT runtime so it does not hold handles from the old context.
         from numba_cuda_mlir.memory_management.rtsys import rtsys as mlir_rtsys
 
-        mlir_rtsys.close()
+        mlir_rtsys.close(self)
 
     def get_memory_info(self):
         """Returns (free, total) memory in bytes in the context."""

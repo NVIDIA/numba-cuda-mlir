@@ -12,6 +12,7 @@ the NRT_MemSys structure on the device before kernels that use NRT can run.
 import ctypes
 import hashlib
 import os
+import threading
 from collections import namedtuple
 from functools import wraps
 from pathlib import Path
@@ -33,11 +34,20 @@ def _alloc_init_guard(method):
 
     @wraps(method)
     def wrapper(self, *args, **kwargs):
-        self.ensure_allocated()
-        self.ensure_initialized()
-        return method(self, *args, **kwargs)
+        with self._state.lock:
+            self.ensure_allocated()
+            self.ensure_initialized()
+            return method(self, *args, **kwargs)
 
     return wrapper
+
+
+class _ContextRuntime:
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.memsys_library = None
+        self.memsys = None
+        self.initialized = False
 
 
 class _Runtime:
@@ -50,21 +60,52 @@ class _Runtime:
             cls._instance = super(_Runtime, cls).__new__(cls, *args, **kwargs)
         return cls._instance
 
-    def __init__(self):
-        """Initialize memsys module and variable."""
-        if not hasattr(self, "_initialized_singleton"):
-            self._reset()
-            self._initialized_singleton = True
+    @property
+    def _state(self):
+        from numba_cuda_mlir.numba_cuda.cudadrv.devices import get_context
+
+        context = get_context()
+        key = "numba_cuda_mlir.nrt"
+        try:
+            return context.extras[key]
+        except KeyError:
+            return context.extras.setdefault(key, _ContextRuntime())
+
+    @property
+    def _memsys_library(self):
+        return self._state.memsys_library
+
+    @_memsys_library.setter
+    def _memsys_library(self, value):
+        self._state.memsys_library = value
+
+    @property
+    def _memsys(self):
+        return self._state.memsys
+
+    @_memsys.setter
+    def _memsys(self, value):
+        self._state.memsys = value
+
+    @property
+    def _initialized(self):
+        return self._state.initialized
+
+    @_initialized.setter
+    def _initialized(self, value):
+        self._state.initialized = value
 
     def _reset(self):
-        """Reset to the uninitialized state."""
-        self._memsys_library = None
-        self._memsys = None
-        self._initialized = False
+        """Discard allocator state for the current context."""
+        self.close()
 
-    def close(self):
-        """Close and reset."""
-        self._reset()
+    def close(self, context=None):
+        """Discard allocator state without affecting other contexts."""
+        if context is None:
+            from numba_cuda_mlir.numba_cuda.cudadrv.devices import get_context
+
+            context = get_context()
+        context.extras.pop("numba_cuda_mlir.nrt", None)
 
     @staticmethod
     def _memsys_cache_dir():
@@ -152,9 +193,10 @@ class _Runtime:
 
     def ensure_allocated(self):
         """If memsys is not allocated, allocate it; otherwise, perform a no-op."""
-        if self._memsys is not None:
-            return
-        self.allocate()
+        with self._state.lock:
+            if self._memsys is not None:
+                return
+            self.allocate()
 
     def allocate(self):
         """Allocate memsys on global memory."""
@@ -169,9 +211,10 @@ class _Runtime:
 
     def ensure_initialized(self):
         """If memsys is not initialized, initialize memsys."""
-        if self._initialized:
-            return
-        self.initialize()
+        with self._state.lock:
+            if self._initialized:
+                return
+            self.initialize()
 
     def initialize(self):
         """Launch memsys initialization kernel."""

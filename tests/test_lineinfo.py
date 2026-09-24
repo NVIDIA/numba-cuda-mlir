@@ -11,8 +11,12 @@ With lineinfo=True: PTX must contain .file referencing source file and
 import inspect
 import os
 
+import pytest
+
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir import types, compiler, testing
+
+from lineinfo_usecases import helper_scale_offset
 
 
 def k(x: cuda.DeviceNDArray):
@@ -78,3 +82,58 @@ def test_ptx_lineinfo_device_function():
         """,
         ptx,
     )
+
+
+def kernel_calling_helper(x):
+    x[0] = helper_scale_offset(x[0])
+
+
+def _check_multi_file_ptx(ptx):
+    kernel_name = os.path.basename(inspect.getsourcefile(kernel_calling_helper))
+    helper_name = os.path.basename(inspect.getsourcefile(helper_scale_offset.py_func))
+
+    # The exact surviving body line depends on optimization, so only
+    # require that some line is attributed to the helper's file, and
+    # that the kernel's own lines still reference the kernel's file.
+    testing.filecheck(
+        f"""
+        CHECK-LABEL: .entry {{{{.*}}}}kernel_calling_helper
+        CHECK-DAG: .file\t[[kernel_id:[0-9]+]] "{{{{.*}}}}{kernel_name}"
+        CHECK-DAG: .file\t[[helper_id:[0-9]+]] "{{{{.*}}}}{helper_name}"
+        CHECK-DAG: .loc\t[[helper_id]] {{{{[0-9]+}}}}
+        CHECK-DAG: .loc\t[[kernel_id]] {{{{[0-9]+}}}}
+        """,
+        ptx,
+    )
+
+
+@pytest.mark.parametrize("cc", [(8, 0), (10, 0)], ids=["sm_80", "sm_100"])
+def test_ptx_lineinfo_multiple_source_files(cc):
+    """Code inlined from another file gets its own .file entry.
+
+    Lines from an inlined device function must be attributed to that
+    function's source file (via a DILexicalBlockFile scope), not
+    mis-filed under the calling kernel's file.
+    """
+    ptx, _ = compiler.compile_ptx(
+        kernel_calling_helper,
+        types.void(types.float32[:]),
+        lineinfo=True,
+        cc=cc,
+    )
+    assert ptx is not None
+    _check_multi_file_ptx(ptx)
+
+
+@pytest.mark.parametrize("cc", [(8, 0), (10, 0)], ids=["sm_80", "sm_100"])
+def test_ptx_debug_multiple_source_files(cc):
+    """Full debug info attributes cross-file lines the same way lineinfo does."""
+    ptx, _ = compiler.compile_ptx(
+        kernel_calling_helper,
+        types.void(types.float32[:]),
+        debug=True,
+        opt=False,
+        cc=cc,
+    )
+    assert ptx is not None
+    _check_multi_file_ptx(ptx)

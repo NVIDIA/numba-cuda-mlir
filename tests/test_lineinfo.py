@@ -11,6 +11,8 @@ With lineinfo=True: PTX must contain .file referencing source file and
 import inspect
 import os
 
+import pytest
+
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir import types, compiler, testing
 
@@ -95,6 +97,7 @@ def _check_multi_file_ptx(ptx):
     # that the kernel's own lines still reference the kernel's file.
     testing.filecheck(
         f"""
+        CHECK-LABEL: .entry {{{{.*}}}}kernel_calling_helper
         CHECK-DAG: .file\t[[kernel_id:[0-9]+]] "{{{{.*}}}}{kernel_name}"
         CHECK-DAG: .file\t[[helper_id:[0-9]+]] "{{{{.*}}}}{helper_name}"
         CHECK-DAG: .loc\t[[helper_id]] {{{{[0-9]+}}}}
@@ -104,7 +107,8 @@ def _check_multi_file_ptx(ptx):
     )
 
 
-def test_ptx_lineinfo_multiple_source_files():
+@pytest.mark.parametrize("cc", [(8, 0), (10, 0)], ids=["sm_80", "sm_100"])
+def test_ptx_lineinfo_multiple_source_files(cc):
     """Code inlined from another file gets its own .file entry.
 
     Lines from an inlined device function must be attributed to that
@@ -115,18 +119,21 @@ def test_ptx_lineinfo_multiple_source_files():
         kernel_calling_helper,
         types.void(types.float32[:]),
         lineinfo=True,
+        cc=cc,
     )
     assert ptx is not None
     _check_multi_file_ptx(ptx)
 
 
-def test_ptx_debug_multiple_source_files():
+@pytest.mark.parametrize("cc", [(8, 0), (10, 0)], ids=["sm_80", "sm_100"])
+def test_ptx_debug_multiple_source_files(cc):
     """Full debug info attributes cross-file lines the same way lineinfo does."""
     ptx, _ = compiler.compile_ptx(
         kernel_calling_helper,
         types.void(types.float32[:]),
         debug=True,
         opt=False,
+        cc=cc,
     )
     assert ptx is not None
     _check_multi_file_ptx(ptx)

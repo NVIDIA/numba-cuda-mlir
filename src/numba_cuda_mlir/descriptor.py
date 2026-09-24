@@ -1251,21 +1251,41 @@ class MLIRTargetContext(BaseContext):
         def drop_omitted(args):
             return tuple(a for a in args if not isinstance(a, omitted))
 
-        # The cache key only holds the arguments the call actually supplied,
-        # while `sig` also carries omitted defaults; compare with and without
-        # them.  `cache_args` also keeps whatever literals the template was
-        # typed with, so an overload registered `prefer_literal=True` (or one
-        # that requested the constant via `literally()`) only ever matches
-        # the un-unliteral'd form; accept either form in both comparisons.
-        full_forms = (match_args, literal_args)
-        trimmed_forms = (drop_omitted(match_args), drop_omitted(literal_args))
+        def unfold_stararg(args):
+            """Expand a trailing ``*args`` bundle into the arguments it absorbed.
 
-        def args_match(cache_args):
-            return cache_args in full_forms or drop_omitted(cache_args) in trimmed_forms
+            A variadic implementation folds the arguments it collects into a
+            single tuple type, so `sig` carries one tuple where the cache key
+            still holds them individually.
+            """
+            if not args or not isinstance(args[-1], types.BaseTuple):
+                return None
+            return args[:-1] + tuple(args[-1].types)
 
-        disp = _select_overload_dispatcher(
-            templates, args_match, targetconfig.ConfigStack.top_or_none()
-        )
+        cur_flags = targetconfig.ConfigStack.top_or_none()
+
+        def select(forms):
+            # The cache key only holds the arguments the call actually supplied,
+            # while `sig` also carries omitted defaults; compare with and without
+            # them.  `cache_args` also keeps whatever literals the template was
+            # typed with, so an overload registered `prefer_literal=True` (or one
+            # that requested the constant via `literally()`) only ever matches
+            # the un-unliteral'd form; accept either form in both comparisons.
+            trimmed = tuple(drop_omitted(form) for form in forms)
+
+            def args_match(cache_args):
+                return cache_args in forms or drop_omitted(cache_args) in trimmed
+
+            return _select_overload_dispatcher(templates, args_match, cur_flags)
+
+        # Exact keys first. Unfolding a trailing tuple can coincide with the key
+        # of a *different* registration's scalar call (``f(a, (x, y))`` against
+        # a cached ``f(a, x, y)``), so the unfolded forms are only a fallback.
+        disp = select((match_args, literal_args))
+        if disp is None and (unfolded := unfold_stararg(literal_args)) is not None:
+            # Same literal/unliteral pair as above; ``types.unliteral`` does not
+            # recurse into a tuple, so the elements are only stripped here.
+            disp = select((tuple(types.unliteral(a) for a in unfolded), unfolded))
         if disp is None:
             return None
 

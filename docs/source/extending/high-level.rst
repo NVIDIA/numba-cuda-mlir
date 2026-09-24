@@ -77,6 +77,93 @@ finds a matching implementation. If no matching overload is found, then a
 compilation error occurs.
 
 
+Variadic implementations
+------------------------
+
+An implementation function and the implementation it returns may both declare a
+``*args`` parameter, so a single registration serves a whole family of arities.
+The arguments matched by ``*args`` are passed to the implementation function as
+a tuple of Numba types, and are bundled into a single tuple argument in the
+implementation.
+
+Consume the bundle with :py:func:`~numba_cuda_mlir.cuda.experimental.consteval`.
+The arity is fixed for each compiled overload, so ``consteval`` unrolls the loop
+before compilation into one copy of the body per element: no loop and no tuple
+indexing remain at runtime, and the elements may have differing types, including
+arrays.
+
+.. code-block:: python
+
+   from numba_cuda_mlir import cuda, extending
+   from numba_cuda_mlir.cuda.experimental import consteval
+
+   def my_sum(*args):
+       return sum(args)
+
+   @extending.overload(my_sum)
+   def my_sum_overload(*args):
+       # ``args`` holds the Numba types of the call site's arguments.
+       def impl(*args):
+           acc = 0.0
+           for a in consteval(args):        # unrolls to args[0], args[1], ...
+               acc += a
+           return acc
+
+       return impl
+
+   @cuda.jit
+   def kernel(out, floats, ints, doubles):
+       i = cuda.grid(1)
+       if i < out.size:
+           out[i] = my_sum(floats[i], ints[i], doubles[i])
+
+Each arity is compiled as a separate overload, so calling ``my_sum`` with two
+and with three arguments in the same kernel produces two distinct device
+functions. Variadic implementations are also supported by
+:py:func:`~numba_cuda_mlir.extending.overload_method`, and a variadic
+:py:func:`~numba_cuda_mlir.extending.register_jitable` function is supported as
+well.
+
+When the body needs an element's position, unroll over the indices instead.
+``len(args)`` is known to the implementation function, so pass it in as a
+closure variable; each ``i`` is then a literal and ``args[i]`` a static access:
+
+.. code-block:: python
+
+   @extending.overload(my_store)
+   def my_store_overload(out, *args):
+       n = len(args)
+
+       def impl(out, *args):
+           for i in consteval(range(n)):
+               out[i] = args[i]
+
+       return impl
+
+Any compile-time sequence the implementation function builds can be unrolled
+the same way, and destructuring loop targets are supported:
+
+.. code-block:: python
+
+   @extending.overload(my_store)
+   def my_store_overload(out, *args):
+       pairs = list(enumerate(range(len(args))))
+
+       def impl(out, *args):
+           for idx, val in consteval(pairs):
+               out[idx] = args[val]
+
+       return impl
+
+A plain ``for a in args`` also compiles, but only when every element shares a
+type, since a loop variable has a single type. Prefer ``consteval`` so one
+implementation serves any bundle.
+
+.. note::
+
+   :py:func:`~numba_cuda_mlir.cuda.experimental.consteval` is experimental.
+
+
 Implementing methods
 --------------------
 

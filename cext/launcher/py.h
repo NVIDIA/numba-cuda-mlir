@@ -68,9 +68,24 @@ PyObject* pywrapper_new(PyTypeObject* type, PyObject*, PyObject*) {
 
 template <typename T>
 void pywrapper_dealloc(PyObject* self) {
+    if (PyType_IS_GC(Py_TYPE(self)))
+        PyObject_GC_UnTrack(self);
     PythonWrapper<T>* wrapper = reinterpret_cast<PythonWrapper<T>*>(self);
     wrapper->object.~T();
     Py_TYPE(self)->tp_free(self);
+}
+
+// tp_traverse for wrappers whose T defines traverse(visitproc, void*).
+template <typename T>
+int pywrapper_traverse(PyObject* self, visitproc visit, void* arg) {
+    return py_unwrap<T>(self).traverse(visit, arg);
+}
+
+// tp_clear for wrappers whose T defines clear().
+template <typename T>
+int pywrapper_clear(PyObject* self) {
+    py_unwrap<T>(self).clear();
+    return 0;
 }
 
 struct OK_t{};

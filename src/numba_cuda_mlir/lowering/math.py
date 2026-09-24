@@ -30,6 +30,7 @@ from numba_cuda_mlir._mlir.dialects import (
     llvm,
 )
 from numba_cuda_mlir.mlir.dialect_exts.math import ipowi
+from numba_cuda_mlir.typing.math import POW_INT32_EXPONENTS
 import numba_cuda_mlir._mlir.ir as ir
 import operator
 
@@ -1285,8 +1286,14 @@ def math_pow_cg(mlir_lower, target, args, kwargs):
     assert len(args) == 2, "math_pow expects 2 arguments"
     target_type = mlir_lower.get_numba_type(target.name)
     float_type = mlir_lower.get_mlir_type(target_type)
-    x, y = (_load_and_convert_operand(mlir_lower, a, target_type, float_type) for a in args)
-    result = math_dialect.powf(x, y)
+    x = _load_and_convert_operand(mlir_lower, args[0], target_type, float_type)
+    exponent_type = mlir_lower.get_numba_type(args[1].name)
+    if target_type in (types.float32, types.float64) and exponent_type in POW_INT32_EXPONENTS:
+        y = _load_and_convert_operand(mlir_lower, args[1], types.int32, T.i32())
+        result = math_dialect.fpowi(x, y)
+    else:
+        y = _load_and_convert_operand(mlir_lower, args[1], target_type, float_type)
+        result = math_dialect.powf(x, y)
     mlir_lower.store_var(target, result)
 
 

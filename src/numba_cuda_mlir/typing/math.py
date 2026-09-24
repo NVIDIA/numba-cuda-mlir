@@ -23,15 +23,13 @@ def _math_result_type(*arg_types):
     return max(floats, key=lambda ty: getattr(ty, "bitwidth", 0))
 
 
+# Exponent types that convert safely to int32
+POW_INT32_EXPONENTS = (types.int8, types.int16, types.int32, types.uint8, types.uint16)
+
+
 def _pow_result_type(base, exponent):
     """A float base raised to an exponent that converts safely to int32 keeps the base type."""
-    if isinstance(base, types.Float) and exponent in (
-        types.int8,
-        types.int16,
-        types.int32,
-        types.uint8,
-        types.uint16,
-    ):
+    if isinstance(base, types.Float) and exponent in POW_INT32_EXPONENTS:
         return base
     return _math_result_type(base, exponent)
 

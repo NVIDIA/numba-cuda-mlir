@@ -247,6 +247,26 @@ def test_math_pow_float32_integer_exponent_stays_float32():
     assert ".f64" not in ptx
 
 
+@pytest.mark.parametrize(
+    "base_dtype, powi",
+    [(np.float32, "__nv_powif"), (np.float64, "__nv_powi"), (np.int32, "__nv_powi")],
+)
+def test_math_pow_int32_exponent_uses_powi(base_dtype, powi):
+    @cuda.jit
+    def kernel(src, exponents, out):
+        i = cuda.grid(1)
+        if i < src.size:
+            out[i] = math.pow(src[i], exponents[i])
+
+    src = np.array([-1, -1, 2], dtype=base_dtype)
+    exponents = np.array([2**24 + 1, 2**24, 10], dtype=np.int32)
+    out = cuda.device_array(src.size, dtype=np.float64)
+    kernel[1, 32](cuda.to_device(src), cuda.to_device(exponents), out)
+    np.testing.assert_array_equal(out.copy_to_host(), [-1.0, 1.0, 1024.0])
+    llvm_ir = next(iter(kernel.inspect_llvm().values()))
+    assert f"@{powi}(" in llvm_ir
+
+
 def test_math_ceil():
     @cuda.jit()
     def math_ceil_kernel(x):

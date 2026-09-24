@@ -1190,3 +1190,21 @@ def test_consteval_block_unit_function_call():
 
     # 3*4+1 = 13
     assert "result = 13" in source
+
+
+def test_recompiled_function_keeps_source_lines():
+    """Unit test: a recompiled function keeps its original file line numbers."""
+    import inspect
+    from numba_cuda_mlir.ast_transforms import apply_ast_transforms
+
+    def probe(out):
+        out[0] = consteval(1)
+        return out
+
+    transformed, source = apply_ast_transforms(probe, {"experimental_ast_transforms": True})
+    assert source is not None
+    lines, first = inspect.getsourcelines(probe)
+    assign_line = first + next(i for i, ln in enumerate(lines) if "consteval(1)" in ln)
+    assert transformed.__code__.co_firstlineno == probe.__code__.co_firstlineno
+    transformed_lines = {line for _, _, line in transformed.__code__.co_lines() if line}
+    assert assign_line in transformed_lines

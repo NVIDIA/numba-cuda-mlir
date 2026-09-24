@@ -3,6 +3,7 @@
 # AST transformation passes for numba_cuda_mlir
 # These run before Numba's IR conversion
 import ast
+import inspect
 from typing import Callable
 
 from numba_cuda_mlir.ast_transforms.common import get_function_ast, recompile_function
@@ -17,6 +18,7 @@ from numba_cuda_mlir.ast_transforms.pipeline import (
 
 __all__ = [
     "apply_ast_transforms",
+    "transform_inline_callee",
     "ConstevalError",
     "ASTTransformPass",
     "ASTTransformPipeline",
@@ -127,3 +129,17 @@ def apply_ast_transforms(
         func = recompile_function(func, tree, context.stored_values)
 
     return func, transformed_source
+
+
+# Stands in for each parameter of an inlined callee, whose types are unknown.
+_INLINEE_PARAMETER = object()
+
+
+def transform_inline_callee(pyfunc: Callable, targetoptions: dict) -> Callable:
+    """Apply AST transforms to an inlinee under the caller's options; parameters resolve to a placeholder."""
+    if not targetoptions.get("experimental_ast_transforms", False):
+        return pyfunc
+
+    argtypes = (_INLINEE_PARAMETER,) * len(inspect.signature(pyfunc).parameters)
+    transformed, _ = apply_ast_transforms(pyfunc, targetoptions, argtypes)
+    return transformed

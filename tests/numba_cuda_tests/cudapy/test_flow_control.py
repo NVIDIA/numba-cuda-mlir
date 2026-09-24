@@ -7,6 +7,7 @@ import itertools
 import unittest
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda.core.controlflow import CFGraph, ControlFlowAnalysis
+from numba_cuda_mlir.numba_cuda.core.byteflow import Flow
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core.bytecode import (
     FunctionIdentity,
@@ -17,6 +18,17 @@ from numba_cuda_mlir.numba_cuda import utils
 from numba_cuda_mlir.testing import NumbaCUDATestCase
 import numpy as np
 import pytest
+
+
+@pytest.mark.skipif(utils.PYVERSION != (3, 15), reason="Python 3.15 bytecode")
+def test_python315_comprehension_byteflow():
+    def usecase(xs):
+        return [x if x else -x for x in xs]
+
+    bytecode = ByteCode(FunctionIdentity.from_function(usecase))
+    assert any(inst.opname == "GET_ITER" for inst in bytecode)
+    assert any(inst.opname == "POP_ITER" for inst in bytecode)
+    Flow(bytecode).run()
 
 
 def for_loop_usecase1(x, y, res1, res2):

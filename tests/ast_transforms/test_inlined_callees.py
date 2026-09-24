@@ -120,20 +120,33 @@ def test_inlined_callee_parameter_shadows_global():
         kernel.compile("void(int32[:])")
 
 
-def test_callee_option_controls_transform():
+def test_caller_option_controls_transform():
     n = 2
 
     @cuda.jit(device=True, inline=True, experimental_ast_transforms=False)
-    def callee(out):
+    def callee_off(out):
         for i in consteval(range(n)):
             out[i] = 1
 
     @cuda.jit(experimental_ast_transforms=True)
-    def kernel(out):
-        callee(out)
+    def kernel_on(out):
+        callee_off(out)
+
+    out = cuda.to_device(np.zeros(2, dtype=np.int32))
+    kernel_on[1, 1](out)
+    np.testing.assert_array_equal(out.copy_to_host(), [1, 1])
+
+    @cuda.jit(device=True, inline=True, experimental_ast_transforms=True)
+    def callee_on(out):
+        for i in consteval(range(n)):
+            out[i] = 1
+
+    @cuda.jit(experimental_ast_transforms=False)
+    def kernel_off(out):
+        callee_on(out)
 
     with pytest.raises(TypingError, match="consteval"):
-        kernel.compile("void(int32[:])")
+        kernel_off.compile("void(int32[:])")
 
 
 def test_rejected_cost_model_does_not_transform(monkeypatch):

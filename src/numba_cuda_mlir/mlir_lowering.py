@@ -235,6 +235,7 @@ class MLIRLower(object):
         self._mlir_module: ir.Module | None = None
         self._mlir_gpu_module: gpu.GPUModuleOp | None = None
         self._shared_memory_base: ir.Value | None = None
+        self._shared_memory_global: llvm.GlobalOp | None = None
         self._total_shared_memory_bytes: ir.Value | None = None
         self._dynamic_shared_memory_values: list[ir.Value] = []
         self._deferred_dbg_declare_vars: set[str] = set()
@@ -2345,7 +2346,7 @@ extern "C" __global__ void
     def _get_shared_address_space(self):
         return ir.Attribute.parse("#gpu.address_space<workgroup>")
 
-    def _get_shared_memory_base(self):
+    def _get_shared_memory_base(self, alignment):
         if self._shared_memory_base is None:
             mr_type = memref.MemRefType.get(
                 shape=[ir.ShapedType.get_dynamic_size()],
@@ -2353,8 +2354,41 @@ extern "C" __global__ void
                 memory_space=self._get_shared_address_space(),
             )
             assert self.mlir_funcOp
+            func_name = self.mlir_funcOp.operation.attributes["sym_name"].value
+            name = f"__numba_cuda_mlir_dynamic_shared_{func_name}"
+            with ir.InsertionPoint.at_block_begin(self.mlir_gpu_module.bodyRegion.blocks[0]):
+                # An external declaration denotes the launch's dynamic region.
+                # gpu.dynamic_shared_memory currently lowers to an internal
+                # zero-length global, which can overlap static shared globals.
+                self._shared_memory_global = llvm.GlobalOp(
+                    ir.Type.parse("!llvm.array<0 x i8>"),
+                    name,
+                    ir.Attribute.parse("#llvm.linkage<external>"),
+                    addr_space=3,
+                    alignment=alignment,
+                )
             with ir.InsertionPoint.at_block_begin(self.mlir_funcOp.entry_block):
-                self._shared_memory_base = gpu.dynamic_shared_memory(mr_type)
+                ptr = llvm.mlir_addressof(llvm.PointerType.get(3), name)
+                # Use inline PTX for both NVVM translation paths: the LLVM 7
+                # bridge does not support the NVVM dynamic-smem-size op.
+                size = llvm.inline_asm(T.i32(), [], "mov.u32 $0, %dynamic_smem_size;", "=r")
+                size = arith.extui(T.i64(), size)
+                desc = llvm.UndefOp(
+                    ir.Type.parse(
+                        "!llvm.struct<(ptr<3>, ptr<3>, i64, array<1 x i64>, array<1 x i64>)>"
+                    )
+                ).result
+                for position, value in (
+                    ([0], ptr),
+                    ([1], ptr),
+                    ([2], arith.constant(T.i64(), 0)),
+                    ([3, 0], size),
+                    ([4, 0], arith.constant(T.i64(), 1)),
+                ):
+                    desc = llvm.insertvalue(desc, value, position)
+                self._shared_memory_base = builtin.unrealized_conversion_cast([mr_type], [desc])
+        elif alignment > self._shared_memory_global.alignment.value:
+            self._shared_memory_global.alignment = ir.IntegerAttr.get(T.i64(), alignment)
         return self._shared_memory_base
 
     def _load_total_shared_memory_bytes(self):
@@ -2382,18 +2416,41 @@ extern "C" __global__ void
             indices=[index_of(0)],
         )
 
-    def _request_dynamic_shared_memory(self, mr_type: ir.MemRefType):
-        bytes = get_type_size_bytes(mr_type.element_type)
+    def _aligned_shared_memory_offset(self, alignment):
+        offset = self._load_total_shared_memory_bytes()
+        alignment = index_of(alignment)
+        return arith.muli(arith.ceildivui(offset, alignment), alignment)
+
+    def _shared_memory_element_layout(self, element_type):
+        if isinstance(element_type, ir.VectorType):
+            # LLVM pads the innermost vector to its power-of-two ABI alignment.
+            # Outer dimensions lower to arrays of those padded vectors.
+            inner_type = ir.VectorType.get([element_type.shape[-1]], element_type.element_type)
+            inner_bytes = get_type_size_bytes(inner_type)
+            alignment = 1 << (inner_bytes - 1).bit_length()
+            bytes = alignment
+            for dimension in element_type.shape[:-1]:
+                bytes *= dimension
+            return bytes, alignment
+        bytes = get_type_size_bytes(element_type)
+        return bytes, bytes
+
+    def _request_dynamic_shared_memory(self, mr_type: ir.MemRefType, alignment):
+        bytes, element_alignment = self._shared_memory_element_layout(mr_type.element_type)
         assert self.mlir_funcOp
         # Emit at the current insertion point: the entry block may
         # already have a terminator once the request appears after
         # control flow. The shared-memory base itself is still created
         # at the entry block's start by _get_shared_memory_base.
         bytes_op = arith.constant(result=T.index(), value=bytes)
-        shm_base = self._get_shared_memory_base()
-        total_shared_memory_bytes = self._load_total_shared_memory_bytes()
+        alignment = max(alignment, element_alignment)
+        shm_base = self._get_shared_memory_base(alignment)
+        total_shared_memory_bytes = self._aligned_shared_memory_offset(alignment)
         dynamic_shared_bytes = memref.dim(shm_base, index_of(0))
-        remaining_bytes = arith.subi(lhs=dynamic_shared_bytes, rhs=total_shared_memory_bytes)
+        # A preceding runtime allocation may exhaust the launch's window.
+        # Clamp before subtracting so the unsigned extent cannot wrap.
+        used_bytes = arith.minui(total_shared_memory_bytes, dynamic_shared_bytes)
+        remaining_bytes = arith.subi(lhs=dynamic_shared_bytes, rhs=used_bytes)
         size = arith.divui(lhs=remaining_bytes, rhs=bytes_op)
         view = memref.view(
             result=mr_type,
@@ -2401,15 +2458,18 @@ extern "C" __global__ void
             byte_shift=total_shared_memory_bytes,
             sizes=[size],
         )
-        self._store_total_shared_memory_bytes(dynamic_shared_bytes)
+        # A zero-sized declaration views the remaining region without reserving
+        # it. Repeated views alias; only runtime-sized allocations move the cursor.
         self._dynamic_shared_memory_values.append(view)
         return view
 
     def _is_dynamic_shared_memory(self, value: ir.Value) -> bool:
         return any(value == dynamic for dynamic in self._dynamic_shared_memory_values)
 
-    def _request_shared_memory(self, sizes: tuple[ir.Value, ...], mr_type: ir.MemRefType):
-        bytes = get_type_size_bytes(mr_type.element_type)
+    def _request_shared_memory(
+        self, sizes: tuple[ir.Value, ...], mr_type: ir.MemRefType, alignment
+    ):
+        bytes, element_alignment = self._shared_memory_element_layout(mr_type.element_type)
         assert self.mlir_funcOp
         # Emit at the current insertion point: the size operands are
         # computed here, and the entry block may already have a
@@ -2418,8 +2478,9 @@ extern "C" __global__ void
         for size in sizes:
             size = self.mlir_convert(size, T.index())
             bytes_op = arith.muli(lhs=bytes_op, rhs=size)
-        shm_base = self._get_shared_memory_base()
-        total_shared_memory_bytes = self._load_total_shared_memory_bytes()
+        alignment = max(alignment, element_alignment)
+        shm_base = self._get_shared_memory_base(alignment)
+        total_shared_memory_bytes = self._aligned_shared_memory_offset(alignment)
         view = memref.view(
             result=mr_type,
             source=shm_base,

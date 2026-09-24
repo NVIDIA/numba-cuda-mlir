@@ -1602,6 +1602,12 @@ struct KernelDispatcher {
         Py_VISIT(ensure_context_func.get());
         return arg_profiles.traverse(visit, arg);
     }
+
+    // Release the owned Python references after emptying the fields.
+    void clear() {
+        PyPtr compile = std::move(compile_func);
+        PyPtr ensure_context = std::move(ensure_context_func);
+    }
 };
 
 void get_pyarg_types(PyObject* const* pyargs, Py_ssize_t num_pyargs,
@@ -2374,6 +2380,10 @@ struct LaunchConfiguration {
         Py_VISIT(dispatcher.get());
         return 0;
     }
+
+    void clear() {
+        PyPtr owned = std::move(dispatcher);
+    }
 };
 
 PyObject* LaunchConfiguration_vectorcall(PyObject* self, PyObject *const *args,
@@ -2632,6 +2642,7 @@ Status kernel_init(PyObject* m) {
     KernelDispatcher_type.tp_dealloc = pywrapper_dealloc<KernelDispatcher>;
     KernelDispatcher_type.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC;
     KernelDispatcher_type.tp_traverse = pywrapper_traverse<KernelDispatcher>;
+    KernelDispatcher_type.tp_clear = pywrapper_clear<KernelDispatcher>;
     KernelDispatcher_type.tp_init = KernelDispatcher_init;
     KernelDispatcher_type.tp_new = pywrapper_new<KernelDispatcher>;
 
@@ -2645,6 +2656,7 @@ Status kernel_init(PyObject* m) {
     LaunchConfiguration_type.tp_flags =
         Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_VECTORCALL | Py_TPFLAGS_HAVE_GC;
     LaunchConfiguration_type.tp_traverse = pywrapper_traverse<LaunchConfiguration>;
+    LaunchConfiguration_type.tp_clear = pywrapper_clear<LaunchConfiguration>;
     LaunchConfiguration_type.tp_init = LaunchConfiguration_init;
     LaunchConfiguration_type.tp_new = pywrapper_new<LaunchConfiguration>;
 

@@ -7,7 +7,7 @@ import weakref
 
 import numpy as np
 
-from numba_cuda_mlir import cuda
+from numba_cuda_mlir import _cext, cuda
 from numba_cuda_mlir import descriptor as descriptor_mod
 
 
@@ -76,3 +76,20 @@ def test_dropped_kernel_dispatcher_teardown_after_launch(monkeypatch):
     kern[1, 1](a)
     cuda.synchronize()
     assert a.copy_to_host()[0] == 2
+
+
+def _live_native_dispatchers():
+    for _ in range(3):
+        gc.collect()
+    return sum(isinstance(o, _cext.KernelDispatcher) for o in gc.get_objects())
+
+
+def test_native_launch_cycle_is_collected():
+    before = _live_native_dispatchers()
+    dispatcher = _cext.KernelDispatcher(print, ())
+    config = _cext.LaunchConfiguration(dispatcher, (1,), (1,))
+    # A launch configuration as the context hook closes a cycle through native objects only.
+    dispatcher.__init__(print, (), config)
+    del dispatcher, config
+
+    assert _live_native_dispatchers() == before

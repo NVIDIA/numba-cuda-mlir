@@ -81,6 +81,13 @@ int pywrapper_traverse(PyObject* self, visitproc visit, void* arg) {
     return py_unwrap<T>(self).traverse(visit, arg);
 }
 
+// tp_clear for wrappers whose T defines clear().
+template <typename T>
+int pywrapper_clear(PyObject* self) {
+    py_unwrap<T>(self).clear();
+    return 0;
+}
+
 struct OK_t{};
 struct ErrorRaised_t{};
 

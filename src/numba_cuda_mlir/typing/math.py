@@ -17,6 +17,25 @@ registry = Registry()
 _math_functions = {}
 
 
+def _math_result_type(*arg_types):
+    """Float type a math function computes in: integers become float64, the widest float wins."""
+    floats = [types.float64 if isinstance(ty, types.Integer) else ty for ty in arg_types]
+    return max(floats, key=lambda ty: getattr(ty, "bitwidth", 0))
+
+
+def _pow_result_type(base, exponent):
+    """A float base raised to an exponent that converts safely to int32 keeps the base type."""
+    if isinstance(base, types.Float) and exponent in (
+        types.int8,
+        types.int16,
+        types.int32,
+        types.uint8,
+        types.uint16,
+    ):
+        return base
+    return _math_result_type(base, exponent)
+
+
 def _make_unary_math_template(key, return_type_fn=None):
     """
     Create a typing template for unary math functions.
@@ -24,7 +43,7 @@ def _make_unary_math_template(key, return_type_fn=None):
     Args:
         key: The function to register (e.g., math.sin)
         return_type_fn: Optional function to compute return type from arg type.
-                       If None, returns the same type as input.
+                       If None, returns the float type the function computes in.
     """
 
     acceptable = (types.Integer, types.Float, Bfloat16)
@@ -32,8 +51,8 @@ def _make_unary_math_template(key, return_type_fn=None):
     class UnaryMathTemplate(AbstractTemplate):
         def generic(self, args, kws):
             if len(args) == 1 and isinstance(args[0], acceptable):
-                return_type = return_type_fn(args[0]) if return_type_fn else args[0]
-                return signature(return_type, args[0])
+                return_fn = return_type_fn or _math_result_type
+                return signature(return_fn(args[0]), args[0])
 
     UnaryMathTemplate.key = key
     func_name = key.__name__
@@ -44,22 +63,11 @@ def _make_unary_math_template(key, return_type_fn=None):
     return template
 
 
-def _float_to_integer_return_type(arg_type):
-    if isinstance(arg_type, types.Integer):
-        return arg_type
-    elif arg_type in (types.float16, types.float32):
-        return types.int32
-    else:
-        return types.int64
-
-
-# Functions that return integer (matching Python 3 behavior)
-for func in [math.ceil, math.floor, math.trunc]:
-    _make_unary_math_template(func, _float_to_integer_return_type)
-
-
-# Functions that return the same type as input
+# Functions that return a float: the input float type, or float64 for integers
 for func in [
+    math.ceil,
+    math.floor,
+    math.trunc,
     math.sin,
     math.cos,
     math.tan,
@@ -106,7 +114,7 @@ def _make_binary_math_template(key, return_type_fn=None):
     Args:
         key: The function to register (e.g., math.atan2)
         return_type_fn: Optional function to compute return type from arg types.
-                       If None, returns the type of the first argument.
+                       If None, returns the float type the function computes in.
     """
 
     class BinaryMathTemplate(AbstractTemplate):
@@ -116,8 +124,8 @@ def _make_binary_math_template(key, return_type_fn=None):
                 and isinstance(args[0], types.Number)
                 and isinstance(args[1], types.Number)
             ):
-                return_type = return_type_fn(args[0], args[1]) if return_type_fn else args[0]
-                return signature(return_type, args[0], args[1])
+                return_fn = return_type_fn or _math_result_type
+                return signature(return_fn(args[0], args[1]), args[0], args[1])
 
     BinaryMathTemplate.key = key
     func_name = key.__name__
@@ -127,17 +135,18 @@ def _make_binary_math_template(key, return_type_fn=None):
     return template
 
 
-# Binary math functions that return same type as input
+# Binary math functions that return a float: the widest input float, or float64 for integers
 for func in [
     math.atan2,
     math.copysign,
     math.hypot,
     math.fmod,
     math.remainder,
-    math.pow,
     math.nextafter,
 ]:
     _make_binary_math_template(func)
+
+_make_binary_math_template(math.pow, _pow_result_type)
 
 
 # Special case: frexp returns a tuple (mantissa: float, exponent: int32)

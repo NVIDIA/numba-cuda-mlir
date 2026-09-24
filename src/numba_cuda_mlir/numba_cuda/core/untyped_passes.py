@@ -445,7 +445,7 @@ class InlineInlinables(FunctionPass):
                             do_inline = inline_type(expr, state.func_ir, py_func_ir)
                         # if do_inline is True then inline!
                         if do_inline:
-                            pyfunc = inline_worker.transform_inlinee(pyfunc, topt)
+                            pyfunc = inline_worker.transform_inlinee(pyfunc)
                             _, _, _, new_blocks = inline_worker.inline_function(
                                 state.func_ir,
                                 block,

@@ -60,8 +60,8 @@ def consteval(value=None):
             config = load_config()
             N = config["block_size"]
 
-    Inlined device functions (``inline=True``) are transformed when their own
-    decorator enables the AST transforms; inside them ``current_target_options()``
+    Inlined device functions (``inline=True``) are transformed when the calling
+    kernel enables the AST transforms; inside them ``current_target_options()``
     is the calling kernel's options and parameter names do not resolve to types.
     """
     if value is None:

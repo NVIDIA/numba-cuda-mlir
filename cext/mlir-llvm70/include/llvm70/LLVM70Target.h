@@ -90,6 +90,10 @@ private:
 
   llvm::StringMap<LLVMTypeRef> namedStructCache;
 
+  // `!llvm.loop` ID node by loop annotation.
+  llvm::DenseMap<mlir::Attribute, LLVMValueRef> loopMetadata;
+  LLVMValueRef loopMetadataFor(mlir::LLVM::LoopAnnotationAttr attr);
+
   /// Pointee type per member of an identified struct, by struct name, so that
   /// members do not all flatten to `i8*` and stop matching the same struct
   /// coming from a typed producer. Supplied by the frontend in the

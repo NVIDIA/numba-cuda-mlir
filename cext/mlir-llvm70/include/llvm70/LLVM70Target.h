@@ -94,6 +94,28 @@ private:
   llvm::DenseMap<mlir::Attribute, LLVMValueRef> loopMetadata;
   LLVMValueRef loopMetadataFor(mlir::LLVM::LoopAnnotationAttr attr);
 
+  /// Pointee type per member of an identified struct, by struct name, so that
+  /// members do not all flatten to `i8*` and stop matching the same struct
+  /// coming from a typed producer. Supplied by the frontend in the
+  /// `llvm70.struct_pointees` attribute (see `struct_pointees.py`); entries are
+  /// optional and a null Type means "leave this member alone".
+  ///
+  /// A refinement stays inside the struct layout -- values of MLIR `!llvm.ptr`
+  /// type are `i8*` everywhere else -- so insertvalue casts in and extractvalue
+  /// casts back out.
+  llvm::StringMap<llvm::SmallVector<mlir::Type>> structPointees;
+
+  /// Read `llvm70.struct_pointees` off the module into `structPointees`.
+  void loadStructPointees(mlir::gpu::GPUModuleOp gpuMod);
+
+  /// Member `idx` of `structTy`, refined by `structPointees`.
+  LLVMTypeRef convertStructMemberType(mlir::LLVM::LLVMStructType structTy,
+                                      unsigned idx);
+
+  /// The element of `aggTy` at an insertvalue/extractvalue `position`.
+  LLVMTypeRef convertAggregateElementType(mlir::Type aggTy,
+                                          llvm::ArrayRef<int64_t> position);
+
   // Debug info state
   LLVMMetadataRef diCompileUnit = nullptr;
   LLVMMetadataRef diSubroutineType = nullptr;
@@ -116,6 +138,7 @@ private:
   // Map an MLIR value to its old-LLVM counterpart.
   void mapValue(mlir::Value v, LLVMValueRef lv) { valueMap[v] = lv; }
   LLVMValueRef lookupValue(mlir::Value v);
+  LLVMValueRef lookupValueAsDeclared(mlir::Value v);
 
   // Type conversion: MLIR type → LLVM 7 type.
   // For ptr types the element type must be recovered from context.

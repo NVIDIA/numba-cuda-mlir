@@ -63,15 +63,41 @@ def _memref_llvm_pointer_type(memref_type: ir.MemRefType) -> llvm.PointerType:
     return llvm.PointerType.get(memref_llvm_address_space(memref_type))
 
 
-def memref_data_pointer_as_index(array: ir.Value, element_type: ir.Type | None = None) -> ir.Value:
-    metadata = memref.extract_strided_metadata(array)
-    base_ptr_idx = memref.extract_aligned_pointer_as_index(metadata[0])
-    offset = index_of(metadata[1])
-    if element_type is None:
-        element_type = ir.MemRefType(array.type).element_type
-    elem_bytes = get_type_size_bytes(element_type)
-    byte_offset = arith.muli(offset, arith.constant(T.index(), elem_bytes))
-    return arith.addi(base_ptr_idx, byte_offset)
+def memref_descriptor_type(rank: int) -> ir.Type:
+    """Return the LLVM struct type the memref-to-LLVM lowering uses for a ranked memref."""
+    fields = "ptr, ptr, i64"
+    if rank > 0:
+        fields += f", array<{rank} x i64>, array<{rank} x i64>"
+    return ir.Type.parse(f"!llvm.struct<({fields})>")
+
+
+def memref_data_pointer(array: ir.Value) -> ir.Value:
+    """Return the memref's data pointer (aligned pointer + offset) as a generic ``!llvm.ptr``.
+
+    Stays in the pointer domain (``extractvalue`` + ``getelementptr``) rather than
+    going through integer arithmetic, so LLVM's address-space inference can follow
+    the pointer back to its origin and emit global/shared rather than generic
+    accesses through it.
+    """
+    mr_type = ir.MemRefType(array.type)
+    if mr_type.memory_space is not None:
+        mr_type = ir.MemRefType.get(mr_type.shape, mr_type.element_type, mr_type.layout)
+        array = memref.memory_space_cast(dest=mr_type, source=array)
+    desc = builtin.unrealized_conversion_cast([memref_descriptor_type(mr_type.rank)], [array])
+    aligned_ptr = llvm.extractvalue(llvm.PointerType.get(), desc, [1])
+    offset = llvm.extractvalue(T.i64(), desc, [2])
+    elem_bytes = arith.constant(T.i64(), get_type_size_bytes(mr_type.element_type))
+    return llvm_ptr_add_bytes(aligned_ptr, arith.muli(offset, elem_bytes))
+
+
+def llvm_ptr_add_bytes(ptr: ir.Value, byte_offset: ir.Value) -> ir.Value:
+    """Advance an LLVM pointer by ``byte_offset`` bytes.
+
+    Uses ``getelementptr`` rather than ``ptrtoint``/``add``/``inttoptr`` so the
+    result keeps the provenance of ``ptr`` for LLVM's address-space inference.
+    """
+    byte_offset = convert(byte_offset, T.i64())
+    return llvm.getelementptr(ptr.type, ptr, [byte_offset], [GEP_DYNAMIC_INDEX], T.i8(), None)
 
 
 def _memref_index_offset(array: ir.Value, indices: list[ir.Value]) -> ir.Value:
@@ -107,11 +133,8 @@ def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value], element_type: i
     Returns:
         LLVM pointer (!llvm.ptr) to the indexed element
     """
-    # Extract base pointer from memref and convert to an address-space-preserving
-    # LLVM pointer.
     ptr_type = _memref_llvm_pointer_type(ir.MemRefType(array.type))
-    base_ptr_idx = memref_data_pointer_as_index(array)
-    base_ptr = llvm.inttoptr(res=ptr_type, arg=convert(base_ptr_idx, T.i64()))
+    base_ptr = llvm.addrspacecast(ptr_type, memref_data_pointer(array))
 
     linear_idx = _memref_index_offset(array, indices)
     return llvm.getelementptr(
@@ -336,6 +359,32 @@ def _is_bool_numba_type(numba_type: types.Type) -> bool:
     return isinstance(numba_type, (types.Boolean, types.BooleanLiteral))
 
 
+def get_conversion_signedness(source_type: types.Type, target_type: types.Type) -> bool | None:
+    """Return integer signedness required to convert between semantic types.
+
+    Integer sources determine how their bits are interpreted. Otherwise, an
+    integer target determines which float-to-integer conversion is required.
+    MLIR integer types are signless, so callers must make this decision while
+    the corresponding Numba types are still available.
+    """
+    from numba_cuda_mlir.type_defs.vector_types import VectorType
+
+    if isinstance(source_type, VectorType):
+        source_type = source_type.dtype
+    if isinstance(target_type, VectorType):
+        target_type = target_type.dtype
+
+    if _is_bool_numba_type(source_type):
+        return False
+    if isinstance(source_type, types.Integer):
+        return source_type.signed
+    if _is_bool_numba_type(target_type):
+        return False
+    if isinstance(target_type, types.Integer):
+        return target_type.signed
+    return None
+
+
 def _is_float_storage_numba_type(numba_type: types.Type) -> bool:
     from numba_cuda_mlir.type_defs import float_types
     from numba_cuda_mlir.numba_cuda.types.ext_types import Bfloat16
@@ -347,14 +396,16 @@ def _integer_storage_type_for_value(numba_type: types.Type, value_type: ir.Type)
     return ir.IntegerType.get_signless(_numba_type_bitwidth(numba_type, value_type))
 
 
-def value_to_storage(numba_type: types.Type, value: ir.Value) -> ir.Value:
+def value_to_storage(
+    numba_type: types.Type, value: ir.Value, *, signed: bool | None = None
+) -> ir.Value:
     """Convert a source-level value to its memory/ABI storage representation."""
     storage_type = get_storage_type(numba_type)
     value_type = get_value_type(numba_type)
     if getattr(value, "type", None) == storage_type and value_type == storage_type:
         return value
     if getattr(value, "type", None) != value_type:
-        value = convert(value, value_type)
+        value = convert(value, value_type, signed=signed)
     if value_type == storage_type:
         return value
 
@@ -371,7 +422,7 @@ def value_to_storage(numba_type: types.Type, value: ir.Value) -> ir.Value:
             return arith.extui(out=storage_type, in_=bits)
         return arith.trunci(out=storage_type, in_=bits)
 
-    return convert(value, storage_type)
+    return convert(value, storage_type, signed=signed)
 
 
 def storage_to_value(numba_type: types.Type, value: ir.Value) -> ir.Value:
@@ -426,8 +477,9 @@ def array_element_value_store(
     value: ir.Value,
     *,
     dynamic_shared_memory: bool = False,
+    signed: bool | None = None,
 ):
-    stored = value_to_storage(array_type.dtype, value)
+    stored = value_to_storage(array_type.dtype, value, signed=signed)
     if dynamic_shared_memory:
         ptr = memref_to_llvm_ptr(array, list(indices), stored.type)
         llvm_ptr_store(stored, ptr)
@@ -797,7 +849,7 @@ def convert_tuple_like(values: list[ir.Value], target_type: ir.Type) -> ir.Value
 
 
 def _convert_integer_to_integer(
-    value: ir.Value, target_type: ir.IntegerType, *, signed: bool = False
+    value: ir.Value, target_type: ir.IntegerType, *, signed: bool | None = None
 ) -> ir.Value:
     """
     If possible, we perform the conversion on the types as they are given to us.
@@ -851,14 +903,14 @@ def _convert_integer_to_integer(
     return value
 
 
-def convert(value, target_type, *, signed: bool = False):
+def convert(value, target_type, *, signed: bool | None = None):
     if getattr(value, "type", None) == target_type:
         return value
     return ensure_verifies(unverified_convert(value, target_type, signed=signed))
 
 
 @singledispatch
-def unverified_convert(value, target_type, *, signed: bool = False):
+def unverified_convert(value, target_type, *, signed: bool | None = None):
     raise NotImplementedError(f"Not implemented for type {type(value)}")
 
 
@@ -909,7 +961,7 @@ def unverified_basic_mlir_convert(
     value,
     target_type: ir.Type,
     *,
-    signed: bool = False,
+    signed: bool | None = None,
 ) -> ir.Value:
     from numba_cuda_mlir._mlir.dialects import (
         complex as complex_dialect,
@@ -924,6 +976,10 @@ def unverified_basic_mlir_convert(
         return constant(value, target_type)
     value_type = value.type
     trace("value_type: %s, target_type: %s", value_type, target_type)
+
+    def use_signed_conversion(default: bool) -> bool:
+        return default if signed is None else signed
+
     match value_type, target_type:
         case ir.Type() as x, ir.Type() as y if x == y:
             trace("value_type == target_type, returning value")
@@ -962,17 +1018,21 @@ def unverified_basic_mlir_convert(
                 if elem1.width > elem2.width:
                     return arith.trunci(out=target_type, in_=value)
                 else:
-                    return arith.extsi(out=target_type, in_=value)
+                    return (
+                        arith.extsi(out=target_type, in_=value)
+                        if use_signed_conversion(elem1.width > 1)
+                        else arith.extui(out=target_type, in_=value)
+                    )
             elif isinstance(elem1, ir.IntegerType) and isinstance(elem2, ir.FloatType):
                 return (
                     arith.sitofp(out=target_type, in_=value)
-                    if elem1.width > 1
+                    if use_signed_conversion(elem1.width > 1)
                     else arith.uitofp(out=target_type, in_=value)
                 )
             elif isinstance(elem1, ir.FloatType) and isinstance(elem2, ir.IntegerType):
                 return (
                     arith.fptosi(out=target_type, in_=value)
-                    if elem2.width > 1
+                    if use_signed_conversion(elem2.width > 1)
                     else arith.fptoui(out=target_type, in_=value)
                 )
             else:
@@ -980,17 +1040,22 @@ def unverified_basic_mlir_convert(
         case ir.IntegerType(), ir.FloatType():
             return (
                 arith.sitofp(out=target_type, in_=value)
-                if value_type.width > 1
+                if use_signed_conversion(value_type.width > 1)
                 else arith.uitofp(out=target_type, in_=value)
             )
-        case ir.BF16Type(), ir.IntegerType() if target_type.width == 16:
-            # bf16 to int16/uint16: use bitcast to preserve bit pattern
-            trace("bf16 -> i16 bitcast conversion")
-            return arith.bitcast(out=target_type, in_=value)
-        case ir.FloatType(), ir.IntegerType():
+        case ((ir.FloatType() | ir.BF16Type()), ir.IntegerType()):
+            # Special case: converting to i1 (boolean) asks whether the value is non-zero.
+            # fptosi/fptoui to i1 keeps the low bit of the truncated integer instead, so 0.0
+            # comes out True and 2.0 comes out False. `_convert_integer_to_integer` already
+            # special-cases an i1 target the same way. UNE rather than ONE so that NaN is
+            # truthy, matching bool(float("nan")) in Python.
+            if target_type.width == 1:
+                trace("converting float to i1 (boolean) via comparison against zero")
+                zero = arith.constant(value_type, value=0.0)
+                return arith.cmpf(arith.CmpFPredicate.UNE, value, zero)
             return (
                 arith.fptosi(out=target_type, in_=value)
-                if target_type.width > 1
+                if use_signed_conversion(target_type.width > 1)
                 else arith.fptoui(out=target_type, in_=value)
             )
         case ir.IntegerType(), ir.ComplexType():
@@ -998,7 +1063,7 @@ def unverified_basic_mlir_convert(
             float_type = target_type.element_type
             float_val = (
                 arith.sitofp(out=float_type, in_=value)
-                if value_type.width > 1
+                if use_signed_conversion(value_type.width > 1)
                 else arith.uitofp(out=float_type, in_=value)
             )
             zero = arith.constant(result=float_type, value=0.0)
@@ -1019,9 +1084,8 @@ def unverified_basic_mlir_convert(
             imag = complex_dialect.im(value)
             imag = convert(imag, target_element_type)
             return complex_dialect.create_(complex=target_type, real=real, imaginary=imag)
-        case ir.MemRefType() as mr, ptr_type if str(ptr_type) == "!llvm.ptr":
-            idx = memref_data_pointer_as_index(value, mr.element_type)
-            return convert(idx, target_type)
+        case ir.MemRefType(), ptr_type if str(ptr_type) == "!llvm.ptr":
+            return memref_data_pointer(value)
         case ptr_type, ir.IntegerType() if str(ptr_type) == "!llvm.ptr":
             ptrtoi = llvm.ptrtoint(res=T.i64(), arg=value)
             return convert(ptrtoi, target_type)

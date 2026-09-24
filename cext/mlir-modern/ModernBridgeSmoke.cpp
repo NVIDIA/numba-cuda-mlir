@@ -112,9 +112,12 @@ static int run_concurrent_version_cases(const char *mlir) {
     return failures.load(std::memory_order_relaxed) == 0 ? 0 : 1;
 }
 
+// The llvm.data_layout in the fixtures below must stay identical to
+// NVPTX64_DATALAYOUT in src/numba_cuda_mlir/lowering_utilities/llvm_utils.py,
+// otherwise this smoke test stops exercising what the package actually emits.
 static const char simple_kernel[] = R"MLIR(
 gpu.module @kernels attributes {
-  llvm.data_layout = "e-i64:64-i128:128-v16:16-v32:32-n16:32:64-S128",
+  llvm.data_layout = "e-p:64:64:64-p6:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-i128:128:128-f32:32:32-f64:64:64-f128:128:128-v16:16:16-v32:32:32-v64:64:64-v128:128:128-n16:32:64-a:8:8",
   llvm.target_triple = "nvptx64-nvidia-cuda"
 } {
   llvm.func @simple_kernel() attributes {gpu.kernel} {
@@ -132,7 +135,7 @@ int main() {
 
     static const char nvvm_intrinsics[] = R"MLIR(
 gpu.module @kernels attributes {
-  llvm.data_layout = "e-i64:64-i128:128-v16:16-v32:32-n16:32:64-S128",
+  llvm.data_layout = "e-p:64:64:64-p6:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-i128:128:128-f32:32:32-f64:64:64-f128:128:128-v16:16:16-v32:32:32-v64:64:64-v128:128:128-n16:32:64-a:8:8",
   llvm.target_triple = "nvptx64-nvidia-cuda"
 } {
   llvm.func @intrinsic_kernel() attributes {gpu.kernel} {
@@ -149,7 +152,7 @@ gpu.module @kernels attributes {
 
     static const char atomics[] = R"MLIR(
 gpu.module @kernels attributes {
-  llvm.data_layout = "e-i64:64-i128:128-v16:16-v32:32-n16:32:64-S128",
+  llvm.data_layout = "e-p:64:64:64-p6:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-i128:128:128-f32:32:32-f64:64:64-f128:128:128-v16:16:16-v32:32:32-v64:64:64-v128:128:128-n16:32:64-a:8:8",
   llvm.target_triple = "nvptx64-nvidia-cuda"
 } {
   llvm.func @atomic_kernel(%p32: !llvm.ptr<1>, %p64: !llvm.ptr<1>) attributes {gpu.kernel} {
@@ -165,7 +168,7 @@ gpu.module @kernels attributes {
 
     static const char downgrade[] = R"MLIR(
 gpu.module @kernels attributes {
-  llvm.data_layout = "e-i64:64-i128:128-v16:16-v32:32-n16:32:64-S128",
+  llvm.data_layout = "e-p:64:64:64-p6:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-i128:128:128-f32:32:32-f64:64:64-f128:128:128-v16:16:16-v32:32:32-v64:64:64-v128:128:128-n16:32:64-a:8:8",
   llvm.target_triple = "nvptx64-nvidia-cuda"
 } {
   llvm.func @downgrade_kernel() attributes {gpu.kernel} {

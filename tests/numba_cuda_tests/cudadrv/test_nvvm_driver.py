@@ -54,6 +54,14 @@ class TestNvvmDriver(unittest.TestCase):
         for arch in nvrtc.get_supported_ccs():
             self._test_nvvm_support(arch=arch)
 
+    def test_check_options_probe_module_is_accepted(self):
+        # check_options() compiles a probe module and reports False when that
+        # compile fails, so it cannot distinguish an unsupported option from a
+        # probe libNVVM refuses to accept. A stale data layout in the probe
+        # would therefore report every option as unsupported, silently.
+        self.assertTrue(NVVM().check_options([]))
+        self.assertFalse(NVVM().check_options([b"-made-up-option=2"]))
+
 
 class TestLibDevice(unittest.TestCase):
     def test_libdevice_load(self):

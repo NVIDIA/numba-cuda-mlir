@@ -28,6 +28,7 @@ from numba_cuda_mlir.logging import trace
 from numba_cuda_mlir.lowering_utilities import (
     convert,
     DeferredMethodCall,
+    get_conversion_signedness,
     get_or_insert_function,
 )
 from numba_cuda_mlir.descriptor import MLIRTargetContext
@@ -56,8 +57,18 @@ def complex_constructor_2args_cg(mlir_lower, target, args, kwargs):
     target_mlir_type = mlir_lower.get_mlir_type(target_type)
     element_type = target_mlir_type.element_type
     # Convert to target element type
-    real = convert(real, element_type)
-    imag = convert(imag, element_type)
+    real_type = mlir_lower.get_numba_type(args[0].name)
+    imag_type = mlir_lower.get_numba_type(args[1].name)
+    real = convert(
+        real,
+        element_type,
+        signed=get_conversion_signedness(real_type, target_type),
+    )
+    imag = convert(
+        imag,
+        element_type,
+        signed=get_conversion_signedness(imag_type, target_type),
+    )
     result = complex_dialect.create_(target_mlir_type, real, imag)
     mlir_lower.store_var(target, result)
 
@@ -74,7 +85,12 @@ def complex_constructor_1arg_cg(mlir_lower, target, args, kwargs):
     target_mlir_type = mlir_lower.get_mlir_type(target_type)
     element_type = target_mlir_type.element_type
     # Convert to target element type
-    real = convert(real, element_type)
+    source_type = mlir_lower.get_numba_type(args[0].name)
+    real = convert(
+        real,
+        element_type,
+        signed=get_conversion_signedness(source_type, target_type),
+    )
     zero = arith.constant(result=element_type, value=0.0)
     result = complex_dialect.create_(target_mlir_type, real, zero)
     mlir_lower.store_var(target, result)

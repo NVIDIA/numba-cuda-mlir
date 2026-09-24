@@ -313,7 +313,7 @@ jobs:
       host-platform: linux-64
       test-script: run-cuda-gdb-tests
       extra-cuda-components: "cuda_gdb,cuda_nvdisasm"
-      matrix_filter: 'map(select(.PY_VER == "3.12" and .CUDA_VER == "13.2.1" and .LOCAL_CTK == "1" and .GPU == "l4")) | .[0:1]'
+      matrix_filter: 'map(select(.PY_VER == "3.12" and .CUDA_VER == "13.4.1" and .LOCAL_CTK == "1" and .GPU == "l4")) | .[0:1]'
 
   test-cuda-gdb-linux-aarch64:
     name: cuda-gdb Test linux-aarch64
@@ -329,7 +329,7 @@ jobs:
       host-platform: linux-aarch64
       test-script: run-cuda-gdb-tests
       extra-cuda-components: "cuda_gdb,cuda_nvdisasm"
-      matrix_filter: 'map(select(.PY_VER == "3.12" and .CUDA_VER == "13.2.1" and .LOCAL_CTK == "1" and .GPU == "a100")) | .[0:1]'
+      matrix_filter: 'map(select(.PY_VER == "3.12" and .CUDA_VER == "13.4.1" and .LOCAL_CTK == "1" and .GPU == "a100")) | .[0:1]'
 
   # ============== old CI jobs (ci.yaml & pr.yaml) ==============
 

@@ -14,8 +14,8 @@ applications, performance speedups may be possible.
 
 The CUDA target implements :ref:`fast-math` behavior with two differences.
 
-* First, ``fastmath=True`` enables every flag except ``nnan`` and ``ninf``, so
-  NaN and infinity checks stay intact, and there is an extra ``ftz`` flag.
+* First, ``fastmath=True`` enables every flag except ``nnan`` and ``ninf``, and
+  there is an extra ``ftz`` flag.
 
 * Secondly, with ``afn`` set, calls to a subset of math module functions on
   ``float32`` operands will be implemented using fast approximate

@@ -249,7 +249,12 @@ def test_math_pow_float32_integer_exponent_stays_float32():
 
 @pytest.mark.parametrize(
     "base_dtype, powi",
-    [(np.float32, "__nv_powif"), (np.float64, "__nv_powi"), (np.int32, "__nv_powi")],
+    [
+        (np.float16, "__nv_powif"),
+        (np.float32, "__nv_powif"),
+        (np.float64, "__nv_powi"),
+        (np.int32, "__nv_powi"),
+    ],
 )
 def test_math_pow_int32_exponent_uses_powi(base_dtype, powi):
     @cuda.jit

@@ -1288,7 +1288,7 @@ def math_pow_cg(mlir_lower, target, args, kwargs):
     float_type = mlir_lower.get_mlir_type(target_type)
     x = _load_and_convert_operand(mlir_lower, args[0], target_type, float_type)
     exponent_type = mlir_lower.get_numba_type(args[1].name)
-    if target_type in (types.float32, types.float64) and exponent_type in POW_INT32_EXPONENTS:
+    if isinstance(target_type, types.Float) and exponent_type in POW_INT32_EXPONENTS:
         y = _load_and_convert_operand(mlir_lower, args[1], types.int32, T.i32())
         result = math_dialect.fpowi(x, y)
     else:

@@ -126,8 +126,6 @@ def test_math_operand_conversion_preserves_signedness(fn, value, expected):
     src = cuda.to_device(np.array([value]))
     out = cuda.device_array(1, dtype=np.float64)
     kernel[1, 1](src, out)
-    # The f32 conversion path for 32-bit sources costs a few digits, so compare
-    # with a tolerance rather than exactly.
     np.testing.assert_allclose(out.copy_to_host()[0], expected, rtol=1e-6)
 
 
@@ -168,6 +166,110 @@ def test_math_binary_operand_conversion_preserves_signedness():
     out = cuda.device_array(1, dtype=np.float64)
     kernel[1, 1](x, y, out)
     np.testing.assert_allclose(out.copy_to_host()[0], BIG_UINT64_AS_FLOAT, rtol=1e-6)
+
+
+INTEGER_ARGUMENT_UNARY_CASES = [
+    pytest.param(math.sqrt, np.int64(2), id="sqrt-int64"),
+    pytest.param(math.sin, np.int64(2), id="sin-int64"),
+    pytest.param(math.exp, np.int32(2), id="exp-int32"),
+    pytest.param(math.log, np.int64(10), id="log-int64"),
+    pytest.param(math.floor, np.int32(16777217), id="floor-int32-above-f32-exact"),
+    pytest.param(math.ceil, np.int32(-16777219), id="ceil-int32-above-f32-exact"),
+    pytest.param(math.trunc, np.int32(2147483647), id="trunc-int32-max"),
+]
+
+
+@pytest.mark.parametrize("fn,value", INTEGER_ARGUMENT_UNARY_CASES)
+def test_math_integer_argument_returns_float64(fn, value):
+    @cuda.jit
+    def kernel(src, out):
+        out[0] = fn(src[0]) + 1
+
+    src = cuda.to_device(np.array([value]))
+    out = cuda.device_array(1, dtype=np.float64)
+    kernel[1, 1](src, out)
+    np.testing.assert_allclose(out.copy_to_host()[0], float(fn(int(value))) + 1, rtol=1e-12)
+
+
+INTEGER_ARGUMENT_BINARY_CASES = [
+    pytest.param(math.hypot, np.int64(2), np.int64(2), id="hypot-int-int"),
+    pytest.param(math.atan2, np.int64(2), np.int64(3), id="atan2-int-int"),
+    pytest.param(math.pow, np.int64(2), np.float64(0.5), id="pow-int-float"),
+    pytest.param(math.pow, np.int32(3), np.int32(20), id="pow-int32-above-f32-exact"),
+]
+
+
+@pytest.mark.parametrize("fn,x,y", INTEGER_ARGUMENT_BINARY_CASES)
+def test_math_binary_integer_argument_returns_float64(fn, x, y):
+    @cuda.jit
+    def kernel(x, y, out):
+        out[0] = fn(x[0], y[0]) + 1
+
+    x_dev = cuda.to_device(np.array([x]))
+    y_dev = cuda.to_device(np.array([y]))
+    out = cuda.device_array(1, dtype=np.float64)
+    kernel[1, 1](x_dev, y_dev, out)
+    np.testing.assert_allclose(out.copy_to_host()[0], fn(x.item(), y.item()) + 1, rtol=1e-12)
+
+
+@pytest.mark.parametrize(
+    "fn,np_fn", [(math.floor, np.floor), (math.ceil, np.ceil), (math.trunc, np.trunc)]
+)
+def test_math_rounding_float32_stays_float32(fn, np_fn):
+    @cuda.jit
+    def kernel(src, out):
+        i = cuda.grid(1)
+        if i < src.size:
+            x = src[i]
+            out[i] = x - np.float32(40) * fn(x)
+
+    src = np.array([1.5, 41.2, -80.1, 3e9], dtype=np.float32)
+    out = cuda.device_array(src.size, dtype=np.float32)
+    kernel[1, 32](cuda.to_device(src), out)
+    np.testing.assert_array_equal(out.copy_to_host(), src - np.float32(40) * np_fn(src))
+    ptx = next(iter(kernel.inspect_asm().values()))
+    assert ".f64" not in ptx
+
+
+def test_math_pow_float32_integer_exponent_stays_float32():
+    @cuda.jit
+    def kernel(src, exponents, out):
+        i = cuda.grid(1)
+        if i < src.size:
+            out[i] = math.pow(src[i], exponents[i])
+
+    src = np.array([1.5, -2.0, 0.5, 3.0], dtype=np.float32)
+    exponents = np.array([2, 3, -2, 5], dtype=np.int32)
+    out = cuda.device_array(src.size, dtype=np.float32)
+    kernel[1, 32](cuda.to_device(src), cuda.to_device(exponents), out)
+    np.testing.assert_allclose(out.copy_to_host(), src ** exponents.astype(np.float32), rtol=1e-6)
+    ptx = next(iter(kernel.inspect_asm().values()))
+    assert ".f64" not in ptx
+
+
+@pytest.mark.parametrize(
+    "base_dtype, powi",
+    [
+        (np.float16, "__nv_powif"),
+        (np.float32, "__nv_powif"),
+        (np.float64, "__nv_powi"),
+        (np.int32, "__nv_powi"),
+    ],
+)
+def test_math_pow_int32_exponent_uses_powi(base_dtype, powi):
+    @cuda.jit
+    def kernel(src, exponents, out):
+        i = cuda.grid(1)
+        if i < src.size:
+            out[i] = math.pow(src[i], exponents[i])
+
+    src = np.array([-1, -1, 2], dtype=base_dtype)
+    exponents = np.array([2**24 + 1, 2**24, 10], dtype=np.int32)
+    out = cuda.device_array(src.size, dtype=np.float64)
+    kernel[1, 32](cuda.to_device(src), cuda.to_device(exponents), out)
+    np.testing.assert_array_equal(out.copy_to_host(), [-1.0, 1.0, 1024.0])
+    llvm_ir = next(iter(kernel.inspect_llvm().values()))
+    assert f"@{powi}(" in llvm_ir
 
 
 def test_math_ceil():

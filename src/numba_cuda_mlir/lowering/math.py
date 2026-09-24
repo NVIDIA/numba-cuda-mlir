@@ -30,6 +30,7 @@ from numba_cuda_mlir._mlir.dialects import (
     llvm,
 )
 from numba_cuda_mlir.mlir.dialect_exts.math import ipowi
+from numba_cuda_mlir.typing.math import POW_INT32_EXPONENTS
 import numba_cuda_mlir._mlir.ir as ir
 import operator
 
@@ -83,9 +84,12 @@ def _cast_to_float_of_same_size(value: ir.Value, source_type: types.Type | None 
 
 
 def _ensure_float(value: ir.Value, source_type: types.Type | None = None) -> ir.Value:
-    """Ensure value is floating-point, converting integers to floats if needed."""
+    """Ensure value is floating-point, converting integers to float64."""
     if isinstance(value.type, ir.IntegerType) or isinstance(value.type, ir.IndexType):
-        return _cast_to_float_of_same_size(value, source_type)
+        signed = None
+        if source_type is not None:
+            signed = get_conversion_signedness(source_type, types.float64)
+        return lowering_utilities.convert(value, T.f64(), signed=signed)
     return value
 
 
@@ -581,8 +585,8 @@ def math_ceil_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_ceil_intrinsic does not accept any keyword arguments"
     value = mlir_lower.load_var(args[0])
     if _is_integer_type(value.type):
-        # ceil of an integer is the integer itself, but convert to float for return type
-        result = _cast_to_float_of_same_size(value, mlir_lower.get_numba_type(args[0].name))
+        # ceil of an integer is the integer itself, as float64
+        result = _ensure_float(value, mlir_lower.get_numba_type(args[0].name))
     else:
         result = math_dialect.ceil(value)
     mlir_lower.store_var(target, result)
@@ -593,8 +597,8 @@ def math_floor_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_floor does not accept any keyword arguments"
     value = mlir_lower.load_var(args[0])
     if _is_integer_type(value.type):
-        # floor of an integer is the integer itself, but convert to float for return type
-        result = _cast_to_float_of_same_size(value, mlir_lower.get_numba_type(args[0].name))
+        # floor of an integer is the integer itself, as float64
+        result = _ensure_float(value, mlir_lower.get_numba_type(args[0].name))
     else:
         result = math_dialect.floor(value)
     mlir_lower.store_var(target, result)
@@ -605,8 +609,8 @@ def math_trunc_cg(mlir_lower, target, args, kwargs):
     assert not kwargs, "math_trunc does not accept any keyword arguments"
     value = mlir_lower.load_var(args[0])
     if _is_integer_type(value.type):
-        # trunc of an integer is the integer itself, but convert to float for return type
-        result = _cast_to_float_of_same_size(value, mlir_lower.get_numba_type(args[0].name))
+        # trunc of an integer is the integer itself, as float64
+        result = _ensure_float(value, mlir_lower.get_numba_type(args[0].name))
     else:
         result = math_dialect.trunc(value)
     mlir_lower.store_var(target, result)
@@ -1280,12 +1284,16 @@ def math_pow_cg(mlir_lower, target, args, kwargs):
     """math.pow(x, y) - x raised to power y"""
     assert not kwargs, "math_pow does not accept any keyword arguments"
     assert len(args) == 2, "math_pow expects 2 arguments"
-    x = _load_as_float(mlir_lower, args[0])
-    y = _load_as_float(mlir_lower, args[1])
-    unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
-    x = convert(x, unified_type)
-    y = convert(y, unified_type)
-    result = math_dialect.powf(x, y)
+    target_type = mlir_lower.get_numba_type(target.name)
+    float_type = mlir_lower.get_mlir_type(target_type)
+    x = _load_and_convert_operand(mlir_lower, args[0], target_type, float_type)
+    exponent_type = mlir_lower.get_numba_type(args[1].name)
+    if isinstance(target_type, types.Float) and exponent_type in POW_INT32_EXPONENTS:
+        y = _load_and_convert_operand(mlir_lower, args[1], types.int32, T.i32())
+        result = math_dialect.fpowi(x, y)
+    else:
+        y = _load_and_convert_operand(mlir_lower, args[1], target_type, float_type)
+        result = math_dialect.powf(x, y)
     mlir_lower.store_var(target, result)
 
 

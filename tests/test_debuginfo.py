@@ -33,6 +33,20 @@ def k_array_2d(a):
     a[0, i] = a[0, i] + 1.0
 
 
+def k_shape_local(a, out):
+    n = a.shape[0]
+    i = cuda.grid(1)
+    if i < n:
+        out[i] = a[i] + n
+
+
+def k_size_local(a, out):
+    n = a.size
+    i = cuda.grid(1)
+    if i < n:
+        out[i] = a[i] + n
+
+
 def test_mlir_emission_kind_full():
     """debug=True must set emissionKind = Full (not LineTablesOnly)."""
     mlir = compiler.compile_mlir(
@@ -842,6 +856,26 @@ def test_mlir_scalar_int_arg_type(int_arg, expected_name, size_bits, encoding):
         CHECK-SAME: encoding = {encoding}
         """,
         mlir,
+    )
+
+
+@pytest.mark.parametrize("fn", [k_shape_local, k_size_local], ids=["shape", "size"])
+def test_llvm_ir_dbg_value_index_local(fn):
+    """A local holding an array extent is described by an i64, not an index.
+
+    memref.dim yields index type, needs to cast to the DI variable's own integer width.
+    """
+    kernel = cuda.jit(debug=True, opt=False)(fn)
+    sig = (types.float32[:], types.float32[:])
+    kernel.compile(types.void(*sig))
+    llvm_ir = kernel.inspect_llvm(sig)
+
+    testing.filecheck(
+        """
+        CHECK: dbg{{[._]}}value({{(metadata )?}}i64 %{{[0-9]+}}, {{(metadata )?}}![[N_VAR:[0-9]+]]
+        CHECK: ![[N_VAR]] = !DILocalVariable(name: "n",
+        """,
+        llvm_ir,
     )
 
 

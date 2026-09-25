@@ -3321,6 +3321,12 @@ extern "C" __global__ void
                     if descriptor is not None:
                         self._emit_dbg_declare(base_name, descriptor, var_attr, volatile=True)
             return
+        # Index-typed, such as memref.dim yields for `arr.shape[k]` and `arr.size`, needs to
+        # cast to the integer width the DI variable was declared with.
+        if isinstance(mlir_value.type, ir.IndexType):
+            if not isinstance(numba_type, types.Integer):
+                return
+            mlir_value = arith.index_cast(out=self.get_mlir_type(numba_type), in_=mlir_value)
         is_arg = base_name in self._di_builder.arg_names
         is_boolean = isinstance(numba_type, types.Boolean)
         if is_arg and not is_boolean:

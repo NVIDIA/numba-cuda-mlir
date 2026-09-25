@@ -64,7 +64,7 @@ def test_boolean_ordering_comparisons():
 
 @pytest.mark.parametrize(
     "dtype, value_set",
-    [(np.int32, (-1, 0, 1, 2)), (np.uint32, (0, 1, 2)), (np.float64, (-1, 0, 1, 2))],
+    [(np.int32, (-1, 0, 1, 2)), (np.uint32, (0, 1, 2)), (np.float64, (-1, 0, 1, 2, np.nan))],
 )
 def test_mixed_boolean_number_comparisons(dtype, value_set):
     @cuda.jit

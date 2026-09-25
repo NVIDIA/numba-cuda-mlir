@@ -44,4 +44,9 @@ The available flags are:
 - ``fast``: every flag above except ``nnan`` and ``ninf``; the same as
   ``fastmath=True``.
 
+``fastmath`` accepts ``True``, ``False``, a set of flag names such as
+``fastmath={"arcp", "contract"}``, or a dict of flag names to booleans such as
+``fastmath={"arcp": True, "ftz": False}``. An unrecognised flag name raises
+``ValueError``.
+
 See the `documentation for nvvmCompileProgram <https://docs.nvidia.com/cuda/libnvvm-api/group__compilation.html#group__compilation_1g76ac1e23f5d0e2240e78be0e63450346>`_ for more details of the ``ftz``, ``afn``, ``arcp`` and ``contract`` optimizations.

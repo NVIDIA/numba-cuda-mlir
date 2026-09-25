@@ -53,7 +53,8 @@ llvm::Error LibNVVMCompiler::resolveSymbols() {
 llvm::Expected<std::string> LibNVVMCompiler::compile(
     llvm::StringRef arch,
     llvm::ArrayRef<std::pair<const char *, size_t>> modules,
-    unsigned optLevel, bool genLTO) {
+    unsigned optLevel, bool genLTO,
+    llvm::ArrayRef<std::string> extraOptions) {
   nvvmProgram prog = nullptr;
   nvvmResult rc = fnCreateProgram(&prog);
   if (rc != NVVM_SUCCESS)
@@ -82,6 +83,8 @@ llvm::Expected<std::string> LibNVVMCompiler::compile(
   opts.push_back(optOpt.c_str());
   if (genLTO)
     opts.push_back("-gen-lto");
+  for (const std::string &opt : extraOptions)
+    opts.push_back(opt.c_str());
   rc = fnCompileProgram(prog, opts.size(), opts.data());
   if (rc != NVVM_SUCCESS) {
     std::string log = getLog(prog);

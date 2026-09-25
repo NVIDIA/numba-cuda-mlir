@@ -108,7 +108,6 @@ class TestCompile(NumbaCUDATestCase):
         ptx, resty = self._handle_compile_result(ret, compile_function)
         self.assertEqual(resty, uint32)
 
-    @pytest.mark.xfail(True, reason="Regex doesn't match")
     def test_fastmath(self):
         self._test_fastmath(compile_ptx, {"device": True})
 

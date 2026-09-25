@@ -36,6 +36,7 @@ class FastMathOptions(AbstractOptionValue):
             "contract",
             "afn",
             "reassoc",
+            "ftz",
         }
 
         if isinstance(value, FastMathOptions):
@@ -70,6 +71,9 @@ class FastMathOptions(AbstractOptionValue):
         if type(other) is type(self):
             return self.flags == other.flags
         return NotImplemented
+
+    def __hash__(self):
+        return hash(frozenset(self.flags))
 
 
 class ParallelOptions(AbstractOptionValue):

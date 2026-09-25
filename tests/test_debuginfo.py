@@ -872,7 +872,7 @@ def test_llvm_ir_dbg_value_index_local(fn):
 
     testing.filecheck(
         """
-        CHECK: call void @llvm.dbg.value(metadata i64 %{{[0-9]+}}, metadata ![[N_VAR:[0-9]+]], metadata !DIExpression())
+        CHECK: dbg{{[._]}}value({{(metadata )?}}i64 %{{[0-9]+}}, {{(metadata )?}}![[N_VAR:[0-9]+]]
         CHECK: ![[N_VAR]] = !DILocalVariable(name: "n",
         """,
         llvm_ir,

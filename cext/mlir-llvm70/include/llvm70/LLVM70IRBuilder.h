@@ -223,7 +223,8 @@ public:
                                       bool fullDebug = false);
   LLVMMetadataRef createDISubroutineType(LLVMMetadataRef file);
   LLVMMetadataRef createDIFunction(LLVMMetadataRef scope, const char *name,
-                                   size_t nameLen, LLVMMetadataRef file,
+                                   size_t nameLen, const char *linkageName,
+                                   size_t linkageNameLen, LLVMMetadataRef file,
                                    unsigned lineNo, LLVMMetadataRef type);
   void setSubprogram(LLVMValueRef fn, LLVMMetadataRef sp);
   void setDebugLocation(unsigned line, unsigned col, LLVMMetadataRef scope);

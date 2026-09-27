@@ -877,6 +877,25 @@ def test_llvm_ir_array_arg_is_parameter_of_descriptor_type():
     )
 
 
+def test_llvm_ir_subprogram_name():
+    """The subprogram is named after the source, not the mangled symbol."""
+
+    @cuda.jit(debug=True, opt=False)
+    def k_foo(out, a):
+        out[0] = a + 1
+
+    sig = (types.int32[:], types.int32)
+    k_foo.compile(types.void(*sig))
+    llvm_ir = k_foo.inspect_llvm(sig)
+
+    testing.filecheck(
+        """
+        CHECK: !DISubprogram(name: "k_foo",
+        """,
+        llvm_ir,
+    )
+
+
 # struct Node { int32 value; Node *next; }. MLIR attributes are immutable and
 # uniqued, so #di_node cannot appear inside its own element list; the cycle goes
 # through #di_self instead, a composite carrying nothing but the same

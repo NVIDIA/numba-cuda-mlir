@@ -1046,13 +1046,24 @@ class MLIRTypingContext(typing.BaseContext):
 
     _conflicts_filtered = False
 
-    def check_intrinsic_codegen(self, intrinsic, codegen):
+    def check_intrinsic_codegen(self, intrinsic, sig, codegen):
         # A vendored intrinsic is usable only through an MLIR lowering registered
-        # for its handle.  Rejecting it here, rather than in lowering, lets
-        # typing move on to other templates: an upstream @overload built on
-        # such an intrinsic gives way to the native typing (issue #327).
-        if is_vendored_codegen(codegen) and intrinsic not in mlir_target.target_context._defns:
-            raise errors.TypingError(f"{intrinsic!r} has no MLIR lowering")
+        # for its handle and signature, found as MLIRLower._lookup_actual_function
+        # finds it.  Rejecting it here, rather than in lowering, lets typing move
+        # on to other templates: an upstream @overload built on such an intrinsic
+        # gives way to the native typing (issue #327).
+        if not is_vendored_codegen(codegen):
+            return
+        target = mlir_target.target_context
+        # Membership first: _defns is a defaultdict, and indexing a missing key
+        # would register an empty entry.
+        if intrinsic in target._defns:
+            try:
+                target.get_function(intrinsic, sig)
+                return
+            except NotImplementedError:
+                pass
+        raise errors.TypingError(f"{intrinsic!r} has no MLIR lowering for {sig}")
 
     def refresh(self):
         super().refresh()

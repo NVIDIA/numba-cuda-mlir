@@ -60,10 +60,12 @@ def test_extending_intrinsic_with_array_argument():
     assert out[0] == 7
 
 
-def test_overload_on_vendored_intrinsic_gives_way_to_native_typing():
+@pytest.mark.parametrize("lowered_for", [None, types.Float], ids=["unlowered", "other_signature"])
+def test_overload_on_vendored_intrinsic_gives_way_to_native_typing(lowered_for):
     """An intrinsic whose codegen is vendored (numba-cuda, llvmlite convention)
-    and that has no MLIR lowering fails typing, so an overload built on it
-    gives way to other templates instead of reaching lowering (issue #327)."""
+    and that has no MLIR lowering for the call's signature fails typing, so an
+    overload built on it gives way to other templates instead of reaching
+    lowering (issue #327)."""
     from numba_cuda_mlir._mlir.dialects import arith
     from numba_cuda_mlir.extending import lowering_registry
 
@@ -75,6 +77,12 @@ def test_overload_on_vendored_intrinsic_gives_way_to_native_typing():
     @extending.intrinsic
     def vendored_intrinsic(typingctx, x):
         return x(x), vendored_codegen
+
+    if lowered_for is not None:
+        # An MLIR lowering that does not cover the integer call below.
+        @lowering_registry.lower(vendored_intrinsic, lowered_for)
+        def lower_vendored_intrinsic(builder, target, args, kwargs):
+            raise AssertionError("lowering for another signature must not be selected")
 
     def double(x):
         pass

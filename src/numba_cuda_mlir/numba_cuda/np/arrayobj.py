@@ -28,8 +28,6 @@ from numba_cuda_mlir.numba_cuda import cgutils, extending
 from numba_cuda_mlir.numba_cuda.np.numpy_support import (
     as_dtype,
     from_dtype,
-    carray,
-    farray,
     is_contiguous,
     is_fortran,
     check_is_integer,
@@ -68,7 +66,6 @@ from numba_cuda_mlir.numba_cuda.cpython.unsafe.tuple import (
 from numba_cuda_mlir.numba_cuda.extending import overload_classmethod
 from numba_cuda_mlir.numba_cuda.typing.npydecl import (
     parse_dtype as ty_parse_dtype,
-    parse_shape as ty_parse_shape,
     _parse_nested_sequence,
     _sequence_of_arrays,
     _choose_concatenation_layout,
@@ -4930,132 +4927,6 @@ def impl_np_frombuffer(buffer, dtype=float):
         return np_frombuffer(buffer, dtype, retty)
 
     return impl
-
-
-@overload(carray, inline="always")
-def impl_carray(ptr, shape, dtype=None):
-    if is_nonelike(dtype):
-        intrinsic_cfarray = get_cfarray_intrinsic("C", None)
-
-        def impl(ptr, shape, dtype=None):
-            return intrinsic_cfarray(ptr, shape)
-
-        return impl
-    elif isinstance(dtype, types.DTypeSpec):
-        intrinsic_cfarray = get_cfarray_intrinsic("C", dtype)
-
-        def impl(ptr, shape, dtype=None):
-            return intrinsic_cfarray(ptr, shape)
-
-        return impl
-
-
-@overload(farray, inline="always")
-def impl_farray(ptr, shape, dtype=None):
-    if is_nonelike(dtype):
-        intrinsic_cfarray = get_cfarray_intrinsic("F", None)
-
-        def impl(ptr, shape, dtype=None):
-            return intrinsic_cfarray(ptr, shape)
-
-        return impl
-    elif isinstance(dtype, types.DTypeSpec):
-        intrinsic_cfarray = get_cfarray_intrinsic("F", dtype)
-
-        def impl(ptr, shape, dtype=None):
-            return intrinsic_cfarray(ptr, shape)
-
-        return impl
-
-
-def get_cfarray_intrinsic(layout, dtype_):
-    @intrinsic
-    def intrinsic_cfarray(typingctx, ptr, shape):
-        if ptr is types.voidptr:
-            ptr_dtype = None
-        elif isinstance(ptr, types.CPointer):
-            ptr_dtype = ptr.dtype
-        else:
-            msg = f"pointer argument expected, got '{ptr}'"
-            raise errors.NumbaTypeError(msg)
-
-        if dtype_ is None:
-            if ptr_dtype is None:
-                msg = "explicit dtype required for void* argument"
-                raise errors.NumbaTypeError(msg)
-            dtype = ptr_dtype
-        elif isinstance(dtype_, types.DTypeSpec):
-            dtype = dtype_.dtype
-            if ptr_dtype is not None and dtype != ptr_dtype:
-                msg = f"mismatching dtype '{dtype}' for pointer type '{ptr}'"
-                raise errors.NumbaTypeError(msg)
-        else:
-            msg = f"invalid dtype spec '{dtype_}'"
-            raise errors.NumbaTypeError(msg)
-
-        ndim = ty_parse_shape(shape)
-        if ndim is None:
-            msg = f"invalid shape '{shape}'"
-            raise errors.NumbaTypeError(msg)
-
-        retty = types.Array(dtype, ndim, layout)
-        sig = signature(retty, ptr, shape)
-        return sig, np_cfarray
-
-    return intrinsic_cfarray
-
-
-def np_cfarray(context, builder, sig, args):
-    """
-    numba.cuda.np.numpy_support.carray(...) and
-    numba.cuda.np.numpy_support.farray(...).
-    """
-    ptrty, shapety = sig.args[:2]
-    ptr, shape = args[:2]
-
-    aryty = sig.return_type
-    assert aryty.layout in "CF"
-
-    out_ary = make_array(aryty)(context, builder)
-
-    itemsize = get_itemsize(context, aryty)
-    ll_itemsize = cgutils.intp_t(itemsize)
-
-    if isinstance(shapety, types.BaseTuple):
-        shapes = cgutils.unpack_tuple(builder, shape)
-    else:
-        shapety = (shapety,)
-        shapes = (shape,)
-    shapes = [
-        context.cast(builder, value, fromty, types.intp) for fromty, value in zip(shapety, shapes)
-    ]
-
-    off = ll_itemsize
-    strides = []
-    if aryty.layout == "F":
-        for s in shapes:
-            strides.append(off)
-            off = builder.mul(off, s)
-    else:
-        for s in reversed(shapes):
-            strides.append(off)
-            off = builder.mul(off, s)
-        strides.reverse()
-
-    data = builder.bitcast(ptr, context.get_data_type(aryty.dtype).as_pointer())
-
-    populate_array(
-        out_ary,
-        data=data,
-        shape=shapes,
-        strides=strides,
-        itemsize=ll_itemsize,
-        # Array is not memory-managed
-        meminfo=None,
-    )
-
-    res = out_ary._getvalue()
-    return impl_ret_new_ref(context, builder, sig.return_type, res)
 
 
 def _get_seq_size(context, builder, seqty, seq):

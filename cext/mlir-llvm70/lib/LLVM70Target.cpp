@@ -314,6 +314,22 @@ MLIRToLLVM70::extractFileLineCol(Location loc) {
   return {"", 0, 0};
 }
 
+// Find the DISubprogramAttr which rides in the metadata slot.
+LLVM::DISubprogramAttr MLIRToLLVM70::extractSubprogram(Location loc) {
+  if (auto fused = dyn_cast<FusedLoc>(loc)) {
+    if (auto sp = dyn_cast_or_null<LLVM::DISubprogramAttr>(fused.getMetadata()))
+      return sp;
+    for (auto inner : fused.getLocations())
+      if (auto sp = extractSubprogram(inner))
+        return sp;
+  }
+  if (auto name = dyn_cast<NameLoc>(loc))
+    return extractSubprogram(name.getChildLoc());
+  if (auto callSite = dyn_cast<CallSiteLoc>(loc))
+    return extractSubprogram(callSite.getCallee());
+  return {};
+}
+
 LLVMMetadataRef MLIRToLLVM70::getOrCreateDIFile(llvm::StringRef filename) {
   auto it = diFileCache.find(filename);
   if (it != diFileCache.end())
@@ -554,10 +570,15 @@ llvm::Error MLIRToLLVM70::translateFuncOp(Operation *op) {
     LLVMMetadataRef diFile =
         filename.empty() ? getOrCreateDIFile("llvm70_module")
                          : getOrCreateDIFile(filename);
-    std::string name = funcOp.getName().str();
-    currentSubprogram =
-        b.createDIFunction(diFile, name.c_str(), name.size(), diFile,
-                           line ? line : 1, diSubroutineType);
+    // Retrieve source name from subprogram, if any.
+    std::string linkageName = funcOp.getName().str();
+    llvm::StringRef name = linkageName;
+    LLVM::DISubprogramAttr subprogram = extractSubprogram(funcOp.getLoc());
+    if (subprogram && subprogram.getName())
+      name = subprogram.getName().getValue();
+    currentSubprogram = b.createDIFunction(
+        diFile, name.data(), name.size(), linkageName.c_str(),
+        linkageName.size(), diFile, line ? line : 1, diSubroutineType);
     b.setSubprogram(fn, currentSubprogram);
   }
 

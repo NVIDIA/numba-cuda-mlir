@@ -707,14 +707,13 @@ LLVM70IRBuilder::createDISubroutineType(LLVMMetadataRef file) {
   return fnDIBuilderCreateSubroutineType(diBuilder, file, nullptr, 0,
                                          LLVMDIFlagZero);
 }
-LLVMMetadataRef LLVM70IRBuilder::createDIFunction(LLVMMetadataRef scope,
-                                                 const char *name,
-                                                 size_t nameLen,
-                                                 LLVMMetadataRef file,
-                                                 unsigned lineNo,
-                                                 LLVMMetadataRef type) {
+LLVMMetadataRef LLVM70IRBuilder::createDIFunction(
+    LLVMMetadataRef scope, const char *name, size_t nameLen,
+    const char *linkageName, size_t linkageNameLen, LLVMMetadataRef file,
+    unsigned lineNo, LLVMMetadataRef type) {
   return fnDIBuilderCreateFunction(
-      diBuilder, scope, name, nameLen, name, nameLen, file, lineNo, type,
+      diBuilder, scope, name, nameLen, linkageName, linkageNameLen, file,
+      lineNo, type,
       /*IsLocalToUnit=*/false, /*IsDefinition=*/true,
       /*ScopeLine=*/lineNo, LLVMDIFlagZero, /*IsOptimized=*/false);
 }

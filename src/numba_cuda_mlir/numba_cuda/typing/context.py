@@ -182,6 +182,13 @@ class BaseContext:
             self.load_additional_registries()
             self._load_builtins()
 
+    def check_intrinsic_codegen(self, intrinsic, sig, codegen):
+        """
+        Raise a TypingError if a call to *intrinsic* with signature *sig*
+        cannot be lowered with *codegen* on this target.  Called while typing
+        the call, so a rejected intrinsic fails typing rather than lowering.
+        """
+
     def explain_function_type(self, func):
         """
         Returns a string description of the type of a function

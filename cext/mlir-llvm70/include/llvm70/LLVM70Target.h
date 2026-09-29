@@ -130,6 +130,7 @@ private:
   void setDebugLocFromOp(mlir::Operation *op);
   std::tuple<llvm::StringRef, unsigned, unsigned>
   extractFileLineCol(mlir::Location loc);
+  mlir::LLVM::DISubprogramAttr extractSubprogram(mlir::Location loc);
 
   // Map an MLIR value to its old-LLVM counterpart.
   void mapValue(mlir::Value v, LLVMValueRef lv) { valueMap[v] = lv; }

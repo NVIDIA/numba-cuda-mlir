@@ -33,6 +33,16 @@ class TestVectorTypeComplexCast(NumbaCUDATestCase):
         self.assertEqual(res64[0], complex(1.5, 2.5))
         self.assertEqual(res128[0], complex(3.5, 4.5))
 
+    def test_unsigned_integer_vector_to_complex(self):
+        @cuda.jit("void(complex64[:])")
+        def kernel(out):
+            out[0] = complex(cuda.uint8x2(200, 255))
+
+        out = np.zeros(1, dtype=np.complex64)
+        kernel[1, 1](out)
+
+        self.assertEqual(out[0], np.complex64(200 + 255j))
+
     def test_int_vector_to_complex(self):
         @cuda.jit("void(complex128[:])")
         def kernel(arr):

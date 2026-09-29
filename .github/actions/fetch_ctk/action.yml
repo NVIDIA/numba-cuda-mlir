@@ -29,22 +29,16 @@ runs:
     - name: Set up CTK cache variable
       shell: bash --noprofile --norc -xeuo pipefail {0}
       run: |
-        # Pre-process the component list to ensure hash uniqueness
-        CUDA_MAJOR_VER="$(cut -d '.' -f 1 <<< ${{ inputs.cuda-version }})"
-        IFS=',' read -ra REQUESTED_COMPONENTS <<< "${{ inputs.cuda-components }}"
-        FILTERED_COMPONENTS=()
-        for component in "${REQUESTED_COMPONENTS[@]}"; do
-          component="${component//[[:space:]]/}"
-          [[ -n "${component}" ]] || continue
-          if [[ "${component}" == "libnvjitlink" && "${CUDA_MAJOR_VER}" -lt 12 ]]; then
-            continue
-          fi
-          if [[ "${component}" =~ ^(cuda_crt|libnvvm)$ && "${CUDA_MAJOR_VER}" -lt 13 ]]; then
-            continue
-          fi
-          FILTERED_COMPONENTS+=("${component}")
-        done
-        CTK_CACHE_COMPONENTS="$(IFS=,; echo "${FILTERED_COMPONENTS[*]}")"
+        # Resolve components from the redistrib metadata before hashing. This
+        # accounts for component renames such as cuda_cccl -> cccl in CTK 13.3.
+        CTK_REDIST_TOOL="${GITHUB_WORKSPACE}/ci/tools/fetch_ctk_redistrib.py"
+        CTK_JSON_URL="https://developer.download.nvidia.com/compute/cuda/redist/redistrib_${{ inputs.cuda-version }}.json"
+        PYTHON_EXE="$(command -v python || command -v python3)"
+        CTK_CACHE_COMPONENTS="$("$PYTHON_EXE" "$CTK_REDIST_TOOL" filter-components \
+          --host-platform "${{ inputs.host-platform }}" \
+          --cuda-version "${{ inputs.cuda-version }}" \
+          --components "${{ inputs.cuda-components }}" \
+          --metadata-url "$CTK_JSON_URL")"
 
         HASH=$(printf '%s' "${CTK_CACHE_COMPONENTS}" | sha256sum | awk '{print $1}')
         echo "CTK_CACHE_KEY=mini-ctk-${{ inputs.cuda-version }}-${{ inputs.host-platform }}-$HASH" >> "$GITHUB_ENV"
@@ -79,26 +73,12 @@ runs:
         mkdir $CACHE_TMP_DIR
 
         # The binary archives (redist) are guaranteed to be updated as part of the release posting.
+        CTK_REDIST_TOOL="${GITHUB_WORKSPACE}/ci/tools/fetch_ctk_redistrib.py"
         CTK_BASE_URL="https://developer.download.nvidia.com/compute/cuda/redist/"
         CTK_JSON_URL="$CTK_BASE_URL/redistrib_${{ inputs.cuda-version }}.json"
-        if [[ "${{ inputs.host-platform }}" == "linux-64" ]]; then
-          CTK_SUBDIR="linux-x86_64"
-        elif [[ "${{ inputs.host-platform }}" == "linux-aarch64" ]]; then
-          CTK_SUBDIR="linux-sbsa"
-        elif [[ "${{ inputs.host-platform }}" == "win-64" ]]; then
-          CTK_SUBDIR="windows-x86_64"
-        else
-          echo "Unsupported host platform: ${{ inputs.host-platform }}"
-          exit 1
-        fi
-        if command -v python >/dev/null 2>&1; then
-          PYTHON_EXE=python
-        elif command -v python3 >/dev/null 2>&1; then
-          PYTHON_EXE=python3
-        else
-          echo "ERROR: python or python3 is required to parse the CTK redistrib JSON" >&2
-          exit 1
-        fi
+        CTK_JSON_FILE="$CACHE_TMP_DIR/redistrib.json"
+        curl -fsSL "$CTK_JSON_URL" -o "$CTK_JSON_FILE"
+        PYTHON_EXE="$(command -v python || command -v python3)"
         function extract() {
           if [[ "$1" == *.zip ]]; then
             ZIP_TMP="${CACHE_TMP_DIR}/.zip_extract"
@@ -122,11 +102,10 @@ runs:
             curl -LSs $1 -o $2
           }
           CTK_COMPONENT=$1
-          CTK_COMPONENT_REL_PATH="$(
-            curl -fsSL "$CTK_JSON_URL" |
-              "$PYTHON_EXE" -c 'import json, sys; component, subdir = sys.argv[1:3]; data = json.load(sys.stdin); entry = data.get(component, {}).get(subdir, {}).get("relative_path"); sys.exit(f"missing CTK redistrib entry for {component}/{subdir}") if entry is None else print(entry)' \
-                "$CTK_COMPONENT" "$CTK_SUBDIR"
-          )"
+          CTK_COMPONENT_REL_PATH="$("$PYTHON_EXE" "$CTK_REDIST_TOOL" component-relative-path \
+            --host-platform "${{ inputs.host-platform }}" \
+            --component "$CTK_COMPONENT" \
+            --metadata-path "$CTK_JSON_FILE")"
           CTK_COMPONENT_URL="${CTK_BASE_URL}/${CTK_COMPONENT_REL_PATH}"
           CTK_COMPONENT_COMPONENT_FILENAME="$(basename $CTK_COMPONENT_REL_PATH)"
           download $CTK_COMPONENT_URL $CTK_COMPONENT_COMPONENT_FILENAME

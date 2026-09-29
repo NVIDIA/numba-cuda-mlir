@@ -349,6 +349,7 @@ class TestBfloat16HighLevelBindings(NumbaCUDATestCase):
         self.assertAlmostEqual(out[2], 2.0, delta=1e-3)
         self.assertAlmostEqual(out[3], 2.0, delta=1e-3)
 
+    @pytest.mark.xfail(reason="https://github.com/NVIDIA/numba-cuda-mlir/issues/305")
     def test_bfloat16_as_bitcast(self):
         self.skip_unsupported()
 

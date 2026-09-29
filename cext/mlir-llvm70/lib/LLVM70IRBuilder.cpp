@@ -98,6 +98,8 @@ llvm::Error LLVM70IRBuilder::resolveSymbols() {
   // Builder
   RESOLVE(fnCreateBuilder, "LLVMCreateBuilderInContext");
   RESOLVE(fnPositionAtEnd, "LLVMPositionBuilderAtEnd");
+  RESOLVE(fnPositionBefore, "LLVMPositionBuilderBefore");
+  RESOLVE(fnGetTerminator, "LLVMGetBasicBlockTerminator");
   RESOLVE(fnDisposeBuilder, "LLVMDisposeBuilder");
 
   // Constants
@@ -326,6 +328,12 @@ LLVMBasicBlockRef LLVM70IRBuilder::appendBB(LLVMValueRef fn, const char *name) {
 }
 void LLVM70IRBuilder::positionAtEnd(LLVMBasicBlockRef bb) {
   fnPositionAtEnd(builder, bb);
+}
+void LLVM70IRBuilder::positionBefore(LLVMValueRef inst) {
+  fnPositionBefore(builder, inst);
+}
+LLVMValueRef LLVM70IRBuilder::getTerminator(LLVMBasicBlockRef bb) {
+  return fnGetTerminator(bb);
 }
 LLVMBasicBlockRef LLVM70IRBuilder::getInsertBlock() {
   return fnGetInsertBlock(builder);
@@ -699,14 +707,13 @@ LLVM70IRBuilder::createDISubroutineType(LLVMMetadataRef file) {
   return fnDIBuilderCreateSubroutineType(diBuilder, file, nullptr, 0,
                                          LLVMDIFlagZero);
 }
-LLVMMetadataRef LLVM70IRBuilder::createDIFunction(LLVMMetadataRef scope,
-                                                 const char *name,
-                                                 size_t nameLen,
-                                                 LLVMMetadataRef file,
-                                                 unsigned lineNo,
-                                                 LLVMMetadataRef type) {
+LLVMMetadataRef LLVM70IRBuilder::createDIFunction(
+    LLVMMetadataRef scope, const char *name, size_t nameLen,
+    const char *linkageName, size_t linkageNameLen, LLVMMetadataRef file,
+    unsigned lineNo, LLVMMetadataRef type) {
   return fnDIBuilderCreateFunction(
-      diBuilder, scope, name, nameLen, name, nameLen, file, lineNo, type,
+      diBuilder, scope, name, nameLen, linkageName, linkageNameLen, file,
+      lineNo, type,
       /*IsLocalToUnit=*/false, /*IsDefinition=*/true,
       /*ScopeLine=*/lineNo, LLVMDIFlagZero, /*IsOptimized=*/false);
 }

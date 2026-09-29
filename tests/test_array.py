@@ -372,6 +372,77 @@ class TestSliceSetitem:
         np.testing.assert_array_equal(result, [5, 5, 5, 5])
 
 
+class TestNegativeArrayIndices:
+    def test_getitem_1d(self):
+        @cuda.jit
+        def kernel(arr, out, index):
+            out[0] = arr[-1]
+            out[1] = arr[index]
+
+        arr = np.array([10, 20, 30, 40], dtype=np.int64)
+        out = np.zeros(2, dtype=np.int64)
+        kernel[1, 1](arr, out, -2)
+        np.testing.assert_array_equal(out, [40, 30])
+
+    def test_getitem_2d(self):
+        @cuda.jit
+        def column_kernel(arr, out, column):
+            i = cuda.grid(1)
+            if i < arr.shape[0]:
+                out[i, 0] = arr[i, -1]
+                out[i, 1] = arr[i, column]
+
+        @cuda.jit
+        def row_kernel(arr, out, row):
+            out[0] = arr[-1, 0]
+            out[1] = arr[row, 0]
+
+        arr = np.arange(12, dtype=np.int64).reshape(3, 4)
+        column_out = np.zeros((3, 2), dtype=np.int64)
+        column_kernel[1, 32](arr, column_out, -2)
+        np.testing.assert_array_equal(column_out, arr[:, [-1, -2]])
+
+        row_out = np.zeros(2, dtype=np.int64)
+        row_kernel[1, 1](arr, row_out, -2)
+        np.testing.assert_array_equal(row_out, arr[[-1, -2], 0])
+
+    def test_getitem_rank_reducing(self):
+        @cuda.jit
+        def kernel(arr, out, row):
+            literal_row = arr[-1]
+            dynamic_row = arr[row]
+            out[0] = literal_row[0]
+            out[1] = dynamic_row[0]
+
+        arr = np.arange(12, dtype=np.int64).reshape(3, 4)
+        out = np.zeros(2, dtype=np.int64)
+        kernel[1, 1](arr, out, -2)
+        np.testing.assert_array_equal(out, [8, 4])
+
+    def test_setitem_1d_and_2d(self):
+        @cuda.jit
+        def kernel(arr1d, arr2d, index, row, column):
+            arr1d[-1] = 40
+            arr1d[index] = 30
+            arr2d[-1] = 90
+            arr2d[-1, -1] = 120
+            arr2d[row, column] = 70
+
+        arr1d = np.zeros(4, dtype=np.int64)
+        arr2d = np.zeros((3, 4), dtype=np.int64)
+        kernel[1, 1](arr1d, arr2d, -2, -2, -2)
+
+        expected1d = np.zeros(4, dtype=np.int64)
+        expected1d[-1] = 40
+        expected1d[-2] = 30
+        expected2d = np.zeros((3, 4), dtype=np.int64)
+        expected2d[-1] = 90
+        expected2d[-1, -1] = 120
+        expected2d[-2, -2] = 70
+        np.testing.assert_array_equal(arr1d, expected1d)
+        np.testing.assert_array_equal(arr2d, expected2d)
+
+
 if __name__ == "__main__":
     import logging
 

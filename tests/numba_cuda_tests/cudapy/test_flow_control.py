@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 import pytest
+import inspect
 import itertools
+import sys
 
 import unittest
 from numba_cuda_mlir import cuda
@@ -631,6 +633,33 @@ class TestCFGraph(NumbaCUDATestCase):
             ),
         )
 
+    def test_topo_order_deep_graph(self):
+        # Diamond chain longer than the recursion limit.
+        n_diamonds = 2000
+        adj = {}
+        for i in range(n_diamonds):
+            head, body, join = 2 * i, 2 * i + 1, 2 * i + 2
+            adj[head] = [body, join]
+            adj[body] = [join]
+        adj[2 * n_diamonds] = []
+        g = self.from_adj_list(adj)
+        g.set_entry_point(0)
+        g.process()
+
+        current_depth = len(inspect.stack())
+        old_limit = sys.getrecursionlimit()
+        sys.setrecursionlimit(current_depth + 200)
+        try:
+            order = g.topo_order()
+        finally:
+            sys.setrecursionlimit(old_limit)
+
+        self.assertEqual(sorted(order), sorted(adj))
+        position = {node: i for i, node in enumerate(order)}
+        for src, dests in adj.items():
+            for dest in dests:
+                self.assertLess(position[src], position[dest])
+
     def test_topo_sort(self):
         def check_topo_sort(nodes, expected):
             self.assertIn(list(g.topo_sort(nodes)), expected)
@@ -729,6 +758,34 @@ class TestCFGraph(NumbaCUDATestCase):
                 26: [0, 10, 13, 26],
             },
         )
+
+    def test_dominators_deep_graph(self):
+        # Diamond chain: head 2i -> body 2i+1 -> join 2i+2, head 2i -> join 2i+2.
+        n_diamonds = 2000
+        adj = {}
+        for i in range(n_diamonds):
+            head, body, join = 2 * i, 2 * i + 1, 2 * i + 2
+            adj[head] = [body, join]
+            adj[body] = [join]
+        last = 2 * n_diamonds
+        adj[last] = []
+        g = self.from_adj_list(adj)
+        g.set_entry_point(0)
+        g.process()
+
+        spine = set(range(0, last + 1, 2))
+        self.assertEqual(g.backbone(), spine)
+        idoms = g.immediate_dominators()
+        self.assertEqual(idoms[0], 0)
+        for i in range(n_diamonds):
+            self.assertEqual(idoms[2 * i + 1], 2 * i)
+            self.assertEqual(idoms[2 * i + 2], 2 * i)
+        doms = g.dominators()
+        self.assertEqual(doms[last], spine)
+        self.assertEqual(doms[last - 1], (spine - {last}) | {last - 1})
+        pdoms = g.post_dominators()
+        self.assertEqual(pdoms[0], spine)
+        self.assertEqual(pdoms[1], (spine - {0}) | {1})
 
     def test_post_dominators_loopless(self):
         def eq_(d, l):

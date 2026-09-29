@@ -48,11 +48,16 @@ NVVM_ERROR_COMPILATION
 for i, k in enumerate(RESULT_CODE_NAMES):
     setattr(sys.modules[__name__], k, i)
 
-_datalayout = (
-    "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-"
-    "i128:128:128-f32:32:32-f64:64:64-v16:16:16-v32:32:32-"
-    "v64:64:64-v128:128:128-n16:32:64"
-)
+
+def _get_datalayout():
+    """Return the one NVPTX data layout used across the package.
+
+    Imported lazily because lowering_utilities imports back into this package,
+    so a module-level import here is circular.
+    """
+    from numba_cuda_mlir.lowering_utilities.llvm_utils import NVPTX64_DATALAYOUT
+
+    return NVPTX64_DATALAYOUT
 
 
 def is_available():
@@ -173,7 +178,7 @@ class NVVM:
 
     @property
     def data_layout(self):
-        return _datalayout
+        return _get_datalayout()
 
     def get_version(self):
         major = c_int()
@@ -204,7 +209,7 @@ class NVVM:
         """
 
         precheck_nvvm_ir = """target triple = "nvptx64-unknown-cuda"
-        target datalayout = "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-i128:128:128-f32:32:32-f64:64:64-v16:16:16-v32:32:32-v64:64:64-v128:128:128-n16:32:64"
+        target datalayout = "{datalayout}"
 
         define void @dummy_kernel() {{
         entry:
@@ -228,6 +233,7 @@ class NVVM:
 
             # Add the test program to the compilation unit
             precheck_nvvm_ir = precheck_nvvm_ir.format(
+                datalayout=_get_datalayout(),
                 major=self._majorIR,
                 minor=self._minorIR,
                 debug_major=self._majorDbg,

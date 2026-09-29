@@ -10,7 +10,7 @@ Contents in this file are referenced from the sphinx-generated docs.
 "magictoken" is used for markers as beginning and ending of example text.
 """
 
-from numba.cuda.tests.support import captured_stdout
+from numba_cuda_mlir.numba_cuda.tests.support import captured_stdout
 
 
 def test_matmul():
@@ -18,8 +18,8 @@ def test_matmul():
     # Prevent output from this test showing up when running the test suite
     with captured_stdout():
         # magictoken.ex_import.begin
-        from numba import cuda
-        from numba.cuda import float32
+        from numba_cuda_mlir import cuda
+        from numba_cuda_mlir.cuda import float32
         import numpy as np
         import math
         # magictoken.ex_import.end

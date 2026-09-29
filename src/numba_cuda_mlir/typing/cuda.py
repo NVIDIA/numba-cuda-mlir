@@ -441,7 +441,12 @@ class CudaGridTemplate(AbstractTemplate):
         assert not kws
         assert len(args) == 1
         if not isinstance(args[0], types.Literal):
-            raise ForceLiteralArg(arg_indices={0})
+            # Provide a callback to fold the arguments. CUDA grid and gridsize
+            # take one positional argument.
+            def fold_arguments(fold_args, _fold_kws):
+                return tuple(fold_args)
+
+            raise ForceLiteralArg(arg_indices={0}, fold_arguments=fold_arguments)
         if not isinstance(args[0], types.Integer):
             return None
         value = args[0].literal_value

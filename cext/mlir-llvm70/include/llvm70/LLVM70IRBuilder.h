@@ -74,6 +74,8 @@ public:
   // --- Basic blocks ---
   LLVMBasicBlockRef appendBB(LLVMValueRef fn, const char *name);
   void positionAtEnd(LLVMBasicBlockRef bb);
+  void positionBefore(LLVMValueRef inst);
+  LLVMValueRef getTerminator(LLVMBasicBlockRef bb);
   LLVMBasicBlockRef getInsertBlock();
 
   // --- Constants ---
@@ -221,7 +223,8 @@ public:
                                       bool fullDebug = false);
   LLVMMetadataRef createDISubroutineType(LLVMMetadataRef file);
   LLVMMetadataRef createDIFunction(LLVMMetadataRef scope, const char *name,
-                                   size_t nameLen, LLVMMetadataRef file,
+                                   size_t nameLen, const char *linkageName,
+                                   size_t linkageNameLen, LLVMMetadataRef file,
                                    unsigned lineNo, LLVMMetadataRef type);
   void setSubprogram(LLVMValueRef fn, LLVMMetadataRef sp);
   void setDebugLocation(unsigned line, unsigned col, LLVMMetadataRef scope);
@@ -360,6 +363,8 @@ private:
   // Builder
   LLVM_FN(LLVMBuilderRef, fnCreateBuilder, LLVMContextRef)
   LLVM_FN(void, fnPositionAtEnd, LLVMBuilderRef, LLVMBasicBlockRef)
+  LLVM_FN(void, fnPositionBefore, LLVMBuilderRef, LLVMValueRef)
+  LLVM_FN(LLVMValueRef, fnGetTerminator, LLVMBasicBlockRef)
   LLVM_FN(void, fnDisposeBuilder, LLVMBuilderRef)
 
   // Constants

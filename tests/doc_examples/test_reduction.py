@@ -3,8 +3,8 @@
 
 import unittest
 
-from numba.cuda.testing import CUDATestCase
-from numba.cuda.tests.support import captured_stdout
+from numba_cuda_mlir.numba_cuda.testing import CUDATestCase
+from numba_cuda_mlir.numba_cuda.tests.support import captured_stdout
 
 
 class TestReduction(CUDATestCase):
@@ -26,8 +26,8 @@ class TestReduction(CUDATestCase):
     def test_ex_reduction(self):
         # ex_reduction.import.begin
         import numpy as np
-        from numba import cuda
-        from numba.cuda.types import int32
+        from numba_cuda_mlir import cuda
+        from numba_cuda_mlir.cuda.types import int32
         # ex_reduction.import.end
 
         # ex_reduction.allocate.begin

@@ -367,7 +367,6 @@ class TestNrtRefCt:
         assert cur_stats.alloc - init_stats.alloc == 1
         assert cur_stats.free - init_stats.free == 1
 
-    @pytest.mark.xfail(reason="NRT reference counting not implemented yet")
     def test_invalid_computation_of_lifetime(self):
         """Test conditional block lifetime handling (issue #1573)."""
         from numba_cuda_mlir.memory_management import rtsys

@@ -230,7 +230,7 @@ class _NumbaCudaMlirOverloadAttributeTemplate(_OverloadAttributeTemplate):
         fnty = typing_context.resolve_value_type(cls._overload_func)
         return _select_overload_dispatcher(
             getattr(fnty, "templates", []),
-            lambda args: args == (typ,),
+            lambda args, kws: args == (typ,) and not kws,
             targetconfig.ConfigStack.top_or_none(),
         )
 

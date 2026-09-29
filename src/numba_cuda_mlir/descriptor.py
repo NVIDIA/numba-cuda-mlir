@@ -3774,7 +3774,6 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
 
     def disable_compile(self, val=True):
         root = self._context_root
-        assert not val or self.signatures
         with global_compiler_lock, root._context_dispatchers_lock:
             dispatchers = (
                 root,
@@ -3801,6 +3800,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                         )
                         requires_launch |= dispatcher._requires_launch_config
                         literals |= dispatcher._literal_arg_positions
+                assert sigs or launch_sigs
                 # Generic overloads cannot be replayed without launch metadata
                 # once a planner has requested it.
                 root._fixed_signatures = _FixedSignatures(

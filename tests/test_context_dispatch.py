@@ -169,6 +169,48 @@ def test_fixed_signatures_recompile_for_each_device(contexts, compiler_stub):
     assert target.signatures == [(types.float32,)]
 
 
+@pytest.mark.parametrize("launch_specialized", [False, True])
+@pytest.mark.parametrize("expire_context", [False, True])
+def test_disable_compile_after_context_change(
+    contexts, compiler_stub, launch_specialized, expire_context
+):
+    a, b, local = contexts
+    dispatch = make_dispatcher()
+    if launch_specialized:
+        dispatch._requires_launch_config = True
+        key = descriptor._launch_config_key(
+            {"grid": (1, 1, 1), "block": (32, 1, 1), "sharedmem": 0, "cluster": None}
+        )
+        dispatch._compile_launch_config_signature((types.int32,), key)
+    else:
+        dispatch.compile((types.int32,))
+
+    if expire_context:
+        a.extras.clear()
+    else:
+        local.context = b
+    dispatch.disable_compile()
+    assert len(compiler_stub) == 1
+    assert not local.context.extras
+
+    target = dispatch._get_context_dispatcher()
+    assert not target._can_compile
+    assert target._requires_launch_config == launch_specialized
+    assert {cres.signature.args for cres in target._inspectable_overloads().values()} == {
+        (types.int32,),
+    }
+
+
+def test_disable_compile_without_signatures_leaves_compilation_enabled():
+    dispatch = make_dispatcher()
+    with pytest.raises(AssertionError):
+        dispatch.disable_compile()
+    assert dispatch._can_compile
+    assert dispatch._fixed_signatures is None
+    dispatch.disable_compile(False)
+    assert dispatch._can_compile
+
+
 def test_retained_configuration_preserves_per_device_smem(contexts, compiler_stub, monkeypatch):
     a, b, local = contexts
     launches = []
@@ -298,6 +340,7 @@ def test_frozen_signatures_preserve_nonroot_context_state(
     if expire_contexts:
         a.extras.clear()
         b.extras.clear()
+    dispatch.disable_compile()
     local.context = SimpleNamespace(device=b.device, handle=300, extras={})
     target_c = dispatch._get_context_dispatcher()
     assert not target_c._can_compile

@@ -8,6 +8,7 @@ Utilities to simplify the boilerplate for native lowering.
 import collections
 import contextlib
 from enum import Enum
+import functools
 import threading
 
 from numba_cuda_mlir.numba_cuda import typing, cgutils
@@ -167,11 +168,13 @@ def _decorate_getattr(impl, ty, attr):
 
     if attr is not None:
 
+        @functools.wraps(real_impl)
         def res(context, builder, typ, value, attr):
             return real_impl(context, builder, typ, value)
 
     else:
 
+        @functools.wraps(real_impl)
         def res(context, builder, typ, value, attr):
             return real_impl(context, builder, typ, value, attr)
 
@@ -185,11 +188,13 @@ def _decorate_setattr(impl, ty, attr):
 
     if attr is not None:
 
+        @functools.wraps(real_impl)
         def res(context, builder, sig, args, attr):
             return real_impl(context, builder, sig, args)
 
     else:
 
+        @functools.wraps(real_impl)
         def res(context, builder, sig, args, attr):
             return real_impl(context, builder, sig, args, attr)
 

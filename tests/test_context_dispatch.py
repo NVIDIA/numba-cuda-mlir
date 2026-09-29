@@ -4,6 +4,7 @@
 """Device/context partitioning without requiring a CUDA driver."""
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from types import SimpleNamespace
 import threading
 from uuid import uuid4
@@ -409,6 +410,33 @@ def test_nrt_allocator_state_belongs_to_context(contexts):
     assert rtsys._memsys is allocation_a
     local.context = b
     assert rtsys._memsys is None
+
+
+def test_nrt_reset_without_active_context_does_not_create_one(monkeypatch):
+    from numba_cuda_mlir.memory_management import rtsys
+    from numba_cuda_mlir.numba_cuda.cudadrv.driver import driver
+
+    monkeypatch.setattr(driver, "get_active_context", lambda: nullcontext(None))
+    monkeypatch.setattr(
+        devices, "get_context", lambda: pytest.fail("allocator reset acquired a CUDA context")
+    )
+    rtsys._reset()
+
+
+def test_nrt_reset_discards_only_active_context_state(contexts, monkeypatch):
+    from numba_cuda_mlir.memory_management import rtsys
+    from numba_cuda_mlir.numba_cuda.cudadrv.driver import driver
+
+    a, b, local = contexts
+    allocation_a = object()
+    rtsys._memsys = allocation_a
+    local.context = b
+    rtsys._memsys = object()
+    monkeypatch.setattr(driver, "get_active_context", lambda: nullcontext(b))
+    rtsys._reset()
+    assert "numba_cuda_mlir.nrt" not in b.extras
+    local.context = a
+    assert rtsys._memsys is allocation_a
 
 
 def test_explicit_target_launch_compile_does_not_acquire_context(monkeypatch, compiler_stub):

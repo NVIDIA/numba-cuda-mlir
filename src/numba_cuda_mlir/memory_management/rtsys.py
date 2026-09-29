@@ -103,8 +103,12 @@ class _Runtime:
         """Discard allocator state without affecting other contexts."""
         if context is None:
             from numba_cuda_mlir.numba_cuda.cudadrv.devices import get_context
+            from numba_cuda_mlir.numba_cuda.cudadrv.driver import driver
 
-            context = get_context()
+            with driver.get_active_context() as active:
+                if not active:
+                    return
+                context = get_context()
         context.extras.pop("numba_cuda_mlir.nrt", None)
 
     @staticmethod

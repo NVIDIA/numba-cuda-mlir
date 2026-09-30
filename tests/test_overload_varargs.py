@@ -527,3 +527,49 @@ def test_overload_kwonly_without_varargs(explicit):
     a = np.arange(4, dtype=np.float64)
     out = _run(kernel, np.zeros(4), a)
     np.testing.assert_allclose(out, a * (4.0 if explicit else 1.0))
+
+
+def var_pack(*args):
+    pass
+
+
+@overload(var_pack, target="cuda", typing_registry=typing_registry)
+def ol_var_pack(*args):
+    def impl(*args):
+        return args
+
+    return impl
+
+
+def test_overload_varargs_none_leaf_in_returned_bundle():
+    """A ``None`` leaf in a returned bundle has no result slot but keeps its position."""
+
+    @cuda.jit
+    def kernel(out, a, b):
+        i = cuda.grid(1)
+        if i < out.size:
+            t = var_pack(a[i], None, b[i])
+            out[i] = t[0] + t[2]
+
+    a = np.arange(4, dtype=np.float64)
+    out = _run(kernel, np.zeros(4), a, a * 10)
+    np.testing.assert_allclose(out, a + a * 10)
+
+
+@register_jitable(typing_registry=typing_registry)
+def jitable_kwonly(a, b=1.0, *, s=2.0):
+    return a + b * s
+
+
+def test_register_jitable_keyword_arguments():
+    """``register_jitable`` types through a ``**kwargs`` wrapper; keywords still resolve."""
+
+    @cuda.jit
+    def kernel(out, a):
+        i = cuda.grid(1)
+        if i < out.size:
+            out[i] = jitable_kwonly(a[i], s=3.0) + jitable_kwonly(a[i], b=2.0, s=1.0)
+
+    a = np.arange(4, dtype=np.float64)
+    out = _run(kernel, np.zeros(4), a)
+    np.testing.assert_allclose(out, 2 * a + 5)

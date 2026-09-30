@@ -1963,7 +1963,11 @@ extern "C" __global__ void
         if len(callee_type.results) == 0:
             result = ir.NoneType.get()
         elif isinstance(target_type, types.BaseTuple):
-            result = self.from_return(target_type, tuple(call_result))
+            # Rebuild from the type so ``None`` leaves, which the callee returns
+            # no value for, get their placeholder back in place.
+            result = self.from_return(
+                target_type, self._unflatten_abi_value(target_type, iter(call_result))
+            )
         else:
             result = self.from_return(target_type, call_result)
         self.store_var(target, result)
@@ -3152,7 +3156,8 @@ extern "C" __global__ void
                 value = self._materialize_type_token(value_type)
             value = self.as_return(value_type, value)
             if isinstance(value, tuple):
-                return_ctor(list(value))
+                # A ``None`` leaf has no result slot; see ``_flatten_type``.
+                return_ctor(self._flatten_abi_operands(value_type, value))
             else:
                 return_ctor([value])
 
@@ -3670,6 +3675,8 @@ extern "C" __global__ void
         return [value]
 
     def _unflatten_abi_value(self, numba_type, values_iter):
+        if isinstance(numba_type, types.NoneType):
+            return ir.NoneType.get()
         if isinstance(numba_type, types.UniTuple):
             return tuple(
                 self._unflatten_abi_value(numba_type.dtype, values_iter)

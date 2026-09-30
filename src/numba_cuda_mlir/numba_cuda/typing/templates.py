@@ -613,12 +613,19 @@ def _flags_match_reads(flags, reads):
     return all(_read_flag(flags, read) == value for read, value in reads)
 
 
-def _ordered_kw_types(overload_func, kws):
-    """Types of the keyword arguments in the order of *overload_func*'s parameters."""
-    if not kws:
-        return ()
-    order = list(inspect.signature(overload_func).parameters)
-    return tuple(t for _, t in sorted(kws, key=lambda kv: order.index(kv[0])))
+def _ordered_kw_types(impl_func, kws):
+    """Types of the keyword arguments in the order of *impl_func*'s parameters.
+
+    Keywords the signature does not name (``**kwargs``) keep their call order.
+    """
+    try:
+        order = list(inspect.signature(impl_func).parameters)
+    except (TypeError, ValueError):
+        return tuple(t for _, t in kws)
+    return tuple(
+        t
+        for _, t in sorted(kws, key=lambda kv: order.index(kv[0]) if kv[0] in order else len(order))
+    )
 
 
 def _select_overload_dispatcher(templates, args_match, cur_flags):
@@ -639,12 +646,12 @@ def _select_overload_dispatcher(templates, args_match, cur_flags):
                 continue
             _, args, kws, entry_flags = cache_key
             args = tuple(args)
-            # Keyword arguments reach the caller's signature folded in after the
-            # positional ones, in parameter order.
-            if not args_match(args + _ordered_kw_types(overload_func, kws)):
-                continue
             disp, _ = cache_value
             if not hasattr(disp, "py_func"):
+                continue
+            # Keyword arguments reach the caller's signature folded in after the
+            # positional ones, in parameter order.
+            if not args_match(args + _ordered_kw_types(disp.py_func, kws)):
                 continue
             if cur_flags is None or entry_flags == cur_flags:
                 return disp

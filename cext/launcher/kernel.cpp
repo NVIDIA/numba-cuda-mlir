@@ -1568,6 +1568,14 @@ public:
             Py_INCREF(obj);
         return &it->second;
     }
+
+    int traverse(visitproc visit, void* arg) const {
+        for (const auto& e : map_) {
+            for (PyTypeObject* obj : e.first)
+                Py_VISIT(obj);
+        }
+        return 0;
+    }
 };
 
 struct KernelDispatcher {
@@ -1587,6 +1595,19 @@ struct KernelDispatcher {
     // is skipped. Mirrors numba-cuda, which only surfaces kernel exceptions
     // (raise/assert/bounds checks) when the kernel is compiled with debug=True.
     bool debug = false;
+
+    // Report the owned Python references to the cycle collector.
+    int traverse(visitproc visit, void* arg) const {
+        Py_VISIT(compile_func.get());
+        Py_VISIT(ensure_context_func.get());
+        return arg_profiles.traverse(visit, arg);
+    }
+
+    // Release the owned Python references after emptying the fields.
+    void clear() {
+        PyPtr compile = std::move(compile_func);
+        PyPtr ensure_context = std::move(ensure_context_func);
+    }
 };
 
 void get_pyarg_types(PyObject* const* pyargs, Py_ssize_t num_pyargs,
@@ -2354,6 +2375,15 @@ struct LaunchConfiguration {
     std::optional<Grid> cluster;
     std::optional<CUstream> stream;
     int sharedmem;
+
+    int traverse(visitproc visit, void* arg) const {
+        Py_VISIT(dispatcher.get());
+        return 0;
+    }
+
+    void clear() {
+        PyPtr owned = std::move(dispatcher);
+    }
 };
 
 PyObject* LaunchConfiguration_vectorcall(PyObject* self, PyObject *const *args,
@@ -2610,7 +2640,9 @@ Status kernel_init(PyObject* m) {
     KernelDispatcher_type.tp_name = "numba_cuda_mlir._cext.KernelDispatcher";
     KernelDispatcher_type.tp_basicsize = sizeof(PythonWrapper<KernelDispatcher>);
     KernelDispatcher_type.tp_dealloc = pywrapper_dealloc<KernelDispatcher>;
-    KernelDispatcher_type.tp_flags = Py_TPFLAGS_DEFAULT;
+    KernelDispatcher_type.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC;
+    KernelDispatcher_type.tp_traverse = pywrapper_traverse<KernelDispatcher>;
+    KernelDispatcher_type.tp_clear = pywrapper_clear<KernelDispatcher>;
     KernelDispatcher_type.tp_init = KernelDispatcher_init;
     KernelDispatcher_type.tp_new = pywrapper_new<KernelDispatcher>;
 
@@ -2621,7 +2653,10 @@ Status kernel_init(PyObject* m) {
         static_cast<Py_ssize_t>(offsetof(PythonWrapper<LaunchConfiguration>, object)
                                 + offsetof(LaunchConfiguration, vectorcall));
     LaunchConfiguration_type.tp_call = LaunchConfiguration_call;
-    LaunchConfiguration_type.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_VECTORCALL;
+    LaunchConfiguration_type.tp_flags =
+        Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_VECTORCALL | Py_TPFLAGS_HAVE_GC;
+    LaunchConfiguration_type.tp_traverse = pywrapper_traverse<LaunchConfiguration>;
+    LaunchConfiguration_type.tp_clear = pywrapper_clear<LaunchConfiguration>;
     LaunchConfiguration_type.tp_init = LaunchConfiguration_init;
     LaunchConfiguration_type.tp_new = pywrapper_new<LaunchConfiguration>;
 

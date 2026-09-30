@@ -208,20 +208,15 @@ def fold_arguments(pysig, args, kws, normal_handler, default_handler, stararg_ha
         # Normalize dict kws
         kws = dict(kws)
 
-    # Keyword-only parameters are bound like any other: from ``kws`` or their
-    # default. ``args`` holds only the arguments passed positionally.
-    bind_args = args
-    bind_kws = kws.copy()
-
     # now bind
     try:
-        ba = pysig.bind(*bind_args, **bind_kws)
+        ba = pysig.bind(*args, **kws)
     except TypeError as e:
         # The binding attempt can raise if the args don't match up, this needs
         # to be converted to a TypingError so that e.g. partial type inference
         # doesn't just halt.
         msg = (
-            f"Cannot bind 'args={bind_args} kws={bind_kws}' to "
+            f"Cannot bind 'args={args} kws={kws}' to "
             f"signature '{pysig}' due to \"{type(e).__name__}: {e}\"."
         )
         raise TypingError(msg)

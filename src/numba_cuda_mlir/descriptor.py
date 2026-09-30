@@ -1280,17 +1280,6 @@ class MLIRTargetContext(BaseContext):
         def drop_omitted(args):
             return tuple(a for a in args if not isinstance(a, omitted))
 
-        def unfold_stararg(args):
-            """Expand a trailing ``*args`` bundle into the arguments it absorbed.
-
-            A variadic implementation folds the arguments it collects into a
-            single tuple type, so `sig` carries one tuple where the cache key
-            still holds them individually.
-            """
-            if not args or not isinstance(args[-1], types.BaseTuple):
-                return None
-            return args[:-1] + tuple(args[-1].types)
-
         cur_flags = targetconfig.ConfigStack.top_or_none()
 
         def select(forms):
@@ -1307,14 +1296,19 @@ class MLIRTargetContext(BaseContext):
 
             return _select_overload_dispatcher(templates, args_match, cur_flags)
 
-        # Exact keys first. Unfolding a trailing tuple can coincide with the key
+        candidates = [(match_args, literal_args)]
+        if literal_args and isinstance(literal_args[-1], types.BaseTuple):
+            # A variadic implementation folds the arguments it collects into one
+            # tuple type, so `sig` carries a single tuple where the cache key
+            # still holds them individually.  ``types.unliteral`` does not
+            # recurse into a tuple, so the elements are stripped here.
+            unfolded = literal_args[:-1] + tuple(literal_args[-1].types)
+            candidates.append((tuple(types.unliteral(a) for a in unfolded), unfolded))
+
+        # Exact keys first: unfolding a trailing tuple can coincide with the key
         # of a *different* registration's scalar call (``f(a, (x, y))`` against
         # a cached ``f(a, x, y)``), so the unfolded forms are only a fallback.
-        disp = select((match_args, literal_args))
-        if disp is None and (unfolded := unfold_stararg(literal_args)) is not None:
-            # Same literal/unliteral pair as above; ``types.unliteral`` does not
-            # recurse into a tuple, so the elements are only stripped here.
-            disp = select((tuple(types.unliteral(a) for a in unfolded), unfolded))
+        disp = next((d for forms in candidates if (d := select(forms)) is not None), None)
         if disp is None:
             return None
 

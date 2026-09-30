@@ -745,11 +745,6 @@ extern "C" __global__ void
 
                 collect_var_assign_count_from_inst(inst)
 
-    def _tuple_element_types(self, tuple_type):
-        if isinstance(tuple_type, types.UniTuple):
-            return [tuple_type.dtype] * tuple_type.count
-        return list(tuple_type.types)
-
     def _allocate_stack_slot_for_type(self, var_type):
         if isinstance(var_type, types.BaseTuple):
             return tuple(

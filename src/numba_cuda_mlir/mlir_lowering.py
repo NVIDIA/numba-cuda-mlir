@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from numba_cuda_mlir.descriptor import MLIRDispatcherType
+from numba_cuda_mlir.descriptor import MLIRDispatcherType, is_vendored_codegen
 from io import StringIO
 import logging
 import operator
@@ -2065,11 +2065,14 @@ extern "C" __global__ void
             return builder
 
         if isinstance(fn, _Intrinsic):
-            has_arrays = any(isinstance(arg_ty, types.Array) for arg_ty in signature.args)
-            if has_arrays:
-                return None
             tyctx = self.context.typing_context
             full_sig, maybe_builder = fn._defn(tyctx, *signature.args)
+            if is_vendored_codegen(maybe_builder):
+                # Typing rejects these (MLIRTypingContext.check_intrinsic_codegen).
+                raise InternalCompilerError(
+                    f"{fn!r} has no MLIR lowering for {signature}; its vendored "
+                    "codegen cannot run on the MLIR path."
+                )
             if maybe_builder:
                 return maybe_builder
 
@@ -3332,6 +3335,12 @@ extern "C" __global__ void
                     if descriptor is not None:
                         self._emit_dbg_declare(base_name, descriptor, var_attr, volatile=True)
             return
+        # Index-typed, such as memref.dim yields for `arr.shape[k]` and `arr.size`, needs to
+        # cast to the integer width the DI variable was declared with.
+        if isinstance(mlir_value.type, ir.IndexType):
+            if not isinstance(numba_type, types.Integer):
+                return
+            mlir_value = arith.index_cast(out=self.get_mlir_type(numba_type), in_=mlir_value)
         is_arg = base_name in self._di_builder.arg_names
         is_boolean = isinstance(numba_type, types.Boolean)
         if is_arg and not is_boolean:

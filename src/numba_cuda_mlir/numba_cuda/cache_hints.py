@@ -13,10 +13,9 @@ from numba_cuda_mlir.numba_cuda.core.errors import NumbaTypeError
 # inline asm with llvmlite. On the MLIR path the cache-hint operations are
 # lowered by numba_cuda_mlir.lowering.cuda (register_cache_hint_lowerings,
 # @lower against the stub functions below), so these closures are never invoked
-# (a numba_cuda_mlir.numba_cuda intrinsic builder is filtered out, and an array
-# argument is rejected outright by MLIRLower). The @intrinsic typing (the
-# returned signature) and argument validation are retained; the codegen is a
-# tombstone.
+# (typing rejects a numba_cuda_mlir.numba_cuda intrinsic builder without an MLIR
+# lowering). The @intrinsic typing (the returned signature) and argument
+# validation are retained; the codegen is a tombstone.
 
 
 def _dead_codegen(context, builder, sig, args):

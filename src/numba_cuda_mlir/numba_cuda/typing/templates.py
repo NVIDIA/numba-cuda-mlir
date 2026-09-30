@@ -1203,6 +1203,7 @@ class _IntrinsicTemplate(_TemplateTargetHelperMixin, AbstractTemplate):
         if result is None:
             return
         [sig, imp] = result
+        self.context.check_intrinsic_codegen(self.key, sig, imp)
         pysig = utils.pysignature(self._definition_func)
         # omit context argument from user function
         parameters = list(pysig.parameters.values())[1:]

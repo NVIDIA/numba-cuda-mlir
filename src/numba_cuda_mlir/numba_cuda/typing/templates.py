@@ -208,21 +208,10 @@ def fold_arguments(pysig, args, kws, normal_handler, default_handler, stararg_ha
         # Normalize dict kws
         kws = dict(kws)
 
-    # deal with kwonly args
-    params = pysig.parameters
-    kwonly = []
-    for name, p in params.items():
-        if p.kind == p.KEYWORD_ONLY:
-            kwonly.append(name)
-
-    if kwonly:
-        bind_args = args[: -len(kwonly)]
-    else:
-        bind_args = args
+    # Keyword-only parameters are bound like any other: from ``kws`` or their
+    # default. ``args`` holds only the arguments passed positionally.
+    bind_args = args
     bind_kws = kws.copy()
-    if kwonly:
-        for idx, n in enumerate(kwonly):
-            bind_kws[n] = args[len(kwonly) + idx]
 
     # now bind
     try:
@@ -629,6 +618,14 @@ def _flags_match_reads(flags, reads):
     return all(_read_flag(flags, read) == value for read, value in reads)
 
 
+def _ordered_kw_types(overload_func, kws):
+    """Types of the keyword arguments in the order of *overload_func*'s parameters."""
+    if not kws:
+        return ()
+    order = list(inspect.signature(overload_func).parameters)
+    return tuple(t for _, t in sorted(kws, key=lambda kv: order.index(kv[0])))
+
+
 def _select_overload_dispatcher(templates, args_match, cur_flags):
     """Pick the cached overload Dispatcher for *cur_flags* from *templates*.
 
@@ -647,7 +644,9 @@ def _select_overload_dispatcher(templates, args_match, cur_flags):
                 continue
             _, args, kws, entry_flags = cache_key
             args = tuple(args)
-            if not args_match(args):
+            # Keyword arguments reach the caller's signature folded in after the
+            # positional ones, in parameter order.
+            if not args_match(args + _ordered_kw_types(overload_func, kws)):
                 continue
             disp, _ = cache_value
             if not hasattr(disp, "py_func"):

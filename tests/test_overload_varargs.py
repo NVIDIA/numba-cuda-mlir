@@ -446,3 +446,84 @@ def test_register_jitable_varargs():
     out = np.zeros(n, dtype=np.float32)
     _run(kernel, out, a, b)
     np.testing.assert_allclose(out, a + b)
+
+
+def scaled_sum(*args, scale=1.0):
+    pass
+
+
+@overload(scaled_sum, target="cuda", typing_registry=typing_registry)
+def ol_scaled_sum(*args, scale=1.0):
+    def impl(*args, scale=1.0):
+        acc = 0.0
+        for x in args:
+            acc += x
+        return acc * scale
+
+    return impl
+
+
+def kwonly_scale(a, *, k=1.0):
+    pass
+
+
+@overload(kwonly_scale, target="cuda", typing_registry=typing_registry)
+def ol_kwonly_scale(a, *, k=1.0):
+    def impl(a, *, k=1.0):
+        return a * k
+
+    return impl
+
+
+def test_overload_varargs_kwonly_default_omitted():
+    """An omitted keyword-only default must not swallow a variadic argument."""
+
+    @cuda.jit
+    def kernel(out, a, b):
+        i = cuda.grid(1)
+        if i < out.size:
+            out[i] = scaled_sum(a[i], b[i])
+
+    a = np.arange(4, dtype=np.float64)
+    b = a * 10
+    out = _run(kernel, np.zeros(4), a, b)
+    np.testing.assert_allclose(out, a + b)
+
+
+def test_overload_varargs_kwonly_explicit():
+    @cuda.jit
+    def kernel(out, a, b):
+        i = cuda.grid(1)
+        if i < out.size:
+            out[i] = scaled_sum(a[i], b[i], scale=2.0)
+
+    a = np.arange(4, dtype=np.float64)
+    b = a * 10
+    out = _run(kernel, np.zeros(4), a, b)
+    np.testing.assert_allclose(out, 2 * (a + b))
+
+
+def test_overload_varargs_kwonly_mixed_calls_in_one_kernel():
+    @cuda.jit
+    def kernel(out, a, b):
+        i = cuda.grid(1)
+        if i < out.size:
+            out[i] = scaled_sum(a[i]) + scaled_sum(a[i], b[i], scale=3.0)
+
+    a = np.arange(4, dtype=np.float64)
+    b = a * 10
+    out = _run(kernel, np.zeros(4), a, b)
+    np.testing.assert_allclose(out, a + 3 * (a + b))
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_overload_kwonly_without_varargs(explicit):
+    @cuda.jit
+    def kernel(out, a):
+        i = cuda.grid(1)
+        if i < out.size:
+            out[i] = kwonly_scale(a[i], k=4.0) if explicit else kwonly_scale(a[i])
+
+    a = np.arange(4, dtype=np.float64)
+    out = _run(kernel, np.zeros(4), a)
+    np.testing.assert_allclose(out, a * (4.0 if explicit else 1.0))

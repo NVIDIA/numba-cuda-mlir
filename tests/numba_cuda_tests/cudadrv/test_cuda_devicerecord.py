@@ -115,7 +115,10 @@ class TestCudaDeviceRecordWithRecord(TestCudaDeviceRecord):
 
     def setUp(self):
         super().setUp()
-        self._create_data(np.recarray)
+        # np.recarray allocates uninitialized memory, so the zero-reference
+        # assertions in the inherited tests compare against garbage (e.g. a
+        # NaN bit pattern) and flake. Back the record view with zeroed memory.
+        self._create_data(lambda n, dt: np.zeros(n, dt).view(np.recarray))
 
 
 class TestRecordDtypeWithStructArrays(NumbaCUDATestCase):

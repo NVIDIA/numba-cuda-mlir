@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir.cuda.experimental import consteval, current_target_options
 
 
 @pytest.mark.parametrize("use_nrt", [False, True])
@@ -45,6 +46,31 @@ def test_retained_configured_launch_across_devices(use_nrt):
     assert results[0] is results[2]
     assert results[0] is not results[1]
     assert "chip" not in kernel.targetoptions or kernel.targetoptions["chip"] is None
+
+
+def test_frozen_retained_launch_config_across_devices():
+    if len(cuda.gpus) < 2:
+        pytest.skip("requires two CUDA devices")
+
+    class Extension:
+        uses_launch_config = True
+
+        def prepare_args(self, ty, val, stream=None, retr=None):
+            return ty, val
+
+    @cuda.jit(extensions=[Extension()])
+    def write(out):
+        out[0] = consteval(current_target_options()["__launch_config__"]["block"][0])
+
+    configured = write[1, 32]
+    write.extensions.clear()
+    for index in (0, 1, 0):
+        with cuda.gpus[index]:
+            out = cuda.device_array(1, np.int32)
+            configured(out)
+            cuda.synchronize()
+            assert out.copy_to_host()[0] == 32
+            write.disable_compile()
 
 
 @pytest.mark.parametrize("warm_cache", [False, True])

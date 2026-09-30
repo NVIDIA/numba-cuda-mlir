@@ -1859,9 +1859,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         self._requires_launch_config = state.requires_launch_config
         for sig in state.sigs:
             self.compile(sig)
-        if self._launch_config_enabled:
-            for sig, launch_key in state.launch_config_sigs:
-                self._compile_launch_config_signature(sig, launch_key)
+        for (sig, launch_key), extensions in state.launch_config_sigs.items():
+            self._compile_launch_config_signature(sig, launch_key, extensions=extensions)
         self._can_compile = False
 
     @property
@@ -2385,14 +2384,14 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         if not can_compile:
             self._fixed_signatures = _FixedSignatures(
                 tuple(sigs),
-                tuple(launch_config_sigs),
+                dict.fromkeys(launch_config_sigs, tuple(self.extensions)),
                 self._requires_launch_config,
                 self._literal_arg_positions,
             )
         return self
 
     @_on_compilation_target
-    def _compile_launch_config_signature(self, sig, launch_config_key):
+    def _compile_launch_config_signature(self, sig, launch_config_key, *, extensions=None):
         """Rebuild a serialized launch-specialized signature via the dispatch path.
 
         Reduce state stores signatures, not runtime argument values, so override_argtypes
@@ -2419,7 +2418,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 for argtype in argtypes
             )
             _compile_arg_types.launch_config = launch_config
-            _compile_arg_types.extensions = self.extensions
+            _compile_arg_types.extensions = self.extensions if extensions is None else extensions
             _compile_arg_types.force_launch_config = True
             self._compile_impl([None] * len(argtypes))
         finally:
@@ -3781,21 +3780,26 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 *root._compile_dispatchers.values(),
             )
             if val:
-                # Keep only portable types and launch keys after context tokens
-                # expire. Existing partitions keep their own compiled overloads;
-                # future partitions and serialization retain the full frozen set.
+                # Keep portable signatures and their extension snapshots after
+                # context tokens expire. Existing partitions keep their compiled
+                # overloads; future partitions inherit the full frozen set.
                 previous = root._fixed_signatures
                 sigs = dict.fromkeys(previous.sigs if previous is not None else ())
-                launch_sigs = dict.fromkeys(
-                    previous.launch_config_sigs if previous is not None else ()
-                )
+                launch_sigs = dict(previous.launch_config_sigs) if previous is not None else {}
                 requires_launch = previous.requires_launch_config if previous is not None else False
                 literals = previous.literal_arg_positions if previous is not None else frozenset()
                 for dispatcher in dispatchers:
                     sigs.update((cres.signature, None) for cres in dispatcher._overloads.values())
                     with dispatcher._launch_config_lock:
                         launch_sigs.update(
-                            ((cres.signature, key), None)
+                            (
+                                (cres.signature, key),
+                                tuple(
+                                    cres.metadata.get("targetoptions", {}).get(
+                                        "extensions", dispatcher.extensions
+                                    )
+                                ),
+                            )
                             for (_, key), cres in dispatcher._launch_config_overloads.items()
                         )
                         requires_launch |= dispatcher._requires_launch_config
@@ -3805,7 +3809,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 # once a planner has requested it.
                 root._fixed_signatures = _FixedSignatures(
                     () if requires_launch else tuple(sigs),
-                    tuple(launch_sigs),
+                    launch_sigs,
                     requires_launch,
                     literals,
                 )

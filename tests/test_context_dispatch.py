@@ -247,6 +247,56 @@ def test_retained_configuration_preserves_per_device_smem(contexts, compiler_stu
     assert len(compiler_stub) == 4
 
 
+@pytest.mark.parametrize("inspect_before_launch", [False, True])
+def test_retained_frozen_configuration_preserves_removed_extensions(
+    contexts, compiler_stub, monkeypatch, inspect_before_launch
+):
+    a, b, local = contexts
+    launches = []
+
+    class Extension:
+        uses_launch_config = True
+
+        def prepare_args(self, ty, val, stream=None, retr=None):
+            return ty, val
+
+    monkeypatch.setattr(
+        descriptor,
+        "LaunchConfiguration",
+        lambda native, grid, block, stream, sharedmem, cluster: (
+            lambda *args: launches.append((native, sharedmem))
+        ),
+    )
+    extension = Extension()
+    dispatch = make_dispatcher(extensions=[extension])
+    configured = dispatch[1, 32]
+    unknown = dispatch[1, 64]
+    dispatch.extensions.clear()
+    configured(1)
+    dispatch.disable_compile()
+
+    local.context = b
+    if inspect_before_launch:
+        dispatch[1, 32]
+        assert dispatch.signatures
+    configured(1)
+    assert launches[-1][1] == 12 * 128
+    with pytest.raises(TypeError, match="No matching launch-config specialization"):
+        unknown(1)
+    assert dispatch._reduce_states()["launch_config_sigs"] == []
+
+    a.extras.clear()
+    b.extras.clear()
+    dispatch.disable_compile()
+    local.context = a
+    configured(1)
+    assert launches[-1][1] == 9 * 128
+    assert launches[-1][0] is not launches[0][0]
+    assert len(compiler_stub) == 3
+    assert all(tuple(call["targetoptions"]["extensions"]) == (extension,) for call in compiler_stub)
+    assert not dispatch.extensions
+
+
 def test_serialization_keeps_portable_signatures_only(contexts, compiler_stub):
     a, b, local = contexts
     dispatch = make_dispatcher()

@@ -5440,7 +5440,10 @@ def lower_as_layout_array(builder, target, args, kwargs):
     source = builder.load_var(args[0])
     source_type = builder.get_numba_type(args[0].name)
     target_type = builder.get_numba_type(target.name)
-    if source.type.rank > 0 and (source_type.layout == target_type.layout or source.type.rank == 1):
+    if source.type.rank > 0 and (
+        source_type.layout == target_type.layout
+        or (source.type.rank == 1 and source_type.layout in "CF")
+    ):
         builder.store_var(target, source)
         return
 

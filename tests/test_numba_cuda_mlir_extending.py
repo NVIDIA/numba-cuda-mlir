@@ -78,8 +78,16 @@ def test_intrinsic_serialization_preserves_ctor_kwargs_and_prefer_literal():
 
         return value(value), codegen
 
-    rebuilt = serialize.loads(serialize.dumps(identity))
-    rebuilt_lit = serialize.loads(serialize.dumps(lit_identity))
+    from numba_cuda_mlir.extending import _Intrinsic
+
+    payload = serialize.dumps(identity)
+    payload_lit = serialize.dumps(lit_identity)
+    del _Intrinsic._memo[identity._uuid]
+    del _Intrinsic._memo[lit_identity._uuid]
+    rebuilt = serialize.loads(payload)
+    rebuilt_lit = serialize.loads(payload_lit)
+    assert rebuilt is not identity
+    assert rebuilt_lit is not lit_identity
     # The constructor arguments must survive the round-trip: they feed
     # make_intrinsic_template() (prefer_literal and template metadata).
     assert rebuilt._ctor_kwargs == {"target": "cuda"}

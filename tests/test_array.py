@@ -372,6 +372,26 @@ class TestSliceSetitem:
         np.testing.assert_array_equal(result, [5, 5, 5, 5])
 
 
+class TestSetitemDiagnostics:
+    def test_unregistered_setitem_form_raises(self):
+        """An unregistered setitem form must not compile to a silent no-op.
+
+        There is no lowering for an array-valued element assignment, so this
+        kernel cannot be compiled.  Before it raised, the store was dropped and
+        the kernel left the array unmodified.
+        """
+
+        @cuda.jit
+        def kernel(arr2d, row):
+            arr2d[0] = row
+
+        arr2d = cuda.to_device(np.zeros((2, 3), dtype=np.float64))
+        row = cuda.to_device(np.array([1, 2, 3], dtype=np.float64))
+
+        with pytest.raises(NotImplementedError, match="no registered setitem builder"):
+            kernel[1, 1](arr2d, row)
+
+
 class TestNegativeArrayIndices:
     def test_getitem_1d(self):
         @cuda.jit

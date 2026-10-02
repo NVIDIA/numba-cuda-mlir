@@ -55,6 +55,21 @@ def _verify_inline(value: Any, targetoptions: dict[str, Any]) -> str | None:
     return None
 
 
+_DEFAULT_INLINE_MAX_STATEMENTS = 64
+
+
+def _default_inline(expr, caller_ir, callee_ir) -> bool:
+    """Inline small device functions before MLIR lowering.
+
+    Larger functions are left as calls for MLIR's inliner. ``callee_ir`` is a
+    FunctionIR in the untyped pass and an ``_inline_info`` in the typed pass.
+    """
+    func_ir = getattr(callee_ir, "func_ir", callee_ir)
+    return (
+        sum(len(block.body) for block in func_ir.blocks.values()) <= _DEFAULT_INLINE_MAX_STATEMENTS
+    )
+
+
 def _verify_abi(value: Any, targetoptions: dict[str, Any]) -> str | None:
     options = ["c", "numba"]
     if value not in options:
@@ -116,7 +131,7 @@ def _get_schema() -> tuple[MLIRJITOption, ...]:
         MLIRJITOption(
             name="inline",
             types=(str, bool, CallableABC),
-            default_value="always",
+            default_value=_default_inline,
             help="Inline strategy",
             extra_verification=_verify_inline,
         ),

@@ -208,31 +208,15 @@ def fold_arguments(pysig, args, kws, normal_handler, default_handler, stararg_ha
         # Normalize dict kws
         kws = dict(kws)
 
-    # deal with kwonly args
-    params = pysig.parameters
-    kwonly = []
-    for name, p in params.items():
-        if p.kind == p.KEYWORD_ONLY:
-            kwonly.append(name)
-
-    if kwonly:
-        bind_args = args[: -len(kwonly)]
-    else:
-        bind_args = args
-    bind_kws = kws.copy()
-    if kwonly:
-        for idx, n in enumerate(kwonly):
-            bind_kws[n] = args[len(kwonly) + idx]
-
     # now bind
     try:
-        ba = pysig.bind(*bind_args, **bind_kws)
+        ba = pysig.bind(*args, **kws)
     except TypeError as e:
         # The binding attempt can raise if the args don't match up, this needs
         # to be converted to a TypingError so that e.g. partial type inference
         # doesn't just halt.
         msg = (
-            f"Cannot bind 'args={bind_args} kws={bind_kws}' to "
+            f"Cannot bind 'args={args} kws={kws}' to "
             f"signature '{pysig}' due to \"{type(e).__name__}: {e}\"."
         )
         raise TypingError(msg)
@@ -629,6 +613,21 @@ def _flags_match_reads(flags, reads):
     return all(_read_flag(flags, read) == value for read, value in reads)
 
 
+def _ordered_kw_types(impl_func, kws):
+    """Types of the keyword arguments in the order of *impl_func*'s parameters.
+
+    Keywords the signature does not name (``**kwargs``) keep their call order.
+    """
+    try:
+        order = list(inspect.signature(impl_func).parameters)
+    except (TypeError, ValueError):
+        return tuple(t for _, t in kws)
+    return tuple(
+        t
+        for _, t in sorted(kws, key=lambda kv: order.index(kv[0]) if kv[0] in order else len(order))
+    )
+
+
 def _select_overload_dispatcher(templates, args_match, cur_flags):
     """Pick the cached overload Dispatcher for *cur_flags* from *templates*.
 
@@ -647,10 +646,12 @@ def _select_overload_dispatcher(templates, args_match, cur_flags):
                 continue
             _, args, kws, entry_flags = cache_key
             args = tuple(args)
-            if not args_match(args):
-                continue
             disp, _ = cache_value
             if not hasattr(disp, "py_func"):
+                continue
+            # Keyword arguments reach the caller's signature folded in after the
+            # positional ones, in parameter order.
+            if not args_match(args + _ordered_kw_types(disp.py_func, kws)):
                 continue
             if cur_flags is None or entry_flags == cur_flags:
                 return disp

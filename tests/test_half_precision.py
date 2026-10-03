@@ -154,6 +154,31 @@ def test_bf16_integer_assignment_is_numeric(
     assert conversion_op in mlir
 
 
+@pytest.mark.parametrize(
+    "source_type,conversion_op",
+    [
+        (types.int16, "arith.sitofp"),
+        (types.int32, "arith.sitofp"),
+        (types.int64, "arith.sitofp"),
+        (types.uint16, "arith.uitofp"),
+        (types.uint32, "arith.uitofp"),
+        (types.uint64, "arith.uitofp"),
+    ],
+)
+def test_bf16_as_int16_converts_integer_argument_numerically(source_type, conversion_op):
+    # An integer passed to a reinterpret intrinsic is not already a bf16 bit
+    # pattern, so it must be converted numerically to bf16 before its bits are
+    # reinterpreted. Reinterpreting the integer's own bits would make
+    # bfloat16_as_uint16(x) silently disagree with numba-cuda for the same x.
+    @cuda.jit
+    def kernel(out, x):
+        out[0] = bf16.bfloat16_as_uint16(x)
+
+    mlir = compiler.compile_mlir(kernel, types.void(types.uint16[:], source_type))
+    assert conversion_op in mlir
+    assert "arith.bitcast" in mlir
+
+
 def test_bf16_fma():
     @cuda.jit
     def kernel(out, a, b, c):

@@ -838,7 +838,7 @@ def math_atan2_cg(mlir_lower, target, args, kwargs):
 
 @lower(math.hypot, types.Number, types.Number)
 def math_hypot_cg(mlir_lower, target, args, kwargs):
-    """hypot(x, y) = sqrt(x^2 + y^2), computed in float64 for precision"""
+    """hypot(x, y) = sqrt(x^2 + y^2), without overflow or underflow"""
     assert not kwargs, "math_hypot does not accept any keyword arguments"
     assert len(args) == 2, "math_hypot expects 2 arguments"
     x = _load_as_float(mlir_lower, args[0])
@@ -846,20 +846,10 @@ def math_hypot_cg(mlir_lower, target, args, kwargs):
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)
-    # Compute in float64 for better precision (matches numpy behavior)
-    original_type = unified_type
-    if unified_type == T.f32():
-        x = convert(x, T.f64())
-        y = convert(y, T.f64())
-    # hypot(x, y) = sqrt(x^2 + y^2)
-    x_sq = arith.mulf(x, x)
-    y_sq = arith.mulf(y, y)
-    sum_sq = arith.addf(x_sq, y_sq)
-    result = math_dialect.sqrt(sum_sq)
-    # Convert back to original type if needed
-    if original_type == T.f32():
-        result = convert(result, T.f32())
-    mlir_lower.store_var(target, result)
+    # libdevice's hypot is exact; sqrt(x * x + y * y) gives inf for
+    # math.hypot(1e200, 1e200)
+    result = _call_libdevice_binary(mlir_lower, x, y, "__nv_hypot", "__nv_hypotf")
+    mlir_lower.store_var(target, convert(result, unified_type))
 
 
 @lower(math.log1p, types.Number)

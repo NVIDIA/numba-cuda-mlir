@@ -2570,6 +2570,26 @@ def operator_neg_array_lower(builder, target, args, kwargs):
     create_elementwise_op(builder, target, args, kwargs, neg_fn, "operator.neg")
 
 
+@lower(operator.pos, types.Array)
+def operator_pos_array_lower(builder, target, args, kwargs):
+    """Lower operator.pos for arrays: an element-wise copy, as +x returns a new array"""
+
+    def pos_fn(
+        input_element_type,
+        target_element_type,
+        input_mlir_type,
+        target_mlir_type,
+        in_elem,
+    ):
+        return lowering_utilities.convert(
+            in_elem,
+            target_mlir_type,
+            signed=get_conversion_signedness(input_element_type, target_element_type),
+        )
+
+    create_elementwise_op(builder, target, args, kwargs, pos_fn, "operator.pos")
+
+
 @lower(abs, types.Array)
 def abs_array_lower(builder, target, args, kwargs):
     """Lower abs() for arrays"""

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Unary minus on arrays inside a kernel, e.g. y = -x."""
+"""Unary minus and plus on arrays inside a kernel, e.g. y = -x or y = +x."""
 
 import numpy as np
 import pytest
@@ -72,3 +72,30 @@ def test_negate_2d_array_expression():
     out = np.zeros_like(x)
     kernel[1, 1](x, out)
     np.testing.assert_array_equal(out, -x + 1.0)
+
+
+@pytest.mark.parametrize("x", VALUES.values(), ids=VALUES.keys())
+def test_unary_plus_array(x):
+    @cuda.jit
+    def kernel(x, out):
+        y = +x
+        for i in range(out.size):
+            out[i] = y[i]
+
+    out = np.zeros_like(x)
+    kernel[1, 1](x, out)
+    assert_same_values(out, +x)
+
+
+def test_unary_plus_returns_a_copy():
+    @cuda.jit
+    def kernel(x, out):
+        y = +x
+        y[0] = 99.0
+        out[0] = x[0]
+        out[1] = y[0]
+
+    x = np.array([1.0, 2.0])
+    out = np.zeros(2)
+    kernel[1, 1](x, out)
+    np.testing.assert_array_equal(out, [1.0, 99.0])

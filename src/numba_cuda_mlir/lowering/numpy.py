@@ -3928,11 +3928,26 @@ def np_arctan2_array_to_array_cg(builder, target, args, kwargs):
 
 
 def _hypot_fn(x, y):
-    """Compute hypot(x, y) = sqrt(x*x + y*y)"""
-    x_sq = arith.mulf(x, x)
-    y_sq = arith.mulf(y, y)
-    sum_sq = arith.addf(x_sq, y_sq)
-    return math_dialect.sqrt(sum_sq)
+    """Compute hypot(x, y) = sqrt(x*x + y*y) without overflow or underflow.
+
+    It is evaluated as big * sqrt(1 + (small / big)**2), where big and small are
+    the larger and smaller of |x| and |y|; squaring x and y directly gives inf
+    for hypot(1e200, 1e200) and 0 for hypot(3e-200, 4e-200).
+    """
+    a = math_dialect.absf(x)
+    b = math_dialect.absf(y)
+    big = arith.maximumf(a, b)
+    small = arith.minimumf(a, b)
+    zero = float_of(0.0, x.type)
+    ratio = arith.divf(small, big)
+    result = arith.mulf(
+        big, math_dialect.sqrt(arith.addf(float_of(1.0, x.type), arith.mulf(ratio, ratio)))
+    )
+    # hypot(0, 0) is 0 rather than 0 * sqrt(1 + nan), and an infinite argument
+    # gives inf even when the other one is nan
+    result = arith.select(arith.cmpf(arith.CmpFPredicate.OEQ, big, zero), zero, result)
+    is_inf = arith.ori(math_dialect.isinf(x), math_dialect.isinf(y))
+    return arith.select(is_inf, float_of(float("inf"), x.type), result)
 
 
 @lower(np.hypot, types.Float, types.Float)

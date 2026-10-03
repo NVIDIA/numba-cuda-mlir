@@ -751,6 +751,32 @@ def test_hypot():
     np.testing.assert_almost_equal(result.copy_to_host()[0], 5.0, decimal=5)
 
 
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_hypot_without_overflow(dtype):
+    """hypot neither overflows nor underflows when its result is representable"""
+
+    @cuda.jit()
+    def hypot_kernel(np_out, math_out, array_out, x, y):
+        i = cuda.grid(1)
+        if i < x.size:
+            np_out[i] = np.hypot(x[i], y[i])
+            math_out[i] = math.hypot(x[i], y[i])
+        if i == 0:
+            np.hypot(x, y, array_out)
+
+    # The squares of the first pair overflow and those of the second underflow
+    big, small = (1e30, 1e-30) if dtype == np.float32 else (1e200, 1e-200)
+    x = np.array([big, 3 * small, np.inf, 0.0, 3.0], dtype=dtype)
+    y = np.array([big, 4 * small, np.nan, 0.0, 4.0], dtype=dtype)
+    outs = [cuda.to_device(np.zeros_like(x)) for _ in range(3)]
+    hypot_kernel[1, x.size, 0, 0](*outs, cuda.to_device(x), cuda.to_device(y))
+
+    expected = np.hypot(x, y)
+    rtol = 1e-6 if dtype == np.float32 else 1e-12
+    for out in outs:
+        np.testing.assert_allclose(out.copy_to_host(), expected, rtol=rtol)
+
+
 def test_complex_from_different_float_types():
     """Test creating complex128 from float32 inputs (type conversion)."""
 

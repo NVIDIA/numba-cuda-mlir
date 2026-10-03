@@ -346,6 +346,46 @@ def test_unary_operators():
     assert y_result == 3.0
 
 
+@pytest.mark.parametrize("dtype", [np.float32, np.float64, np.complex128])
+def test_negation_signs(dtype):
+    """-x flips the sign of zeros and infinities too, in every component"""
+
+    @cuda.jit()
+    def neg_kernel(out, inp):
+        i = cuda.grid(1)
+        if i < out.shape[0]:
+            out[i] = -inp[i]
+
+    values = [0.0, -0.0, 1.5, -1.5, np.inf, -np.inf]
+    if dtype == np.complex128:
+        values = [complex(re, im) for re in values for im in values]
+    inp = np.array(values, dtype=dtype)
+    out = cuda.to_device(np.empty_like(inp))
+    neg_kernel[1, inp.size, 0, 0](out, cuda.to_device(inp))
+
+    result = out.copy_to_host()
+    expected = -inp
+    np.testing.assert_array_equal(result, expected)
+    np.testing.assert_array_equal(np.signbit(result.real), np.signbit(expected.real))
+    np.testing.assert_array_equal(np.signbit(result.imag), np.signbit(expected.imag))
+
+
+def test_negated_constants():
+    """Negated constants keep the sign of the negation when folded"""
+
+    @cuda.jit()
+    def const_kernel(out):
+        zero = 0.0
+        out[0] = -zero
+        out[1] = -np.nan
+        out[2] = -np.inf
+
+    out = cuda.to_device(np.zeros(3))
+    const_kernel[1, 1, 0, 0](out)
+
+    np.testing.assert_array_equal(np.signbit(out.copy_to_host()), [True, True, True])
+
+
 def test_floor_division():
     """Test floor division operator"""
 

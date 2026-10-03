@@ -1944,9 +1944,8 @@ extern "C" __global__ void
             )
 
         callee_type = get_func_type(callee)
-        call_args = [
-            convert(val, ty) for val, ty in zip(self.load_vars(call_vars), callee_type.inputs)
-        ]
+        operands = self._call_operands_from_vars(call_vars, expected_types=call_argtypes)
+        call_args = [convert(val, ty) for val, ty in zip(operands, callee_type.inputs)]
         call_result = func.call(
             result=callee_type.results,
             callee=callee.name.value,
@@ -2287,7 +2286,7 @@ extern "C" __global__ void
             callee = self.user_defined_functions[fn.name]
             callOp = self.build_user_defined_function_call(target, callee, args, kws)
             self.store_var(target, callOp)
-        elif overload_builder := self.context.get_overload_builder(fn_type, signature):
+        elif overload_builder := self.context.get_overload_builder(fn_type, signature, kws):
             overload_builder(self, target, call_args, kws)
         elif getattr(fn_value, "__numba_cuda_mlir_jitable__", False):
             # Function marked by numba_cuda_mlir's @register_jitable.

@@ -1248,13 +1248,10 @@ def math_fmod_cg(mlir_lower, target, args, kwargs):
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)
-    # fmod(x, y) = x - trunc(x/y) * y
-    # This gives the remainder with the sign of x (truncated toward zero)
-    div = arith.divf(x, y)
-    truncated = math_dialect.trunc(div)
-    mult = arith.mulf(truncated, y)
-    result = arith.subf(x, mult)
-    mlir_lower.store_var(target, result)
+    # libdevice computes the remainder exactly; x - trunc(x / y) * y is off
+    # whenever x / y rounds, and gives nan for an infinite y
+    result = _call_libdevice_binary(mlir_lower, x, y, "__nv_fmod", "__nv_fmodf")
+    mlir_lower.store_var(target, convert(result, unified_type))
 
 
 @lower(math.remainder, types.Number, types.Number)
@@ -1267,12 +1264,10 @@ def math_remainder_cg(mlir_lower, target, args, kwargs):
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)
-    # IEEE remainder: x - round(x/y) * y (round to nearest even)
-    div = arith.divf(x, y)
-    rounded = math_dialect.roundeven(div)
-    mult = arith.mulf(rounded, y)
-    result = arith.subf(x, mult)
-    mlir_lower.store_var(target, result)
+    # libdevice computes the IEEE remainder exactly; x - roundeven(x / y) * y
+    # is off whenever x / y rounds, and gives nan for an infinite y
+    result = _call_libdevice_binary(mlir_lower, x, y, "__nv_remainder", "__nv_remainderf")
+    mlir_lower.store_var(target, convert(result, unified_type))
 
 
 @lower(math.pow, types.Number, types.Number)

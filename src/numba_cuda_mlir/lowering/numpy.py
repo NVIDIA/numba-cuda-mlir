@@ -23,6 +23,7 @@ from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.type_defs.vector_types import VectorType
+from numba_cuda_mlir.numba_cuda.np import numpy_support
 from numba_cuda_mlir.numba_cuda.np.npyimpl import _make_dtype_object
 
 registry = LoweringRegistry()
@@ -3980,12 +3981,31 @@ def _is_complex_type(mlir_type):
     return isinstance(mlir_type, ir.ComplexType)
 
 
-def _create_comparison_fn(int_pred, float_pred, complex_fn=None):
-    """Create a comparison function for int, float, and complex types."""
+# The unsigned forms of the signed ordering predicates
+_UNSIGNED_CMPI_PREDICATES = {
+    arith.CmpIPredicate.sgt: arith.CmpIPredicate.ugt,
+    arith.CmpIPredicate.sge: arith.CmpIPredicate.uge,
+    arith.CmpIPredicate.slt: arith.CmpIPredicate.ult,
+    arith.CmpIPredicate.sle: arith.CmpIPredicate.ule,
+}
 
-    def cmp_fn(a, b):
+
+def _cmpi(predicate, a, b, signed):
+    """arith.cmpi with a signed predicate, comparing as unsigned if not signed."""
+    if not signed:
+        predicate = _UNSIGNED_CMPI_PREDICATES.get(predicate, predicate)
+    return arith.cmpi(predicate, a, b)
+
+
+def _create_comparison_fn(int_pred, float_pred, complex_fn=None):
+    """Create a comparison function for int, float, and complex types.
+
+    Integers compare as signed unless the function is called with signed=False.
+    """
+
+    def cmp_fn(a, b, signed=True):
         if isinstance(a.type, ir.IntegerType):
-            return arith.cmpi(int_pred, a, b)
+            return _cmpi(int_pred, a, b, signed)
         elif _is_complex_type(a.type):
             if complex_fn is not None:
                 return complex_fn(a, b)
@@ -4295,9 +4315,9 @@ def np_logical_not_array_to_array_cg(builder, target, args, kwargs):
 # Min/max ufuncs
 
 
-def _maximum_fn(a, b):
+def _maximum_fn(a, b, signed=True):
     if isinstance(a.type, ir.IntegerType):
-        cmp = arith.cmpi(arith.CmpIPredicate.sgt, a, b)
+        cmp = _cmpi(arith.CmpIPredicate.sgt, a, b, signed)
     elif _is_complex_type(a.type):
         cmp = _complex_greater(a, b)
     else:
@@ -4305,9 +4325,9 @@ def _maximum_fn(a, b):
     return arith.select(cmp, a, b)
 
 
-def _minimum_fn(a, b):
+def _minimum_fn(a, b, signed=True):
     if isinstance(a.type, ir.IntegerType):
-        cmp = arith.cmpi(arith.CmpIPredicate.slt, a, b)
+        cmp = _cmpi(arith.CmpIPredicate.slt, a, b, signed)
     elif _is_complex_type(a.type):
         cmp = _complex_less(a, b)
     else:
@@ -4315,11 +4335,11 @@ def _minimum_fn(a, b):
     return arith.select(cmp, a, b)
 
 
-def _fmax_fn(a, b):
+def _fmax_fn(a, b, signed=True):
     """fmax ignores NaN: if one is NaN, return the other"""
     if isinstance(a.type, ir.IntegerType):
         # For integers, same as maximum
-        cmp = arith.cmpi(arith.CmpIPredicate.sgt, a, b)
+        cmp = _cmpi(arith.CmpIPredicate.sgt, a, b, signed)
         return arith.select(cmp, a, b)
     elif _is_complex_type(a.type):
         # For complex, compare like maximum
@@ -4329,11 +4349,11 @@ def _fmax_fn(a, b):
         return arith.maximumf(a, b)
 
 
-def _fmin_fn(a, b):
+def _fmin_fn(a, b, signed=True):
     """fmin ignores NaN: if one is NaN, return the other"""
     if isinstance(a.type, ir.IntegerType):
         # For integers, same as minimum
-        cmp = arith.cmpi(arith.CmpIPredicate.slt, a, b)
+        cmp = _cmpi(arith.CmpIPredicate.slt, a, b, signed)
         return arith.select(cmp, a, b)
     elif _is_complex_type(a.type):
         # For complex, compare like minimum
@@ -4688,8 +4708,47 @@ def _binary_scalar_ufunc(math_fn):
     return lowering
 
 
+def _min_max_scalar_ufunc(min_max_fn):
+    """Min/max ufunc on scalars, compared in the result type and its signedness."""
+
+    def lowering(builder, target, args, kwargs):
+        assert len(args) == 2 and len(kwargs) == 0
+        value_type = builder.get_mlir_type(target)
+        a, b = (_load_scalar_as(builder, arg, value_type) for arg in args)
+        result_type = builder.get_numba_type(target.name)
+        signed = not isinstance(result_type, types.Integer) or result_type.signed
+        builder.store_var(target, min_max_fn(a, b, signed=signed))
+
+    return lowering
+
+
+def _comparison_scalar_ufunc(cmp_fn):
+    """Comparison ufunc on scalars, evaluated in the type NumPy compares them in."""
+
+    def lowering(builder, target, args, kwargs):
+        assert len(args) == 2 and len(kwargs) == 0
+        a_type, b_type = (builder.get_numba_type(arg.name) for arg in args)
+        common = np.promote_types(numpy_support.as_dtype(a_type), numpy_support.as_dtype(b_type))
+        if (
+            common.kind == "f"
+            and isinstance(a_type, types.Integer)
+            and isinstance(b_type, types.Integer)
+        ):
+            # A signed integer and a uint64, which NumPy compares exactly rather
+            # than as floats: 128 bits hold both
+            value_type, signed = ir.IntegerType.get_signless(128), True
+        else:
+            value_type = builder.get_value_type(numpy_support.from_dtype(common))
+            signed = common.kind != "u"
+        a, b = (_load_scalar_as(builder, arg, value_type) for arg in args)
+        result = _bool_to_value_type(cmp_fn(a, b, signed=signed), builder.get_mlir_type(target))
+        builder.store_var(target, result)
+
+    return lowering
+
+
 def _predicate_scalar_ufunc(predicate_fn):
-    """Comparison or logical ufunc on scalars, evaluated in their common type."""
+    """Logical ufunc on scalars, evaluated in their common type."""
 
     def lowering(builder, target, args, kwargs):
         assert len(args) == 2 and len(kwargs) == 0
@@ -4731,7 +4790,7 @@ for _ufunc, _fn in (
     (np.fmax, _fmax_fn),
     (np.fmin, _fmin_fn),
 ):
-    lower(_ufunc, types.Number, types.Number)(_binary_scalar_ufunc(_fn))
+    lower(_ufunc, types.Number, types.Number)(_min_max_scalar_ufunc(_fn))
 for _ufunc, _fn in (
     (np.bitwise_and, arith.andi),
     (np.bitwise_or, arith.ori),
@@ -4753,6 +4812,9 @@ for _ufunc, _fn in (
     (np.less_equal, _less_equal_fn),
     (np.equal, _equal_fn),
     (np.not_equal, _not_equal_fn),
+):
+    lower(_ufunc, types.Number, types.Number)(_comparison_scalar_ufunc(_fn))
+for _ufunc, _fn in (
     (np.logical_and, _logical_and_fn),
     (np.logical_or, _logical_or_fn),
     (np.logical_xor, _logical_xor_fn),

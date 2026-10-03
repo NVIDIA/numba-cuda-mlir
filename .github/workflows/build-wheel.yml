@@ -33,6 +33,8 @@ jobs:
           - "3.13"
           - "3.14"
           - "3.14t"
+          - "3.15"
+          - "3.15t"
     name: py${{ matrix.python-version }}
     runs-on: ${{ (inputs.host-platform == 'linux-64' && 'linux-amd64-cpu8') ||
                  (inputs.host-platform == 'linux-aarch64' && 'linux-arm64-cpu8') ||
@@ -114,7 +116,11 @@ jobs:
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756  # v1
 
       - name: Build numba-cuda-mlir wheel
-        uses: pypa/cibuildwheel@294735312765b09d24a2fbec22660ce817587d55  # v4.1.0
+        # Bumped for cp315: v4.1.0 hides 3.15 behind `enable = cpython-prerelease`
+        # and only carries 3.15.0b2 for Windows. v4.2.0+ builds 3.15 by default
+        # against an rc that upstream guarantees is ABI-compatible with the final
+        # release, so no prerelease opt-in is needed here.
+        uses: pypa/cibuildwheel@e090b81e30c4d855ea63bf4b6e59204c09a101ae  # v4.2.1
         with:
           package-dir: .
           output-dir: dist

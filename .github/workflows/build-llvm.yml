@@ -30,6 +30,8 @@ jobs:
           - { python-dir: cp313-cp313, py-tag: cp313 }
           - { python-dir: cp314-cp314, py-tag: cp314 }
           - { python-dir: cp314-cp314t, py-tag: cp314t }
+          - { python-dir: cp315-cp315, py-tag: cp315 }
+          - { python-dir: cp315-cp315t, py-tag: cp315t }
     runs-on: ${{ (inputs.host-platform == 'linux-64' && 'linux-amd64-cpu8') ||
                  (inputs.host-platform == 'linux-aarch64' && 'linux-arm64-cpu8') }}
     timeout-minutes: 180
@@ -122,6 +124,8 @@ jobs:
           - { name: "LLVM Modern Windows (cp313)", mode: modern, python-version: "3.13",  py-tag: cp313,  install-dir: llvm-modern-install, container-name: llvm-modern-cp313 }
           - { name: "LLVM Modern Windows (cp314)", mode: modern, python-version: "3.14",  py-tag: cp314,  install-dir: llvm-modern-install, container-name: llvm-modern-cp314 }
           - { name: "LLVM Modern Windows (cp314t)", mode: modern, python-version: "3.14t", py-tag: cp314t, install-dir: llvm-modern-install, container-name: llvm-modern-cp314t }
+          - { name: "LLVM Modern Windows (cp315)", mode: modern, python-version: "3.15",  py-tag: cp315,  install-dir: llvm-modern-install, container-name: llvm-modern-cp315 }
+          - { name: "LLVM Modern Windows (cp315t)", mode: modern, python-version: "3.15t", py-tag: cp315t, install-dir: llvm-modern-install, container-name: llvm-modern-cp315t }
           - { name: "LLVM 7 Windows", mode: llvm7, python-version: "3.12", install-dir: llvm7-install, container-name: llvm7-build }
     runs-on: windows-amd64-cpu16
     timeout-minutes: 120

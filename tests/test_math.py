@@ -986,6 +986,41 @@ def test_remainder():
     np.testing.assert_almost_equal(result.copy_to_host()[0], 1.0, decimal=5)
 
 
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize(
+    "x, y",
+    [
+        (1e17, 3.0),
+        (5.0, np.inf),
+        (-5.0, np.inf),
+        (-0.0, 1.0),
+        (-7.5, 2.0),
+        (7.0, -2.0),
+        (5.0, 2.0),
+        (1.0, 0.1),
+        (1e30, 1e-30),
+    ],
+)
+def test_fmod_remainder_exact(dtype, x, y):
+    """fmod and remainder are exact, even where x / y rounds"""
+
+    @cuda.jit()
+    def fmod_remainder_kernel(out, x, y):
+        out[0] = math.fmod(x[0], y[0])
+        out[1] = math.remainder(x[0], y[0])
+
+    xs, ys = np.array([x], dtype=dtype), np.array([y], dtype=dtype)
+    out = cuda.to_device(np.zeros(2, dtype=dtype))
+    fmod_remainder_kernel[1, 1, 0, 0](out, cuda.to_device(xs), cuda.to_device(ys))
+
+    # Both results are exact, so they are representable in dtype
+    xf, yf = float(xs[0]), float(ys[0])
+    expected = np.array([math.fmod(xf, yf), math.remainder(xf, yf)], dtype=dtype)
+    result = out.copy_to_host()
+    np.testing.assert_array_equal(result, expected)
+    np.testing.assert_array_equal(np.signbit(result), np.signbit(expected))
+
+
 def test_pow():
     """Test pow function"""
 

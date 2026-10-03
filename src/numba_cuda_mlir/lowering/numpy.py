@@ -2540,35 +2540,54 @@ def operator_itruediv_array_lower(builder, target, args, kwargs):
     lower_np_binop(builder, target, target_type, args, linalg.div)
 
 
+def _negate(value):
+    """-value. Floats flip their sign bit: 0.0 - x would give +0.0 for x = 0.0."""
+    if isinstance(value.type, ir.IntegerType):
+        return arith.subi(arith.constant(result=value.type, value=0), value)
+    if isinstance(value.type, ir.ComplexType):
+        return complex_dialect.neg(value)
+    return arith.negf(value)
+
+
 @lower(operator.neg, types.Array)
 def operator_neg_array_lower(builder, target, args, kwargs):
-    """Lower operator.neg for arrays by using linalg.sub(0.0, array)"""
-    assert len(args) == 1, "operator.neg expects 1 argument"
+    """Lower operator.neg for arrays element-wise"""
 
-    # Get the array argument
-    array_arg = args[0]
-    array_type = builder.get_numba_type(array_arg.name)
-    target_type = builder.get_numba_type(target.name)
+    def neg_fn(
+        input_element_type,
+        target_element_type,
+        input_mlir_type,
+        target_mlir_type,
+        in_elem,
+    ):
+        value = lowering_utilities.convert(
+            in_elem,
+            target_mlir_type,
+            signed=get_conversion_signedness(input_element_type, target_element_type),
+        )
+        return _negate(value)
 
-    # Create a scalar 0.0 value
-    from numba_cuda_mlir.mlir.dialect_exts import arith
+    create_elementwise_op(builder, target, args, kwargs, neg_fn, "operator.neg")
 
-    element_type = builder.get_value_type(array_type.dtype)
-    zero_scalar = arith.constant(
-        result=element_type, value=_zero_literal_for_numba_type(array_type.dtype)
-    )
 
-    # Store the zero scalar in a temporary variable for lower_np_binop
-    import numba_cuda_mlir.numba_cuda.core.ir as numba_ir
+@lower(operator.pos, types.Array)
+def operator_pos_array_lower(builder, target, args, kwargs):
+    """Lower operator.pos for arrays: an element-wise copy, as +x returns a new array"""
 
-    zero_var = numba_ir.Var(
-        scope=array_arg.scope, name=f"$const_zero_{array_arg.name}", loc=array_arg.loc
-    )
-    builder.store_var(zero_var, zero_scalar)
-    builder.typemap[zero_var.name] = array_type.dtype
+    def pos_fn(
+        input_element_type,
+        target_element_type,
+        input_mlir_type,
+        target_mlir_type,
+        in_elem,
+    ):
+        return lowering_utilities.convert(
+            in_elem,
+            target_mlir_type,
+            signed=get_conversion_signedness(input_element_type, target_element_type),
+        )
 
-    # Call lower_np_binop with 0.0 - array
-    lower_np_binop(builder, target, target_type, [zero_var, array_arg], linalg.sub)
+    create_elementwise_op(builder, target, args, kwargs, pos_fn, "operator.pos")
 
 
 @lower(abs, types.Array)

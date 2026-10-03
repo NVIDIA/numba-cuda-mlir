@@ -311,6 +311,7 @@ def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
     from numba_cuda_mlir.tools import resolve_gpu_target
 
     register_lowering()
+    targetoptions = targetoptions.copy()
     launch_config_tracker = targetoptions.pop(_LAUNCH_CONFIG_TRACKER_OPTION, None)
     gpu_target = resolve_gpu_target(targetoptions)
     targetoptions["chip"] = gpu_target["chip"]

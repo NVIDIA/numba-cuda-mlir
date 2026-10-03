@@ -92,13 +92,24 @@ class _CompileResult:
 
 
 @pytest.fixture(autouse=True)
-def restore_compile_arg_types():
-    # The launch metadata thread-local is only mutated from the test thread in
-    # this file, so restoring the current thread's local dict is sufficient.
-    state = descriptor_mod._compile_arg_types.__dict__.copy()
-    yield
-    descriptor_mod._compile_arg_types.__dict__.clear()
-    descriptor_mod._compile_arg_types.__dict__.update(state)
+def restore_compile_arg_types(monkeypatch):
+    from numba_cuda_mlir._context_cache import _ContextToken
+    from numba_cuda_mlir import tools
+
+    with monkeypatch.context() as target_patch:
+        token = _ContextToken()
+        target_patch.setattr(descriptor_mod, "current_context_token", lambda: token)
+        target_patch.setattr(
+            tools,
+            "get_gpu_compute_capability",
+            lambda as_type=str: (9, 0) if as_type is tuple else "sm_90",
+        )
+        # The launch metadata thread-local is only mutated from the test thread in
+        # this file, so restoring the current thread's local dict is sufficient.
+        state = descriptor_mod._compile_arg_types.__dict__.copy()
+        yield target_patch
+        descriptor_mod._compile_arg_types.__dict__.clear()
+        descriptor_mod._compile_arg_types.__dict__.update(state)
 
 
 def test_target_initialization_waits_for_concurrent_initialization():
@@ -3133,7 +3144,10 @@ def test_disabled_launch_config_reduce_skips_launch_sigs_after_extension_removed
 
 
 @pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
-def test_launch_config_specializes_same_signature_launches():
+def test_launch_config_specializes_same_signature_launches(restore_compile_arg_types):
+    # This runtime test needs the actual GPU architecture and context.
+    restore_compile_arg_types.undo()
+
     @cuda.jit(extensions=[_LaunchConfigExtension()])
     def kernel(out):
         out[0] = consteval(current_target_options()["__launch_config__"]["block"][0])

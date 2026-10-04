@@ -1,5 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+import operator
+
 import numpy as np
 import pytest
 from numba_cuda_mlir import cuda
@@ -58,6 +60,41 @@ def test_boolean_ordering_comparisons():
         a, b = bool(lhs), bool(rhs)
         expected = [int(a < b), int(a <= b), int(a > b), int(a >= b)]
         np.testing.assert_array_equal(out.copy_to_host(), expected)
+
+
+@pytest.mark.parametrize(
+    "dtype, value_set",
+    [(np.int32, (-1, 0, 1, 2)), (np.uint32, (0, 1, 2)), (np.float64, (-1, 0, 1, 2, np.nan))],
+)
+def test_mixed_boolean_number_comparisons(dtype, value_set):
+    @cuda.jit
+    def k(flags, values, out):
+        i = cuda.grid(1)
+        if i < values.size:
+            a = flags[i] > 0
+            b = values[i]
+            out[i, 0] = a == b
+            out[i, 1] = a != b
+            out[i, 2] = a < b
+            out[i, 3] = a <= b
+            out[i, 4] = a > b
+            out[i, 5] = a >= b
+            out[i, 6] = b == a
+            out[i, 7] = b != a
+            out[i, 8] = b < a
+            out[i, 9] = b <= a
+            out[i, 10] = b > a
+            out[i, 11] = b >= a
+
+    pairs = [(f, v) for f in (0, 1) for v in value_set]
+    flags = np.array([f for f, _ in pairs], dtype=np.int32)
+    values = np.array([v for _, v in pairs], dtype=dtype)
+    out = cuda.to_device(np.zeros((len(pairs), 12), dtype=np.bool_))
+    k[1, len(pairs)](cuda.to_device(flags), cuda.to_device(values), out)
+
+    ops = [operator.eq, operator.ne, operator.lt, operator.le, operator.gt, operator.ge]
+    expected = [[op(bool(f), v) for op in ops] + [op(v, bool(f)) for op in ops] for f, v in pairs]
+    np.testing.assert_array_equal(out.copy_to_host(), expected)
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])

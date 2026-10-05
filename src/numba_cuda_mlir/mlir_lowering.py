@@ -2995,6 +2995,9 @@ extern "C" __global__ void
                 self.store_var(tmp_var, inner)
                 builder(self, None, [target, index, tmp_var], [])
                 return
+        raise NotImplementedError(
+            f"lowering setitem {setitem_inst} with types {arg_types}: no registered setitem builder"
+        )
 
     def lower_branch(self, branch_inst):
         """

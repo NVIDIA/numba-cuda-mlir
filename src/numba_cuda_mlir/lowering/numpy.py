@@ -50,6 +50,7 @@ from numba_cuda_mlir.lowering_utilities import (
     set_error_code_if_zero,
     try_extract_constant,
     NdIterIterObject,
+    FlatIterObject,
     is_nonelike,
     get_conversion_signedness,
     storage_itemsize_bytes,
@@ -5080,6 +5081,13 @@ def numpy_dtype(dtype, align=False, copy=False):
         return imp
     else:
         raise errors.NumbaTypeError("unknown dtype descriptor: {}".format(dtype))
+
+
+@lower_getattr(types.Array, "flat")
+def make_array_flatiter(context, builder, target, array):
+    array_type = builder.get_numba_type(array.name)
+    iterator = FlatIterObject(builder, [builder.load_var(array)], array_type.ndim)
+    builder.store_var(target, iterator)
 
 
 @lower(np.nditer, types.Any)

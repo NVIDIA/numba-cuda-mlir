@@ -712,6 +712,15 @@ struct PythonArgProfile {
     )
 
 
+// First character of the type code in a DLPack/CAI typestr ("|V16" -> 'V').
+char str_first_char(PyObject* typestr) {
+    Py_ssize_t len;
+    const char* str = PyUnicode_AsUTF8AndSize(typestr, &len);
+    if (!str || len < 2) return '\0';
+    return str[1];
+}
+
+
 Result<DLDataType> parse_typestr(PyObject* typestr) {
     if (!PyUnicode_Check(typestr)) {
         PyErr_SetString(PyExc_TypeError, "__cuda_array_interface__['typestr'] is not a string");
@@ -945,13 +954,31 @@ Status extract_cuda_array(PyObject* pyobj, LaunchHelper& helper) {
         if(!compute_compact_row_major_strides(shapes, strides_vec))
             return ErrorRaised;
     } else if (PyTuple_Check(strides)) {
-        // Opaque types (V/S/U) use memref<?xi8> so strides stay in bytes
-        bool is_opaque_type = (dtype->code == kDLOpaqueHandle);
-        uint8_t dtype_bytewidth = is_opaque_type ? 1 : (dtype->bits / BYTE_BITWIDTH);
+        // Strides in __cuda_array_interface__ are in bytes. The memref
+        // descriptor expects record-unit strides for Record ('V') arrays,
+        // which use vector<N x i8> elements (N = record size in bytes).
+        char type_kind = str_first_char(typestr);
+        bool divides_strides = (type_kind == 'V');
+        uint32_t element_size = 0;
+        if (divides_strides) {
+            element_size = (static_cast<uint32_t>(dtype->lanes) << 8) | dtype->bits;
+        }
         for (Py_ssize_t i = 0; i < ndim; ++i) {
             int64_t stride_bytes = pylong_as<int64_t>(PyTuple_GET_ITEM(strides, i));
             if (PyErr_Occurred()) return ErrorRaised;
-            strides_vec.push_back(stride_bytes / dtype_bytewidth);
+            if (divides_strides) {
+                if (stride_bytes % element_size != 0) {
+                    return raise(PyExc_ValueError,
+                                 "Array stride (%ld bytes) is not a multiple of "
+                                 "the element size (%u bytes)",
+                                 static_cast<long>(stride_bytes), element_size);
+                }
+                strides_vec.push_back(stride_bytes / element_size);
+            } else {
+                bool is_opaque_type = (dtype->code == kDLOpaqueHandle);
+                uint8_t dtype_bytewidth = is_opaque_type ? 1 : (dtype->bits / BYTE_BITWIDTH);
+                strides_vec.push_back(stride_bytes / dtype_bytewidth);
+            }
         }
     } else {
         return raise(PyExc_TypeError, "__cuda_array_interface['strides'] can only be"

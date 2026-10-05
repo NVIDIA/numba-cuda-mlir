@@ -23,7 +23,10 @@ from numba_cuda_mlir.numba_cuda.datamodel.registry import DataModelManager, regi
 from numba_cuda_mlir.numba_cuda.types import misc as nb_types_misc
 from numba_cuda_mlir.numba_cuda.types.ext_types import GridGroup as GridGroupClass
 from numba_cuda_mlir.type_defs import float_types
-from numba_cuda_mlir.lowering_utilities.type_conversions import to_mlir_type
+from numba_cuda_mlir.lowering_utilities.type_conversions import (
+    record_array_element_mlir_type,
+    to_mlir_type,
+)
 from numba_cuda_mlir.numba_cuda.types.containers import (
     NamedTuple,
     NamedUniTuple,
@@ -505,9 +508,8 @@ class ArrayModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
         from numba_cuda_mlir.types import Record
 
-        # For Record, CharSeq, and UnicodeCharSeq arrays, use byte-based
-        # memref (memref<?xi8>).  Elements are accessed via byte offset
-        # pointer arithmetic.
+        # Record elements carry their exact byte size. Character arrays
+        # retain their byte-based memrefs.
         if isinstance(fe_type.dtype, (Record, types.CharSeq, types.UnicodeCharSeq)):
             shape = [ShapedType.get_dynamic_size() for _ in range(fe_type.ndim)]
 
@@ -516,7 +518,10 @@ class ArrayModel(PrimitiveModel):
                 offset=dyn_stride,
                 strides=[dyn_stride] * fe_type.ndim,
             )
-            be_type = MemRefType.get(shape, IntegerType.get_signless(8), layout=layout)
+            element_type = IntegerType.get_signless(8)
+            if isinstance(fe_type.dtype, Record):
+                element_type = record_array_element_mlir_type(fe_type.dtype)
+            be_type = MemRefType.get(shape, element_type, layout=layout)
             super().__init__(dmm, fe_type, be_type)
             return
 

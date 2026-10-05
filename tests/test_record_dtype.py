@@ -411,3 +411,245 @@ class TestRecordArrayCompilationErrors:
         kernel.specialize(*sig)
         ptx = kernel.inspect_asm(signature=sig)
         assert ptx is not None
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="CUDA not available")
+class TestRecordArrayViews:
+    """Record array views created inside kernels index the correct records.
+
+    Regression tests for issue #324: views of record arrays were indexed
+    incorrectly (getitem read the wrong record, setitem overwrote the wrong
+    record, ``.ctypes.data`` reported the wrong address).
+    """
+
+    def test_strided_view_getitem(self):
+        @cuda.jit
+        def kernel(ary, out):
+            view = ary[1::2]
+            i = cuda.grid(1)
+            out[i] = view[i].b
+
+        host = np.zeros(8, dtype=recordtype)
+        host["b"] = np.arange(8)
+        out = cuda.device_array(4, np.int32)
+        kernel[1, 4](cuda.to_device(host), out)
+        np.testing.assert_equal(out.copy_to_host(), [1, 3, 5, 7])
+
+    def test_offset_view_getitem(self):
+        @cuda.jit
+        def kernel(ary, out):
+            view = ary[2:]
+            i = cuda.grid(1)
+            out[i] = view[i].b
+
+        host = np.zeros(8, dtype=recordtype)
+        host["b"] = np.arange(8)
+        out = cuda.device_array(6, np.int32)
+        kernel[1, 6](cuda.to_device(host), out)
+        np.testing.assert_equal(out.copy_to_host(), np.arange(2, 8))
+
+    @pytest.mark.parametrize("start,step", [(2, 1), (1, 2)])
+    def test_view_field_view(self, start, step):
+        @cuda.jit
+        def kernel(ary, out):
+            field = ary[start::step].b
+            i = cuda.grid(1)
+            out[i] = field[i]
+
+        host = np.zeros(8, dtype=recordtype)
+        host["b"] = np.arange(8)
+        expected = host["b"][start::step]
+        out = cuda.device_array(expected.size, np.int32)
+        kernel[1, expected.size](cuda.to_device(host), out)
+        np.testing.assert_equal(out.copy_to_host(), expected)
+
+    @pytest.mark.parametrize("start,step", [(0, 2), (2, 2), (6, -2)])
+    @pytest.mark.parametrize("view_kind", ["argument", "kernel"])
+    def test_packed_record_field_view(self, start, step, view_kind):
+        # A two-record stride is 24 bytes, or three float64 elements.
+        # Dividing the 12-byte record size before scaling truncates it to 8.
+        dtype = np.dtype([("y", np.float64), ("x", np.int32)])
+        assert dtype.itemsize == 12
+
+        @cuda.jit
+        def kernel(ary, out):
+            field = ary.y
+            i = cuda.grid(1)
+            out[i] = field[i]
+            field[i] += 10.0
+
+        @cuda.jit
+        def kernel_view(ary, out):
+            field = ary[start::step].y
+            i = cuda.grid(1)
+            out[i] = field[i]
+            field[i] += 10.0
+
+        host = np.zeros(8, dtype=dtype)
+        host["y"] = np.arange(8) + 100.0
+        host["x"] = np.arange(8)
+        selection = slice(start, None, step)
+        ary = cuda.to_device(host)
+        out = cuda.device_array(host[selection].size, np.float64)
+        if view_kind == "kernel":
+            kernel_view[1, out.size](ary, out)
+        else:
+            kernel[1, out.size](ary[selection], out)
+        np.testing.assert_equal(out.copy_to_host(), host["y"][selection])
+        expected = host.copy()
+        expected["y"][selection] += 10.0
+        np.testing.assert_equal(ary.copy_to_host(), expected)
+
+    def test_strided_view_setitem(self):
+        @cuda.jit
+        def kernel(ary):
+            view = ary[1::2]
+            i = cuda.grid(1)
+            view[i].a = i + 1.0
+            view[i].b = 2 * i + 1
+
+        arr = cuda.to_device(np.zeros(8, dtype=recordtype))
+        kernel[1, 4](arr)
+        result = arr.copy_to_host()
+        expected = np.zeros(8, dtype=recordtype)
+        for i in range(4):
+            expected[2 * i + 1]["a"] = i + 1.0
+            expected[2 * i + 1]["b"] = 2 * i + 1
+        np.testing.assert_equal(result, expected)
+
+    def test_strided_view_whole_record_setitem(self):
+        @cuda.jit
+        def kernel(ary, src):
+            view = ary[1::2]
+            i = cuda.grid(1)
+            view[i] = src[i]
+
+        host = np.zeros(8, dtype=recordtype)
+        host["a"] = np.arange(8) + 10.0
+        host["b"] = np.arange(8) + 20
+        src = np.zeros(4, dtype=recordtype)
+        src["a"] = np.arange(4) + 100.0
+        src["b"] = np.arange(4) + 200
+        arr = cuda.to_device(host)
+        kernel[1, 4](arr, cuda.to_device(src))
+        expected = host.copy()
+        expected[1::2] = src
+        np.testing.assert_equal(arr.copy_to_host(), expected)
+
+    def test_view_ctypes_data_offset(self):
+        @cuda.jit
+        def kernel(ary, out):
+            out[0] = ary[2:].ctypes.data - ary.ctypes.data
+            out[1] = ary[1::2].ctypes.data - ary.ctypes.data
+
+        arr = cuda.to_device(np.zeros(8, dtype=recordtype))
+        out = cuda.device_array(2, np.int64)
+        kernel[1, 1](arr, out)
+        itemsize = recordtype.itemsize
+        np.testing.assert_equal(out.copy_to_host(), [2 * itemsize, itemsize])
+
+    def test_device_strided_view_as_argument(self):
+        @cuda.jit
+        def kernel(view, out):
+            i = cuda.grid(1)
+            out[i] = view[i].b
+
+        host = np.zeros(8, dtype=recordtype)
+        host["b"] = np.arange(8)
+        arr = cuda.to_device(host)
+        out = cuda.device_array(4, np.int32)
+        kernel[1, 4](arr[1::2], out)
+        np.testing.assert_equal(out.copy_to_host(), [1, 3, 5, 7])
+
+    def test_non_power_of_two_record_size(self):
+        # 12 bytes per record: exercises exact byte scaling of element
+        # offsets (a vector-typed GEP would scale by LLVM's rounded-up
+        # allocation size instead).
+        dtype = np.dtype([("x", np.int32), ("y", np.float64)])
+        assert dtype.itemsize == 12
+
+        @cuda.jit
+        def kernel(ary, out):
+            i = cuda.grid(1)
+            out[i] = ary[i + 1].x
+
+        host = np.zeros(6, dtype=dtype)
+        host["x"] = np.arange(6)
+        out = cuda.device_array(5, np.int32)
+        kernel[1, 5](cuda.to_device(host), out)
+        np.testing.assert_equal(out.copy_to_host(), np.arange(1, 6))
+
+        @cuda.jit
+        def kernel_write(ary):
+            i = cuda.grid(1)
+            ary[i + 1].x = 10 * i
+
+        arr = cuda.to_device(np.zeros(6, dtype=dtype))
+        kernel_write[1, 5](arr)
+        result = arr.copy_to_host()
+        expected = np.zeros(6, dtype=dtype)
+        expected["x"][1:] = [10 * i for i in range(5)]
+        np.testing.assert_equal(result, expected)
+
+    @pytest.mark.parametrize("dtype", [recordtype, np.dtype([("a", np.float64), ("b", np.int32)])])
+    @pytest.mark.parametrize("view_kind", ["contiguous", "argument", "kernel"])
+    def test_record_iteration(self, dtype, view_kind):
+        @cuda.jit
+        def kernel(ary, out):
+            i = 0
+            for record in ary:
+                record.b += 10
+                out[i] = record.b
+                i += 1
+
+        @cuda.jit
+        def kernel_view(ary, out):
+            i = 0
+            for record in ary[1::2]:
+                record.b += 10
+                out[i] = record.b
+                i += 1
+
+        host = np.zeros(9, dtype=dtype)
+        host["b"] = np.arange(9)
+        ary = cuda.to_device(host)
+        selection = slice(None) if view_kind == "contiguous" else slice(1, None, 2)
+        out = cuda.device_array(host[selection].size, np.int32)
+        if view_kind == "kernel":
+            kernel_view[1, 1](ary, out)
+        else:
+            kernel[1, 1](ary[selection], out)
+        expected = host.copy()
+        expected["b"][selection] += 10
+        np.testing.assert_equal(out.copy_to_host(), expected["b"][selection])
+        np.testing.assert_equal(ary.copy_to_host(), expected)
+
+    def test_record_item(self):
+        # arr.item() returns the record as a pointer to element storage;
+        # previously it loaded the raw memref element and crashed the
+        # verifier downstream.
+        @cuda.jit
+        def kernel(ary, out):
+            record = ary.item()
+            out[0] = record.b
+
+        host = np.zeros(1, dtype=recordtype)
+        host["b"] = 42
+        ary = cuda.to_device(host)
+        out = cuda.device_array(1, np.int32)
+        kernel[1, 1](ary, out)
+        assert out.copy_to_host()[0] == 42
+
+    def test_record_item_offset_view(self):
+        # item() through an in-kernel offset view must read the viewed record.
+        @cuda.jit
+        def kernel(ary, out):
+            record = ary[2:3].item()
+            out[0] = record.b
+
+        host = np.zeros(8, dtype=recordtype)
+        host["b"] = np.arange(8)
+        ary = cuda.to_device(host)
+        out = cuda.device_array(1, np.int32)
+        kernel[1, 1](ary, out)
+        assert out.copy_to_host()[0] == 2

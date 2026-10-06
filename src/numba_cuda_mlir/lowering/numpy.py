@@ -919,6 +919,8 @@ def _lower_record_array_getitem(builder, target, args, kwargs):
     else:
         index = builder.load_var(index_var)
 
+    index = _normalize_negative_index(array, index, 0)
+
     # Compute the byte pointer using the descriptor's offset and strides
     # and the exact record size.
     result_ptr = lowering_utilities.memref_to_llvm_ptr(
@@ -1473,6 +1475,8 @@ def _lower_record_array_setitem(builder, target, args, kwargs):
     array = builder.load_var(array_var)
     index = builder.load_var(index_var)
     src_ptr = builder.load_var(value_var)
+
+    index = _normalize_negative_index(array, index, 0)
 
     # Compute the byte pointer using the descriptor's offset and strides
     # and the exact record size.

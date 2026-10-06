@@ -448,6 +448,50 @@ class TestRecordArrayViews:
         kernel[1, 6](cuda.to_device(host), out)
         np.testing.assert_equal(out.copy_to_host(), np.arange(2, 8))
 
+    @pytest.mark.parametrize("start,step", [(0, 1), (2, 1), (1, 2)])
+    @pytest.mark.parametrize("index_kind", ["literal", "runtime"])
+    def test_negative_record_indices(self, start, step, index_kind):
+        if index_kind == "literal":
+
+            @cuda.jit
+            def kernel(ary, src, out):
+                view = ary[start::step]
+                out[0] = view[-1].b
+                view[-1].b += 100
+                view[-2] = src[-1]
+        else:
+
+            @cuda.jit
+            def kernel(ary, src, out, index):
+                view = ary[start::step]
+                out[0] = view[index].b
+                view[index].b += 100
+                view[index - 1] = src[index]
+
+        # Nine records give the strided view an exact extent, isolating
+        # negative indexing from the slice-length bug tracked in #262.
+        host = np.zeros(9, dtype=recordtype)
+        host["a"] = np.arange(9) + 10.0
+        host["b"] = np.arange(9) + 20
+        host["c"] = np.arange(9) + 30.0j
+        src = np.zeros(2, dtype=recordtype)
+        src["a"] = [100.0, 200.0]
+        src["b"] = [300, 400]
+        src["c"] = [500.0j, 600.0j]
+        ary = cuda.to_device(host)
+        out = cuda.device_array(1, np.int32)
+        args = (ary, cuda.to_device(src), out)
+        if index_kind == "runtime":
+            args += (-1,)
+        kernel[1, 1](*args)
+
+        selection = slice(start, None, step)
+        assert out.copy_to_host()[0] == host["b"][selection][-1]
+        expected = host.copy()
+        expected["b"][selection][-1] += 100
+        expected[selection][-2] = src[-1]
+        np.testing.assert_equal(ary.copy_to_host(), expected)
+
     @pytest.mark.parametrize("start,step", [(2, 1), (1, 2)])
     def test_view_field_view(self, start, step):
         @cuda.jit

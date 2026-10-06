@@ -3481,12 +3481,14 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         if cubin is None:
             raise RuntimeError("No cubin available for disassembly")
 
-        with tempfile.NamedTemporaryFile(suffix=".cubin") as f:
-            f.write(cubin)
-            f.flush()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cubin_path = os.path.join(tmpdir, "module.cubin")
+            # Close the file before nvdisasm opens it, including on Windows.
+            with open(cubin_path, "wb") as f:
+                f.write(cubin)
             try:
                 cp = subprocess.run(
-                    ["nvdisasm", "-gi", f.name],
+                    ["nvdisasm", "-gi", cubin_path],
                     check=True,
                     capture_output=True,
                 )

@@ -1,10 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import platform
+
 import pytest
 
 from numba_cuda_mlir import cuda, mlir_optimization, types
 from numba_cuda_mlir.numba_cuda import config
+
+requires_llvm70 = pytest.mark.skipif(
+    platform.system() == "Windows" and platform.machine() == "ARM64",
+    reason="NYI: LLVM70 Bridge on Windows ARM64",
+)
 
 
 BITCODE = b"BC\xc0\xde\x00\x01\x02\x03"
@@ -70,6 +77,7 @@ def test_dump_nvvm_to_explicit_file(dump_nvvm, tmp_path):
     assert target.read_bytes() == BITCODE
 
 
+@requires_llvm70
 def test_failed_llvm70_translation_dumps_nvvm_input(dump_nvvm, tmp_path, monkeypatch):
     dump_nvvm(str(tmp_path))
     monkeypatch.setattr(mlir_optimization, "_get_libnvvm_path", lambda: b"/missing/libnvvm.so")
@@ -87,7 +95,7 @@ def test_failed_llvm70_translation_dumps_nvvm_input(dump_nvvm, tmp_path, monkeyp
     assert dumps[0].read_bytes().startswith(mlir_optimization._BITCODE_MAGIC)
 
 
-@pytest.mark.parametrize("chip", ["sm_90", "sm_100"])
+@pytest.mark.parametrize("chip", [pytest.param("sm_90", marks=requires_llvm70), "sm_100"])
 @pytest.mark.parametrize("lto", [False, True], ids=["ptx", "lto"])
 def test_compilation_dumps_exact_nvvm_input(dump_nvvm, tmp_path, chip, lto):
     dump_nvvm(str(tmp_path))

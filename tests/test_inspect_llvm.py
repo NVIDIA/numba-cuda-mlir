@@ -2,17 +2,23 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import platform
 
 import pytest
 
 from numba_cuda_mlir import cuda, mlir_optimization, types
 from numba_cuda_mlir.tools import generate_mangled_name
 
+requires_llvm70 = pytest.mark.skipif(
+    platform.system() == "Windows" and platform.machine() == "ARM64",
+    reason="NYI: LLVM70 Bridge on Windows ARM64",
+)
+
 
 @pytest.mark.parametrize(
     "chip,source_filename,ptr_type",
     [
-        pytest.param("sm_90", "llvm70_module", "i8*", id="typed-pointers"),
+        pytest.param("sm_90", "llvm70_module", "i8*", id="typed-pointers", marks=requires_llvm70),
         pytest.param("sm_100", "LLVMDialectModule", "ptr %0", id="opaque-pointers"),
     ],
 )
@@ -33,6 +39,7 @@ def test_inspect_llvm_uses_architecture_natural_ir(chip, source_filename, ptr_ty
     assert foo.inspect_llvm()[args] == llvm_ir
 
 
+@requires_llvm70
 @pytest.mark.parametrize("lto", [False, True])
 def test_inspect_llvm_preserves_llvm70_lto_debug_mode(lto):
     @cuda.jit(device=True, chip="sm_90", debug=True, lto=lto, opt=False)

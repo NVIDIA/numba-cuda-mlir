@@ -1009,8 +1009,12 @@ def _rank_reducing_subview(
     return memref.collapse_shape(result_type, subview, reassociation)
 
 
-def _normalize_negative_index(array: ir.Value, index: ir.Value | int, dim: int) -> ir.Value:
-    """Normalize a possibly-negative integer index for one array dimension."""
+def _normalize_negative_index(
+    array: ir.Value, index: ir.Value | int, dim: int, index_numba_type: types.Type | None = None
+) -> ir.Value:
+    """Wrap signed indices; unsigned indices cannot be negative."""
+    if isinstance(index_numba_type, types.Integer) and not index_numba_type.signed:
+        return index_of(index)
     index = index_of(index)
     zero = index_of(0)
     is_negative = arith.cmpi(arith.CmpIPredicate.slt, index, zero)
@@ -1047,7 +1051,12 @@ def lower_array_getitem(builder, target, args, kwargs):
     if not array_type.has_rank:
         raise NotImplementedError("NYI: unranked memrefs")
 
-    index = _normalize_negative_index(array, index, 0)
+    index = _normalize_negative_index(
+        array,
+        index,
+        0,
+        None if isinstance(args[1], int) else builder.get_numba_type(args[1].name),
+    )
     if array_type.rank == 1:
         value = lowering_utilities.array_element_value_load(
             array_numba_type,
@@ -1564,7 +1573,12 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
     array = builder.load_var(args[0])
     index_arg = args[1]
     index = index_arg if isinstance(index_arg, int) else builder.load_var(index_arg)
-    index = _normalize_negative_index(array, index, 0)
+    index = _normalize_negative_index(
+        array,
+        index,
+        0,
+        None if isinstance(index_arg, int) else builder.get_numba_type(index_arg.name),
+    )
     value = builder.load_var(args[2])
     value_numba_type = builder.get_numba_type(args[2].name)
     signed = get_conversion_signedness(value_numba_type, array_numba_type.dtype)
@@ -1600,6 +1614,7 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
 def _setitem_indices_to_memref_indices(
     array: ir.Value,
     indices: tuple[ir.Value | int, ...] | ir.Value,
+    index_numba_types: types.BaseTuple | tuple[types.Type, ...] | None = None,
 ) -> tuple[ir.Value, ...]:
     match indices:
         case tuple():
@@ -1617,8 +1632,13 @@ def _setitem_indices_to_memref_indices(
             raise InternalCompilerError(
                 f"Indices must be a tuple of integers or a value, got {type(indices)}"
             )
+    if isinstance(index_numba_types, types.BaseTuple):
+        index_numba_types = index_numba_types.types
+    if index_numba_types is None:
+        index_numba_types = (None,) * len(raw_indices)
     return tuple(
-        _normalize_negative_index(array, index, dim) for dim, index in enumerate(raw_indices)
+        _normalize_negative_index(array, index, dim, index_type)
+        for dim, (index, index_type) in enumerate(zip(raw_indices, index_numba_types))
     )
 
 
@@ -1637,7 +1657,7 @@ def lower_array_setitem_tuple(builder, target, args, kwargs):
     array = builder.load_var(args[0])
     tup = args[1]
     tup = builder.load_var(tup) if isinstance(tup, numba_ir.Var) else tup
-    indices = _setitem_indices_to_memref_indices(array, tup)
+    indices = _setitem_indices_to_memref_indices(array, tup, builder.get_numba_type(args[1].name))
     value = builder.load_var(args[2])
     lowering_utilities.array_element_value_store(
         array_numba_type,
@@ -1727,6 +1747,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
     zero = arith.constant(result=T.index(), value=0)
     dims = [memref.dim(array, index_of(i)) for i in range(source_rank)]
 
+    tuple_numba_type = builder.get_numba_type(args[1].name)
     offsets, sizes, strides, is_scalar = [], [], [], []
     for dim, index in enumerate(tuple_indices):
         match index:
@@ -1746,7 +1767,8 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
                         set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
                         scf.yield_([])
             case int() | ir.Value() as value:
-                offsets.append(_normalize_negative_index(array, value, dim))
+                index_type = tuple_numba_type.types[dim]
+                offsets.append(_normalize_negative_index(array, value, dim, index_type))
                 sizes.append(1)
                 strides.append(1)
                 is_scalar.append(True)

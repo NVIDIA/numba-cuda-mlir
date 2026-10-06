@@ -409,7 +409,15 @@ def _bin_op_cg(op, builder, target, args, kwargs):
             rhs = _convert_operand(rhs, rhs_type, promoted_numba_type, unified_type)
         else:
             lhs, rhs = lowering_utilities.coerce_numpy_scalars_for_binary_op(lhs, rhs)
-        res = op(lhs, rhs)
+        if (
+            isinstance(target_type, types.Integer)
+            and target_type.signed
+            and op in (arith.addi, arith.subi, arith.muli)
+        ):
+            # Match Numba: ignore signed overflow so index checks can fold.
+            res = op(lhs, rhs, overflow_flags="nsw")
+        else:
+            res = op(lhs, rhs)
     else:
         raise ValueError(f"No operation found for {op=} and {target_mlir_type=}")
 

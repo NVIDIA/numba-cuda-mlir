@@ -1163,13 +1163,46 @@ llvm::Error MLIRToLLVM70::translateArithOp(Operation *op) {
     rhs = bf16ToF32(rhs);
   }
 
-  if (isa<LLVM::AddOp>(op))
-    result = b.buildAdd(lhs, rhs, "");
-  else if (isa<LLVM::SubOp>(op))
-    result = b.buildSub(lhs, rhs, "");
-  else if (isa<LLVM::MulOp>(op))
-    result = b.buildMul(lhs, rhs, "");
-  else if (isa<LLVM::SDivOp>(op))
+  // Integer add/sub/mul carry no-overflow flags (nsw/nuw) that LLVM 7's
+  // optimizer needs to remove negative-index guards; translate them.
+  auto overflowFlags = [](Operation *op) -> LLVM::IntegerOverflowFlags {
+    if (auto addOp = dyn_cast<LLVM::AddOp>(op))
+      return addOp.getOverflowFlags();
+    if (auto subOp = dyn_cast<LLVM::SubOp>(op))
+      return subOp.getOverflowFlags();
+    if (auto mulOp = dyn_cast<LLVM::MulOp>(op))
+      return mulOp.getOverflowFlags();
+    return LLVM::IntegerOverflowFlags::none;
+  }(op);
+  // LLVM 7's C API builds one flag at a time. Prefer nsw when both are
+  // present: it is the fact needed for signed negative-index checks.
+  bool noSignedWrap = (static_cast<uint32_t>(overflowFlags) &
+                       static_cast<uint32_t>(LLVM::IntegerOverflowFlags::nsw)) != 0;
+  bool noUnsignedWrap = (static_cast<uint32_t>(overflowFlags) &
+                         static_cast<uint32_t>(LLVM::IntegerOverflowFlags::nuw)) != 0;
+
+  if (isa<LLVM::AddOp>(op)) {
+    if (noSignedWrap)
+      result = b.buildNSWAdd(lhs, rhs, "");
+    else if (noUnsignedWrap)
+      result = b.buildNUWAdd(lhs, rhs, "");
+    else
+      result = b.buildAdd(lhs, rhs, "");
+  } else if (isa<LLVM::SubOp>(op)) {
+    if (noSignedWrap)
+      result = b.buildNSWSub(lhs, rhs, "");
+    else if (noUnsignedWrap)
+      result = b.buildNUWSub(lhs, rhs, "");
+    else
+      result = b.buildSub(lhs, rhs, "");
+  } else if (isa<LLVM::MulOp>(op)) {
+    if (noSignedWrap)
+      result = b.buildNSWMul(lhs, rhs, "");
+    else if (noUnsignedWrap)
+      result = b.buildNUWMul(lhs, rhs, "");
+    else
+      result = b.buildMul(lhs, rhs, "");
+  } else if (isa<LLVM::SDivOp>(op))
     result = b.buildSDiv(lhs, rhs, "");
   else if (isa<LLVM::UDivOp>(op))
     result = b.buildUDiv(lhs, rhs, "");

@@ -11,3 +11,6 @@ cuda:
     version: "13.0.2"
   prev_build:
     version: "12.9.1"
+
+woa:
+  python_versions: ["3.11", "3.12", "3.13", "3.14", "3.14t"]

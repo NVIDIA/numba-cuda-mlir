@@ -22,19 +22,21 @@ jobs:
     outputs:
       CUDA_BUILD_VER: ${{ steps.get-vars.outputs.cuda_build_ver }}
       CUDA_PREV_BUILD_VER: ${{ steps.get-vars.outputs.cuda_prev_build_ver }}
+      WOA_PYTHON_VERSIONS: ${{ steps.get-vars.outputs.woa_python_versions }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           fetch-depth: 0
 
-      - name: Get CUDA build versions
+      - name: Get build versions
         id: get-vars
         run: |
           cuda_build_ver=$(yq '.cuda.build.version' ci/versions.yml)
           echo "cuda_build_ver=$cuda_build_ver" >> $GITHUB_OUTPUT
           cuda_prev_build_ver=$(yq '.cuda.prev_build.version' ci/versions.yml)
           echo "cuda_prev_build_ver=$cuda_prev_build_ver" >> $GITHUB_OUTPUT
+          echo "woa_python_versions=$(yq -o=json -I=0 '.woa.python_versions' ci/versions.yml)" >> "$GITHUB_OUTPUT"
 
   should-skip:
     runs-on: ubuntu-latest
@@ -90,6 +92,16 @@ jobs:
       host-platform: win-64
     secrets: inherit
 
+  build-llvm-windows-arm64:
+    needs:
+      - ci-vars
+      - should-skip
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) && !fromJSON(needs.should-skip.outputs.doc-only) }}
+    uses: ./.github/workflows/build-llvm.yml
+    with:
+      host-platform: win-arm64
+      python-versions: ${{ needs.ci-vars.outputs.WOA_PYTHON_VERSIONS }}
+
   # WARNING: make sure all of the build jobs are in sync
   build-linux-64:
     needs:
@@ -144,6 +156,20 @@ jobs:
     uses: ./.github/workflows/build-wheel.yml
     with:
       host-platform: ${{ matrix.host-platform }}
+      cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
+      prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
+
+  # WoA wheels are built for release; GPU testing is not enabled yet.
+  build-windows-arm64:
+    needs:
+      - ci-vars
+      - should-skip
+      - build-llvm-windows-arm64
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) && !fromJSON(needs.should-skip.outputs.doc-only) }}
+    uses: ./.github/workflows/build-wheel.yml
+    with:
+      host-platform: win-arm64
+      python-versions: ${{ needs.ci-vars.outputs.WOA_PYTHON_VERSIONS }}
       cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
       prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
 
@@ -369,6 +395,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - should-skip
+      - build-windows-arm64
       - test-linux-64
       - test-linux-aarch64
       - test-windows
@@ -419,6 +446,7 @@ jobs:
 
           # [doc-only] flips these from 'success' to 'skipped'
           if [[ "$doc_only" == "true" ]]; then expected="skipped"; else expected="success"; fi
+          check_result "build-windows-arm64"      "$expected" "${{ needs.build-windows-arm64.result }}"
           check_result "test-linux-64"                   "$expected" "${{ needs.test-linux-64.result }}"
           check_result "test-linux-aarch64"              "$expected" "${{ needs.test-linux-aarch64.result }}"
           check_result "test-windows"                    "$expected" "${{ needs.test-windows.result }}"

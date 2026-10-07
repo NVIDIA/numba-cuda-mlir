@@ -73,9 +73,8 @@ case "${kind}" in
                     "${SCRIPT_DIR}/../cext/mlir-modern/CMakeLists.txt" \
                     "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridge.cpp" \
                     "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridgeSmoke.cpp" \
-                    "${SCRIPT_DIR}/../cext/mlir-modern/include/ModernBridge.h" \
-                    "${SCRIPT_DIR}/../.github/workflows/build-llvm.yml")"
-                echo "llvm-modern-windows-$(cache_arch "${host_platform}")-${py_tag}-${version_short}-${build_hash}"
+                    "${SCRIPT_DIR}/../cext/mlir-modern/include/ModernBridge.h")"
+                echo "llvm-modern-windows-$(cache_arch "${host_platform}")-${py_tag}-${version_short}-msvc${LLVM_WINDOWS_ARM64_MSVC_TOOLSET}-${build_hash}"
                 ;;
             *)
                 echo "Unsupported host platform for modern LLVM: ${host_platform}" >&2

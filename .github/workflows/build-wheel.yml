@@ -81,6 +81,8 @@ jobs:
           PY_VER_FMT=$(echo "${{ matrix.python-version }}" | tr -d '.')
           echo "llvm-py-tag=cp${PY_VER_FMT}" >> "$GITHUB_OUTPUT"
           if [[ "${{ inputs.host-platform }}" == 'win-arm64' ]]; then
+            source ci/llvm-version.env
+            echo "msvc-toolset=${LLVM_WINDOWS_ARM64_MSVC_TOOLSET}" >> "$GITHUB_OUTPUT"
             echo "cibw-build=cp${PY_VER_FMT}-win_arm64" >> "$GITHUB_OUTPUT"
           elif [[ "${{ inputs.host-platform }}" == win* ]]; then
             echo "cibw-build=cp${PY_VER_FMT}-win_amd64" >> "$GITHUB_OUTPUT"
@@ -116,7 +118,7 @@ jobs:
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756  # v1
         with:
           arch: ${{ inputs.host-platform == 'win-arm64' && 'arm64' || 'x64' }}
-          toolset: ${{ inputs.host-platform == 'win-arm64' && '14.44' || '' }}
+          toolset: ${{ steps.wheel-tags.outputs.msvc-toolset }}
 
       - name: Build numba-cuda-mlir wheel
         uses: pypa/cibuildwheel@294735312765b09d24a2fbec22660ce817587d55  # v4.1.0

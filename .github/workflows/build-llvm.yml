@@ -239,6 +239,8 @@ jobs:
         id: cache-key
         run: |
           PY_TAG="cp$(echo "${{ matrix.python-version }}" | tr -d '.')"
+          source ci/llvm-version.env
+          echo "msvc-toolset=${LLVM_WINDOWS_ARM64_MSVC_TOOLSET}" >> "$GITHUB_OUTPUT"
           KEY="$(bash ci/llvm-cache-key.sh modern "${{ inputs.host-platform }}" "$PY_TAG")"
           echo "key=${KEY}" >> "$GITHUB_OUTPUT"
           echo "py-tag=${PY_TAG}" >> "$GITHUB_OUTPUT"
@@ -262,8 +264,7 @@ jobs:
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756  # v1
         with:
           arch: arm64
-          # VS 2026's default toolset crashes in MLIR OpDefinitionsGen.cpp (#173).
-          toolset: "14.44"
+          toolset: ${{ steps.cache-key.outputs.msvc-toolset }}
 
       - name: Install build dependencies
         if: steps.gha-cache.outputs.cache-hit != 'true'

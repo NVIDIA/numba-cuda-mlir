@@ -7,11 +7,6 @@ on:
       host-platform:
         required: true
         type: string
-      python-versions:
-        description: JSON Python version list for WoA builds.
-        required: false
-        type: string
-        default: '[]'
 
 defaults:
   run:
@@ -223,7 +218,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ${{ fromJSON(inputs.python-versions) }}
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.14t"]
     runs-on: windows-11-arm
     timeout-minutes: 360
     permissions:
@@ -257,7 +252,6 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ matrix.python-version }}
-          architecture: arm64
 
       - name: Set up ARM64 MSVC
         if: steps.gha-cache.outputs.cache-hit != 'true'

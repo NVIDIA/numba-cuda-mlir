@@ -484,9 +484,10 @@ class InlineInlinables(FunctionPass):
             raise inline_closurecall.InlineeNeedsArgTypes(dispatcher.py_func.__name__)
         argtypes = self._call_argtypes(state, expr, dispatcher, inline_worker)
         function = inline_worker.transform_inlinee(dispatcher.py_func, argtypes)
-        return inline_worker.inline_function(state.func_ir, block, i, function, arg_typs=argtypes)[
-            3
-        ]
+        _, _, _, new_blocks = inline_worker.inline_function(
+            state.func_ir, block, i, function, arg_typs=argtypes
+        )
+        return new_blocks
 
     def _call_argtypes(self, state, expr, dispatcher, inline_worker):
         """Fold the call's argument types, as a call would, from a partial typing of the caller.

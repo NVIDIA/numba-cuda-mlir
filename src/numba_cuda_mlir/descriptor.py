@@ -40,6 +40,7 @@ from numba_cuda_mlir.numba_cuda.np import numpy_support
 from numba_cuda_mlir.numba_cuda.core.descriptors import TargetDescriptor
 from numba_cuda_mlir.numba_cuda.core.compiler_lock import global_compiler_lock
 from numba_cuda_mlir.numba_cuda.dispatcher import Dispatcher
+from numba_cuda_mlir.numba_cuda.core.inline_closurecall import inlinee_typer
 from numba_cuda_mlir.numba_cuda.core.options import TargetOptions
 from numba_cuda_mlir._whole_function_planners import (
     _REQUIRED_DYNAMIC_SHARED_MEMORY_KEY,
@@ -3521,13 +3522,24 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         emit kernel metadata for callees."""
         pysig, args = self._compiler.fold_argument_types(args, kws)
         kws = {}
-        if self._can_compile:
-            self._compile_as_device_callee(tuple(args))
+        typer = inlinee_typer.get()
+        try:
+            signature = None if typer is None else typer(self, tuple(args))
+        except errors.ForceLiteralArg as e:
+
+            def folded(args, kws):
+                return self._compiler.fold_argument_types(args, kws)[1]
+
+            raise e.bind_fold_arguments(folded)
+        if signature is not None:
+            signatures = [signature]
+        else:
+            if self._can_compile:
+                self._compile_as_device_callee(tuple(args))
+            signatures = self.nopython_signatures
         func_name = self.py_func.__name__
         name = "CallTemplate({0})".format(func_name)
-        call_template = typing.make_concrete_template(
-            name, key=func_name, signatures=self.nopython_signatures
-        )
+        call_template = typing.make_concrete_template(name, key=func_name, signatures=signatures)
         return call_template, pysig, args, kws
 
     def recompile(self):

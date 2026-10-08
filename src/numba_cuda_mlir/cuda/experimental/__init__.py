@@ -60,9 +60,10 @@ def consteval(value=None):
             config = load_config()
             N = config["block_size"]
 
-    Inlined device functions (``inline=True``) are transformed when the calling
-    kernel enables the AST transforms; inside them ``current_target_options()``
-    is the calling kernel's options and parameter names do not resolve to types.
+    An inlined device function (``inline=True``) takes the calling kernel's
+    options, not its own: the kernel decides whether it is transformed, and
+    ``current_target_options()`` inside it returns the kernel's options. Its
+    parameter names resolve to the types of the arguments at the call site.
     """
     if value is None:
         return _ConstevalContextManager()

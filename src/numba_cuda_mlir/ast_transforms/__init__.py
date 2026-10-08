@@ -3,12 +3,15 @@
 # AST transformation passes for numba_cuda_mlir
 # These run before Numba's IR conversion
 import ast
-import inspect
 from typing import Callable
 
 from numba_cuda_mlir.ast_transforms.common import get_function_ast, recompile_function
 from numba_cuda_mlir.ast_transforms.comprehension import ComprehensionPass
-from numba_cuda_mlir.ast_transforms.consteval import ConstevalError, ConstevalPass
+from numba_cuda_mlir.ast_transforms.consteval import (
+    ConstevalError,
+    ConstevalPass,
+    reads_parameters,
+)
 from numba_cuda_mlir.ast_transforms.constant_if import ConstantIfPass
 from numba_cuda_mlir.ast_transforms.empty_body import EmptyBodyRepairPass
 from numba_cuda_mlir.ast_transforms.pipeline import (
@@ -133,15 +136,18 @@ def apply_ast_transforms(
     return func, transformed_source
 
 
-# Stands in for each parameter of an inlined callee, whose types are unknown.
-_INLINEE_PARAMETER = object()
+def transform_inline_callee(
+    pyfunc: Callable, targetoptions: dict, argtypes: tuple = None
+) -> Callable | None:
+    """Apply AST transforms to an inlinee under the caller's options and its call's argument types.
 
-
-def transform_inline_callee(pyfunc: Callable, targetoptions: dict) -> Callable:
-    """Apply AST transforms to an inlinee under the caller's options; parameters resolve to a placeholder."""
+    Without ``argtypes`` we return None if a consteval in the inlinee names one
+    of its parameters, because the transform then needs the argument types.
+    """
     if not targetoptions.get("experimental_ast_transforms", False):
         return pyfunc
+    if argtypes is None and reads_parameters(pyfunc):
+        return None
 
-    argtypes = (_INLINEE_PARAMETER,) * len(inspect.signature(pyfunc).parameters)
     transformed, _ = apply_ast_transforms(pyfunc, targetoptions, argtypes)
     return transformed

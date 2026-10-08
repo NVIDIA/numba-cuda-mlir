@@ -785,7 +785,6 @@ class _OverloadFunctionTemplate(AbstractTemplate):
         if not self._inline.is_never_inline:
             # need to run the compiler front end up to type inference to compute
             # a signature
-            from numba_cuda_mlir.numba_cuda.core import typed_passes
             from numba_cuda_mlir.numba_cuda.flags import Flags
             from numba_cuda_mlir.numba_cuda.core.inline_closurecall import InlineWorker
 
@@ -829,10 +828,8 @@ class _OverloadFunctionTemplate(AbstractTemplate):
             # situations that will succeed. For context see #5887.
             resolve = disp_type.dispatcher.get_call_template
             template, pysig, folded_args, kws = resolve(new_args, kws)
-            ir = inline_worker.run_untyped_passes(disp_type.dispatcher.py_func, enable_ssa=True)
-
-            (typemap, return_type, calltypes, _) = typed_passes.type_inference_stage(
-                self.context, tgctx, ir, folded_args, None
+            ir, (typemap, return_type, calltypes, _) = inline_worker.type_callee(
+                disp_type.dispatcher.py_func, folded_args
             )
             ir = PreLowerStripPhis()._strip_phi_nodes(ir)
             ir._definitions = numba_cuda.core.ir_utils.build_definitions(ir.blocks)

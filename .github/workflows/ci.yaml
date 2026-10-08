@@ -22,6 +22,7 @@ jobs:
     outputs:
       CUDA_BUILD_VER: ${{ steps.get-vars.outputs.cuda_build_ver }}
       CUDA_PREV_BUILD_VER: ${{ steps.get-vars.outputs.cuda_prev_build_ver }}
+      PYTHON_VERSIONS: '["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t"]'
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
@@ -92,11 +93,13 @@ jobs:
 
   build-llvm-windows-arm64:
     needs:
+      - ci-vars
       - should-skip
     if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) && !fromJSON(needs.should-skip.outputs.doc-only) }}
     uses: ./.github/workflows/build-llvm.yml
     with:
       host-platform: win-arm64
+      python-versions: ${{ needs.ci-vars.outputs.PYTHON_VERSIONS }}
 
   # WARNING: make sure all of the build jobs are in sync
   build-linux-64:
@@ -114,6 +117,7 @@ jobs:
     uses: ./.github/workflows/build-wheel.yml
     with:
       host-platform: ${{ matrix.host-platform }}
+      python-versions: ${{ needs.ci-vars.outputs.PYTHON_VERSIONS }}
       cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
       prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
 
@@ -133,6 +137,7 @@ jobs:
     uses: ./.github/workflows/build-wheel.yml
     with:
       host-platform: ${{ matrix.host-platform }}
+      python-versions: ${{ needs.ci-vars.outputs.PYTHON_VERSIONS }}
       cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
       prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
 
@@ -152,6 +157,7 @@ jobs:
     uses: ./.github/workflows/build-wheel.yml
     with:
       host-platform: ${{ matrix.host-platform }}
+      python-versions: ${{ needs.ci-vars.outputs.PYTHON_VERSIONS }}
       cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
       prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
 
@@ -165,6 +171,7 @@ jobs:
     uses: ./.github/workflows/build-wheel.yml
     with:
       host-platform: win-arm64
+      python-versions: ${{ needs.ci-vars.outputs.PYTHON_VERSIONS }}
       cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
       prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
 

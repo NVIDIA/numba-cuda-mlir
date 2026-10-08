@@ -2,17 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import platform
 
 import pytest
 
+from gpu_utils import requires_llvm70
 from numba_cuda_mlir import cuda, mlir_optimization, types
 from numba_cuda_mlir.tools import generate_mangled_name
-
-requires_llvm70 = pytest.mark.skipif(
-    platform.system() == "Windows" and platform.machine() == "ARM64",
-    reason="NYI: LLVM70 Bridge on Windows ARM64",
-)
 
 
 @pytest.mark.parametrize(

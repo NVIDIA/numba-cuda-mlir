@@ -4,7 +4,6 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import os
-import platform
 import subprocess
 import sys
 import sysconfig
@@ -13,6 +12,8 @@ import threading
 import time
 
 import pytest
+
+from gpu_utils import requires_llvm70
 
 
 def _is_free_threaded_python():
@@ -47,10 +48,7 @@ def _require_free_threaded_python():
         pytest.skip("requires a free-threaded CPython build")
 
 
-@pytest.mark.skipif(
-    platform.system() == "Windows" and platform.machine() == "ARM64",
-    reason="NYI: LLVM70 Bridge on Windows ARM64",
-)
+@requires_llvm70
 def test_concurrent_cold_cuda_compile():
     result = _run_python(
         """

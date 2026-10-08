@@ -7,6 +7,9 @@ on:
       host-platform:
         required: true
         type: string
+      python-versions:
+        required: true
+        type: string
       cuda-version:
         required: true
         type: string
@@ -26,7 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t"]
+        python-version: ${{ fromJSON(inputs.python-versions) }}
         exclude:
           - python-version: ${{ inputs.host-platform == 'win-arm64' && '3.10' || '' }}
     name: py${{ matrix.python-version }}

@@ -1514,7 +1514,7 @@ extern "C" __global__ void
             if not isinstance(ro, RangeObject):
                 raise InternalCompilerError(f"Range object not found for value {value.name}")
             self.store_var(target, ro)
-        elif isinstance(value_type, types.NumpyNdIterType):
+        elif isinstance(value_type, (types.NumpyNdIterType, numba_types.NumpyFlatType)):
             iter_obj = self.load_var(value)
             if not isinstance(iter_obj, NdIterIterObject):
                 raise InternalCompilerError(
@@ -2993,6 +2993,9 @@ extern "C" __global__ void
                 self.store_var(tmp_var, inner)
                 builder(self, None, [target, index, tmp_var], [])
                 return
+        raise NotImplementedError(
+            f"lowering setitem {setitem_inst} with types {arg_types}: no registered setitem builder"
+        )
 
     def lower_branch(self, branch_inst):
         """

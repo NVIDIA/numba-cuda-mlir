@@ -107,8 +107,14 @@ public:
 
   // --- Arithmetic ---
   LLVMValueRef buildAdd(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
+  LLVMValueRef buildNSWAdd(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
+  LLVMValueRef buildNUWAdd(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
   LLVMValueRef buildSub(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
+  LLVMValueRef buildNSWSub(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
+  LLVMValueRef buildNUWSub(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
   LLVMValueRef buildMul(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
+  LLVMValueRef buildNSWMul(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
+  LLVMValueRef buildNUWMul(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
   LLVMValueRef buildSDiv(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
   LLVMValueRef buildUDiv(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
   LLVMValueRef buildSRem(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
@@ -397,6 +403,8 @@ private:
   using BinOpFn = LLVMValueRef (*)(LLVMBuilderRef, LLVMValueRef, LLVMValueRef,
                                    const char *);
   BinOpFn fnBuildAdd = nullptr, fnBuildSub = nullptr, fnBuildMul = nullptr;
+  BinOpFn fnBuildNSWAdd = nullptr, fnBuildNSWSub = nullptr, fnBuildNSWMul = nullptr;
+  BinOpFn fnBuildNUWAdd = nullptr, fnBuildNUWSub = nullptr, fnBuildNUWMul = nullptr;
   BinOpFn fnBuildSDiv = nullptr, fnBuildUDiv = nullptr;
   BinOpFn fnBuildSRem = nullptr, fnBuildURem = nullptr;
   BinOpFn fnBuildFAdd = nullptr, fnBuildFSub = nullptr;

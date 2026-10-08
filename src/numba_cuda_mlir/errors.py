@@ -37,7 +37,7 @@ class UserFacingInternalCompilerError(RuntimeError):
     pass
 
 
-ISSUES_URL = "https://gitlab-master.nvidia.com/cuda-python/numba-simt-mlir-compiler/-/issues"
+ISSUES_URL = "https://github.com/NVIDIA/numba-cuda-mlir/issues"
 
 
 def handle_lowering_error(lower, func_ir):

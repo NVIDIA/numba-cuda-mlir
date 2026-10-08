@@ -484,7 +484,9 @@ class InlineInlinables(FunctionPass):
             raise inline_closurecall.InlineeNeedsArgTypes(dispatcher.py_func.__name__)
         argtypes = self._call_argtypes(state, expr, dispatcher, inline_worker)
         function = inline_worker.transform_inlinee(dispatcher.py_func, argtypes)
-        return inline_worker.inline_function(state.func_ir, block, i, function, arg_typs=argtypes)[3]
+        return inline_worker.inline_function(state.func_ir, block, i, function, arg_typs=argtypes)[
+            3
+        ]
 
     def _call_argtypes(self, state, expr, dispatcher, inline_worker):
         """Fold the call's argument types, as a call would, from a partial typing of the caller.
@@ -523,7 +525,9 @@ class InlineInlinables(FunctionPass):
         """
         from numba_cuda_mlir.numba_cuda.typing.templates import Signature
 
-        calls = (call for block in state.func_ir.blocks.values() for call in block.find_exprs("call"))
+        calls = (
+            call for block in state.func_ir.blocks.values() for call in block.find_exprs("call")
+        )
         callees = {
             callee
             for callee in (guard(self._callee, state.func_ir, call) for call in calls)

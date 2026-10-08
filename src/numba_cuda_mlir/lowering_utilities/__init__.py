@@ -63,15 +63,41 @@ def _memref_llvm_pointer_type(memref_type: ir.MemRefType) -> llvm.PointerType:
     return llvm.PointerType.get(memref_llvm_address_space(memref_type))
 
 
-def memref_data_pointer_as_index(array: ir.Value, element_type: ir.Type | None = None) -> ir.Value:
-    metadata = memref.extract_strided_metadata(array)
-    base_ptr_idx = memref.extract_aligned_pointer_as_index(metadata[0])
-    offset = index_of(metadata[1])
-    if element_type is None:
-        element_type = ir.MemRefType(array.type).element_type
-    elem_bytes = get_type_size_bytes(element_type)
-    byte_offset = arith.muli(offset, arith.constant(T.index(), elem_bytes))
-    return arith.addi(base_ptr_idx, byte_offset)
+def memref_descriptor_type(rank: int) -> ir.Type:
+    """Return the LLVM struct type the memref-to-LLVM lowering uses for a ranked memref."""
+    fields = "ptr, ptr, i64"
+    if rank > 0:
+        fields += f", array<{rank} x i64>, array<{rank} x i64>"
+    return ir.Type.parse(f"!llvm.struct<({fields})>")
+
+
+def memref_data_pointer(array: ir.Value) -> ir.Value:
+    """Return the memref's data pointer (aligned pointer + offset) as a generic ``!llvm.ptr``.
+
+    Stays in the pointer domain (``extractvalue`` + ``getelementptr``) rather than
+    going through integer arithmetic, so LLVM's address-space inference can follow
+    the pointer back to its origin and emit global/shared rather than generic
+    accesses through it.
+    """
+    mr_type = ir.MemRefType(array.type)
+    if mr_type.memory_space is not None:
+        mr_type = ir.MemRefType.get(mr_type.shape, mr_type.element_type, mr_type.layout)
+        array = memref.memory_space_cast(dest=mr_type, source=array)
+    desc = builtin.unrealized_conversion_cast([memref_descriptor_type(mr_type.rank)], [array])
+    aligned_ptr = llvm.extractvalue(llvm.PointerType.get(), desc, [1])
+    offset = llvm.extractvalue(T.i64(), desc, [2])
+    elem_bytes = arith.constant(T.i64(), get_type_size_bytes(mr_type.element_type))
+    return llvm_ptr_add_bytes(aligned_ptr, arith.muli(offset, elem_bytes))
+
+
+def llvm_ptr_add_bytes(ptr: ir.Value, byte_offset: ir.Value) -> ir.Value:
+    """Advance an LLVM pointer by ``byte_offset`` bytes.
+
+    Uses ``getelementptr`` rather than ``ptrtoint``/``add``/``inttoptr`` so the
+    result keeps the provenance of ``ptr`` for LLVM's address-space inference.
+    """
+    byte_offset = convert(byte_offset, T.i64())
+    return llvm.getelementptr(ptr.type, ptr, [byte_offset], [GEP_DYNAMIC_INDEX], T.i8(), None)
 
 
 def _memref_index_offset(array: ir.Value, indices: list[ir.Value]) -> ir.Value:
@@ -107,11 +133,8 @@ def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value], element_type: i
     Returns:
         LLVM pointer (!llvm.ptr) to the indexed element
     """
-    # Extract base pointer from memref and convert to an address-space-preserving
-    # LLVM pointer.
     ptr_type = _memref_llvm_pointer_type(ir.MemRefType(array.type))
-    base_ptr_idx = memref_data_pointer_as_index(array)
-    base_ptr = llvm.inttoptr(res=ptr_type, arg=convert(base_ptr_idx, T.i64()))
+    base_ptr = llvm.addrspacecast(ptr_type, memref_data_pointer(array))
 
     linear_idx = _memref_index_offset(array, indices)
     return llvm.getelementptr(
@@ -1021,6 +1044,15 @@ def unverified_basic_mlir_convert(
                 else arith.uitofp(out=target_type, in_=value)
             )
         case ((ir.FloatType() | ir.BF16Type()), ir.IntegerType()):
+            # Special case: converting to i1 (boolean) asks whether the value is non-zero.
+            # fptosi/fptoui to i1 keeps the low bit of the truncated integer instead, so 0.0
+            # comes out True and 2.0 comes out False. `_convert_integer_to_integer` already
+            # special-cases an i1 target the same way. UNE rather than ONE so that NaN is
+            # truthy, matching bool(float("nan")) in Python.
+            if target_type.width == 1:
+                trace("converting float to i1 (boolean) via comparison against zero")
+                zero = arith.constant(value_type, value=0.0)
+                return arith.cmpf(arith.CmpFPredicate.UNE, value, zero)
             return (
                 arith.fptosi(out=target_type, in_=value)
                 if use_signed_conversion(target_type.width > 1)
@@ -1052,9 +1084,8 @@ def unverified_basic_mlir_convert(
             imag = complex_dialect.im(value)
             imag = convert(imag, target_element_type)
             return complex_dialect.create_(complex=target_type, real=real, imaginary=imag)
-        case ir.MemRefType() as mr, ptr_type if str(ptr_type) == "!llvm.ptr":
-            idx = memref_data_pointer_as_index(value, mr.element_type)
-            return convert(idx, target_type)
+        case ir.MemRefType(), ptr_type if str(ptr_type) == "!llvm.ptr":
+            return memref_data_pointer(value)
         case ptr_type, ir.IntegerType() if str(ptr_type) == "!llvm.ptr":
             ptrtoi = llvm.ptrtoint(res=T.i64(), arg=value)
             return convert(ptrtoi, target_type)

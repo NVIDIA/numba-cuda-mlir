@@ -3,6 +3,7 @@
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir import compiler
 from numba_cuda_mlir import types, testing
+import pytest
 
 
 def test_inline_always():
@@ -35,8 +36,23 @@ def test_inline_never():
     )
 
 
-def test_inline_auto():
-    @cuda.jit(device=True, inline="auto")
+@pytest.mark.parametrize("device", [True, False])
+def test_inline_auto_rejected_at_decoration(device):
+    with pytest.raises(ValueError, match="Expected inline to be one of .*always.*never.*got auto"):
+        cuda.jit(device=device, inline="auto")(lambda x: x * 2.0)
+
+
+@pytest.mark.parametrize("inline", ["always", "never", True, False, lambda *args: True])
+def test_supported_inline_options(inline):
+    func = cuda.jit(device=True, inline=inline)(lambda x: x * 2.0)
+    expected = {True: "always", False: "never"}.get(inline, inline)
+    assert func.targetoptions["inline"] == expected
+
+
+def test_inline_callable():
+    # A cost-model callable defers the decision to the Numba IR inliner, so the
+    # MLIR function carries neither inline attribute.
+    @cuda.jit(device=True, inline=lambda expr, caller_ir, callee_ir: True)
     def device_func(x: types.f64) -> types.f64:
         return x * 2.0
 
@@ -49,3 +65,23 @@ def test_inline_auto():
         """,
         mlir,
     )
+
+
+@pytest.mark.parametrize(
+    "inline",
+    ["always", "never", lambda expr, caller_ir, callee_ir: True],
+    ids=["always", "never", "callable"],
+)
+def test_kernel_compiles_with_supported_inline_policies(inline):
+    # Every policy accepted at decoration must also be accepted by the
+    # caller's Numba IR inlining pass. inline="auto" passed decoration but
+    # failed there, so compile a kernel that calls the device function.
+    @cuda.jit(device=True, inline=inline)
+    def device_func(x: types.f64) -> types.f64:
+        return x * 2.0
+
+    @cuda.jit
+    def kernel(out):
+        out[0] = device_func(out[0])
+
+    compiler.compile_mlir(kernel, types.void(types.f64[::1]))

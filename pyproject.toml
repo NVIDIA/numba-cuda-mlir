@@ -67,6 +67,11 @@ test = [
     "filecheck",
     "cffi",
     "ml-dtypes",
+
+    # The cpu/gpu-compat doc examples reuse a `numba.jit` function on both the
+    # host and the device, so they need base numba (not numba-cuda). They are
+    # gated on it being importable, so they skip where it cannot be installed.
+    "numba; python_version < '3.15'",
 ]
 test-cu12 = [
     {include-group = "test"},

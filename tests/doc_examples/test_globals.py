@@ -3,8 +3,8 @@
 
 import unittest
 
-from numba.cuda.testing import CUDATestCase
-from numba.cuda.tests.support import captured_stdout
+from numba_cuda_mlir.numba_cuda.testing import CUDATestCase
+from numba_cuda_mlir.numba_cuda.tests.support import captured_stdout
 
 
 class TestGlobals(CUDATestCase):
@@ -30,7 +30,7 @@ class TestGlobals(CUDATestCase):
         """
         # magictoken.ex_globals_constant_capture.begin
         import numpy as np
-        from numba import cuda
+        from numba_cuda_mlir import cuda
 
         TAX_RATE = 0.08
         PRICES = np.array([10.0, 25.0, 5.0, 15.0, 30.0], dtype=np.float64)
@@ -67,7 +67,7 @@ class TestGlobals(CUDATestCase):
         """
         # magictoken.ex_globals_device_array_capture.begin
         import numpy as np
-        from numba import cuda
+        from numba_cuda_mlir import cuda
 
         # Global device array - pointer is captured, not data
         PRICES = cuda.to_device(np.array([10.0, 25.0, 5.0, 15.0, 30.0], dtype=np.float32))

@@ -7,6 +7,7 @@ from numba_cuda_mlir import lowering_utilities
 from numba_cuda_mlir.lowering_utilities import (
     numpy_implicit_type_promotion,
     convert,
+    i64_of,
     get_conversion_signedness,
     get_or_insert_function,
 )
@@ -408,7 +409,15 @@ def _bin_op_cg(op, builder, target, args, kwargs):
             rhs = _convert_operand(rhs, rhs_type, promoted_numba_type, unified_type)
         else:
             lhs, rhs = lowering_utilities.coerce_numpy_scalars_for_binary_op(lhs, rhs)
-        res = op(lhs, rhs)
+        if (
+            isinstance(target_type, types.Integer)
+            and target_type.signed
+            and op in (arith.addi, arith.subi, arith.muli)
+        ):
+            # Match Numba: ignore signed overflow so index checks can fold.
+            res = op(lhs, rhs, overflow_flags="nsw")
+        else:
+            res = op(lhs, rhs)
     else:
         raise ValueError(f"No operation found for {op=} and {target_mlir_type=}")
 
@@ -534,10 +543,7 @@ def pointer_array_cg(builder, target, args, kwargs):
         "calling types.ptr() is only supported on arrays, pointers, and integers"
     )
     array = builder.load_var(args[0])
-    result = lowering_utilities.memref_data_pointer_as_index(array)
-    result = arith.index_cast(T.i64(), result)
-    result = llvm.inttoptr(res=llvm.PointerType.get(), arg=result)
-    builder.store_var(target, result)
+    builder.store_var(target, lowering_utilities.memref_data_pointer(array))
 
 
 @lower(operator.sub, numba_cuda_mlir.types.ptr, types.Integer)
@@ -556,10 +562,7 @@ def pointer_sub_cg(builder, target, args, kwargs):
             raise ValueError(f"Unsupported types: {lhs.type} and {rhs.type}")
     I = convert(I, T.i64())
     P = convert(P, llvm.PointerType.get())
-    P = llvm.ptrtoint(res=T.i64(), arg=P)
-    P -= I
-    P = llvm.inttoptr(res=llvm.PointerType.get(), arg=P)
-    builder.store_var(target, P)
+    builder.store_var(target, lowering_utilities.llvm_ptr_add_bytes(P, i64_of(0) - I))
 
 
 @lower(operator.add, numba_cuda_mlir.types.ptr, types.Integer)
@@ -578,10 +581,7 @@ def pointer_add_cg(builder, target, args, kwargs):
             raise ValueError(f"Unsupported types: {lhs.type} and {rhs.type}")
     I = convert(I, T.i64())
     P = convert(P, llvm.PointerType.get())
-    P = llvm.ptrtoint(res=T.i64(), arg=P)
-    P += I
-    P = llvm.inttoptr(res=llvm.PointerType.get(), arg=P)
-    builder.store_var(target, P)
+    builder.store_var(target, lowering_utilities.llvm_ptr_add_bytes(P, I))
 
 
 @lower(math.ceil, types.Number)

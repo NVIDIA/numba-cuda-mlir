@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from numba_cuda_mlir.descriptor import MLIRDispatcherType
+from numba_cuda_mlir.descriptor import MLIRDispatcherType, is_vendored_codegen
 from io import StringIO
 import logging
 import operator
@@ -46,6 +46,9 @@ from numba_cuda_mlir.lowering_utilities import (
     get_func_type,
     get_type_size_bytes,
     get_conversion_signedness,
+    llvm_ptr_add_bytes,
+    memref_data_pointer,
+    memref_descriptor_type,
     storage_itemsize_bytes,
 )
 from numba_cuda_mlir.compiler import (
@@ -1004,13 +1007,7 @@ extern "C" __global__ void
                 self.store_var(target, free_var.value)
 
     def _build_memref_descriptor(self, ptr, shape, strides):
-        ndim = len(shape)
-        if ndim > 0:
-            struct_type = ir.Type.parse(
-                f"!llvm.struct<(ptr, ptr, i64, array<{ndim} x i64>, array<{ndim} x i64>)>"
-            )
-        else:
-            struct_type = ir.Type.parse("!llvm.struct<(ptr, ptr, i64)>")
+        struct_type = memref_descriptor_type(len(shape))
         i64c = lambda v: arith.constant(T.i64(), v)
         ins = lambda d, v, *p: llvm.insertvalue(
             container=d, value=v, position=ir.DenseI64ArrayAttr.get(list(p))
@@ -1860,13 +1857,9 @@ extern "C" __global__ void
         array_val = self.load_var(value)
         target_mlir_type = self.get_mlir_type(target_type)
 
-        ptr_as_index = memref.extract_aligned_pointer_as_index(array_val)
-        ptr_i64 = arith.index_cast(T.i64(), ptr_as_index)
-
+        ptr = memref_data_pointer(array_val)
         if field_offset > 0:
-            ptr_i64 = arith.addi(ptr_i64, arith.constant(T.i64(), field_offset))
-
-        ptr = llvm.inttoptr(llvm.PointerType.get(), ptr_i64)
+            ptr = llvm_ptr_add_bytes(ptr, arith.constant(T.i64(), field_offset))
 
         md = memref.extract_strided_metadata(array_val)
 
@@ -1880,15 +1873,12 @@ extern "C" __global__ void
             stride_i64 = convert(md[2 + rank + i], T.i64())
             strides_i64.append(arith.muli(stride_i64, arith.constant(T.i64(), stride_multiplier)))
 
-        struct_type = ir.Type.parse(
-            f"!llvm.struct<(ptr, ptr, i64, array<{rank} x i64>, array<{rank} x i64>)>"
-        )
         i64c = lambda v: arith.constant(T.i64(), v)
         ins = lambda d, v, *p: llvm.insertvalue(
             container=d, value=v, position=ir.DenseI64ArrayAttr.get(list(p))
         )
 
-        desc = llvm.UndefOp(struct_type).result
+        desc = llvm.UndefOp(memref_descriptor_type(rank)).result
         desc = ins(desc, ptr, 0)
         desc = ins(desc, ptr, 1)
         desc = ins(desc, i64c(0), 2)
@@ -2064,11 +2054,14 @@ extern "C" __global__ void
             return builder
 
         if isinstance(fn, _Intrinsic):
-            has_arrays = any(isinstance(arg_ty, types.Array) for arg_ty in signature.args)
-            if has_arrays:
-                return None
             tyctx = self.context.typing_context
             full_sig, maybe_builder = fn._defn(tyctx, *signature.args)
+            if is_vendored_codegen(maybe_builder):
+                # Typing rejects these (MLIRTypingContext.check_intrinsic_codegen).
+                raise InternalCompilerError(
+                    f"{fn!r} has no MLIR lowering for {signature}; its vendored "
+                    "codegen cannot run on the MLIR path."
+                )
             if maybe_builder:
                 return maybe_builder
 
@@ -2671,10 +2664,7 @@ extern "C" __global__ void
         if isinstance(value_type, types.ArrayCTypes) and attr == "data":
             # Get the underlying array/memref
             array_value = self.load_var(value)
-            # Extract the aligned pointer as an index
-            ptr_as_index = memref.extract_aligned_pointer_as_index(array_value)
-            # Convert index to uintp
-            result = arith.index_cast(T.i64(), ptr_as_index)
+            result = llvm.ptrtoint(T.i64(), memref_data_pointer(array_value))
             self.store_var(target, result)
             return
 
@@ -3003,6 +2993,9 @@ extern "C" __global__ void
                 self.store_var(tmp_var, inner)
                 builder(self, None, [target, index, tmp_var], [])
                 return
+        raise NotImplementedError(
+            f"lowering setitem {setitem_inst} with types {arg_types}: no registered setitem builder"
+        )
 
     def lower_branch(self, branch_inst):
         """
@@ -3210,12 +3203,7 @@ extern "C" __global__ void
         )
 
         md = memref.extract_strided_metadata(array_value)
-        base_ptr_idx = memref.extract_aligned_pointer_as_index(md[0])
-        base_ptr_i64 = arith.index_cast(i64, base_ptr_idx)
-        offset_i64 = convert(md[1], i64)
-        byte_offset = arith.muli(offset_i64, i64c(itemsize))
-        data_ptr_i64 = arith.addi(base_ptr_i64, byte_offset)
-        data_ptr = llvm.inttoptr(ptr_type, data_ptr_i64)
+        data_ptr = memref_data_pointer(array_value)
 
         nitems = i64c(1)
         shape = llvm.UndefOp(array_type).result
@@ -3339,6 +3327,12 @@ extern "C" __global__ void
                     if descriptor is not None:
                         self._emit_dbg_declare(base_name, descriptor, var_attr, volatile=True)
             return
+        # Index-typed, such as memref.dim yields for `arr.shape[k]` and `arr.size`, needs to
+        # cast to the integer width the DI variable was declared with.
+        if isinstance(mlir_value.type, ir.IndexType):
+            if not isinstance(numba_type, types.Integer):
+                return
+            mlir_value = arith.index_cast(out=self.get_mlir_type(numba_type), in_=mlir_value)
         is_arg = base_name in self._di_builder.arg_names
         is_boolean = isinstance(numba_type, types.Boolean)
         if is_arg and not is_boolean:

@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import pytest
+import sys
 from numba_cuda_mlir.mlir.context import mlir_mod_ctx
 from numba_cuda_mlir.mlir.dialect_exts import func
 from numba_cuda_mlir import testing
@@ -9,6 +10,16 @@ from numba_cuda_mlir._mlir.extras import types as T
 
 def _resolve_type(name):
     return {"f32": T.f32, "f64": T.f64, "i32": T.i32, "i64": T.i64}[name]()
+
+
+@pytest.mark.skipif(sys.version_info[:2] != (3, 15), reason="Python 3.15 bytecode")
+def test_python315_empty_function_is_declaration():
+    def declaration():
+        pass
+
+    func_base = object.__new__(func.FuncBase)
+    func_base.body_builder = declaration
+    assert func_base._is_decl()
 
 
 def _build_pow_module(lhs_type, rhs_type):

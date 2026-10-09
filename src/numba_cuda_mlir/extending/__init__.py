@@ -13,6 +13,7 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
     _OverloadAttributeTemplate,
     _OverloadFunctionTemplate,
     _select_overload_dispatcher,
+    canonical_call_key,
     _OverloadMethodTemplate,
     make_overload_template,
     make_overload_attribute_template,
@@ -228,9 +229,13 @@ class _NumbaCudaMlirOverloadAttributeTemplate(_OverloadAttributeTemplate):
     def _find_overload_dispatcher(cls, typing_context, typ):
         """Find the cached overload Dispatcher for *typ* under the active flags."""
         fnty = typing_context.resolve_value_type(cls._overload_func)
+
+        def entry_matches(py_func, args, kws):
+            return canonical_call_key(py_func, args, kws) == canonical_call_key(py_func, (typ,), {})
+
         return _select_overload_dispatcher(
             getattr(fnty, "templates", []),
-            lambda args: args == (typ,),
+            entry_matches,
             targetconfig.ConfigStack.top_or_none(),
         )
 

@@ -28,7 +28,10 @@ from numba_cuda_mlir.numba_cuda.core import config as cuda_config
 from numba_cuda_mlir.numba_cuda.cudadrv import driver as numba_cuda_driver
 from importlib.util import find_spec
 from numba_cuda_mlir.numba_cuda.core import errors, sigutils, targetconfig
-from numba_cuda_mlir.numba_cuda.typing.templates import _select_overload_dispatcher
+from numba_cuda_mlir.numba_cuda.typing.templates import (
+    _select_overload_dispatcher,
+    canonical_call_key,
+)
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 from numba_cuda_mlir.numba_cuda.cudadecl import registry as cuda_registry
@@ -1255,12 +1258,18 @@ class MLIRTargetContext(BaseContext):
             return
         self.load_additional_registries()
 
-    def get_overload_builder(self, fn, sig):
+    def get_overload_builder(self, fn, sig, call_arg_types=None, call_kw_types=None):
         """Return an MLIR builder for an overloaded function, or None.
 
         Searches the typing templates for an overload Dispatcher that
         can be compiled through numba_cuda_mlir's MLIR pipeline. For BoundFunction
         types, resolves the underlying overload function's templates.
+
+        *call_arg_types* and *call_kw_types* are the positional types and the
+        name-to-type mapping of the keywords the call site supplied.  ``sig``
+        alone cannot stand in for them: it holds the keyword types appended to
+        the positional ones with their names dropped, so the slot each one
+        belongs in is no longer recoverable from it.
         """
         if not isinstance(fn, types.Callable):
             return None
@@ -1273,28 +1282,48 @@ class MLIRTargetContext(BaseContext):
                 inner_fnty = self.typing_context.resolve_value_type(overload_func)
                 templates.extend(getattr(inner_fnty, "templates", []))
 
-        literal_args = tuple((sig.recvr, *sig.args) if sig.recvr else sig.args)
-        match_args = tuple(types.unliteral(arg) for arg in literal_args)
-        omitted = (types.Omitted, types.NoneType)
+        cur_flags = targetconfig.ConfigStack.top_or_none()
 
-        def drop_omitted(args):
-            return tuple(a for a in args if not isinstance(a, omitted))
+        # The call as it was written.  Keeping the keywords named, rather than
+        # appended to the positional types the way `sig` carries them, is what
+        # lets both sides of the comparison below be put in one canonical order
+        # instead of being compared in several speculative arrangements.
+        if call_arg_types is None:
+            call_args = tuple(sig.args)
+            call_kws = {}
+        else:
+            call_args = tuple(call_arg_types)
+            call_kws = dict(call_kw_types or {})
+        if sig.recvr:
+            call_args = (sig.recvr, *call_args)
 
-        # The cache key only holds the arguments the call actually supplied,
-        # while `sig` also carries omitted defaults; compare with and without
-        # them.  `cache_args` also keeps whatever literals the template was
-        # typed with, so an overload registered `prefer_literal=True` (or one
-        # that requested the constant via `literally()`) only ever matches
-        # the un-unliteral'd form; accept either form in both comparisons.
-        full_forms = (match_args, literal_args)
-        trimmed_forms = (drop_omitted(match_args), drop_omitted(literal_args))
+        wanted_by_impl = {}
 
-        def args_match(cache_args):
-            return cache_args in full_forms or drop_omitted(cache_args) in trimmed_forms
+        def wanted(py_func):
+            """The keys this call would be cached under, most literal first.
 
-        disp = _select_overload_dispatcher(
-            templates, args_match, targetconfig.ConfigStack.top_or_none()
-        )
+            A template typed against a literal records that literal, so an entry
+            keyed on one must only be taken by a call that still carries it.
+            The call is therefore the only side that gets unliteral'd: dropping
+            the literal from the entry as well would let an ``int64`` call take
+            an entry built for a specific constant.
+            """
+            if py_func not in wanted_by_impl:
+                key = canonical_call_key(py_func, call_args, call_kws)
+                forms = ()
+                if key is not None:
+                    forms = (key, tuple(types.unliteral(a) for a in key))
+                wanted_by_impl[py_func] = forms
+            return wanted_by_impl[py_func]
+
+        def entry_matches(py_func, entry_args, entry_kws):
+            # Both the call and the cache entry are laid out in the order the
+            # implementation declares its parameters, so one equality settles
+            # keyword order, omitted defaults, and whether a ``*args`` bundle
+            # arrived collected or spread.
+            return canonical_call_key(py_func, tuple(entry_args), entry_kws) in wanted(py_func)
+
+        disp = _select_overload_dispatcher(templates, entry_matches, cur_flags)
         if disp is None:
             return None
 

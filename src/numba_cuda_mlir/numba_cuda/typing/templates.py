@@ -208,31 +208,15 @@ def fold_arguments(pysig, args, kws, normal_handler, default_handler, stararg_ha
         # Normalize dict kws
         kws = dict(kws)
 
-    # deal with kwonly args
-    params = pysig.parameters
-    kwonly = []
-    for name, p in params.items():
-        if p.kind == p.KEYWORD_ONLY:
-            kwonly.append(name)
-
-    if kwonly:
-        bind_args = args[: -len(kwonly)]
-    else:
-        bind_args = args
-    bind_kws = kws.copy()
-    if kwonly:
-        for idx, n in enumerate(kwonly):
-            bind_kws[n] = args[len(kwonly) + idx]
-
     # now bind
     try:
-        ba = pysig.bind(*bind_args, **bind_kws)
+        ba = pysig.bind(*args, **kws)
     except TypeError as e:
         # The binding attempt can raise if the args don't match up, this needs
         # to be converted to a TypingError so that e.g. partial type inference
         # doesn't just halt.
         msg = (
-            f"Cannot bind 'args={bind_args} kws={bind_kws}' to "
+            f"Cannot bind 'args={args} kws={kws}' to "
             f"signature '{pysig}' due to \"{type(e).__name__}: {e}\"."
         )
         raise TypingError(msg)
@@ -629,12 +613,68 @@ def _flags_match_reads(flags, reads):
     return all(_read_flag(flags, read) == value for read, value in reads)
 
 
-def _select_overload_dispatcher(templates, args_match, cur_flags):
+def _spread_bundle(collected):
+    """The types a ``*args`` parameter contributes, however they arrived.
+
+    Typing folds a bundle into one ``StarArg`` tuple while a call site supplies
+    its elements individually.  Only the folded form carries the ``StarArg``
+    marker, so a genuine trailing tuple argument is never mistaken for a
+    bundle the way a plain ``BaseTuple`` check would mistake it.
+    """
+    spread = []
+    for arg_type in collected:
+        if isinstance(arg_type, (types.StarArgTuple, types.StarArgUniTuple)):
+            spread.extend(arg_type.types)
+        else:
+            spread.append(arg_type)
+    return spread
+
+
+def canonical_call_key(impl_func, arg_types, kw_types):
+    """Argument types laid out in the order *impl_func* declares its parameters.
+
+    Binding puts every supplied type in the slot the callee declared for it, so
+    the result does not depend on how the call spelled them: keywords in any
+    order, an omitted default, and a ``*args`` bundle whether it arrives
+    collected or spread all produce the same tuple.  Omitted defaults become
+    ``types.Omitted`` and a bundle is spread inline, which is the form a call
+    site supplies them in.
+
+    Returns ``None`` when the arguments do not fit the declared parameters -- a
+    caller comparing against a cache entry should read that as "not this one"
+    rather than an error, since a mismatched arity is exactly what it is looking
+    to rule out.
+    """
+    try:
+        pysig = utils.pysignature(impl_func)
+        ba = pysig.bind(*arg_types, **kw_types)
+    except (TypeError, ValueError):
+        return None
+
+    key = []
+    for name, param in pysig.parameters.items():
+        if name not in ba.arguments:
+            # Unsupplied, so the callee will use its default.  Recording the
+            # default itself keeps two calls that differ in what they omitted
+            # from collapsing onto one key.
+            key.append(types.Omitted(param.default))
+        elif param.kind is param.VAR_POSITIONAL:
+            key.extend(_spread_bundle(ba.arguments[name]))
+        elif param.kind is param.VAR_KEYWORD:
+            key.extend(ba.arguments[name].values())
+        else:
+            key.append(ba.arguments[name])
+    return tuple(key)
+
+
+def _select_overload_dispatcher(templates, entry_matches, cur_flags):
     """Pick the cached overload Dispatcher for *cur_flags* from *templates*.
 
-    Scans every ``_impl_cache`` entry whose argument types satisfy *args_match*:
-    exact flag match first, then flags agreeing on every option the body read, then
-    the first argument match.
+    Scans every ``_impl_cache`` entry that *entry_matches* accepts, which is
+    called as ``entry_matches(py_func, args, kws)`` with the entry's own
+    implementation function and the positional and keyword types it was cached
+    under: exact flag match first, then flags agreeing on every option the body
+    read, then the first argument match.
     """
     observed = fallback = None
     for temp_cls in templates:
@@ -647,10 +687,10 @@ def _select_overload_dispatcher(templates, args_match, cur_flags):
                 continue
             _, args, kws, entry_flags = cache_key
             args = tuple(args)
-            if not args_match(args):
-                continue
             disp, _ = cache_value
             if not hasattr(disp, "py_func"):
+                continue
+            if not entry_matches(disp.py_func, args, dict(kws)):
                 continue
             if cur_flags is None or entry_flags == cur_flags:
                 return disp

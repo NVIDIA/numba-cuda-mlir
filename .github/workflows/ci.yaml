@@ -327,6 +327,30 @@ jobs:
     with:
       host-platform: linux-aarch64
 
+  test-cccl-compute-mlir-linux-64:
+    name: CCCL cuda.compute MLIR Test linux-64
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.doc-only) }}
+    permissions:
+      contents: read
+    needs:
+      - should-skip
+      - build-linux-64
+    uses: ./.github/workflows/test-cccl-compute-mlir-linux.yml
+    with:
+      host-platform: linux-64
+
+  test-cccl-compute-mlir-linux-aarch64:
+    name: CCCL cuda.compute MLIR Test linux-aarch64
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.doc-only) }}
+    permissions:
+      contents: read
+    needs:
+      - should-skip
+      - build-linux-aarch64
+    uses: ./.github/workflows/test-cccl-compute-mlir-linux.yml
+    with:
+      host-platform: linux-aarch64
+
   test-cuda-gdb-linux-64:
     name: cuda-gdb Test linux-64
     if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.doc-only) }}
@@ -409,6 +433,8 @@ jobs:
       - test-numbast-mlir-linux-aarch64
       - test-nvmath-python-mlir-linux-64
       - test-nvmath-python-mlir-linux-aarch64
+      - test-cccl-compute-mlir-linux-64
+      - test-cccl-compute-mlir-linux-aarch64
       - test-cuda-gdb-linux-64
       - test-cuda-gdb-linux-aarch64
       - build-docs
@@ -460,6 +486,8 @@ jobs:
           check_result "test-numbast-mlir-linux-aarch64" "$expected" "${{ needs.test-numbast-mlir-linux-aarch64.result }}"
           check_result "test-nvmath-python-mlir-linux-64"      "$expected" "${{ needs.test-nvmath-python-mlir-linux-64.result }}"
           check_result "test-nvmath-python-mlir-linux-aarch64" "$expected" "${{ needs.test-nvmath-python-mlir-linux-aarch64.result }}"
+          check_result "test-cccl-compute-mlir-linux-64"      "$expected" "${{ needs.test-cccl-compute-mlir-linux-64.result }}"
+          check_result "test-cccl-compute-mlir-linux-aarch64" "$expected" "${{ needs.test-cccl-compute-mlir-linux-aarch64.result }}"
           check_result "test-cuda-gdb-linux-64"          "$expected" "${{ needs.test-cuda-gdb-linux-64.result }}"
           check_result "test-cuda-gdb-linux-aarch64"     "$expected" "${{ needs.test-cuda-gdb-linux-aarch64.result }}"
 

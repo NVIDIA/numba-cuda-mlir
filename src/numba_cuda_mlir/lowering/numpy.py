@@ -23,6 +23,7 @@ from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.type_defs.vector_types import VectorType
+from numba_cuda_mlir.numba_cuda.np import numpy_support
 from numba_cuda_mlir.numba_cuda.np.npyimpl import _make_dtype_object
 
 registry = LoweringRegistry()
@@ -4458,6 +4459,119 @@ def _bitwise_not_fn(a):
 def np_bitwise_not_array_to_array_cg(builder, target, args, kwargs):
     """bitwise_not(a, out) - element-wise ~a"""
     create_elementwise_op_with_output(builder, target, args, _bitwise_not_fn)
+
+
+# Shift ufuncs
+
+
+def _shift_fn(left, signed):
+    """A shift as NumPy defines it (npy_lshift, npy_rshift).
+
+    Shifting by the bit width or more, or by a negative count, gives 0, or -1 for a
+    right shift of a negative value. MLIR's shifts give poison there, so shift by the
+    count clamped to width - 1 and select 0 for the counts out of range.
+    """
+
+    def shift(a, n):
+        def const(value):
+            return arith.constant(result=a.type, value=value)
+
+        width = a.type.width
+        in_range = arith.cmpi(arith.CmpIPredicate.ult, n, const(width))
+        # Clamp even though the select drops the result: for sm_100+, libNVVM 13.4 folds a
+        # select of the unclamped shift into a PTX shift by the low 32 bits of a 64-bit
+        # count, so 1 << 2**32 gave 1. A clamp written as a select on in_range gets folded
+        # away the same way.
+        count = arith.minui(n, const(width - 1))
+        if signed and not left:
+            # Shifting by width - 1 fills the value with its sign bit, giving 0 or -1
+            return arith.shrsi(a, count)
+        shifted = arith.shli(a, count) if left else arith.shrui(a, count)
+        return arith.select(in_range, shifted, const(0))
+
+    return shift
+
+
+def _shift_op(builder, ufunc, a_type, b_type, out_type):
+    """ufunc for values of scalar types a_type and b_type, giving an out_type value.
+
+    The shift is computed in the type of the ufunc loop that typing selected.
+    """
+    loop = numpy_support.ufunc_find_matching_loop(ufunc, (a_type, b_type))
+    loop_type = loop.outputs[0]
+    value_type = builder.get_value_type(loop_type)
+    out_value_type = builder.get_value_type(out_type)
+    shift = _shift_fn(ufunc is np.left_shift, loop_type.signed)
+
+    def op(a, n):
+        a = convert(a, value_type, signed=get_conversion_signedness(a_type, loop_type))
+        n = convert(n, value_type, signed=get_conversion_signedness(b_type, loop_type))
+        return convert(shift(a, n), out_value_type, signed=loop_type.signed)
+
+    return op
+
+
+def _shift_scalar(builder, target, args, ufunc):
+    assert len(args) == 2
+    a_type, b_type = (builder.get_numba_type(arg.name) for arg in args)
+    shift = _shift_op(builder, ufunc, a_type, b_type, builder.get_numba_type(target.name))
+    builder.store_var(target, shift(builder.load_var(args[0]), builder.load_var(args[1])))
+
+
+def _shift_scalar_to_array(builder, target, args, ufunc):
+    assert len(args) == 3
+    a_type, b_type = (builder.get_numba_type(arg.name) for arg in args[:2])
+    out_type = builder.get_numba_type(args[2].name).dtype
+    shift = _shift_op(builder, ufunc, a_type, b_type, out_type)
+    result = shift(builder.load_var(args[0]), builder.load_var(args[1]))
+    out_arr = builder.load_var(args[2])
+    _store_first_output_value(builder, args[2], out_arr, result)
+    builder.store_var(target, out_arr)
+
+
+def _shift_array_to_array(builder, target, args, ufunc):
+    assert len(args) == 3
+    a_type, b_type, out_type = (builder.get_numba_type(arg.name).dtype for arg in args)
+    shift = _shift_op(builder, ufunc, a_type, b_type, out_type)
+    create_binary_elementwise_op_with_output(
+        builder, target, args, shift, f"np.{ufunc.__name__}", convert_inputs=False
+    )
+
+
+@lower(np.left_shift, types.Integer, types.Integer)
+def np_left_shift_scalar_cg(builder, target, args, kwargs):
+    """left_shift(a, b) - scalar a << b"""
+    _shift_scalar(builder, target, args, np.left_shift)
+
+
+@lower(np.left_shift, types.Integer, types.Integer, types.Array)
+def np_left_shift_scalar_to_array_cg(builder, target, args, kwargs):
+    """left_shift(a, b, out) - scalar a << b to output array"""
+    _shift_scalar_to_array(builder, target, args, np.left_shift)
+
+
+@lower(np.left_shift, types.Array, types.Array, types.Array)
+def np_left_shift_array_to_array_cg(builder, target, args, kwargs):
+    """left_shift(a, b, out) - element-wise a << b"""
+    _shift_array_to_array(builder, target, args, np.left_shift)
+
+
+@lower(np.right_shift, types.Integer, types.Integer)
+def np_right_shift_scalar_cg(builder, target, args, kwargs):
+    """right_shift(a, b) - scalar a >> b"""
+    _shift_scalar(builder, target, args, np.right_shift)
+
+
+@lower(np.right_shift, types.Integer, types.Integer, types.Array)
+def np_right_shift_scalar_to_array_cg(builder, target, args, kwargs):
+    """right_shift(a, b, out) - scalar a >> b to output array"""
+    _shift_scalar_to_array(builder, target, args, np.right_shift)
+
+
+@lower(np.right_shift, types.Array, types.Array, types.Array)
+def np_right_shift_array_to_array_cg(builder, target, args, kwargs):
+    """right_shift(a, b, out) - element-wise a >> b"""
+    _shift_array_to_array(builder, target, args, np.right_shift)
 
 
 # Log ufuncs with output array

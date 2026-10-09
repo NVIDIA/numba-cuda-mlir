@@ -613,27 +613,68 @@ def _flags_match_reads(flags, reads):
     return all(_read_flag(flags, read) == value for read, value in reads)
 
 
-def _ordered_kw_types(impl_func, kws):
-    """Types of the keyword arguments in the order of *impl_func*'s parameters.
+def _spread_bundle(collected):
+    """The types a ``*args`` parameter contributes, however they arrived.
 
-    Keywords the signature does not name (``**kwargs``) keep their call order.
+    Typing folds a bundle into one ``StarArg`` tuple while a call site supplies
+    its elements individually.  Only the folded form carries the ``StarArg``
+    marker, so a genuine trailing tuple argument is never mistaken for a
+    bundle the way a plain ``BaseTuple`` check would mistake it.
+    """
+    spread = []
+    for arg_type in collected:
+        if isinstance(arg_type, (types.StarArgTuple, types.StarArgUniTuple)):
+            spread.extend(arg_type.types)
+        else:
+            spread.append(arg_type)
+    return spread
+
+
+def canonical_call_key(impl_func, arg_types, kw_types):
+    """Argument types laid out in the order *impl_func* declares its parameters.
+
+    Binding puts every supplied type in the slot the callee declared for it, so
+    the result does not depend on how the call spelled them: keywords in any
+    order, an omitted default, and a ``*args`` bundle whether it arrives
+    collected or spread all produce the same tuple.  Omitted defaults become
+    ``types.Omitted`` and a bundle is spread inline, which is the form a call
+    site supplies them in.
+
+    Returns ``None`` when the arguments do not fit the declared parameters -- a
+    caller comparing against a cache entry should read that as "not this one"
+    rather than an error, since a mismatched arity is exactly what it is looking
+    to rule out.
     """
     try:
-        order = list(inspect.signature(impl_func).parameters)
+        pysig = utils.pysignature(impl_func)
+        ba = pysig.bind(*arg_types, **kw_types)
     except (TypeError, ValueError):
-        return tuple(t for _, t in kws)
-    return tuple(
-        t
-        for _, t in sorted(kws, key=lambda kv: order.index(kv[0]) if kv[0] in order else len(order))
-    )
+        return None
+
+    key = []
+    for name, param in pysig.parameters.items():
+        if name not in ba.arguments:
+            # Unsupplied, so the callee will use its default.  Recording the
+            # default itself keeps two calls that differ in what they omitted
+            # from collapsing onto one key.
+            key.append(types.Omitted(param.default))
+        elif param.kind is param.VAR_POSITIONAL:
+            key.extend(_spread_bundle(ba.arguments[name]))
+        elif param.kind is param.VAR_KEYWORD:
+            key.extend(ba.arguments[name].values())
+        else:
+            key.append(ba.arguments[name])
+    return tuple(key)
 
 
-def _select_overload_dispatcher(templates, args_match, cur_flags):
+def _select_overload_dispatcher(templates, entry_matches, cur_flags):
     """Pick the cached overload Dispatcher for *cur_flags* from *templates*.
 
-    Scans every ``_impl_cache`` entry whose argument types satisfy *args_match*:
-    exact flag match first, then flags agreeing on every option the body read, then
-    the first argument match.
+    Scans every ``_impl_cache`` entry that *entry_matches* accepts, which is
+    called as ``entry_matches(py_func, args, kws)`` with the entry's own
+    implementation function and the positional and keyword types it was cached
+    under: exact flag match first, then flags agreeing on every option the body
+    read, then the first argument match.
     """
     observed = fallback = None
     for temp_cls in templates:
@@ -649,9 +690,7 @@ def _select_overload_dispatcher(templates, args_match, cur_flags):
             disp, _ = cache_value
             if not hasattr(disp, "py_func"):
                 continue
-            # Keyword arguments reach the caller's signature folded in after the
-            # positional ones, in parameter order.
-            if not args_match(args + _ordered_kw_types(disp.py_func, kws)):
+            if not entry_matches(disp.py_func, args, dict(kws)):
                 continue
             if cur_flags is None or entry_flags == cur_flags:
                 return disp

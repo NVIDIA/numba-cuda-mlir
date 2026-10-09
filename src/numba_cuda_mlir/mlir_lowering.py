@@ -2220,9 +2220,9 @@ extern "C" __global__ void
             assert self.var_lowered(value), f"Named arg {name}={value} not found in varmap."
 
         target_type = self.get_numba_type(target.name)
-        kwarg_types = [self.get_numba_type(value.name) for (name, value) in kws]
+        kw_types = {name: self.get_numba_type(value.name) for (name, value) in kws}
         arg_types = [self.get_numba_type(arg.name) for arg in args]
-        signature = target_type(*arg_types, *kwarg_types)
+        signature = target_type(*arg_types, *kw_types.values())
 
         if expr is not None and expr in self.fndesc.calltypes:
             ct_sig = self.fndesc.calltypes[expr]
@@ -2297,7 +2297,9 @@ extern "C" __global__ void
             callee = self.user_defined_functions[fn.name]
             callOp = self.build_user_defined_function_call(target, callee, args, kws)
             self.store_var(target, callOp)
-        elif overload_builder := self.context.get_overload_builder(fn_type, signature):
+        elif overload_builder := self.context.get_overload_builder(
+            fn_type, signature, arg_types, kw_types
+        ):
             overload_builder(self, target, call_args, kws)
         elif getattr(fn_value, "__numba_cuda_mlir_jitable__", False):
             # Function marked by numba_cuda_mlir's @register_jitable.

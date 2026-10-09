@@ -1768,6 +1768,20 @@ def get_or_insert_function(
     return declare_external_function(name, mlir_type, ir.InsertionPoint(body))
 
 
+def signless_int(value: int, ty: ir.Type) -> int:
+    """
+    Return ``value`` in the form ``arith.constant`` accepts for the integer type ``ty``.
+
+    MLIR integers are signless, but ``IntegerAttr.get`` takes an ``int64_t``, so an
+    unsigned value of 2**63 or more (e.g. a uint64 hash constant) fails with
+    ``std::bad_cast``. Such a value is passed as its two's complement, which has the
+    same bits. Every other value is returned unchanged.
+    """
+    if isinstance(ty, ir.IntegerType) and (1 << 63) <= value < (1 << ty.width):
+        return value - (1 << ty.width)
+    return value
+
+
 def constant(
     value: ir.Value | int | float | bool | complex | np.number, ty: ir.Type | None
 ) -> ir.Value:
@@ -1785,7 +1799,7 @@ def constant(
         case ir.Value(), t if t is None:
             return value
         case int(), ir.IntegerType():
-            return arith.constant(ty, value=value)
+            return arith.constant(ty, value=signless_int(value, ty))
         case int(), ir.IndexType():
             return arith.constant(ty, value=value)
         case float(), ir.FloatType():
@@ -1802,7 +1816,7 @@ def constant(
         case ir.Value(), _:
             return convert(value, ty)
         case _, ir.IntegerType():
-            return arith.constant(ty, value=int(value))
+            return arith.constant(ty, value=signless_int(int(value), ty))
         case _, ir.IndexType():
             return arith.constant(ty, value=int(value))
         case _, ir.FloatType():

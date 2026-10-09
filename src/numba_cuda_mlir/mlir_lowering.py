@@ -27,6 +27,7 @@ from numba_cuda_mlir.lowering_utilities.type_conversions import (
 from numba_cuda_mlir.lowering_utilities import (
     context as numba_cuda_mlir_context,
     constant,
+    signless_int,
 )
 from numba_cuda_mlir.lowering_utilities import (
     DeferredLowering,
@@ -1222,6 +1223,8 @@ extern "C" __global__ void
                 value = float(value)
             elif isinstance(value, np.bool_):
                 value = bool(value)
+            if isinstance(value, int):
+                value = signless_int(value, mlir_type)
             self.store_var(
                 target,
                 arith.constant(mlir_type, value),
@@ -1333,7 +1336,7 @@ extern "C" __global__ void
                 return arith.constant(result=T.bool(), value=value)
             case int():
                 # Python int literal - convert to MLIR i64
-                return arith.constant(result=T.i64(), value=value)
+                return arith.constant(result=T.i64(), value=signless_int(value, T.i64()))
             case float():
                 # Python float literal - convert to MLIR f64
                 return arith.constant(result=T.f64(), value=value)

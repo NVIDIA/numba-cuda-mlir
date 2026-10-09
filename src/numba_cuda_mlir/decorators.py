@@ -5,6 +5,7 @@ from collections.abc import Callable as CallableABC
 from numba_cuda_mlir import typing
 from io import StringIO
 from numba_cuda_mlir.numba_cuda.core import sigutils
+from numba_cuda_mlir.numba_cuda.core import ir
 from numba_cuda_mlir.numba_cuda import types as numba_types
 from numba_cuda_mlir.numba_cuda.core.typeinfer import register_dispatcher
 from numba_cuda_mlir.numba_cuda.decorators import jit as numba_cuda_jit
@@ -58,14 +59,33 @@ def _verify_inline(value: Any, targetoptions: dict[str, Any]) -> str | None:
 _DEFAULT_INLINE_MAX_STATEMENTS = 64
 
 
-def _default_inline(expr, caller_ir, callee_ir) -> bool:
-    """Inline small device functions before MLIR lowering.
+def _calls_own_argument(func_ir) -> bool:
+    """Detect callees that must inline before dispatcher arguments are lowered."""
+    for block in func_ir.blocks.values():
+        for stmt in block.body:
+            if (
+                isinstance(stmt, ir.Assign)
+                and isinstance(stmt.value, ir.Expr)
+                and stmt.value.op == "call"
+            ):
+                try:
+                    target = func_ir.get_definition(stmt.value.func)
+                except KeyError:
+                    # An ambiguous or missing definition cannot prove deferral safe.
+                    return True
+                if isinstance(target, ir.Arg):
+                    return True
+    return False
 
-    Larger functions are left as calls for MLIR's inliner. ``callee_ir`` is a
-    FunctionIR in the untyped pass and an ``_inline_info`` in the typed pass.
+
+def _default_inline(expr, caller_ir, callee_ir) -> bool:
+    """Inline higher-order and small device functions before MLIR lowering.
+
+    Other larger functions are left as calls for MLIR's inliner. ``callee_ir``
+    is a FunctionIR in the untyped pass and an ``_inline_info`` in the typed pass.
     """
     func_ir = getattr(callee_ir, "func_ir", callee_ir)
-    return (
+    return _calls_own_argument(func_ir) or (
         sum(len(block.body) for block in func_ir.blocks.values()) <= _DEFAULT_INLINE_MAX_STATEMENTS
     )
 

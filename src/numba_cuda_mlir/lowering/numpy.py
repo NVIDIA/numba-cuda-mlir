@@ -4430,7 +4430,8 @@ def _shift_fn(left, signed):
     """A shift as NumPy defines it (npy_lshift, npy_rshift).
 
     Shifting by the bit width or more, or by a negative count, gives 0, or -1 for a
-    right shift of a negative value; MLIR's shifts give poison there.
+    right shift of a negative value. MLIR's shifts give poison there, so shift by the
+    count clamped to width - 1 and select 0 for the counts out of range.
     """
 
     def shift(a, n):
@@ -4439,12 +4440,16 @@ def _shift_fn(left, signed):
 
         width = a.type.width
         in_range = arith.cmpi(arith.CmpIPredicate.ult, n, const(width))
-        if left:
-            return arith.select(in_range, arith.shli(a, n), const(0))
-        if signed:
+        # Clamp even though the select drops the result: for sm_100+, libNVVM 13.4 folds a
+        # select of the unclamped shift into a PTX shift by the low 32 bits of a 64-bit
+        # count, so 1 << 2**32 gave 1. A clamp written as a select on in_range gets folded
+        # away the same way.
+        count = arith.minui(n, const(width - 1))
+        if signed and not left:
             # Shifting by width - 1 fills the value with its sign bit, giving 0 or -1
-            return arith.shrsi(a, arith.select(in_range, n, const(width - 1)))
-        return arith.select(in_range, arith.shrui(a, n), const(0))
+            return arith.shrsi(a, count)
+        shifted = arith.shli(a, count) if left else arith.shrui(a, count)
+        return arith.select(in_range, shifted, const(0))
 
     return shift
 

@@ -47,7 +47,8 @@ jobs:
     if: ${{ github.repository_owner == 'nvidia' && !cancelled() }}
     container:
       options: -u root --security-opt seccomp=unconfined --shm-size 16g
-      image: ubuntu:22.04
+      # CCCL's C++20 std::format requires libstdc++ 13 or newer.
+      image: ubuntu:24.04
       env:
         NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }}
         PIP_CACHE_DIR: "/tmp/pip-cache"
@@ -68,8 +69,8 @@ jobs:
         uses: ./.github/actions/install_unix_deps
         continue-on-error: false
         with:
-          dependencies: "ca-certificates git jq wget gcc g++ make"
-          dependent_exes: "git jq wget gcc g++ make"
+          dependencies: "ca-certificates git jq wget gcc-13 g++-13 make"
+          dependent_exes: "git jq wget gcc-13 g++-13 make"
 
       - name: Set environment variables
         env:
@@ -111,6 +112,9 @@ jobs:
         env:
           CUDA_VER: ${{ matrix.CUDA_VER }}
           LOCAL_CTK: ${{ matrix.LOCAL_CTK }}
+          CC: gcc-13
+          CXX: g++-13
+          CUDAHOSTCXX: g++-13
         run: run-cccl-compute-tests
 
       - name: Upload cccl-compute MLIR test results

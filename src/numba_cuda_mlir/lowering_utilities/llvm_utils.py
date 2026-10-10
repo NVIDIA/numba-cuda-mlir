@@ -30,9 +30,10 @@ def _find_llvm_c_lib():
 
 
 def _find_modern_to_nvvm_bridge_lib():
-    import numba_cuda_mlir._mlir._mlir_libs as libs
+    # Built by this repo, so it lives here rather than beside the bindings.
+    import numba_cuda_mlir
 
-    d = os.path.dirname(libs.__file__)
+    d = os.path.join(os.path.dirname(numba_cuda_mlir.__file__), "lib")
     if os.name == "nt":
         name = "MLIRModernToNVVM.dll"
     elif os.uname().sysname == "Darwin":

@@ -192,15 +192,20 @@ class BuildExtWithCmake(build_ext):
         self._stage_mlir_bindings()
 
         if llvm70_capi.exists():
-            # Keep the LLVM70 bridge alongside MLIRPythonCAPI.  This is the
-            # only canonical wheel/runtime location.
+            # The bridge used to be staged into the MLIR package, next to the
+            # MLIRPythonCAPI it links. That directory is upstream's, and in an
+            # editable install it is a symlink into the LLVM install tree, so
+            # it is not ours to write into; the bridge lives here instead. It
+            # still resolves the CAPI by soname against the copy
+            # numba_cuda_mlir/__init__.py has already loaded.
             pkg = (
                 Path(self.get_ext_fullpath("numba_cuda_mlir._cext")).parent
                 if self.editable_mode
                 else Path(self.build_lib) / "numba_cuda_mlir"
             )
-            mlir_libs_dir = pkg / "_mlir" / "_mlir_libs"
-            if mlir_libs_dir.exists() and not self.dry_run:
+            mlir_libs_dir = pkg / "lib"
+            mlir_libs_dir.mkdir(parents=True, exist_ok=True)
+            if not self.dry_run:
                 mlir_dest = mlir_libs_dir / llvm70_capi.name
                 if mlir_dest.exists() or mlir_dest.is_symlink():
                     mlir_dest.unlink()

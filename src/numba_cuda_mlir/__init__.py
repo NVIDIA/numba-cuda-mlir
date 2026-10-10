@@ -23,16 +23,18 @@ def _preload_mlir_libs_with_deepbind():
     libs_dir = Path(__file__).parent / "_mlir" / "_mlir_libs"
 
     # CAPI first: it has no sibling DT_NEEDED so DEEPBIND applies at
-    # first load; the other libs DT_NEEDED it and reuse the handle.
-    for name in (
-        "libMLIRPythonCAPI.so",
-        "libMLIRPythonSupport-numba_cuda_mlir.so",
-        "libMLIRToLLVM70.so",
-        "libMLIRModernToNVVM.so",
+    # first load; the other libs DT_NEEDED it and reuse the handle. The
+    # bridges are built by this repo and so live here rather than beside the
+    # bindings, but they still have to be loaded after the CAPI.
+    own_libs = Path(__file__).parent / "lib"
+    for directory, names in (
+        (libs_dir, ("libMLIRPythonCAPI.so", "libMLIRPythonSupport-numba_cuda_mlir.so")),
+        (own_libs, ("libMLIRToLLVM70.so", "libMLIRModernToNVVM.so")),
     ):
-        lib = libs_dir / name
-        if lib.exists():
-            _mlir_deepbind_handles.append(ctypes.CDLL(str(lib), mode=mode))
+        for name in names:
+            lib = directory / name
+            if lib.exists():
+                _mlir_deepbind_handles.append(ctypes.CDLL(str(lib), mode=mode))
 
 
 _preload_mlir_libs_with_deepbind()

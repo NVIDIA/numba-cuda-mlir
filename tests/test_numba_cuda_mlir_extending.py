@@ -4,6 +4,7 @@ from numba_cuda_mlir import compiler, cuda, extending, types, testing
 from numba_cuda_mlir.models import PrimitiveModel, register_model
 from numba_cuda_mlir.numba_cuda.extending import overload as numba_cuda_overload
 from numba_cuda_mlir.numba_cuda.extending import typeof_impl
+from numba_cuda_mlir.numba_cuda import serialize
 from numba_cuda_mlir.numba_cuda.typing.templates import ConcreteTemplate
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 import numpy as np
@@ -53,6 +54,53 @@ def test_extending_intrinsic_with_array_argument():
     @cuda.jit
     def k(x, out):
         out[0] = identity(x)[0]
+
+    x = np.array([7])
+    out = np.zeros(1, dtype=x.dtype)
+    k[1, 1](x, out)
+    assert out[0] == 7
+
+
+def test_intrinsic_serialization_preserves_ctor_kwargs_and_prefer_literal():
+    @extending.intrinsic
+    def identity(typingctx, value):
+        def codegen(builder, target, args, kwargs):
+            builder.store_var(target, builder.load_var(args[0]))
+
+        return value(value), codegen
+
+    from numba_cuda_mlir.numba_cuda.extending import _intrinsic
+
+    @_intrinsic(prefer_literal=True, target="cuda")
+    def lit_identity(typingctx, value):
+        def codegen(builder, target, args, kwargs):
+            builder.store_var(target, builder.load_var(args[0]))
+
+        return value(value), codegen
+
+    from numba_cuda_mlir.extending import _Intrinsic
+
+    payload = serialize.dumps(identity)
+    payload_lit = serialize.dumps(lit_identity)
+    del _Intrinsic._memo[identity._uuid]
+    del _Intrinsic._memo[lit_identity._uuid]
+    rebuilt = serialize.loads(payload)
+    rebuilt_lit = serialize.loads(payload_lit)
+    assert rebuilt is not identity
+    assert rebuilt_lit is not lit_identity
+    # The constructor arguments must survive the round-trip: they feed
+    # make_intrinsic_template() (prefer_literal and template metadata).
+    assert rebuilt._ctor_kwargs == {"target": "cuda"}
+    assert rebuilt._prefer_literal is False
+    assert rebuilt_lit._ctor_kwargs == {"target": "cuda"}
+    assert rebuilt_lit._prefer_literal is True
+
+    # The round-tripped instance is registered and usable in a kernel.
+    extending.refresh_registries()
+
+    @cuda.jit
+    def k(x, out):
+        out[0] = rebuilt(x)[0]
 
     x = np.array([7])
     out = np.zeros(1, dtype=x.dtype)

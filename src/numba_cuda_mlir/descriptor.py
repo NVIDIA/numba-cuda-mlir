@@ -1255,7 +1255,7 @@ class MLIRTargetContext(BaseContext):
             return
         self.load_additional_registries()
 
-    def get_overload_builder(self, fn, sig):
+    def get_overload_builder(self, fn, sig, kws=()):
         """Return an MLIR builder for an overloaded function, or None.
 
         Searches the typing templates for an overload Dispatcher that
@@ -1280,7 +1280,7 @@ class MLIRTargetContext(BaseContext):
         def drop_omitted(args):
             return tuple(a for a in args if not isinstance(a, omitted))
 
-        # The cache key only holds the arguments the call actually supplied,
+        # The cache key only holds the positional and keyword arguments supplied,
         # while `sig` also carries omitted defaults; compare with and without
         # them.  `cache_args` also keeps whatever literals the template was
         # typed with, so an overload registered `prefer_literal=True` (or one
@@ -1289,8 +1289,13 @@ class MLIRTargetContext(BaseContext):
         full_forms = (match_args, literal_args)
         trimmed_forms = (drop_omitted(match_args), drop_omitted(literal_args))
 
-        def args_match(cache_args):
-            return cache_args in full_forms or drop_omitted(cache_args) in trimmed_forms
+        keyword_names = tuple(name for name, _ in kws)
+
+        def args_match(cache_args, cache_kws):
+            if tuple(name for name, _ in cache_kws) != keyword_names:
+                return False
+            cache_full = tuple(cache_args) + tuple(typ for _, typ in cache_kws)
+            return cache_full in full_forms or drop_omitted(cache_full) in trimmed_forms
 
         disp = _select_overload_dispatcher(
             templates, args_match, targetconfig.ConfigStack.top_or_none()

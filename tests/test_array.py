@@ -567,7 +567,7 @@ class TestArrayStrides:
         rec = np.dtype([("x", np.float32), ("y", np.int64)], align=True)
         arr = np.zeros(4, dtype=rec)
         assert self._kernel_strides(arr) == arr.strides
-        
+
 
 if __name__ == "__main__":
     import logging

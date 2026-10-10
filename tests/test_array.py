@@ -526,6 +526,49 @@ class TestNegativeArrayIndices:
         )
 
 
+class TestArrayStrides:
+    @staticmethod
+    def _kernel_strides(arr):
+        @cuda.jit
+        def kernel(a, out):
+            s = a.strides
+            for i in range(len(s)):
+                out[i] = s[i]
+
+        out = np.zeros(arr.ndim, dtype=np.int64)
+        kernel[1, 1](arr, out)
+        return tuple(out)
+
+    def test_c_order(self):
+        arr = np.zeros((3, 5), dtype=np.float32)
+        assert self._kernel_strides(arr) == arr.strides
+
+    def test_f_order(self):
+        arr = np.asfortranarray(np.zeros((3, 5), dtype=np.float64))
+        assert self._kernel_strides(arr) == arr.strides
+
+    def test_strided_device_view(self):
+        view = cuda.to_device(np.zeros((6, 8), dtype=np.int16))[::2, 1::3]
+        assert self._kernel_strides(view) == view.strides
+
+    def test_slice_in_kernel(self):
+        @cuda.jit
+        def kernel(a, out):
+            s = a[::2, ::3].strides
+            out[0] = s[0]
+            out[1] = s[1]
+
+        arr = np.zeros((6, 9), dtype=np.float64)
+        out = np.zeros(2, dtype=np.int64)
+        kernel[1, 1](arr, out)
+        assert tuple(out) == arr[::2, ::3].strides
+
+    def test_record_array(self):
+        rec = np.dtype([("x", np.float32), ("y", np.int64)], align=True)
+        arr = np.zeros(4, dtype=rec)
+        assert self._kernel_strides(arr) == arr.strides
+
+
 if __name__ == "__main__":
     import logging
 

@@ -1864,14 +1864,16 @@ extern "C" __global__ void
         md = memref.extract_strided_metadata(array_val)
 
         field_size = field_info.type.bitwidth // 8
-        stride_multiplier = record_size // field_size
 
         sizes_i64 = []
         strides_i64 = []
         for i in range(rank):
             sizes_i64.append(convert(md[2 + i], T.i64()))
             stride_i64 = convert(md[2 + rank + i], T.i64())
-            strides_i64.append(arith.muli(stride_i64, arith.constant(T.i64(), stride_multiplier)))
+            # Scale the full stride to bytes before converting to field
+            # units: packed record sizes need not be divisible by field size.
+            byte_stride = arith.muli(stride_i64, arith.constant(T.i64(), record_size))
+            strides_i64.append(arith.divsi(byte_stride, arith.constant(T.i64(), field_size)))
 
         i64c = lambda v: arith.constant(T.i64(), v)
         ins = lambda d, v, *p: llvm.insertvalue(

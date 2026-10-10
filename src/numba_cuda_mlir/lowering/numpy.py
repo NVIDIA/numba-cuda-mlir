@@ -660,10 +660,18 @@ def _array_item_cg(builder, target, args, kwargs):
             f"array.item() with positional indices is not implemented; got {len(args) - 1} indices"
         )
     array_var = args[0]
-    array = builder.load_var(array_var)
-    rank = array.type.rank
-    indices = [index_of(0)] * rank
-    value = memref.load(array, indices)
+    array_numba_type = builder.get_numba_type(array_var.name)
+    from numba_cuda_mlir.types import Record
+
+    if isinstance(array_numba_type.dtype, Record):
+        array = builder.load_var(array_var)
+        # Record arrays lower to a pointer to element storage; the
+        # offset/stride-aware element pointer at index 0 is the record value.
+        value = lowering_utilities.memref_to_llvm_ptr(array, [index_of(0)] * array.type.rank)
+        value = llvm.addrspacecast(builder.get_mlir_type(array_numba_type.dtype), value)
+    else:
+        array = builder.load_var(array_var)
+        value = memref.load(array, [index_of(0)] * array.type.rank)
     builder.store_var(target, value)
 
 
@@ -894,33 +902,34 @@ def _lower_record_array_getitem(builder, target, args, kwargs):
     """
     Handle array[index] where array.dtype is Record.
 
-    For record arrays, we compute a byte offset and return an llvm.ptr
-    to the record's storage within the array.
+    Returns an llvm.ptr to the record's storage within the array, computed
+    from the memref descriptor's offset and strides (in record units).
     """
     array_var = args[0]
     index_var = args[1]
 
     array_numba_type = builder.get_numba_type(array_var.name)
     record_type = array_numba_type.dtype
-    record_size = record_type.size
 
-    trace("Record array getitem: record_size=%s", record_size)
+    trace("Record array getitem: record_size=%s", record_type.size)
 
-    # Load the array (memref<?xi8>) and index
     array = builder.load_var(array_var)
     # Handle both variable and constant indices
     if isinstance(index_var, int):
-        # Static/constant index - create constant directly
         index = arith_dialect.constant(T.i64(), index_var)
     else:
         index = builder.load_var(index_var)
 
-    # For Record arrays, the memref is memref<?xi8> with byte strides:
-    # element pointer = data_ptr + index * record_size (assumes contiguous layout).
-    byte_offset = arith.muli(convert(index, T.i64()), arith_dialect.constant(T.i64(), record_size))
-    result_ptr = lowering_utilities.llvm_ptr_add_bytes(
-        lowering_utilities.memref_data_pointer(array), byte_offset
+    index = _normalize_negative_index(array, index, 0)
+
+    # Compute the byte pointer using the descriptor's offset and strides
+    # and the exact record size.
+    result_ptr = lowering_utilities.memref_to_llvm_ptr(
+        array,
+        [convert(index, T.index())],
     )
+    # Record values use generic pointers, including across device calls.
+    result_ptr = llvm.addrspacecast(builder.get_mlir_type(record_type), result_ptr)
 
     builder.store_var(target, result_ptr)
     trace("Record array getitem: stored ptr to %s", target.name)
@@ -1477,11 +1486,13 @@ def _lower_record_array_setitem(builder, target, args, kwargs):
     index = builder.load_var(index_var)
     src_ptr = builder.load_var(value_var)
 
-    # Destination pointer = data_ptr + index * record_size (assumes contiguous layout)
-    index_i64 = lowering_utilities.convert(index, T.i64())
-    byte_offset = arith.muli(index_i64, arith_dialect.constant(T.i64(), record_size))
-    dest_ptr = lowering_utilities.llvm_ptr_add_bytes(
-        lowering_utilities.memref_data_pointer(array), byte_offset
+    index = _normalize_negative_index(array, index, 0)
+
+    # Compute the byte pointer using the descriptor's offset and strides
+    # and the exact record size.
+    dest_ptr = lowering_utilities.memref_to_llvm_ptr(
+        array,
+        [lowering_utilities.convert(index, T.index())],
     )
 
     # Copy record_size bytes from src to dest using llvm.memcpy

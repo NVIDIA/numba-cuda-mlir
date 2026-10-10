@@ -119,7 +119,7 @@ def _memref_index_offset(array: ir.Value, indices: list[ir.Value]) -> ir.Value:
     return linear_idx
 
 
-def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value], element_type: ir.Type) -> ir.Value:
+def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value]) -> ir.Value:
     """Convert memref + indices to LLVM pointer.
 
     Extracts base pointer from a potentially-strided memref and computes the
@@ -128,7 +128,6 @@ def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value], element_type: i
     Args:
         array: Memref value (potentially strided)
         indices: List of index values
-        element_type: Element type for getelementptr
 
     Returns:
         LLVM pointer (!llvm.ptr) to the indexed element
@@ -136,21 +135,22 @@ def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value], element_type: i
     ptr_type = _memref_llvm_pointer_type(ir.MemRefType(array.type))
     base_ptr = llvm.addrspacecast(ptr_type, memref_data_pointer(array))
 
+    # Advance the pointer in bytes, not by a typed getelementptr: LLVM's data
+    # layout rounds the allocation size of non-power-of-2 vector types (e.g.
+    # vector<48 x i8> scales by 64), which would scale element-unit offsets
+    # incorrectly.
     linear_idx = _memref_index_offset(array, indices)
+    mr_elem_type = ir.MemRefType(array.type).element_type
+    elem_bytes = arith.constant(T.i64(), get_type_size_bytes(mr_elem_type))
+    byte_offset = arith.muli(linear_idx, elem_bytes)
     return llvm.getelementptr(
         ptr_type,
         base_ptr,
-        [linear_idx],
+        [byte_offset],
         [GEP_DYNAMIC_INDEX],
-        to_llvm_storable_type(element_type),
+        T.i8(),
         None,
     )
-
-
-def to_llvm_storable_type(element_type: ir.Type) -> ir.Type:
-    if is_complex_type(element_type):
-        return get_llvm_struct_for_complex(element_type)
-    return element_type
 
 
 def llvm_ptr_load(element_type: ir.Type, ptr: ir.Value) -> ir.Value:
@@ -463,7 +463,7 @@ def array_element_value_load(
 ):
     if dynamic_shared_memory:
         storage_type = get_storage_type(array_type.dtype)
-        ptr = memref_to_llvm_ptr(array, list(indices), storage_type)
+        ptr = memref_to_llvm_ptr(array, list(indices))
         stored = llvm_ptr_load(storage_type, ptr)
     else:
         stored = memref.load(array, list(indices))
@@ -481,7 +481,7 @@ def array_element_value_store(
 ):
     stored = value_to_storage(array_type.dtype, value, signed=signed)
     if dynamic_shared_memory:
-        ptr = memref_to_llvm_ptr(array, list(indices), stored.type)
+        ptr = memref_to_llvm_ptr(array, list(indices))
         llvm_ptr_store(stored, ptr)
     else:
         memref.store(value=stored, memref=array, indices=list(indices))
@@ -1538,7 +1538,13 @@ class ArrayIterObject:
         load_if_valid = scf.IfOp(is_valid, results_=[self._element_type], has_else=True)
         with ir.InsertionPoint(load_if_valid.then_block):
             index_as_index = arith.index_cast(out=ir.IndexType.get(), in_=current_index)
-            current_value = memref.load(self._array, [index_as_index])
+            if isinstance(self._element_type, llvm.PointerType):
+                # Record values point to their storage; do not load a pointer
+                # from the record's payload bytes.
+                ptr = memref_to_llvm_ptr(self._array, [index_as_index])
+                current_value = llvm.addrspacecast(self._element_type, ptr)
+            else:
+                current_value = memref.load(self._array, [index_as_index])
             scf.yield_([current_value])
         with ir.InsertionPoint(load_if_valid.else_block):
             scf.yield_([_zero_value_for_type(self._element_type)])

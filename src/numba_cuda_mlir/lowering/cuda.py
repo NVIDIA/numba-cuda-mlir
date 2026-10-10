@@ -1198,7 +1198,7 @@ def cuda_atomic_cg(oper, builder, target, mr, indices, value):
     if oper == cuda.atomic.sub:
         value = 0 - value
     indices = list(map(index_of, indices))
-    ptr = memref_to_llvm_ptr(mr, indices, value_type)
+    ptr = memref_to_llvm_ptr(mr, indices)
     result = llvm.atomicrmw(binop, ptr, value, llvm.AtomicOrdering.monotonic)
     builder.store_var(target, result)
 
@@ -1238,7 +1238,7 @@ def cuda_atomic_exch_cg(builder, target, mr, indices, value_to_store):
     value_type = mr.type.element_type
     value_to_store = convert(value_to_store, value_type)
     indices = list(map(index_of, indices))
-    ptr = memref_to_llvm_ptr(mr, indices, value_type)
+    ptr = memref_to_llvm_ptr(mr, indices)
     rmw = llvm.atomicrmw(llvm.AtomicBinOp.xchg, ptr, value_to_store, llvm.AtomicOrdering.monotonic)
     builder.store_var(target, rmw)
 
@@ -1463,7 +1463,7 @@ def _get_element_pointer_for_cache_hint(builder, array, index, array_type):
     if isinstance(array_type, types.Array):
         # Convert memref to LLVM pointer using shared helper
         indices = list(index) if isinstance(index, tuple) else [index]
-        element_ptr = memref_to_llvm_ptr(array, indices, ele_ty)
+        element_ptr = memref_to_llvm_ptr(array, indices)
     elif isinstance(array_type, types.CPointer):
         # For pointers, just use getelementptr directly
         llvm_kDynamic = -2147483648

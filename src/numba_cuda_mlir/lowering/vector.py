@@ -231,7 +231,7 @@ def vector_load_1d_index_aligned(lower: MLIRLower, target, args: list[Any], kwar
     index = index_of(index)
 
     # Convert memref to LLVM pointer
-    ptr = memref_to_llvm_ptr(array, [index], vec_type.element_type)
+    ptr = memref_to_llvm_ptr(array, [index])
 
     # Use llvm.load with alignment
     alignment = _get_alignment(lower, args, kwargs)
@@ -274,7 +274,7 @@ def vector_load_nd_index_aligned(lower: MLIRLower, target, args: list[Any], kwar
     indices = [index_of(i) for i in indices]
 
     # Convert memref to LLVM pointer
-    ptr = memref_to_llvm_ptr(array, indices, vec_type.element_type)
+    ptr = memref_to_llvm_ptr(array, indices)
 
     # Use llvm.load with alignment
     alignment = _get_alignment(lower, args, kwargs)
@@ -346,7 +346,7 @@ def vector_store_1d_index_aligned(lower: MLIRLower, target, args: list[Any], kwa
     vec = _value_vector_to_storage(vec_numba_type, vec, vec_type)
 
     # Convert memref to LLVM pointer
-    ptr = memref_to_llvm_ptr(array, [index], vec_type.element_type)
+    ptr = memref_to_llvm_ptr(array, [index])
 
     # Use llvm.store with alignment
     alignment = _get_alignment(lower, args, kwargs)
@@ -368,7 +368,7 @@ def vector_store_nd_index_aligned(lower: MLIRLower, target, args: list[Any], kwa
     vec = _value_vector_to_storage(vec_numba_type, vec, vec_type)
 
     # Convert memref to LLVM pointer
-    ptr = memref_to_llvm_ptr(array, indices, vec_type.element_type)
+    ptr = memref_to_llvm_ptr(array, indices)
 
     # Use llvm.store with alignment
     alignment = _get_alignment(lower, args, kwargs)

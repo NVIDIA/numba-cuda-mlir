@@ -23,6 +23,7 @@ from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.type_defs.vector_types import VectorType
+from numba_cuda_mlir.numba_cuda.np import numpy_support
 from numba_cuda_mlir.numba_cuda.np.npyimpl import _make_dtype_object
 
 registry = LoweringRegistry()
@@ -325,6 +326,13 @@ def _bool_storage_literal(builder, target_type, value):
     if isinstance(dtype, (types.Boolean, types.BooleanLiteral)):
         return arith.constant(result=builder.get_storage_type(dtype), value=value)
     return None
+
+
+def _load_scalar_as(builder, arg, value_type):
+    """Load a scalar argument converted to value_type, honouring its signedness."""
+    numba_type = builder.get_numba_type(arg.name)
+    signed = get_conversion_signedness(numba_type, numba_type)
+    return convert(builder.load_var(arg), value_type, signed=signed)
 
 
 def _store_first_output_value(builder, output_arg, output_memref, value):
@@ -2972,7 +2980,7 @@ def np_floor_array_lower(builder, target, args, kwargs):
 def np_log_scalar_lower(builder, target, args, kwargs):
     """Lower np.log for scalars"""
     assert len(args) == 1, "np.log expects 1 argument"
-    value = builder.load_var(args[0])
+    value = _load_scalar_as(builder, args[0], builder.get_mlir_type(target))
     result = math_dialect.log(value)
     builder.store_var(target, result)
 
@@ -2981,7 +2989,7 @@ def np_log_scalar_lower(builder, target, args, kwargs):
 def np_exp_scalar_lower(builder, target, args, kwargs):
     """Lower np.exp for scalars"""
     assert len(args) == 1, "np.exp expects 1 argument"
-    value = builder.load_var(args[0])
+    value = _load_scalar_as(builder, args[0], builder.get_mlir_type(target))
     result = math_dialect.exp(value)
     builder.store_var(target, result)
 
@@ -4011,12 +4019,31 @@ def _is_complex_type(mlir_type):
     return isinstance(mlir_type, ir.ComplexType)
 
 
-def _create_comparison_fn(int_pred, float_pred, complex_fn=None):
-    """Create a comparison function for int, float, and complex types."""
+# The unsigned forms of the signed ordering predicates
+_UNSIGNED_CMPI_PREDICATES = {
+    arith.CmpIPredicate.sgt: arith.CmpIPredicate.ugt,
+    arith.CmpIPredicate.sge: arith.CmpIPredicate.uge,
+    arith.CmpIPredicate.slt: arith.CmpIPredicate.ult,
+    arith.CmpIPredicate.sle: arith.CmpIPredicate.ule,
+}
 
-    def cmp_fn(a, b):
+
+def _cmpi(predicate, a, b, signed):
+    """arith.cmpi with a signed predicate, comparing as unsigned if not signed."""
+    if not signed:
+        predicate = _UNSIGNED_CMPI_PREDICATES.get(predicate, predicate)
+    return arith.cmpi(predicate, a, b)
+
+
+def _create_comparison_fn(int_pred, float_pred, complex_fn=None):
+    """Create a comparison function for int, float, and complex types.
+
+    Integers compare as signed unless the function is called with signed=False.
+    """
+
+    def cmp_fn(a, b, signed=True):
         if isinstance(a.type, ir.IntegerType):
-            return arith.cmpi(int_pred, a, b)
+            return _cmpi(int_pred, a, b, signed)
         elif _is_complex_type(a.type):
             if complex_fn is not None:
                 return complex_fn(a, b)
@@ -4326,9 +4353,9 @@ def np_logical_not_array_to_array_cg(builder, target, args, kwargs):
 # Min/max ufuncs
 
 
-def _maximum_fn(a, b):
+def _maximum_fn(a, b, signed=True):
     if isinstance(a.type, ir.IntegerType):
-        cmp = arith.cmpi(arith.CmpIPredicate.sgt, a, b)
+        cmp = _cmpi(arith.CmpIPredicate.sgt, a, b, signed)
     elif _is_complex_type(a.type):
         cmp = _complex_greater(a, b)
     else:
@@ -4336,9 +4363,9 @@ def _maximum_fn(a, b):
     return arith.select(cmp, a, b)
 
 
-def _minimum_fn(a, b):
+def _minimum_fn(a, b, signed=True):
     if isinstance(a.type, ir.IntegerType):
-        cmp = arith.cmpi(arith.CmpIPredicate.slt, a, b)
+        cmp = _cmpi(arith.CmpIPredicate.slt, a, b, signed)
     elif _is_complex_type(a.type):
         cmp = _complex_less(a, b)
     else:
@@ -4346,11 +4373,11 @@ def _minimum_fn(a, b):
     return arith.select(cmp, a, b)
 
 
-def _fmax_fn(a, b):
+def _fmax_fn(a, b, signed=True):
     """fmax ignores NaN: if one is NaN, return the other"""
     if isinstance(a.type, ir.IntegerType):
         # For integers, same as maximum
-        cmp = arith.cmpi(arith.CmpIPredicate.sgt, a, b)
+        cmp = _cmpi(arith.CmpIPredicate.sgt, a, b, signed)
         return arith.select(cmp, a, b)
     elif _is_complex_type(a.type):
         # For complex, compare like maximum
@@ -4360,11 +4387,11 @@ def _fmax_fn(a, b):
         return arith.maximumf(a, b)
 
 
-def _fmin_fn(a, b):
+def _fmin_fn(a, b, signed=True):
     """fmin ignores NaN: if one is NaN, return the other"""
     if isinstance(a.type, ir.IntegerType):
         # For integers, same as minimum
-        cmp = arith.cmpi(arith.CmpIPredicate.slt, a, b)
+        cmp = _cmpi(arith.CmpIPredicate.slt, a, b, signed)
         return arith.select(cmp, a, b)
     elif _is_complex_type(a.type):
         # For complex, compare like minimum
@@ -4701,6 +4728,161 @@ def np_bitwise_not_scalar_to_array_cg(builder, target, args, kwargs):
     result = convert(result, elem_type)
     _store_first_output_value(builder, args[1], out_arr, result)
     builder.store_var(target, out_arr)
+
+
+# Scalar calls that return their value, e.g. np.maximum(x[i], y[i]), using the
+# same element functions as the forms above
+
+
+def _binary_scalar_ufunc(math_fn):
+    """ufunc(a, b) on scalars, computed in the result type."""
+
+    def lowering(builder, target, args, kwargs):
+        assert len(args) == 2 and len(kwargs) == 0
+        value_type = builder.get_mlir_type(target)
+        a, b = (_load_scalar_as(builder, arg, value_type) for arg in args)
+        builder.store_var(target, convert(math_fn(a, b), value_type))
+
+    return lowering
+
+
+def _min_max_scalar_ufunc(min_max_fn):
+    """Min/max ufunc on scalars, compared in the result type and its signedness."""
+
+    def lowering(builder, target, args, kwargs):
+        assert len(args) == 2 and len(kwargs) == 0
+        value_type = builder.get_mlir_type(target)
+        a, b = (_load_scalar_as(builder, arg, value_type) for arg in args)
+        result_type = builder.get_numba_type(target.name)
+        signed = not isinstance(result_type, types.Integer) or result_type.signed
+        builder.store_var(target, min_max_fn(a, b, signed=signed))
+
+    return lowering
+
+
+def _comparison_scalar_ufunc(cmp_fn):
+    """Comparison ufunc on scalars, evaluated in the type NumPy compares them in."""
+
+    def lowering(builder, target, args, kwargs):
+        assert len(args) == 2 and len(kwargs) == 0
+        a_type, b_type = (builder.get_numba_type(arg.name) for arg in args)
+        common = np.promote_types(numpy_support.as_dtype(a_type), numpy_support.as_dtype(b_type))
+        if (
+            common.kind == "f"
+            and isinstance(a_type, types.Integer)
+            and isinstance(b_type, types.Integer)
+        ):
+            # A signed integer and a uint64, which NumPy compares exactly rather
+            # than as floats: 128 bits hold both
+            value_type, signed = ir.IntegerType.get_signless(128), True
+        else:
+            value_type = builder.get_value_type(numpy_support.from_dtype(common))
+            signed = common.kind != "u"
+        a, b = (_load_scalar_as(builder, arg, value_type) for arg in args)
+        result = _bool_to_value_type(cmp_fn(a, b, signed=signed), builder.get_mlir_type(target))
+        builder.store_var(target, result)
+
+    return lowering
+
+
+def _predicate_scalar_ufunc(predicate_fn):
+    """Logical ufunc on scalars, evaluated in their common type."""
+
+    def lowering(builder, target, args, kwargs):
+        assert len(args) == 2 and len(kwargs) == 0
+        a_type, b_type = (builder.get_value_type(builder.get_numba_type(arg.name)) for arg in args)
+        common_type = lowering_utilities.numpy_implicit_type_promotion(a_type, b_type)
+        a, b = (_load_scalar_as(builder, arg, common_type) for arg in args)
+        result = _bool_to_value_type(predicate_fn(a, b), builder.get_mlir_type(target))
+        builder.store_var(target, result)
+
+    return lowering
+
+
+def _unary_scalar_ufunc(math_fn):
+    """ufunc(x) on a scalar, computed in the result type, so integers become floats."""
+
+    def lowering(builder, target, args, kwargs):
+        assert len(args) == 1 and len(kwargs) == 0
+        value_type = builder.get_mlir_type(target)
+        x = _load_scalar_as(builder, args[0], value_type)
+        builder.store_var(target, convert(math_fn(x), value_type))
+
+    return lowering
+
+
+def np_logical_not_scalar_cg(builder, target, args, kwargs):
+    """logical_not(a) on a scalar"""
+    assert len(args) == 1 and len(kwargs) == 0
+    result = _logical_not_fn(builder.load_var(args[0]))
+    builder.store_var(target, _bool_to_value_type(result, builder.get_mlir_type(target)))
+
+
+def _scale_by(factor):
+    return lambda x: arith.mulf(x, float_of(factor, x.type))
+
+
+for _ufunc, _fn in (
+    (np.maximum, _maximum_fn),
+    (np.minimum, _minimum_fn),
+    (np.fmax, _fmax_fn),
+    (np.fmin, _fmin_fn),
+):
+    lower(_ufunc, types.Number, types.Number)(_min_max_scalar_ufunc(_fn))
+for _ufunc, _fn in (
+    (np.bitwise_and, arith.andi),
+    (np.bitwise_or, arith.ori),
+    (np.bitwise_xor, arith.xori),
+):
+    lower(_ufunc, types.Integer, types.Integer)(_binary_scalar_ufunc(_fn))
+# The (Float, Float) forms already exist; these cover integer arguments
+for _ufunc, _fn in ((np.arctan2, math_dialect.atan2), (np.hypot, _hypot_fn)):
+    for _a, _b in (
+        (types.Integer, types.Integer),
+        (types.Integer, types.Float),
+        (types.Float, types.Integer),
+    ):
+        lower(_ufunc, _a, _b)(_binary_scalar_ufunc(_fn))
+for _ufunc, _fn in (
+    (np.greater, _greater_fn),
+    (np.greater_equal, _greater_equal_fn),
+    (np.less, _less_fn),
+    (np.less_equal, _less_equal_fn),
+    (np.equal, _equal_fn),
+    (np.not_equal, _not_equal_fn),
+):
+    lower(_ufunc, types.Number, types.Number)(_comparison_scalar_ufunc(_fn))
+for _ufunc, _fn in (
+    (np.logical_and, _logical_and_fn),
+    (np.logical_or, _logical_or_fn),
+    (np.logical_xor, _logical_xor_fn),
+):
+    lower(_ufunc, types.Number, types.Number)(_predicate_scalar_ufunc(_fn))
+lower(np.logical_not, types.Number)(np_logical_not_scalar_cg)
+for _ufunc in (np.invert, np.bitwise_not):
+    lower(_ufunc, types.Integer)(_unary_scalar_ufunc(_bitwise_not_fn))
+# The Float forms already exist; these cover integer arguments
+for _ufunc, _fn in (
+    (np.sin, math_dialect.sin),
+    (np.cos, math_dialect.cos),
+    (np.tan, math_dialect.tan),
+    (np.arcsin, math_dialect.asin),
+    (np.arccos, math_dialect.acos),
+    (np.arctan, math_dialect.atan),
+    (np.sinh, math_dialect.sinh),
+    (np.cosh, math_dialect.cosh),
+    (np.tanh, math_dialect.tanh),
+    (np.arcsinh, math_dialect.asinh),
+    (np.arccosh, math_dialect.acosh),
+    (np.arctanh, math_dialect.atanh),
+    (np.log2, math_dialect.log2),
+    (np.log10, math_dialect.log10),
+    (np.deg2rad, _scale_by(_DEG_TO_RAD)),
+    (np.radians, _scale_by(_DEG_TO_RAD)),
+    (np.rad2deg, _scale_by(_RAD_TO_DEG)),
+    (np.degrees, _scale_by(_RAD_TO_DEG)),
+):
+    lower(_ufunc, types.Integer)(_unary_scalar_ufunc(_fn))
 
 
 # =============================================================================

@@ -364,7 +364,7 @@ def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
     # Run compilation pipeline
     from numba_cuda_mlir.numba_cuda.core.target_extension import target_override
     from numba_cuda_mlir.lowering_utilities import context as mlir_ctx
-    from numba_cuda_mlir._mlir import ir as mlir_ir
+    from cudamlir import ir as mlir_ir
 
     flags.lto = is_lto
 

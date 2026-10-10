@@ -6,7 +6,7 @@ from .ast.py_type import PyTypeObject
 
 
 def make_nanobind_metaclass_inheritable():
-    from numba_cuda_mlir._mlir import ir
+    from cudamlir import ir
 
     # Hack to allow us to inherit from nanobind's metaclass type
     # https://github.com/wjakob/nanobind/pull/836

@@ -28,7 +28,7 @@ to their Numba counterparts.
 
 The Low-level Typing API is also similar to Numba's, but the Lowering API
 differs: instead of emitting LLVM IR through ``llvmlite``, lowering functions
-emit MLIR through the bindings accessed via :py:mod:`numba_cuda_mlir._mlir`.
+emit MLIR through the bindings accessed via :py:mod:`mlir`.
 
 An understanding of how type inference works in Numba-CUDA-MLIR is crucial to
 effective use of the extension APIs. For a reference description of type

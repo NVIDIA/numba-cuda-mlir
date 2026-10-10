@@ -18,8 +18,8 @@ from numba_cuda_mlir.lowering_utilities.type_conversions import (
     to_mlir_type,
 )
 from numba_cuda_mlir.type_defs.float_types import BFloat16Type
-from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir._mlir.dialects import (
+from cudamlir import ir
+from cudamlir.dialects import (
     arith,
     memref,
     func,
@@ -31,9 +31,9 @@ from numba_cuda_mlir._mlir.dialects import (
     vector as vector_dialect,
 )
 from numba_cuda_mlir.mlir.dialect_exts import scf
-from numba_cuda_mlir._mlir.extras.meta import region_op
+from cudamlir.extras.meta import region_op
 from numba_cuda_mlir.logging import trace
-from numba_cuda_mlir._mlir.extras import types as T
+from cudamlir.extras import types as T
 import operator
 
 # std::numeric_limits<int32_t>::min() — marks a dynamic index in llvm.getelementptr
@@ -170,7 +170,7 @@ def memref_to_tensor(memref):
     """
     Utility function to convert from a memref to tensor
     """
-    from numba_cuda_mlir._mlir.dialects import bufferization
+    from cudamlir.dialects import bufferization
 
     match memref.type:
         case ir.MemRefType():
@@ -189,7 +189,7 @@ def tensor_to_memref(tensor):
     """
     Utility function to convert from a tensor to memref
     """
-    from numba_cuda_mlir._mlir.dialects import bufferization
+    from cudamlir.dialects import bufferization
 
     match tensor.type:
         case ir.MemRefType():
@@ -488,7 +488,7 @@ def array_element_value_store(
 
 
 def memref_to_value_tensor(array_type: types.Array, array: ir.Value) -> ir.Value:
-    from numba_cuda_mlir._mlir.dialects import linalg, tensor
+    from cudamlir.dialects import linalg, tensor
 
     tensor_value = memref_to_tensor(array)
     value_element_type = get_value_type(array_type.dtype)
@@ -512,7 +512,7 @@ def memref_to_value_tensor(array_type: types.Array, array: ir.Value) -> ir.Value
 
 
 def value_tensor_to_storage_memref(array_type: types.Array, tensor_value: ir.Value) -> ir.Value:
-    from numba_cuda_mlir._mlir.dialects import linalg, tensor
+    from cudamlir.dialects import linalg, tensor
 
     storage_element_type = get_storage_type(array_type.dtype)
     if tensor_value.type.element_type == storage_element_type:
@@ -820,7 +820,7 @@ def bool_of(value: ir.Value | bool) -> ir.Value:
 
 
 def concretize_tuple_to_tensor(tup: tuple[ir.Value]) -> ir.Value:
-    from numba_cuda_mlir._mlir.dialects import tensor
+    from cudamlir.dialects import tensor
 
     ty = tup[0].type
     if not all(ty == t.type for t in tup):
@@ -833,7 +833,7 @@ def concretize_tuple_to_tensor(tup: tuple[ir.Value]) -> ir.Value:
 
 
 def convert_tuple_like(values: list[ir.Value], target_type: ir.Type) -> ir.Value:
-    from numba_cuda_mlir._mlir.dialects import tensor
+    from cudamlir.dialects import tensor
 
     match target_type:
         case tuple():
@@ -963,7 +963,7 @@ def unverified_basic_mlir_convert(
     *,
     signed: bool | None = None,
 ) -> ir.Value:
-    from numba_cuda_mlir._mlir.dialects import (
+    from cudamlir.dialects import (
         complex as complex_dialect,
         nvgpu,
         tensor,
@@ -1777,7 +1777,7 @@ def constant(
     to the appropriate type. This should really be handled in MLIR.
     TODO: send patch
     """
-    from numba_cuda_mlir._mlir.dialects import complex as complex_dialect
+    from cudamlir.dialects import complex as complex_dialect
 
     match value, ty:
         # First, if the type is None, we infer the MLIR type.
@@ -1828,7 +1828,7 @@ def constant(
 
 
 def dims_of_tensor_shape(tens: ir.Value) -> list[ir.Value]:
-    from numba_cuda_mlir._mlir.dialects import shape
+    from cudamlir.dialects import shape
 
     ty = tens.type
     sh = shape.shape_of(tens)
@@ -1838,7 +1838,7 @@ def dims_of_tensor_shape(tens: ir.Value) -> list[ir.Value]:
 def broadcast_shapes_for_binary_op(
     a: ir.Value, b: ir.Value, builder=None
 ) -> tuple[ir.Value, ir.Value]:
-    from numba_cuda_mlir._mlir.dialects import shape, tensor
+    from cudamlir.dialects import shape, tensor
 
     if isinstance(a.type, ir.MemRefType):
         a = memref_to_tensor(a)
@@ -1902,7 +1902,7 @@ def simple_scalar_conversion_op(src: ir.Type, dst: ir.Type):
 
 
 def expensive_coerce_tensor_type(a: ir.Value, target_element_type: ir.Type) -> ir.Value:
-    from numba_cuda_mlir._mlir.dialects import linalg, tensor
+    from cudamlir.dialects import linalg, tensor
 
     if a.type.element_type == target_element_type:
         return a

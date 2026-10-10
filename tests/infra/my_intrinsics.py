@@ -3,8 +3,8 @@
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.cuda.experimental import intrin
 from numba_cuda_mlir import types
-from numba_cuda_mlir._mlir.dialects import nvvm
-from numba_cuda_mlir._mlir.extras import types as T
+from cudamlir.dialects import nvvm
+from cudamlir.extras import types as T
 
 
 @intrin.define

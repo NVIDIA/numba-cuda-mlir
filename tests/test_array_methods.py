@@ -72,7 +72,7 @@ def test_array_view_reinterpret_dtype():
 def test_array_view_custom_dtype():
     """view() dispatches through to_mlir_type for externally-registered types."""
     from numba_cuda_mlir.lowering_utilities import to_mlir_type
-    from numba_cuda_mlir._mlir.extras import types as T
+    from cudamlir.extras import types as T
     from numba_cuda_mlir.numba_cuda.extending import typeof_impl
     from numba_cuda_mlir.numba_cuda import types as nb_types
 

@@ -6,7 +6,7 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from typing import Optional
 
-from numba_cuda_mlir._mlir import ir
+from cudamlir import ir
 
 
 @dataclass

@@ -26,8 +26,8 @@ from numba_cuda_mlir.mlir_lowering import MLIRLower
 from numba_cuda_mlir import types
 from numba_cuda_mlir.numba_cuda.core.errors import TypingError
 from numba_cuda_mlir.numba_cuda.extending import intrinsic
-from numba_cuda_mlir._mlir.extras import types as T
-from numba_cuda_mlir._mlir.dialects import (
+from cudamlir.extras import types as T
+from cudamlir.dialects import (
     arith,
     math,
     nvvm,
@@ -42,7 +42,7 @@ from numba_cuda_mlir.lowering_utilities import (
     RangeObject,
     int_of,
 )
-from numba_cuda_mlir._mlir import ir
+from cudamlir import ir
 from .ufunc_registry import UFuncRegistry
 
 ufunc_registry = UFuncRegistry("builtins")
@@ -170,7 +170,7 @@ def tuple_contains_cg(builder, target, args, kwargs):
 @lower(operator.contains, types.UniTuple, types.Number)
 def unituple_contains_cg(builder, target, args, kwargs):
     trace("args=%s", args)
-    from numba_cuda_mlir._mlir.dialects import linalg, tensor
+    from cudamlir.dialects import linalg, tensor
     from numba_cuda_mlir.lowering_utilities import (
         false,
         equal,
@@ -261,7 +261,7 @@ def lower_not(builder, target, args, kwargs):
 
 
 def lower_broadcasted_binary(builder, target, args, kwargs):
-    from numba_cuda_mlir._mlir.dialects import linalg, shape, tensor
+    from cudamlir.dialects import linalg, shape, tensor
     from numba_cuda_mlir.lowering_utilities import index_of, tensor_to_memref
 
     arg_vars = args
@@ -344,7 +344,7 @@ def lower_broadcasted_binary(builder, target, args, kwargs):
 @ufunc_registry.register(operator.floordiv)
 @lower(operator.floordiv, types.Array, types.Array)
 def lower_broadcasted_floor_division(builder, target, args, kwargs):
-    from numba_cuda_mlir._mlir.dialects import linalg, shape, tensor
+    from cudamlir.dialects import linalg, shape, tensor
 
     trace()
 
@@ -396,7 +396,7 @@ def lower_broadcasted_floor_division(builder, target, args, kwargs):
 @ufunc_registry.register(operator.truediv)
 @lower(operator.truediv, types.Array, types.Array)
 def lower_broadcasted_div(builder, target, args, kwargs):
-    from numba_cuda_mlir._mlir.dialects import linalg, shape, tensor
+    from cudamlir.dialects import linalg, shape, tensor
 
     trace()
 
@@ -488,7 +488,7 @@ def type_convert(builder, target, args, kwargs):
 @lower(float, types.StringLiteral)
 def float_from_string_literal(builder, target, args, kwargs):
     """Lower float("nan"), float("inf"), float("-inf"), etc."""
-    from numba_cuda_mlir._mlir.extras import types as T
+    from cudamlir.extras import types as T
 
     # Get the string literal value from the type
     arg_type = builder.get_numba_type(args[0])
@@ -601,7 +601,7 @@ def lower_round(builder, target, args, kwargs):
 
 @lower(round, types.Number)
 def lower_round_single(builder, target, args, kwargs):
-    from numba_cuda_mlir._mlir.dialects import math
+    from cudamlir.dialects import math
 
     value = builder.load_var(args[0])
     res = math.round(value)
@@ -622,7 +622,7 @@ def lower_abs_number(builder, target, args, kwargs):
     arg_type = builder.get_numba_type(args[0].name)
 
     if isinstance(arg_type, types.Complex):
-        from numba_cuda_mlir._mlir.dialects import complex as complex_dialect
+        from cudamlir.dialects import complex as complex_dialect
 
         result = complex_dialect.abs(value)
     elif isinstance(arg_type, types.Float):
@@ -641,7 +641,7 @@ def lower_abs_number(builder, target, args, kwargs):
 @lower_getattr(types.Number, "bit_count")
 def lower_number_bit_count(_, builder, target, num):
     def lower(builder, target, args, kwargs):
-        from numba_cuda_mlir._mlir.dialects import math
+        from cudamlir.dialects import math
 
         value = builder.load_var(num)
         res = math.ctpop(value)
@@ -655,7 +655,7 @@ def lower_number_bit_count(_, builder, target, num):
 @lower(operator.add, types.Number, types.Array)
 def operator_add_array_lower(builder, target, args, kwargs):
     """Lower operator.add for arrays by using linalg.add"""
-    from numba_cuda_mlir._mlir.dialects import linalg
+    from cudamlir.dialects import linalg
     from numba_cuda_mlir.lowering_utilities.linalg_lowering import lower_np_binop
 
     target_type = builder.get_numba_type(target.name)
@@ -667,7 +667,7 @@ def operator_add_array_lower(builder, target, args, kwargs):
 @lower(operator.iadd, types.Number, types.Array)
 def operator_iadd_array_lower(builder, target, args, kwargs):
     """Lower operator.iadd for arrays by using linalg.add"""
-    from numba_cuda_mlir._mlir.dialects import linalg
+    from cudamlir.dialects import linalg
     from numba_cuda_mlir.lowering_utilities.linalg_lowering import lower_np_binop
 
     target_type = builder.get_numba_type(target.name)
@@ -679,7 +679,7 @@ def operator_iadd_array_lower(builder, target, args, kwargs):
 @lower(operator.sub, types.Number, types.Array)
 def operator_sub_array_lower(builder, target, args, kwargs):
     """Lower operator.sub for arrays by using linalg.sub"""
-    from numba_cuda_mlir._mlir.dialects import linalg
+    from cudamlir.dialects import linalg
     from numba_cuda_mlir.lowering_utilities.linalg_lowering import lower_np_binop
 
     target_type = builder.get_numba_type(target.name)
@@ -691,7 +691,7 @@ def operator_sub_array_lower(builder, target, args, kwargs):
 @lower(operator.isub, types.Number, types.Array)
 def operator_isub_array_lower(builder, target, args, kwargs):
     """Lower operator.isub for arrays by using linalg.sub"""
-    from numba_cuda_mlir._mlir.dialects import linalg
+    from cudamlir.dialects import linalg
     from numba_cuda_mlir.lowering_utilities.linalg_lowering import lower_np_binop
 
     target_type = builder.get_numba_type(target.name)
@@ -703,7 +703,7 @@ def operator_isub_array_lower(builder, target, args, kwargs):
 @lower(operator.mul, types.Number, types.Array)
 def operator_mul_array_lower(builder, target, args, kwargs):
     """Lower operator.mul for arrays by using linalg.mul"""
-    from numba_cuda_mlir._mlir.dialects import linalg
+    from cudamlir.dialects import linalg
     from numba_cuda_mlir.lowering_utilities.linalg_lowering import lower_np_binop
 
     target_type = builder.get_numba_type(target.name)
@@ -715,7 +715,7 @@ def operator_mul_array_lower(builder, target, args, kwargs):
 @lower(operator.imul, types.Number, types.Array)
 def operator_imul_array_lower(builder, target, args, kwargs):
     """Lower operator.imul for arrays by using linalg.mul"""
-    from numba_cuda_mlir._mlir.dialects import linalg
+    from cudamlir.dialects import linalg
     from numba_cuda_mlir.lowering_utilities.linalg_lowering import lower_np_binop
 
     target_type = builder.get_numba_type(target.name)

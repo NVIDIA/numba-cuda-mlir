@@ -61,7 +61,7 @@ class TestRecordTypeModel:
 
     def test_record_mlir_type_model(self):
         """Test that Record type can be looked up in MLIR data manager."""
-        from numba_cuda_mlir._mlir import ir
+        from cudamlir import ir
         from numba_cuda_mlir.numba_cuda.types import Record
         from numba_cuda_mlir.models import mlir_data_manager
 
@@ -77,7 +77,7 @@ class TestRecordTypeModel:
 
     def test_nested_array_mlir_type_model(self):
         """Test that NestedArray type can be looked up in MLIR data manager."""
-        from numba_cuda_mlir._mlir import ir
+        from cudamlir import ir
         from numba_cuda_mlir.numba_cuda.types import NestedArray
         from numba_cuda_mlir.models import mlir_data_manager
 
@@ -94,7 +94,7 @@ class TestRecordTypeModel:
 
     def test_nested_2d_array_mlir_type_model(self):
         """Test that 2D NestedArray type can be looked up in MLIR data manager."""
-        from numba_cuda_mlir._mlir import ir
+        from cudamlir import ir
         from numba_cuda_mlir.numba_cuda.types import NestedArray
         from numba_cuda_mlir.models import mlir_data_manager
 

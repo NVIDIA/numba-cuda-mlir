@@ -180,8 +180,8 @@ An example of an intrinsic:
 .. code-block:: python
 
    from numba_cuda_mlir import cuda, extending, types
-   from numba_cuda_mlir._mlir.dialects import cf, arith
-   from numba_cuda_mlir._mlir.extras import types as T
+   from cudamlir.dialects import cf, arith
+   from cudamlir.extras import types as T
 
    @extending.intrinsic
    def do_nothing(typingctx, x):
@@ -294,7 +294,7 @@ API reference
 
    ``intrinsic`` is re-exported from
    :py:mod:`numba_cuda_mlir.numba_cuda.extending`. In Numba-CUDA-MLIR, the
-   ``codegen`` callable emits MLIR through :py:mod:`numba_cuda_mlir._mlir`,
+   ``codegen`` callable emits MLIR through :py:mod:`mlir`,
    not LLVM IR through ``llvmlite``.
 
 .. py:function:: type_callable(func)

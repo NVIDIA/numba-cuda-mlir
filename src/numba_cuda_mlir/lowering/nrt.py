@@ -19,9 +19,9 @@ from numba_cuda_mlir.numba_cuda.cpython.unicode import (
     set_uint16,
     set_uint32,
 )
-from numba_cuda_mlir._mlir.dialects import func
-from numba_cuda_mlir._mlir.extras import types as T
-from numba_cuda_mlir._mlir import ir
+from cudamlir.dialects import func
+from cudamlir.extras import types as T
+from cudamlir import ir
 from numba_cuda_mlir.mlir.dialect_exts import llvm
 
 from numba_cuda_mlir.lowering_utilities import (

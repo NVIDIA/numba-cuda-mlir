@@ -48,8 +48,8 @@ should expect an exact body match to be required, not just matching pointers.
 
 from __future__ import annotations
 
-from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir._mlir.dialects import llvm
+from cudamlir import ir
+from cudamlir.dialects import llvm
 from numba_cuda_mlir.logging import trace
 from numba_cuda_mlir.lowering_utilities.type_conversions import to_mlir_storage_type
 from numba_cuda_mlir.numba_cuda import types

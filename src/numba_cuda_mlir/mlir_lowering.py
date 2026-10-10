@@ -57,10 +57,10 @@ from numba_cuda_mlir.compiler import (
     ExternMLIRLibraryFunction,
 )
 
-from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir._mlir.ir import MemRefType, StringAttr, UnitAttr, TypeAttr, Block
-from numba_cuda_mlir._mlir.extras import types as T
-from numba_cuda_mlir._mlir.dialects import (
+from cudamlir import ir
+from cudamlir.ir import MemRefType, StringAttr, UnitAttr, TypeAttr, Block
+from cudamlir.extras import types as T
+from cudamlir.dialects import (
     llvm,
     arith,
     builtin,

@@ -4,8 +4,8 @@
 from numba_cuda_mlir.errors import InternalCompilerError
 import functools
 
-from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir._mlir.ir import (
+from cudamlir import ir
+from cudamlir.ir import (
     NoneType,
     IntegerType,
     MemRefType,
@@ -15,8 +15,8 @@ from numba_cuda_mlir._mlir.ir import (
     F64Type,
     ComplexType,
 )
-from numba_cuda_mlir._mlir.dialects import llvm
-from numba_cuda_mlir._mlir.extras import types as T
+from cudamlir.dialects import llvm
+from cudamlir.extras import types as T
 from numba_cuda_mlir import types
 from numba_cuda_mlir.numba_cuda.datamodel.models import PrimitiveModel, DataModel
 from numba_cuda_mlir.numba_cuda.datamodel.registry import DataModelManager, register
@@ -347,7 +347,7 @@ class TupleModel(PrimitiveModel):
 @register_model(nb_types_misc.PyObject)
 class CPointerModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
-        from numba_cuda_mlir._mlir.dialects import llvm
+        from cudamlir.dialects import llvm
 
         be_type = llvm.PointerType.get()
         super().__init__(dmm, fe_type, be_type)
@@ -804,7 +804,7 @@ class NestedArrayModel(PrimitiveModel):
     """
 
     def __init__(self, dmm, fe_type):
-        from numba_cuda_mlir._mlir.dialects import llvm
+        from cudamlir.dialects import llvm
 
         # NestedArrays are represented as raw pointers to their data
         # The shape/stride info is known at compile time from fe_type

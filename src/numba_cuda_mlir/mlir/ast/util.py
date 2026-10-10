@@ -9,7 +9,7 @@ from typing import Dict
 
 from numba_cuda_mlir.numba_cuda.cloudpickle import cloudpickle
 
-from numba_cuda_mlir._mlir.ir import Type
+from cudamlir.ir import Type
 
 
 def bind(func, instance, as_name=None):

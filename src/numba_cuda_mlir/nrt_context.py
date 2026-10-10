@@ -45,8 +45,8 @@ Examples that do NOT need incref (producers):
   - Any operation whose result contains only freshly-born NRT pointers
 """
 
-from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir._mlir.dialects import func, llvm
+from cudamlir import ir
+from cudamlir.dialects import func, llvm
 from numba_cuda_mlir.lowering_utilities import get_or_insert_function
 from numba_cuda_mlir.types import BaseTuple
 

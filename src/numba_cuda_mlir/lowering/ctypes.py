@@ -21,9 +21,9 @@ from numba_cuda_mlir.lowering_utilities import (
     complex_to_llvm_struct as _complex_to_llvm_struct,
     llvm_struct_to_complex as _llvm_struct_to_complex,
 )
-from numba_cuda_mlir._mlir.dialects import llvm
+from cudamlir.dialects import llvm
 from numba_cuda_mlir.logging import trace
-from numba_cuda_mlir._mlir.extras import types as T
+from cudamlir.extras import types as T
 
 registry = LoweringRegistry()
 lower_getattr = registry.lower_getattr

@@ -14,13 +14,19 @@ def _preload_mlir_libs_with_deepbind():
         return  # RTLD_DEEPBIND is Linux-only
 
     import ctypes
+    import importlib.util
     import os
     from pathlib import Path
 
     mode = (
         os.RTLD_NOW | os.RTLD_LOCAL | getattr(os, "RTLD_DEEPBIND", 0)  # missing on musl / uclibc
     )
-    libs_dir = Path(__file__).parent / "_mlir" / "_mlir_libs"
+    # Locate the bindings without importing them; importing is what this
+    # function exists to get ahead of.
+    spec = importlib.util.find_spec("cudamlir")
+    if spec is None or not spec.submodule_search_locations:
+        return
+    libs_dir = Path(next(iter(spec.submodule_search_locations))) / "_mlir_libs"
 
     # CAPI first: it has no sibling DT_NEEDED so DEEPBIND applies at
     # first load; the other libs DT_NEEDED it and reuse the handle. The
@@ -28,7 +34,7 @@ def _preload_mlir_libs_with_deepbind():
     # bindings, but they still have to be loaded after the CAPI.
     own_libs = Path(__file__).parent / "lib"
     for directory, names in (
-        (libs_dir, ("libMLIRPythonCAPI.so", "libMLIRPythonSupport-numba_cuda_mlir.so")),
+        (libs_dir, ("libMLIRPythonCAPI.so", "libMLIRPythonSupport-mlir.so")),
         (own_libs, ("libMLIRToLLVM70.so", "libMLIRModernToNVVM.so")),
     ):
         for name in names:

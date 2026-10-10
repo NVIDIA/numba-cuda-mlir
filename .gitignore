@@ -23,10 +23,15 @@ tests/**/*.csv
 tests/**/*.out
 CLAUDE.local.md
 TODO.md
-src/numba_cuda_mlir/_mlir
 **/*~
 **/.#*
 _build/
 llvm-modern-install/
 llvm7-install/
 .venv
+
+# Staged by the packaging/cuda-mlir-core* setups from the LLVM install tree.
+packaging/cuda-mlir-core/cudamlir/
+packaging/cuda-mlir-core-dev/mlir_dev/
+packaging/*/build/
+packaging/*/*.egg-info/

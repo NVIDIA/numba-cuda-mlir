@@ -5,7 +5,7 @@
 import operator
 
 import numpy as np
-from numba_cuda_mlir._mlir.dialects import arith
+from cudamlir.dialects import arith
 
 from numba_cuda_mlir import types
 from numba_cuda_mlir.lowering_registry import LoweringRegistry

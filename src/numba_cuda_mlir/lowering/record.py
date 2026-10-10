@@ -12,15 +12,15 @@ from numba_cuda_mlir.types import Record, NestedArray
 from numba_cuda_mlir.numba_cuda.core import ir as numba_ir
 import operator
 
-from numba_cuda_mlir._mlir.dialects import (
+from cudamlir.dialects import (
     llvm,
     arith,
     memref as memref_dialect,
     scf,
 )
-from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir._mlir.extras import types as T
-from numba_cuda_mlir._mlir.dialects import arith as arith_dialect
+from cudamlir import ir
+from cudamlir.extras import types as T
+from cudamlir.dialects import arith as arith_dialect
 from numba_cuda_mlir.lowering_utilities import storage_itemsize_bytes
 
 

@@ -14,14 +14,14 @@ NVPTX64_TRIPLE = "nvptx64-nvidia-cuda"
 
 
 def _find_mlir_capi_lib():
-    import numba_cuda_mlir._mlir._mlir_libs as libs
+    import cudamlir._mlir_libs as libs
 
     name = "MLIRPythonCAPI.dll" if os.name == "nt" else "libMLIRPythonCAPI.so"
     return os.path.join(os.path.dirname(libs.__file__), name)
 
 
 def _find_llvm_c_lib():
-    import numba_cuda_mlir._mlir._mlir_libs as libs
+    import cudamlir._mlir_libs as libs
 
     d = os.path.dirname(libs.__file__)
     if os.name == "nt":
@@ -121,7 +121,7 @@ def _op_to_raw_ptr(op):
     get_ptr = ctypes.pythonapi.PyCapsule_GetPointer
     get_ptr.restype = ctypes.c_void_p
     get_ptr.argtypes = [ctypes.py_object, ctypes.c_char_p]
-    ptr = get_ptr(capsule, b"numba_cuda_mlir._mlir.ir.Operation._CAPIPtr")
+    ptr = get_ptr(capsule, b"cudamlir.ir.Operation._CAPIPtr")
     if not ptr:
         raise ValueError(f"failed to extract C pointer from {op!r}")
     return ptr

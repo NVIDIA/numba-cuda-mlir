@@ -7,7 +7,7 @@ import numpy as np
 from typing import Tuple, Union, List, Any
 
 from .arith import ScalarValue
-from numba_cuda_mlir._mlir.ir import (
+from cudamlir.ir import (
     DenseElementsAttr,
     ShapedType,
     Type,
@@ -329,7 +329,7 @@ def _is_constant_scalar(e: Any) -> bool:
 
 
 def _maybe_compute_size(start, stop, step):
-    from numba_cuda_mlir._mlir.dialects import arith
+    from cudamlir.dialects import arith
 
     if (
         isinstance(start, Value)

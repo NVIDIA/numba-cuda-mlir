@@ -3,8 +3,8 @@
 from numba_cuda_mlir import carray, cuda
 from numba_cuda_mlir import compiler, types
 from numba_cuda_mlir.cuda.experimental import intrin
-from numba_cuda_mlir._mlir.dialects import llvm
-from numba_cuda_mlir._mlir.extras import types as T
+from cudamlir.dialects import llvm
+from cudamlir.extras import types as T
 import ctypes
 import numpy as np
 import pytest

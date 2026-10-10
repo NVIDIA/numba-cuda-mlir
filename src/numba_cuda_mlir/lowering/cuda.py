@@ -601,39 +601,24 @@ def lower_strides(
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
-    from numba_cuda_mlir.lowering_utilities import int_of, index_of
+    from numba_cuda_mlir.lowering_utilities import index_of
 
+    array_numba_type = mlir_lower.get_numba_type(array)
     array = mlir_lower.load_var(array)
-    array_type = array.type
-    rank = array_type.rank
-    array_numba_type = mlir_lower.get_numba_type(array.name)
+    if not isinstance(array.type, ir.MemRefType):
+        raise NotImplementedError(f"strides not implemented for {array.type}")
 
-    # Get element size in bytes
-    element_size = storage_itemsize_bytes(array_numba_type)
-
-    # Get dimensions - handle both memref and tensor types
-    if isinstance(array_type, ir.MemRefType):
-        dims = [
-            memref.dim(source=array, index=arith.constant(result=T.index(), value=i))
-            for i in range(rank)
-        ]
-    elif isinstance(array_type, ir.RankedTensorType):
-        dims = [
-            tensor.dim(source=array, index=arith.constant(result=T.index(), value=i))
-            for i in range(rank)
-        ]
+    # Record/CharSeq/UnicodeCharSeq arrays are byte-based memrefs whose strides
+    # are already in bytes; other memrefs carry strides in elements.
+    if isinstance(array_numba_type.dtype, (types.Record, types.CharSeq, types.UnicodeCharSeq)):
+        element_size = 1
     else:
-        raise NotImplementedError(f"strides not implemented for {array_type}")
+        element_size = storage_itemsize_bytes(array_numba_type)
 
-    # Compute strides (C-contiguous order)
-    # stride[rank-1] = element_size
-    # stride[i] = stride[i+1] * dim[i+1]
-    strides = [None] * rank
-    strides[-1] = index_of(element_size)
-    for i in range(rank - 2, -1, -1):
-        strides[i] = arith.muli(strides[i + 1], dims[i + 1])
-
-    mlir_lower.store_var(target, tuple(strides))
+    rank = array.type.rank
+    md = memref.extract_strided_metadata(array)
+    strides = tuple(arith.muli(md[2 + rank + i], index_of(element_size)) for i in range(rank))
+    mlir_lower.store_var(target, strides)
 
 
 def _dim3_attr_to_dimension(attr: str):

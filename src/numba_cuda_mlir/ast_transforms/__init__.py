@@ -7,7 +7,11 @@ from typing import Callable
 
 from numba_cuda_mlir.ast_transforms.common import get_function_ast, recompile_function
 from numba_cuda_mlir.ast_transforms.comprehension import ComprehensionPass
-from numba_cuda_mlir.ast_transforms.consteval import ConstevalError, ConstevalPass
+from numba_cuda_mlir.ast_transforms.consteval import (
+    ConstevalError,
+    ConstevalPass,
+    reads_parameters,
+)
 from numba_cuda_mlir.ast_transforms.constant_if import ConstantIfPass
 from numba_cuda_mlir.ast_transforms.empty_body import EmptyBodyRepairPass
 from numba_cuda_mlir.ast_transforms.pipeline import (
@@ -18,6 +22,7 @@ from numba_cuda_mlir.ast_transforms.pipeline import (
 
 __all__ = [
     "apply_ast_transforms",
+    "transform_inline_callee",
     "ConstevalError",
     "ASTTransformPass",
     "ASTTransformPipeline",
@@ -129,3 +134,20 @@ def apply_ast_transforms(
         func = recompile_function(func, tree, context.stored_values)
 
     return func, transformed_source
+
+
+def transform_inline_callee(
+    pyfunc: Callable, targetoptions: dict, argtypes: tuple = None
+) -> Callable | None:
+    """Apply AST transforms to an inlinee under the caller's options and its call's argument types.
+
+    Without ``argtypes`` we return None if a consteval in the inlinee names one
+    of its parameters, because the transform then needs the argument types.
+    """
+    if not targetoptions.get("experimental_ast_transforms", False):
+        return pyfunc
+    if argtypes is None and reads_parameters(pyfunc):
+        return None
+
+    transformed, _ = apply_ast_transforms(pyfunc, targetoptions, argtypes)
+    return transformed

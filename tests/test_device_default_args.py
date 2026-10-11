@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir.errors import TypingError
 import numpy as np
 import pytest
 
@@ -67,6 +68,47 @@ def test_device_defaults(case, args, expected):
     r = np.zeros(1, dtype=np.float64)
     k[1, 1](r, *args)
     assert r[0] == expected
+
+
+def test_device_keyword_only_args():
+    @cuda.jit(device=True)
+    def scale(x, *, factor=2.0):
+        return x * factor
+
+    @cuda.jit(device=True)
+    def combine(a, b, *, c=3.0, d=4.0):
+        return a + 10 * b + 100 * c + 1000 * d
+
+    @cuda.jit
+    def k(r, x):
+        r[0] = scale(x)
+        r[1] = scale(x, factor=5.0)
+        r[2] = scale(x, 5.0)
+        r[3] = combine(1.0, 2.0, 7.0, 8.0)
+        r[4] = combine(1.0, 2.0, 7.0)
+        r[5] = combine(1.0, 2.0, 7.0, d=8.0)
+
+    r = np.zeros(6, dtype=np.float64)
+    k[1, 1](r, 3.0)
+    np.testing.assert_array_equal(r, [6.0, 15.0, 15.0, 8721.0, 4721.0, 8721.0])
+
+
+def test_device_keyword_only_args_rejected():
+    @cuda.jit(device=True)
+    def scale(x, *, factor=2.0):
+        return x * factor
+
+    @cuda.jit
+    def passed_twice(r, x):
+        r[0] = scale(x, 5.0, factor=5.0)
+
+    @cuda.jit
+    def too_many(r, x):
+        r[0] = scale(x, 5.0, 6.0)
+
+    for kernel in (passed_twice, too_many):
+        with pytest.raises(TypingError, match="Cannot bind"):
+            kernel.compile("void(float64[:], float64)")
 
 
 if __name__ == "__main__":

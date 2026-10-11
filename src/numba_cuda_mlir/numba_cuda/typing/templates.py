@@ -208,31 +208,23 @@ def fold_arguments(pysig, args, kws, normal_handler, default_handler, stararg_ha
         # Normalize dict kws
         kws = dict(kws)
 
-    # deal with kwonly args
-    params = pysig.parameters
-    kwonly = []
-    for name, p in params.items():
-        if p.kind == p.KEYWORD_ONLY:
-            kwonly.append(name)
-
-    if kwonly:
-        bind_args = args[: -len(kwonly)]
-    else:
-        bind_args = args
-    bind_kws = kws.copy()
-    if kwonly:
-        for idx, n in enumerate(kwonly):
-            bind_kws[n] = args[len(kwonly) + idx]
-
-    # now bind
+    params = pysig.parameters.values()
+    kwonly = [p.name for p in params if p.kind == p.KEYWORD_ONLY]
+    npos = sum(p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD) for p in params)
+    # Positional values past the ordinary parameters fill keyword-only ones in order
+    surplus = dict(zip(kwonly, args[npos:]))
+    bind_args = args[:npos] + args[npos + len(surplus) :]
+    bind_kws = {**kws, **surplus}
     try:
+        if surplus.keys() & kws.keys():
+            raise TypeError("keyword-only argument passed both positionally and by keyword")
         ba = pysig.bind(*bind_args, **bind_kws)
     except TypeError as e:
         # The binding attempt can raise if the args don't match up, this needs
         # to be converted to a TypingError so that e.g. partial type inference
         # doesn't just halt.
         msg = (
-            f"Cannot bind 'args={bind_args} kws={bind_kws}' to "
+            f"Cannot bind 'args={args} kws={kws}' to "
             f"signature '{pysig}' due to \"{type(e).__name__}: {e}\"."
         )
         raise TypingError(msg)

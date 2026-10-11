@@ -48,33 +48,21 @@ from .ufunc_registry import UFuncRegistry
 ufunc_registry = UFuncRegistry("builtins")
 
 
-def _get_range_object(builder, args: list[ir.Value]) -> tuple[ir.Value, ir.Value, ir.Value]:
+def _get_range_object(builder, args, int_type) -> tuple[ir.Value, ir.Value, ir.Value]:
+    """Load the range bounds converted to the range's resolved integer type."""
+    int_mlir_type = builder.get_mlir_type(int_type)
+
+    def bound(var):
+        signed = get_conversion_signedness(builder.get_numba_type(var.name), int_type)
+        return int_of(builder.load_var(var), ty=int_mlir_type, signed=signed)
+
     match args:
         case [stop]:
-            stop_type = builder.get_mlir_type(stop)
-            return (
-                int_of(0, ty=stop_type),
-                int_of(builder.load_var(stop), ty=stop_type, signed=True),
-                int_of(1, ty=stop_type),
-            )
+            return int_of(0, ty=int_mlir_type), bound(stop), int_of(1, ty=int_mlir_type)
         case [start, stop]:
-            start_type = builder.get_mlir_type(start)
-            stop_type = builder.get_mlir_type(stop)
-            return (
-                int_of(builder.load_var(start), ty=start_type, signed=True),
-                int_of(builder.load_var(stop), ty=stop_type, signed=True),
-                int_of(1, ty=stop_type),
-            )
+            return bound(start), bound(stop), int_of(1, ty=int_mlir_type)
         case [start, stop, step]:
-            return (
-                int_of(
-                    builder.load_var(start),
-                    ty=builder.get_mlir_type(start),
-                    signed=True,
-                ),
-                int_of(builder.load_var(stop), ty=builder.get_mlir_type(stop), signed=True),
-                int_of(builder.load_var(step), ty=builder.get_mlir_type(step), signed=True),
-            )
+            return bound(start), bound(stop), bound(step)
         case _:
             raise ValueError(f"Invalid arguments for range: {args}")
 
@@ -132,7 +120,8 @@ def lower_tuple_concat(builder, target, args, kwargs):
 @lower(range, types.Number, types.Number)
 @lower(range, types.Number, types.Number, types.Number)
 def lower_range(builder: MLIRLower, target, args, kwargs):
-    start, stop, step = _get_range_object(builder, args)
+    int_type = builder.get_numba_type(target.name).dtype
+    start, stop, step = _get_range_object(builder, args, int_type)
     ro = RangeObject(builder, start, stop, step)
     builder.store_var(target, ro)
 

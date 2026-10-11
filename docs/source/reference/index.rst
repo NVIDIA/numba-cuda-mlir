@@ -10,6 +10,7 @@ Reference documentation
    compilation.rst
    kernel.rst
    cache_hints.rst
+   loop_unroll.rst
    types.rst
    libdevice.rst
    envvars.rst

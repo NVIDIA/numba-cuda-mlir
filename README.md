@@ -74,6 +74,8 @@ documentation for further details.
   - &gt;= r525 for CUDA 12.x
   - &gt;= r580 for CUDA 13.x
 
+Python 3.10 is no longer supported; use Python 3.11 or newer.
+
 
 ## Installation guidance
 

@@ -688,7 +688,6 @@ def test_atan2():
     np.testing.assert_almost_equal(result.copy_to_host()[0], math.pi / 4, decimal=5)
 
 
-@pytest.mark.skipif(not hasattr(math, "exp2"), reason="math.exp2 requires Python 3.11+")
 def test_exp2():
     """Test exp2 (2^x) function"""
 
@@ -1093,8 +1092,7 @@ if __name__ == "__main__":
     test_isnan_isinf_isfinite()
     test_predicates_with_integers()
     test_atan2()
-    if hasattr(math, "exp2"):
-        test_exp2()
+    test_exp2()
     test_log1p()
     test_copysign()
     test_hypot()

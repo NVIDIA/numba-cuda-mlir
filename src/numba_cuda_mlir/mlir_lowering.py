@@ -988,6 +988,12 @@ extern "C" __global__ void
                 f"NotImplemented lowering assign value {value} of type {type(value)}"
             )
 
+    def _store_complex_constant(self, target, value):
+        from numba_cuda_mlir.lowering.math import complex_cg
+
+        value = complex(value)
+        complex_cg(self, target, [value.real, value.imag], {})
+
     def lower_free_var_assign(self, target, free_var):
         trace("target: %s, free_var: %s", target, free_var)
         if free_var.value is None:
@@ -997,6 +1003,8 @@ extern "C" __global__ void
                 self.store_var(target, none_val)
             else:
                 self.store_var(target, self.get_mlir_type(target_type))
+        elif isinstance(free_var.value, (complex, np.complexfloating)):
+            self._store_complex_constant(target, free_var.value)
         elif hasattr(free_var.value, "__cuda_array_interface__"):
             self.lower_captured_array_to_memref(target, free_var.value)
         else:
@@ -1155,9 +1163,7 @@ extern "C" __global__ void
                 arith.constant(mlir_type, value),
             )
         elif isinstance(const.value, complex):
-            from numba_cuda_mlir.lowering.math import complex_cg
-
-            complex_cg(self, target, [const.value.real, const.value.imag], {})
+            self._store_complex_constant(target, const.value)
         elif isinstance(const.value, tuple):
             if isinstance(target_type, types.BaseTuple):
                 elem_types = (
@@ -1202,7 +1208,9 @@ extern "C" __global__ void
             else:
                 self.store_var(target, self.get_mlir_type(target_type))
             return
-        if isinstance(glob.value, (bool, int, float, np.number, np.bool_)):
+        if isinstance(glob.value, (complex, np.complexfloating)):
+            self._store_complex_constant(target, glob.value)
+        elif isinstance(glob.value, (bool, int, float, np.number, np.bool_)):
             mlir_type = self.get_mlir_type(target_type)
             # Check if the MLIR type supports constants
             if not isinstance(
@@ -1323,6 +1331,8 @@ extern "C" __global__ void
                 return tuple(map(self.lower_literal_if_needed, value))
             case np.ndarray():
                 return self.lower_array_literal(value, numba_type)
+            case complex() if numba_type is not None:
+                return constant(value, self.get_mlir_type(numba_type))
             case np.number() | np.bool_():
                 # np.bool_ is not an np.number but lowers the same way.
                 mlir_type = to_mlir_type(value.dtype)

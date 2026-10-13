@@ -299,8 +299,6 @@ class FuncBase:
             return self.body_builder.__code__.co_code == b"\x97\x00y\x00"
         if sys.version_info.minor == 11:
             return self.body_builder.__code__.co_code == b"\x97\x00d\x00S\x00"
-        if sys.version_info.minor in {8, 9, 10}:
-            return self.body_builder.__code__.co_code == b"d\x00S\x00"
         raise NotImplementedError(f"{sys.version_info.minor} not supported.")
 
     def __str__(self):

@@ -1947,12 +1947,11 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
         }
         helper->constants.clear();
 
-        if (!ensure_numba_context(dispatcher.ensure_context_func.get()))
-            return ErrorRaised;
-
         KernelFamily::KernelMap& kernel_map = profile->family->kernels_by_constants;
         kernel_iter = kernel_map.find(helper->constants);
         if (kernel_iter == kernel_map.end()) {
+            if (!ensure_numba_context(dispatcher.ensure_context_func.get()))
+                return ErrorRaised;
             // Slowest path: need to compile a new kernel
             Result<CudaKernelHandle> kernel = compile(dispatcher.compile_func.get(), pyargs, num_pyargs);
             if (!kernel.is_ok()) return ErrorRaised;
@@ -1983,12 +1982,11 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
         // Python selected a context-specific dispatcher before extraction.
         // An argument's allocation context need not match: managed memory,
         // mapped host memory, and peer access can make it accessible here.
-        if (!ensure_numba_context(dispatcher.ensure_context_func.get()))
-            return ErrorRaised;
-
         KernelFamily::KernelMap& kernel_map = profile->family->kernels_by_constants;
         kernel_iter = kernel_map.find(helper->constants);
         if (kernel_iter == kernel_map.end()) {
+            if (!ensure_numba_context(dispatcher.ensure_context_func.get()))
+                return ErrorRaised;
             // Slowest path: need to compile a new kernel
             Result<CudaKernelHandle> kernel = compile(dispatcher.compile_func.get(), pyargs, num_pyargs);
             if (!kernel.is_ok()) return ErrorRaised;

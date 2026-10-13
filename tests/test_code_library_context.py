@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from numba_cuda_mlir import _context_cache
 from numba_cuda_mlir.compiler import CodeLibrary
 from numba_cuda_mlir.numba_cuda.cudadrv import devices
 
@@ -13,10 +14,14 @@ from numba_cuda_mlir.numba_cuda.cudadrv import devices
 def test_legacy_module_access_follows_context_and_reset(monkeypatch, load_function_first):
     from cuda.bindings import driver
 
-    a = SimpleNamespace(extras={})
-    b = SimpleNamespace(extras={})
+    class ContextStub(SimpleNamespace):
+        pass
+
+    a = ContextStub(handle=100, extras={})
+    b = ContextStub(handle=200, extras={})
     current = [a]
     monkeypatch.setattr(devices, "get_context", lambda: current[0])
+    monkeypatch.setattr(_context_cache, "_get_current_context", lambda: current[0].handle)
     modules = []
     ok = driver.CUresult.CUDA_SUCCESS
 

@@ -39,6 +39,7 @@ typedef struct CUkern_st* CUkernel;
 typedef enum {
     CUDA_SUCCESS                         = 0,
     CUDA_ERROR_INVALID_VALUE             = 1,
+    CUDA_ERROR_NOT_INITIALIZED           = 3,
     CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES   = 701,
 } CUresult;
 

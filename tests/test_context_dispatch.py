@@ -11,17 +11,21 @@ from uuid import uuid4
 
 import pytest
 
-from numba_cuda_mlir import descriptor, mlir_compiler, tools, types
+from numba_cuda_mlir import _context_cache, descriptor, mlir_compiler, tools, types
 from numba_cuda_mlir._context_cache import current_context_token
 from numba_cuda_mlir.compiler import CodeLibrary
 from numba_cuda_mlir.numba_cuda import typing
 from numba_cuda_mlir.numba_cuda.cudadrv import devices
 
 
+class ContextStub(SimpleNamespace):
+    pass
+
+
 @pytest.fixture
 def contexts(monkeypatch):
     def context(device, cc, handle):
-        return SimpleNamespace(
+        return ContextStub(
             device=SimpleNamespace(id=device, compute_capability=cc), handle=handle, extras={}
         )
 
@@ -30,6 +34,8 @@ def contexts(monkeypatch):
     local = threading.local()
     local.context = a
     monkeypatch.setattr(devices, "get_context", lambda: local.context)
+    monkeypatch.setattr(_context_cache, "_get_current_context", lambda: local.context.handle)
+    monkeypatch.setattr(_context_cache, "_current_context", threading.local())
     return a, b, local
 
 
@@ -77,6 +83,35 @@ def make_dispatcher(**options):
         pass
 
     return descriptor.MLIRDispatcher(kernel, targetoptions=options)
+
+
+def test_context_resolution_is_cached_until_switch_or_reset(contexts, monkeypatch):
+    a, b, local = contexts
+    resolved = []
+
+    def get_context():
+        resolved.append(local.context)
+        return local.context
+
+    monkeypatch.setattr(devices, "get_context", get_context)
+    first = current_context_token()
+    for _ in range(3):
+        assert current_context_token() is first
+    assert resolved == [a]
+
+    local.context = b
+    second = current_context_token()
+    assert second is not first
+    assert current_context_token() is second
+    assert resolved == [a, b]
+
+    local.context = a
+    assert current_context_token() is first
+    assert resolved == [a, b, a]
+    # Keep the old token alive: reset must invalidate it independently of GC.
+    a.extras.clear()
+    assert current_context_token() is not first
+    assert resolved == [a, b, a, a]
 
 
 def test_capability_and_target_follow_current_device(contexts, monkeypatch):
@@ -152,7 +187,8 @@ def test_context_reset_and_handle_reuse_get_fresh_native_state(contexts, compile
     second = dispatch.compile((types.int32,))
     assert second is not first
     assert dispatch._get_context_dispatcher()._c is not native
-    local.context = SimpleNamespace(device=a.device, handle=a.handle, extras={})
+    a.extras.clear()
+    local.context = ContextStub(device=a.device, handle=a.handle, extras={})
     assert dispatch.compile((types.int32,)) is not second
 
 
@@ -245,6 +281,25 @@ def test_retained_configuration_preserves_per_device_smem(contexts, compiler_stu
     configured(1)
     assert launches[-1][0] is not second[0]
     assert len(compiler_stub) == 4
+
+
+def test_retained_launch_after_offline_compile_uses_runtime_partition(
+    contexts, compiler_stub, monkeypatch
+):
+    launches = []
+    monkeypatch.setattr(
+        descriptor,
+        "LaunchConfiguration",
+        lambda native, *args: lambda *values: launches.append(native),
+    )
+    dispatch = make_dispatcher(chip="sm_90")
+    dispatch.compile((types.int32,))
+    configured = dispatch[1, 1]
+    configured(1)
+    runtime = dispatch._get_context_dispatcher()
+    assert runtime is not dispatch
+    configured(1)
+    assert launches == [runtime._c, runtime._c]
 
 
 @pytest.mark.parametrize("inspect_before_launch", [False, True])
@@ -391,7 +446,7 @@ def test_frozen_signatures_preserve_nonroot_context_state(
         a.extras.clear()
         b.extras.clear()
     dispatch.disable_compile()
-    local.context = SimpleNamespace(device=b.device, handle=300, extras={})
+    local.context = ContextStub(device=b.device, handle=300, extras={})
     target_c = dispatch._get_context_dispatcher()
     assert not target_c._can_compile
     assert target_c._requires_launch_config == launch_specialized
@@ -404,7 +459,7 @@ def test_frozen_signatures_preserve_nonroot_context_state(
         assert state[name] == frozen_state[name]
     state["uuid"] = str(uuid4())
     rebuilt = descriptor.MLIRDispatcher._rebuild(**state)
-    local.context = SimpleNamespace(device=a.device, handle=400, extras={})
+    local.context = ContextStub(device=a.device, handle=400, extras={})
     assert rebuilt.signatures == target_c.signatures
     assert not rebuilt._get_compile_dispatcher()._can_compile
 

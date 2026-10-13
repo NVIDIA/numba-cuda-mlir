@@ -809,9 +809,19 @@ class _ArgMarshaller:
         # Route before host-array conversion and preserve this launcher's extension
         # snapshot and stream, independently of subsequent configure() calls.
         if isinstance(self._dispatcher, MLIRDispatcher):
-            dispatcher = self._dispatcher._get_context_dispatcher()
+            token = current_context_token()
+            dispatcher = self._dispatcher
+            # An offline root can carry its first runtime child's token while
+            # keeping separate compile-only state of its own.
+            if (
+                dispatcher._context_token is None
+                or dispatcher._context_token() is not token
+                or dispatcher._compile_dispatchers
+            ):
+                dispatcher = dispatcher._get_context_dispatcher(token)
+            else:
+                dispatcher.extensions = dispatcher._context_root.extensions
             if dispatcher is not self._dispatcher:
-                token = current_context_token()
                 with self._context_marshallers_lock:
                     marshaller = self._context_marshallers.get(token)
                     if marshaller is None:
@@ -1803,7 +1813,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                         raise
             return dispatcher
 
-    def _get_context_dispatcher(self):
+    def _get_context_dispatcher(self, token=None):
         """Keep compilation and every native launch cache in one context partition.
 
         The first context uses this instance. Other contexts use the same
@@ -1812,7 +1822,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         existing C++ launch path after this single context selection.
         """
         root = self._context_root
-        token = current_context_token()
+        if token is None:
+            token = current_context_token()
         with root._context_dispatchers_lock:
             dispatcher = root._context_dispatchers.get(token)
             if dispatcher is not None:

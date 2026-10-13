@@ -10,6 +10,73 @@ from numba_cuda_mlir import cuda
 from numba_cuda_mlir.cuda.experimental import consteval, current_target_options
 
 
+def test_warm_launch_does_not_resolve_context(monkeypatch):
+    from numba_cuda_mlir.numba_cuda.cudadrv import devices
+
+    @cuda.jit
+    def write(out):
+        out[0] = 42
+
+    configured = write[1, 1]
+    out = cuda.device_array(1, np.int32)
+    configured(out)
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            devices, "get_context", lambda: pytest.fail("warm launch resolved the context")
+        )
+        for _ in range(5):
+            configured(out)
+    cuda.synchronize()
+    assert out.copy_to_host()[0] == 42
+
+
+def test_warm_launch_resolves_only_after_external_context_switch(monkeypatch):
+    from cuda.bindings import driver
+
+    from numba_cuda_mlir.numba_cuda.cudadrv import devices
+
+    if len(cuda.gpus) < 2:
+        pytest.skip("requires two CUDA devices")
+
+    @cuda.jit
+    def write(out, value):
+        out[0] = value
+
+    configured = write[1, 1]
+    contexts, arrays = [], []
+    for index in (0, 1):
+        with cuda.gpus[index]:
+            contexts.append(cuda.current_context())
+            arrays.append(cuda.device_array(1, np.int32))
+            configured(arrays[-1], index)
+            cuda.synchronize()
+
+    original_get_context = devices.get_context
+    resolutions = []
+
+    def get_context(*args, **kwargs):
+        resolutions.append(None)
+        return original_get_context(*args, **kwargs)
+
+    monkeypatch.setattr(devices, "get_context", get_context)
+    ok, original_context = driver.cuCtxGetCurrent()
+    assert ok == driver.CUresult.CUDA_SUCCESS
+    try:
+        for index in (0, 1, 0):
+            # Bypass every Numba wrapper, as an external CUDA library can do.
+            assert driver.cuCtxSetCurrent(contexts[index].handle)[0] == ok
+            before = len(resolutions)
+            configured(arrays[index], index + 40)
+            assert len(resolutions) == before + 1
+            for _ in range(5):
+                configured(arrays[index], index + 41)
+            assert len(resolutions) == before + 1
+            assert driver.cuCtxSynchronize()[0] == ok
+            assert arrays[index].copy_to_host()[0] == index + 41
+    finally:
+        assert driver.cuCtxSetCurrent(original_context)[0] == ok
+
+
 @pytest.mark.parametrize("use_nrt", [False, True])
 def test_retained_configured_launch_across_devices(use_nrt):
     if len(cuda.gpus) < 2:

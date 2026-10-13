@@ -137,11 +137,6 @@ The following built-in types support are inherited from CPU nopython mode.
 
 See :ref:`nopython built-in types <pysupported-builtin-types>`.
 
-Comparisons between ``bool`` and integer values support ``==``, ``!=``,
-``<``, ``<=``, ``>``, and ``>=`` in either operand order. The boolean is
-converted to the comparison's common integer type as ``0`` or ``1``. This
-also applies to plain Python integers captured from globals or closures.
-
 There is also some very limited support for character sequences (bytes and
 unicode strings) used in NumPy arrays.
 

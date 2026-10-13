@@ -652,7 +652,6 @@ class _ArgMarshaller:
                     effective_argtypes = dispatcher._literalize_argtypes(
                         effective_argtypes,
                         tuple(launch_values),
-                        abi_arg_count=len(launch_args),
                     )
                 ready_launch = dispatcher._get_ready_launch(
                     effective_argtypes,
@@ -738,7 +737,15 @@ class _ArgMarshaller:
             dispatch_token_for = getattr(dispatcher, "_dispatch_token_for", None)
             if not self._supports_dispatch_token or dispatch_token_for is None:
                 return launcher(*launch_args)
-            dispatch_token = dispatch_token_for(tuple(argtypes))
+            # Prelaunch compilation can discover new literal positions. Include
+            # their values in the frontend token: flattened arguments cannot
+            # use the native launcher's positional constant flags.
+            dispatch_argtypes = tuple(argtypes)
+            if getattr(dispatcher, "_literal_arg_positions", ()):
+                dispatch_argtypes = dispatcher._literalize_argtypes(
+                    dispatch_argtypes, launch_values
+                )
+            dispatch_token = dispatch_token_for(dispatch_argtypes)
             return launcher(*launch_args, _dispatch_token=dispatch_token)
         except UserFacingInternalCompilerError as e:
             if os.environ.get("NUMBA_CUDA_MLIR_ICE_FULL_TB", "0").strip() == "1":
@@ -1802,7 +1809,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 f"arguments; argument {index} is {value!r}"
             ) from exc
 
-    def _record_literal_arg_positions(self, positions, values, abi_arg_count):
+    def _record_literal_arg_positions(self, positions, values):
         positions = self._normalize_literal_arg_positions(positions)
         values = tuple(values)
         parameter_count = len(inspect.signature(self.py_func).parameters)
@@ -1812,11 +1819,6 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             )
         if len(values) != parameter_count:
             raise TypeError("literal argument retry requires top-level runtime argument values")
-        if abi_arg_count != len(values):
-            raise TypeError(
-                "literal launch retry does not yet support flattened launch arguments; "
-                "extension struct arguments require issue #60"
-            )
         for index in positions:
             self._literal_type_for_value(values[index], index)
 
@@ -2692,7 +2694,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         tied = [sig_args for rate, sig_args in candidates if rate == best_rate]
         return tied, True
 
-    def _literalize_argtypes(self, argtypes, values, *, abi_arg_count=None):
+    def _literalize_argtypes(self, argtypes, values):
         """Apply recorded literal requests to top-level runtime argument types."""
         argtypes = tuple(argtypes)
         if not self._literal_arg_positions:
@@ -2701,12 +2703,6 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         values = tuple(values)
         if len(values) != len(argtypes):
             raise TypeError("literal argument retry requires top-level runtime argument values")
-        if abi_arg_count is not None and abi_arg_count != len(values):
-            raise TypeError(
-                "literal launch retry does not yet support flattened launch arguments; "
-                "extension struct arguments require issue #60"
-            )
-
         literalized = list(argtypes)
         for index in self._literal_arg_positions:
             if index >= len(literalized):
@@ -2804,7 +2800,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 return _normalize_available_launch_config(available_launch_config)
             return configured_launch_config
 
-        effective_argtypes = self._literalize_argtypes(argtypes, values, abi_arg_count=len(args))
+        effective_argtypes = self._literalize_argtypes(argtypes, values)
         ready_launch = self._get_ready_launch(
             effective_argtypes,
             available_launch_config,
@@ -2836,9 +2832,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 )
             self._compile_impl(list(args))
             launch_config = active_launch_config()
-            effective_argtypes = self._literalize_argtypes(
-                argtypes, values, abi_arg_count=len(args)
-            )
+            effective_argtypes = self._literalize_argtypes(argtypes, values)
             compile_result = self._compile_result_for(effective_argtypes, launch_config)
 
         if compile_result is None:
@@ -2992,7 +2986,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         runtime_values = tuple(getattr(_compile_arg_types, "values", tuple(args)))
         with self._launch_config_lock:
             attempt_literal_arg_positions = self._literal_arg_positions
-            argtypes = self._literalize_argtypes(argtypes, runtime_values, abi_arg_count=len(args))
+            argtypes = self._literalize_argtypes(argtypes, runtime_values)
         if attempt_literal_arg_positions:
             override_argtypes = argtypes
         active_extensions = getattr(_compile_arg_types, "extensions", _MISSING)
@@ -3165,7 +3159,6 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 self._record_literal_arg_positions(
                     exc.requested_args,
                     runtime_values,
-                    len(args),
                 )
                 made_literal_progress = self._literal_arg_positions != attempt_literal_arg_positions
                 if (

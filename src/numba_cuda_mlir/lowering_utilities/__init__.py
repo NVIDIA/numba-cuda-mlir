@@ -1298,16 +1298,6 @@ class RangeObject:
         memref.store(stop_val, self._memref, [index_of(1)])
         memref.store(step_val, self._memref, [index_of(2)])
 
-        # Step must not be zero - add runtime check if error checking is enabled
-        error_memref = lower._get_or_create_error_global()
-        if error_memref is not None:
-            from numba_cuda_mlir.mlir_lowering import KERNEL_ERROR_CODES
-
-            step_is_zero = arith.cmpi(predicate=arith.CmpIPredicate.eq, lhs=step_val, rhs=zero)
-            with scf.if_ctx_manager(step_is_zero):
-                set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ZeroDivisionError])
-                scf.yield_([])
-
         # Compute trip-count in i64 to avoid issues with mixed signed/unsigned
         # semantics on narrow integer types, then truncate back.
         i64 = T.i64()

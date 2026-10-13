@@ -133,8 +133,9 @@ def lower_tuple_concat(builder, target, args, kwargs):
 @lower(range, types.Number, types.Number, types.Number)
 def lower_range(builder: MLIRLower, target, args, kwargs):
     start, stop, step = _get_range_object(builder, args)
-    ro = RangeObject(builder, start, stop, step)
-    builder.store_var(target, ro)
+    with builder.checked_range_step_context(step):
+        ro = RangeObject(builder, start, stop, step)
+        builder.store_var(target, ro)
 
 
 @lower(operator.contains, types.Tuple, types.Number)

@@ -1960,14 +1960,20 @@ extern "C" __global__ void
         )
 
         target_type = self.get_numba_type(target.name)
-        if len(callee_type.results) == 0:
-            result = ir.NoneType.get()
-        elif isinstance(target_type, types.BaseTuple):
+        if isinstance(target_type, types.BaseTuple):
             # Rebuild from the type so ``None`` leaves, which the callee returns
-            # no value for, get their placeholder back in place.
+            # no value for, get their placeholder back in place.  The tuple is
+            # driven by the type rather than the result count, so a bundle whose
+            # represented leaves number none or one still rebuilds as a tuple
+            # instead of collapsing to ``None`` or to its sole element.
             result = self.from_return(
-                target_type, self._unflatten_abi_value(target_type, iter(call_result))
+                target_type,
+                self._unflatten_abi_value(
+                    target_type, iter(self._call_results_tuple(call_result))
+                ),
             )
+        elif len(callee_type.results) == 0:
+            result = ir.NoneType.get()
         else:
             result = self.from_return(target_type, call_result)
         self.store_var(target, result)

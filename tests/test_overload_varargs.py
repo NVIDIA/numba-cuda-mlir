@@ -556,6 +556,44 @@ def test_overload_varargs_none_leaf_in_returned_bundle():
     np.testing.assert_allclose(out, a + a * 10)
 
 
+def test_overload_varargs_single_represented_leaf_in_returned_bundle():
+    """A bundle with one represented leaf still returns a tuple.
+
+    ``func.call`` hands back a bare value rather than a sequence when the callee
+    has exactly one result, so the bundle has to be normalized before it is
+    unflattened.  The sole-element case needs no ``None`` at all to get there.
+    """
+
+    @cuda.jit
+    def kernel(out, a):
+        i = cuda.grid(1)
+        if i < out.size:
+            sole = var_pack(a[i])
+            trailing = var_pack(a[i], None)
+            leading = var_pack(None, a[i])
+            out[i] = sole[0] + trailing[0] + leading[1]
+
+    a = np.arange(4, dtype=np.float64)
+    out = _run(kernel, np.zeros(4), a)
+    np.testing.assert_allclose(out, 3 * a)
+
+
+def test_overload_varargs_no_represented_leaves_in_returned_bundle():
+    """A bundle whose leaves all lack an ABI slot is still a tuple, not ``None``."""
+
+    @cuda.jit
+    def kernel(out, a):
+        i = cuda.grid(1)
+        if i < out.size:
+            unrepresented = var_pack(None, None)
+            empty = var_pack()
+            out[i] = a[i] + len(unrepresented) + len(empty)
+
+    a = np.arange(4, dtype=np.float64)
+    out = _run(kernel, np.zeros(4), a)
+    np.testing.assert_allclose(out, a + 2)
+
+
 @register_jitable(typing_registry=typing_registry)
 def jitable_kwonly(a, b=1.0, *, s=2.0):
     return a + b * s

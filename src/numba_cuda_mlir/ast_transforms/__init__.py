@@ -9,6 +9,7 @@ from numba_cuda_mlir.ast_transforms.common import get_function_ast, recompile_fu
 from numba_cuda_mlir.ast_transforms.comprehension import ComprehensionPass
 from numba_cuda_mlir.ast_transforms.consteval import ConstevalError, ConstevalPass
 from numba_cuda_mlir.ast_transforms.constant_if import ConstantIfPass
+from numba_cuda_mlir.ast_transforms.empty_body import EmptyBodyRepairPass
 from numba_cuda_mlir.ast_transforms.pipeline import (
     ASTTransformPass,
     ASTTransformPipeline,
@@ -63,6 +64,7 @@ def create_default_pipeline() -> ASTTransformPipeline:
     pipeline.add_pass(ConstantIfPass())
     pipeline.add_pass(ComprehensionPass())
     pipeline.add_pass(NoneStatementRemovalPass())
+    pipeline.add_pass(EmptyBodyRepairPass())
     return pipeline
 
 

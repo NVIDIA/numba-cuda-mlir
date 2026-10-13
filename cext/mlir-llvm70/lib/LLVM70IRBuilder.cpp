@@ -98,6 +98,8 @@ llvm::Error LLVM70IRBuilder::resolveSymbols() {
   // Builder
   RESOLVE(fnCreateBuilder, "LLVMCreateBuilderInContext");
   RESOLVE(fnPositionAtEnd, "LLVMPositionBuilderAtEnd");
+  RESOLVE(fnPositionBefore, "LLVMPositionBuilderBefore");
+  RESOLVE(fnGetTerminator, "LLVMGetBasicBlockTerminator");
   RESOLVE(fnDisposeBuilder, "LLVMDisposeBuilder");
 
   // Constants
@@ -124,8 +126,14 @@ llvm::Error LLVM70IRBuilder::resolveSymbols() {
 
   // Arithmetic
   RESOLVE(fnBuildAdd, "LLVMBuildAdd");
+  RESOLVE(fnBuildNSWAdd, "LLVMBuildNSWAdd");
+  RESOLVE(fnBuildNUWAdd, "LLVMBuildNUWAdd");
   RESOLVE(fnBuildSub, "LLVMBuildSub");
+  RESOLVE(fnBuildNSWSub, "LLVMBuildNSWSub");
+  RESOLVE(fnBuildNUWSub, "LLVMBuildNUWSub");
   RESOLVE(fnBuildMul, "LLVMBuildMul");
+  RESOLVE(fnBuildNSWMul, "LLVMBuildNSWMul");
+  RESOLVE(fnBuildNUWMul, "LLVMBuildNUWMul");
   RESOLVE(fnBuildSDiv, "LLVMBuildSDiv");
   RESOLVE(fnBuildUDiv, "LLVMBuildUDiv");
   RESOLVE(fnBuildSRem, "LLVMBuildSRem");
@@ -327,6 +335,12 @@ LLVMBasicBlockRef LLVM70IRBuilder::appendBB(LLVMValueRef fn, const char *name) {
 void LLVM70IRBuilder::positionAtEnd(LLVMBasicBlockRef bb) {
   fnPositionAtEnd(builder, bb);
 }
+void LLVM70IRBuilder::positionBefore(LLVMValueRef inst) {
+  fnPositionBefore(builder, inst);
+}
+LLVMValueRef LLVM70IRBuilder::getTerminator(LLVMBasicBlockRef bb) {
+  return fnGetTerminator(bb);
+}
 LLVMBasicBlockRef LLVM70IRBuilder::getInsertBlock() {
   return fnGetInsertBlock(builder);
 }
@@ -401,13 +415,37 @@ LLVMValueRef LLVM70IRBuilder::buildAdd(LLVMValueRef l, LLVMValueRef r,
                                       const char *n) {
   return fnBuildAdd(builder, l, r, n);
 }
+LLVMValueRef LLVM70IRBuilder::buildNSWAdd(LLVMValueRef l, LLVMValueRef r,
+                                          const char *n) {
+  return fnBuildNSWAdd(builder, l, r, n);
+}
+LLVMValueRef LLVM70IRBuilder::buildNUWAdd(LLVMValueRef l, LLVMValueRef r,
+                                          const char *n) {
+  return fnBuildNUWAdd(builder, l, r, n);
+}
 LLVMValueRef LLVM70IRBuilder::buildSub(LLVMValueRef l, LLVMValueRef r,
                                       const char *n) {
   return fnBuildSub(builder, l, r, n);
 }
+LLVMValueRef LLVM70IRBuilder::buildNSWSub(LLVMValueRef l, LLVMValueRef r,
+                                          const char *n) {
+  return fnBuildNSWSub(builder, l, r, n);
+}
+LLVMValueRef LLVM70IRBuilder::buildNUWSub(LLVMValueRef l, LLVMValueRef r,
+                                          const char *n) {
+  return fnBuildNUWSub(builder, l, r, n);
+}
 LLVMValueRef LLVM70IRBuilder::buildMul(LLVMValueRef l, LLVMValueRef r,
                                       const char *n) {
   return fnBuildMul(builder, l, r, n);
+}
+LLVMValueRef LLVM70IRBuilder::buildNSWMul(LLVMValueRef l, LLVMValueRef r,
+                                          const char *n) {
+  return fnBuildNSWMul(builder, l, r, n);
+}
+LLVMValueRef LLVM70IRBuilder::buildNUWMul(LLVMValueRef l, LLVMValueRef r,
+                                          const char *n) {
+  return fnBuildNUWMul(builder, l, r, n);
 }
 LLVMValueRef LLVM70IRBuilder::buildSDiv(LLVMValueRef l, LLVMValueRef r,
                                        const char *n) {
@@ -699,14 +737,13 @@ LLVM70IRBuilder::createDISubroutineType(LLVMMetadataRef file) {
   return fnDIBuilderCreateSubroutineType(diBuilder, file, nullptr, 0,
                                          LLVMDIFlagZero);
 }
-LLVMMetadataRef LLVM70IRBuilder::createDIFunction(LLVMMetadataRef scope,
-                                                 const char *name,
-                                                 size_t nameLen,
-                                                 LLVMMetadataRef file,
-                                                 unsigned lineNo,
-                                                 LLVMMetadataRef type) {
+LLVMMetadataRef LLVM70IRBuilder::createDIFunction(
+    LLVMMetadataRef scope, const char *name, size_t nameLen,
+    const char *linkageName, size_t linkageNameLen, LLVMMetadataRef file,
+    unsigned lineNo, LLVMMetadataRef type) {
   return fnDIBuilderCreateFunction(
-      diBuilder, scope, name, nameLen, name, nameLen, file, lineNo, type,
+      diBuilder, scope, name, nameLen, linkageName, linkageNameLen, file,
+      lineNo, type,
       /*IsLocalToUnit=*/false, /*IsDefinition=*/true,
       /*ScopeLine=*/lineNo, LLVMDIFlagZero, /*IsOptimized=*/false);
 }

@@ -4,6 +4,7 @@ from numba_cuda_mlir import compiler, cuda, extending, types, testing
 from numba_cuda_mlir.models import PrimitiveModel, register_model
 from numba_cuda_mlir.numba_cuda.extending import overload as numba_cuda_overload
 from numba_cuda_mlir.numba_cuda.extending import typeof_impl
+from numba_cuda_mlir.numba_cuda import serialize
 from numba_cuda_mlir.numba_cuda.typing.templates import ConcreteTemplate
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 import numpy as np
@@ -38,6 +39,125 @@ def test_extending_intrinsic():
     # CHECK: %true = arith.constant true
     # CHECK-NEXT: cf.assert %true, "This should not be executed"
     testing.filecheck_with_comments(mlir)
+
+
+def test_extending_intrinsic_with_array_argument():
+    @extending.intrinsic
+    def identity(typingctx, arr):
+        def codegen(builder, target, args, kwargs):
+            builder.store_var(target, builder.load_var(args[0]))
+
+        return arr(arr), codegen
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def k(x, out):
+        out[0] = identity(x)[0]
+
+    x = np.array([7])
+    out = np.zeros(1, dtype=x.dtype)
+    k[1, 1](x, out)
+    assert out[0] == 7
+
+
+def test_intrinsic_serialization_preserves_ctor_kwargs_and_prefer_literal():
+    @extending.intrinsic
+    def identity(typingctx, value):
+        def codegen(builder, target, args, kwargs):
+            builder.store_var(target, builder.load_var(args[0]))
+
+        return value(value), codegen
+
+    from numba_cuda_mlir.numba_cuda.extending import _intrinsic
+
+    @_intrinsic(prefer_literal=True, target="cuda")
+    def lit_identity(typingctx, value):
+        def codegen(builder, target, args, kwargs):
+            builder.store_var(target, builder.load_var(args[0]))
+
+        return value(value), codegen
+
+    from numba_cuda_mlir.extending import _Intrinsic
+
+    payload = serialize.dumps(identity)
+    payload_lit = serialize.dumps(lit_identity)
+    del _Intrinsic._memo[identity._uuid]
+    del _Intrinsic._memo[lit_identity._uuid]
+    rebuilt = serialize.loads(payload)
+    rebuilt_lit = serialize.loads(payload_lit)
+    assert rebuilt is not identity
+    assert rebuilt_lit is not lit_identity
+    # The constructor arguments must survive the round-trip: they feed
+    # make_intrinsic_template() (prefer_literal and template metadata).
+    assert rebuilt._ctor_kwargs == {"target": "cuda"}
+    assert rebuilt._prefer_literal is False
+    assert rebuilt_lit._ctor_kwargs == {"target": "cuda"}
+    assert rebuilt_lit._prefer_literal is True
+
+    # The round-tripped instance is registered and usable in a kernel.
+    extending.refresh_registries()
+
+    @cuda.jit
+    def k(x, out):
+        out[0] = rebuilt(x)[0]
+
+    x = np.array([7])
+    out = np.zeros(1, dtype=x.dtype)
+    k[1, 1](x, out)
+    assert out[0] == 7
+
+
+@pytest.mark.parametrize("lowered_for", [None, types.Float], ids=["unlowered", "other_signature"])
+def test_overload_on_vendored_intrinsic_gives_way_to_native_typing(lowered_for):
+    """An intrinsic whose codegen is vendored (numba-cuda, llvmlite convention)
+    and that has no MLIR lowering for the call's signature fails typing, so an
+    overload built on it gives way to other templates instead of reaching
+    lowering (issue #327)."""
+    from numba_cuda_mlir._mlir.dialects import arith
+    from numba_cuda_mlir.extending import lowering_registry
+
+    def vendored_codegen(context, builder, sig, args):
+        raise AssertionError("vendored codegen must never run")
+
+    vendored_codegen.__module__ = "numba_cuda_mlir.numba_cuda.fake"
+
+    @extending.intrinsic
+    def vendored_intrinsic(typingctx, x):
+        return x(x), vendored_codegen
+
+    if lowered_for is not None:
+        # An MLIR lowering that does not cover the integer call below.
+        @lowering_registry.lower(vendored_intrinsic, lowered_for)
+        def lower_vendored_intrinsic(builder, target, args, kwargs):
+            raise AssertionError("lowering for another signature must not be selected")
+
+    def double(x):
+        pass
+
+    @numba_cuda_overload(double)
+    def ol_double(x):
+        return lambda x: vendored_intrinsic(x)
+
+    @extending.type_callable(double)
+    def type_double(context):
+        return lambda x: x
+
+    @lowering_registry.lower(double, types.Integer)
+    def lower_double(builder, target, args, kwargs):
+        value = builder.load_var(args[0])
+        builder.store_var(target, arith.addi(value, value))
+
+    # Makes vendored_intrinsic visible to typing, as in issue #327.
+    extending.refresh_registries()
+
+    @cuda.jit
+    def k(x):
+        x[0] = double(x[0])
+
+    x = np.array([3])
+    k[1, 1](x)
+    assert x[0] == 6
 
 
 def test_extending_overload_with_lowering():

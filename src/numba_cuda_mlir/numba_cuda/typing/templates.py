@@ -647,7 +647,7 @@ def _select_overload_dispatcher(templates, args_match, cur_flags):
                 continue
             _, args, kws, entry_flags = cache_key
             args = tuple(args)
-            if not args_match(args):
+            if not args_match(args, kws):
                 continue
             disp, _ = cache_value
             if not hasattr(disp, "py_func"):
@@ -1203,6 +1203,7 @@ class _IntrinsicTemplate(_TemplateTargetHelperMixin, AbstractTemplate):
         if result is None:
             return
         [sig, imp] = result
+        self.context.check_intrinsic_codegen(self.key, sig, imp)
         pysig = utils.pysignature(self._definition_func)
         # omit context argument from user function
         parameters = list(pysig.parameters.values())[1:]

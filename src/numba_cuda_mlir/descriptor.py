@@ -945,6 +945,16 @@ def get_constant_args(py_func):
     return tuple([False] * num_args)
 
 
+def is_vendored_codegen(codegen):
+    """Whether *codegen* comes from the vendored numba-cuda frontend.
+
+    The vendored package is used for type inference only; its codegen follows
+    the llvmlite calling convention and is never run on the MLIR path.
+    """
+    module = getattr(codegen, "__module__", None) or ""
+    return module.startswith("numba_cuda_mlir.numba_cuda.")
+
+
 class MLIRTypingContext(typing.BaseContext):
     def get_getattr(self, typ, attr):
         return super().get_getattr(typ, attr)
@@ -1035,6 +1045,25 @@ class MLIRTypingContext(typing.BaseContext):
             import numba_cuda_mlir.type_defs.cupy_types  # noqa: F401
 
     _conflicts_filtered = False
+
+    def check_intrinsic_codegen(self, intrinsic, sig, codegen):
+        # A vendored intrinsic is usable only through an MLIR lowering registered
+        # for its handle and signature, found as MLIRLower._lookup_actual_function
+        # finds it.  Rejecting it here, rather than in lowering, lets typing move
+        # on to other templates: an upstream @overload built on such an intrinsic
+        # gives way to the native typing (issue #327).
+        if not is_vendored_codegen(codegen):
+            return
+        target = mlir_target.target_context
+        # Membership first: _defns is a defaultdict, and indexing a missing key
+        # would register an empty entry.
+        if intrinsic in target._defns:
+            try:
+                target.get_function(intrinsic, sig)
+                return
+            except NotImplementedError:
+                pass
+        raise errors.TypingError(f"{intrinsic!r} has no MLIR lowering for {sig}")
 
     def refresh(self):
         super().refresh()
@@ -1226,7 +1255,7 @@ class MLIRTargetContext(BaseContext):
             return
         self.load_additional_registries()
 
-    def get_overload_builder(self, fn, sig):
+    def get_overload_builder(self, fn, sig, kws=()):
         """Return an MLIR builder for an overloaded function, or None.
 
         Searches the typing templates for an overload Dispatcher that
@@ -1251,7 +1280,7 @@ class MLIRTargetContext(BaseContext):
         def drop_omitted(args):
             return tuple(a for a in args if not isinstance(a, omitted))
 
-        # The cache key only holds the arguments the call actually supplied,
+        # The cache key only holds the positional and keyword arguments supplied,
         # while `sig` also carries omitted defaults; compare with and without
         # them.  `cache_args` also keeps whatever literals the template was
         # typed with, so an overload registered `prefer_literal=True` (or one
@@ -1260,8 +1289,13 @@ class MLIRTargetContext(BaseContext):
         full_forms = (match_args, literal_args)
         trimmed_forms = (drop_omitted(match_args), drop_omitted(literal_args))
 
-        def args_match(cache_args):
-            return cache_args in full_forms or drop_omitted(cache_args) in trimmed_forms
+        keyword_names = tuple(name for name, _ in kws)
+
+        def args_match(cache_args, cache_kws):
+            if tuple(name for name, _ in cache_kws) != keyword_names:
+                return False
+            cache_full = tuple(cache_args) + tuple(typ for _, typ in cache_kws)
+            return cache_full in full_forms or drop_omitted(cache_full) in trimmed_forms
 
         disp = _select_overload_dispatcher(
             templates, args_match, targetconfig.ConfigStack.top_or_none()
@@ -1294,7 +1328,6 @@ class MLIRTargetContext(BaseContext):
 
         # Lookup specific setattr implementation for this type and attribute
         overloads = self._setattrs[attr]
-        self._filter_numba_lowerings(overloads)
         try:
             return wrap_setattr(overloads.find((typ, valty)))
         except errors.NumbaNotImplementedError:
@@ -1302,19 +1335,12 @@ class MLIRTargetContext(BaseContext):
 
         # Lookup generic setattr implementation for this type
         overloads = self._setattrs[None]
-        self._filter_numba_lowerings(overloads)
         try:
             return wrap_setattr(overloads.find((typ, valty)))
         except errors.NumbaNotImplementedError:
             pass
 
         raise NotImplementedError("No definition for lowering %s.%s = %s" % (typ, attr, valty))
-
-    def _filter_numba_lowerings(self, overloads):
-        filtered_versions = list(
-            filter(lambda x: x[1].__module__.split(".")[0] != "numba", overloads.versions)
-        )
-        overloads.versions = type(overloads.versions)(filtered_versions)
 
     def _find_module_getattr_by_name(self, typ, attr):
         """
@@ -1420,8 +1446,6 @@ class MLIRTargetContext(BaseContext):
 
         # Lookup specific getattr implementation for this type and attribute
         overloads = self._getattrs[attr]
-        # Remove lowerings from upstream numba
-        self._filter_numba_lowerings(overloads)
         try:
             return overloads.find((typ,))
         except errors.NumbaNotImplementedError:
@@ -1437,8 +1461,6 @@ class MLIRTargetContext(BaseContext):
 
         # Lookup generic getattr implementation for this type
         overloads = self._getattrs[None]
-        # Remove lowerings from upstream numba
-        self._filter_numba_lowerings(overloads)
         try:
             return overloads.find((typ,))
         except errors.NumbaNotImplementedError:
@@ -3464,12 +3486,14 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         if cubin is None:
             raise RuntimeError("No cubin available for disassembly")
 
-        with tempfile.NamedTemporaryFile(suffix=".cubin") as f:
-            f.write(cubin)
-            f.flush()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cubin_path = os.path.join(tmpdir, "module.cubin")
+            # Close the file before nvdisasm opens it, including on Windows.
+            with open(cubin_path, "wb") as f:
+                f.write(cubin)
             try:
                 cp = subprocess.run(
-                    ["nvdisasm", "-gi", f.name],
+                    ["nvdisasm", "-gi", cubin_path],
                     check=True,
                     capture_output=True,
                 )

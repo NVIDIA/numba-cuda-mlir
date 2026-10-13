@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from numba_cuda_mlir.descriptor import MLIRDispatcherType
+from numba_cuda_mlir.descriptor import MLIRDispatcherType, is_vendored_codegen
 from io import StringIO
 import logging
 import operator
@@ -988,6 +988,12 @@ extern "C" __global__ void
                 f"NotImplemented lowering assign value {value} of type {type(value)}"
             )
 
+    def _store_complex_constant(self, target, value):
+        from numba_cuda_mlir.lowering.math import complex_cg
+
+        value = complex(value)
+        complex_cg(self, target, [value.real, value.imag], {})
+
     def lower_free_var_assign(self, target, free_var):
         trace("target: %s, free_var: %s", target, free_var)
         if free_var.value is None:
@@ -997,6 +1003,8 @@ extern "C" __global__ void
                 self.store_var(target, none_val)
             else:
                 self.store_var(target, self.get_mlir_type(target_type))
+        elif isinstance(free_var.value, (complex, np.complexfloating)):
+            self._store_complex_constant(target, free_var.value)
         elif hasattr(free_var.value, "__cuda_array_interface__"):
             self.lower_captured_array_to_memref(target, free_var.value)
         else:
@@ -1155,9 +1163,7 @@ extern "C" __global__ void
                 arith.constant(mlir_type, value),
             )
         elif isinstance(const.value, complex):
-            from numba_cuda_mlir.lowering.math import complex_cg
-
-            complex_cg(self, target, [const.value.real, const.value.imag], {})
+            self._store_complex_constant(target, const.value)
         elif isinstance(const.value, tuple):
             if isinstance(target_type, types.BaseTuple):
                 elem_types = (
@@ -1202,7 +1208,9 @@ extern "C" __global__ void
             else:
                 self.store_var(target, self.get_mlir_type(target_type))
             return
-        if isinstance(glob.value, (bool, int, float, np.number, np.bool_)):
+        if isinstance(glob.value, (complex, np.complexfloating)):
+            self._store_complex_constant(target, glob.value)
+        elif isinstance(glob.value, (bool, int, float, np.number, np.bool_)):
             mlir_type = self.get_mlir_type(target_type)
             # Check if the MLIR type supports constants
             if not isinstance(
@@ -1323,6 +1331,8 @@ extern "C" __global__ void
                 return tuple(map(self.lower_literal_if_needed, value))
             case np.ndarray():
                 return self.lower_array_literal(value, numba_type)
+            case complex() if numba_type is not None:
+                return constant(value, self.get_mlir_type(numba_type))
             case np.number() | np.bool_():
                 # np.bool_ is not an np.number but lowers the same way.
                 mlir_type = to_mlir_type(value.dtype)
@@ -1514,7 +1524,7 @@ extern "C" __global__ void
             if not isinstance(ro, RangeObject):
                 raise InternalCompilerError(f"Range object not found for value {value.name}")
             self.store_var(target, ro)
-        elif isinstance(value_type, types.NumpyNdIterType):
+        elif isinstance(value_type, (types.NumpyNdIterType, numba_types.NumpyFlatType)):
             iter_obj = self.load_var(value)
             if not isinstance(iter_obj, NdIterIterObject):
                 raise InternalCompilerError(
@@ -1944,9 +1954,8 @@ extern "C" __global__ void
             )
 
         callee_type = get_func_type(callee)
-        call_args = [
-            convert(val, ty) for val, ty in zip(self.load_vars(call_vars), callee_type.inputs)
-        ]
+        operands = self._call_operands_from_vars(call_vars, expected_types=call_argtypes)
+        call_args = [convert(val, ty) for val, ty in zip(operands, callee_type.inputs)]
         call_result = func.call(
             result=callee_type.results,
             callee=callee.name.value,
@@ -2054,11 +2063,14 @@ extern "C" __global__ void
             return builder
 
         if isinstance(fn, _Intrinsic):
-            has_arrays = any(isinstance(arg_ty, types.Array) for arg_ty in signature.args)
-            if has_arrays:
-                return None
             tyctx = self.context.typing_context
             full_sig, maybe_builder = fn._defn(tyctx, *signature.args)
+            if is_vendored_codegen(maybe_builder):
+                # Typing rejects these (MLIRTypingContext.check_intrinsic_codegen).
+                raise InternalCompilerError(
+                    f"{fn!r} has no MLIR lowering for {signature}; its vendored "
+                    "codegen cannot run on the MLIR path."
+                )
             if maybe_builder:
                 return maybe_builder
 
@@ -2284,7 +2296,7 @@ extern "C" __global__ void
             callee = self.user_defined_functions[fn.name]
             callOp = self.build_user_defined_function_call(target, callee, args, kws)
             self.store_var(target, callOp)
-        elif overload_builder := self.context.get_overload_builder(fn_type, signature):
+        elif overload_builder := self.context.get_overload_builder(fn_type, signature, kws):
             overload_builder(self, target, call_args, kws)
         elif getattr(fn_value, "__numba_cuda_mlir_jitable__", False):
             # Function marked by numba_cuda_mlir's @register_jitable.
@@ -2990,6 +3002,9 @@ extern "C" __global__ void
                 self.store_var(tmp_var, inner)
                 builder(self, None, [target, index, tmp_var], [])
                 return
+        raise NotImplementedError(
+            f"lowering setitem {setitem_inst} with types {arg_types}: no registered setitem builder"
+        )
 
     def lower_branch(self, branch_inst):
         """
@@ -3321,6 +3336,12 @@ extern "C" __global__ void
                     if descriptor is not None:
                         self._emit_dbg_declare(base_name, descriptor, var_attr, volatile=True)
             return
+        # Index-typed, such as memref.dim yields for `arr.shape[k]` and `arr.size`, needs to
+        # cast to the integer width the DI variable was declared with.
+        if isinstance(mlir_value.type, ir.IndexType):
+            if not isinstance(numba_type, types.Integer):
+                return
+            mlir_value = arith.index_cast(out=self.get_mlir_type(numba_type), in_=mlir_value)
         is_arg = base_name in self._di_builder.arg_names
         is_boolean = isinstance(numba_type, types.Boolean)
         if is_arg and not is_boolean:

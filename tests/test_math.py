@@ -433,6 +433,44 @@ def test_modulo_operator():
     np.testing.assert_almost_equal(z_result, 0.0, decimal=5)
 
 
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize(
+    "x, y",
+    [
+        (1.0, 0.1),
+        (1e17, 3.0),
+        (5.0, np.inf),
+        (-5.0, np.inf),
+        (-7.5, 2.0),
+        (7.5, -2.0),
+        (-0.0, 1.0),
+        (0.0, -1.0),
+        (-1e-30, 1.0),
+        (5.0, 0.0),
+    ],
+)
+def test_float_modulo_floordiv(dtype, x, y):
+    """% and // on floats match Python's results, even where x / y rounds"""
+
+    @cuda.jit()
+    def mod_floordiv_kernel(out, x, y):
+        out[0] = x[0] % y[0]
+        out[1] = x[0] // y[0]
+
+    xs, ys = np.array([x], dtype=dtype), np.array([y], dtype=dtype)
+    out = cuda.to_device(np.zeros(2, dtype=dtype))
+    mod_floordiv_kernel[1, 1, 0, 0](out, cuda.to_device(xs), cuda.to_device(ys))
+
+    # NumPy's float scalars follow Python's algorithm, and give nan and x / 0 for
+    # a zero divisor instead of raising
+    with np.errstate(divide="ignore", invalid="ignore"):
+        expected = np.array([xs[0] % ys[0], xs[0] // ys[0]], dtype=dtype)
+    result = out.copy_to_host()
+    np.testing.assert_array_equal(result, expected)
+    not_nan = ~np.isnan(expected)
+    np.testing.assert_array_equal(np.signbit(result[not_nan]), np.signbit(expected[not_nan]))
+
+
 def test_bitwise_shift_operators():
     """Test left shift and right shift operators"""
 
@@ -688,7 +726,6 @@ def test_atan2():
     np.testing.assert_almost_equal(result.copy_to_host()[0], math.pi / 4, decimal=5)
 
 
-@pytest.mark.skipif(not hasattr(math, "exp2"), reason="math.exp2 requires Python 3.11+")
 def test_exp2():
     """Test exp2 (2^x) function"""
 
@@ -1093,8 +1130,7 @@ if __name__ == "__main__":
     test_isnan_isinf_isfinite()
     test_predicates_with_integers()
     test_atan2()
-    if hasattr(math, "exp2"):
-        test_exp2()
+    test_exp2()
     test_log1p()
     test_copysign()
     test_hypot()

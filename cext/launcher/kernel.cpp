@@ -2400,9 +2400,9 @@ struct LaunchConfiguration {
 };
 
 Result<uint64_t> parse_dispatch_token(PyObject* value) {
-    unsigned long long token = PyLong_AsUnsignedLongLong(value);
+    uint64_t token = PyLong_AsUnsignedLongLong(value);
     if (PyErr_Occurred()) return ErrorRaised;
-    return static_cast<uint64_t>(token);
+    return Result<uint64_t>{std::move(token)};
 }
 
 PyObject* LaunchConfiguration_vectorcall(PyObject* self, PyObject *const *args,

@@ -50,6 +50,7 @@ from numba_cuda_mlir.lowering_utilities import (
     set_error_code_if_zero,
     try_extract_constant,
     NdIterIterObject,
+    FlatIterObject,
     is_nonelike,
     get_conversion_signedness,
     storage_itemsize_bytes,
@@ -1009,8 +1010,12 @@ def _rank_reducing_subview(
     return memref.collapse_shape(result_type, subview, reassociation)
 
 
-def _normalize_negative_index(array: ir.Value, index: ir.Value | int, dim: int) -> ir.Value:
-    """Normalize a possibly-negative integer index for one array dimension."""
+def _normalize_negative_index(
+    array: ir.Value, index: ir.Value | int, dim: int, index_numba_type: types.Type | None = None
+) -> ir.Value:
+    """Wrap signed indices; unsigned indices cannot be negative."""
+    if isinstance(index_numba_type, types.Integer) and not index_numba_type.signed:
+        return index_of(index)
     index = index_of(index)
     zero = index_of(0)
     is_negative = arith.cmpi(arith.CmpIPredicate.slt, index, zero)
@@ -1047,7 +1052,12 @@ def lower_array_getitem(builder, target, args, kwargs):
     if not array_type.has_rank:
         raise NotImplementedError("NYI: unranked memrefs")
 
-    index = _normalize_negative_index(array, index, 0)
+    index = _normalize_negative_index(
+        array,
+        index,
+        0,
+        None if isinstance(args[1], int) else builder.get_numba_type(args[1].name),
+    )
     if array_type.rank == 1:
         value = lowering_utilities.array_element_value_load(
             array_numba_type,
@@ -1564,7 +1574,12 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
     array = builder.load_var(args[0])
     index_arg = args[1]
     index = index_arg if isinstance(index_arg, int) else builder.load_var(index_arg)
-    index = _normalize_negative_index(array, index, 0)
+    index = _normalize_negative_index(
+        array,
+        index,
+        0,
+        None if isinstance(index_arg, int) else builder.get_numba_type(index_arg.name),
+    )
     value = builder.load_var(args[2])
     value_numba_type = builder.get_numba_type(args[2].name)
     signed = get_conversion_signedness(value_numba_type, array_numba_type.dtype)
@@ -1600,6 +1615,7 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
 def _setitem_indices_to_memref_indices(
     array: ir.Value,
     indices: tuple[ir.Value | int, ...] | ir.Value,
+    index_numba_types: types.BaseTuple | tuple[types.Type, ...] | None = None,
 ) -> tuple[ir.Value, ...]:
     match indices:
         case tuple():
@@ -1617,8 +1633,13 @@ def _setitem_indices_to_memref_indices(
             raise InternalCompilerError(
                 f"Indices must be a tuple of integers or a value, got {type(indices)}"
             )
+    if isinstance(index_numba_types, types.BaseTuple):
+        index_numba_types = index_numba_types.types
+    if index_numba_types is None:
+        index_numba_types = (None,) * len(raw_indices)
     return tuple(
-        _normalize_negative_index(array, index, dim) for dim, index in enumerate(raw_indices)
+        _normalize_negative_index(array, index, dim, index_type)
+        for dim, (index, index_type) in enumerate(zip(raw_indices, index_numba_types))
     )
 
 
@@ -1637,7 +1658,7 @@ def lower_array_setitem_tuple(builder, target, args, kwargs):
     array = builder.load_var(args[0])
     tup = args[1]
     tup = builder.load_var(tup) if isinstance(tup, numba_ir.Var) else tup
-    indices = _setitem_indices_to_memref_indices(array, tup)
+    indices = _setitem_indices_to_memref_indices(array, tup, builder.get_numba_type(args[1].name))
     value = builder.load_var(args[2])
     lowering_utilities.array_element_value_store(
         array_numba_type,
@@ -1727,6 +1748,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
     zero = arith.constant(result=T.index(), value=0)
     dims = [memref.dim(array, index_of(i)) for i in range(source_rank)]
 
+    tuple_numba_type = builder.get_numba_type(args[1].name)
     offsets, sizes, strides, is_scalar = [], [], [], []
     for dim, index in enumerate(tuple_indices):
         match index:
@@ -1746,7 +1768,8 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
                         set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
                         scf.yield_([])
             case int() | ir.Value() as value:
-                offsets.append(_normalize_negative_index(array, value, dim))
+                index_type = tuple_numba_type.types[dim]
+                offsets.append(_normalize_negative_index(array, value, dim, index_type))
                 sizes.append(1)
                 strides.append(1)
                 is_scalar.append(True)
@@ -3928,11 +3951,26 @@ def np_arctan2_array_to_array_cg(builder, target, args, kwargs):
 
 
 def _hypot_fn(x, y):
-    """Compute hypot(x, y) = sqrt(x*x + y*y)"""
-    x_sq = arith.mulf(x, x)
-    y_sq = arith.mulf(y, y)
-    sum_sq = arith.addf(x_sq, y_sq)
-    return math_dialect.sqrt(sum_sq)
+    """Compute hypot(x, y) = sqrt(x*x + y*y) without overflow or underflow.
+
+    It is evaluated as big * sqrt(1 + (small / big)**2), where big and small are
+    the larger and smaller of |x| and |y|; squaring x and y directly gives inf
+    for hypot(1e200, 1e200) and 0 for hypot(3e-200, 4e-200).
+    """
+    a = math_dialect.absf(x)
+    b = math_dialect.absf(y)
+    big = arith.maximumf(a, b)
+    small = arith.minimumf(a, b)
+    zero = float_of(0.0, x.type)
+    ratio = arith.divf(small, big)
+    result = arith.mulf(
+        big, math_dialect.sqrt(arith.addf(float_of(1.0, x.type), arith.mulf(ratio, ratio)))
+    )
+    # hypot(0, 0) is 0 rather than 0 * sqrt(1 + nan), and an infinite argument
+    # gives inf even when the other one is nan
+    result = arith.select(arith.cmpf(arith.CmpFPredicate.OEQ, big, zero), zero, result)
+    is_inf = arith.ori(math_dialect.isinf(x), math_dialect.isinf(y))
+    return arith.select(is_inf, float_of(float("inf"), x.type), result)
 
 
 @lower(np.hypot, types.Float, types.Float)
@@ -5080,6 +5118,13 @@ def numpy_dtype(dtype, align=False, copy=False):
         return imp
     else:
         raise errors.NumbaTypeError("unknown dtype descriptor: {}".format(dtype))
+
+
+@lower_getattr(types.Array, "flat")
+def make_array_flatiter(context, builder, target, array):
+    array_type = builder.get_numba_type(array.name)
+    iterator = FlatIterObject(builder, [builder.load_var(array)], array_type.ndim)
+    builder.store_var(target, iterator)
 
 
 @lower(np.nditer, types.Any)

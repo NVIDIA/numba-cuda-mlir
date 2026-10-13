@@ -1585,6 +1585,10 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
     if isinstance(array_numba_type.dtype, Record):
         return _lower_record_array_setitem(builder, target, args, kwargs)
 
+    value_numba_type = builder.get_numba_type(args[2].name)
+    if isinstance(value_numba_type, types.Array):
+        raise NotImplementedError("no registered setitem builder for array-valued assignment")
+
     array = builder.load_var(args[0])
     index_arg = args[1]
     index = index_arg if isinstance(index_arg, int) else builder.load_var(index_arg)
@@ -1595,7 +1599,6 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
         None if isinstance(index_arg, int) else builder.get_numba_type(index_arg.name),
     )
     value = builder.load_var(args[2])
-    value_numba_type = builder.get_numba_type(args[2].name)
     signed = get_conversion_signedness(value_numba_type, array_numba_type.dtype)
     value = _cast_array_store_value(builder, array_numba_type, args[2], value)
     mrt = array.type

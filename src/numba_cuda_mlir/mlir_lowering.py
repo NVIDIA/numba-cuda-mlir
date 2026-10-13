@@ -1968,9 +1968,7 @@ extern "C" __global__ void
             # instead of collapsing to ``None`` or to its sole element.
             result = self.from_return(
                 target_type,
-                self._unflatten_abi_value(
-                    target_type, iter(self._call_results_tuple(call_result))
-                ),
+                self._unflatten_abi_value(target_type, iter(self._call_results_tuple(call_result))),
             )
         elif len(callee_type.results) == 0:
             result = ir.NoneType.get()

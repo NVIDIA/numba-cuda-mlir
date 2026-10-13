@@ -1662,6 +1662,26 @@ class NdIterIterObject:
         return IterResult(tuple(views), is_valid)
 
 
+class FlatIterObject(NdIterIterObject):
+    """C-order array.flat iterator, yielding scalars instead of rank-0 views."""
+
+    def next(self) -> IterResult:
+        current_index = self.index
+        is_valid = arith.cmpi(predicate=arith.CmpIPredicate.slt, lhs=current_index, rhs=self.size)
+        array = self._arrays[0]
+        element_type = array.type.element_type
+        load_if_valid = scf.IfOp(is_valid, results_=[element_type], has_else=True)
+        with ir.InsertionPoint(load_if_valid.then_block):
+            indices = self._unravel_c_order(current_index)
+            scf.yield_([memref.load(array, indices)])
+        with ir.InsertionPoint(load_if_valid.else_block):
+            scf.yield_([_zero_value_for_type(element_type)])
+        next_index = arith.addi(current_index, int_of(1, ty=T.i64()))
+        updated_index = arith.select(is_valid, next_index, current_index)
+        memref.store(updated_index, self._index_memref, [index_of(0)])
+        return IterResult(load_if_valid.results[0], is_valid)
+
+
 def _types_match(ty1, ty2, exact=False):
     if exact:
         return ty1 == ty2

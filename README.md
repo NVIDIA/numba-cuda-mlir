@@ -22,11 +22,13 @@ Writing and executing a simple vector add kernel:
 import numpy as np
 from numba_cuda_mlir import cuda
 
+
 @cuda.jit
 def vector_add(a, b, out):
     i = cuda.grid(1)
     if i < out.shape[0]:
         out[i] = a[i] + b[i]
+
 
 n = 1_000_000
 a = np.ones(n, dtype=np.float32)

@@ -2465,14 +2465,12 @@ def fixup_var_define_in_scope(blocks):
     # Scan for all used variables
     used_var = {}
     for blk in blocks.values():
-        scope = blk.scope
         for inst in blk.body:
             for var in inst.list_vars():
                 used_var[var] = inst
-    # Note: not all blocks share a single scope even though they should.
-    # Ensure the scope of each block defines all used variables.
-    for blk in blocks.values():
-        scope = blk.scope
+    # Define every used variable in each distinct block scope.
+    scopes = {id(blk.scope): blk.scope for blk in blocks.values()}
+    for scope in scopes.values():
         for var in used_var.keys():
             # add this variable if it's not in scope
             if var.name not in scope.localvars:

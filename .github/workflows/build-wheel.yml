@@ -7,6 +7,9 @@ on:
       host-platform:
         required: true
         type: string
+      python-versions:
+        required: true
+        type: string
       cuda-version:
         required: true
         type: string
@@ -26,17 +29,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version:
-          - "3.10"
-          - "3.11"
-          - "3.12"
-          - "3.13"
-          - "3.14"
-          - "3.14t"
+        python-version: ${{ fromJSON(inputs.python-versions) }}
+        exclude:
+          - python-version: ${{ inputs.host-platform == 'win-arm64' && '3.10' || '' }}
     name: py${{ matrix.python-version }}
     runs-on: ${{ (inputs.host-platform == 'linux-64' && 'linux-amd64-cpu8') ||
                  (inputs.host-platform == 'linux-aarch64' && 'linux-arm64-cpu8') ||
-                 (inputs.host-platform == 'win-64' && 'windows-2022') }}
+                 (inputs.host-platform == 'win-64' && 'windows-2022') ||
+                 (inputs.host-platform == 'win-arm64' && 'windows-11-arm') }}
     steps:
       - name: Checkout ${{ github.event.repository.name }}
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
@@ -80,7 +80,11 @@ jobs:
         run: |
           PY_VER_FMT=$(echo "${{ matrix.python-version }}" | tr -d '.')
           echo "llvm-py-tag=cp${PY_VER_FMT}" >> "$GITHUB_OUTPUT"
-          if [[ "${{ inputs.host-platform }}" == win* ]]; then
+          if [[ "${{ inputs.host-platform }}" == 'win-arm64' ]]; then
+            source ci/llvm-version.env
+            echo "msvc-toolset=${LLVM_WINDOWS_ARM64_MSVC_TOOLSET}" >> "$GITHUB_OUTPUT"
+            echo "cibw-build=cp${PY_VER_FMT}-win_arm64" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ inputs.host-platform }}" == win* ]]; then
             echo "cibw-build=cp${PY_VER_FMT}-win_amd64" >> "$GITHUB_OUTPUT"
           else
             echo "cibw-build=cp${PY_VER_FMT}-manylinux*" >> "$GITHUB_OUTPUT"
@@ -110,8 +114,11 @@ jobs:
           chmod -R +x llvm-modern-install/lib/ llvm7-install/lib/ || true
 
       - name: Set up MSVC
-        if: ${{ inputs.host-platform == 'win-64' }}
+        if: ${{ startsWith(inputs.host-platform, 'win') }}
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756  # v1
+        with:
+          arch: ${{ inputs.host-platform == 'win-arm64' && 'arm64' || 'x64' }}
+          toolset: ${{ steps.wheel-tags.outputs.msvc-toolset }}
 
       - name: Build numba-cuda-mlir wheel
         uses: pypa/cibuildwheel@294735312765b09d24a2fbec22660ce817587d55  # v4.1.0
@@ -135,7 +142,7 @@ jobs:
             ACTIONS_CACHE_SERVICE_V2=${{ env.ACTIONS_CACHE_SERVICE_V2 }}
           CIBW_ENVIRONMENT_WINDOWS: >
             MLIR_DIR="$(cygpath -w ${{ env.LLVM_MODERN_INSTALL_DIR }}/lib/cmake/mlir)"
-            LIBLLVM7="$(cygpath -w ${{ env.LLVM7_INSTALL_DIR }}/bin/LLVM-C.dll)"
+            ${{ inputs.host-platform != 'win-arm64' && format('LIBLLVM7="$(cygpath -w {0}/bin/LLVM-C.dll)"', env.LLVM7_INSTALL_DIR) || '' }}
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             auditwheel -v repair {wheel} --wheel-dir {dest_dir}
             --exclude libMLIRPythonCAPI.so

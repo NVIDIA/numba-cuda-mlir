@@ -7,6 +7,10 @@ on:
       host-platform:
         required: true
         type: string
+      python-versions:
+        description: JSON Python version list required for win-arm64 builds.
+        required: false
+        type: string
 
 defaults:
   run:
@@ -211,6 +215,79 @@ jobs:
         with:
           name: ${{ steps.llvm-metadata.outputs.artifact-name }}
           path: ${{ matrix.install-dir }}/
+
+  build-llvm-windows-arm64:
+    name: LLVM Modern Windows Arm64 (Python ${{ matrix.python-version }})
+    if: ${{ inputs.host-platform == 'win-arm64' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ${{ fromJSON(inputs.python-versions) }}
+        exclude:
+          - python-version: "3.10"
+    runs-on: windows-11-arm
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    env:
+      PARALLEL: "4"
+      LLVM_PARALLEL_LINK_JOBS: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Compute cache key
+        id: cache-key
+        run: |
+          PY_TAG="cp$(echo "${{ matrix.python-version }}" | tr -d '.')"
+          source ci/llvm-version.env
+          echo "msvc-toolset=${LLVM_WINDOWS_ARM64_MSVC_TOOLSET}" >> "$GITHUB_OUTPUT"
+          KEY="$(bash ci/llvm-cache-key.sh modern "${{ inputs.host-platform }}" "$PY_TAG")"
+          echo "key=${KEY}" >> "$GITHUB_OUTPUT"
+          echo "py-tag=${PY_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore LLVM Modern cache
+        id: gha-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: llvm-modern-install/
+          key: ${{ steps.cache-key.outputs.key }}
+
+      - name: Set up native Arm Python
+        if: steps.gha-cache.outputs.cache-hit != 'true'
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up ARM64 MSVC
+        if: steps.gha-cache.outputs.cache-hit != 'true'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756  # v1
+        with:
+          arch: arm64
+          toolset: ${{ steps.cache-key.outputs.msvc-toolset }}
+
+      - name: Install build dependencies
+        if: steps.gha-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m pip install pybind11 "nanobind~=2.9" numpy ninja cmake "typing-extensions; python_version < '3.12'"
+
+      - name: Build modern LLVM on host
+        if: steps.gha-cache.outputs.cache-hit != 'true'
+        run: bash ci/build-windows.sh modern
+
+      - name: Save LLVM Modern cache
+        if: steps.gha-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: llvm-modern-install/
+          key: ${{ steps.cache-key.outputs.key }}
+
+      - name: Upload LLVM Modern artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: llvm-modern-install-${{ steps.cache-key.outputs.py-tag }}-${{ inputs.host-platform }}
+          path: llvm-modern-install/
+          if-no-files-found: error
 
   build-llvm7:
     name: LLVM 7

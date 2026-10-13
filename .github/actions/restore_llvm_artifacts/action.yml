@@ -7,7 +7,7 @@ description: Restore LLVM build artifacts from GHA cache or workflow artifacts.
 inputs:
   host-platform:
     required: true
-    description: Target host platform, e.g. linux-64, linux-aarch64, or win-64.
+    description: Target host platform, e.g. linux-64, linux-aarch64, win-64, or win-arm64.
   llvm-py-tag:
     required: true
     description: Python ABI tag for modern LLVM artifacts, e.g. cp312.
@@ -20,7 +20,9 @@ runs:
       shell: bash
       run: |
         echo "llvm-modern-key=$(bash ci/llvm-cache-key.sh modern "${{ inputs.host-platform }}" "${{ inputs.llvm-py-tag }}")" >> "$GITHUB_OUTPUT"
-        echo "llvm7-key=$(bash ci/llvm-cache-key.sh llvm7 "${{ inputs.host-platform }}")" >> "$GITHUB_OUTPUT"
+        if [[ "${{ inputs.host-platform }}" != 'win-arm64' ]]; then
+          echo "llvm7-key=$(bash ci/llvm-cache-key.sh llvm7 "${{ inputs.host-platform }}")" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Restore LLVM Modern from cache
       if: ${{ github.ref_name != 'main' }}
@@ -42,8 +44,10 @@ runs:
       run: |
         mlir_libs="llvm-modern-install/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs"
         if [[ "${{ inputs.host-platform }}" == win* ]]; then
+          arch=amd64
+          if [[ "${{ inputs.host-platform }}" == 'win-arm64' ]]; then arch=arm64; fi
           expected=(
-            "${mlir_libs}/_mlir.${{ inputs.llvm-py-tag }}-win_amd64.pyd"
+            "${mlir_libs}/_mlir.${{ inputs.llvm-py-tag }}-win_${arch}.pyd"
             "${mlir_libs}/MLIRPythonCAPI.dll"
             "${mlir_libs}/MLIRModernToNVVM.dll"
           )
@@ -61,7 +65,7 @@ runs:
         done
 
     - name: Restore LLVM 7 from cache
-      if: ${{ github.ref_name != 'main' }}
+      if: ${{ inputs.host-platform != 'win-arm64' && github.ref_name != 'main' }}
       id: llvm7-cache
       uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
       with:
@@ -69,13 +73,14 @@ runs:
         key: ${{ steps.cache-keys.outputs.llvm7-key }}
 
     - name: Download LLVM 7 artifacts
-      if: ${{ github.ref_name == 'main' || steps.llvm7-cache.outputs.cache-hit != 'true' }}
+      if: ${{ inputs.host-platform != 'win-arm64' && (github.ref_name == 'main' || steps.llvm7-cache.outputs.cache-hit != 'true') }}
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
       with:
         name: llvm7-install-${{ inputs.host-platform }}
         path: llvm7-install
 
     - name: Validate LLVM 7 artifacts
+      if: ${{ inputs.host-platform != 'win-arm64' }}
       shell: bash
       run: |
         if [[ "${{ inputs.host-platform }}" == win* ]]; then

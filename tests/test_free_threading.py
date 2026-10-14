@@ -13,6 +13,8 @@ import time
 
 import pytest
 
+from gpu_utils import requires_llvm70
+
 
 def _is_free_threaded_python():
     return sysconfig.get_config_var("Py_GIL_DISABLED") in (1, "1")
@@ -46,6 +48,7 @@ def _require_free_threaded_python():
         pytest.skip("requires a free-threaded CPython build")
 
 
+@requires_llvm70
 def test_concurrent_cold_cuda_compile():
     result = _run_python(
         """

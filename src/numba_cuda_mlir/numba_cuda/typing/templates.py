@@ -647,7 +647,7 @@ def _select_overload_dispatcher(templates, args_match, cur_flags):
                 continue
             _, args, kws, entry_flags = cache_key
             args = tuple(args)
-            if not args_match(args):
+            if not args_match(args, kws):
                 continue
             disp, _ = cache_value
             if not hasattr(disp, "py_func"):

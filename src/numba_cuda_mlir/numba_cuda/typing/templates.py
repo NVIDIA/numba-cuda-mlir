@@ -630,6 +630,27 @@ def _spread_bundle(collected):
     return spread
 
 
+def strip_star_args(numba_type):
+    """The same tuple type without any ``*args`` bundle marker.
+
+    ``StarArgTuple``/``StarArgUniTuple`` record that a call site folded these
+    types into one parameter.  That is true of the parameter and false of a
+    value: an implementation returning ``args`` hands back an ordinary tuple,
+    and the marker riding along makes whoever receives it mistake it for a
+    bundle of their own and splice its elements in.  Strip it wherever a
+    bundle becomes a value, so only a freshly folded parameter carries it.
+
+    Only the outermost marker is stripped, which is the only position any
+    consumer inspects: folding and ``canonical_call_key`` ask whether a whole
+    argument is a bundle, never whether one is buried inside a tuple.
+    """
+    if isinstance(numba_type, types.StarArgUniTuple):
+        return types.UniTuple(numba_type.dtype, numba_type.count)
+    if isinstance(numba_type, types.StarArgTuple):
+        return types.Tuple(numba_type.types)
+    return numba_type
+
+
 def canonical_call_key(impl_func, arg_types, kw_types):
     """Argument types laid out in the order *impl_func* declares its parameters.
 
@@ -908,7 +929,10 @@ class _OverloadFunctionTemplate(AbstractTemplate):
             if sig is None:  # can't resolve for this target
                 return None
             self._compiled_overloads[sig.args] = disp_type.get_overload(sig)
-        return sig
+        # Keyed on sig.args, which the return type does not take part in, so
+        # the registrations above stay addressable by the same key.
+        return_type = strip_star_args(sig.return_type)
+        return sig if return_type == sig.return_type else sig.replace(return_type=return_type)
 
     def _get_impl(self, args, kws):
         """Get implementation given the argument types.

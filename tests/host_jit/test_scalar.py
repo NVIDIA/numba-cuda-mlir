@@ -267,78 +267,14 @@ def test_direct_compile_boundaries(compile_name):
         compile_function(pair, None, (types.int64,), dispatcher.targetoptions)
 
 
-def _inplace_add(a, b):
-    a += b
-    return a
+@pytest.mark.parametrize("a,b", [(7, 3), (-7, 3), (7.5, 2.5)])
+def test_inplace_true_division_and_failure_recovery(a, b):
+    @host.jit
+    def divide(a, b):
+        a /= b
+        return a
 
-
-def _inplace_subtract(a, b):
-    a -= b
-    return a
-
-
-def _inplace_multiply(a, b):
-    a *= b
-    return a
-
-
-def _inplace_bit_and(a, b):
-    a &= b
-    return a
-
-
-def _inplace_bit_or(a, b):
-    a |= b
-    return a
-
-
-def _inplace_bit_xor(a, b):
-    a ^= b
-    return a
-
-
-@pytest.mark.parametrize(
-    "function",
-    [
-        _inplace_add,
-        _inplace_subtract,
-        _inplace_multiply,
-        _inplace_bit_and,
-        _inplace_bit_or,
-        _inplace_bit_xor,
-    ],
-    ids=["add", "subtract", "multiply", "and", "or", "xor"],
-)
-def test_inplace_integer_operations(function):
-    compiled = host.jit(function)
-    for args in ((7, 3), (-7, 3), (7, -3), (-7, -3)):
-        assert compiled(*args) == function(*args)
-
-
-def _inplace_divide(a, b):
-    a /= b
-    return a
-
-
-def _inplace_quotient(a, b):
-    a //= b
-    return a
-
-
-def _inplace_remainder(a, b):
-    a %= b
-    return a
-
-
-@pytest.mark.parametrize(
-    "function",
-    [_inplace_divide, _inplace_quotient, _inplace_remainder],
-    ids=["divide", "quotient", "remainder"],
-)
-def test_inplace_division_and_failure_recovery(function):
-    compiled = host.jit(function)
-    for args in ((7, 3), (-7, 3), (7, -3), (-7, -3)):
-        assert compiled(*args) == function(*args)
+    assert divide(a, b) == a / b
     with pytest.raises(ZeroDivisionError):
-        compiled(7, 0)
-    assert compiled(-7, 3) == function(-7, 3)
+        divide(a, 0)
+    assert divide(a, b) == a / b

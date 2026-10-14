@@ -97,6 +97,37 @@ def test_range_reuse():
     assert out.copy_to_host()[0] == 48
 
 
+def test_range_dispatch_preserves_integer_types():
+    @cuda.jit
+    def count(out, start, stop, step):
+        total = 0
+        for _ in range(start, stop, step):
+            total += 1
+        out[0] = total
+
+    out = cuda.to_device(np.zeros(1, dtype=np.int64))
+    signed = (-(2**63), 2**63 - 1, 2**63 - 1)
+    unsigned = (np.uint64(0), np.uint64(2**64 - 1), np.uint64(2**63))
+    narrow = (np.int8(-128), np.int8(127), np.int8(1))
+    python_unsigned = (0, 2**64 - 1, 2**63)
+    for args, expected in (
+        (signed, 3),
+        (unsigned, 2),
+        (narrow, 255),
+        (python_unsigned, 2),
+        (signed, 3),
+    ):
+        count[1, 1](out, *args)
+        assert out.copy_to_host()[0] == expected
+
+    class Integer(int):
+        pass
+
+    for args, expected in ((signed, 3), (python_unsigned, 2), (signed, 3)):
+        count[1, 1](out, *(Integer(value) for value in args))
+        assert out.copy_to_host()[0] == expected
+
+
 if __name__ == "__main__":
     test_range1()
     test_range2()

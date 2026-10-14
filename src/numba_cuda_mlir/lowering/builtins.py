@@ -133,8 +133,19 @@ def lower_tuple_concat(builder, target, args, kwargs):
 @lower(range, types.Number, types.Number, types.Number)
 def lower_range(builder: MLIRLower, target, args, kwargs):
     start, stop, step = _get_range_object(builder, args)
+    dtype = builder.get_numba_type(target.name).dtype
+    element_type = builder.get_mlir_type(dtype)
+    source_types = [builder.get_numba_type(arg.name) for arg in args]
+    if len(args) == 1:
+        source_types = [dtype, source_types[0], dtype]
+    elif len(args) == 2:
+        source_types.append(dtype)
+    start, stop, step = (
+        convert(value, element_type, signed=get_conversion_signedness(source_type, dtype))
+        for value, source_type in zip((start, stop, step), source_types, strict=True)
+    )
     with builder.checked_range_step_context(step):
-        ro = RangeObject(builder, start, stop, step)
+        ro = RangeObject(builder, start, stop, step, signed=dtype.signed)
         builder.store_var(target, ro)
 
 
@@ -462,6 +473,8 @@ def type_convert(builder, target, args, kwargs):
     value = builder.load_var(args[0])
 
     if (const_val := try_extract_constant(value)) is not None:
+        if isinstance(target_numba_ty, types.Boolean):
+            const_val = bool(const_val)
         result = constant(const_val, to_type)
         builder.store_var(target, result)
         return

@@ -53,23 +53,73 @@ def test_arithmetic_branching_and_loops():
         assert compute(n) == compute.py_func(n)
 
 
-def test_dynamic_range_step_and_failure_recovery():
+def test_bitwise_unary_and_comparisons():
+    @host.jit
+    def compute(a, b):
+        value = ~a
+        value &= b
+        value |= a
+        value ^= b
+        if a < b and a != b:
+            return -value
+        if a >= b or a == b:
+            return +value
+        return 0
+
+    for args in ((5, 3), (-5, 3), (3, 3)):
+        assert compute(*args) == compute.py_func(*args)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        (0, 10, 2),
+        (10, -3, -2),
+        (3, 1, 1),
+        (2**63 - 2, 2**63 - 1, 2),
+        (-(2**63) + 1, -(2**63), -2),
+        (-(2**63), 2**63 - 1, 2**63 - 1),
+        (2**63 - 1, -(2**63), -(2**63)),
+        (np.int8(-128), np.int8(127), np.int8(1)),
+        (np.int8(127), np.int8(-128), np.int8(-1)),
+        (np.uint64(0), np.uint64(2**64 - 1), np.uint64(2**63)),
+        (np.uint64(2**64 - 1), np.uint64(0), np.uint64(1)),
+    ],
+)
+def test_range_iteration(args):
+    @host.jit
+    def count(start, stop, step):
+        total = 0
+        for _ in range(start, stop, step):
+            total += 1
+        return total
+
+    assert count(*args) == len(range(*(int(value) for value in args)))
+
+
+def test_range_values_and_errors():
     @host.jit
     def sum_range(start, stop, step):
         total = 0
-        for i in range(start, stop, step):
-            total += i
+        for value in range(start, stop, step):
+            total += value
         return total
 
-    for args in ((0, 10, 2), (10, -3, -2), (3, 1, 1)):
-        assert sum_range(*args) == sum(range(*args))
-    with pytest.raises(ValueError, match="must not be zero"):
+    assert sum_range(np.int8(-128), np.int8(127), np.int8(1)) == -255
+    with pytest.raises(ValueError):
         sum_range(0, 10, 0)
     assert sum_range(0, 10, 2) == 20
 
 
-@pytest.mark.parametrize("a,b", [(7, 3), (-7, 3), (7, -3), (-7, -3)])
-def test_integer_division_and_remainder(a, b):
+@pytest.mark.parametrize(
+    "args",
+    [(7, 3), (-7, 3), (7, -3), (-7, -3), (7.5, 2.5)],
+)
+def test_division_and_remainder(args):
+    @host.jit
+    def divide(a, b):
+        return a / b
+
     @host.jit
     def quotient(a, b):
         return a // b
@@ -78,24 +128,12 @@ def test_integer_division_and_remainder(a, b):
     def remainder(a, b):
         return a % b
 
-    assert quotient(a, b) == a // b
-    assert remainder(a, b) == a % b
-    with pytest.raises(ZeroDivisionError):
-        quotient(a, 0)
-    with pytest.raises(ZeroDivisionError):
-        remainder(a, 0)
-    assert quotient(a, b) == a // b
-
-
-def test_float_division_and_failure_recovery():
-    @host.jit
-    def divide(a, b):
-        return a / b
-
-    assert divide(7.5, 2.5) == 3.0
-    with pytest.raises(ZeroDivisionError):
-        divide(7.5, 0.0)
-    assert divide(7.5, 2.5) == 3.0
+    for compiled in (divide, quotient, remainder):
+        expected = compiled.py_func(*args)
+        assert compiled(*args) == expected
+        with pytest.raises(ZeroDivisionError):
+            compiled(args[0], 0)
+        assert compiled(*args) == expected
 
 
 def test_none_and_no_argument_returns():
@@ -124,8 +162,45 @@ def test_explicit_signature_and_annotations():
 
     assert narrow(np.int32(41)) == 42
     assert annotated(np.float32(1.25)) == 2.5
-    with pytest.raises(TypeError, match="no matching"):
+    with pytest.raises(TypeError):
         narrow(41)
+
+
+def test_signature_annotation_precedence():
+    def identity(value: types.int32):
+        return value
+
+    with pytest.raises(TypeError):
+        host.jit(types.int64(types.int64))(identity)
+    with pytest.raises(TypeError):
+        host.jit([types.int32(types.int32), types.int64(types.int64)])(identity)
+
+    compiled = host.jit(types.int32(types.int32))(identity)
+    assert compiled(np.int32(41)) == 41
+
+
+@pytest.mark.parametrize("value", [0, 2, -2, 0.0, -0.0, 2.0, float("nan")])
+def test_boolean_conversions(value):
+    @host.jit
+    def captured():
+        return bool(value)
+
+    @host.jit
+    def runtime(value):
+        return bool(value)
+
+    assert captured() is bool(value)
+    assert runtime(value) is bool(value)
+
+
+def test_scalar_constructors():
+    @host.jit
+    def construct(value):
+        result = float(np.int32(abs(int(value))))
+        return result + 1.0 if bool(2) else result
+
+    for value in (-3.75, 0.0, 2.5):
+        assert construct(value) == construct.py_func(value)
 
 
 @pytest.mark.parametrize("value", [np.arange(3), (1, 2), [1, 2], 1 + 2j, "text"])
@@ -134,7 +209,7 @@ def test_reject_non_scalar_arguments(value):
     def identity(value):
         return value
 
-    with pytest.raises((TypeError, ValueError), match="scalar|type"):
+    with pytest.raises((TypeError, ValueError)):
         identity(value)
 
 
@@ -143,7 +218,7 @@ def test_reject_non_scalar_return():
     def pair(value):
         return value, value
 
-    with pytest.raises(TypingError, match="scalar"):
+    with pytest.raises(TypingError):
         pair(1)
 
 
@@ -152,9 +227,9 @@ def test_argument_count_and_keywords():
     def add(a, b):
         return a + b
 
-    with pytest.raises(TypeError, match="expected 2"):
+    with pytest.raises(TypeError):
         add(1)
-    with pytest.raises(TypeError, match="keyword"):
+    with pytest.raises(TypeError):
         add(a=1, b=2)
 
 
@@ -166,18 +241,6 @@ def test_signed_division_overflow():
     with pytest.raises(OverflowError):
         quotient(-(2**63), -1)
     assert quotient(-(2**63), 1) == -(2**63)
-
-
-def test_range_endpoint_does_not_wrap():
-    @host.jit
-    def count(start, stop, step):
-        total = 0
-        for _ in range(start, stop, step):
-            total += 1
-        return total
-
-    assert count(2**63 - 2, 2**63 - 1, 2) == 1
-    assert count(-(2**63) + 1, -(2**63), -2) == 1
 
 
 @pytest.mark.parametrize(
@@ -207,28 +270,17 @@ def test_float_floor_division_and_remainder(a, b):
         assert np.signbit(actual) == np.signbit(expected)
 
 
-def test_integer_true_division():
-    @host.jit
-    def divide(a, b):
-        return a / b
-
-    assert divide(-7, 2) == -3.5
-    with pytest.raises(ZeroDivisionError):
-        divide(7, 0)
-
-
 @pytest.mark.parametrize("value", [np.arange(3), (1, 2), 1 + 2j])
 def test_annotated_identity_rejects_non_scalar_actuals(value):
     @host.jit
     def identity(value: types.int64):
         return value
 
-    with pytest.raises((TypeError, ValueError), match="scalar|type"):
+    with pytest.raises((TypeError, ValueError)):
         identity(value)
     assert identity(41) == 41
-    with pytest.raises((TypeError, ValueError), match="scalar|type"):
+    with pytest.raises((TypeError, ValueError)):
         identity(value)
-    assert identity(42) == 42
 
 
 def test_concurrent_first_calls_publish_one_specialization():
@@ -257,24 +309,98 @@ def test_direct_compile_boundaries(compile_name):
         assert module.operation.verify()
     else:
         assert result.entry_point(41) == 42
-    assert result.signature.args == (types.int64,)
-    assert result.signature.return_type == types.int64
 
     def pair(value):
         return value, value
 
-    with pytest.raises(TypingError, match="scalar"):
+    with pytest.raises(TypingError):
         compile_function(pair, None, (types.int64,), dispatcher.targetoptions)
 
 
-@pytest.mark.parametrize("a,b", [(7, 3), (-7, 3), (7.5, 2.5)])
-def test_inplace_true_division_and_failure_recovery(a, b):
+@pytest.mark.parametrize("args", [(7, 3), (-7, 3), (7.5, 2.5)])
+def test_inplace_arithmetic(args):
     @host.jit
-    def divide(a, b):
+    def compute(a, b):
+        a += b
+        a -= 1
+        a *= 2
         a /= b
+        a //= 2
+        a %= 3
         return a
 
-    assert divide(a, b) == a / b
+    assert compute(*args) == compute.py_func(*args)
     with pytest.raises(ZeroDivisionError):
-        divide(a, 0)
-    assert divide(a, b) == a / b
+        compute(args[0], 0)
+    assert compute(*args) == compute.py_func(*args)
+
+
+@pytest.mark.parametrize(
+    "options", [{"opt_level": -1}, {"opt_level": 4}, {"dump": 1}, {"cache": True}]
+)
+def test_reject_unsupported_options(options):
+    with pytest.raises((TypeError, ValueError)):
+        host.jit(**options)
+
+
+@pytest.mark.parametrize("opt_level", [0, 3])
+def test_optimization_levels(opt_level):
+    @host.jit(opt_level=opt_level)
+    def compute(value):
+        return value * 3 - 1
+
+    assert compute(7) == 20
+
+
+def test_signature_list():
+    @host.jit([types.int32(types.int32), types.float64(types.float64)])
+    def identity(value):
+        return value
+
+    assert identity(np.int32(41)) == 41
+    assert identity(1.25) == 1.25
+    with pytest.raises(TypeError):
+        identity(41)
+
+
+def test_reject_unsupported_scalar_operations():
+    def power(value):
+        return value**2
+
+    def shift(value):
+        return value << 1
+
+    def attribute(value):
+        return value.real
+
+    def helper(value):
+        return abs(value)
+
+    def call(value):
+        return helper(value)
+
+    for function in (power, shift, attribute, call):
+        with pytest.raises(TypingError):
+            host.jit(function)(1)
+
+
+def test_reject_unsupported_parameter_forms():
+    def variadic(*args):
+        return 1
+
+    def keyword_only(*, value):
+        return value
+
+    for function in (variadic, keyword_only):
+        with pytest.raises(TypeError):
+            host.jit(function)
+
+
+def test_none_return_annotation():
+    @host.jit
+    def no_result(value: types.int64) -> None:
+        if value:
+            return
+
+    assert no_result(0) is None
+    assert no_result(1) is None

@@ -42,6 +42,12 @@ def jit(func_or_sig=None, **options):
             if annotation is not inspect.Signature.empty:
                 raise TypeError("Cannot combine an explicit signature with a return annotation")
             for signature in signatures:
+                argtypes, _ = sigutils.normalize_signature(signature)
+                if any(
+                    parameter is not inspect.Signature.empty and parameter != argtype
+                    for parameter, argtype in zip(dispatcher._arg_annotations, argtypes)
+                ):
+                    raise TypeError("Explicit signature conflicts with parameter annotations")
                 dispatcher.compile(signature)
             dispatcher.disable_compile()
         elif annotation is not inspect.Signature.empty:

@@ -33,6 +33,14 @@ def scalar_ctype(typ):
     )
 
 
+def _prepare_argument_slots(arg_ctypes, args):
+    """Use ctypes coercion: integer narrowing wraps, integers may become floats,
+    and floats cannot become integers. Specialization and validation belong to
+    the dispatcher, not this Python-to-native slot preparation policy.
+    """
+    return [ctype(value) for ctype, value in zip(arg_ctypes, args, strict=True)]
+
+
 class ExecutionEngine:
     def __init__(self, module, signature, symbol_name, targetoptions):
         if execution_engine is None:
@@ -62,7 +70,7 @@ class ExecutionEngine:
         packed_type = ctypes.c_void_p * (len(arg_ctypes) + (return_ctype is not None))
 
         def call(*args):
-            slots = [ctype(value) for ctype, value in zip(arg_ctypes, args, strict=True)]
+            slots = _prepare_argument_slots(arg_ctypes, args)
             result = return_ctype() if return_ctype is not None else None
             if result is not None:
                 slots.append(result)

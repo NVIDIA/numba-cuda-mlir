@@ -5,7 +5,7 @@ import operator
 
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir._mlir.dialects import arith, cf, func, math
-from numba_cuda_mlir.lowering_utilities import get_or_insert_function
+from numba_cuda_mlir.lowering_utilities import constant, get_or_insert_function
 from numba_cuda_mlir import mlir_lowering
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core import ir as numba_ir
@@ -131,19 +131,17 @@ class Lower(mlir_lowering.MLIRLower):
             )
             self._fail_if(overflow, 5)
 
-    def lower_cast_expr_assign(self, target, value):
-        self._check_float_to_integer(
-            self.get_numba_type(value), self.get_numba_type(target), self.load_var(value)
-        )
-        with ir.InsertionPoint(self._host_active_block):
-            super().lower_cast_expr_assign(target, value)
+    def scalar_conversion_context(self):
+        return ir.InsertionPoint(self._host_active_block)
 
-    def lower_var_assign(self, target, var):
-        self._check_float_to_integer(
-            self.get_numba_type(var.name), self.get_numba_type(target.name), self.load_var(var)
-        )
-        with ir.InsertionPoint(self._host_active_block):
-            super().lower_var_assign(target, var)
+    def lower_cast(self, source_type, target_type, value):
+        if not isinstance(value, ir.Value) and isinstance(
+            types.unliteral(source_type), (types.Number, types.Boolean)
+        ):
+            value = constant(value, self.get_mlir_type(source_type))
+        self._check_float_to_integer(source_type, target_type, value)
+        with self.scalar_conversion_context():
+            return super().lower_cast(source_type, target_type, value)
 
     def lower_getattr_assign(self, target, value, attr):
         typ = self.get_numba_type(target.name)
@@ -163,18 +161,6 @@ class Lower(mlir_lowering.MLIRLower):
             )
         if value not in (range, abs) and (kws or len(args) != 1):
             raise TypingError("host.jit scalar constructors require one positional argument")
-        if value is int or isinstance(typ, types.NumberClass):
-            source_type = self.get_numba_type(args[0].name)
-            target_type = self.get_numba_type(target.name)
-            if isinstance(types.unliteral(source_type), types.Float) and isinstance(
-                types.unliteral(target_type), types.Integer
-            ):
-                argument = self.load_var(args[0])
-                self._check_float_to_integer(source_type, target_type, argument)
-                with ir.InsertionPoint(self._host_active_block):
-                    result = super().lower_cast(source_type, target_type, argument)
-                    self.store_var(target, result)
-                return
         super().lower_call_expr_assign(target, fn, args, kws, expr)
 
     def lower_binop_expr_assign(self, target, fn, lhs, rhs):
@@ -187,38 +173,25 @@ class Lower(mlir_lowering.MLIRLower):
             operator.irshift,
         ):
             raise TypingError(f"host.jit does not support operator {fn.__name__}")
-        if fn not in (
-            operator.truediv,
-            operator.itruediv,
-            operator.floordiv,
-            operator.ifloordiv,
-            operator.mod,
-            operator.imod,
-        ):
-            return super().lower_binop_expr_assign(target, fn, lhs, rhs)
-        typ = types.unliteral(self.get_numba_type(target.name))
-        right = self.load_var(rhs)
-        is_float = isinstance(right.type, ir.FloatType)
-        zero = arith.constant(right.type, 0.0 if is_float else 0)
+        return super().lower_binop_expr_assign(target, fn, lhs, rhs)
+
+    def checked_division_context(self, operation, typ, left, right):
+        """Check the converted operands immediately before division or remainder."""
+        zero = arith.constant(right.type, 0.0 if isinstance(right.type, ir.FloatType) else 0)
         failed = (
             arith.cmpf(arith.CmpFPredicate.OEQ, right, zero)
-            if is_float
+            if isinstance(right.type, ir.FloatType)
             else arith.cmpi(arith.CmpIPredicate.eq, right, zero)
         )
         self._fail_if(failed, 1)
+        typ = types.unliteral(typ)
         with ir.InsertionPoint(self._host_active_block):
-            if isinstance(typ, types.Integer) and typ.signed:
-                mlir_type = self.get_mlir_type(typ)
-                left_type = types.unliteral(self.get_numba_type(lhs.name))
-                right_type = types.unliteral(self.get_numba_type(rhs.name))
-                left = super().lower_cast(left_type, typ, self.load_var(lhs))
-                right = super().lower_cast(right_type, typ, right)
-                minimum = arith.constant(mlir_type, -(1 << (typ.bitwidth - 1)))
-                minus_one = arith.constant(mlir_type, -1)
+            if operation is operator.floordiv and isinstance(typ, types.Integer) and typ.signed:
+                minimum = arith.constant(left.type, -(1 << (typ.bitwidth - 1)))
+                minus_one = arith.constant(right.type, -1)
                 overflow = arith.andi(
                     arith.cmpi(arith.CmpIPredicate.eq, left, minimum),
                     arith.cmpi(arith.CmpIPredicate.eq, right, minus_one),
                 )
                 self._fail_if(overflow, 3)
-        with ir.InsertionPoint(self._host_active_block):
-            super().lower_binop_expr_assign(target, fn, lhs, rhs)
+        return ir.InsertionPoint(self._host_active_block)

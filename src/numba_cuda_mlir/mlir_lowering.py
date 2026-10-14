@@ -440,6 +440,14 @@ class MLIRLower(object):
             scf.yield_([])
         return nullcontext()
 
+    def scalar_conversion_context(self):
+        """Continue consuming a cast after target-specific checks split a block."""
+        return nullcontext()
+
+    def checked_division_context(self, operation, typ, left, right):
+        """Device division retains its existing unchecked arithmetic policy."""
+        return nullcontext()
+
     def set_error_code(self, error_code: int | ir.Value):
         """Atomically set the error code global (first error wins).
 
@@ -1292,8 +1300,9 @@ extern "C" __global__ void
                         self.store_var(target, var_value)
                 else:
                     value_op = self.lower_cast(source_type, target_type, var_value)
-                    self.incref(target_type, value_op)
-                    self.store_var(target, value_op)
+                    with self.scalar_conversion_context():
+                        self.incref(target_type, value_op)
+                        self.store_var(target, value_op)
 
     def lower_array_literal(self, value: np.ndarray, numba_type) -> ir.Value:
         global constant_array_id
@@ -1628,8 +1637,9 @@ extern "C" __global__ void
         mlir_value = self.load_var(value)
         if target_type != value_type:
             mlir_value = self.lower_cast(value_type, target_type, mlir_value)
-        self.incref(target_type, mlir_value)
-        self.store_var(target, mlir_value)
+        with self.scalar_conversion_context():
+            self.incref(target_type, mlir_value)
+            self.store_var(target, mlir_value)
 
     def lower_getitem_expr_assign(self, target, value, index):
         """

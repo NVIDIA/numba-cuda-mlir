@@ -80,6 +80,8 @@ class Dispatcher:
             raise TypeError("host.jit does not support keyword arguments")
         if len(args) != len(self._arg_annotations):
             raise TypeError(f"expected {len(self._arg_annotations)} arguments, got {len(args)}")
+        # Validate actual scalars before annotations select the specialization;
+        # execution owns their subsequent Python-to-native slot conversion.
         actual_types = tuple(typeof(value, Purpose.argument) for value in args)
         for typ in actual_types:
             scalar_ctype(typ)

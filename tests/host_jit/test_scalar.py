@@ -225,8 +225,9 @@ def test_scalar_constructors():
     "dtype", [np.int8, np.uint8, np.int16, np.uint16, np.int32, np.uint32, np.int64, np.uint64]
 )
 @pytest.mark.parametrize("source_dtype", [np.float32, np.float64])
-def test_float_to_integer_boundaries(dtype, source_dtype):
-    @host.jit
+@pytest.mark.parametrize("opt_level", [0, 3])
+def test_float_to_integer_boundaries(dtype, source_dtype, opt_level):
+    @host.jit(opt_level=opt_level)
     def convert(value):
         return dtype(value)
 
@@ -263,16 +264,17 @@ def test_float_to_integer_boundaries(dtype, source_dtype):
         (1e30, OverflowError),
     ],
 )
-def test_builtin_int_conversion_errors(value, error):
-    @host.jit
+@pytest.mark.parametrize("opt_level", [0, 3])
+def test_builtin_int_conversion_errors(value, error, opt_level):
+    @host.jit(opt_level=opt_level)
     def runtime(value):
         return int(value)
 
-    @host.jit
+    @host.jit(opt_level=opt_level)
     def captured():
         return int(value)
 
-    @host.jit(types.int64(types.float64))
+    @host.jit(types.int64(types.float64), opt_level=opt_level)
     def return_cast(value):
         return value
 
@@ -314,6 +316,43 @@ def test_argument_count_and_keywords():
         add(1)
     with pytest.raises(TypeError):
         add(a=1, b=2)
+
+
+@pytest.mark.parametrize("opt_level", [0, 3])
+@pytest.mark.parametrize("inplace", [False, True])
+def test_signed_remainder_boundary(opt_level, inplace):
+    def ordinary(a, b):
+        return a % b
+
+    def mutate(a, b):
+        a %= b
+        return a
+
+    remainder = host.jit(opt_level=opt_level)(mutate if inplace else ordinary)
+    minimum = -(2**63)
+    assert remainder(minimum, -1) == 0
+
+
+@pytest.mark.parametrize("opt_level", [0, 3])
+def test_mixed_integer_division_and_remainder(opt_level):
+    @host.jit(opt_level=opt_level)
+    def quotient(a, b):
+        return a // b
+
+    @host.jit(opt_level=opt_level)
+    def remainder(a, b):
+        return a % b
+
+    @host.jit(opt_level=opt_level)
+    def divide(a, b):
+        return a / b
+
+    # Widening a narrow -1 must preserve its sign before checking overflow.
+    with pytest.raises(OverflowError):
+        quotient(-(2**63), np.int8(-1))
+    assert remainder(-(2**63), np.int8(-1)) == 0
+    for compiled, expected in ((quotient, -3), (remainder, 2), (divide, -7 / 3)):
+        assert compiled(np.int8(-7), np.uint32(3)) == expected
 
 
 def test_signed_division_overflow():
@@ -487,3 +526,62 @@ def test_none_return_annotation():
 
     assert no_result(0) is None
     assert no_result(1) is None
+
+
+@pytest.mark.parametrize(
+    "typ,cases",
+    [
+        (types.int8, [(128, -128), (-129, 127)]),
+        (types.uint8, [(-1, 255), (256, 0)]),
+        (types.float32, [(16777217, 16777216.0), (7, 7.0)]),
+    ],
+)
+def test_annotated_argument_coercion(typ, cases):
+    @host.jit
+    def identity(value: typ):
+        return value
+
+    for value, expected in cases:
+        assert identity(value) == expected
+
+
+def test_integer_argument_rejection_and_recovery():
+    @host.jit
+    def identity(value: types.int8):
+        return value
+
+    # Reject before first compilation and after a specialization exists.
+    with pytest.raises(TypeError):
+        identity(1.5)
+    assert identity(7) == 7
+    with pytest.raises(TypeError):
+        identity(1.0)
+    assert identity(9) == 9
+
+    # Direct entry points bypass dispatch, but retain the slot conversion policy.
+    entry_point = identity.compile((types.int8,)).entry_point
+    assert entry_point(128) == -128
+    with pytest.raises(TypeError):
+        entry_point(1.5)
+    assert entry_point(7) == 7
+
+
+def test_inferred_annotated_and_explicit_argument_specialization():
+    @host.jit
+    def inferred(value):
+        return value
+
+    @host.jit
+    def annotated(value: types.int8):
+        return value
+
+    @host.jit(types.int8(types.int8))
+    def explicit(value):
+        return value
+
+    assert inferred(128) == 128
+    assert inferred(1.5) == 1.5
+    assert annotated(128) == -128
+    with pytest.raises(TypeError):
+        explicit(128)
+    assert explicit(np.int8(7)) == 7

@@ -789,7 +789,7 @@ class _ArgMarshaller:
         type_key = None
         if not has_ext:
             type_key = tuple(
-                (type(a), a >= 1 << 63) if isinstance(a, int) else type(a) for a in args
+                (type(a), int.__ge__(a, 1 << 63)) if isinstance(a, int) else type(a) for a in args
             )
             cached = self._sig_cache.get(type_key)
             if cached is not None:

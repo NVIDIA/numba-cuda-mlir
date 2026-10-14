@@ -78,6 +78,10 @@ class ExecutionEngine:
                 raise ValueError("range() arg 3 must not be zero")
             if code == 3:
                 raise OverflowError("signed integer division overflow in host.jit")
+            if code == 4:
+                raise ValueError("cannot convert float NaN to integer")
+            if code == 5:
+                raise OverflowError("float-to-integer conversion overflow in host.jit")
             if code:
                 raise RuntimeError(f"host.jit scalar execution failed with code {code}")
             return result.value if result is not None else None

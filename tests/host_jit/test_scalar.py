@@ -221,6 +221,71 @@ def test_scalar_constructors():
         assert construct(value) == construct.py_func(value)
 
 
+@pytest.mark.parametrize(
+    "dtype", [np.int8, np.uint8, np.int16, np.uint16, np.int32, np.uint32, np.int64, np.uint64]
+)
+@pytest.mark.parametrize("source_dtype", [np.float32, np.float64])
+def test_float_to_integer_boundaries(dtype, source_dtype):
+    @host.jit
+    def convert(value):
+        return dtype(value)
+
+    limits = np.iinfo(dtype)
+    lower = source_dtype(int(limits.min))
+    upper = source_dtype(int(limits.max) + 1)
+    last = np.nextafter(upper, source_dtype(-np.inf))
+    for value in (source_dtype(-0.5), source_dtype(0.5), lower, last):
+        assert convert(value) == int(value)
+    for value in (
+        upper,
+        source_dtype(int(limits.min) - 1),
+        np.nextafter(lower, source_dtype(-np.inf)),
+        source_dtype(np.inf),
+        source_dtype(-np.inf),
+    ):
+        # Fractions just below the minimum still truncate to the minimum.
+        if np.isfinite(value) and int(limits.min) <= int(value) <= int(limits.max):
+            assert convert(value) == int(value)
+        else:
+            with pytest.raises(OverflowError):
+                convert(value)
+    with pytest.raises(ValueError):
+        convert(source_dtype(np.nan))
+    assert convert(source_dtype(1.5)) == 1
+
+
+@pytest.mark.parametrize(
+    "value,error",
+    [
+        (float("nan"), ValueError),
+        (float("inf"), OverflowError),
+        (-float("inf"), OverflowError),
+        (1e30, OverflowError),
+    ],
+)
+def test_builtin_int_conversion_errors(value, error):
+    @host.jit
+    def runtime(value):
+        return int(value)
+
+    @host.jit
+    def captured():
+        return int(value)
+
+    @host.jit(types.int64(types.float64))
+    def return_cast(value):
+        return value
+
+    with pytest.raises(error):
+        runtime(value)
+    with pytest.raises(error):
+        captured()
+    with pytest.raises(error):
+        return_cast(value)
+    assert runtime(2.75) == 2
+    assert return_cast(-2.75) == -2
+
+
 @pytest.mark.parametrize("value", [np.arange(3), (1, 2), [1, 2], 1 + 2j, "text"])
 def test_reject_non_scalar_arguments(value):
     @host.jit

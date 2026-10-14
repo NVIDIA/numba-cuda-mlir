@@ -4,7 +4,7 @@
 import operator
 
 from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir._mlir.dialects import arith, cf, func
+from numba_cuda_mlir._mlir.dialects import arith, cf, func, math
 from numba_cuda_mlir.lowering_utilities import get_or_insert_function
 from numba_cuda_mlir import mlir_lowering
 from numba_cuda_mlir.numba_cuda import types
@@ -108,6 +108,43 @@ class Lower(mlir_lowering.MLIRLower):
             raise TypingError(f"host.jit supports scalar values only; got {typ}")
         super().lower_assign(inst)
 
+    def _check_float_to_integer(self, source_type, target_type, value):
+        source_type = types.unliteral(source_type)
+        target_type = types.unliteral(target_type)
+        if not isinstance(source_type, types.Float) or not isinstance(target_type, types.Integer):
+            return
+        if not isinstance(value, ir.Value):
+            value = arith.constant(self.get_mlir_type(source_type), float(value))
+        self._fail_if(arith.cmpf(arith.CmpFPredicate.UNO, value, value), 4)
+        with ir.InsertionPoint(self._host_active_block):
+            # Check the truncated value, so e.g. uint8(-0.5) remains valid.
+            truncated = math.trunc(value)
+            lower = -(1 << (target_type.bitwidth - 1)) if target_type.signed else 0
+            upper = 1 << (target_type.bitwidth - int(target_type.signed))
+            overflow = arith.ori(
+                arith.cmpf(
+                    arith.CmpFPredicate.OLT, truncated, arith.constant(value.type, float(lower))
+                ),
+                arith.cmpf(
+                    arith.CmpFPredicate.OGE, truncated, arith.constant(value.type, float(upper))
+                ),
+            )
+            self._fail_if(overflow, 5)
+
+    def lower_cast_expr_assign(self, target, value):
+        self._check_float_to_integer(
+            self.get_numba_type(value), self.get_numba_type(target), self.load_var(value)
+        )
+        with ir.InsertionPoint(self._host_active_block):
+            super().lower_cast_expr_assign(target, value)
+
+    def lower_var_assign(self, target, var):
+        self._check_float_to_integer(
+            self.get_numba_type(var.name), self.get_numba_type(target.name), self.load_var(var)
+        )
+        with ir.InsertionPoint(self._host_active_block):
+            super().lower_var_assign(target, var)
+
     def lower_getattr_assign(self, target, value, attr):
         typ = self.get_numba_type(target.name)
         # Module attributes identifying supported scalar constructors may be
@@ -126,6 +163,18 @@ class Lower(mlir_lowering.MLIRLower):
             )
         if value not in (range, abs) and (kws or len(args) != 1):
             raise TypingError("host.jit scalar constructors require one positional argument")
+        if value is int or isinstance(typ, types.NumberClass):
+            source_type = self.get_numba_type(args[0].name)
+            target_type = self.get_numba_type(target.name)
+            if isinstance(types.unliteral(source_type), types.Float) and isinstance(
+                types.unliteral(target_type), types.Integer
+            ):
+                argument = self.load_var(args[0])
+                self._check_float_to_integer(source_type, target_type, argument)
+                with ir.InsertionPoint(self._host_active_block):
+                    result = super().lower_cast(source_type, target_type, argument)
+                    self.store_var(target, result)
+                return
         super().lower_call_expr_assign(target, fn, args, kws, expr)
 
     def lower_binop_expr_assign(self, target, fn, lhs, rhs):

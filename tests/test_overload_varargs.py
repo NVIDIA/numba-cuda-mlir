@@ -556,6 +556,30 @@ def test_overload_varargs_none_leaf_in_returned_bundle():
     np.testing.assert_allclose(out, a + a * 10)
 
 
+def test_overload_varargs_returned_bundle_is_one_argument():
+    """A returned bundle handed to another variadic call counts as one argument.
+
+    An implementation that returns ``args`` returns a tuple still carrying the
+    ``StarArg`` marker its parameter had.  Nothing downstream can tell that
+    apart from a bundle folded at the receiving call site, so without stripping
+    the marker the elements get spliced in and the callee is compiled for the
+    wrong arity.  ``var_pack(var_pack(x, y))`` must mean exactly what the
+    explicit ``var_pack((x, y))`` means.
+    """
+
+    @cuda.jit
+    def kernel(out, a, b):
+        i = cuda.grid(1)
+        if i < out.size:
+            nested = var_pack(var_pack(a[i], b[i]))
+            direct = var_pack((a[i], b[i]))
+            out[i] = nested[0][0] + nested[0][1] + direct[0][0] + direct[0][1]
+
+    a = np.arange(1, 5, dtype=np.float64)
+    out = _run(kernel, np.zeros(4), a, a * 10)
+    np.testing.assert_allclose(out, 2 * (a + a * 10))
+
+
 def test_overload_varargs_single_represented_leaf_in_returned_bundle():
     """A bundle with one represented leaf still returns a tuple.
 

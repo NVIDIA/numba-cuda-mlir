@@ -913,10 +913,12 @@ def test_mlir_scalar_int_arg_type(int_arg, expected_name, size_bits, encoding):
 
 
 @pytest.mark.parametrize("fn", [k_shape_local, k_size_local], ids=["shape", "size"])
-def test_llvm_ir_dbg_value_index_local(fn):
+def test_llvm_ir_index_local_is_i64(fn):
     """A local holding an array extent is described by an i64, not an index.
 
     memref.dim yields index type, needs to cast to the DI variable's own integer width.
+    The cast is checked through the variable's stack slot, which is what carries
+    its debug location.
     """
     kernel = cuda.jit(debug=True, opt=False)(fn)
     sig = (types.float32[:], types.float32[:])
@@ -925,7 +927,9 @@ def test_llvm_ir_dbg_value_index_local(fn):
 
     testing.filecheck(
         """
-        CHECK: dbg{{[._]}}value({{(metadata )?}}i64 %{{[0-9]+}}, {{(metadata )?}}![[N_VAR:[0-9]+]]
+        CHECK: %[[SLOT:[0-9]+]] = alloca i64
+        CHECK: store volatile i64 %{{[0-9]+}}, {{.*}}%[[SLOT]],
+        CHECK: dbg{{[._]}}declare({{(metadata )?}}{{.*}}%[[SLOT]], {{(metadata )?}}![[N_VAR:[0-9]+]]
         CHECK: ![[N_VAR]] = !DILocalVariable(name: "n",
         """,
         llvm_ir,

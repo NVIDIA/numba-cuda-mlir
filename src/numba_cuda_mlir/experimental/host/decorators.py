@@ -9,6 +9,12 @@ from numba_cuda_mlir.numba_cuda.core import sigutils
 
 
 def jit(func_or_sig=None, **options):
+    """Compile a scalar function for native host execution.
+
+    A dispatcher and any retained compiled entry point keep their execution
+    engine alive. Releasing both allows the engine and its runtime callbacks
+    to be collected.
+    """
     targetoptions = {
         "opt_level": 2,
         "dump": False,

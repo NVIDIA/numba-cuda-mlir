@@ -52,10 +52,12 @@ class ExecutionEngine:
         self.signature = signature
         self.engine = execution_engine.ExecutionEngine(module, opt_level=targetoptions["opt_level"])
         self._errors = threading.local()
+        # The native engine retains callbacks; do not capture its owner.
+        errors = self._errors
 
         @ctypes.CFUNCTYPE(None, ctypes.c_int32)
         def report_error(code):
-            self._errors.code = code
+            errors.code = code
 
         self._report_error = report_error
         self.engine.register_runtime("host_scalar_error", report_error)

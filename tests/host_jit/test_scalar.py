@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from concurrent.futures import ThreadPoolExecutor
+import gc
+import weakref
 
 import numpy as np
 import pytest
@@ -414,6 +416,27 @@ def test_concurrent_first_calls_publish_one_specialization():
         results = list(executor.map(add_one, range(1, 9)))
     assert results == list(range(2, 10))
     assert len(add_one.overloads) == 1
+
+
+def test_entry_point_retains_engine_until_released():
+    def compile_entry_point():
+        @host.jit
+        def quotient(a, b):
+            return a // b
+
+        assert quotient(7, 3) == 2
+        result = quotient.overloads[(types.int64, types.int64)]
+        return result.entry_point, weakref.ref(result.execution_engine)
+
+    entry_point, engine_ref = compile_entry_point()
+    gc.collect()
+    assert engine_ref() is not None
+    with pytest.raises(ZeroDivisionError):
+        entry_point(7, 0)
+    assert entry_point(7, 3) == 2
+    del entry_point
+    gc.collect()
+    assert engine_ref() is None
 
 
 @pytest.mark.parametrize("compile_name", ["compile_to_llvm_dialect", "compile"])

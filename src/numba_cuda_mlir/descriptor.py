@@ -3165,11 +3165,15 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                     retry_launch_config_compile = True
                 else:
                     existing = self._find_launch_config_overload_locked(
-                        argtypes, active_launch_config_key
+                        argtypes,
+                        active_launch_config_key,
+                        allow_integer_coercion=not self._can_compile,
                     )
                     if existing is None and normalized_args != argtypes:
                         existing = self._find_launch_config_overload_locked(
-                            normalized_args, active_launch_config_key
+                            normalized_args,
+                            active_launch_config_key,
+                            allow_integer_coercion=not self._can_compile,
                         )
                     if existing is not None:
                         # A duplicate compile can lose a race to another thread that

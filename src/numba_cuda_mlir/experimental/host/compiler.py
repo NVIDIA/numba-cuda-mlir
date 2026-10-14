@@ -30,7 +30,7 @@ class CompileResult:
 
 
 @register_pass(mutates_CFG=True, analysis_only=False)
-class Backend(mlir_compiler.Backend):
+class Backend(mlir_compiler.MLIRBackend):
     _name = "host_backend"
 
     def run_pass(self, state):

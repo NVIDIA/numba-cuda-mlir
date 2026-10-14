@@ -19,7 +19,7 @@ from numba_cuda_mlir.numba_cuda import types as numba_types
 
 def _lower_union_construction_impl(
     context,  # Unused, kept for compatibility
-    builder: "Lower",
+    builder: "MLIRLower",
     target: numba_ir.Var,
     args: list[numba_ir.Var],
     kwargs: dict,
@@ -53,7 +53,7 @@ def _lower_union_construction_impl(
 
 @registry.lower(UnionType)
 def lower_cunion_type_call(
-    builder: "Lower",
+    builder: "MLIRLower",
     target: numba_ir.Var,
     args: list[numba_ir.Var],
     kwargs: dict,
@@ -65,7 +65,7 @@ def lower_cunion_type_call(
 @registry.lower_getattr_generic(UnionType)
 def lower_union_type_getattr(
     context: MLIRTargetContext,
-    builder: "Lower",
+    builder: "MLIRLower",
     target: numba_ir.Var,
     value: numba_ir.Var,
     attr: str,

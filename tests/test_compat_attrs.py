@@ -182,7 +182,7 @@ class TestDTypeSpecLowering:
     def test_vector_type_class_return_type_erases_to_none(self):
         """VectorTypeClass is a dtype specifier, not a runtime return value."""
         from numba_cuda_mlir.cuda.vector_types import float16x2
-        from numba_cuda_mlir.mlir_lowering import Lower
+        from numba_cuda_mlir.mlir_lowering import MLIRLower
         from numba_cuda_mlir.typing.cuda_vector_types import (
             VectorTypeClass,
             make_constructor_template,
@@ -191,7 +191,7 @@ class TestDTypeSpecLowering:
         vector_type_class = VectorTypeClass(float16x2, make_constructor_template(float16x2))
 
         with ir.Context():
-            lower = object.__new__(Lower)
+            lower = object.__new__(MLIRLower)
             result = lower.get_return_type(vector_type_class)
             assert isinstance(result, ir.NoneType)
 

@@ -4,7 +4,7 @@ from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
 registry = LoweringRegistry()
 lower = registry.lower
-from numba_cuda_mlir.mlir_lowering import Lower
+from numba_cuda_mlir.mlir_lowering import MLIRLower
 from numba_cuda_mlir.lowering_utilities import index_of, memref_to_llvm_ptr, convert, get_type_width
 from numba_cuda_mlir.lowering_utilities.type_conversions import to_mlir_type
 from numba_cuda_mlir.cuda import vector as vector_module
@@ -32,7 +32,7 @@ def _cpointer_to_element_ptr(ptr: ir.Value, index: ir.Value, element_type: ir.Ty
     )
 
 
-def _get_alignment(lower: Lower, args: list[Any], kwargs) -> int:
+def _get_alignment(lower: MLIRLower, args: list[Any], kwargs) -> int:
     """Extract alignment value from positional args or kwargs."""
     if len(args) > 3:
         # Passed as positional argument (4th arg)
@@ -86,7 +86,7 @@ def _array_storage_vector_type(array: ir.Value, value_vec_type: ir.VectorType) -
     return _vector_with_element_type(value_vec_type, array.type.element_type)
 
 
-def _scalar_storage_vector_type(lower: Lower, vec_numba_type: VectorType) -> ir.VectorType:
+def _scalar_storage_vector_type(lower: MLIRLower, vec_numba_type: VectorType) -> ir.VectorType:
     value_vec_type = lower.get_mlir_type(vec_numba_type)
     return _vector_with_element_type(value_vec_type, lower.get_storage_type(vec_numba_type.dtype))
 
@@ -162,7 +162,7 @@ def _value_vector_to_storage(
 @lower(vector_module.load, types.Array, types.Integer, types.IntegerLiteral)
 @lower(vector_module.load, types.Array, types.Integer, types.Tuple)
 @lower(vector_module.load, types.Array, types.Integer, types.UniTuple)
-def vector_load_1d_index(lower: Lower, target, args: list[Any], kwargs):
+def vector_load_1d_index(lower: MLIRLower, target, args: list[Any], kwargs):
     """Unaligned vector load."""
     array = lower.load_var(args[0])
     index = lower.load_var(args[1])
@@ -187,7 +187,7 @@ def vector_load_1d_index(lower: Lower, target, args: list[Any], kwargs):
 @lower(vector_module.load, types.Array, types.Tuple, types.IntegerLiteral)
 @lower(vector_module.load, types.Array, types.Tuple, types.Tuple)
 @lower(vector_module.load, types.Array, types.Tuple, types.UniTuple)
-def vector_load_nd_index(lower: Lower, target, args: list[Any], kwargs):
+def vector_load_nd_index(lower: MLIRLower, target, args: list[Any], kwargs):
     """Unaligned vector load."""
     array = lower.load_var(args[0])
     indices = lower.load_var(args[1])
@@ -220,7 +220,7 @@ def vector_load_nd_index(lower: Lower, target, args: list[Any], kwargs):
 )
 @lower(vector_module.load, types.Array, types.Integer, types.Tuple, types.IntegerLiteral)
 @lower(vector_module.load, types.Array, types.Integer, types.UniTuple, types.IntegerLiteral)
-def vector_load_1d_index_aligned(lower: Lower, target, args: list[Any], kwargs):
+def vector_load_1d_index_aligned(lower: MLIRLower, target, args: list[Any], kwargs):
     """Aligned vector load using llvm.load (1D index)."""
     array = lower.load_var(args[0])
     index = lower.load_var(args[1])
@@ -263,7 +263,7 @@ def vector_load_1d_index_aligned(lower: Lower, target, args: list[Any], kwargs):
 )
 @lower(vector_module.load, types.Array, types.Tuple, types.Tuple, types.IntegerLiteral)
 @lower(vector_module.load, types.Array, types.Tuple, types.UniTuple, types.IntegerLiteral)
-def vector_load_nd_index_aligned(lower: Lower, target, args: list[Any], kwargs):
+def vector_load_nd_index_aligned(lower: MLIRLower, target, args: list[Any], kwargs):
     """Aligned vector load using llvm.load (N-D index)."""
     array = lower.load_var(args[0])
     indices = lower.load_var(args[1])
@@ -288,7 +288,7 @@ def vector_load_nd_index_aligned(lower: Lower, target, args: list[Any], kwargs):
 
 
 @lower(vector_module.store, types.Array, types.Integer, VectorType)
-def vector_store_1d_index(lower: Lower, target, args: list[Any], kwargs):
+def vector_store_1d_index(lower: MLIRLower, target, args: list[Any], kwargs):
     """Unaligned vector store."""
     array = lower.load_var(args[0])
     index = lower.load_var(args[1])
@@ -309,7 +309,7 @@ def vector_store_1d_index(lower: Lower, target, args: list[Any], kwargs):
 
 @lower(vector_module.store, types.Array, types.UniTuple, VectorType)
 @lower(vector_module.store, types.Array, types.Tuple, VectorType)
-def vector_store_nd_index(lower: Lower, target, args: list[Any], kwargs):
+def vector_store_nd_index(lower: MLIRLower, target, args: list[Any], kwargs):
     """Unaligned vector store."""
     array = lower.load_var(args[0])
     indices = lower.load_var(args[1])
@@ -334,7 +334,7 @@ def vector_store_nd_index(lower: Lower, target, args: list[Any], kwargs):
 
 
 @lower(vector_module.store, types.Array, types.Integer, VectorType, types.IntegerLiteral)
-def vector_store_1d_index_aligned(lower: Lower, target, args: list[Any], kwargs):
+def vector_store_1d_index_aligned(lower: MLIRLower, target, args: list[Any], kwargs):
     """Aligned vector store using llvm.store (1D index)."""
     array = lower.load_var(args[0])
     index = lower.load_var(args[1])
@@ -356,7 +356,7 @@ def vector_store_1d_index_aligned(lower: Lower, target, args: list[Any], kwargs)
 
 @lower(vector_module.store, types.Array, types.UniTuple, VectorType, types.IntegerLiteral)
 @lower(vector_module.store, types.Array, types.Tuple, VectorType, types.IntegerLiteral)
-def vector_store_nd_index_aligned(lower: Lower, target, args: list[Any], kwargs):
+def vector_store_nd_index_aligned(lower: MLIRLower, target, args: list[Any], kwargs):
     """Aligned vector store using llvm.store (N-D index)."""
     array = lower.load_var(args[0])
     indices = lower.load_var(args[1])
@@ -402,7 +402,7 @@ def vector_store_nd_index_aligned(lower: Lower, target, args: list[Any], kwargs)
     types.UniTuple,
     types.IntegerLiteral,
 )
-def vector_load_cpointer_1d(lower: Lower, target, args: list[Any], kwargs):
+def vector_load_cpointer_1d(lower: MLIRLower, target, args: list[Any], kwargs):
     """Vector load from CPointer using llvm.load with alignment (1D index)."""
     ptr = lower.load_var(args[0])
     index = lower.load_var(args[1])
@@ -419,7 +419,7 @@ def vector_load_cpointer_1d(lower: Lower, target, args: list[Any], kwargs):
 
 
 @lower(vector_module.store, types.CPointer, types.Integer, VectorType, types.IntegerLiteral)
-def vector_store_cpointer_1d(lower: Lower, target, args: list[Any], kwargs):
+def vector_store_cpointer_1d(lower: MLIRLower, target, args: list[Any], kwargs):
     """Vector store to CPointer using llvm.store with alignment (1D index)."""
     ptr = lower.load_var(args[0])
     index = lower.load_var(args[1])

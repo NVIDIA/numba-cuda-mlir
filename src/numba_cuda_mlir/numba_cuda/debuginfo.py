@@ -140,7 +140,7 @@ class DummyDIBuilder(AbstractDIBuilder):
 # The real DWARF DIBuilder / CUDADIBuilder built llvmlite debug-info metadata
 # (DISubprogram, DILocalVariable, DWARF type mappings, ...). They are dead on the
 # MLIR path: debug info is emitted by numba_cuda_mlir.mlir_debuginfo.DIBuilder
-# (see Lower). The names are still referenced as classes by base.py
+# (see MLIRLower). The names are still referenced as classes by base.py
 # (BaseContext.DIBuilder) and target.py (CUDATargetContext.DIBuilder), so they
 # are aliased to the no-op DummyDIBuilder.
 class DIBuilder(DummyDIBuilder):

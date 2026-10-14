@@ -15,7 +15,7 @@ import numba_cuda_mlir.numba_cuda.datamodel
 
 # Many cgutils helpers built llvmlite IR (struct/array packing, alloca, global
 # constants, printf/snprintf, raw memcpy, type predicates, ...). They take an
-# llvmlite IRBuilder/Module, which the MLIR path never provides (Lower uses
+# llvmlite IRBuilder/Module, which the MLIR path never provides (MLIRLower uses
 # the MLIR builder and does not import cgutils), so they are dead. The ones that
 # referenced llvmlite `ir` are neutered to raise this message.
 _DEAD_CODEGEN_MSG = "this cgutils llvmlite codegen helper is not used on the MLIR path"

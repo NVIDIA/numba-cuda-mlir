@@ -13,7 +13,7 @@ from numba_cuda_mlir.numba_cuda.core.errors import TypingError
 from numba_cuda_mlir.tools import generate_mangled_name
 
 
-class Lower(mlir_lowering.Lower):
+class Lower(mlir_lowering.MLIRLower):
     def _initialize_target_and_linker(self):
         """Skip GPU initialization and return no link inputs."""
         self.linker = None

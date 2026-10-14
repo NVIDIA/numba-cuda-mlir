@@ -48,7 +48,7 @@ def get_record_field_ptr(builder, record_ptr, record_type, field_name):
     Get a pointer to a field within a record.
 
     Args:
-        builder: Lower builder
+        builder: MLIRLower builder
         record_ptr: LLVM pointer to the record's byte storage
         record_type: The Numba Record type
         field_name: Name of the field to access
@@ -79,7 +79,7 @@ def get_record_field_ptr(builder, record_ptr, record_type, field_name):
 @registry.lower_getattr_generic(Record)
 def lower_record_getattr(
     context: MLIRTargetContext,
-    builder: "Lower",
+    builder: "MLIRLower",
     target: numba_ir.Var,
     value: numba_ir.Var,
     attr: str,
@@ -147,7 +147,7 @@ def _load_nested_array_field(builder, field_ptr, nested_type, record_type):
 @registry.lower_setattr_generic(Record)
 def lower_record_setattr(
     context: MLIRTargetContext,
-    builder: "Lower",
+    builder: "MLIRLower",
     sig,
     args,
     attr: str,

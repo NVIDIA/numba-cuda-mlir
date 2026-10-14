@@ -29,7 +29,7 @@ high-level API.
 The lowering half of this API differs significantly from Numba's. Numba's
 lowering callbacks receive an ``llvmlite.ir.IRBuilder`` and emit LLVM IR.
 Numba-CUDA-MLIR's lowering callbacks receive an MLIR builder
-(:py:class:`numba_cuda_mlir.mlir_lowering.Lower`) and emit MLIR through
+(:py:class:`numba_cuda_mlir.mlir_lowering.MLIRLower`) and emit MLIR through
 the bindings in :py:mod:`numba_cuda_mlir._mlir`.
 
 Whole-function planning
@@ -331,7 +331,7 @@ Every lowering callback has the same four-argument shape:
        ...
 
 * ``builder`` is the MLIR builder
-  (:py:class:`~numba_cuda_mlir.mlir_lowering.Lower`). See
+  (:py:class:`~numba_cuda_mlir.mlir_lowering.MLIRLower`). See
   :ref:`lowering-builder` for the methods it exposes.
 * ``target`` is the variable that should receive the result. Write
   to it with ``builder.store_var(target, value)``. Side-effecting lowerings
@@ -354,7 +354,7 @@ A lowering may register against multiple signatures by stacking decorators:
 The MLIR builder
 ~~~~~~~~~~~~~~~~
 
-:py:class:`~numba_cuda_mlir.mlir_lowering.Lower` is the lowering builder
+:py:class:`~numba_cuda_mlir.mlir_lowering.MLIRLower` is the lowering builder
 for Numba-CUDA-MLIR. It exposes helpers for generating MLIR inside the lowering
 implementations. The methods most commonly used inside lowerings are:
 

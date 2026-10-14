@@ -382,7 +382,7 @@ class CUDACABICallConv(BaseCallConv):
         return None
 
     def return_value(self, builder, retval):
-        # llvmlite-builder return codegen; dead on the MLIR path (Lower
+        # llvmlite-builder return codegen; dead on the MLIR path (MLIRLower
         # handles returns with the MLIR builder).
         raise NotImplementedError("CUDACABICallConv.return_value is not used on the MLIR path")
 

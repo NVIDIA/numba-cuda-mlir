@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 # The built-in CUDA lowerings that used to live here built llvmlite IR and were
-# installed into the target context, but Lower filters out every builder
+# installed into the target context, but MLIRLower filters out every builder
 # defined under numba_cuda_mlir.numba_cuda before invoking it (the CUDA
 # intrinsics, shared/local arrays and atomics are lowered by
 # numba_cuda_mlir.lowering.cuda instead), so none of them ran on the MLIR path.

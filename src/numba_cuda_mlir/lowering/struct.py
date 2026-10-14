@@ -17,7 +17,7 @@ from numba_cuda_mlir.numba_cuda import types
 @registry.lower_getattr_generic(AggregateType)
 def lower_aggregate_type_getattr(
     context: MLIRTargetContext,
-    builder: "Lower",
+    builder: "MLIRLower",
     target: numba_ir.Var,
     value: numba_ir.Var,
     attr: str,
@@ -113,7 +113,7 @@ def lower_aggregate_type_getattr(
 
 def _lower_struct_construction_impl(
     context,  # Unused, kept for compatibility
-    builder: "Lower",
+    builder: "MLIRLower",
     target: numba_ir.Var,
     args: list[numba_ir.Var],
     kwargs: dict,
@@ -143,7 +143,7 @@ def _lower_struct_construction_impl(
 
 @registry.lower(AggregateType)
 def lower_aggregate_type_call(
-    builder: "Lower",
+    builder: "MLIRLower",
     target: numba_ir.Var,
     args: list[numba_ir.Var],
     kwargs: dict,

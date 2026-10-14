@@ -4,7 +4,7 @@ from numba_cuda_mlir.lowering_utilities import int_of
 from numba_cuda_mlir.lowering_utilities import convert_tuple_like
 from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir.errors import InternalCompilerError
-from numba_cuda_mlir.mlir_lowering import Lower
+from numba_cuda_mlir.mlir_lowering import MLIRLower
 from textwrap import dedent
 from numba_cuda_mlir.lowering_utilities import convert, tensor_to_memref
 from numba_cuda_mlir.numba_cuda import types
@@ -46,7 +46,7 @@ def _generalize_type(ty: types.Type) -> types.Type:
 
 
 def libdevice_implement_by_pointer(pyfunc, py_api: typing.Signature, c_api: typing.Signature):
-    def core(lower: Lower, target, args, kwargs):
+    def core(lower: MLIRLower, target, args, kwargs):
         trace("lower: %s", pyfunc.__name__)
         args = [lower.load_var(arg) for arg in args]
         by_ptr_return_types = [ty for ty in c_api.args if isinstance(ty, types.CPointer)]

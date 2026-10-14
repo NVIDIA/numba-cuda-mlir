@@ -7,7 +7,7 @@ from numba_cuda_mlir import lowering_utilities
 from numba_cuda_mlir.descriptor import MLIRTargetContext
 from numba_cuda_mlir.extending import overload, overload_method, typing_registry
 from numba_cuda_mlir.errors import InternalCompilerError, ensure_verifies
-from numba_cuda_mlir.mlir_lowering import Lower
+from numba_cuda_mlir.mlir_lowering import MLIRLower
 from numba_cuda_mlir.mlir.dialect_exts import memref, scf, arith, tensor
 from numba_cuda_mlir._mlir.dialects import (
     arith as arith_dialect,
@@ -109,7 +109,7 @@ def lower_to_fixed_tuple(builder, target, args, kwargs):
 
 
 @lower(_zero_fill_array_method, types.Array)
-def lower_zero_fill_array_method(builder: Lower, target, args, kwargs):
+def lower_zero_fill_array_method(builder: MLIRLower, target, args, kwargs):
     array_var = args[0]
     array = builder.load_var(array_var)
     array_type = builder.get_numba_type(array_var.name)
@@ -128,7 +128,7 @@ def lower_zero_fill_array_method(builder: Lower, target, args, kwargs):
 @lower_getattr(types.Array, "size")
 def lower_get_size(
     _: MLIRTargetContext,
-    builder: Lower,
+    builder: MLIRLower,
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
@@ -193,7 +193,7 @@ def _lower_array_complex_real_imag(builder, target, array_var, attr):
 @lower_getattr(types.Array, "real")
 def lower_array_real(
     _: MLIRTargetContext,
-    builder: Lower,
+    builder: MLIRLower,
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
@@ -208,7 +208,7 @@ def lower_array_real(
 @lower_getattr(types.Array, "imag")
 def lower_array_imag(
     _: MLIRTargetContext,
-    builder: Lower,
+    builder: MLIRLower,
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
@@ -224,7 +224,7 @@ def lower_array_imag(
 @lower_getattr(np, "nan")
 def lower_numpy_nan_getattr(
     _: MLIRTargetContext,
-    mlir_lower: Lower,
+    mlir_lower: MLIRLower,
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
@@ -239,7 +239,7 @@ def lower_numpy_nan_getattr(
 @lower_getattr(np, "float64")
 def lower_numpy_dtype_getattr(
     _: MLIRTargetContext,
-    mlir_lower: Lower,
+    mlir_lower: MLIRLower,
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
@@ -647,7 +647,7 @@ def np_reshape_cg(builder, target, args, kwargs):
 @lower_getattr(types.Array, "reshape")
 def lower_array_reshape_getattr(
     _: MLIRTargetContext,
-    mlir_lower: Lower,
+    mlir_lower: MLIRLower,
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
@@ -657,7 +657,7 @@ def lower_array_reshape_getattr(
 @lower_getattr(types.Array, "sum")
 def lower_array_sum_getattr(
     _: MLIRTargetContext,
-    mlir_lower: Lower,
+    mlir_lower: MLIRLower,
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
@@ -683,7 +683,7 @@ def _array_item_cg(builder, target, args, kwargs):
 @lower_getattr(types.Array, "item")
 def lower_array_item_getattr(
     _: MLIRTargetContext,
-    mlir_lower: Lower,
+    mlir_lower: MLIRLower,
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
@@ -749,7 +749,7 @@ def _array_ravel_cg(builder, target, args, kwargs):
 @lower_getattr(types.Array, "ravel")
 def lower_array_ravel_getattr(
     _: MLIRTargetContext,
-    mlir_lower: Lower,
+    mlir_lower: MLIRLower,
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
@@ -1363,7 +1363,7 @@ def lower_array_view_cg(builder, target, args, kwargs):
 @lower_getattr(types.Array, "view")
 def lower_array_view_getattr(
     _: MLIRTargetContext,
-    mlir_lower: Lower,
+    mlir_lower: MLIRLower,
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
@@ -1505,7 +1505,7 @@ def _lower_record_array_setitem(builder, target, args, kwargs):
 
 
 @lower(operator.setitem, types.Array, types.Integer, types.StringLiteral)
-def lower_charseq_array_setitem_string(builder: Lower, target, args, kwargs):
+def lower_charseq_array_setitem_string(builder: MLIRLower, target, args, kwargs):
     """arr[i] = "XYZ" for arrays with CharSeq or UnicodeCharSeq dtype."""
     from numba_cuda_mlir.lowering_utilities import GEP_DYNAMIC_INDEX
 
@@ -1569,7 +1569,7 @@ def lower_charseq_array_setitem_string(builder: Lower, target, args, kwargs):
 @lower(operator.setitem, types.Array, types.Integer, types.NPTimedelta)
 @lower(operator.setitem, types.Array, types.Integer, Record)
 @lower(operator.setitem, types.Array, types.Integer, VectorType)
-def lower_array_setitem(builder: Lower, target, args, kwargs):
+def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
     trace()
 
     # Check if this is a record array
@@ -1727,7 +1727,7 @@ def lower_array_slice_setitem(builder, target, args, kwargs):
 
 @lower(operator.getitem, types.Array, types.UniTuple)
 @lower(operator.getitem, types.Array, types.Tuple)
-def lower_array_tuple_getitem(builder: Lower, target, args, kwargs):
+def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
     if len(args) != 2:
         raise InternalCompilerError(f"Tuple getitem takes exactly two arguments, got {len(args)}")
 
@@ -1944,7 +1944,7 @@ def np_min_cg(builder, target, args, kwargs):
 @lower_getattr(types.Array, "min")
 def lower_array_min_getattr(
     _: MLIRTargetContext,
-    mlir_lower: Lower,
+    mlir_lower: MLIRLower,
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
@@ -1987,7 +1987,7 @@ def np_max_cg(builder, target, args, kwargs):
 @lower_getattr(types.Array, "max")
 def lower_array_max_getattr(
     _: MLIRTargetContext,
-    mlir_lower: Lower,
+    mlir_lower: MLIRLower,
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
@@ -2014,7 +2014,7 @@ def np_prod_cg(builder, target, args, kwargs):
 @lower_getattr(types.Array, "prod")
 def lower_array_prod_getattr(
     _: MLIRTargetContext,
-    mlir_lower: Lower,
+    mlir_lower: MLIRLower,
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):

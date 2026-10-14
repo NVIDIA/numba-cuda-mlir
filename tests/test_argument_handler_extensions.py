@@ -61,7 +61,7 @@ class PointerHandler:
 def _register_uint64_pointer_setitem():
     from numba_cuda_mlir.extending import typing_registry, lowering_registry
     from numba_cuda_mlir import lowering_utilities
-    from numba_cuda_mlir.mlir_lowering import Lower
+    from numba_cuda_mlir.mlir_lowering import MLIRLower
     from numba_cuda_mlir.mlir.dialect_exts import memref
 
     @typing_registry.register_global(operator.setitem)
@@ -79,7 +79,7 @@ def _register_uint64_pointer_setitem():
                 return signature(types.none, array, idx, value)
             return None
 
-    def lower_array_setitem_uint64_pointer(builder: Lower, target, args, kwargs):
+    def lower_array_setitem_uint64_pointer(builder: MLIRLower, target, args, kwargs):
         array = builder.load_var(args[0])
         index = builder.load_var(args[1])
         index = lowering_utilities.index_of(index)

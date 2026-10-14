@@ -69,8 +69,8 @@ from numba_cuda_mlir.errors import (
 
 
 @register_pass(mutates_CFG=True, analysis_only=False)
-class TypeInference(FunctionPass):
-    _name = "type_inference"
+class MLIRTypeInference(FunctionPass):
+    _name = "mlir_type_inference"
     _raise_errors = True
 
     def __init__(self):
@@ -117,7 +117,7 @@ class TypeInference(FunctionPass):
         return True
 
 
-class CompilationLibrary:
+class MLIRLibrary:
     def __init__(self, code, ptx="", mlir_str=""):
         self._code = code
         self._ptx = ptx
@@ -141,14 +141,14 @@ class CompilationLibrary:
 # has been mutated, so we set it to True here to ensure Numba doesn't hold some
 # invalid assumptions
 @register_pass(mutates_CFG=True, analysis_only=False)
-class Backend(LoweringPass):
-    _name = "backend"
+class MLIRBackend(LoweringPass):
+    _name = "mlir_backend"
 
     def __init__(self):
         LoweringPass.__init__(self)
 
     def create_lowerer(self, state, fndesc):
-        return lowering.Lower(state.targetctx, fndesc, state.func_ir, metadata=state.metadata)
+        return lowering.MLIRLower(state.targetctx, fndesc, state.func_ir, metadata=state.metadata)
 
     def run_pass(self, state):
         """
@@ -186,7 +186,7 @@ class Backend(LoweringPass):
         if dump:
             print(code)
 
-        library = CompilationLibrary(code)
+        library = MLIRLibrary(code)
 
         lower = self.create_lowerer(state, fndesc)
 
@@ -218,12 +218,12 @@ class Backend(LoweringPass):
 def get_compiler_class(
     targetoptions: Dict[str, Any],
     launch_config_tracker=None,
-    backend_pass=Backend,
+    backend_pass=MLIRBackend,
 ):
-    class Compiler(CompilerBase):
+    class MLIRCompiler(CompilerBase):
         def define_pipelines(self):
             dpb = DefaultPassBuilder
-            pm = PassManager("compiler")
+            pm = PassManager("mlir")
 
             untyped_passes = dpb.define_untyped_pipeline(self.state)
             # Replace passes with numba_cuda_mlir-specific versions:
@@ -249,7 +249,7 @@ def get_compiler_class(
 
             def replace_type_inference_pass(implementation, description):
                 if implementation is NopythonTypeInference:
-                    return (TypeInference, "type inference")
+                    return (MLIRTypeInference, "mlir frontend")
                 else:
                     return (implementation, description)
 
@@ -260,20 +260,20 @@ def get_compiler_class(
 
             pm.passes.extend(mlir_typed_passes)
 
-            lowering_passes = self.define_lowering_pipeline(self.state)
+            lowering_passes = self.define_mlir_lowering_pipeline(self.state)
             pm.passes.extend(lowering_passes.passes)
 
             pm.finalize()
             return [pm]
 
-        def define_lowering_pipeline(self, state):
-            pm = PassManager("lowering")
+        def define_mlir_lowering_pipeline(self, state):
+            pm = PassManager("mlir_lowering")
             # Numba legalization
             pm.add_pass(IRLegalization, "ensure IR is legal prior to lowering")
             pm.add_pass(AnnotateTypes, "annotate types")
 
             # Lowering to MLIR
-            pm.add_pass(backend_pass, "Run backend")
+            pm.add_pass(backend_pass, "Run MLIR backend")
 
             pm.finalize()
             return pm
@@ -297,16 +297,16 @@ def get_compiler_class(
             # we accept these parameters if they are None so that callees can
             # correctly call it.
             if call_conv is not None:
-                raise RuntimeError("Compiler does not support call_conv")
+                raise RuntimeError("MLIR compiler does not support call_conv")
             if abi_info is not None:
-                raise RuntimeError("Compiler does not support abi_info")
+                raise RuntimeError("MLIRCompiler does not support abi_info")
             super().__init__(typingctx, targetctx, library, args, return_type, flags, locals)
             # Attach options early so all passes can see them via state.metadata
             self.state.metadata["targetoptions"] = targetoptions
             if launch_config_tracker is not None:
                 self.state.metadata[_LAUNCH_CONFIG_TRACKER_METADATA_KEY] = launch_config_tracker
 
-    return Compiler
+    return MLIRCompiler
 
 
 @global_compiler_lock

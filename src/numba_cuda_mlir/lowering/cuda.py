@@ -41,7 +41,7 @@ from numba_cuda_mlir.lowering_utilities.type_conversions import (
     inline_ptx_type_constraint_to_mlir_type,
 )
 from numba_cuda_mlir.descriptor import MLIRTargetContext
-from numba_cuda_mlir.mlir_lowering import MLIRLower
+from numba_cuda_mlir.mlir_lowering import Lower
 from numba_cuda_mlir._mlir.dialects import arith, builtin, func, memref, gpu, nvvm, llvm
 from numba_cuda_mlir._mlir.extras import types as T
 import numba_cuda_mlir._mlir.ir as ir
@@ -72,7 +72,7 @@ from numba_cuda_mlir.numba_cuda.typing.templates import ConcreteTemplate
 from numba_cuda_mlir.numba_cuda import stubs as cuda_stubs
 
 
-def _lower_cfarray(builder: MLIRLower, target, args, kwargs, name, layout):
+def _lower_cfarray(builder: Lower, target, args, kwargs, name, layout):
     if kwargs and [name for name, _ in kwargs] != ["dtype"]:
         raise TypeError(f"{name} only supports dtype as a keyword argument")
 
@@ -124,7 +124,7 @@ def _lower_cfarray(builder: MLIRLower, target, args, kwargs, name, layout):
 @lower(cuda.carray, types.CPointer, types.BaseTuple, types.Any)
 @lower(cuda.carray, types.voidptr, types.Integer, types.Any)
 @lower(cuda.carray, types.voidptr, types.BaseTuple, types.Any)
-def lower_carray(builder: MLIRLower, target, args, kwargs):
+def lower_carray(builder: Lower, target, args, kwargs):
     _lower_cfarray(builder, target, args, kwargs, "carray", "C")
 
 
@@ -134,12 +134,12 @@ def lower_carray(builder: MLIRLower, target, args, kwargs):
 @lower(cuda.farray, types.CPointer, types.BaseTuple, types.Any)
 @lower(cuda.farray, types.voidptr, types.Integer, types.Any)
 @lower(cuda.farray, types.voidptr, types.BaseTuple, types.Any)
-def lower_farray(builder: MLIRLower, target, args, kwargs):
+def lower_farray(builder: Lower, target, args, kwargs):
     _lower_cfarray(builder, target, args, kwargs, "farray", "F")
 
 
 @lower(cuda_stubs.nanosleep, types.Number)
-def cuda_nanosleep(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
+def cuda_nanosleep(lower: Lower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
     ticks = lower.load_var(args[0])
     ticks = convert(ticks, T.i32())
     nvvm.nanosleep(ticks)
@@ -150,7 +150,7 @@ def cuda_nanosleep(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple
 @lower(numba_cuda_mlir.cuda.selp, types.Boolean, types.Integer, types.Integer)
 @lower(numba_cuda_mlir.cuda.selp, types.Integer, types.Float, types.Float)
 @lower(numba_cuda_mlir.cuda.selp, types.Boolean, types.Float, types.Float)
-def cuda_selp(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
+def cuda_selp(lower: Lower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
     cond = lower.load_var(args[0])
     true_val = lower.load_var(args[1])
     false_val = lower.load_var(args[2])
@@ -166,13 +166,13 @@ def cuda_selp(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str,
     lower.store_var(target, result)
 
 
-def _lower_warpsize(context, lower: MLIRLower, target, cuda_mod):
+def _lower_warpsize(context, lower: Lower, target, cuda_mod):
     # Warp size is always 32 on NVIDIA GPUs, but use the NVVM intrinsic for correctness
     result = nvvm.read_ptx_sreg_warpsize()
     lower.store_var(target, result)
 
 
-def _lower_laneid(context, lower: MLIRLower, target, cuda_mod):
+def _lower_laneid(context, lower: Lower, target, cuda_mod):
     # Lane ID is 0-31 within a warp
     result = nvvm.read_ptx_sreg_laneid()
     lower.store_var(target, result)
@@ -192,7 +192,7 @@ def lower_cuda_laneid(context, lower, target, cuda_mod):
 
 
 @lower(numba_cuda_mlir.cuda.brev, types.Integer)
-def cuda_brev(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
+def cuda_brev(lower: Lower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
     value = lower.load_var(args[0])
     # Use the Numba type's bitwidth to determine 32 vs 64-bit operation
     numba_type = lower.get_numba_type(args[0])
@@ -205,7 +205,7 @@ def cuda_brev(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str,
 
 
 @lower(numba_cuda_mlir.cuda.clz, types.Integer)
-def cuda_clz(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
+def cuda_clz(lower: Lower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
     value = lower.load_var(args[0])
     # Use the Numba type's bitwidth to determine 32 vs 64-bit operation
     numba_type = lower.get_numba_type(args[0])
@@ -220,7 +220,7 @@ def cuda_clz(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, 
 
 
 @lower(numba_cuda_mlir.cuda.popc, types.Integer)
-def cuda_popc(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
+def cuda_popc(lower: Lower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
     value = lower.load_var(args[0])
     # Use the Numba type's bitwidth to determine 32 vs 64-bit operation
     numba_type = lower.get_numba_type(args[0])
@@ -234,7 +234,7 @@ def cuda_popc(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str,
 
 
 @lower(numba_cuda_mlir.cuda.ffs, types.Integer)
-def cuda_ffs(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
+def cuda_ffs(lower: Lower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
     value = lower.load_var(args[0])
     # Use the Numba type's bitwidth to determine 32 vs 64-bit operation
     numba_type = lower.get_numba_type(args[0])
@@ -257,12 +257,12 @@ def cuda_ffs(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, 
 
 
 @lower(numba_cuda_mlir.cuda.syncthreads)
-def cuda_syncthreads(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
+def cuda_syncthreads(lower: Lower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
     gpu.barrier()
     lower.store_var(target, None)
 
 
-def _ensure_cudadevrt_linked(lower: MLIRLower):
+def _ensure_cudadevrt_linked(lower: Lower):
     if not lower.metadata.get("_cudadevrt_linked"):
         from numba_cuda_mlir.numba_cuda.cudadrv.libs import get_cudalib
 
@@ -271,7 +271,7 @@ def _ensure_cudadevrt_linked(lower: MLIRLower):
 
 
 @lower(this_grid)
-def lower_cg_this_grid(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
+def lower_cg_this_grid(lower: Lower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
     from numba_cuda_mlir.lowering_utilities import get_or_insert_function
 
     fn_type = ir.FunctionType.get(results=[T.i64()], inputs=[T.i32()])
@@ -283,7 +283,7 @@ def lower_cg_this_grid(lower: MLIRLower, target, args: list[Any], kwargs: list[t
     lower.store_var(target, result)
 
 
-def _grid_group_sync_cg(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
+def _grid_group_sync_cg(lower: Lower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
     from numba_cuda_mlir.lowering_utilities import get_or_insert_function
 
     group = lower.load_var(args[0])
@@ -358,7 +358,7 @@ def _resolve_numba_dtype(lower, dtype_var):
 shmem_id = 0
 
 
-def cuda_static_shared_memory(lower: MLIRLower, target, static_shape, dtype, alignas):
+def cuda_static_shared_memory(lower: Lower, target, static_shape, dtype, alignas):
     global shmem_id
     shape = tuple(static_shape)
     dtype = lower.get_storage_type(_resolve_numba_dtype(lower, dtype))
@@ -405,7 +405,7 @@ def cuda_static_shared_memory(lower: MLIRLower, target, static_shape, dtype, ali
 @lower(cuda.shared.array, types.Tuple, types.StringLiteral, types.IntegerLiteral)
 @lower(cuda.shared.array, types.Tuple, types.DTypeSpec, types.NoneType)
 @lower(cuda.shared.array, types.Tuple, types.StringLiteral, types.NoneType)
-def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
+def cuda_shared_memory(lower: Lower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
     shape, dtype, alignas = _extract_shape_and_dtype(*args, **dict(kwargs))
     if isinstance(alignas, numba_ir.Var):
         # Check if the variable has NoneType - if so, use default alignment
@@ -485,7 +485,7 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
 @lower(cuda.local_array, types.Number, types.StringLiteral, types.IntegerLiteral)
 @lower(cuda.local_array, types.UniTuple, types.DTypeSpec, types.IntegerLiteral)
 @lower(cuda.local_array, types.UniTuple, types.StringLiteral, types.IntegerLiteral)
-def cuda_local_array(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
+def cuda_local_array(lower: Lower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
     shape, dtype, alignas = _extract_shape_and_dtype(*args, **dict(kwargs))
     shape_op: tuple[ir.Value | int, ...] | ir.Value | int = lower.load_var(shape)
     if isinstance(alignas, numba_ir.Var):
@@ -558,7 +558,7 @@ def cuda_local_array(lower: MLIRLower, target, args: list[Any], kwargs: list[tup
 
 
 @lower(cuda.const.array_like, types.Array)
-def cuda_const_array_like(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
+def cuda_const_array_like(lower: Lower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
     # const.array_like is essentially a no-op at lowering time - the array
     # already exists and will be passed as a kernel argument. The constant
     # memory placement is handled by the CUDA driver when the data is copied.
@@ -569,7 +569,7 @@ def cuda_const_array_like(lower: MLIRLower, target, args: list[Any], kwargs: lis
 @lower_getattr(types.Array, "dtype")
 def lower_array_dtype(
     _: MLIRTargetContext,
-    mlir_lower: MLIRLower,
+    mlir_lower: Lower,
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
@@ -581,7 +581,7 @@ def lower_array_dtype(
 @lower_getattr(types.Array, "shape")
 def lower_shape(
     _: MLIRTargetContext,
-    mlir_lower: MLIRLower,
+    mlir_lower: Lower,
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
@@ -597,7 +597,7 @@ def lower_shape(
 @lower_getattr(types.Array, "strides")
 def lower_strides(
     _: MLIRTargetContext,
-    mlir_lower: MLIRLower,
+    mlir_lower: Lower,
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
@@ -668,7 +668,7 @@ def _get_dim3_attribute(
 @lower_getattr_generic(Dim3)
 def lower_dim3_getattr(
     _: MLIRTargetContext,
-    builder: MLIRLower,
+    builder: Lower,
     target: numba_ir.Var,
     value: numba_ir.Var,
     attr: str,
@@ -704,7 +704,7 @@ def _compute_global_tid(dimension, to_type: ir.Type):
 
 @lower(cuda.grid, types.Number)
 def lower_cuda_grid(
-    lower: MLIRLower,
+    lower: Lower,
     target: numba_ir.Var,
     args: list[Any],
     kwargs: list[tuple[str, Any]],
@@ -741,7 +741,7 @@ def lower_cuda_grid(
 
 @lower(cuda.gridsize, types.Number)
 def lower_cuda_gridsize(
-    lower: MLIRLower,
+    lower: Lower,
     target: numba_ir.Var,
     args: list[Any],
     kwargs: list[tuple[str, Any]],
@@ -823,7 +823,7 @@ def cuda_syncwarp_cg(builder, target, args, kwargs):
     builder.store_var(target, res)
 
 
-def _shfl_sync_lowering(builder: MLIRLower, target, args, kwargs, shfl_kind):
+def _shfl_sync_lowering(builder: Lower, target, args, kwargs, shfl_kind):
     mask = builder.load_var(args[0])
     value = builder.load_var(args[1])
     offset = builder.load_var(args[2])
@@ -890,7 +890,7 @@ def register_vote_sync_lowerings():
     from numba_cuda_mlir._mlir.dialects import nvvm, arith
     from numba_cuda_mlir._mlir.ir import IntegerType
 
-    def _prepare_vote_sync_args(builder: MLIRLower, args):
+    def _prepare_vote_sync_args(builder: Lower, args):
         """Prepare mask and predicate for vote_sync operations."""
         mask = builder.load_var(args[0])
         pred = builder.load_var(args[1])
@@ -912,14 +912,14 @@ def register_vote_sync_lowerings():
     def make_vote_sync_predicate_lowering(vote_kind):
         """For any_sync, all_sync, eq_sync - returns i1 predicate."""
 
-        def lowering(builder: MLIRLower, target, args, kwargs):
+        def lowering(builder: Lower, target, args, kwargs):
             mask, pred = _prepare_vote_sync_args(builder, args)
             result = nvvm.vote_sync(mask, pred, vote_kind)
             builder.store_var(target, result)
 
         return lowering
 
-    def ballot_sync_lowering(builder: MLIRLower, target, args, kwargs):
+    def ballot_sync_lowering(builder: Lower, target, args, kwargs):
         """For ballot_sync - returns i32 ballot mask."""
         mask, pred = _prepare_vote_sync_args(builder, args)
         result = nvvm.vote_sync(mask, pred, nvvm.VoteSyncKind.ballot)
@@ -944,7 +944,7 @@ def register_match_sync_lowerings():
     from numba_cuda_mlir._mlir.dialects import nvvm, arith
     from numba_cuda_mlir._mlir.ir import IntegerType
 
-    def match_any_sync_lowering(builder: MLIRLower, target, args, kwargs):
+    def match_any_sync_lowering(builder: Lower, target, args, kwargs):
         mask = builder.load_var(args[0])
         value = builder.load_var(args[1])
 
@@ -958,7 +958,7 @@ def register_match_sync_lowerings():
         result = nvvm.match_sync(mask, value, nvvm.MatchSyncKind.any)
         builder.store_var(target, result)
 
-    def match_all_sync_lowering(builder: MLIRLower, target, args, kwargs):
+    def match_all_sync_lowering(builder: Lower, target, args, kwargs):
         mask = builder.load_var(args[0])
         value = builder.load_var(args[1])
 
@@ -993,7 +993,7 @@ def register_activemask_lowering():
     from numba_cuda_mlir._mlir.ir import IntegerType
 
     @lower(cuda.activemask)
-    def activemask_lowering(builder: MLIRLower, target, args, kwargs):
+    def activemask_lowering(builder: Lower, target, args, kwargs):
         # Use inline asm to call activemask.b32
         # The asm returns the active thread mask
         asm_str = "activemask.b32 $0;"
@@ -1354,7 +1354,7 @@ def fma(builder, target, args, kwargs):
 
 
 @lower(cuda.ffs, types.Number)
-def ffs(builder: MLIRLower, target, args, kwargs):
+def ffs(builder: Lower, target, args, kwargs):
     from numba_cuda_mlir.runtime import libdevice
 
     ty = builder.get_numba_type(args[0])

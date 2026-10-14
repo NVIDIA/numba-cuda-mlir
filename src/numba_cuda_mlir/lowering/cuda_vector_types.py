@@ -13,7 +13,7 @@ from numba_cuda_mlir.lowering_registry import LoweringRegistry
 registry = LoweringRegistry()
 _raw_lower = registry.lower
 lower_getattr = registry.lower_getattr
-from numba_cuda_mlir.mlir_lowering import MLIRLower
+from numba_cuda_mlir.mlir_lowering import Lower
 from numba_cuda_mlir.lowering_utilities import (
     convert,
     get_conversion_signedness,
@@ -65,7 +65,7 @@ def _extract_vector_elements(vec: ir.Value) -> list:
     return elements
 
 
-def _constructor_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
+def _constructor_lowering(lower_ctx: Lower, target, args: list[Any], kwargs):
     """Generic lowering for all vector type constructors.
 
     Handles any combination of scalar and vector arguments: broadcasts a
@@ -108,7 +108,7 @@ def _make_attr_lowering(attr_name):
     """Create a lowering function for vector attribute access."""
     idx = ATTR_INDEX[attr_name]
 
-    def attr_lowering(context, builder: MLIRLower, target, value):
+    def attr_lowering(context, builder: Lower, target, value):
         vec = builder.load_var(value)
         # Use static position for extraction (empty dynamic_position list)
         elem = vector.extract(vec, [], [idx])
@@ -126,7 +126,7 @@ lower_getattr(VectorType, "w")(_make_attr_lowering("w"))
 def _make_vector_binop_lowering(op):
     iop, fop = _get_mlir_bin_op_for_operator(op)
 
-    def binop_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
+    def binop_lowering(lower_ctx: Lower, target, args: list[Any], kwargs):
         lhs = lower_ctx.load_var(args[0])
         rhs = lower_ctx.load_var(args[1])
 
@@ -183,7 +183,7 @@ for op in [
 
 
 def _make_vector_unary_lowering(op):
-    def unary_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
+    def unary_lowering(lower_ctx: Lower, target, args: list[Any], kwargs):
         val = lower_ctx.load_var(args[0])
 
         target_type = lower_ctx.get_numba_type(target.name)
@@ -220,7 +220,7 @@ _raw_lower(operator.neg, VectorType)(_make_vector_unary_lowering(operator.neg))
 _raw_lower(abs, VectorType)(_make_vector_unary_lowering(abs))
 
 
-def _vector_to_complex_cast(lower_ctx: MLIRLower, target, args: list[Any]):
+def _vector_to_complex_cast(lower_ctx: Lower, target, args: list[Any]):
     target_type = lower_ctx.get_numba_type(target.name)
     mlir_target_type = lower_ctx.get_mlir_type(target_type)
     val = lower_ctx.load_var(args[0])
@@ -242,13 +242,13 @@ def _vector_to_complex_cast(lower_ctx: MLIRLower, target, args: list[Any]):
 
 
 @_raw_lower(complex, VectorType)
-def _complex_from_vector_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
+def _complex_from_vector_lowering(lower_ctx: Lower, target, args: list[Any], kwargs):
     """Lowering for complex(vector_type)."""
     _vector_to_complex_cast(lower_ctx, target, args)
 
 
 @_raw_lower(types.NumberClass, VectorType)
-def _number_class_from_vector_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
+def _number_class_from_vector_lowering(lower_ctx: Lower, target, args: list[Any], kwargs):
     """Lowering for np.complex64(vec2) / np.complex128(vec2)."""
     target_type = lower_ctx.get_numba_type(target.name)
     if not isinstance(target_type, types.Complex):

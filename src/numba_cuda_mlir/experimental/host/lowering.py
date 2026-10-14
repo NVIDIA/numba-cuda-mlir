@@ -6,14 +6,14 @@ import operator
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir._mlir.dialects import arith, cf, func
 from numba_cuda_mlir.lowering_utilities import get_or_insert_function
-from numba_cuda_mlir.mlir_lowering import MLIRLower
+from numba_cuda_mlir import mlir_lowering
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core import ir as numba_ir
 from numba_cuda_mlir.numba_cuda.core.errors import TypingError
 from numba_cuda_mlir.tools import generate_mangled_name
 
 
-class HostLower(MLIRLower):
+class Lower(mlir_lowering.Lower):
     def _initialize_target_and_linker(self):
         """Skip GPU initialization and return no link inputs."""
         self.linker = None

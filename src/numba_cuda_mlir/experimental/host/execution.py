@@ -9,9 +9,9 @@ from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.typing.ctypes_utils import to_ctypes
 
 try:
-    from numba_cuda_mlir._mlir.execution_engine import ExecutionEngine
+    from numba_cuda_mlir._mlir import execution_engine
 except ImportError as exc:
-    ExecutionEngine = None
+    execution_engine = None
     _EXECUTION_ENGINE_IMPORT_ERROR = exc
 else:
     _EXECUTION_ENGINE_IMPORT_ERROR = None
@@ -33,16 +33,16 @@ def scalar_ctype(typ):
     )
 
 
-class HostExecutionEngine:
+class ExecutionEngine:
     def __init__(self, module, signature, symbol_name, targetoptions):
-        if ExecutionEngine is None:
+        if execution_engine is None:
             raise RuntimeError(
                 "host.jit requires the MLIR ExecutionEngine Python binding "
                 "(_mlirExecutionEngine), but it is not available in this build"
             ) from _EXECUTION_ENGINE_IMPORT_ERROR
         self.module = module
         self.signature = signature
-        self.engine = ExecutionEngine(module, opt_level=targetoptions["opt_level"])
+        self.engine = execution_engine.ExecutionEngine(module, opt_level=targetoptions["opt_level"])
         self._errors = threading.local()
 
         @ctypes.CFUNCTYPE(None, ctypes.c_int32)

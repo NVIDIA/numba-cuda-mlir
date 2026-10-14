@@ -7,7 +7,7 @@ from numba_cuda_mlir.lowering_utilities import context as mlir_context
 from numba_cuda_mlir.mlir_lowering import get_mlir_module_str
 
 
-HOST_TO_LLVM_DIALECT_PIPELINE = """
+TO_LLVM_DIALECT_PIPELINE = """
     builtin.module(
       reconcile-unrealized-casts,
       convert-scf-to-cf,
@@ -24,13 +24,13 @@ HOST_TO_LLVM_DIALECT_PIPELINE = """
     """
 
 
-def lower_host_to_llvm_dialect(cres):
+def lower_to_llvm_dialect(cres):
     with mlir_context.get_context():
         module = ir.Module.parse(get_mlir_module_str(cres.metadata))
         options = cres.metadata["targetoptions"]
         if options.get("dump_mlir") or options.get("dump"):
             print(f"=============== Host MLIR ===============\n\n{module}\n")
-        PassManager.parse(HOST_TO_LLVM_DIALECT_PIPELINE).run(module.operation)
+        PassManager.parse(TO_LLVM_DIALECT_PIPELINE).run(module.operation)
         if options.get("dump_llvm_dialect") or options.get("dump"):
             print(f"=============== Host LLVM-Dialect MLIR ===============\n\n{module}\n")
         return module

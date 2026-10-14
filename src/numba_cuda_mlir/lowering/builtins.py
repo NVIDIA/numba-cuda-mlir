@@ -22,7 +22,7 @@ from numba_cuda_mlir.lowering_utilities import (
     try_extract_constant,
 )
 from numba_cuda_mlir.logging import trace
-from numba_cuda_mlir.mlir_lowering import MLIRLower
+from numba_cuda_mlir.mlir_lowering import Lower
 from numba_cuda_mlir import types
 from numba_cuda_mlir.numba_cuda.core.errors import TypingError
 from numba_cuda_mlir.numba_cuda.extending import intrinsic
@@ -131,7 +131,7 @@ def lower_tuple_concat(builder, target, args, kwargs):
 @lower(range, types.Number)
 @lower(range, types.Number, types.Number)
 @lower(range, types.Number, types.Number, types.Number)
-def lower_range(builder: MLIRLower, target, args, kwargs):
+def lower_range(builder: Lower, target, args, kwargs):
     start, stop, step = _get_range_object(builder, args)
     with builder.checked_range_step_context(step):
         ro = RangeObject(builder, start, stop, step)

@@ -242,7 +242,7 @@ def test_concurrent_first_calls_publish_one_specialization():
     assert len(add_one.overloads) == 1
 
 
-@pytest.mark.parametrize("compile_name", ["compile_host_to_llvm_dialect", "compile_host"])
+@pytest.mark.parametrize("compile_name", ["compile_to_llvm_dialect", "compile"])
 def test_direct_compile_boundaries(compile_name):
     from numba_cuda_mlir.experimental.host import compiler
 
@@ -252,7 +252,7 @@ def test_direct_compile_boundaries(compile_name):
     dispatcher = host.jit(add_one)
     compile_function = getattr(compiler, compile_name)
     result = compile_function(add_one, None, (types.int64,), dispatcher.targetoptions)
-    if compile_name == "compile_host_to_llvm_dialect":
+    if compile_name == "compile_to_llvm_dialect":
         result, module = result
         assert module.operation.verify()
     else:

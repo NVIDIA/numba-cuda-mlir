@@ -5,7 +5,7 @@
 
 The llvmlite ``BaseLower``/``Lower``/``CUDALower`` object-mode lowerer that used
 to live here has been deleted: numba-cuda-mlir lowers CUDA kernels via
-``MLIRLower`` (see ``numba_cuda_mlir.mlir_lowering``), not via the vendored
+``Lower`` (see ``numba_cuda_mlir.mlir_lowering``), not via the vendored
 ``NativeLowering``/``CUDANativeLowering`` passes (whose ``lowering_class`` now
 returns ``None``). Only the ``Environment`` re-export is retained, for the
 (likewise dead) object-mode boxing helpers in ``core.pythonapi``.

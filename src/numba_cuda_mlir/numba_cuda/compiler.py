@@ -562,7 +562,7 @@ class CUDANativeLowering(BaseNativeLowering):
     @property
     def lowering_class(self):
         # The vendored llvmlite CUDALower is dead on the MLIR path (kernels are
-        # lowered by MLIRLower, not by this pass). Returning None so the dead
+        # lowered by Lower, not by this pass). Returning None so the dead
         # CUDALower class can be removed; if this pass ever ran it would fail loudly.
         return None
 
@@ -920,7 +920,7 @@ def add_exception_store_helper(kernel):
     # Built the llvmlite exception-store helper (error-code global + per-thread
     # id capture via nvvmutils.SRegBuilder) for the vendored llvmlite kernel
     # fixup path. That path is dead on the MLIR path (kernels are MLIR modules
-    # lowered by MLIRLower), so this is a dead stub.
+    # lowered by Lower), so this is a dead stub.
     raise NotImplementedError(
         "add_exception_store_helper (vendored llvmlite kernel fixup) is not used on the MLIR path"
     )

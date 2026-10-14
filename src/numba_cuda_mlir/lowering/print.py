@@ -4,7 +4,7 @@ import operator
 from numba_cuda_mlir.lowering_utilities import index_of
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.types.ext_types import Dim3
-from numba_cuda_mlir.mlir_lowering import MLIRLower
+from numba_cuda_mlir.mlir_lowering import Lower
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir._mlir.dialects import gpu, memref, arith
@@ -84,7 +84,7 @@ def _memref_runtime_type_name(dtype: ir.Type) -> str:
             raise ValueError(f"Unsupported type: {dtype}")
 
 
-def _lower_memref_print(mlir_lower: MLIRLower, value: ir.Value) -> None:
+def _lower_memref_print(mlir_lower: Lower, value: ir.Value) -> None:
     dtype = value.type.element_type
     value = tensor_to_memref(value)
     vt: ir.MemRefType = value.type
@@ -124,7 +124,7 @@ def _lower_memref_print(mlir_lower: MLIRLower, value: ir.Value) -> None:
     gpu.printf("]>")
 
 
-def _lower_variable_print(mlir_lower: MLIRLower, value: ir.Value) -> None:
+def _lower_variable_print(mlir_lower: Lower, value: ir.Value) -> None:
     match value.type:
         case ir.IntegerType() as int_type if int_type.width == 1:
             # Boolean (i1) - conditionally print "True" or "False"
@@ -169,7 +169,7 @@ def _lower_string_struct_print(value: ir.Value) -> None:
     gpu.printf("%s", ptr_as_i64)
 
 
-def _lower_tuple_print(mlir_lower: MLIRLower, values: list, sep: str = " ") -> None:
+def _lower_tuple_print(mlir_lower: Lower, values: list, sep: str = " ") -> None:
     """Print a tuple in format (v1, v2, v3) or (v1,) for single-element."""
     gpu.printf("(")
     for i, val in enumerate(values):
@@ -226,7 +226,7 @@ def _is_dim3_object(arg) -> bool:
     )
 
 
-def _lower_print_arg(mlir_lower: MLIRLower, arg) -> None:
+def _lower_print_arg(mlir_lower: Lower, arg) -> None:
     """Lower a single print argument."""
     if _is_dim3_object(arg):
         _lower_dim3_print(arg)
@@ -242,7 +242,7 @@ def _lower_print_arg(mlir_lower: MLIRLower, arg) -> None:
         raise ValueError(f"Unsupported print argument type: {type(arg)}")
 
 
-def _get_format_and_values(mlir_lower: MLIRLower, arg) -> tuple[str, list[ir.Value]]:
+def _get_format_and_values(mlir_lower: Lower, arg) -> tuple[str, list[ir.Value]]:
     """Get format string piece and values for a single argument.
 
     Returns (format_string, [values]) where values are ir.Values to pass to printf.
@@ -315,7 +315,7 @@ def _get_format_and_values(mlir_lower: MLIRLower, arg) -> tuple[str, list[ir.Val
 
 
 @lower(print, types.VarArg(types.Any))
-def lower_print(mlir_lower: MLIRLower, target, args, kwargs: list[tuple[str, ir.Value]]):
+def lower_print(mlir_lower: Lower, target, args, kwargs: list[tuple[str, ir.Value]]):
     def _kwarg_str(kw_list, name, default):
         """Extract a string keyword arg from its literal type."""
         for k, v in kw_list:

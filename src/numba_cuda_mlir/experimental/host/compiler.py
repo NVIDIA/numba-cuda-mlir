@@ -4,11 +4,11 @@
 from dataclasses import dataclass
 from typing import Any
 
-from numba_cuda_mlir.experimental.host.descriptor import host_target
+from numba_cuda_mlir.experimental.host.descriptor import target
 from numba_cuda_mlir.experimental.host.execution import scalar_ctype
-from numba_cuda_mlir.experimental.host.lowering import HostLower
-from numba_cuda_mlir.experimental.host.optimization import lower_host_to_llvm_dialect
-from numba_cuda_mlir.mlir_compiler import MLIRBackend, get_compiler_class
+from numba_cuda_mlir.experimental.host.lowering import Lower
+from numba_cuda_mlir.experimental.host.optimization import lower_to_llvm_dialect
+from numba_cuda_mlir import mlir_compiler
 from numba_cuda_mlir.mlir_lowering import get_mlir_module_str
 from numba_cuda_mlir.numba_cuda import compiler, types, typing
 from numba_cuda_mlir.numba_cuda.core.compiler_lock import global_compiler_lock
@@ -19,7 +19,7 @@ from numba_cuda_mlir.numba_cuda.flags import CUDAFlags
 
 
 @dataclass
-class HostCompileResult:
+class CompileResult:
     signature: typing.Signature
     fndesc: Any
     mlir: str
@@ -30,7 +30,7 @@ class HostCompileResult:
 
 
 @register_pass(mutates_CFG=True, analysis_only=False)
-class HostBackend(MLIRBackend):
+class Backend(mlir_compiler.Backend):
     _name = "host_backend"
 
     def run_pass(self, state):
@@ -42,11 +42,11 @@ class HostBackend(MLIRBackend):
         return super().run_pass(state)
 
     def create_lowerer(self, state, fndesc):
-        return HostLower(state.targetctx, fndesc, state.func_ir, state.metadata)
+        return Lower(state.targetctx, fndesc, state.func_ir, state.metadata)
 
 
 @global_compiler_lock
-def compile_host_to_llvm_dialect(pyfunc, return_type, args, targetoptions):
+def compile_to_llvm_dialect(pyfunc, return_type, args, targetoptions):
     try:
         for arg in args:
             scalar_ctype(arg)
@@ -54,8 +54,8 @@ def compile_host_to_llvm_dialect(pyfunc, return_type, args, targetoptions):
             scalar_ctype(return_type)
     except TypeError as exc:
         raise TypingError(str(exc)) from exc
-    typingctx = host_target.typing_context
-    targetctx = host_target.target_context
+    typingctx = target.typing_context
+    targetctx = target.target_context
     flags = CUDAFlags()
     flags.no_compile = True
     flags.no_cpython_wrapper = True
@@ -72,20 +72,20 @@ def compile_host_to_llvm_dialect(pyfunc, return_type, args, targetoptions):
             return_type=return_type,
             flags=flags,
             locals={},
-            pipeline_class=get_compiler_class(targetoptions, backend_pass=HostBackend),
+            pipeline_class=mlir_compiler.get_compiler_class(targetoptions, backend_pass=Backend),
         )
-    return cres, lower_host_to_llvm_dialect(cres)
+    return cres, lower_to_llvm_dialect(cres)
 
 
 @global_compiler_lock
-def compile_host(pyfunc, return_type, args, targetoptions):
-    cres, module = compile_host_to_llvm_dialect(pyfunc, return_type, args, targetoptions)
-    from numba_cuda_mlir.experimental.host.execution import HostExecutionEngine
+def compile(pyfunc, return_type, args, targetoptions):
+    cres, module = compile_to_llvm_dialect(pyfunc, return_type, args, targetoptions)
+    from numba_cuda_mlir.experimental.host.execution import ExecutionEngine
 
-    engine = HostExecutionEngine(
+    engine = ExecutionEngine(
         module, cres.signature, cres.metadata["host_symbol_name"], targetoptions
     )
-    return HostCompileResult(
+    return CompileResult(
         signature=cres.signature,
         fndesc=cres.fndesc,
         mlir=get_mlir_module_str(cres.metadata),

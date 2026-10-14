@@ -132,7 +132,7 @@ def get_gpu_module_name():
     return ir.StringAttr.get("numba_cuda_mlir_gpu_module")
 
 
-class MLIRLower(object):
+class Lower(object):
     """
     Lower Numba IR to MLIR.
     """

@@ -4,7 +4,7 @@ from typing import Any, Callable, ParamSpec, TypeVar, TypeVarTuple, Unpack
 from numba_cuda_mlir.numba_cuda.core import ir
 
 # Prototype for intrinsic code generation functions
-Builder = Callable[["MLIRLower", ir.Var, list[ir.Var], list[tuple[str, ir.Var]]], None]
+Builder = Callable[["Lower", ir.Var, list[ir.Var], list[tuple[str, ir.Var]]], None]
 
 PS = ParamSpec("PS")
 AnyCallable = Callable[PS, Any]

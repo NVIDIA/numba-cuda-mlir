@@ -77,7 +77,7 @@ class MLIRNRTContext:
         self._dmm = data_model_manager
 
     # ------------------------------------------------------------------
-    # Public API used by MLIRLower
+    # Public API used by Lower
     # ------------------------------------------------------------------
 
     def incref(self, module, typ, value):

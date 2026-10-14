@@ -1048,7 +1048,7 @@ class MLIRTypingContext(typing.BaseContext):
 
     def check_intrinsic_codegen(self, intrinsic, sig, codegen):
         # A vendored intrinsic is usable only through an MLIR lowering registered
-        # for its handle and signature, found as MLIRLower._lookup_actual_function
+        # for its handle and signature, found as Lower._lookup_actual_function
         # finds it.  Rejecting it here, rather than in lowering, lets typing move
         # on to other templates: an upstream @overload built on such an intrinsic
         # gives way to the native typing (issue #327).

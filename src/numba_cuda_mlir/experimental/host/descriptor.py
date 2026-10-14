@@ -13,7 +13,7 @@ from numba_cuda_mlir.numba_cuda.core.target_extension import CPU, target_registr
 from numba_cuda_mlir.numba_cuda.typing.typeof import Purpose, typeof
 
 
-class HostTargetDescriptor:
+class TargetDescriptor:
     @cached_property
     def typing_context(self):
         return MLIRTypingContext()
@@ -23,15 +23,15 @@ class HostTargetDescriptor:
         return MLIRTargetContext(self.typing_context, target="numba_cuda_mlir_host")
 
 
-class Host(CPU):
+class Target(CPU):
     pass
 
 
-target_registry["numba_cuda_mlir_host"] = Host
-host_target = HostTargetDescriptor()
+target_registry["numba_cuda_mlir_host"] = Target
+target = TargetDescriptor()
 
 
-class HostDispatcher:
+class Dispatcher:
     def __init__(self, py_func, targetoptions):
         self.py_func = py_func
         self.targetoptions = targetoptions
@@ -56,7 +56,7 @@ class HostDispatcher:
 
     @global_compiler_lock
     def compile(self, sig):
-        from numba_cuda_mlir.experimental.host.compiler import compile_host
+        from numba_cuda_mlir.experimental.host.compiler import compile
 
         argtypes, return_type = sigutils.normalize_signature(sig)
         argtypes = tuple(argtypes)
@@ -68,7 +68,7 @@ class HostDispatcher:
             return self.overloads[argtypes]
         if not self._can_compile:
             raise TypeError(f"no matching host.jit signature for {argtypes}")
-        result = compile_host(self.py_func, return_type, argtypes, self.targetoptions)
+        result = compile(self.py_func, return_type, argtypes, self.targetoptions)
         self.overloads[argtypes] = result
         return result
 

@@ -111,6 +111,24 @@ def test_range_values_and_errors():
     assert sum_range(0, 10, 2) == 20
 
 
+@pytest.mark.parametrize("args", [(0, 4, 1), (4, -1, -2), (3, 1, 1)])
+def test_range_reuse(args):
+    @host.jit
+    def compute(start, stop, step):
+        values = range(start, stop, step)
+        total = 0
+        for value in values:
+            total += value
+        for value in values:
+            total += value
+        for outer in values:
+            for inner in values:
+                total += outer * inner
+        return total
+
+    assert compute(*args) == compute.py_func(*args)
+
+
 @pytest.mark.parametrize(
     "args",
     [(7, 3), (-7, 3), (7, -3), (-7, -3), (7.5, 2.5)],

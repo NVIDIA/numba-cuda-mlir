@@ -1534,7 +1534,7 @@ extern "C" __global__ void
             ro = self.load_var(value)
             if not isinstance(ro, RangeObject):
                 raise InternalCompilerError(f"Range object not found for value {value.name}")
-            self.store_var(target, ro)
+            self.store_var(target, ro.get_iterator(self))
         elif isinstance(value_type, (types.NumpyNdIterType, numba_types.NumpyFlatType)):
             iter_obj = self.load_var(value)
             if not isinstance(iter_obj, NdIterIterObject):

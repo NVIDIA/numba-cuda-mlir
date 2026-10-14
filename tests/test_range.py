@@ -78,6 +78,25 @@ def test_range_trip_count_boundaries(args, expected):
     assert out.copy_to_host()[0] == expected
 
 
+def test_range_reuse():
+    @cuda.jit
+    def compute(out, n):
+        values = range(n)
+        total = 0
+        for value in values:
+            total += value
+        for value in values:
+            total += value
+        for outer in values:
+            for inner in values:
+                total += outer * inner
+        out[0] = total
+
+    out = cuda.to_device(np.zeros(1, dtype=np.int64))
+    compute[1, 1](out, 4)
+    assert out.copy_to_host()[0] == 48
+
+
 if __name__ == "__main__":
     test_range1()
     test_range2()

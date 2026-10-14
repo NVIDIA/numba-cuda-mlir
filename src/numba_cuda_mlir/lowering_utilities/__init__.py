@@ -1265,7 +1265,7 @@ class DeferredMethodCall(DeferredLowering):
 @dataclass
 class RangeObject:
     """
-    Holds the state of a range object.
+    Holds immutable range endpoints and trip count; iterators own their progress.
     """
 
     @staticmethod
@@ -1285,7 +1285,7 @@ class RangeObject:
         element_type = self._unify_integer_types(start, stop, step)
 
         with lower.alloca_insertion_point():
-            self._memref = memref.alloca(T.memref(4, element_type), [], [])
+            self._memref = memref.alloca(T.memref(3, element_type), [], [])
             self._count_memref = memref.alloca(T.memref(1, T.i64()), [], [])
 
         start_val = convert(start, element_type, signed=True)
@@ -1329,10 +1329,21 @@ class RangeObject:
         count = arith.addi(arith.divui(arith.subi(distance, one_i64), stride), one_i64)
         count = arith.select(nonempty, count, zero_i64)
         memref.store(count, self._count_memref, [index_of(0)])
-        memref.store(start_val, self._memref, [index_of(3)])
 
     def get_mlir_type(self) -> ir.Type:
         return self._memref.type
+
+    def get_iterator(self, lower):
+        iterator = object.__new__(RangeObject)
+        iterator._memref = self._memref
+        with lower.alloca_insertion_point():
+            iterator._count_memref = memref.alloca(T.memref(1, T.i64()), [], [])
+            iterator._iter_memref = memref.alloca(
+                T.memref(1, self._memref.type.element_type), [], []
+            )
+        memref.store(self.count, iterator._count_memref, [index_of(0)])
+        memref.store(self.start, iterator._iter_memref, [index_of(0)])
+        return iterator
 
     @property
     def start(self) -> ir.Value:
@@ -1352,7 +1363,7 @@ class RangeObject:
 
     @property
     def iter(self) -> ir.Value:
-        return memref.load(self._memref, [index_of(3)])
+        return memref.load(self._iter_memref, [index_of(0)])
 
     def __next__(self) -> ir.Value:
         raise NotImplementedError()
@@ -1381,7 +1392,7 @@ class RangeObject:
 
         # Store updates
         memref.store(updated_count, self._count_memref, [index_of(0)])
-        memref.store(updated_iter, self._memref, [index_of(3)])
+        memref.store(updated_iter, self._iter_memref, [index_of(0)])
 
         result_type = T.memref(2, int_type)
         result = memref.alloca(memref=result_type, dynamic_sizes=[], symbol_operands=[])

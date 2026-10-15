@@ -640,15 +640,19 @@ def strip_star_args(numba_type):
     bundle of their own and splice its elements in.  Strip it wherever a
     bundle becomes a value, so only a freshly folded parameter carries it.
 
-    Only the outermost marker is stripped, which is the only position any
-    consumer inspects: folding and ``canonical_call_key`` ask whether a whole
-    argument is a bundle, never whether one is buried inside a tuple.
+    Recurse into nested tuples too: indexing a returned tuple can expose an
+    inner bundle as an argument to another call.
     """
-    if isinstance(numba_type, types.StarArgUniTuple):
-        return types.UniTuple(numba_type.dtype, numba_type.count)
-    if isinstance(numba_type, types.StarArgTuple):
-        return types.Tuple(numba_type.types)
-    return numba_type
+    if not isinstance(numba_type, types.BaseTuple):
+        return numba_type
+    element_types = tuple(strip_star_args(t) for t in numba_type.types)
+    if element_types == numba_type.types and not isinstance(
+        numba_type, (types.StarArgTuple, types.StarArgUniTuple)
+    ):
+        return numba_type
+    return types.BaseTuple.from_types(
+        element_types, pyclass=getattr(numba_type, "instance_class", None)
+    )
 
 
 def canonical_call_key(impl_func, arg_types, kw_types):

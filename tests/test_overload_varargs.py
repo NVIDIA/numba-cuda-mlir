@@ -541,6 +541,18 @@ def ol_var_pack(*args):
     return impl
 
 
+def var_wrap(*args):
+    pass
+
+
+@overload(var_wrap, target="cuda", typing_registry=typing_registry)
+def ol_var_wrap(*args):
+    def impl(*args):
+        return (args,)
+
+    return impl
+
+
 def test_overload_varargs_none_leaf_in_returned_bundle():
     """A ``None`` leaf in a returned bundle has no result slot but keeps its position."""
 
@@ -578,6 +590,23 @@ def test_overload_varargs_returned_bundle_is_one_argument():
     a = np.arange(1, 5, dtype=np.float64)
     out = _run(kernel, np.zeros(4), a, a * 10)
     np.testing.assert_allclose(out, 2 * (a + a * 10))
+
+
+@pytest.mark.parametrize("dtype", [np.float64, np.int64])
+def test_overload_varargs_extracted_bundle_is_one_argument(dtype):
+    """Indexing a returned tuple must not expose a nested ``StarArg`` marker."""
+
+    @cuda.jit
+    def kernel(out, a, b):
+        i = cuda.grid(1)
+        if i < out.size:
+            nested = var_pack(var_wrap(a[i], b[i])[0])
+            out[i] = nested[0][0] + nested[0][1] + len(nested)
+
+    a = np.arange(1, 5, dtype=np.float64)
+    b = np.arange(1, 5, dtype=dtype) * 10
+    out = _run(kernel, np.zeros(4), a, b)
+    np.testing.assert_allclose(out, a + b + 1)
 
 
 def test_overload_varargs_single_represented_leaf_in_returned_bundle():

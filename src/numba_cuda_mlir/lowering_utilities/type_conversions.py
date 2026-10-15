@@ -14,6 +14,12 @@ import numpy as np
 import ctypes
 
 
+def is_valid_memref_element_type(mlir_type: ir.Type) -> bool:
+    """Return whether *mlir_type* is legal as a MemRef element type."""
+
+    return not str(mlir_type).startswith("!llvm.")
+
+
 @singledispatch
 def to_numba_type(obj):
     raise TypeError(f"No conversion found for type {obj}")
@@ -407,13 +413,18 @@ def _(ty: types.Type) -> ir.Type:
                 offset=dyn_stride,
                 strides=[dyn_stride] * ty.ndim,
             )
-            # For Record arrays, use byte-based memref (i8) since llvm.ptr
-            # is not a valid memref element type
-            if isinstance(ty.dtype, Record):
-                return ir.MemRefType.get([dyn] * ty.ndim, T.i8(), layout=layout)
             from numba_cuda_mlir.models import mlir_data_manager
 
             dtype = mlir_data_manager.lookup(ty.dtype).get_data_type()
+            # Record, character-sequence, and LLVM-dialect extension elements
+            # use a logical i8 memref descriptor. Their element access is
+            # lowered through dedicated byte-backed paths because !llvm.* is
+            # not a legal memref element type.
+            if isinstance(
+                ty.dtype,
+                (Record, types.CharSeq, types.UnicodeCharSeq),
+            ) or not is_valid_memref_element_type(dtype):
+                return ir.MemRefType.get([dyn] * ty.ndim, T.i8(), layout=layout)
             return ir.MemRefType.get([dyn] * ty.ndim, dtype, layout=layout)
         case types.AggregateType():
             st = llvm.StructType.get_identified(ty.name)

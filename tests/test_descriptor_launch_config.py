@@ -183,6 +183,42 @@ def test_arg_marshaller_exposes_launch_config_during_launch():
     assert not hasattr(descriptor_mod._compile_arg_types, "launch_config")
 
 
+def test_arg_marshaller_passes_call_scoped_dispatch_token():
+    observed = []
+
+    class Dispatcher(_Dispatcher):
+        def _dispatch_token_for(self, argtypes):
+            observed.append(argtypes)
+            return 17
+
+    def launcher(value, **kwargs):
+        observed.append((value, kwargs))
+        return "launched"
+
+    marshaller = _ArgMarshaller(
+        launcher,
+        dispatcher=Dispatcher(),
+        supports_dispatch_token=True,
+    )
+
+    assert marshaller._launch((types.int32,), (np.int32(4),)) == "launched"
+    assert observed == [
+        (types.int32,),
+        (np.int32(4), {"_dispatch_token": 17}),
+    ]
+
+
+def test_dispatch_tokens_are_stable_and_exact():
+    def kernel():
+        pass
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+
+    int32_token = dispatcher._dispatch_token_for((types.int32,))
+    assert dispatcher._dispatch_token_for((types.int32,)) == int32_token
+    assert dispatcher._dispatch_token_for((types.int64,)) != int32_token
+
+
 def test_arg_marshaller_restores_launch_config_after_error():
     original_launch_config = {"block": (16, 1, 1)}
     dispatcher = _Dispatcher()
@@ -210,6 +246,25 @@ def test_arg_marshaller_restores_launch_config_after_error():
 
     assert observed == [launch_config]
     assert descriptor_mod._compile_arg_types.launch_config == original_launch_config
+
+
+def test_arg_marshaller_restores_original_launch_args_after_error():
+    outer_launch_args = ("outer",)
+    inner_launch_args = ("inner",)
+    descriptor_mod._compile_arg_types.launch_args = outer_launch_args
+    observed = []
+
+    def launcher():
+        observed.append(descriptor_mod._compile_arg_types.launch_args)
+        raise ValueError("launch failed")
+
+    marshaller = _ArgMarshaller(launcher)
+
+    with pytest.raises(ValueError, match="launch failed"):
+        marshaller._launch((), (), original_args=inner_launch_args)
+
+    assert observed == [inner_launch_args]
+    assert descriptor_mod._compile_arg_types.launch_args is outer_launch_args
 
 
 def test_arg_marshaller_clears_launch_config_after_error():
@@ -1066,9 +1121,8 @@ def test_arg_marshaller_keeps_top_level_values_separate_from_flat_abi_args():
     dispatcher._literal_arg_positions = frozenset({0})
     observed = []
 
-    def literalize_argtypes(argtypes, values, *, abi_arg_count=None):
+    def literalize_argtypes(argtypes, values):
         assert values == ((1, 2),)
-        assert abi_arg_count == 2
         return tuple(argtypes)
 
     def prepare_for_launch(
@@ -1217,6 +1271,34 @@ def test_compile_impl_generic_applies_shared_memory_carveout(monkeypatch):
     assert dispatcher._compile_impl([1]) == (b"generic", "kernel", False)
     assert len(applied) == 1
     assert dispatcher.overloads[(types.int32,)] is applied[0]
+
+
+def test_compile_impl_transports_original_launch_args_without_mutation(monkeypatch):
+    from numba_cuda_mlir import mlir_compiler
+
+    def kernel(x):
+        pass
+
+    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
+    original_arg = object()
+    compile_calls = []
+
+    class CompilerResult:
+        signature = cuda_typing.signature(types.none, types.int32)
+        metadata = {"cubin": b"generic", "func_name": "kernel"}
+
+    def mlir_compiler_entry(pyfunc, func_args, targetoptions, override_argtypes):
+        compile_calls.append((tuple(func_args), dict(targetoptions)))
+        return CompilerResult()
+
+    monkeypatch.setattr(mlir_compiler, "mlir_compiler_entry", mlir_compiler_entry)
+    descriptor_mod._compile_arg_types.types = (types.int32,)
+    descriptor_mod._compile_arg_types.launch_args = (original_arg,)
+
+    assert dispatcher._compile_impl([1]) == (b"generic", "kernel", False)
+    assert compile_calls[0][0] == (1,)
+    assert compile_calls[0][1]["__launch_args__"] == (original_arg,)
+    assert "__launch_args__" not in dispatcher.targetoptions
 
 
 def test_launch_config_key_validation():
@@ -1549,7 +1631,7 @@ def test_launch_config_dispatcher_cache_retains_boundary_before_eviction():
 
 def test_retained_marshaller_reregisters_after_cache_eviction(monkeypatch):
     def launch_configuration(kernel_dispatcher, griddim, blockdim, stream, sharedmem, cluster):
-        return lambda *args: None
+        return lambda *args, **kwargs: None
 
     monkeypatch.setattr(descriptor_mod, "LaunchConfiguration", launch_configuration)
 
@@ -1585,7 +1667,7 @@ def test_retained_marshaller_reregisters_after_cache_eviction(monkeypatch):
 
 def test_retained_marshaller_does_not_reregister_after_recompile(monkeypatch):
     def launch_configuration(kernel_dispatcher, griddim, blockdim, stream, sharedmem, cluster):
-        return lambda *args: None
+        return lambda *args, **kwargs: None
 
     monkeypatch.setattr(descriptor_mod, "LaunchConfiguration", launch_configuration)
 
@@ -2352,7 +2434,6 @@ def test_literalize_argtypes_matches_numba_scalar_literal_semantics():
     literalized = dispatcher._literalize_argtypes(
         (types.int64, types.boolean),
         (7, True),
-        abi_arg_count=2,
     )
 
     assert literalized == (types.literal(7), types.literal(True))
@@ -2362,7 +2443,6 @@ def test_literalize_argtypes_matches_numba_scalar_literal_semantics():
     assert dispatcher._literalize_argtypes(
         (types.float64, types.boolean),
         (1.5, True),
-        abi_arg_count=2,
     ) == (types.float64, types.literal(True))
 
     class IntSubclass(int):
@@ -2371,26 +2451,28 @@ def test_literalize_argtypes_matches_numba_scalar_literal_semantics():
     assert dispatcher._literalize_argtypes(
         (types.int64, types.boolean),
         (IntSubclass(7), True),
-        abi_arg_count=2,
     ) == (types.int64, types.literal(True))
 
     with pytest.raises(TypeError, match="top-level Python int and bool"):
-        dispatcher._record_literal_arg_positions({0}, (1.5, True), 2)
+        dispatcher._record_literal_arg_positions({0}, (1.5, True))
 
 
-def test_literalize_argtypes_rejects_flattened_extension_abi():
-    def kernel(value):
+def test_literalize_argtypes_preserves_structured_arguments():
+    def kernel(value, count):
         pass
 
     dispatcher = descriptor_mod.MLIRDispatcher(kernel)
-    dispatcher._literal_arg_positions = frozenset({0})
+    values = ((1, 2), 7)
+    dispatcher._record_literal_arg_positions({1}, values)
 
-    with pytest.raises(TypeError, match=r"flattened launch arguments.*issue #60"):
-        dispatcher._literalize_argtypes(
-            (types.UniTuple(types.int32, 2),),
-            ((1, 2),),
-            abi_arg_count=2,
-        )
+    pair_type = types.UniTuple(types.int32, 2)
+    assert dispatcher._literalize_argtypes((pair_type, types.int64), values) == (
+        pair_type,
+        types.literal(7),
+    )
+
+    with pytest.raises(TypeError, match="top-level Python int and bool"):
+        dispatcher._record_literal_arg_positions({0}, values)
 
 
 def test_literal_prelaunch_only_rebinds_stale_native_dispatchers():
@@ -2437,7 +2519,7 @@ def test_literal_retry_rebuild_preserves_debug_lock_and_serialized_state(monkeyp
     dispatcher._configure_cache["cached"] = object()
     generation = dispatcher._launch_config_generation
 
-    assert dispatcher._record_literal_arg_positions({1}, (object(), 7), 2) is True
+    assert dispatcher._record_literal_arg_positions({1}, (object(), 7)) is True
     assert dispatcher._literal_arg_positions == frozenset({1})
     assert dispatcher._launch_config_generation == generation + 1
     assert dispatcher._launch_lock is launch_lock
@@ -2472,7 +2554,7 @@ def test_concurrent_literal_requests_rebuild_native_dispatcher_once():
     generation = dispatcher._launch_config_generation
 
     def record(_):
-        return dispatcher._record_literal_arg_positions({0}, (7,), 1)
+        return dispatcher._record_literal_arg_positions({0}, (7,))
 
     with ThreadPoolExecutor(max_workers=8) as executor:
         changed = list(executor.map(record, range(32)))
@@ -2502,7 +2584,7 @@ def test_literal_retry_counts_concurrent_discovery_as_attempt_progress(monkeypat
         if len(compile_calls) == 1:
             # Model another compile publishing the requested position after
             # this attempt selected its generic argument types.
-            assert dispatcher._record_literal_arg_positions({0}, (7,), 1) is True
+            assert dispatcher._record_literal_arg_positions({0}, (7,)) is True
             raise ForceLiteralArg({0})
         assert isinstance(argtype, types.Literal)
         return CompilerResult(argtype)
@@ -2714,7 +2796,7 @@ def test_literal_retry_accumulates_staged_requests_with_launch_promotion(monkeyp
     assert compile_result.metadata["required_dynamic_shared_memory"] == 4096
 
 
-def test_literal_retry_rejects_flattened_values_and_no_progress(monkeypatch):
+def test_literal_retry_rejects_non_scalar_values_and_no_progress(monkeypatch):
     from numba_cuda_mlir import mlir_compiler
 
     def kernel(value):
@@ -2731,7 +2813,7 @@ def test_literal_retry_rejects_flattened_values_and_no_progress(monkeypatch):
     descriptor_mod._compile_arg_types.types = (types.UniTuple(types.int32, 2),)
     descriptor_mod._compile_arg_types.values = ((1, 2),)
 
-    with pytest.raises(TypeError, match=r"flattened launch arguments.*issue #60"):
+    with pytest.raises(TypeError, match="top-level Python int and bool"):
         dispatcher._compile_impl([1, 2])
 
     compile_calls.clear()

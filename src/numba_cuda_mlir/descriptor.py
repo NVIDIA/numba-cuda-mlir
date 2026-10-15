@@ -80,6 +80,8 @@ _DISPATCHER_STATE_ATTRS = (
     "_launch_lock",
     "_launch_config_overloads",
     "_launch_config_dispatchers",
+    "_dispatch_tokens",
+    "_next_dispatch_token",
     "_launch_config_generation",
     "_requires_launch_config",
     "_literal_arg_positions",
@@ -421,6 +423,7 @@ class _ArgMarshaller:
         launch_config_generation=None,
         stream_ref=None,
         launch_stream=None,
+        supports_dispatch_token=False,
     ):
         self._launcher = launcher
         self._callbacks = []
@@ -438,6 +441,7 @@ class _ArgMarshaller:
         self._launch_config_generation = launch_config_generation
         self._stream_ref = stream_ref
         self._launch_stream = launch_stream
+        self._supports_dispatch_token = supports_dispatch_token
         self._adjusted_launcher_key = None
         self._adjusted_launcher = None
         self._sig_cache = {}  # {type_key: (argtypes, fast_ok)}
@@ -590,7 +594,7 @@ class _ArgMarshaller:
                 coerced_types.append(runtime_type)
         return coerced_args, coerced_types
 
-    def _launch(self, argtypes, launch_args, launch_values=None):
+    def _launch(self, argtypes, launch_args, launch_values=None, original_args=None):
         """Set compile arg types and invoke the C++ launcher with error handling."""
         # Preserve existing thread-local state for nested launches triggered by
         # compile-time helpers.
@@ -598,6 +602,7 @@ class _ArgMarshaller:
             launch_values = launch_args
         previous_types = getattr(_compile_arg_types, "types", _MISSING)
         previous_values = getattr(_compile_arg_types, "values", _MISSING)
+        previous_launch_args = getattr(_compile_arg_types, "launch_args", _MISSING)
         previous_launch_config = getattr(_compile_arg_types, "launch_config", _MISSING)
         previous_available_launch_config = getattr(
             _compile_arg_types, "available_launch_config", _MISSING
@@ -606,6 +611,10 @@ class _ArgMarshaller:
         try:
             _compile_arg_types.types = argtypes
             _compile_arg_types.values = tuple(launch_values)
+            if original_args is not None:
+                _compile_arg_types.launch_args = tuple(original_args)
+            elif hasattr(_compile_arg_types, "launch_args"):
+                delattr(_compile_arg_types, "launch_args")
             if self._available_launch_config is not None:
                 _compile_arg_types.available_launch_config = self._available_launch_config
             elif hasattr(_compile_arg_types, "available_launch_config"):
@@ -643,7 +652,6 @@ class _ArgMarshaller:
                     effective_argtypes = dispatcher._literalize_argtypes(
                         effective_argtypes,
                         tuple(launch_values),
-                        abi_arg_count=len(launch_args),
                     )
                 ready_launch = dispatcher._get_ready_launch(
                     effective_argtypes,
@@ -726,7 +734,19 @@ class _ArgMarshaller:
                 _compile_arg_types.launch_config = active_launch_config
             elif hasattr(_compile_arg_types, "launch_config"):
                 delattr(_compile_arg_types, "launch_config")
-            return launcher(*launch_args)
+            dispatch_token_for = getattr(dispatcher, "_dispatch_token_for", None)
+            if not self._supports_dispatch_token or dispatch_token_for is None:
+                return launcher(*launch_args)
+            # Prelaunch compilation can discover new literal positions. Include
+            # their values in the frontend token: flattened arguments cannot
+            # use the native launcher's positional constant flags.
+            dispatch_argtypes = tuple(argtypes)
+            if getattr(dispatcher, "_literal_arg_positions", ()):
+                dispatch_argtypes = dispatcher._literalize_argtypes(
+                    dispatch_argtypes, launch_values
+                )
+            dispatch_token = dispatch_token_for(dispatch_argtypes)
+            return launcher(*launch_args, _dispatch_token=dispatch_token)
         except UserFacingInternalCompilerError as e:
             if os.environ.get("NUMBA_CUDA_MLIR_ICE_FULL_TB", "0").strip() == "1":
                 raise
@@ -744,6 +764,11 @@ class _ArgMarshaller:
                     delattr(_compile_arg_types, "values")
             else:
                 _compile_arg_types.values = previous_values
+            if previous_launch_args is _MISSING:
+                if hasattr(_compile_arg_types, "launch_args"):
+                    delattr(_compile_arg_types, "launch_args")
+            else:
+                _compile_arg_types.launch_args = previous_launch_args
             if previous_launch_config is _MISSING:
                 if hasattr(_compile_arg_types, "launch_config"):
                     delattr(_compile_arg_types, "launch_config")
@@ -782,7 +807,9 @@ class _ArgMarshaller:
 
     def _call_impl(self, *args):
         nargs = len(args)
-        has_ext = bool(self._extensions)
+        value_extensions = [arg for arg in args if callable(getattr(arg, "prepare_args", None))]
+        extensions = [*self._extensions, *value_extensions]
+        has_ext = bool(extensions)
 
         # Fast caches are only valid when no extension can transform values or
         # register per-launch callbacks through prepare_args().
@@ -811,7 +838,7 @@ class _ArgMarshaller:
                                 _sync_cuda_array_interface_stream(args[idx])
                             return self._launch(cached_argtypes, args)
 
-        reversed_ext = self._extensions[::-1] if has_ext else None
+        reversed_ext = extensions[::-1] if has_ext else None
         copy_item = self._maybe_copy_to_device_item
         callbacks = self._callbacks
 
@@ -821,6 +848,7 @@ class _ArgMarshaller:
 
         for i in range(nargs):
             val = args[i]
+            extension_transformed = False
 
             try:
                 ty = typeof(val)
@@ -834,17 +862,21 @@ class _ArgMarshaller:
                         "Please register a typeof_impl for this type."
                     )
                 for ext in reversed_ext:
+                    previous_ty = ty
+                    previous_val = val
                     ty, val = ext.prepare_args(ty, val, stream=None, retr=callbacks)
+                    extension_transformed |= ty != previous_ty or val is not previous_val
                 if val is not args[i]:
                     all_pass_through = False
 
             dev = copy_item(val)
             if dev is not val:
                 all_pass_through = False
-                try:
-                    ty = typeof(dev)
-                except (ValueError, TypeError):
-                    ty = None
+                if not extension_transformed:
+                    try:
+                        ty = typeof(dev)
+                    except (ValueError, TypeError):
+                        ty = None
 
             device_args[i] = dev
             argtypes[i] = ty
@@ -858,7 +890,13 @@ class _ArgMarshaller:
         flat_args = []
         for arg in coerced_args:
             _flatten_arg(arg, flat_args)
-        result = self._launch(coerced_types, flat_args, coerced_args)
+        original_args = args if value_extensions else None
+        result = self._launch(
+            coerced_types,
+            flat_args,
+            launch_values=coerced_args,
+            original_args=original_args,
+        )
 
         for callback in callbacks:
             callback()
@@ -1630,6 +1668,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         # recompile() invalidates old launch-config generations.
         self._launch_config_overloads = {}
         self._launch_config_dispatchers = collections.OrderedDict()
+        self._dispatch_tokens = {}
+        self._next_dispatch_token = 1
         self._launch_config_generation = 0
         self._requires_launch_config = False
         self._literal_arg_positions = frozenset()
@@ -1688,6 +1728,20 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             debug=bool(self.targetoptions.get("debug", False)),
             literal_arg_flags=tuple(literal_args),
         )
+
+    def _dispatch_token_for(self, argtypes):
+        """Return a stable native-cache token for exact top-level Numba types."""
+        self._ensure_dispatcher_state()
+        argtypes = tuple(argtypes)
+        with self._launch_config_lock:
+            token = self._dispatch_tokens.get(argtypes)
+            if token is None:
+                token = self._next_dispatch_token
+                if token > (1 << 64) - 1:
+                    raise OverflowError("native dispatch token space exhausted")
+                self._next_dispatch_token += 1
+                self._dispatch_tokens[argtypes] = token
+            return token
 
     @property
     def _launch_config_enabled(self):
@@ -1755,7 +1809,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 f"arguments; argument {index} is {value!r}"
             ) from exc
 
-    def _record_literal_arg_positions(self, positions, values, abi_arg_count):
+    def _record_literal_arg_positions(self, positions, values):
         positions = self._normalize_literal_arg_positions(positions)
         values = tuple(values)
         parameter_count = len(inspect.signature(self.py_func).parameters)
@@ -1765,11 +1819,6 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             )
         if len(values) != parameter_count:
             raise TypeError("literal argument retry requires top-level runtime argument values")
-        if abi_arg_count != len(values):
-            raise TypeError(
-                "literal launch retry does not yet support flattened launch arguments; "
-                "extension struct arguments require issue #60"
-            )
         for index in positions:
             self._literal_type_for_value(values[index], index)
 
@@ -1890,6 +1939,10 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 self._launch_config_overloads = {}
             if not hasattr(self, "_launch_config_dispatchers"):
                 self._launch_config_dispatchers = collections.OrderedDict()
+            if not hasattr(self, "_dispatch_tokens"):
+                self._dispatch_tokens = {}
+            if not hasattr(self, "_next_dispatch_token"):
+                self._next_dispatch_token = 1
             if not hasattr(self, "_launch_config_generation"):
                 self._launch_config_generation = 0
             if not hasattr(self, "_requires_launch_config"):
@@ -2088,6 +2141,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             launch_config_generation=launch_config_generation,
             stream_ref=stream_ref,
             launch_stream=launch_stream,
+            supports_dispatch_token=True,
         )
 
     def _reduce_states(self):
@@ -2640,7 +2694,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         tied = [sig_args for rate, sig_args in candidates if rate == best_rate]
         return tied, True
 
-    def _literalize_argtypes(self, argtypes, values, *, abi_arg_count=None):
+    def _literalize_argtypes(self, argtypes, values):
         """Apply recorded literal requests to top-level runtime argument types."""
         argtypes = tuple(argtypes)
         if not self._literal_arg_positions:
@@ -2649,12 +2703,6 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         values = tuple(values)
         if len(values) != len(argtypes):
             raise TypeError("literal argument retry requires top-level runtime argument values")
-        if abi_arg_count is not None and abi_arg_count != len(values):
-            raise TypeError(
-                "literal launch retry does not yet support flattened launch arguments; "
-                "extension struct arguments require issue #60"
-            )
-
         literalized = list(argtypes)
         for index in self._literal_arg_positions:
             if index >= len(literalized):
@@ -2752,7 +2800,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 return _normalize_available_launch_config(available_launch_config)
             return configured_launch_config
 
-        effective_argtypes = self._literalize_argtypes(argtypes, values, abi_arg_count=len(args))
+        effective_argtypes = self._literalize_argtypes(argtypes, values)
         ready_launch = self._get_ready_launch(
             effective_argtypes,
             available_launch_config,
@@ -2784,9 +2832,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 )
             self._compile_impl(list(args))
             launch_config = active_launch_config()
-            effective_argtypes = self._literalize_argtypes(
-                argtypes, values, abi_arg_count=len(args)
-            )
+            effective_argtypes = self._literalize_argtypes(argtypes, values)
             compile_result = self._compile_result_for(effective_argtypes, launch_config)
 
         if compile_result is None:
@@ -2940,13 +2986,14 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         runtime_values = tuple(getattr(_compile_arg_types, "values", tuple(args)))
         with self._launch_config_lock:
             attempt_literal_arg_positions = self._literal_arg_positions
-            argtypes = self._literalize_argtypes(argtypes, runtime_values, abi_arg_count=len(args))
+            argtypes = self._literalize_argtypes(argtypes, runtime_values)
         if attempt_literal_arg_positions:
             override_argtypes = argtypes
         active_extensions = getattr(_compile_arg_types, "extensions", _MISSING)
         has_extension_snapshot = active_extensions is not _MISSING
         if not has_extension_snapshot:
             active_extensions = self.extensions
+        active_launch_args = getattr(_compile_arg_types, "launch_args", _MISSING)
         force_launch_config = getattr(_compile_arg_types, "force_launch_config", False)
         available_launch_config = getattr(_compile_arg_types, "available_launch_config", None)
         launch_config_tracker = (
@@ -3055,6 +3102,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             active_launch_config is not None
             or launch_config_tracker is not None
             or has_extension_snapshot
+            or active_launch_args is not _MISSING
         ):
             targetoptions = self.targetoptions.copy()
             if has_extension_snapshot:
@@ -3065,6 +3113,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 targetoptions[_LAUNCH_CONFIG_TRACKER_OPTION] = launch_config_tracker
             if active_launch_config is not None:
                 targetoptions["__launch_config__"] = dict(active_launch_config)
+            if active_launch_args is not _MISSING:
+                targetoptions["__launch_args__"] = tuple(active_launch_args)
 
         # A cached result bypasses compiler passes. Until planner identity and
         # implementation are part of the persistent cache key, active planners
@@ -3109,7 +3159,6 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 self._record_literal_arg_positions(
                     exc.requested_args,
                     runtime_values,
-                    len(args),
                 )
                 made_literal_progress = self._literal_arg_positions != attempt_literal_arg_positions
                 if (
@@ -3570,6 +3619,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             self._retain_old_dispatcher(self._c)
             self._launch_config_generation += 1
             self._launch_config_overloads.clear()
+            self._dispatch_tokens.clear()
+            self._next_dispatch_token = 1
             old_launch_config_dispatchers = list(self._launch_config_dispatchers.values())
             self._launch_config_dispatchers = collections.OrderedDict()
             for dispatcher in old_launch_config_dispatchers:

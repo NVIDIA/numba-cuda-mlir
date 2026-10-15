@@ -1265,7 +1265,7 @@ class DeferredMethodCall(DeferredLowering):
 @dataclass
 class RangeObject:
     """
-    Holds the state of a range object.
+    Holds immutable range endpoints and trip count; iterators own their progress.
     """
 
     @staticmethod
@@ -1281,66 +1281,69 @@ class RangeObject:
                     raise InternalCompilerError(f"Unsupported integer type: {val.type}")
         return ir.IntegerType.get_signless(max_width)
 
-    def __init__(self, lower, start: ir.Value, stop: ir.Value, step: ir.Value):
+    def __init__(self, lower, start: ir.Value, stop: ir.Value, step: ir.Value, *, signed=True):
         element_type = self._unify_integer_types(start, stop, step)
 
         with lower.alloca_insertion_point():
-            self._memref = memref.alloca(T.memref(5, element_type), [], [])
+            self._memref = memref.alloca(T.memref(3, element_type), [], [])
+            self._count_memref = memref.alloca(T.memref(1, T.i64()), [], [])
 
         start_val = convert(start, element_type, signed=True)
         stop_val = convert(stop, element_type, signed=True)
         step_val = convert(step, element_type, signed=True)
-        zero = arith.constant(element_type, 0)
-        one = arith.constant(element_type, 1)
 
         # Store start/stop/step
         memref.store(start_val, self._memref, [index_of(0)])
         memref.store(stop_val, self._memref, [index_of(1)])
         memref.store(step_val, self._memref, [index_of(2)])
 
-        # Step must not be zero - add runtime check if error checking is enabled
-        error_memref = lower._get_or_create_error_global()
-        if error_memref is not None:
-            from numba_cuda_mlir.mlir_lowering import KERNEL_ERROR_CODES
-
-            step_is_zero = arith.cmpi(predicate=arith.CmpIPredicate.eq, lhs=step_val, rhs=zero)
-            with scf.if_ctx_manager(step_is_zero):
-                set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ZeroDivisionError])
-                scf.yield_([])
-
-        # Compute trip-count in i64 to avoid issues with mixed signed/unsigned
-        # semantics on narrow integer types, then truncate back.
+        # Endpoint distance can occupy all 64 bits, even for signed inputs.
+        # Compare endpoints before subtraction and divide unsigned magnitudes;
+        # (distance - 1) / stride + 1 avoids overflowing a ceiling numerator.
         i64 = T.i64()
-        start_i64 = convert(start_val, i64, signed=True)
-        stop_i64 = convert(stop_val, i64, signed=True)
-        step_i64 = convert(step_val, i64, signed=True)
+        start_i64 = convert(start_val, i64, signed=signed)
+        stop_i64 = convert(stop_val, i64, signed=signed)
+        step_i64 = convert(step_val, i64, signed=signed)
         zero_i64 = arith.constant(i64, 0)
         one_i64 = arith.constant(i64, 1)
-
-        diff = arith.subi(lhs=stop_i64, rhs=start_i64)
-        neg_diff = arith.subi(lhs=zero_i64, rhs=diff)
-        neg_step = arith.subi(lhs=zero_i64, rhs=step_i64)
-        step_positive = arith.cmpi(arith.CmpIPredicate.sgt, lhs=step_i64, rhs=zero_i64)
-
-        # Positive step: ceildiv(diff, step) if diff > 0 else 0
-        pos_numerator = arith.addi(lhs=diff, rhs=arith.subi(lhs=step_i64, rhs=one_i64))
-        pos_count = arith.divui(lhs=pos_numerator, rhs=step_i64)
-        diff_positive = arith.cmpi(arith.CmpIPredicate.sgt, lhs=diff, rhs=zero_i64)
-        pos_result = arith.select(diff_positive, pos_count, zero_i64)
-
-        # Negative step: ceildiv(neg_diff, neg_step) if neg_diff > 0 else 0
-        neg_numerator = arith.addi(lhs=neg_diff, rhs=arith.subi(lhs=neg_step, rhs=one_i64))
-        neg_count = arith.divui(lhs=neg_numerator, rhs=neg_step)
-        neg_diff_positive = arith.cmpi(arith.CmpIPredicate.sgt, lhs=neg_diff, rhs=zero_i64)
-        neg_result = arith.select(neg_diff_positive, neg_count, zero_i64)
-
-        count = arith.select(step_positive, pos_result, neg_result)
-        count = convert(count, element_type, signed=True)
-        memref.store(count, self._memref, [index_of(3)])
-        memref.store(start_val, self._memref, [index_of(4)])
+        predicate = arith.CmpIPredicate.slt if signed else arith.CmpIPredicate.ult
+        step_positive = (
+            arith.cmpi(arith.CmpIPredicate.sgt, step_i64, zero_i64)
+            if signed
+            else arith.cmpi(arith.CmpIPredicate.ne, step_i64, zero_i64)
+        )
+        nonempty = arith.select(
+            step_positive,
+            arith.cmpi(predicate, start_i64, stop_i64),
+            arith.cmpi(predicate, stop_i64, start_i64),
+        )
+        distance = arith.select(
+            step_positive,
+            arith.subi(stop_i64, start_i64),
+            arith.subi(start_i64, stop_i64),
+        )
+        stride = arith.select(step_positive, step_i64, arith.subi(zero_i64, step_i64))
+        # GPU error reporting continues after a zero step; never divide by zero.
+        stride = arith.select(arith.cmpi(arith.CmpIPredicate.ne, stride, zero_i64), stride, one_i64)
+        distance = arith.select(nonempty, distance, one_i64)
+        count = arith.addi(arith.divui(arith.subi(distance, one_i64), stride), one_i64)
+        count = arith.select(nonempty, count, zero_i64)
+        memref.store(count, self._count_memref, [index_of(0)])
 
     def get_mlir_type(self) -> ir.Type:
         return self._memref.type
+
+    def get_iterator(self, lower):
+        iterator = object.__new__(RangeObject)
+        iterator._memref = self._memref
+        with lower.alloca_insertion_point():
+            iterator._count_memref = memref.alloca(T.memref(1, T.i64()), [], [])
+            iterator._iter_memref = memref.alloca(
+                T.memref(1, self._memref.type.element_type), [], []
+            )
+        memref.store(self.count, iterator._count_memref, [index_of(0)])
+        memref.store(self.start, iterator._iter_memref, [index_of(0)])
+        return iterator
 
     @property
     def start(self) -> ir.Value:
@@ -1356,11 +1359,11 @@ class RangeObject:
 
     @property
     def count(self) -> ir.Value:
-        return memref.load(self._memref, [index_of(3)])
+        return memref.load(self._count_memref, [index_of(0)])
 
     @property
     def iter(self) -> ir.Value:
-        return memref.load(self._memref, [index_of(4)])
+        return memref.load(self._iter_memref, [index_of(0)])
 
     def __next__(self) -> ir.Value:
         raise NotImplementedError()
@@ -1370,11 +1373,11 @@ class RangeObject:
         Compute (value, is_valid) and update internal state.
         """
         int_type = self._memref.type.element_type
-        zero = int_of(0, int_type)
-        one = int_of(1, int_type)
+        zero = int_of(0, T.i64())
+        one = int_of(1, T.i64())
 
         current_count = self.count
-        is_valid = arith.cmpi(predicate=arith.CmpIPredicate.sgt, lhs=current_count, rhs=zero)
+        is_valid = arith.cmpi(predicate=arith.CmpIPredicate.ne, lhs=current_count, rhs=zero)
         current_value = self.iter
 
         # Compute updated state (predicated without control flow)
@@ -1388,8 +1391,8 @@ class RangeObject:
         )
 
         # Store updates
-        memref.store(updated_count, self._memref, [index_of(3)])
-        memref.store(updated_iter, self._memref, [index_of(4)])
+        memref.store(updated_count, self._count_memref, [index_of(0)])
+        memref.store(updated_iter, self._iter_memref, [index_of(0)])
 
         result_type = T.memref(2, int_type)
         result = memref.alloca(memref=result_type, dynamic_sizes=[], symbol_operands=[])

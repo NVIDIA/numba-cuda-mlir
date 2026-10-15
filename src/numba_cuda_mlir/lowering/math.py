@@ -359,7 +359,22 @@ def _bin_op_cg(op, builder, target, args, kwargs):
 
     promoted_numba_type = None
     unified_type = None
-    if isinstance(lhs_type, types.Integer) and isinstance(rhs_type, types.Integer):
+    mixed_integer_boolean_comparison = op in (
+        operator.eq,
+        operator.ne,
+        operator.lt,
+        operator.le,
+        operator.gt,
+        operator.ge,
+    ) and (
+        isinstance(lhs_type, types.Boolean)
+        and isinstance(rhs_type, types.Integer)
+        or isinstance(lhs_type, types.Integer)
+        and isinstance(rhs_type, types.Boolean)
+    )
+    if mixed_integer_boolean_comparison or (
+        isinstance(lhs_type, types.Integer) and isinstance(rhs_type, types.Integer)
+    ):
         # Ask which promotion was actually resolved
         resolved = builder.context.typing_context.resolve_function_type(
             op, (lhs_type, rhs_type), {}
@@ -454,36 +469,48 @@ def truediv_cg(builder, target, args, kwargs):
 
 @lower(operator.ne, types.Number, types.Number)
 @lower(operator.ne, types.Boolean, types.Boolean)
+@lower(operator.ne, types.Boolean, types.Integer)
+@lower(operator.ne, types.Integer, types.Boolean)
 def ne_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ne, builder, target, args, kwargs)
 
 
 @lower(operator.eq, types.Number, types.Number)
 @lower(operator.eq, types.Boolean, types.Boolean)
+@lower(operator.eq, types.Boolean, types.Integer)
+@lower(operator.eq, types.Integer, types.Boolean)
 def eq_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.eq, builder, target, args, kwargs)
 
 
 @lower(operator.lt, types.Number, types.Number)
 @lower(operator.lt, types.Boolean, types.Boolean)
+@lower(operator.lt, types.Boolean, types.Integer)
+@lower(operator.lt, types.Integer, types.Boolean)
 def lt_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.lt, builder, target, args, kwargs)
 
 
 @lower(operator.le, types.Number, types.Number)
 @lower(operator.le, types.Boolean, types.Boolean)
+@lower(operator.le, types.Boolean, types.Integer)
+@lower(operator.le, types.Integer, types.Boolean)
 def le_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.le, builder, target, args, kwargs)
 
 
 @lower(operator.gt, types.Number, types.Number)
 @lower(operator.gt, types.Boolean, types.Boolean)
+@lower(operator.gt, types.Boolean, types.Integer)
+@lower(operator.gt, types.Integer, types.Boolean)
 def gt_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.gt, builder, target, args, kwargs)
 
 
 @lower(operator.ge, types.Number, types.Number)
 @lower(operator.ge, types.Boolean, types.Boolean)
+@lower(operator.ge, types.Boolean, types.Integer)
+@lower(operator.ge, types.Integer, types.Boolean)
 def ge_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ge, builder, target, args, kwargs)
 

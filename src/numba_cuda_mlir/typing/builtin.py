@@ -98,9 +98,9 @@ class NegTemplate(AbstractTemplate):
         if isinstance(arg, types.Number):
             # Integer negation can increase bit width
             if isinstance(arg, types.Integer):
-                # Promote to at least int64 for signed operations
+                # Preserve signedness when promoting narrow integers.
                 if arg.bitwidth < 64:
-                    return signature(types.int64, arg)
+                    return signature(types.int64 if arg.signed else types.uint64, arg)
                 return signature(arg, arg)
             # Floats stay the same
             return signature(arg, arg)

@@ -3,7 +3,7 @@
 from numba_cuda_mlir.numba_cuda.types import Type as NumbaType
 from numba_cuda_mlir.numba_cuda import types
 import math
-from numba_cuda_mlir._mlir import ir
+from cudamlir import ir
 
 _map_be_type_names_to_fe_types = dict()
 

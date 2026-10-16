@@ -11,8 +11,8 @@ from numba_cuda_mlir.lowering_registry import LoweringRegistry
 registry = LoweringRegistry()
 from numba_cuda_mlir.logging import trace
 from numba_cuda_mlir.lowering_utilities import convert
-from numba_cuda_mlir._mlir.dialects import llvm, arith
-from numba_cuda_mlir._mlir import ir as mlir_ir
+from cudamlir.dialects import llvm, arith
+from cudamlir import ir as mlir_ir
 from numba_cuda_mlir.numba_cuda.core import ir as numba_ir
 from numba_cuda_mlir.numba_cuda import types as numba_types
 

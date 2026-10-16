@@ -167,7 +167,7 @@ def test_compile_2d_array(dtype):
 
 def test_type_conversion_roundtrip():
     """Verify to_mlir_type and to_numba_type are inverses for all narrow types."""
-    from numba_cuda_mlir._mlir import ir
+    from cudamlir import ir
 
     with ir.Context():
         from numba_cuda_mlir.lowering_utilities.type_conversions import (

@@ -4,7 +4,7 @@
 """Tests for ContextAwareDataModelManager — verifies that cached MLIR types
 are invalidated when the active ir.Context changes."""
 
-from numba_cuda_mlir._mlir import ir
+from cudamlir import ir
 from numba_cuda_mlir.numba_cuda import types
 
 from numba_cuda_mlir.models import (

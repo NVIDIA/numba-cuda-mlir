@@ -20,8 +20,8 @@ from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core import ir as numba_ir
 import numba_cuda_mlir.types
 import math
-from numba_cuda_mlir._mlir.extras import types as T
-from numba_cuda_mlir._mlir.dialects import (
+from cudamlir.extras import types as T
+from cudamlir.dialects import (
     complex as complex_dialect,
     arith,
     func,
@@ -30,7 +30,7 @@ from numba_cuda_mlir._mlir.dialects import (
     llvm,
 )
 from numba_cuda_mlir.mlir.dialect_exts.math import ipowi
-import numba_cuda_mlir._mlir.ir as ir
+import cudamlir.ir as ir
 import operator
 
 MaybeOp = None | Callable[[ir.Value, ir.Value], ir.OpResult]

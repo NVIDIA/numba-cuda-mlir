@@ -9,8 +9,8 @@ import numba_cuda_mlir
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir import extending
 
-from numba_cuda_mlir._mlir import ir as mlir_ir
-from numba_cuda_mlir._mlir.dialects import func
+from cudamlir import ir as mlir_ir
+from cudamlir.dialects import func
 from numba_cuda_mlir.lowering_utilities import convert, get_or_insert_function
 from numba_cuda_mlir.numba_cuda import types
 

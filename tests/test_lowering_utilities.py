@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir._mlir.extras import types as T
+from cudamlir import ir
+from cudamlir.extras import types as T
 from numba_cuda_mlir.lowering_utilities import get_type_size_bytes
 
 

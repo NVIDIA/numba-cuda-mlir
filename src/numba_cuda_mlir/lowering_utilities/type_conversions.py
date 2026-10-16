@@ -7,9 +7,9 @@ from numba_cuda_mlir import types
 from functools import singledispatch
 
 import importlib.util
-import numba_cuda_mlir._mlir.ir as ir
-from numba_cuda_mlir._mlir.dialects import llvm
-from numba_cuda_mlir._mlir.extras import types as T
+import cudamlir.ir as ir
+from cudamlir.dialects import llvm
+from cudamlir.extras import types as T
 import numpy as np
 import ctypes
 
@@ -257,7 +257,7 @@ def ctypes_type_to_mlir_type(obj: ctypes._SimpleCData) -> ir.Type:
     NOTE: The arith dialect is exclusively signless, so it is on us to maintain the
     signedness of the types in the numba type system.
     """
-    from numba_cuda_mlir._mlir.dialects import llvm
+    from cudamlir.dialects import llvm
 
     match obj:
         case ctypes.c_void_p:

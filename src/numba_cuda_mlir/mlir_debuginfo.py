@@ -6,7 +6,7 @@ import os
 from typing import NamedTuple
 
 from numba_cuda_mlir.numba_cuda import types
-from numba_cuda_mlir._mlir import ir
+from cudamlir import ir
 from numba_cuda_mlir.lowering_utilities import context as numba_cuda_mlir_context
 from numba_cuda_mlir.numba_cuda.datamodel.models import ArrayModel
 from numba_cuda_mlir.numba_cuda.types.ext_types import Bfloat16, GridGroup

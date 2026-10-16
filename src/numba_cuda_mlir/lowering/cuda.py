@@ -13,7 +13,7 @@ else:
             yield batch
 
 
-from numba_cuda_mlir._mlir.extras.meta import region_op
+from cudamlir.extras.meta import region_op
 import operator
 from numba_cuda_mlir.cuda.misc.special import literal_unroll, literally
 from numba_cuda_mlir.numba_cuda.misc.special import (
@@ -42,9 +42,9 @@ from numba_cuda_mlir.lowering_utilities.type_conversions import (
 )
 from numba_cuda_mlir.descriptor import MLIRTargetContext
 from numba_cuda_mlir.mlir_lowering import MLIRLower
-from numba_cuda_mlir._mlir.dialects import arith, builtin, func, memref, gpu, nvvm, llvm
-from numba_cuda_mlir._mlir.extras import types as T
-import numba_cuda_mlir._mlir.ir as ir
+from cudamlir.dialects import arith, builtin, func, memref, gpu, nvvm, llvm
+from cudamlir.extras import types as T
+import cudamlir.ir as ir
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
 registry = LoweringRegistry()
@@ -872,7 +872,7 @@ register_shfl_sync_lowerings()
 
 def register_syncthreads_variants():
     from numba_cuda_mlir import cuda
-    from numba_cuda_mlir._mlir.dialects import nvvm
+    from cudamlir.dialects import nvvm
 
     for intrin, reduction_op in [
         (cuda.syncthreads_and, nvvm.BarrierReduction.AND),
@@ -887,8 +887,8 @@ register_syncthreads_variants()
 
 def register_vote_sync_lowerings():
     from numba_cuda_mlir import cuda
-    from numba_cuda_mlir._mlir.dialects import nvvm, arith
-    from numba_cuda_mlir._mlir.ir import IntegerType
+    from cudamlir.dialects import nvvm, arith
+    from cudamlir.ir import IntegerType
 
     def _prepare_vote_sync_args(builder: MLIRLower, args):
         """Prepare mask and predicate for vote_sync operations."""
@@ -941,8 +941,8 @@ register_vote_sync_lowerings()
 
 def register_match_sync_lowerings():
     from numba_cuda_mlir import cuda
-    from numba_cuda_mlir._mlir.dialects import nvvm, arith
-    from numba_cuda_mlir._mlir.ir import IntegerType
+    from cudamlir.dialects import nvvm, arith
+    from cudamlir.ir import IntegerType
 
     def match_any_sync_lowering(builder: MLIRLower, target, args, kwargs):
         mask = builder.load_var(args[0])
@@ -989,8 +989,8 @@ register_match_sync_lowerings()
 
 def register_activemask_lowering():
     from numba_cuda_mlir import cuda
-    from numba_cuda_mlir._mlir.dialects import llvm as llvm_dialect
-    from numba_cuda_mlir._mlir.ir import IntegerType
+    from cudamlir.dialects import llvm as llvm_dialect
+    from cudamlir.ir import IntegerType
 
     @lower(cuda.activemask)
     def activemask_lowering(builder: MLIRLower, target, args, kwargs):
@@ -1337,7 +1337,7 @@ def decnd(builder, target, args, kwargs):
 
 @lower(cuda.cbrt, types.Number)
 def cbrt(builder, target, args, kwargs):
-    from numba_cuda_mlir._mlir.dialects import math
+    from cudamlir.dialects import math
 
     value = builder.load_var(args[0])
     res = math.cbrt(value)
@@ -1346,7 +1346,7 @@ def cbrt(builder, target, args, kwargs):
 
 @lower(cuda.fma, types.Number, types.Number, types.Number)
 def fma(builder, target, args, kwargs):
-    from numba_cuda_mlir._mlir.dialects import math
+    from cudamlir.dialects import math
 
     x, y, z = builder.load_vars(args)
     res = math.fma(x, y, z)
@@ -1392,7 +1392,7 @@ def _lower_fp16_cmp(stub, predicate):
 
 
 def _lower_fp16_intrinsics():
-    from numba_cuda_mlir._mlir.dialects import math, arith
+    from cudamlir.dialects import math, arith
 
     for stub, op, arity in (
         (fp16.hadd, operator.add, 2),
@@ -1452,7 +1452,7 @@ CACHE_HINT_CONSTRAINT_MAP = {1: "b", 8: "r", 16: "h", 32: "r", 64: "l", 128: "q"
 
 def _get_element_pointer_for_cache_hint(builder, array, index, array_type):
     """Compute pointer to array element for cache hint operations."""
-    from numba_cuda_mlir._mlir.dialects import llvm as llvm_dialect
+    from cudamlir.dialects import llvm as llvm_dialect
 
     # Get the storage element type and width. The user-visible value type may differ.
     dtype = array_type.dtype
@@ -1479,7 +1479,7 @@ def _get_element_pointer_for_cache_hint(builder, array, index, array_type):
 
 def _cache_hint_load_lowering(operator_name, builder, target, args, kwargs):
     """Generic lowering for cache hint load operations."""
-    from numba_cuda_mlir._mlir.dialects import llvm as llvm_dialect
+    from cudamlir.dialects import llvm as llvm_dialect
 
     array = builder.load_var(args[0])
     index = builder.load_var(args[1])
@@ -1501,7 +1501,7 @@ def _cache_hint_load_lowering(operator_name, builder, target, args, kwargs):
 
 def _cache_hint_store_lowering(operator_name, builder, target, args, kwargs):
     """Generic lowering for cache hint store operations."""
-    from numba_cuda_mlir._mlir.dialects import llvm as llvm_dialect
+    from cudamlir.dialects import llvm as llvm_dialect
 
     array = builder.load_var(args[0])
     index = builder.load_var(args[1])

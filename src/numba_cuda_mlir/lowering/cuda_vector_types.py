@@ -23,9 +23,9 @@ from numba_cuda_mlir.lowering_utilities.type_conversions import to_mlir_type
 from numba_cuda_mlir.cuda.vector_types import _vector_types
 from numba_cuda_mlir.type_defs.vector_types import VectorType
 from numba_cuda_mlir import types
-from numba_cuda_mlir._mlir.dialects import vector, arith
-from numba_cuda_mlir._mlir.dialects import complex as complex_dialect
-from numba_cuda_mlir._mlir import ir
+from cudamlir.dialects import vector, arith
+from cudamlir.dialects import complex as complex_dialect
+from cudamlir import ir
 
 ATTR_INDEX = {"x": 0, "y": 1, "z": 2, "w": 3}
 
@@ -201,11 +201,11 @@ def _make_vector_unary_lowering(op):
                 result = arith.negf(val)
         elif op == abs:
             if isinstance(elem_type, ir.IntegerType):
-                from numba_cuda_mlir._mlir.dialects import math
+                from cudamlir.dialects import math
 
                 result = math.absi(val)
             else:
-                from numba_cuda_mlir._mlir.dialects import math
+                from cudamlir.dialects import math
 
                 result = math.absf(val)
         else:

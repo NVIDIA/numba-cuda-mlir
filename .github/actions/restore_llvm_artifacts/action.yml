@@ -42,7 +42,7 @@ runs:
     - name: Validate LLVM Modern artifacts
       shell: bash
       run: |
-        mlir_libs="llvm-modern-install/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs"
+        mlir_libs="llvm-modern-install/python_packages/cuda_mlir_core/cudamlir/_mlir_libs"
         if [[ "${{ inputs.host-platform }}" == win* ]]; then
           arch=amd64
           if [[ "${{ inputs.host-platform }}" == 'win-arm64' ]]; then arch=arm64; fi

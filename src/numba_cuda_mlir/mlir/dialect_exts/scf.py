@@ -5,18 +5,18 @@ from contextlib import contextmanager
 from typing import Optional, Sequence, Union
 
 from .arith import constant as _ext_arith_constant, index_cast
-from numba_cuda_mlir._mlir.extras.meta import region_op
+from cudamlir.extras.meta import region_op
 from ..util import region_adder
-from numba_cuda_mlir._mlir.dialects._ods_common import (
+from cudamlir.dialects._ods_common import (
     _cext,
     get_default_loc_context,
     get_op_result_or_op_results,
 )
 
 # gotta come first
-from numba_cuda_mlir._mlir.dialects.scf import *
-from numba_cuda_mlir._mlir.dialects.scf import _Dialect, yield_ as yield__
-from numba_cuda_mlir._mlir.ir import (
+from cudamlir.dialects.scf import *
+from cudamlir.dialects.scf import _Dialect, yield_ as yield__
+from cudamlir.ir import (
     Attribute,
     IndexType,
     InsertionPoint,

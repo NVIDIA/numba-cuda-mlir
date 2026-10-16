@@ -10,9 +10,9 @@ from numba_cuda_mlir.lowering_utilities.type_conversions import to_mlir_type
 from numba_cuda_mlir.cuda import vector as vector_module
 from numba_cuda_mlir import types
 from numba_cuda_mlir.type_defs.vector_types import VectorType
-from numba_cuda_mlir._mlir.dialects import vector, arith, llvm
-from numba_cuda_mlir._mlir.extras import types as T
-from numba_cuda_mlir._mlir import ir
+from cudamlir.dialects import vector, arith, llvm
+from cudamlir.extras import types as T
+from cudamlir import ir
 from typing import Any
 
 # For llvm.getelementptr - dynamic offset marker

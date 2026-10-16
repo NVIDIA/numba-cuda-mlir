@@ -10,19 +10,19 @@ from typing import Optional, Tuple, Union
 import numpy as np
 
 from ..util import infer_mlir_type, mlir_type_to_np_dtype
-from numba_cuda_mlir._mlir._mlir_libs._mlir import register_value_caster
-from numba_cuda_mlir._mlir.dialects import complex as complex_dialect
-from numba_cuda_mlir._mlir.dialects import math as math_dialect
-from numba_cuda_mlir._mlir.dialects._arith_enum_gen import (
+from cudamlir._mlir_libs._mlir import register_value_caster
+from cudamlir.dialects import complex as complex_dialect
+from cudamlir.dialects import math as math_dialect
+from cudamlir.dialects._arith_enum_gen import (
     _arith_cmpfpredicateattr,
     _arith_cmpipredicateattr,
 )
-from numba_cuda_mlir._mlir.dialects._ods_common import (
+from cudamlir.dialects._ods_common import (
     get_op_result_or_op_results,
     get_op_result_or_value,
 )
-from numba_cuda_mlir._mlir.dialects.arith import *
-from numba_cuda_mlir._mlir.ir import (
+from cudamlir.dialects.arith import *
+from cudamlir.ir import (
     Attribute,
     BF16Type,
     ComplexType,

@@ -4,9 +4,9 @@ from numba_cuda_mlir import cuda
 from numba_cuda_mlir.cuda.experimental import intrin
 from numba_cuda_mlir import types, compiler
 from numba_cuda_mlir.errors import MultipleIntrinsicFunctionsError
-from numba_cuda_mlir._mlir.dialects import llvm
+from cudamlir.dialects import llvm
 from numba_cuda_mlir.mlir.dialect_exts import arith
-from numba_cuda_mlir._mlir.extras import types as T
+from cudamlir.extras import types as T
 import numpy as np
 import pytest
 

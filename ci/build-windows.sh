@@ -301,10 +301,7 @@ build_modern_llvm() {
     -DLLVM_ENABLE_ZLIB=OFF \
     -DLLVM_ENABLE_ZSTD=OFF \
     -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
-    -DMLIR_PYTHON_PACKAGE_PREFIX="numba_cuda_mlir._mlir" \
-    -DCMAKE_CXX_FLAGS="-DMLIR_PYTHON_PACKAGE_PREFIX=numba_cuda_mlir._mlir. -DMLIR_USE_FALLBACK_TYPE_IDS=1" \
-    -DMLIR_BINDINGS_PYTHON_INSTALL_PREFIX="python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir" \
-    -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=numba_cuda_mlir \
+    -DCMAKE_CXX_FLAGS="-DMLIR_USE_FALLBACK_TYPE_IDS=1" \
     -DMLIR_PYTHON_STUBGEN_ENABLED=OFF \
     -DPython_ROOT_DIR="${python_root}" \
     -DPython_EXECUTABLE="${python_executable}" \
@@ -315,7 +312,7 @@ build_modern_llvm() {
   cmake --build "$(cmake_path "${LLVM_MODERN_BUILD}")" -j "${PARALLEL}"
   cmake --install "$(cmake_path "${LLVM_MODERN_BUILD}")"
 
-  local mlir_pkg_rel="python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir"
+  local mlir_pkg_rel="python_packages/cuda_mlir_core/cudamlir"
   local build_mlir_pkg="${LLVM_MODERN_BUILD}/tools/mlir/${mlir_pkg_rel}"
   local install_mlir_pkg="${LLVM_MODERN_INSTALL}/${mlir_pkg_rel}"
   local install_mlir_libs="${install_mlir_pkg}/_mlir_libs"
@@ -397,8 +394,8 @@ def describe_failure():
 
 
 install_root = pathlib.Path(sys.argv[1])
-pkg_root = install_root / "python_packages" / "numba_cuda_mlir_mlir"
-mlir_pkg = pkg_root / "numba_cuda_mlir" / "_mlir"
+pkg_root = install_root / "python_packages" / "cuda_mlir_core"
+mlir_pkg = pkg_root / "cudamlir"
 mlir_libs = mlir_pkg / "_mlir_libs"
 
 handles = []
@@ -413,8 +410,8 @@ if os.name == "nt" and hasattr(os, "add_dll_directory"):
             handles.append(os.add_dll_directory(str(directory)))
 
 for name in (
-    "nanobind-numba_cuda_mlir.dll",
-    "MLIRPythonSupport-numba_cuda_mlir.dll",
+    "nanobind-mlir.dll",
+    "MLIRPythonSupport-mlir.dll",
     "MLIRModernToNVVM.dll",
     "MLIRPythonCAPI.dll",
 ):
@@ -425,7 +422,7 @@ for name in (
 
 sys.path.insert(0, str(pkg_root))
 try:
-    from numba_cuda_mlir._mlir import ir  # noqa: F401
+    from cudamlir import ir  # noqa: F401
 except BaseException:
     print("Modern MLIR Python artifact smoke import failed:", file=sys.stderr)
     describe_failure()

@@ -15,9 +15,9 @@ from typing import Callable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
-from numba_cuda_mlir._mlir.extras.meta import op_region_builder
-from numba_cuda_mlir._mlir.extras import types as T
-from numba_cuda_mlir._mlir.ir import (
+from cudamlir.extras.meta import op_region_builder
+from cudamlir.extras import types as T
+from cudamlir.ir import (
     Block,
     Context,
     F32Type,
@@ -38,7 +38,7 @@ from numba_cuda_mlir._mlir.ir import (
 )
 
 try:
-    from numba_cuda_mlir._mlir.ir import TypeID
+    from cudamlir.ir import TypeID
 except ImportError:
     warnings.warn(f"TypeID not supported by host bindings; value casting won't work correctly")
     TypeID = object

@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from numba_cuda_mlir._mlir.dialects.llvm import *  # noqa: F401,F403
-from numba_cuda_mlir._mlir.dialects import llvm as _llvm
-from numba_cuda_mlir._mlir import ir
+from cudamlir.dialects.llvm import *  # noqa: F401,F403
+from cudamlir.dialects import llvm as _llvm
+from cudamlir import ir
 
 
 def ptr():

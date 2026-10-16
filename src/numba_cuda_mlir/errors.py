@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir.numba_cuda.core.errors import ForceLiteralArg, TypingError
-from numba_cuda_mlir._mlir.ir import Operation, Value, Block
+from cudamlir.ir import Operation, Value, Block
 from typing import TypeVar
 import inspect
 from pathlib import Path

@@ -11,8 +11,8 @@ that accept both ``UnicodeType`` and ``StringLiteral`` operands).
 
 import sys
 
-from numba_cuda_mlir._mlir.extras import types as T
-from numba_cuda_mlir._mlir import ir
+from cudamlir.extras import types as T
+from cudamlir import ir
 from numba_cuda_mlir.mlir.dialect_exts import llvm
 from numba_cuda_mlir.lowering_utilities import constant
 from numba_cuda_mlir._threading import _LockedCounter

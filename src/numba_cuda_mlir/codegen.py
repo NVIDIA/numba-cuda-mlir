@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir.numba_cuda import serialize
 from numba_cuda_mlir.numba_cuda.codegen import Codegen, CodeLibrary
-from numba_cuda_mlir._mlir.ir import Context, Location, Module
+from cudamlir.ir import Context, Location, Module
 
 
 class MLIRCodeLibrary(serialize.ReduceMixin, CodeLibrary):

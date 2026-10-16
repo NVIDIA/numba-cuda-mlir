@@ -8,11 +8,11 @@ import sys
 from io import StringIO
 from pathlib import Path
 
-from numba_cuda_mlir._mlir.passmanager import PassManager
+from cudamlir.passmanager import PassManager
 from numba_cuda_mlir._threading import _LockedCounter
-from numba_cuda_mlir._mlir.dialects import llvm
+from cudamlir.dialects import llvm
 from numba_cuda_mlir.tools import generate_mangled_name
-from numba_cuda_mlir._mlir import ir
+from cudamlir import ir
 from numba_cuda_mlir.lowering_utilities import context
 from numba_cuda_mlir.optimization import run_pre_codegen_patterns
 from numba_cuda_mlir.numba_cuda.cudadrv.nvvm import CompilationUnit
@@ -135,7 +135,7 @@ def _get_llvm70_capi():
     if not os.path.isfile(capi_path):
         raise FileNotFoundError(f"LLVM70 C API bridge not found at {capi_path}")
     if os.name == "nt":
-        import numba_cuda_mlir._mlir._mlir_libs as _mlir_libs
+        import cudamlir._mlir_libs as _mlir_libs
 
         _llvm70_dll_dirs.extend(
             os.add_dll_directory(dll_dir)
@@ -185,11 +185,11 @@ def _get_op_ptr(op) -> ctypes.c_void_p:
     ptr = ctypes.pythonapi.PyCapsule_GetPointer
     ptr.restype = ctypes.c_void_p
     ptr.argtypes = [ctypes.py_object, ctypes.c_char_p]
-    return ptr(capsule, b"numba_cuda_mlir._mlir.ir.Operation._CAPIPtr")
+    return ptr(capsule, b"cudamlir.ir.Operation._CAPIPtr")
 
 
 def _get_single_gpu_module(module):
-    from numba_cuda_mlir._mlir.dialects import gpu
+    from cudamlir.dialects import gpu
 
     gpu_modules = [op for op in module.body if isinstance(op, gpu.GPUModuleOp)]
     if len(gpu_modules) != 1:

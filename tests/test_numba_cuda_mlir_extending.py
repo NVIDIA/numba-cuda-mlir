@@ -13,8 +13,8 @@ import pytest
 
 def test_extending_intrinsic():
     def codegen(builder, target, args, kwargs):
-        from numba_cuda_mlir._mlir.dialects import cf, arith
-        from numba_cuda_mlir._mlir.extras import types as T
+        from cudamlir.dialects import cf, arith
+        from cudamlir.extras import types as T
 
         true = arith.constant(result=T.bool(), value=1)
         cf.assert_(true, "This should not be executed")
@@ -114,7 +114,7 @@ def test_overload_on_vendored_intrinsic_gives_way_to_native_typing(lowered_for):
     and that has no MLIR lowering for the call's signature fails typing, so an
     overload built on it gives way to other templates instead of reaching
     lowering (issue #327)."""
-    from numba_cuda_mlir._mlir.dialects import arith
+    from cudamlir.dialects import arith
     from numba_cuda_mlir.extending import lowering_registry
 
     def vendored_codegen(context, builder, sig, args):
@@ -416,7 +416,7 @@ def test_overload_method_custom_type_uses_mlir_model_only():
     @register_model(MyObjType)
     class MyObjMlirModel(PrimitiveModel):
         def __init__(self, dmm, fe_type):
-            from numba_cuda_mlir._mlir.extras import types as T
+            from cudamlir.extras import types as T
 
             super().__init__(dmm, fe_type, T.i8())
 
@@ -515,7 +515,7 @@ def test_overload_attribute():
 def test_overload_attribute_returns_string_literal():
     """String-literal attribute overloads can be returned from device functions."""
 
-    from numba_cuda_mlir._mlir.extras import types as T
+    from cudamlir.extras import types as T
 
     class Dummy:
         pass
@@ -620,7 +620,7 @@ def test_overload_dispatches_on_type():
 
 def test_struct_field_model():
     """UnicodeTypeModel exposes field names and positions for struct access."""
-    from numba_cuda_mlir._mlir import ir
+    from cudamlir import ir
     from numba_cuda_mlir.models import UnicodeTypeModel
 
     with ir.Context(), ir.Location.unknown():
@@ -653,7 +653,7 @@ def test_struct_field_model():
 
 def test_aggregate_type_field_model():
     """AggregateTypeModel exposes field names and positions for struct access."""
-    from numba_cuda_mlir._mlir import ir
+    from cudamlir import ir
     from numba_cuda_mlir.models import AggregateTypeModel
     from numba_cuda_mlir.type_defs.aggregate_types import AggregateType
 
@@ -699,8 +699,8 @@ def test_register_jitable_tuple_return_cast_from_branches():
 
 
 def test_overload_method_omitted_trailing_default_arg():
-    from numba_cuda_mlir._mlir.dialects import llvm
-    from numba_cuda_mlir._mlir.extras import types as T
+    from cudamlir.dialects import llvm
+    from cudamlir.extras import types as T
     from numba_cuda_mlir.lowering_utilities import unverified_convert
 
     class Widget:

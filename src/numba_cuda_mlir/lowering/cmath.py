@@ -11,15 +11,15 @@ This module provides:
 
 import cmath
 from numba_cuda_mlir.numba_cuda import types
-from numba_cuda_mlir._mlir.dialects import (
+from cudamlir.dialects import (
     complex as complex_dialect,
     arith,
     math as math_dialect,
     scf,
     func,
 )
-from numba_cuda_mlir._mlir.extras import types as T
-import numba_cuda_mlir._mlir.ir as ir
+from cudamlir.extras import types as T
+import cudamlir.ir as ir
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
 registry = LoweringRegistry()

@@ -9,7 +9,7 @@ from numba_cuda_mlir.extending import overload, overload_method, typing_registry
 from numba_cuda_mlir.errors import InternalCompilerError, ensure_verifies
 from numba_cuda_mlir.mlir_lowering import MLIRLower
 from numba_cuda_mlir.mlir.dialect_exts import memref, scf, arith, tensor
-from numba_cuda_mlir._mlir.dialects import (
+from cudamlir.dialects import (
     arith as arith_dialect,
     builtin,
     math as math_dialect,
@@ -19,8 +19,8 @@ from numba_cuda_mlir._mlir.dialects import (
     complex as complex_dialect,
     linalg,
 )
-from numba_cuda_mlir._mlir.extras import types as T
-from numba_cuda_mlir._mlir import ir
+from cudamlir.extras import types as T
+from cudamlir import ir
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.type_defs.vector_types import VectorType
 from numba_cuda_mlir.numba_cuda.np.npyimpl import _make_dtype_object

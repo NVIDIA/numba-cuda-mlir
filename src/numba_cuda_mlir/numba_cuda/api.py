@@ -489,11 +489,7 @@ def close():
     Explicitly clears all contexts in the current thread, and destroys all
     contexts if the current thread is the main thread.
     """
-    # Must clear memsys object in case it has been used already
-    from numba_cuda_mlir.memory_management import rtsys
-
-    rtsys.close()
-
+    # Context.reset() releases its own NRT allocator state.
     devices.reset()
 
 

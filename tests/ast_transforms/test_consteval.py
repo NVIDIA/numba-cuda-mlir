@@ -1,9 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import numba_cuda_mlir
+import inspect
 import platform
 from numba_cuda_mlir.cuda.experimental import consteval
-from numba_cuda_mlir.ast_transforms import ConstevalError
+from numba_cuda_mlir.ast_transforms import ConstevalError, apply_ast_transforms
 from numba_cuda_mlir import cuda
 import numpy as np
 import pytest
@@ -1190,3 +1191,19 @@ def test_consteval_block_unit_function_call():
 
     # 3*4+1 = 13
     assert "result = 13" in source
+
+
+def test_recompiled_function_keeps_source_lines():
+    """Test that a recompiled function keeps the line numbers of its source file."""
+
+    def probe(out):
+        out[0] = consteval(1)
+        return out
+
+    transformed, source = apply_ast_transforms(probe, {"experimental_ast_transforms": True})
+    assert source is not None
+    lines, first = inspect.getsourcelines(probe)
+    assign_line = first + next(i for i, ln in enumerate(lines) if "consteval(1)" in ln)
+    assert transformed.__code__.co_firstlineno == probe.__code__.co_firstlineno
+    transformed_lines = {line for _, _, line in transformed.__code__.co_lines() if line}
+    assert assign_line in transformed_lines

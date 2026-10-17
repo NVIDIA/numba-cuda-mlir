@@ -204,6 +204,8 @@ jobs:
     with:
       build-type: pull-request
       host-platform: ${{ matrix.host-platform }}
+    secrets:
+      CUDA_PYTHON_ARTIFACTS_TOKEN: ${{ secrets.CUDA_PYTHON_ARTIFACTS_TOKEN }}
 
   # WARNING: make sure both Linux test jobs are in sync
   test-linux-aarch64:
@@ -223,6 +225,8 @@ jobs:
     with:
       build-type: pull-request
       host-platform: ${{ matrix.host-platform }}
+    secrets:
+      CUDA_PYTHON_ARTIFACTS_TOKEN: ${{ secrets.CUDA_PYTHON_ARTIFACTS_TOKEN }}
 
   test-windows:
     strategy:
@@ -241,6 +245,8 @@ jobs:
     with:
       build-type: pull-request
       host-platform: ${{ matrix.host-platform }}
+    secrets:
+      CUDA_PYTHON_ARTIFACTS_TOKEN: ${{ secrets.CUDA_PYTHON_ARTIFACTS_TOKEN }}
 
   test-expensive-linux-64:
     name: Expensive Test linux-64

@@ -3361,12 +3361,15 @@ extern "C" __global__ void
             if not isinstance(numba_type, types.Integer):
                 return
             mlir_value = arith.index_cast(out=self.get_mlir_type(numba_type), in_=mlir_value)
-        is_arg = base_name in self._di_builder.arg_names
         is_boolean = isinstance(numba_type, types.Boolean)
-        if is_arg and not is_boolean:
-            # Use dbg.declare (alloca+store) for scalar args, except boolean
-            # args which use dbg.value to avoid a known NVVM crash.
-            self._emit_dbg_declare(base_name, mlir_value, var_attr)
+        if not is_boolean:
+            # Use dbg.declare on a volatile slot, except for booleans which use
+            # dbg.value to avoid a known NVVM crash.  dbg.value describes a
+            # value at a point, which NVVM lowers to a range-limited
+            # .debug_loc entry that does not cover the kernel entry
+            # breakpoint, so the debugger reports the variable as optimized
+            # out even at opt=False.
+            self._emit_dbg_declare(base_name, mlir_value, var_attr, volatile=True)
         else:
             llvm.intr_dbg_value(
                 mlir_value,
@@ -3377,7 +3380,8 @@ extern "C" __global__ void
     def _emit_dbg_declare(self, var_name, value, var_attr, volatile=False):
         """Emit llvm.intr.dbg.declare for a value materialized in stack storage.
 
-        Pass volatile for aggregate slots: avoid the slot being optimized away.
+        Pass volatile to keep the slot: a promotable one leaves the variable
+        with a register location that the debugger may not be able to resolve.
         """
         alloca_ptr = self.alloca(value.type)
         llvm.store(value, alloca_ptr, volatile_=volatile)

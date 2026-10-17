@@ -182,8 +182,14 @@ def test_mlir_di_local_variable_locals():
     )
 
 
-def test_mlir_dbg_value_ops():
-    """debug=True emits llvm.intr.dbg.value for local variables."""
+def test_mlir_non_boolean_scalar_avoids_dbg_value():
+    """Only booleans may use dbg.value; every other scalar gets a stack slot.
+
+    dbg.value lowers to a range-limited location, so a variable described that
+    way is invisible before its defining instruction -- including at the kernel
+    entry breakpoint.  Booleans keep dbg.value to dodge an NVVM crash; see
+    ``test_mlir_dbg_value_bool_arg``.
+    """
     mlir = compiler.compile_mlir(
         k_local_var,
         types.void(types.int32[:], types.int32, types.int32),
@@ -192,7 +198,7 @@ def test_mlir_dbg_value_ops():
     )
     testing.filecheck(
         """
-        CHECK: llvm.intr.dbg.value
+        CHECK-NOT: llvm.intr.dbg.value
         """,
         mlir,
     )
@@ -226,6 +232,53 @@ def test_mlir_dbg_value_bool_arg():
         """
         CHECK: #[[FLAG_VAR:di_local_variable[0-9]*]] = #llvm.di_local_variable<{{.*}}name = "flag"
         CHECK: llvm.intr.dbg.value #[[FLAG_VAR]] = %{{.*}} : i1
+        """,
+        mlir,
+    )
+
+
+def test_mlir_scalar_arg_slot_is_volatile():
+    """A scalar arg's debug slot takes a volatile store, like an aggregate's.
+
+    A non-volatile slot can be promoted back into a register, which leaves the
+    variable with a range-limited location that does not cover the kernel entry
+    breakpoint, and the debugger then reports it as ``<optimized out>``.
+    """
+    mlir = compiler.compile_mlir(
+        k_scalar_add,
+        types.void(types.int32[:], types.int32, types.int32),
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK: %[[SLOT:[0-9]+]] = llvm.alloca %{{.*}} x i32
+        CHECK: llvm.store volatile %arg1, %[[SLOT]]
+        CHECK: llvm.intr.dbg.declare #[[VAR:di_local_variable[0-9]*]] = %[[SLOT]]
+        """,
+        mlir,
+    )
+
+
+def test_mlir_scalar_local_is_declared_not_valued():
+    """The local ``c`` is described by dbg.declare on a slot, not by dbg.value.
+
+    ``dbg.value`` describes a value at a point, so NVVM lowers it to a
+    range-limited ``.debug_loc`` entry that does not cover the kernel entry
+    breakpoint.  ``dbg.declare`` on a slot gives one frame offset valid for the
+    whole scope.  Tied to the variable's own name so the check cannot be
+    satisfied by the array argument's slot.
+    """
+    mlir = compiler.compile_mlir(
+        k_local_var,
+        types.void(types.int32[:], types.int32, types.int32),
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK: #[[C_VAR:di_local_variable[0-9]*]] = #llvm.di_local_variable<{{.*}}name = "c"
+        CHECK: llvm.intr.dbg.declare #[[C_VAR]] = %{{[0-9]+}}
         """,
         mlir,
     )
@@ -860,10 +913,12 @@ def test_mlir_scalar_int_arg_type(int_arg, expected_name, size_bits, encoding):
 
 
 @pytest.mark.parametrize("fn", [k_shape_local, k_size_local], ids=["shape", "size"])
-def test_llvm_ir_dbg_value_index_local(fn):
+def test_llvm_ir_index_local_is_i64(fn):
     """A local holding an array extent is described by an i64, not an index.
 
     memref.dim yields index type, needs to cast to the DI variable's own integer width.
+    The cast is checked through the variable's stack slot, which is what carries
+    its debug location.
     """
     kernel = cuda.jit(debug=True, opt=False)(fn)
     sig = (types.float32[:], types.float32[:])
@@ -872,7 +927,9 @@ def test_llvm_ir_dbg_value_index_local(fn):
 
     testing.filecheck(
         """
-        CHECK: dbg{{[._]}}value({{(metadata )?}}i64 %{{[0-9]+}}, {{(metadata )?}}![[N_VAR:[0-9]+]]
+        CHECK: %[[SLOT:[0-9]+]] = alloca i64
+        CHECK: store volatile i64 %{{[0-9]+}}, {{.*}}%[[SLOT]],
+        CHECK: dbg{{[._]}}declare({{(metadata )?}}{{.*}}%[[SLOT]], {{(metadata )?}}![[N_VAR:[0-9]+]]
         CHECK: ![[N_VAR]] = !DILocalVariable(name: "n",
         """,
         llvm_ir,

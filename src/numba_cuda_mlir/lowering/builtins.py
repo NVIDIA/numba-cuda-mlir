@@ -724,10 +724,19 @@ def operator_imul_array_lower(builder, target, args, kwargs):
 
 @lower(operator.neg, types.Number)
 def operator_neg_number_lower(builder, target, args, kwargs):
-    """Lower operator.neg for numbers by using arith.negf"""
+    """Lower operator.neg for numbers"""
     value = builder.load_var(args[0])
-    c0 = constant(0, value.type)
-    result = c0 - value
+    match value.type:
+        case ir.FloatType():
+            # Flip the sign bit: 0.0 - x would give +0.0 for x = 0.0, and fold
+            # constants such as -nan to +nan
+            result = arith.negf(value)
+        case ir.ComplexType():
+            from numba_cuda_mlir._mlir.dialects import complex as complex_dialect
+
+            result = complex_dialect.neg(value)
+        case _:
+            result = constant(0, value.type) - value
     builder.store_var(target, result)
 
 

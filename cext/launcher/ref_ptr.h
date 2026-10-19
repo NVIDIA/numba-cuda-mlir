@@ -10,7 +10,8 @@
 
 template <typename Derived>  // curiously recurring template
 struct SimpleRefcount {
-    size_t refcount;
+    // A new object starts with one owner; wrap it with steal().
+    size_t refcount = 1;
 };
 
 template <typename T>

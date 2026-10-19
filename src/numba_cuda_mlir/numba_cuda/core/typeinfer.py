@@ -610,6 +610,8 @@ class CallConstraint:
         if isinstance(fnty, types.TypeRef):
             # Unwrap TypeRef
             fnty = fnty.instance_type
+        if typeinfer._deferrers and typeinfer._defer_call(self, fnty, pos_args, kw_args):
+            return
         try:
             sig = typeinfer.resolve_call(fnty, pos_args, kw_args)
         except ForceLiteralArg as e:
@@ -970,6 +972,74 @@ def register_dispatcher(disp):
 typeinfer_extensions = {}
 
 
+class TypeInferExtension:
+    """Base class for extending two built-in steps of type inference.
+
+    A call constraint waits until its argument types are known and precise;
+    ``defer_call`` adds conditions to that wait. Propagation repeats until
+    nothing changes; ``at_fixpoint`` runs at that point. Register an
+    instance with ``register_typeinfer_extension``. A subclass overrides
+    either method or both; the defaults do nothing.
+
+    Extensions may only widen types, as constraints do, so inference still
+    ends. They run in every type inference started while they are
+    registered, including device-function and overload bodies and the clone
+    used to type recursive calls.
+    """
+
+    def defer_call(self, typeinfer, constraint, fnty, args, kws, released):
+        """Called when a call constraint's arguments are known, before it resolves.
+
+        ``args`` and ``kws`` are the call's argument types, ``fnty`` the
+        callee's type. Return ``True`` to defer the call: it stays untyped,
+        skips the resolve-call cache, and is retried on later passes.
+        ``released`` is true once the call has been released (see
+        ``at_fixpoint``); the call then resolves whatever this returns.
+        Only overrides defined on the class are called.
+        """
+        return False
+
+    def at_fixpoint(self, typeinfer, final):
+        """Called each time propagation stops changing types.
+
+        With ``final`` false, the extension may add types with
+        ``typeinfer.add_type`` and release deferred calls with
+        ``typeinfer.release``; if it does either, propagation runs again.
+        If no extension makes progress, every deferred call is released and
+        propagation runs again.
+
+        With ``final`` true, nothing is deferred and nothing changes any
+        more. The extension must not change types.
+
+        Return a list of exceptions to report as typing errors, or ``None``.
+        """
+        return None
+
+
+_registered_extensions = ()
+
+
+def register_typeinfer_extension(extension):
+    """Register ``extension``, a ``TypeInferExtension``, for later type inferences.
+
+    Registering the same object again has no effect. A type inference reads
+    the registered extensions once, when it starts.
+    """
+    global _registered_extensions
+    if not isinstance(extension, TypeInferExtension):
+        raise TypeError(f"expected a TypeInferExtension, got {extension!r}")
+    if not any(e is extension for e in _registered_extensions):
+        _registered_extensions = _registered_extensions + (extension,)
+
+
+def unregister_typeinfer_extension(extension):
+    """Unregister ``extension``; raises ``KeyError`` if it is not registered."""
+    global _registered_extensions
+    if not any(e is extension for e in _registered_extensions):
+        raise KeyError(extension)
+    _registered_extensions = tuple(e for e in _registered_extensions if e is not extension)
+
+
 class TypeInferer:
     """
     Operates on block that shares the same ir.Scope.
@@ -1010,8 +1080,20 @@ class TypeInferer:
         self._skip_recursion = False
         self._resolve_call_cache = {}
 
+        self._set_extensions(_registered_extensions)
+
+    def _set_extensions(self, extensions):
+        self._extensions = extensions
+        self._deferrers = tuple(
+            e for e in extensions if type(e).defer_call is not TypeInferExtension.defer_call
+        )
+        # Call constraints deferred, and those released; insertion-ordered.
+        self._deferred = {}
+        self._released = {}
+
     def copy(self, skip_recursion=False):
         clone = TypeInferer(self.context, self.func_ir, self.warnings)
+        clone._set_extensions(self._extensions)
         clone.arg_names = self.arg_names.copy()
         clone._skip_recursion = skip_recursion
 
@@ -1082,6 +1164,21 @@ class TypeInferer:
         return cloned._unify_return_types(rettypes)
 
     def propagate(self, raise_errors=True):
+        if self._extensions:
+            errors = self._propagate_with_extensions()
+        else:
+            errors = self._propagate_constraints()
+        if errors:
+            if raise_errors:
+                force_lit_args = [e for e in errors if isinstance(e, ForceLiteralArg)]
+                if not force_lit_args:
+                    raise errors[0]
+                else:
+                    raise reduce(operator.or_, force_lit_args)
+            else:
+                return errors
+
+    def _propagate_constraints(self):
         newtoken = self.get_state_token()
         oldtoken = None
         # Since the number of types are finite, the typesets will eventually
@@ -1095,15 +1192,73 @@ class TypeInferer:
             errors = self.constraints.propagate(self)
             newtoken = self.get_state_token()
             self.debug.propagate_finished()
-        if errors:
-            if raise_errors:
-                force_lit_args = [e for e in errors if isinstance(e, ForceLiteralArg)]
-                if not force_lit_args:
-                    raise errors[0]
-                else:
-                    raise reduce(operator.or_, force_lit_args)
-            else:
-                return errors
+        return errors
+
+    def _propagate_with_extensions(self):
+        # Each round either widens a type or releases a deferred call, so the
+        # loop ends.
+        while True:
+            errors = self._propagate_constraints()
+            token = self.get_state_token()
+            released = len(self._released)
+            found = self._run_at_fixpoint(final=False)
+            if found:
+                return errors + found
+            if self.get_state_token() != token or len(self._released) != released:
+                continue
+            if not self._deferred:
+                break
+            for constraint in tuple(self._deferred):
+                self.release(constraint)
+        before = self._defined_types()
+        found = self._run_at_fixpoint(final=True)
+        if self._defined_types() != before:
+            raise RuntimeError("a TypeInferExtension changed types in its final at_fixpoint call")
+        return errors + found
+
+    def _defined_types(self):
+        # Looking a name up in ``typevars`` creates an empty TypeVar, so
+        # compare only the variables that have a type.
+        return {name: tv.type for name, tv in self.typevars.items() if tv.type is not None}
+
+    def _run_at_fixpoint(self, final):
+        found = []
+        for extension in self._extensions:
+            found.extend(extension.at_fixpoint(self, final) or ())
+        return found
+
+    def _defer_call(self, constraint, fnty, args, kws):
+        released = constraint in self._released
+        defer = False
+        for extension in self._deferrers:
+            if extension.defer_call(self, constraint, fnty, args, kws, released):
+                defer = True
+        if defer and not released:
+            self._deferred[constraint] = None
+            return True
+        self._deferred.pop(constraint, None)
+        return False
+
+    @property
+    def deferred_calls(self):
+        """The call constraints a ``TypeInferExtension.defer_call`` defers, in order."""
+        return tuple(self._deferred)
+
+    @property
+    def released_calls(self):
+        """The call constraints released while deferred, in order."""
+        return tuple(self._released)
+
+    def release(self, constraint):
+        """Release a deferred call: it resolves on the next pass.
+
+        Returns whether ``constraint`` was deferred.
+        """
+        if constraint not in self._deferred:
+            return False
+        del self._deferred[constraint]
+        self._released[constraint] = None
+        return True
 
     def add_type(self, var, tp, loc, unless_locked=False):
         assert isinstance(var, str), type(var)

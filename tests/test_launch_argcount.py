@@ -26,7 +26,7 @@ def test_surplus_argument_is_refused():
 
     out = np.zeros(4, np.int32)
     extra = np.zeros(4, np.int32)
-    with pytest.raises(TypeError, match=r"k\(\).*1.*2"):
+    with pytest.raises(TypeError, match=r"k\(\).*too many positional arguments.*2 given"):
         k[1, 4](out, extra)
 
 
@@ -38,7 +38,7 @@ def test_several_surplus_arguments_are_refused():
             out[i] = i + 100
 
     out = np.zeros(4, np.int32)
-    with pytest.raises(TypeError, match=r"k\(\).*1.*4"):
+    with pytest.raises(TypeError, match=r"k\(\).*too many positional arguments.*4 given"):
         k[1, 4](out, 1, 2, 3)
 
 
@@ -51,7 +51,7 @@ def test_missing_argument_raises_type_error_not_index_error():
         if i < out.size:
             out[i] = i + 100
 
-    with pytest.raises(TypeError, match=r"k\(\).*1.*0"):
+    with pytest.raises(TypeError, match=r"k\(\).*missing a required argument.*out.*0 given"):
         k[1, 4]()
 
 

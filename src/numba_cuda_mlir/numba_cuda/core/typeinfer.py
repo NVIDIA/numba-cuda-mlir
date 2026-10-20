@@ -242,6 +242,37 @@ class ArgConstraint:
             typeinfer.add_type(self.dst, ty, loc=self.loc)
 
 
+def _refine_parts(ty, refined):
+    """Return ``ty`` with each part replaced by the matching part of
+    ``refined``, the type a later use gave the same value, where that part
+    is precise and differs.
+
+    Anonymous tuples are compared item by item, because a tuple is precise
+    whatever its items are. As with ``Propagate.refine`` for a copy, the
+    caller adds the result with ``add_type``, which unifies it with the
+    variable's type.
+    """
+    if isinstance(ty, types.BaseAnonymousTuple):
+        if not isinstance(refined, types.BaseAnonymousTuple) or len(refined) != len(ty):
+            return ty
+        items = [_refine_parts(t, r) for t, r in zip(ty, refined)]
+        if items == list(ty):
+            return ty
+        return types.BaseTuple.from_types(items)
+    if refined.is_precise() and refined != ty:
+        return refined
+    return ty
+
+
+def _refine_from_use(typeinfer, var, refined, loc):
+    """Refine ``var``'s type, part by part, from ``refined``."""
+    tv = typeinfer.typevars[var]
+    if tv.defined:
+        newty = _refine_parts(tv.getone(), refined)
+        if newty != tv.getone():
+            typeinfer.add_type(var, newty, loc=loc, unless_locked=True)
+
+
 class BuildTupleConstraint:
     def __init__(self, target, items, loc):
         self.target = target
@@ -260,6 +291,16 @@ class BuildTupleConstraint:
                     tup = types.Tuple(vals)
                 assert tup.is_precise()
                 typeinfer.add_type(self.target, tup, loc=self.loc)
+            # A later use of the tuple may have refined an item, such as an
+            # empty list or an array of undefined dtype; refine the variable
+            # it was built from.
+            target = typevars[self.target]
+            if not target.defined:
+                return
+            tup = target.getone()
+            if isinstance(tup, types.BaseAnonymousTuple) and len(tup) == len(self.items):
+                for item, refined in zip(self.items, tup):
+                    _refine_from_use(typeinfer, item.name, refined, self.loc)
 
 
 class _BuildContainerConstraint:
@@ -411,6 +452,10 @@ class ExhaustIterConstraint:
                     if len(tp) == self.count:
                         assert tp.is_precise()
                         typeinfer.add_type(self.target, tp, loc=self.loc)
+                        # A later use of the unpacked values may have
+                        # refined an item; refine the tuple.
+                        target = typevars[self.target].getone()
+                        _refine_from_use(typeinfer, self.iterator.name, target, self.loc)
                         break
                     else:
                         msg = (
@@ -491,8 +536,22 @@ class StaticGetItemConstraint:
                     # if the itemty is not precise, let it through, unification
                     # will catch it and produce a better error message
                     typeinfer.add_type(self.target, itemty, loc=self.loc)
+                    self._refine_tuple_item(typeinfer, ty)
                 elif self.fallback is not None:
                     self.fallback(typeinfer)
+
+    def _refine_tuple_item(self, typeinfer, tupty):
+        # A later use of the item may have refined it; refine the tuple, as
+        # a copy refines its source. Slices are left alone.
+        if not (isinstance(tupty, types.BaseAnonymousTuple) and isinstance(self.index, int)):
+            return
+        item = tupty[self.index]
+        refined = _refine_parts(item, typeinfer.typevars[self.target].getone())
+        if refined != item:
+            items = list(tupty)
+            items[self.index] = refined
+            refined = types.BaseTuple.from_types(items)
+            _refine_from_use(typeinfer, self.value.name, refined, self.loc)
 
     def get_call_signature(self):
         # The signature is only needed for the fallback case in lowering

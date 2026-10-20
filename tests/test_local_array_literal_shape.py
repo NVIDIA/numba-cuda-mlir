@@ -55,6 +55,64 @@ def test_shape_from_kernel_argument_with_alignment():
     assert out[0] == 2.0
 
 
+def _alloca_lines(kernel):
+    (mlir,) = kernel.inspect_mlir().values()
+    return [line for line in mlir.splitlines() if "memref.alloca(" in line]
+
+
+def test_shape_from_kernel_argument_with_alignas():
+    @cuda.jit
+    def kernel(out, n):
+        a = cuda.local.array(n, np.float64, alignas=16)
+        a[0] = 2.0
+        out[0] = a[0]
+
+    out = np.zeros(1, dtype=np.float64)
+    kernel[1, 1](out, 2)
+    assert out[0] == 2.0
+    (alloca,) = _alloca_lines(kernel)
+    assert "alignment = 16" in alloca
+
+
+def test_literal_shape_with_alignas():
+    @cuda.jit
+    def kernel(out):
+        a = cuda.local.array(2, np.float64, alignas=16)
+        a[0] = 2.0
+        out[0] = a[0]
+
+    out = np.zeros(1, dtype=np.float64)
+    kernel[1, 1](out)
+    assert out[0] == 2.0
+    (alloca,) = _alloca_lines(kernel)
+    assert "alignment = 16" in alloca
+
+
+def test_alignment_and_alignas_together_are_refused():
+    @cuda.jit
+    def kernel(out, n):
+        a = cuda.local.array(n, np.float64, alignment=32, alignas=16)
+        a[0] = 2.0
+        out[0] = a[0]
+
+    with pytest.raises(TypingError, match="pass either alignment or alignas, not both"):
+        kernel[1, 1](np.zeros(1, dtype=np.float64), 2)
+
+
+def test_shared_array_with_alignas():
+    @cuda.jit
+    def kernel(out):
+        a = cuda.shared.array(4, np.float64, alignas=16)
+        a[0] = 2.0
+        out[0] = a[0]
+
+    out = np.zeros(1, dtype=np.float64)
+    kernel[1, 1](out)
+    assert out[0] == 2.0
+    (mlir,) = kernel.inspect_mlir().values()
+    assert any("memref.global" in line and "alignment = 16" in line for line in mlir.splitlines())
+
+
 def test_shape_through_device_function():
     @cuda.jit(device=True)
     def device_sum(n):

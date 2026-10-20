@@ -203,16 +203,32 @@ class Propagate:
     A simple constraint for direct propagation of types for assignments.
     """
 
-    def __init__(self, dst, src, loc):
+    def __init__(self, dst, src, loc, phi=False):
         self.dst = dst
         self.src = src
         self.loc = loc
+        self.phi = phi
 
     def __call__(self, typeinfer):
         with new_error_context("typing of assignment at {0}", self.loc, loc=self.loc):
             typeinfer.copy_type(self.src, self.dst, loc=self.loc)
             # If `dst` is refined, notify us
             typeinfer.refine_map[self.dst] = self
+            if self.phi:
+                self._refine_imprecise_phi_input(typeinfer)
+
+    def _refine_imprecise_phi_input(self, typeinfer):
+        # refine_map holds one constraint per variable, so refining a phi
+        # reaches only one of its inputs, and a phi that is precise from the
+        # start refines none. An input that is still imprecise takes the
+        # phi's type; a precise input keeps its own.
+        dst = typeinfer.typevars[self.dst]
+        src = typeinfer.typevars[self.src]
+        if not (dst.defined and src.defined):
+            return
+        dstty = dst.getone()
+        if dstty.is_precise() and not src.getone().is_precise():
+            self.refine(typeinfer, dstty)
 
     def refine(self, typeinfer, target_type):
         # Do not back-propagate to locked variables (e.g. constants)
@@ -1804,7 +1820,9 @@ https://numba.readthedocs.io/en/stable/user/troubleshoot.html#my-code-has-an-unt
         elif expr.op == "phi":
             for iv in expr.incoming_values:
                 if iv is not ir.UNDEFINED:
-                    self.constraints.append(Propagate(dst=target.name, src=iv.name, loc=inst.loc))
+                    self.constraints.append(
+                        Propagate(dst=target.name, src=iv.name, loc=inst.loc, phi=True)
+                    )
         elif expr.op == "make_function":
             self.lock_type(
                 target.name,

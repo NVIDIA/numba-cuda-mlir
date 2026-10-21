@@ -87,7 +87,11 @@ fi
 
 
 echo "Ensuring libcudf and pylibcudf are installed..."
-mamba install -n "${CONDA_ENV_NAME}" -c rapidsai-nightly -c conda-forge \
+# 26.08 is a released RAPIDS minor, so pull it from the stable `rapidsai`
+# channel. `rapidsai-nightly` only retains the active development series
+# (currently 26.12) and garbage-collects older nightlies, so `libcudf=26.08.*`
+# / `pylibcudf=26.08.*` no longer resolve there.
+mamba install -n "${CONDA_ENV_NAME}" -c rapidsai -c conda-forge \
   "libcudf=26.08.*" "pylibcudf=26.08.*" \
   "cuda-version=${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}" -y
 

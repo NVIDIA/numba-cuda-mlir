@@ -641,13 +641,14 @@ class TestOperatorModule:
         )
 
         types_promote = (np.int16, np.int32, np.int64, np.float32, np.float64)
+        # NVVM may swap operands and reverse the comparison on Blackwell.
         opstring = {
-            operator.gt: "setp.gt.",
-            operator.ge: "setp.ge.",
-            operator.lt: "setp.lt.",
-            operator.le: "setp.le.",
-            operator.eq: "setp.eq.",
-            operator.ne: "setp.neu.",
+            operator.gt: ("setp.gt.", "setp.lt."),
+            operator.ge: ("setp.ge.", "setp.le."),
+            operator.lt: ("setp.lt.", "setp.gt."),
+            operator.le: ("setp.le.", "setp.ge."),
+            operator.eq: ("setp.eq.",),
+            operator.ne: ("setp.neu.",),
         }
         opsuffix = {
             np.dtype("int32"): "f64",
@@ -662,5 +663,5 @@ class TestOperatorModule:
             compiled = cuda.jit(signature(types.void, *args), lto=True)(fn)
             ptx = compiled.inspect_lto_ptx(args)
 
-            ops = opstring[op] + opsuffix[arg2_ty]
-            assert ops in ptx
+            expected = tuple(s + opsuffix[arg2_ty] for s in opstring[op])
+            assert any(s in ptx for s in expected), f"{expected} not in PTX:\n{ptx}"

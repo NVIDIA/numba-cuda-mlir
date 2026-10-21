@@ -359,7 +359,22 @@ def _bin_op_cg(op, builder, target, args, kwargs):
 
     promoted_numba_type = None
     unified_type = None
-    if isinstance(lhs_type, types.Integer) and isinstance(rhs_type, types.Integer):
+    mixed_integer_boolean_comparison = op in (
+        operator.eq,
+        operator.ne,
+        operator.lt,
+        operator.le,
+        operator.gt,
+        operator.ge,
+    ) and (
+        isinstance(lhs_type, types.Boolean)
+        and isinstance(rhs_type, types.Integer)
+        or isinstance(lhs_type, types.Integer)
+        and isinstance(rhs_type, types.Boolean)
+    )
+    if mixed_integer_boolean_comparison or (
+        isinstance(lhs_type, types.Integer) and isinstance(rhs_type, types.Integer)
+    ):
         # Ask which promotion was actually resolved
         resolved = builder.context.typing_context.resolve_function_type(
             op, (lhs_type, rhs_type), {}
@@ -409,7 +424,15 @@ def _bin_op_cg(op, builder, target, args, kwargs):
             rhs = _convert_operand(rhs, rhs_type, promoted_numba_type, unified_type)
         else:
             lhs, rhs = lowering_utilities.coerce_numpy_scalars_for_binary_op(lhs, rhs)
-        res = op(lhs, rhs)
+        if (
+            isinstance(target_type, types.Integer)
+            and target_type.signed
+            and op in (arith.addi, arith.subi, arith.muli)
+        ):
+            # Match Numba: ignore signed overflow so index checks can fold.
+            res = op(lhs, rhs, overflow_flags="nsw")
+        else:
+            res = op(lhs, rhs)
     else:
         raise ValueError(f"No operation found for {op=} and {target_mlir_type=}")
 
@@ -446,36 +469,48 @@ def truediv_cg(builder, target, args, kwargs):
 
 @lower(operator.ne, types.Number, types.Number)
 @lower(operator.ne, types.Boolean, types.Boolean)
+@lower(operator.ne, types.Boolean, types.Integer)
+@lower(operator.ne, types.Integer, types.Boolean)
 def ne_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ne, builder, target, args, kwargs)
 
 
 @lower(operator.eq, types.Number, types.Number)
 @lower(operator.eq, types.Boolean, types.Boolean)
+@lower(operator.eq, types.Boolean, types.Integer)
+@lower(operator.eq, types.Integer, types.Boolean)
 def eq_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.eq, builder, target, args, kwargs)
 
 
 @lower(operator.lt, types.Number, types.Number)
 @lower(operator.lt, types.Boolean, types.Boolean)
+@lower(operator.lt, types.Boolean, types.Integer)
+@lower(operator.lt, types.Integer, types.Boolean)
 def lt_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.lt, builder, target, args, kwargs)
 
 
 @lower(operator.le, types.Number, types.Number)
 @lower(operator.le, types.Boolean, types.Boolean)
+@lower(operator.le, types.Boolean, types.Integer)
+@lower(operator.le, types.Integer, types.Boolean)
 def le_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.le, builder, target, args, kwargs)
 
 
 @lower(operator.gt, types.Number, types.Number)
 @lower(operator.gt, types.Boolean, types.Boolean)
+@lower(operator.gt, types.Boolean, types.Integer)
+@lower(operator.gt, types.Integer, types.Boolean)
 def gt_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.gt, builder, target, args, kwargs)
 
 
 @lower(operator.ge, types.Number, types.Number)
 @lower(operator.ge, types.Boolean, types.Boolean)
+@lower(operator.ge, types.Boolean, types.Integer)
+@lower(operator.ge, types.Integer, types.Boolean)
 def ge_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ge, builder, target, args, kwargs)
 
@@ -712,15 +747,12 @@ def math_isnan_cg(mlir_lower, target, args, kwargs):
     mlir_lower.store_var(target, result)
 
 
-# Gated for Python 3.11+
-if hasattr(math, "exp2"):
-
-    @lower(math.exp2, types.Number)
-    def math_exp2_cg(mlir_lower, target, args, kwargs):
-        assert not kwargs, "math_exp2 does not accept any keyword arguments"
-        value = _load_as_float(mlir_lower, args[0])
-        result = math_dialect.exp2(value)
-        mlir_lower.store_var(target, result)
+@lower(math.exp2, types.Number)
+def math_exp2_cg(mlir_lower, target, args, kwargs):
+    assert not kwargs, "math_exp2 does not accept any keyword arguments"
+    value = _load_as_float(mlir_lower, args[0])
+    result = math_dialect.exp2(value)
+    mlir_lower.store_var(target, result)
 
 
 @lower(math.tanh, types.Number)
@@ -838,7 +870,7 @@ def math_atan2_cg(mlir_lower, target, args, kwargs):
 
 @lower(math.hypot, types.Number, types.Number)
 def math_hypot_cg(mlir_lower, target, args, kwargs):
-    """hypot(x, y) = sqrt(x^2 + y^2), computed in float64 for precision"""
+    """hypot(x, y) = sqrt(x^2 + y^2), without overflow or underflow"""
     assert not kwargs, "math_hypot does not accept any keyword arguments"
     assert len(args) == 2, "math_hypot expects 2 arguments"
     x = _load_as_float(mlir_lower, args[0])
@@ -846,20 +878,10 @@ def math_hypot_cg(mlir_lower, target, args, kwargs):
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)
-    # Compute in float64 for better precision (matches numpy behavior)
-    original_type = unified_type
-    if unified_type == T.f32():
-        x = convert(x, T.f64())
-        y = convert(y, T.f64())
-    # hypot(x, y) = sqrt(x^2 + y^2)
-    x_sq = arith.mulf(x, x)
-    y_sq = arith.mulf(y, y)
-    sum_sq = arith.addf(x_sq, y_sq)
-    result = math_dialect.sqrt(sum_sq)
-    # Convert back to original type if needed
-    if original_type == T.f32():
-        result = convert(result, T.f32())
-    mlir_lower.store_var(target, result)
+    # libdevice's hypot is exact; sqrt(x * x + y * y) gives inf for
+    # math.hypot(1e200, 1e200)
+    result = _call_libdevice_binary(mlir_lower, x, y, "__nv_hypot", "__nv_hypotf")
+    mlir_lower.store_var(target, convert(result, unified_type))
 
 
 @lower(math.log1p, types.Number)
@@ -869,6 +891,40 @@ def math_log1p_cg(mlir_lower, target, args, kwargs):
     x = _load_as_float(mlir_lower, args[0])
     result = math_dialect.log1p(x)
     mlir_lower.store_var(target, result)
+
+
+def _float_divmod(mlir_lower, x: ir.Value, y: ir.Value) -> tuple[ir.Value, ir.Value]:
+    """Python's float floor division and modulo (CPython's _float_div_mod).
+
+    They start from libdevice's exact fmod: x - floor(x / y) * y is off
+    whenever x / y rounds, e.g. 1.0 % 0.1 would give -5.6e-17 and 1.0 // 0.1
+    10.0, instead of 0.09999999999999995 and 9.0.
+    """
+    ty = x.type
+    zero = lowering_utilities.constant(0.0, ty)
+    one = lowering_utilities.constant(1.0, ty)
+    half = lowering_utilities.constant(0.5, ty)
+    mod = convert(_call_libdevice_binary(mlir_lower, x, y, "__nv_fmod", "__nv_fmodf"), ty)
+    div = arith.divf(arith.subf(x, mod), y)
+    # A nonzero remainder takes the sign of the divisor
+    mod_nonzero = arith.cmpf(arith.CmpFPredicate.UNE, mod, zero)
+    y_negative = arith.cmpf(arith.CmpFPredicate.OLT, y, zero)
+    mod_negative = arith.cmpf(arith.CmpFPredicate.OLT, mod, zero)
+    adjust = arith.andi(mod_nonzero, arith.xori(y_negative, mod_negative))
+    mod = arith.select(adjust, arith.addf(mod, y), mod)
+    div = arith.select(adjust, arith.subf(div, one), div)
+    mod = arith.select(mod_nonzero, mod, math_dialect.copysign(zero, y))
+    # Snap the quotient to the nearest integral value
+    floordiv = math_dialect.floor(div)
+    round_up = arith.cmpf(arith.CmpFPredicate.OGT, arith.subf(div, floordiv), half)
+    floordiv = arith.select(round_up, arith.addf(floordiv, one), floordiv)
+    quotient = arith.divf(x, y)
+    div_nonzero = arith.cmpf(arith.CmpFPredicate.UNE, div, zero)
+    floordiv = arith.select(div_nonzero, floordiv, math_dialect.copysign(zero, quotient))
+    # A zero divisor still gives inf or nan
+    y_zero = arith.cmpf(arith.CmpFPredicate.OEQ, y, zero)
+    floordiv = arith.select(y_zero, quotient, floordiv)
+    return floordiv, mod
 
 
 @lower(operator.mod, types.Number, types.Number)
@@ -898,11 +954,7 @@ def mod_cg(builder, target, args, kwargs):
             else:
                 result = arith.remui(lhs, rhs)
         case ir.FloatType():
-            # For floats: implement a % b = a - floor(a/b) * b
-            div = arith.divf(lhs, rhs)
-            floored = math_dialect.floor(div)
-            mult = arith.mulf(floored, rhs)
-            result = arith.subf(lhs, mult)
+            _, result = _float_divmod(builder, lhs, rhs)
         case _:
             raise NotImplementedError(f"mod not implemented for {target_mlir_type=}")
     builder.store_var(target, result)
@@ -1028,9 +1080,7 @@ def floordiv_cg(builder, target, args, kwargs):
 
     match target_mlir_type:
         case ir.FloatType():
-            # For floats: floor(a / b)
-            div_result = arith.divf(lhs, rhs)
-            result = math_dialect.floor(div_result)
+            result, _ = _float_divmod(builder, lhs, rhs)
         case ir.IntegerType():
             # Result type selects signed or unsigned floor division. Operand
             # conversion signedness was handled independently above.
@@ -1248,13 +1298,10 @@ def math_fmod_cg(mlir_lower, target, args, kwargs):
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)
-    # fmod(x, y) = x - trunc(x/y) * y
-    # This gives the remainder with the sign of x (truncated toward zero)
-    div = arith.divf(x, y)
-    truncated = math_dialect.trunc(div)
-    mult = arith.mulf(truncated, y)
-    result = arith.subf(x, mult)
-    mlir_lower.store_var(target, result)
+    # libdevice computes the remainder exactly; x - trunc(x / y) * y is off
+    # whenever x / y rounds, and gives nan for an infinite y
+    result = _call_libdevice_binary(mlir_lower, x, y, "__nv_fmod", "__nv_fmodf")
+    mlir_lower.store_var(target, convert(result, unified_type))
 
 
 @lower(math.remainder, types.Number, types.Number)
@@ -1267,12 +1314,10 @@ def math_remainder_cg(mlir_lower, target, args, kwargs):
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)
-    # IEEE remainder: x - round(x/y) * y (round to nearest even)
-    div = arith.divf(x, y)
-    rounded = math_dialect.roundeven(div)
-    mult = arith.mulf(rounded, y)
-    result = arith.subf(x, mult)
-    mlir_lower.store_var(target, result)
+    # libdevice computes the IEEE remainder exactly; x - roundeven(x / y) * y
+    # is off whenever x / y rounds, and gives nan for an infinite y
+    result = _call_libdevice_binary(mlir_lower, x, y, "__nv_remainder", "__nv_remainderf")
+    mlir_lower.store_var(target, convert(result, unified_type))
 
 
 @lower(math.pow, types.Number, types.Number)

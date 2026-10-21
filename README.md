@@ -22,11 +22,13 @@ Writing and executing a simple vector add kernel:
 import numpy as np
 from numba_cuda_mlir import cuda
 
+
 @cuda.jit
 def vector_add(a, b, out):
     i = cuda.grid(1)
     if i < out.shape[0]:
         out[i] = a[i] + b[i]
+
 
 n = 1_000_000
 a = np.ones(n, dtype=np.float32)
@@ -71,6 +73,8 @@ documentation for further details.
 - NVIDIA GPU with Compute Capability 7.0 or greater and a compatible driver:
   - &gt;= r525 for CUDA 12.x
   - &gt;= r580 for CUDA 13.x
+
+Python 3.10 is no longer supported; use Python 3.11 or newer.
 
 
 ## Installation guidance

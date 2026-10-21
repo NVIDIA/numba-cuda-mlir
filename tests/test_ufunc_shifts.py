@@ -85,15 +85,33 @@ def run_arrays(ufunc, x, n, out):
     kernel[1, 1](x, n, out)
 
 
-@pytest.mark.parametrize(
-    "run",
-    [run_scalars, run_scalars_to_array, run_arrays],
-    ids=["scalars", "scalars-to-array", "arrays"],
-)
+RUNS = {"scalars": run_scalars, "scalars-to-array": run_scalars_to_array, "arrays": run_arrays}
+
+
+@pytest.mark.parametrize("run", RUNS.values(), ids=RUNS.keys())
 @pytest.mark.parametrize("ufunc", SHIFTS, ids=lambda u: u.__name__)
 @pytest.mark.parametrize("x, n", OPERANDS.values(), ids=OPERANDS.keys())
 def test_shift(run, ufunc, x, n):
     expected = ufunc(x, n)
+    out = np.zeros_like(expected)
+    run(ufunc, x, n, out)
+    np.testing.assert_array_equal(out, expected)
+
+
+# A shift into an output of another dtype is computed in its loop's type, then converted
+CONVERSIONS = {
+    "uint8-into-uint64": (np.left_shift, np.uint8(255), np.uint8(1), np.uint64),  # 254, not 510
+    "uint8-into-int64": (np.left_shift, np.uint8(255), np.uint8(1), np.int64),  # 254, not -2
+    "int8-into-int64": (np.left_shift, np.int8(-1), np.int8(7), np.int64),  # -128, not 128
+    "int64-into-int8": (np.right_shift, np.int64(1024), np.int64(8), np.int8),  # 4, not 0
+}
+
+
+@pytest.mark.parametrize("run", RUNS.values(), ids=RUNS.keys())
+@pytest.mark.parametrize("ufunc, x, n, dtype", CONVERSIONS.values(), ids=CONVERSIONS.keys())
+def test_shift_into_other_dtype(run, ufunc, x, n, dtype):
+    x, n = np.array([x]), np.array([n])
+    expected = ufunc(x, n, out=np.zeros(1, dtype))
     out = np.zeros_like(expected)
     run(ufunc, x, n, out)
     np.testing.assert_array_equal(out, expected)

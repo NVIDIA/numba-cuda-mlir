@@ -128,6 +128,39 @@ def lower_tuple_concat(builder, target, args, kwargs):
     builder.store_var(target, lhs + rhs)
 
 
+def _tuple_equal_value(builder, target, args, kwargs):
+    from numba_cuda_mlir import cuda
+    from numba_cuda_mlir.cuda.experimental import consteval
+
+    lhs_type, rhs_type = (builder.get_numba_type(arg.name) for arg in args)
+    if len(lhs_type) != len(rhs_type):
+        return arith.constant(T.bool(), False)
+
+    # Unroll by field so heterogeneous and nested tuples use their own
+    # element comparison lowerings, including the usual numeric promotions.
+    indices = tuple(range(len(lhs_type)))
+
+    @cuda.jit(device=True)
+    def impl(lhs, rhs):
+        result = True
+        for i in consteval(indices):
+            result = result & (lhs[i] == rhs[i])
+        return result
+
+    return builder.build_user_defined_function_call(target, impl, args, kwargs)
+
+
+@lower(operator.eq, types.BaseTuple, types.BaseTuple)
+def lower_tuple_eq(builder, target, args, kwargs):
+    builder.store_var(target, _tuple_equal_value(builder, target, args, kwargs))
+
+
+@lower(operator.ne, types.BaseTuple, types.BaseTuple)
+def lower_tuple_ne(builder, target, args, kwargs):
+    result = _tuple_equal_value(builder, target, args, kwargs)
+    builder.store_var(target, arith.xori(result, arith.constant(T.bool(), True)))
+
+
 @lower(range, types.Number)
 @lower(range, types.Number, types.Number)
 @lower(range, types.Number, types.Number, types.Number)

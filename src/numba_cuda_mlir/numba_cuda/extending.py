@@ -496,17 +496,28 @@ class _Intrinsic(ReduceMixin):
         """
         NOTE: part of ReduceMixin protocol
         """
-        return dict(uuid=self._uuid, name=self._name, defn=self._defn)
+        return dict(
+            uuid=self._uuid,
+            name=self._name,
+            defn=self._defn,
+            prefer_literal=self._prefer_literal,
+            ctor_kwargs=self._ctor_kwargs,
+        )
 
     @classmethod
-    def _rebuild(cls, uuid, name, defn):
+    def _rebuild(cls, uuid, name, defn, prefer_literal=False, ctor_kwargs=None):
         """
         NOTE: part of ReduceMixin protocol
         """
         try:
             return cls._memo[uuid]
         except KeyError:
-            llc = cls(name=name, defn=defn)
+            llc = cls(
+                name=name,
+                defn=defn,
+                prefer_literal=prefer_literal,
+                **(ctor_kwargs or {}),
+            )
             llc._register()
             llc._set_uuid(uuid)
             return llc

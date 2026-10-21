@@ -126,8 +126,14 @@ llvm::Error LLVM70IRBuilder::resolveSymbols() {
 
   // Arithmetic
   RESOLVE(fnBuildAdd, "LLVMBuildAdd");
+  RESOLVE(fnBuildNSWAdd, "LLVMBuildNSWAdd");
+  RESOLVE(fnBuildNUWAdd, "LLVMBuildNUWAdd");
   RESOLVE(fnBuildSub, "LLVMBuildSub");
+  RESOLVE(fnBuildNSWSub, "LLVMBuildNSWSub");
+  RESOLVE(fnBuildNUWSub, "LLVMBuildNUWSub");
   RESOLVE(fnBuildMul, "LLVMBuildMul");
+  RESOLVE(fnBuildNSWMul, "LLVMBuildNSWMul");
+  RESOLVE(fnBuildNUWMul, "LLVMBuildNUWMul");
   RESOLVE(fnBuildSDiv, "LLVMBuildSDiv");
   RESOLVE(fnBuildUDiv, "LLVMBuildUDiv");
   RESOLVE(fnBuildSRem, "LLVMBuildSRem");
@@ -409,13 +415,37 @@ LLVMValueRef LLVM70IRBuilder::buildAdd(LLVMValueRef l, LLVMValueRef r,
                                       const char *n) {
   return fnBuildAdd(builder, l, r, n);
 }
+LLVMValueRef LLVM70IRBuilder::buildNSWAdd(LLVMValueRef l, LLVMValueRef r,
+                                          const char *n) {
+  return fnBuildNSWAdd(builder, l, r, n);
+}
+LLVMValueRef LLVM70IRBuilder::buildNUWAdd(LLVMValueRef l, LLVMValueRef r,
+                                          const char *n) {
+  return fnBuildNUWAdd(builder, l, r, n);
+}
 LLVMValueRef LLVM70IRBuilder::buildSub(LLVMValueRef l, LLVMValueRef r,
                                       const char *n) {
   return fnBuildSub(builder, l, r, n);
 }
+LLVMValueRef LLVM70IRBuilder::buildNSWSub(LLVMValueRef l, LLVMValueRef r,
+                                          const char *n) {
+  return fnBuildNSWSub(builder, l, r, n);
+}
+LLVMValueRef LLVM70IRBuilder::buildNUWSub(LLVMValueRef l, LLVMValueRef r,
+                                          const char *n) {
+  return fnBuildNUWSub(builder, l, r, n);
+}
 LLVMValueRef LLVM70IRBuilder::buildMul(LLVMValueRef l, LLVMValueRef r,
                                       const char *n) {
   return fnBuildMul(builder, l, r, n);
+}
+LLVMValueRef LLVM70IRBuilder::buildNSWMul(LLVMValueRef l, LLVMValueRef r,
+                                          const char *n) {
+  return fnBuildNSWMul(builder, l, r, n);
+}
+LLVMValueRef LLVM70IRBuilder::buildNUWMul(LLVMValueRef l, LLVMValueRef r,
+                                          const char *n) {
+  return fnBuildNUWMul(builder, l, r, n);
 }
 LLVMValueRef LLVM70IRBuilder::buildSDiv(LLVMValueRef l, LLVMValueRef r,
                                        const char *n) {

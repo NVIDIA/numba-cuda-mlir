@@ -555,7 +555,6 @@ class TestOperatorModule:
         ptx = compiled.inspect_lto_ptx(args)
         assert opstring in ptx, f"{opstring} not in PTX:\n{ptx}"
 
-    @pytest.mark.xfail(True, reason="NVVM verify error")
     def test_fp16_comparison_ptx(self):
         functions = (
             simple_fp16_gt,
@@ -623,7 +622,6 @@ class TestOperatorModule:
             ptx = compiled.inspect_lto_ptx(args)
             assert opstring[op] in ptx
 
-    @pytest.mark.xfail(True, reason="NVVM verify error")
     def test_mixed_fp16_comparison_promotion_ptx(self):
         functions = (
             simple_fp16_gt,

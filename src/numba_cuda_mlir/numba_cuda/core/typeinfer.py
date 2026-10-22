@@ -203,21 +203,60 @@ class Propagate:
     A simple constraint for direct propagation of types for assignments.
     """
 
-    def __init__(self, dst, src, loc):
+    def __init__(self, dst, src, loc, phi=False):
         self.dst = dst
         self.src = src
         self.loc = loc
+        self.phi = phi
 
     def __call__(self, typeinfer):
         with new_error_context("typing of assignment at {0}", self.loc, loc=self.loc):
             typeinfer.copy_type(self.src, self.dst, loc=self.loc)
             # If `dst` is refined, notify us
             typeinfer.refine_map[self.dst] = self
+            if self.phi:
+                self._refine_imprecise_phi_input(typeinfer)
+
+    def _refine_imprecise_phi_input(self, typeinfer):
+        # refine_map holds one constraint per variable, so refining a phi
+        # reaches only one of its inputs, and a phi that is precise from the
+        # start refines none. An input that is still imprecise is refined
+        # from the phi's type; a precise input keeps its own.
+        dst = typeinfer.typevars[self.dst]
+        src = typeinfer.typevars[self.src]
+        if not (dst.defined and src.defined):
+            return
+        dstty = dst.getone()
+        if dstty.is_precise() and not src.getone().is_precise():
+            self.refine(typeinfer, dstty)
 
     def refine(self, typeinfer, target_type):
         # Do not back-propagate to locked variables (e.g. constants)
         assert target_type.is_precise()
+        if self.phi:
+            target_type = _phi_input_refinement(typeinfer.typevars[self.src], target_type)
         typeinfer.add_type(self.src, target_type, unless_locked=True, loc=self.loc)
+
+
+def _phi_input_refinement(input_var, phi_type):
+    """Return the type that the phi input ``input_var`` takes from ``phi_type``.
+
+    The phi's type merges the qualifiers of all its inputs: an array joined
+    with a readonly array is readonly, and a C array joined with a strided
+    one has layout ``A``. An imprecise array input therefore takes only the
+    dtype, and keeps its own mutability, alignment and layout.
+    """
+    if not input_var.defined:
+        return phi_type
+    input_type = input_var.getone()
+    if (
+        not input_type.is_precise()
+        and type(input_type) is types.Array
+        and isinstance(phi_type, types.Array)
+        and input_type.ndim == phi_type.ndim
+    ):
+        return input_type.copy(dtype=phi_type.dtype)
+    return phi_type
 
 
 class ArgConstraint:
@@ -1804,7 +1843,9 @@ https://numba.readthedocs.io/en/stable/user/troubleshoot.html#my-code-has-an-unt
         elif expr.op == "phi":
             for iv in expr.incoming_values:
                 if iv is not ir.UNDEFINED:
-                    self.constraints.append(Propagate(dst=target.name, src=iv.name, loc=inst.loc))
+                    self.constraints.append(
+                        Propagate(dst=target.name, src=iv.name, loc=inst.loc, phi=True)
+                    )
         elif expr.op == "make_function":
             self.lock_type(
                 target.name,

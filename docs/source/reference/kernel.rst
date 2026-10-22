@@ -57,6 +57,11 @@ This is similar to launch configuration in CUDA C/C++:
 .. note:: The order of ``stream`` and ``sharedmem`` are reversed compared to in
    CUDA C++.
 
+While compilation is enabled, integer arguments with different widths or
+signedness select distinct overloads, including when an extension specializes
+the kernel by launch configuration. Disabling compilation retains integer
+coercion to compatible existing overloads.
+
 Dispatcher objects also provide several utility methods for inspection and
 creating a specialized instance:
 

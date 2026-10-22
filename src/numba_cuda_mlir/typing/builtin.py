@@ -125,6 +125,14 @@ class PosTemplate(AbstractTemplate):
         return None
 
 
+@registry.register_global(operator.itruediv)
+class ScalarITrueDivTemplate(AbstractTemplate):
+    def generic(self, args, kws):
+        if len(args) == 2 and all(isinstance(arg, types.Number) for arg in args):
+            return self.context.resolve_function_type(operator.truediv, args, kws)
+        return None
+
+
 @registry.register_global(operator.floordiv)
 @registry.register_global(operator.ifloordiv)
 class FloorDivTemplate(AbstractTemplate):

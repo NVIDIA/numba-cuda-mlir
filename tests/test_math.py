@@ -93,6 +93,25 @@ def test_arithmetic_operand_conversion_preserves_signedness(op, lhs, rhs, expect
     np.testing.assert_equal(out.copy_to_host()[0], expected)
 
 
+@pytest.mark.parametrize("op", [operator.neg, operator.invert], ids=["neg", "invert"])
+@pytest.mark.parametrize("dtype", [np.uint8, np.uint16, np.uint32])
+def test_unsigned_unary_wraparound(op, dtype):
+    @cuda.jit
+    def kernel(src, out):
+        out[0] = op(src[0])
+
+    limit = np.iinfo(dtype).max
+    values = np.array([0, 1, 7, limit // 2, limit // 2 + 1, limit], dtype=dtype)
+    expected = op(values).astype(np.int64)
+    got = np.empty(values.size, dtype=np.int64)
+    out = cuda.device_array(1, dtype=np.int64)
+    for i, value in enumerate(values):
+        src = cuda.to_device(np.array([value], dtype=dtype))
+        kernel[1, 1](src, out)
+        got[i] = out.copy_to_host()[0]
+    np.testing.assert_array_equal(got, expected)
+
+
 # Every value below has its high bit set, so reading it as signed yields a
 # negative number and the wrong answer is obvious rather than a rounding
 # difference. math.ceil/floor/trunc of an integer are pure conversions, which

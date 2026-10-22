@@ -52,6 +52,9 @@ INTEGER_UNARY = [np.invert, np.bitwise_not]
 
 FLOATS = np.array([-1.5, -0.0, 0.0, 0.25, 2.0])
 OTHER_FLOATS = np.array([2.0, 0.25, -0.0, 0.0, -1.5])
+# NaN is true for the logical ufuncs
+NAN_FLOATS = np.array([np.nan, 0.0, np.nan, -0.0, 2.0, np.inf, np.nan])
+OTHER_NAN_FLOATS = np.array([0.0, np.nan, np.nan, np.nan, np.nan, -np.inf, 1.5])
 INTS = np.array([-3, 0, 1, 2, 7], dtype=np.int64)
 OTHER_INTS = np.array([7, 2, 1, 0, -3], dtype=np.int64)
 # Unsigned values above the signed range must compare as unsigned
@@ -148,3 +151,17 @@ def test_unary_ufunc_on_scalars(ufunc, x):
 @pytest.mark.parametrize("x", [INTS, UINT32S], ids=["int", "uint32"])
 def test_integer_unary_ufunc_on_scalars(ufunc, x):
     check(ufunc, x)
+
+
+LOGICAL_BINARY = [np.logical_and, np.logical_or, np.logical_xor]
+
+
+@pytest.mark.parametrize("ufunc", LOGICAL_BINARY, ids=lambda u: u.__name__)
+@pytest.mark.parametrize("dtype", [np.float64, np.float32], ids=["float64", "float32"])
+def test_logical_binary_ufunc_on_nan(ufunc, dtype):
+    check(ufunc, NAN_FLOATS.astype(dtype), OTHER_NAN_FLOATS.astype(dtype))
+
+
+@pytest.mark.parametrize("dtype", [np.float64, np.float32], ids=["float64", "float32"])
+def test_logical_not_on_nan(dtype):
+    check(np.logical_not, NAN_FLOATS.astype(dtype))

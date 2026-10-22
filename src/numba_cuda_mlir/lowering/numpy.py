@@ -4271,7 +4271,8 @@ def _to_bool(val):
         return complex_dialect.neq(val, zero_c)
     else:
         zero = arith.constant(result=val.type, value=0.0)
-        return arith.cmpf(arith.CmpFPredicate.ONE, val, zero)
+        # Unordered, so that NaN is true as in NumPy
+        return arith.cmpf(arith.CmpFPredicate.UNE, val, zero)
 
 
 def _logical_and_fn(a, b):

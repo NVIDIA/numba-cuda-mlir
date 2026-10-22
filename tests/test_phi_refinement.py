@@ -44,6 +44,7 @@ def _lower_inferred_array(builder, target, args, kwargs):
 extending.refresh_registries()
 
 F64_ARRAY = types.Array(types.float64, 1, "C")
+RO_F64_ARRAY = types.Array(types.float64, 1, "C", readonly=True)
 
 
 def _typemap(kernel):
@@ -162,6 +163,61 @@ def test_loop_carried_constructor():
 
     assert _run(kernel, (3,)) == [10.5]
     assert set(_versions(_typemap(kernel), "buf").values()) == {F64_ARRAY}
+
+
+def _run_with_input(kernel, src, flag):
+    out = cuda.to_device(np.zeros(1))
+    kernel[1, 1](out, cuda.to_device(src), flag)
+    return out.copy_to_host()[0]
+
+
+@pytest.mark.parametrize("write", [True, False])
+def test_constructor_joined_with_a_readonly_array_stays_mutable(write):
+    # `a[0] = a[1]` writes `a` without giving it a dtype, so the dtype comes
+    # from the phi alone; the phi is readonly, `a` is not.
+    if write:
+
+        def body(out, ro, flag):
+            a = inferred_array(2)
+            if flag:
+                x = a
+            else:
+                x = ro
+            a[0] = a[1]
+            out[0] = x[0]
+
+    else:
+
+        def body(out, ro, flag):
+            a = inferred_array(2)
+            if flag:
+                x = a
+            else:
+                x = ro
+            out[0] = x[0]
+
+    kernel = cuda.jit([(F64_ARRAY, RO_F64_ARRAY, types.int64)])(body)
+    assert _run_with_input(kernel, np.full(2, 7.0), 0) == 7.0
+    typemap = _typemap(kernel)
+    assert typemap["a"] == F64_ARRAY
+    assert RO_F64_ARRAY in _versions(typemap, "x").values()
+
+
+def test_constructor_joined_with_a_strided_array_keeps_its_layout():
+    @cuda.jit
+    def kernel(out, src, flag):
+        a = inferred_array(2)
+        if flag:
+            x = a
+        else:
+            x = src[::2]
+        a[0] = a[1]
+        out[0] = x[0]
+
+    assert _run_with_input(kernel, np.arange(4.0) + 5.0, 0) == 5.0
+    typemap = _typemap(kernel)
+    assert typemap["a"] == F64_ARRAY
+    assert types.Array(types.float64, 1, "A") in _versions(typemap, "x").values()
 
 
 # Behaviour that the change must not alter.

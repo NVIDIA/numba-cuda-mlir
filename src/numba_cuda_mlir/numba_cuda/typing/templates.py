@@ -814,11 +814,13 @@ class _OverloadFunctionTemplate(AbstractTemplate):
 
         if (ty_kw is None) != (im_kw is None) or (ty_kw and ty_kw.name != im_kw.name):
             # case 6. described above
+            offending = ty_kw if im_kw is None else im_kw
             msg = (
-                "VAR_KEYWORD (e.g. **kwargs) argument kind must appear by the "
-                "same name in both the typing and the implementing function "
-                "signature.\n%s"
-            ) % sig_str
+                "The use of VAR_KEYWORD (e.g. **kwargs) is unsupported unless "
+                "it appears by the same name in both the typing and the "
+                "implementing function signature. (offending argument name is "
+                "'%s')\n%s"
+            ) % (offending, sig_str)
             raise InternalError(msg)
 
         a = ty_args

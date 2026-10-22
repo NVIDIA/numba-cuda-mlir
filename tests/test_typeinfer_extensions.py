@@ -318,6 +318,25 @@ def test_final_at_fixpoint_reports_errors():
             k[1, 1](out)
 
 
+def test_an_early_at_fixpoint_error_is_reported_before_pending_ones():
+    # The method call on the deferred read fails until the read resolves.
+    class ReportEarly(WaitForStrong):
+        def at_fixpoint(self, typeinfer, final):
+            if not final and typeinfer.deferred_calls:
+                return [errors.TypingError("payload rule violated")]
+            return None
+
+    def kernel(out):
+        p = toy_payload(1)
+        p[0] = 1.5
+        observed = p[0]
+        out[0] = observed.conjugate()
+
+    with registered(ReportEarly()):
+        with pytest.raises(errors.TypingError, match="payload rule violated"):
+            cuda.jit(kernel)[1, 1](np.zeros(1))
+
+
 def test_the_extension_chooses_the_release_order():
     with registered(PayloadRules()):
         k = cuda.jit(two_payloads)

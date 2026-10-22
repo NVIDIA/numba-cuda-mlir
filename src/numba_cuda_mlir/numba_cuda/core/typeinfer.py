@@ -1203,7 +1203,9 @@ class TypeInferer:
             released = len(self._released)
             found = self._run_at_fixpoint(final=False)
             if found:
-                return errors + found
+                # Calls may still be deferred, so constraint errors here can
+                # be transient; report the extension's errors first.
+                return found + errors
             if self.get_state_token() != token or len(self._released) != released:
                 continue
             if not self._deferred:

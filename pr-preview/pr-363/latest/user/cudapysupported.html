@@ -747,7 +747,11 @@ code such that each thread is dealing with a single element at a time.</p>
 <p>Supported NumPy features:</p>
 <ul>
 <li><p>accessing <cite>ndarray</cite> attributes <cite>.shape</cite>, <cite>.strides</cite>, <cite>.ndim</cite>, <cite>.size</cite>, etc..</p></li>
-<li><p>indexing and slicing works.</p></li>
+<li><p>indexing and slicing works. Signed negative integer indices wrap relative to
+the indexed dimension; unsigned integer indices do not wrap. As in Numba,
+signed integer addition, subtraction, and multiplication ignore signed
+overflow to permit index optimizations. Use unsigned arithmetic when
+wraparound overflow is required.</p></li>
 <li><p>A subset of ufuncs are supported, but the output array must be passed in as a
 positional argument (see <a class="reference internal" href="examples.html#cuda-ufunc-call-example"><span class="std std-ref">Calling a NumPy UFunc</span></a>). Note that ufuncs
 execute sequentially in each thread - there is no automatic parallelisation

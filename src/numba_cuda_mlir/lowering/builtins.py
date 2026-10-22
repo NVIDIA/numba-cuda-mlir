@@ -599,6 +599,14 @@ def lower_round(builder, target, args, kwargs):
     raise NotImplementedError(f"round intrinsic for types {value.type} and {ndigits.type}")
 
 
+@lower(round, types.Integer)
+def lower_round_integer(builder, target, args, kwargs):
+    source_type = builder.get_numba_type(args[0].name)
+    target_type = builder.get_numba_type(target.name)
+    value = builder.lower_cast(source_type, target_type, builder.load_var(args[0]))
+    builder.store_var(target, value)
+
+
 @lower(round, types.Number)
 def lower_round_single(builder, target, args, kwargs):
     from numba_cuda_mlir._mlir.dialects import math

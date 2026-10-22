@@ -539,23 +539,30 @@ lower(types.NumberClass, types.Number)(type_convert)
 lower(types.NumberClass, types.Boolean)(type_convert)
 
 
+def _minmax_operands(builder, target, args):
+    """Convert operands to the inferred common type using source signedness."""
+    target_type = builder.get_numba_type(target)
+    mlir_type = builder.get_mlir_type(target)
+    return tuple(
+        convert(
+            builder.load_var(arg),
+            mlir_type,
+            signed=get_conversion_signedness(builder.get_numba_type(arg), target_type),
+        )
+        for arg in args
+    )
+
+
 @lower(max, types.Number, types.Number)
 def lower_max(builder, target, args, kwargs):
     """Lower built-in max(a, b) for numeric types."""
-    from numba_cuda_mlir.lowering_utilities import coerce_numpy_scalars_for_binary_op
-
-    a = builder.load_var(args[0])
-    b = builder.load_var(args[1])
-
-    # Promote types using numpy implicit type promotion
-    a, b = coerce_numpy_scalars_for_binary_op(a, b)
+    a, b = _minmax_operands(builder, target, args)
 
     # Use appropriate max operation based on type
     if isinstance(a.type, ir.FloatType):
         result = arith.maxnumf(a, b)
     elif isinstance(a.type, ir.IntegerType):
-        # For simplicity, use signed max (could enhance to detect signed/unsigned)
-        result = arith.maxsi(a, b)
+        result = arith.maxsi(a, b) if builder.get_numba_type(target).signed else arith.maxui(a, b)
     else:
         raise NotImplementedError(f"max not implemented for type {a.type}")
 
@@ -565,20 +572,13 @@ def lower_max(builder, target, args, kwargs):
 @lower(min, types.Number, types.Number)
 def lower_min(builder, target, args, kwargs):
     """Lower built-in min(a, b) for numeric types."""
-    from numba_cuda_mlir.lowering_utilities import coerce_numpy_scalars_for_binary_op
-
-    a = builder.load_var(args[0])
-    b = builder.load_var(args[1])
-
-    # Promote types using numpy implicit type promotion
-    a, b = coerce_numpy_scalars_for_binary_op(a, b)
+    a, b = _minmax_operands(builder, target, args)
 
     # Use appropriate min operation based on type
     if isinstance(a.type, ir.FloatType):
         result = arith.minnumf(a, b)
     elif isinstance(a.type, ir.IntegerType):
-        # For simplicity, use signed min (could enhance to detect signed/unsigned)
-        result = arith.minsi(a, b)
+        result = arith.minsi(a, b) if builder.get_numba_type(target).signed else arith.minui(a, b)
     else:
         raise NotImplementedError(f"min not implemented for type {a.type}")
 

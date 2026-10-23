@@ -240,6 +240,7 @@ class MLIRLower(object):
         self._deferred_dbg_declare_vars: set[str] = set()
         self._debug_forced_alloca: set[str] = set()
         self._poly_dbg_alloca: dict[str, ir.Value] = {}
+        self._dbg_decl_slots: dict[str, tuple[ir.Value, ir.Type]] = {}
 
         self.nrt = MLIRNRTContext(context.data_model_manager)
 
@@ -3363,9 +3364,23 @@ extern "C" __global__ void
 
         Pass volatile to keep the slot: a promotable one leaves the variable
         with a register location that the debugger may not be able to resolve.
+
+        A source variable gets one slot, reused by later assignments. Numba's
+        SSA versions (``c``, ``c.1``) collapse to a single DILocalVariable, and
+        dbg.declare names an address for the whole scope rather than for a PC
+        range, so a second declare at a second address is not an update -- a
+        consumer keeps one location and the debugger then reads a stale slot.
+        Variables whose versions differ in type are filtered earlier by
+        ``_poly_dbg_types``; the type guard below is a backstop.
         """
+        slot, slot_type = self._dbg_decl_slots.get(var_name, (None, None))
+        if slot is not None:
+            if slot_type == value.type:
+                llvm.store(value, slot, volatile_=volatile)
+            return
         alloca_ptr = self.alloca(value.type)
         llvm.store(value, alloca_ptr, volatile_=volatile)
+        self._dbg_decl_slots[var_name] = (alloca_ptr, value.type)
         llvm.intr_dbg_declare(
             alloca_ptr,
             var_attr,

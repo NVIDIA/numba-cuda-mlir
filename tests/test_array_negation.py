@@ -99,3 +99,52 @@ def test_unary_plus_returns_a_copy():
     out = np.zeros(2)
     kernel[1, 1](x, out)
     np.testing.assert_array_equal(out, [1.0, 99.0])
+
+
+# Local and shared arrays have static shapes, unlike the kernel arguments
+def test_negate_fixed_shape_arrays():
+    @cuda.jit
+    def kernel(out):
+        local = cuda.local.array((2, 3), np.float64)
+        shared = cuda.shared.array(4, np.float64)
+        for i in range(2):
+            for j in range(3):
+                local[i, j] = i * 3 + j + 1
+        for i in range(4):
+            shared[i] = i + 1
+        a = -local
+        b = -shared
+        for i in range(2):
+            for j in range(3):
+                out[i * 3 + j] = a[i, j]
+        for i in range(4):
+            out[6 + i] = b[i]
+
+    out = np.zeros(10)
+    kernel[1, 1](out)
+    expected = np.concatenate([np.arange(1.0, 7.0), np.arange(1.0, 5.0)])
+    np.testing.assert_array_equal(out, -expected)
+
+
+def test_unary_plus_fixed_shape_arrays():
+    @cuda.jit
+    def kernel(out):
+        local = cuda.local.array((2, 3), np.float64)
+        shared = cuda.shared.array(4, np.float64)
+        for i in range(2):
+            for j in range(3):
+                local[i, j] = i * 3 + j + 1
+        for i in range(4):
+            shared[i] = i + 1
+        a = +local
+        b = +shared
+        for i in range(2):
+            for j in range(3):
+                out[i * 3 + j] = a[i, j]
+        for i in range(4):
+            out[6 + i] = b[i]
+
+    out = np.zeros(10)
+    kernel[1, 1](out)
+    expected = np.concatenate([np.arange(1.0, 7.0), np.arange(1.0, 5.0)])
+    np.testing.assert_array_equal(out, expected)

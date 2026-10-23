@@ -267,17 +267,37 @@ class ShflXorSyncTemplate(ShflSyncTemplateBase):
 class GenericArrayTemplate(CallableTemplate):
     # Subclasses can set this to True to allow non-literal shapes (e.g., for dynamic shared memory)
     allow_dynamic_shape = False
+    # Subclasses can set this to True to request a literal value for a non-literal
+    # integer shape, so that a shape passed as a kernel argument is specialized on.
+    request_literal_shape = False
+
+    def apply(self, args, kws):
+        # The typed signature is positional, so 'alignas' is typed in the
+        # 'alignment' slot. Lowering is looked up from the call's own
+        # arguments and handles at most three, so the two cannot be combined.
+        kws = dict(kws)
+        if "alignas" in kws:
+            if len(args) > 2 or "alignment" in kws:
+                from numba_cuda_mlir.numba_cuda.core.errors import TypingError
+
+                raise TypingError("pass either alignment or alignas, not both")
+            kws["alignment"] = kws.pop("alignas")
+        return super().apply(args, kws)
 
     def generic(self):
         allow_dynamic = self.allow_dynamic_shape
+        request_literal = self.request_literal_shape
 
         def typer(shape, dtype, alignment=None, alignas=None):
             # By default, only integer literals and tuples of integer literals are valid shapes
             # This matches numba-cuda's Cuda_array_decl behavior for static allocations.
             # Shared arrays can use dynamic shapes when allow_dynamic_shape=True.
+            needs_literal_shape = False
             if isinstance(shape, types.Integer):
                 if not allow_dynamic and not isinstance(shape, types.IntegerLiteral):
-                    return None
+                    if not request_literal:
+                        return None
+                    needs_literal_shape = True
                 ndim = 1
             elif isinstance(shape, (types.Tuple, types.UniTuple)):
                 if not allow_dynamic and any(
@@ -318,6 +338,16 @@ class GenericArrayTemplate(CallableTemplate):
             else:
                 return None
 
+            if nb_dtype is not None and needs_literal_shape:
+                # Only an integer shape that comes from a kernel argument can be
+                # made literal; any other shape is refused by type inference.
+                def fold_arguments(fold_args, fold_kws):
+                    bound = inspect.signature(typer).bind(*fold_args, **dict(fold_kws))
+                    bound.apply_defaults()
+                    return bound.args
+
+                raise ForceLiteralArg(arg_indices={0}, fold_arguments=fold_arguments)
+
             if nb_dtype is not None and ndim is not None:
                 return types.Array(dtype=nb_dtype, ndim=ndim, layout="C")
 
@@ -349,6 +379,7 @@ class LocalArrayTemplate(GenericArrayTemplate):
     import numba_cuda_mlir.cuda
 
     key = numba_cuda_mlir.cuda.local.array
+    request_literal_shape = True
 
 
 @registry.register_attr

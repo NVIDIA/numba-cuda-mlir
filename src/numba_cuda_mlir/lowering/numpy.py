@@ -544,8 +544,7 @@ def len_cg(builder, target, args, kwargs):
     builder.store_var(target, product)
 
 
-@lower(len, types.UniTuple)
-@lower(len, types.Tuple)
+@lower(len, types.BaseTuple)
 def tuple_len_cg(builder, target, args, kwargs):
     tup = builder.load_var(args[0])
     builder.store_var(target, arith.constant(result=T.index(), value=len(tup)))

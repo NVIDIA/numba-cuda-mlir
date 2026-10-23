@@ -637,7 +637,10 @@ def lower_round_single(builder, target, args, kwargs):
     from numba_cuda_mlir._mlir.dialects import math
 
     value = builder.load_var(args[0])
-    res = math.round(value)
+    # math.round takes halfway cases away from zero; Python, NumPy and
+    # numba-cuda take them to even, which is math.roundeven.  The two-argument
+    # lowering already goes through runtime.round_intrinsics for this reason.
+    res = math.roundeven(value)
     builder.store_var(target, res)
 
 

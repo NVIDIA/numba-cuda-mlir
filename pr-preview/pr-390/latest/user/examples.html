@@ -1069,10 +1069,9 @@ two limits:</p>
 <p>First, import the modules needed for this example:</p>
 <div class="literal-block-wrapper docutils container" id="id27">
 <div class="code-block-caption"><span class="caption-text">from <code class="docutils literal notranslate"><span class="pre">test_ex_matmul</span></code> in <code class="docutils literal notranslate"><span class="pre">tests/doc_examples/test_matmul.py</span></code></span><a class="headerlink" href="#id27" title="Link to this code">#</a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
-<span class="linenos">2</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir.cuda</span><span class="w"> </span><span class="kn">import</span> <span class="n">float32</span>
-<span class="linenos">3</span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<span class="linenos">4</span><span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span><span class="p">,</span> <span class="n">types</span>
+<span class="linenos">2</span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="linenos">3</span><span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
 </pre></div>
 </div>
 </div>
@@ -1140,8 +1139,8 @@ memory:</p>
 <span class="linenos">12</span><span class="sd">    """</span>
 <span class="linenos">13</span>    <span class="c1"># Define an array in the shared memory</span>
 <span class="linenos">14</span>    <span class="c1"># The size and type of the arrays must be known at compile time</span>
-<span class="linenos">15</span>    <span class="n">sA</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">shared</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">TPB</span><span class="p">,</span> <span class="n">TPB</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">)</span>
-<span class="linenos">16</span>    <span class="n">sB</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">shared</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">TPB</span><span class="p">,</span> <span class="n">TPB</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">)</span>
+<span class="linenos">15</span>    <span class="n">sA</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">shared</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">TPB</span><span class="p">,</span> <span class="n">TPB</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">types</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="linenos">16</span>    <span class="n">sB</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">shared</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">TPB</span><span class="p">,</span> <span class="n">TPB</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">types</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
 <span class="linenos">17</span>
 <span class="linenos">18</span>    <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
 <span class="linenos">19</span>
@@ -1151,7 +1150,7 @@ memory:</p>
 <span class="linenos">23</span>
 <span class="linenos">24</span>    <span class="c1"># Each thread computes one element in the result matrix.</span>
 <span class="linenos">25</span>    <span class="c1"># The dot product is chunked into dot products of TPB-long vectors.</span>
-<span class="linenos">26</span>    <span class="n">tmp</span> <span class="o">=</span> <span class="n">float32</span><span class="p">(</span><span class="mf">0.0</span><span class="p">)</span>
+<span class="linenos">26</span>    <span class="n">tmp</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">float32</span><span class="p">(</span><span class="mf">0.0</span><span class="p">)</span>
 <span class="linenos">27</span>    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">bpg</span><span class="p">):</span>
 <span class="linenos">28</span>        <span class="c1"># Preload data into shared memory</span>
 <span class="linenos">29</span>        <span class="n">sA</span><span class="p">[</span><span class="n">ty</span><span class="p">,</span> <span class="n">tx</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>

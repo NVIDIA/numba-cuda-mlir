@@ -87,6 +87,7 @@ _DISPATCHER_STATE_ATTRS = (
     "_launch_config_dispatchers",
     "_launch_config_generation",
     "_requires_launch_config",
+    "_requires_dynamic_shared_memory",
     "_literal_arg_positions",
     "_launch_config_cache_misses",
     "_launch_config_cache_hits",
@@ -99,6 +100,14 @@ _DISPATCHER_STATE_ATTRS = (
 
 def _new_dispatcher_rlock():
     return threading.RLock()
+
+
+class _RelaunchForDynamicSharedMemory(Exception):
+    """Abort a native launch whose on-demand compile requires dynamic shared memory.
+
+    The native launcher launches what it compiles with the configured
+    sharedmem, so the marshaller relaunches with the requirement applied.
+    """
 
 
 def _is_strided_memory_view(arg):
@@ -640,6 +649,7 @@ class _ArgMarshaller:
             if dispatcher is not None and (
                 _planner_registry.has_planners
                 or getattr(dispatcher, "_requires_launch_config", False)
+                or getattr(dispatcher, "_requires_dynamic_shared_memory", False)
                 or self._launch_config is not None
                 or literal_prelaunch
             ):
@@ -732,6 +742,10 @@ class _ArgMarshaller:
             elif hasattr(_compile_arg_types, "launch_config"):
                 delattr(_compile_arg_types, "launch_config")
             return launcher(*launch_args)
+        except _RelaunchForDynamicSharedMemory:
+            # The dispatcher now requires dynamic shared memory, so this
+            # launch takes the prepared path.
+            return self._launch(argtypes, launch_args, launch_values)
         except UserFacingInternalCompilerError as e:
             if os.environ.get("NUMBA_CUDA_MLIR_ICE_FULL_TB", "0").strip() == "1":
                 raise
@@ -1658,6 +1672,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         self._launch_config_dispatchers = collections.OrderedDict()
         self._launch_config_generation = 0
         self._requires_launch_config = False
+        # Set once any compile records required dynamic shared memory; launches
+        # then size dynamic shared memory before calling the native launcher.
+        self._requires_dynamic_shared_memory = False
         self._literal_arg_positions = frozenset()
         self._c = self._new_kernel_dispatcher()
         self.extensions = targetoptions.get("extensions") or []
@@ -1920,6 +1937,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 self._launch_config_generation = 0
             if not hasattr(self, "_requires_launch_config"):
                 self._requires_launch_config = False
+            if not hasattr(self, "_requires_dynamic_shared_memory"):
+                self._requires_dynamic_shared_memory = False
             if not hasattr(self, "_literal_arg_positions"):
                 self._literal_arg_positions = frozenset()
             if not hasattr(self, "_launch_config_cache_misses"):
@@ -2937,7 +2956,12 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
 
     def _compile(self, args):
         with global_compiler_lock:
+            # A launch made while the dispatcher had no requirement was not
+            # sized for one, so a first requirement aborts it.
+            launch_sized = getattr(self, "_requires_dynamic_shared_memory", False)
             cubin, func_name, cooperative = self._compile_impl(args)
+            if self._requires_dynamic_shared_memory and not launch_sized:
+                raise _RelaunchForDynamicSharedMemory
             if self._module_setup_callbacks or self._module_teardown_callbacks:
                 return (cubin, func_name, cooperative, self._make_post_load_hook())
             return (cubin, func_name, cooperative)
@@ -3002,6 +3026,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 active_launch_config_generation = self._launch_config_generation
 
         def _result(cres):
+            if cres.metadata.get(_REQUIRED_DYNAMIC_SHARED_MEMORY_KEY):
+                self._requires_dynamic_shared_memory = True
             return (
                 cres.metadata["cubin"],
                 cres.metadata["func_name"],

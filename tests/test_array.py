@@ -462,6 +462,69 @@ class TestNegativeArrayIndices:
         np.testing.assert_array_equal(arr1d, expected1d)
         np.testing.assert_array_equal(arr2d, expected2d)
 
+    def test_unsigned_indices_skip_negative_wrap(self):
+        # Numba's fix_integer_index wraps signed indices only; unsigned indices
+        # cannot be negative, so the wrap is skipped entirely (#329).
+        import re
+
+        from numba_cuda_mlir.mlir_optimization import get_llvmir
+
+        @cuda.jit
+        def kernel(arr, n, out):
+            i = np.uint64(0)
+            while i < n:
+                out[i] = arr[i]
+                i = i + np.uint64(1)
+
+        arr = np.arange(8, dtype=np.float32)
+        out = np.zeros(8, dtype=np.float32)
+        kernel[1, 1](arr, np.uint64(8), out)
+        np.testing.assert_array_equal(out, arr)
+
+        llvm_ir = get_llvmir(list(kernel.overloads.values())[0])
+        assert not re.search(r"select i1", llvm_ir), (
+            "unsigned index loop still contains negative-index wrap selects"
+        )
+
+    @pytest.mark.parametrize("row", [np.uint64(1), np.int64(-1)])
+    def test_tuple_index_signedness(self, row):
+        @cuda.jit
+        def kernel(arr, row, column, out):
+            out[0] = arr[row, column]
+            arr[row, column] = 99
+            out[1] = arr[row][column]
+
+        arr = np.arange(12, dtype=np.int64).reshape(3, 4)
+        expected = arr.copy()
+        expected[int(row), 2] = 99
+        out = np.zeros(2, dtype=np.int64)
+        kernel[1, 1](arr, row, np.uint64(2), out)
+        np.testing.assert_array_equal(out, [6 if row == 1 else 10, 99])
+        np.testing.assert_array_equal(arr, expected)
+
+    def test_signed_loop_index_wrap_optimized_away(self):
+        # The wrap for signed indices is emitted, but nsw flags on the loop
+        # arithmetic let NVVM's LLVM 7 optimizer remove the selects in loops
+        # where the index cannot be negative (#329).
+        import re
+
+        @cuda.jit
+        def kernel(arr, n, out):
+            i = 0
+            while i < n:
+                out[i] = arr[i + 1]
+                i += 1
+
+        arr = np.arange(8, dtype=np.float32)
+        out = np.zeros(8, dtype=np.float32)
+        kernel[1, 1](arr, 4, out)
+        np.testing.assert_array_equal(out[:4], arr[1:5])
+
+        ptx = list(kernel.overloads.values())[0]._inspect_asm()
+        assert not re.search(r"selp\.b\d+", ptx), (
+            "negative-index wrap selects survived NVVM optimization in loop"
+        )
+
 
 if __name__ == "__main__":
     import logging

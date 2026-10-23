@@ -65,12 +65,7 @@ def get_user_code_loc(user_base: Optional[Path] = None):
     ):
         prev_frame = prev_frame.f_back
     frame_info = inspect.getframeinfo(prev_frame)
-    if sys.version_info.minor >= 11:
-        return Location.file(
-            frame_info.filename, frame_info.lineno, frame_info.positions.col_offset
-        )
-    else:
-        return Location.file(frame_info.filename, frame_info.lineno, col=0)
+    return Location.file(frame_info.filename, frame_info.lineno, frame_info.positions.col_offset)
 
 
 @contextlib.contextmanager

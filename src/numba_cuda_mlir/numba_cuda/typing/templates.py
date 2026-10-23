@@ -18,6 +18,7 @@ from types import MethodType, FunctionType, MappingProxyType
 from numba_cuda_mlir import numba_cuda
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core.errors import (
+    ArgumentBindingError,
     TypingError,
     InternalError,
 )
@@ -194,7 +195,9 @@ def signature(return_type, *args, **kws):
     return Signature(return_type, args, recvr=recvr)
 
 
-def fold_arguments(pysig, args, kws, normal_handler, default_handler, stararg_handler):
+def fold_arguments(
+    pysig, args, kws, normal_handler, default_handler, stararg_handler, *, name=None, loc=None
+):
     """
     Given the signature *pysig*, explicit *args* and *kws*, resolve
     omitted arguments and keyword arguments. A tuple of positional
@@ -203,6 +206,8 @@ def fold_arguments(pysig, args, kws, normal_handler, default_handler, stararg_ha
     - normal_handler(index, param, value) is called for normal arguments
     - default_handler(index, param, default) is called for omitted arguments
     - stararg_handler(index, param, values) is called for a "*args" argument
+    If the arguments do not bind, an ArgumentBindingError is raised; given the
+    callee's *name*, its message is Python's, and *loc* is the call's location.
     """
     if isinstance(kws, Sequence):
         # Normalize dict kws
@@ -214,12 +219,15 @@ def fold_arguments(pysig, args, kws, normal_handler, default_handler, stararg_ha
     except TypeError as e:
         # The binding attempt can raise if the args don't match up, this needs
         # to be converted to a TypingError so that e.g. partial type inference
-        # doesn't just halt.
-        msg = (
-            f"Cannot bind 'args={args} kws={kws}' to "
-            f"signature '{pysig}' due to \"{type(e).__name__}: {e}\"."
-        )
-        raise TypingError(msg)
+        # doesn't just halt. It stays a TypeError, as in Python.
+        if name is None:
+            msg = (
+                f"Cannot bind 'args={args} kws={kws}' to "
+                f"signature '{pysig}' due to \"{type(e).__name__}: {e}\"."
+            )
+        else:
+            msg = f"{name}() {e}"
+        raise ArgumentBindingError(msg, loc=loc)
     for i, param in enumerate(pysig.parameters.values()):
         name = param.name
         default = param.default

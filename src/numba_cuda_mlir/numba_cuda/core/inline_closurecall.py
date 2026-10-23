@@ -732,7 +732,14 @@ def _get_callee_args(call_expr, callee, loc, func_ir):
         else:
             kws = {}
         return typing.fold_arguments(
-            pysig, args, kws, normal_handler, default_handler, stararg_handler
+            pysig,
+            args,
+            kws,
+            normal_handler,
+            default_handler,
+            stararg_handler,
+            name=callee.__name__,
+            loc=loc,
         )
     else:
         # TODO: handle arguments for make_function case similar to function

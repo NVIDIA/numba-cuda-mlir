@@ -21,6 +21,19 @@ def k_local_var(out, a, b):
     out[0] = c
 
 
+def k_reassigned_local(out, a, b):
+    c = a + b
+    c = c + 1
+    out[0] = c
+
+
+def k_loop_accumulator(out, n):
+    total = 0
+    for i in range(n):
+        total = total + i
+    out[0] = total
+
+
 def k_bool_kernel(out, flag):
     if flag:
         out[0] = 1
@@ -279,6 +292,56 @@ def test_mlir_scalar_local_is_declared_not_valued():
         """
         CHECK: #[[C_VAR:di_local_variable[0-9]*]] = #llvm.di_local_variable<{{.*}}name = "c"
         CHECK: llvm.intr.dbg.declare #[[C_VAR]] = %{{[0-9]+}}
+        """,
+        mlir,
+    )
+
+
+def test_mlir_reassigned_scalar_keeps_one_slot():
+    """Reassigning a local stores into its declared slot, not a second one.
+
+    Numba's SSA renaming gives ``c`` and ``c.1``, which both resolve to the one
+    DILocalVariable named ``c``.  dbg.declare carries no PC range, so a second
+    declare for the same variable at a different address is not an update -- a
+    consumer keeps one location and the debugger then reports whichever slot it
+    kept, which is stale after the reassignment.
+    """
+    mlir = compiler.compile_mlir(
+        k_reassigned_local,
+        types.void(types.int32[:], types.int32, types.int32),
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK: #[[C_VAR:di_local_variable[0-9]*]] = #llvm.di_local_variable<{{.*}}name = "c"
+        CHECK: llvm.intr.dbg.declare #[[C_VAR]] = %[[SLOT:[0-9]+]]
+        CHECK: llvm.store volatile %{{[0-9]+}}, %[[SLOT]]
+        CHECK-NOT: llvm.intr.dbg.declare #[[C_VAR]]
+        """,
+        mlir,
+    )
+
+
+def test_mlir_loop_accumulator_keeps_one_slot():
+    """An accumulator assigned once per iteration still gets a single declare.
+
+    The loop body is the common case for repeated assignment: ``total`` has
+    four SSA versions here, and one declare each would leave the debugger
+    reading the pre-loop value for the whole kernel.
+    """
+    mlir = compiler.compile_mlir(
+        k_loop_accumulator,
+        types.void(types.int64[:], types.int32),
+        debug=True,
+        opt=False,
+    )
+    testing.filecheck(
+        """
+        CHECK: #[[T_VAR:di_local_variable[0-9]*]] = #llvm.di_local_variable<{{.*}}name = "total"
+        CHECK: llvm.intr.dbg.declare #[[T_VAR]] = %[[SLOT:[0-9]+]]
+        CHECK: llvm.store volatile %{{[0-9a-z_]+}}, %[[SLOT]]
+        CHECK-NOT: llvm.intr.dbg.declare #[[T_VAR]]
         """,
         mlir,
     )

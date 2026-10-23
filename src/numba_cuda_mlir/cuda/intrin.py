@@ -12,7 +12,7 @@ from numba_cuda_mlir.errors import (
 )
 from numba_cuda_mlir.lowering_utilities.type_conversions import to_mlir_type
 from numba_cuda_mlir.lowering_utilities.discover_functions import discover_functions
-from numba_cuda_mlir._mlir.ir import UnitAttr
+from cudamlir.ir import UnitAttr
 
 
 def _import_runtime():

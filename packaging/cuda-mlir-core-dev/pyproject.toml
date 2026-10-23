@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = [
+    "setuptools>=64",
+    "wheel",
+]

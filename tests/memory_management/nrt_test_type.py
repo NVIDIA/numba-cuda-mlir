@@ -14,9 +14,9 @@ and lowering implementation.
 """
 
 from numba_cuda_mlir import types as nb_types
-from numba_cuda_mlir._mlir import ir as mlir_ir
-from numba_cuda_mlir._mlir.dialects import llvm
-from numba_cuda_mlir._mlir.extras import types as T
+from cudamlir import ir as mlir_ir
+from cudamlir.dialects import llvm
+from cudamlir.extras import types as T
 from numba_cuda_mlir.extending import lowering_registry, refresh_registries, typing_registry
 from numba_cuda_mlir.lowering.nrt import nrt_meminfo_alloc
 from numba_cuda_mlir.lowering_utilities import int_of

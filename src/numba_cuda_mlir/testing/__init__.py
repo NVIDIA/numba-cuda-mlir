@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from importlib.util import find_spec
-from numba_cuda_mlir._mlir import ir
+from cudamlir import ir
 from textwrap import indent
 from pathlib import Path
 from io import StringIO
@@ -9,7 +9,7 @@ import re
 from textwrap import dedent
 import inspect
 import os
-from numba_cuda_mlir._mlir.ir import Module, Operation
+from cudamlir.ir import Module, Operation
 from typing import Iterable, Union
 import sys
 

@@ -14,24 +14,24 @@ from ._shaped_value import (
     _is_int_arraylike,
 )
 from .arith import ArithValue, ScalarValue, constant
-from numba_cuda_mlir._mlir.extras import types as T
-from numba_cuda_mlir._mlir.extras.meta import region_op
+from cudamlir.extras import types as T
+from cudamlir.extras.meta import region_op
 from ..util import (
     _unpack_sizes_element_type,
     _update_caller_vars,
     get_user_code_loc,
     mlir_type_to_np_dtype,
 )
-from numba_cuda_mlir._mlir._mlir_libs._mlir import register_value_caster
-from numba_cuda_mlir._mlir.dialects import tensor
-from numba_cuda_mlir._mlir.dialects._ods_common import (
+from cudamlir._mlir_libs._mlir import register_value_caster
+from cudamlir.dialects import tensor
+from cudamlir.dialects._ods_common import (
     get_op_result_or_op_results,
 )
-from numba_cuda_mlir._mlir.dialects.tensor import *
-from numba_cuda_mlir._mlir.dialects.transform.structured import (
+from cudamlir.dialects.tensor import *
+from cudamlir.dialects.transform.structured import (
     _get_int_array_array_attr,
 )
-from numba_cuda_mlir._mlir.ir import (
+from cudamlir.ir import (
     RankedTensorType,
     ShapedType,
     Type,

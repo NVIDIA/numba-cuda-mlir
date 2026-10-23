@@ -10,7 +10,7 @@ at launch time for argument marshalling.
 
 import operator
 import numpy as np
-from numba_cuda_mlir._mlir.ir import IntegerType
+from cudamlir.ir import IntegerType
 import pytest
 
 from numba_cuda_mlir.numba_cuda.datamodel.models import PrimitiveModel

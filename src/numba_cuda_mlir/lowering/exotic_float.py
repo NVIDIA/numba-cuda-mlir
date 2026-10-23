@@ -18,9 +18,9 @@ from numba_cuda_mlir.types import (
     fp8_e5m2,
     fp8_e8m0,
 )
-from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir._mlir.dialects import arith, llvm
-from numba_cuda_mlir._mlir.extras import types as T
+from cudamlir import ir
+from cudamlir.dialects import arith, llvm
+from cudamlir.extras import types as T
 from numba_cuda_mlir.numba_cuda.types.ext_types import bfloat16 as bf16
 
 registry = LoweringRegistry()

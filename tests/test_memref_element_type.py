@@ -22,8 +22,8 @@ from numba_cuda_mlir import cuda, extending, types
 from numba_cuda_mlir.extending import lower_cast, lowering_registry
 from numba_cuda_mlir.lowering_utilities import convert
 from numba_cuda_mlir.models import PrimitiveModel, register_model
-from numba_cuda_mlir._mlir import ir as mlir_ir
-from numba_cuda_mlir._mlir.dialects import llvm
+from cudamlir import ir as mlir_ir
+from cudamlir.dialects import llvm
 from numba_cuda_mlir.numba_cuda.typeconv import Conversion
 
 

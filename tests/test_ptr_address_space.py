@@ -17,7 +17,7 @@ import pytest
 from cffi import FFI
 
 from numba_cuda_mlir import carray, cuda, types
-from numba_cuda_mlir._mlir.dialects import llvm
+from cudamlir.dialects import llvm
 from numba_cuda_mlir.cuda.experimental import intrin
 
 requires_nvdisasm = pytest.mark.skipif(shutil.which("nvdisasm") is None, reason="nvdisasm needed")

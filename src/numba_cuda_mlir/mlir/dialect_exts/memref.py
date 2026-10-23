@@ -11,27 +11,27 @@ import numpy as np
 from ._shaped_value import ShapedValue, _indices_to_indexer, _maybe_compute_size
 from .arith import ScalarValue, constant, index_cast, ConstantOp
 from .tensor import compute_result_shape_reassoc_list
-from numba_cuda_mlir._mlir.extras import types as T
-from numba_cuda_mlir._mlir.extras.meta import region_op
+from cudamlir.extras import types as T
+from cudamlir.extras.meta import region_op
 from ..util import (
     _get_sym_name,
     get_user_code_loc,
     infer_mlir_type,
 )
-from numba_cuda_mlir._mlir._mlir_libs._mlir import register_value_caster
-from numba_cuda_mlir._mlir.dialects import memref, arith, vector, builtin
-from numba_cuda_mlir._mlir.dialects._ods_common import (
+from cudamlir._mlir_libs._mlir import register_value_caster
+from cudamlir.dialects import memref, arith, vector, builtin
+from cudamlir.dialects._ods_common import (
     get_op_result_or_op_results,
     MixedValues,
     _dispatch_mixed_values,
 )
-from numba_cuda_mlir._mlir.dialects.memref import (
+from cudamlir.dialects.memref import (
     _is_static_int_like,
     _generated_subview,
     _is_constant_int_like,
 )
-from numba_cuda_mlir._mlir.dialects.memref import *
-from numba_cuda_mlir._mlir.ir import (
+from cudamlir.dialects.memref import *
+from cudamlir.ir import (
     DenseElementsAttr,
     MemRefType,
     UnrankedMemRefType,

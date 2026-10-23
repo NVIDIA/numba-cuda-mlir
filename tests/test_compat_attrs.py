@@ -4,8 +4,8 @@
 
 import numpy as np
 import pytest
-import numba_cuda_mlir._mlir.ir as ir
-from numba_cuda_mlir._mlir.dialects import arith
+import cudamlir.ir as ir
+from cudamlir.dialects import arith
 from numba_cuda_mlir.mlir.dialect_exts.arith import ScalarValue
 
 

@@ -7,6 +7,10 @@ requires = [
     "wheel",
     "ninja",
     "cmake",
+
+    # Headers, CMake config, and mlir-tblgen for the cext/ extensions. Must be
+    # the same build as the mlir runtime dependency below; see the comment there.
+    "cuda-mlir-core-dev==23.0.0.dev0+3cbe75b1",
 ]
 
 [project]
@@ -25,6 +29,14 @@ dependencies = [
     "typing-extensions; python_version < '3.12'",
     "cuda-bindings>=12.9.1,<14.0.0",
     "cuda-core>=0.5.1,<2.0.0",
+
+    # The MLIR Python bindings, previously built here and copied into this
+    # wheel. Pinned exactly: MLIR's C++ API has no cross-version ABI contract,
+    # and two builds of the same version can still disagree if they differ on
+    # RTTI or assertions. The local segment names the LLVM commit because what
+    # has to match is a particular build, not a release number. A mismatch has
+    # to fail at dependency resolution; it is otherwise silent at runtime.
+    "cuda-mlir-core==23.0.0.dev0+3cbe75b1",
 ]
 
 [project.optional-dependencies]
@@ -113,11 +125,6 @@ include-package-data = true
     "**/*.pyi",
     "py.typed",
     "VERSION",
-    "_mlir/**/*.so",
-    "_mlir/**/*.dll",
-    "_mlir/**/*.pyd",
-    "_mlir/**/*.py",
-    "_mlir/**/*.pyi",
 ]
 
 [tool.ruff]

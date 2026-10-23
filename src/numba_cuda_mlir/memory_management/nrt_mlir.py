@@ -20,16 +20,16 @@ All functions use extern "C" ABI (func.func) with public visibility so the
 linker can resolve cross-module references from shim.cu.
 """
 
-from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir._mlir.dialects import builtin, func, gpu, cf, arith
-from numba_cuda_mlir._mlir.dialects import llvm as _llvm
-from numba_cuda_mlir._mlir.dialects._llvm_enum_gen import (
+from cudamlir import ir
+from cudamlir.dialects import builtin, func, gpu, cf, arith
+from cudamlir.dialects import llvm as _llvm
+from cudamlir.dialects._llvm_enum_gen import (
     AtomicBinOp,
     AtomicOrdering,
     ICmpPredicate,
     IntegerOverflowFlags,
 )
-from numba_cuda_mlir._mlir.extras import types as T
+from cudamlir.extras import types as T
 from numba_cuda_mlir.lowering_utilities import get_or_insert_function
 
 # ---------------------------------------------------------------------------

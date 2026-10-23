@@ -40,13 +40,19 @@ export CMAKE_C_COMPILER_LAUNCHER="$(which sccache)"
 export CMAKE_CXX_COMPILER_LAUNCHER="$(which sccache)"
 
 # Configure
-# MLIR_PYTHON_PACKAGE_PREFIX bakes "numba_cuda_mlir._mlir." into all compiled
-#   extension modules, so bindings expect numba_cuda_mlir._mlir.ir (not mlir.ir)
-#   at runtime.
-# MLIR_BINDINGS_PYTHON_INSTALL_PREFIX controls on-disk install path.
-# MLIR_BINDINGS_PYTHON_NB_DOMAIN isolates nanobind typeids from other
-#   MLIR-based projects that may coexist in the same process.
-# See: https://github.com/llvm/llvm-project/pull/171775
+# The bindings install as `cudamlir`, a name shared across this ecosystem
+# rather than owned by this repository. They were previously built as
+# `numba_cuda_mlir._mlir` with a private nanobind domain, which isolated them
+# from any other MLIR in the same interpreter. A dialect built elsewhere has to
+# register into a context created here, which it can only do if both sides
+# resolve to the same MLIR, so that isolation is what we are trading away.
+# Not upstream's `mlir`: this is one particular build, not general MLIR, and it
+# should not be mistakable for an official package.
+#
+# MLIR_BINDINGS_PYTHON_NB_DOMAIN is deliberately left at its default, because
+# the nanobind domain is the part that was purely isolation. The prefixes below
+# are naming -- though the package prefix is also baked into PyCapsule names,
+# so it has to agree across everyone exchanging capsules.
 python_executable="$($PYTHON -c 'import sys; print(sys.executable)')"
 python_root="$(dirname "${python_executable}")"
 
@@ -64,10 +70,9 @@ cmake_args=(
     -DLLVM_INCLUDE_BENCHMARKS=OFF
     -DLLVM_INCLUDE_DOCS=OFF
     -DMLIR_ENABLE_BINDINGS_PYTHON=ON
-    -DMLIR_PYTHON_PACKAGE_PREFIX="numba_cuda_mlir._mlir"
-    -DCMAKE_CXX_FLAGS="-DMLIR_PYTHON_PACKAGE_PREFIX=numba_cuda_mlir._mlir."
-    -DMLIR_BINDINGS_PYTHON_INSTALL_PREFIX="python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir"
-    -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=numba_cuda_mlir
+    -DMLIR_PYTHON_PACKAGE_PREFIX="cudamlir"
+    -DCMAKE_CXX_FLAGS="-DMLIR_PYTHON_PACKAGE_PREFIX=cudamlir."
+    -DMLIR_BINDINGS_PYTHON_INSTALL_PREFIX="python_packages/cuda_mlir_core/cudamlir"
     -DMLIR_PYTHON_STUBGEN_ENABLED=OFF
     -DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON
     -DPython_ROOT_DIR="${python_root}"
@@ -89,7 +94,7 @@ cmake --install "${LLVM_BUILD}" --strip
 
 echo "=== Modern LLVM installed to ${LLVM_INSTALL} ==="
 echo "  MLIR_DIR=${LLVM_INSTALL}/lib/cmake/mlir"
-ls -lh "${LLVM_INSTALL}/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs/libMLIRPythonCAPI.so" 2>/dev/null || true
+ls -lh "${LLVM_INSTALL}/python_packages/cuda_mlir_core/cudamlir/_mlir_libs/libMLIRPythonCAPI.so" 2>/dev/null || true
 
 echo "=== sccache stats ==="
 sccache --show-stats

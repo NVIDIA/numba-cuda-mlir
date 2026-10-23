@@ -3,7 +3,7 @@
 
 import numpy as np
 
-from numba_cuda_mlir._mlir import ir
+from cudamlir import ir
 from numba_cuda_mlir import types
 from numba_cuda_mlir.models import mlir_data_manager, register_fp8_models
 from numba_cuda_mlir.numba_cuda.types.ext_types import bfloat16

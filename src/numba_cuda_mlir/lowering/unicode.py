@@ -3,9 +3,9 @@
 import operator
 
 from numba_cuda_mlir import types
-from numba_cuda_mlir._mlir.extras import types as T
-from numba_cuda_mlir._mlir.dialects import arith, scf
-from numba_cuda_mlir._mlir import ir
+from cudamlir.extras import types as T
+from cudamlir.dialects import arith, scf
+from cudamlir import ir
 from numba_cuda_mlir.mlir.dialect_exts import llvm
 
 from numba_cuda_mlir.extending import (

@@ -12,8 +12,8 @@ types -- is covered by `cext/mlir-llvm70/test/struct_pointees.mlir`.
 
 import pytest
 
-from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir._mlir.extras import types as T
+from cudamlir import ir
+from cudamlir.extras import types as T
 from numba_cuda_mlir.numba_cuda import types as nbt
 import numba_cuda_mlir.types as nt
 

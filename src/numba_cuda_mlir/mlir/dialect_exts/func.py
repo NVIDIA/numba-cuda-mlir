@@ -7,14 +7,14 @@ import types as py_types
 from functools import update_wrapper
 from typing import Optional, List, Union, TypeVar
 
-from numba_cuda_mlir._mlir.extras import types
+from cudamlir.extras import types
 from ..ast.py_type import PyTypeVarObject, _Ptr, PyObject
 from ..ast.util import copy_func
-from numba_cuda_mlir._mlir.extras.meta import op_region_builder
+from cudamlir.extras.meta import op_region_builder
 from ..util import get_user_code_loc, make_maybe_no_args_decorator
-from numba_cuda_mlir._mlir.dialects._ods_common import get_op_result_or_op_results
-from numba_cuda_mlir._mlir.dialects.func import *
-from numba_cuda_mlir._mlir.ir import (
+from cudamlir.dialects._ods_common import get_op_result_or_op_results
+from cudamlir.dialects.func import *
+from cudamlir.ir import (
     FlatSymbolRefAttr,
     FunctionType,
     InsertionPoint,

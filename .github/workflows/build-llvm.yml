@@ -118,6 +118,27 @@ jobs:
           name: llvm-modern-install-${{ env.PY_TAG }}-${{ inputs.host-platform }}
           path: llvm-modern-install/
 
+      # The install tree above is what numba-cuda-mlir consumes and what a
+      # dialect built elsewhere has to link against, so publish it rather than
+      # keeping it internal to this workflow. The dev wheel holds no extension
+      # modules, so only the matrix leader needs to build it.
+      - name: Build mlir wheels
+        shell: bash
+        env:
+          LLVM_MODERN_INSTALL: ${{ github.workspace }}/llvm-modern-install
+        run: |
+          "${PY}" -m pip install build
+          "${PY}" -m build --wheel --outdir mlir-wheels packaging/cuda-mlir-core
+          if [[ "${{ matrix.py-tag }}" == "cp312" ]]; then
+            "${PY}" -m build --wheel --outdir mlir-wheels packaging/cuda-mlir-core-dev
+          fi
+
+      - name: Upload mlir wheels
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: mlir-wheels-${{ matrix.py-tag }}-${{ inputs.host-platform }}
+          path: mlir-wheels/
+
   build-llvm-windows:
     name: LLVM ${{ matrix.mode == 'modern' && format('Modern Windows ({0})', matrix.python-version) || '7 Windows' }}
     if: ${{ inputs.host-platform == 'win-64' }}

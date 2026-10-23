@@ -5,15 +5,15 @@ Complex math intrinsics with IEEE 754 special case handling.
 """
 
 from typing import TypeVar
-from numba_cuda_mlir._mlir.dialects import math as math_dialect
+from cudamlir.dialects import math as math_dialect
 from numba_cuda_mlir.mlir.dialect_exts import func, scf, arith
 from numba_cuda_mlir.mlir.context import mlir_mod_ctx
-from numba_cuda_mlir._mlir.extras import types as T
+from cudamlir.extras import types as T
 from numba_cuda_mlir.mlir.dialect_exts.scf import (
     if_ctx_manager as if_,
     else_ctx_manager as else_,
 )
-from numba_cuda_mlir._mlir.ir import UnitAttr
+from cudamlir.ir import UnitAttr
 
 FTy = TypeVar("FTy")
 

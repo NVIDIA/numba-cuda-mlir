@@ -318,8 +318,8 @@ def test_nvvm_ir_version_adaptation_is_thread_safe():
         pytest.skip("the Windows ModernBridge path has a native smoke test")
 
     from numba_cuda_mlir import _cext
-    from numba_cuda_mlir._mlir import ir
-    from numba_cuda_mlir._mlir.dialects import gpu, llvm
+    from cudamlir import ir
+    from cudamlir.dialects import gpu, llvm
     from numba_cuda_mlir.lowering_utilities.llvm_utils import (
         LLVM_C_LIB_PATH,
         NVPTX64_DATALAYOUT,

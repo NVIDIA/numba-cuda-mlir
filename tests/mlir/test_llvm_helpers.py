@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for numba_cuda_mlir.mlir.dialect_exts.llvm convenience helpers."""
 
-from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir._mlir.extras import types as T
+from cudamlir import ir
+from cudamlir.extras import types as T
 
 from numba_cuda_mlir.mlir.dialect_exts import llvm
 
@@ -29,7 +29,7 @@ def test_ptr(_m):
 @_with_context
 def test_insertvalue_int_position(_m):
     st = llvm.StructType.get_literal([T.i32(), T.i64()])
-    from numba_cuda_mlir._mlir.dialects import func, arith
+    from cudamlir.dialects import func, arith
 
     f = func.FuncOp("test", ir.FunctionType.get([], []))
     entry = f.add_entry_block()
@@ -45,7 +45,7 @@ def test_insertvalue_int_position(_m):
 @_with_context
 def test_insertvalue_list_position(_m):
     st = llvm.StructType.get_literal([T.i32(), T.i64()])
-    from numba_cuda_mlir._mlir.dialects import func, arith
+    from cudamlir.dialects import func, arith
 
     f = func.FuncOp("test", ir.FunctionType.get([], []))
     entry = f.add_entry_block()
@@ -59,7 +59,7 @@ def test_insertvalue_list_position(_m):
 
 @_with_context
 def test_addressof(m):
-    from numba_cuda_mlir._mlir.dialects import func
+    from cudamlir.dialects import func
 
     linkage = ir.Attribute.parse("#llvm.linkage<external>")
     llvm.GlobalOp(
@@ -81,7 +81,7 @@ def test_addressof(m):
 
 @_with_context
 def test_addressof_default_result_type(m):
-    from numba_cuda_mlir._mlir.dialects import func
+    from cudamlir.dialects import func
 
     linkage = ir.Attribute.parse("#llvm.linkage<external>")
     llvm.GlobalOp(T.i32(), "g2", linkage, addr_space=0, value=ir.IntegerAttr.get(T.i32(), 0))

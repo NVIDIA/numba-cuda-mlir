@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from numba_cuda_mlir._mlir.dialects import cf, scf
-from numba_cuda_mlir._mlir.dialects.arith import (
+from cudamlir.dialects import cf, scf
+from cudamlir.dialects.arith import (
     AndIOp,
     CmpIOp,
     CmpIPredicate,
@@ -10,7 +10,7 @@ from numba_cuda_mlir._mlir.dialects.arith import (
     SelectOp,
     ShRUIOp,
 )
-from numba_cuda_mlir._mlir.ir import InsertionPoint, Location, StringAttr
+from cudamlir.ir import InsertionPoint, Location, StringAttr
 
 
 def ipowi(base, exp, *, loc: Location = None):

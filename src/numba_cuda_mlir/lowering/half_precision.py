@@ -10,8 +10,8 @@ registry = LoweringRegistry()
 lower = registry.lower
 from numba_cuda_mlir.numba_cuda.types.ext_types import bfloat16 as bf16
 from numba_cuda_mlir.numba_cuda import types
-from numba_cuda_mlir._mlir.extras import types as T
-from numba_cuda_mlir._mlir.dialects import arith, math as math_dialect
+from cudamlir.extras import types as T
+from cudamlir.dialects import arith, math as math_dialect
 
 
 def _lower_unary_intrinsic(func, mlir_op, numba_type):

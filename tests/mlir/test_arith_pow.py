@@ -5,7 +5,7 @@ import sys
 from numba_cuda_mlir.mlir.context import mlir_mod_ctx
 from numba_cuda_mlir.mlir.dialect_exts import func
 from numba_cuda_mlir import testing
-from numba_cuda_mlir._mlir.extras import types as T
+from cudamlir.extras import types as T
 
 
 def _resolve_type(name):

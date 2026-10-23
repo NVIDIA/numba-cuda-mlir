@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir._mlir.dialects import arith, memref, linalg, tensor, shape, gpu
+from cudamlir import ir
+from cudamlir.dialects import arith, memref, linalg, tensor, shape, gpu
 from numba_cuda_mlir.mlir.dialect_exts import scf
-from numba_cuda_mlir._mlir.extras import types as T
+from cudamlir.extras import types as T
 from numba_cuda_mlir.lowering_utilities import (
     memref_to_tensor,
     tensor_to_memref,

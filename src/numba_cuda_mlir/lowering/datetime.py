@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 import operator
 
-from numba_cuda_mlir._mlir.dialects import arith, math as mlir_math
-from numba_cuda_mlir._mlir.extras import types as T
+from cudamlir.dialects import arith, math as mlir_math
+from cudamlir.extras import types as T
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.np import npdatetime_helpers
 

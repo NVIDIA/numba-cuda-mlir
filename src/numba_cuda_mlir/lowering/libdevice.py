@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir.lowering_utilities import int_of
 from numba_cuda_mlir.lowering_utilities import convert_tuple_like
-from numba_cuda_mlir._mlir.extras import types as T
+from cudamlir.extras import types as T
 from numba_cuda_mlir.errors import InternalCompilerError
 from numba_cuda_mlir.mlir_lowering import MLIRLower
 from textwrap import dedent
@@ -10,8 +10,8 @@ from numba_cuda_mlir.lowering_utilities import convert, tensor_to_memref
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda import typing as typing
 from numba_cuda_mlir.logging import trace
-from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir._mlir.dialects import func, llvm, tensor, memref
+from cudamlir import ir
+from cudamlir.dialects import func, llvm, tensor, memref
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
 registry = LoweringRegistry()

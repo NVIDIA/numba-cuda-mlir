@@ -769,7 +769,7 @@ class GridGroupAttributeTemplate(AttributeTemplate):
 
 def register_syncthreads_variants():
     from numba_cuda_mlir import cuda
-    from numba_cuda_mlir._mlir.dialects import nvvm
+    from cudamlir.dialects import nvvm
 
     for intrin, _reduction_op in [
         (cuda.syncthreads_and, nvvm.BarrierReduction.AND),

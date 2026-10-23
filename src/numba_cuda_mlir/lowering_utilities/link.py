@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir._mlir.dialects import gpu, llvm
+from cudamlir import ir
+from cudamlir.dialects import gpu, llvm
 from numba_cuda_mlir.logging import trace
 
 
@@ -31,7 +31,7 @@ def _find_link_target(op: ir.Operation) -> ir.Block:
 
 def _is_linkable_op(op):
     """Check if an op should be carried across during linking."""
-    from numba_cuda_mlir._mlir.dialects import func
+    from cudamlir.dialects import func
 
     return isinstance(op, (func.FuncOp, gpu.GPUFuncOp, llvm.GlobalOp))
 

@@ -5,9 +5,9 @@ from numba_cuda_mlir.lowering_utilities import index_of
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.types.ext_types import Dim3
 from numba_cuda_mlir.mlir_lowering import MLIRLower
-from numba_cuda_mlir._mlir import ir
-from numba_cuda_mlir._mlir.extras import types as T
-from numba_cuda_mlir._mlir.dialects import gpu, memref, arith
+from cudamlir import ir
+from cudamlir.extras import types as T
+from cudamlir.dialects import gpu, memref, arith
 from numba_cuda_mlir.mlir.dialect_exts import scf
 from numba_cuda_mlir.mlir.dialect_exts.scf import (
     if_ctx_manager as if_,

@@ -30,7 +30,7 @@ The lowering half of this API differs significantly from Numba's. Numba's
 lowering callbacks receive an ``llvmlite.ir.IRBuilder`` and emit LLVM IR.
 Numba-CUDA-MLIR's lowering callbacks receive an MLIR builder
 (:py:class:`numba_cuda_mlir.mlir_lowering.MLIRLower`) and emit MLIR through
-the bindings in :py:mod:`numba_cuda_mlir._mlir`.
+the bindings in :py:mod:`mlir`.
 
 Whole-function planning
 -----------------------
@@ -242,8 +242,8 @@ MLIR. Register one with :py:func:`numba_cuda_mlir.models.register_model`:
 .. code-block:: python
 
    from numba_cuda_mlir.models import PrimitiveModel, register_model
-   from numba_cuda_mlir._mlir import ir as mlir_ir
-   from numba_cuda_mlir._mlir.dialects import llvm
+   from cudamlir import ir as mlir_ir
+   from cudamlir.dialects import llvm
 
    @register_model(MyBoxedIntType)
    class MyBoxedIntModel(PrimitiveModel):
@@ -306,8 +306,8 @@ types may be:
 
    from numba_cuda_mlir.extending import lowering_registry
    from numba_cuda_mlir.lowering_utilities import convert
-   from numba_cuda_mlir._mlir import ir as mlir_ir
-   from numba_cuda_mlir._mlir.dialects import llvm
+   from cudamlir import ir as mlir_ir
+   from cudamlir.dialects import llvm
 
    @lowering_registry.lower(make_boxed_int, types.Integer)
    def _lower_make_boxed_int(builder, target, args, kwargs):
@@ -481,8 +481,8 @@ the default ``mlir_convert`` path. Register a custom implicit conversion with
 .. code-block:: python
 
    from numba_cuda_mlir.extending import lower_cast
-   from numba_cuda_mlir._mlir import ir as mlir_ir
-   from numba_cuda_mlir._mlir.dialects import llvm
+   from cudamlir import ir as mlir_ir
+   from cudamlir.dialects import llvm
 
    @lower_cast(MyBoxedIntType, types.Integer)
    def _cast_boxed_to_int(context, builder, fromty, toty, val):
@@ -527,8 +527,8 @@ including its integration test — is in ``tests/test_extending_lower_cast.py``.
    from numba_cuda_mlir.extending import lower_cast, lowering_registry
    from numba_cuda_mlir.lowering_utilities import convert
    from numba_cuda_mlir.models import PrimitiveModel, register_model
-   from numba_cuda_mlir._mlir import ir as mlir_ir
-   from numba_cuda_mlir._mlir.dialects import llvm
+   from cudamlir import ir as mlir_ir
+   from cudamlir.dialects import llvm
    from numba_cuda_mlir.numba_cuda.typeconv import Conversion
 
    # 1. A new Numba type, with an opt-in implicit conversion to Integer.

@@ -279,15 +279,15 @@ def is_using_llvm70() -> bool:
 @lru_cache(maxsize=1)
 def get_llvm70_capi_path() -> str:
     """Resolve path to the MLIRToLLVM70 shared library."""
-    import numba_cuda_mlir._mlir._mlir_libs as _mlir_libs
+    import numba_cuda_mlir
 
+    lib_dir = Path(numba_cuda_mlir.__file__).parent / "lib"
     lib_name = "MLIRToLLVM70.dll" if os.name == "nt" else "libMLIRToLLVM70.so"
-    capi_path = Path(_mlir_libs.__path__[0]) / lib_name
+    capi_path = lib_dir / lib_name
     if capi_path.exists():
         return str(capi_path.resolve())
     raise FileNotFoundError(
-        f"{lib_name} not found under {_mlir_libs.__path__[0]}. "
-        "Rebuild numba_cuda_mlir with MLIR_DIR env var set."
+        f"{lib_name} not found under {lib_dir}. Rebuild numba_cuda_mlir with MLIR_DIR env var set."
     )
 
 

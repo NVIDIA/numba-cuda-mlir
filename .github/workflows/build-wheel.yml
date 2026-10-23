@@ -148,7 +148,7 @@ jobs:
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             auditwheel -v repair {wheel} --wheel-dir {dest_dir}
             --exclude libMLIRPythonCAPI.so
-            --exclude libMLIRPythonSupport-numba_cuda_mlir.so
+            --exclude libMLIRPythonSupport-mlir.so
             --exclude libLLVM-7.so &&
             "/host/${{ env.SCCACHE_PATH }}" --show-adv-stats &&
             "/host/${{ env.SCCACHE_PATH }}" --show-stats --stats-format=json > /host/${{ github.workspace }}/sccache_NUMBA_CUDA_MLIR.json

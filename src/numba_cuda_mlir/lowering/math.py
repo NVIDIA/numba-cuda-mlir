@@ -359,7 +359,22 @@ def _bin_op_cg(op, builder, target, args, kwargs):
 
     promoted_numba_type = None
     unified_type = None
-    if isinstance(lhs_type, types.Integer) and isinstance(rhs_type, types.Integer):
+    mixed_integer_boolean_comparison = op in (
+        operator.eq,
+        operator.ne,
+        operator.lt,
+        operator.le,
+        operator.gt,
+        operator.ge,
+    ) and (
+        isinstance(lhs_type, types.Boolean)
+        and isinstance(rhs_type, types.Integer)
+        or isinstance(lhs_type, types.Integer)
+        and isinstance(rhs_type, types.Boolean)
+    )
+    if mixed_integer_boolean_comparison or (
+        isinstance(lhs_type, types.Integer) and isinstance(rhs_type, types.Integer)
+    ):
         # Ask which promotion was actually resolved
         resolved = builder.context.typing_context.resolve_function_type(
             op, (lhs_type, rhs_type), {}
@@ -454,36 +469,48 @@ def truediv_cg(builder, target, args, kwargs):
 
 @lower(operator.ne, types.Number, types.Number)
 @lower(operator.ne, types.Boolean, types.Boolean)
+@lower(operator.ne, types.Boolean, types.Integer)
+@lower(operator.ne, types.Integer, types.Boolean)
 def ne_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ne, builder, target, args, kwargs)
 
 
 @lower(operator.eq, types.Number, types.Number)
 @lower(operator.eq, types.Boolean, types.Boolean)
+@lower(operator.eq, types.Boolean, types.Integer)
+@lower(operator.eq, types.Integer, types.Boolean)
 def eq_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.eq, builder, target, args, kwargs)
 
 
 @lower(operator.lt, types.Number, types.Number)
 @lower(operator.lt, types.Boolean, types.Boolean)
+@lower(operator.lt, types.Boolean, types.Integer)
+@lower(operator.lt, types.Integer, types.Boolean)
 def lt_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.lt, builder, target, args, kwargs)
 
 
 @lower(operator.le, types.Number, types.Number)
 @lower(operator.le, types.Boolean, types.Boolean)
+@lower(operator.le, types.Boolean, types.Integer)
+@lower(operator.le, types.Integer, types.Boolean)
 def le_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.le, builder, target, args, kwargs)
 
 
 @lower(operator.gt, types.Number, types.Number)
 @lower(operator.gt, types.Boolean, types.Boolean)
+@lower(operator.gt, types.Boolean, types.Integer)
+@lower(operator.gt, types.Integer, types.Boolean)
 def gt_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.gt, builder, target, args, kwargs)
 
 
 @lower(operator.ge, types.Number, types.Number)
 @lower(operator.ge, types.Boolean, types.Boolean)
+@lower(operator.ge, types.Boolean, types.Integer)
+@lower(operator.ge, types.Integer, types.Boolean)
 def ge_cg(builder, target, args, kwargs):
     return _bin_op_cg(operator.ge, builder, target, args, kwargs)
 
@@ -1271,13 +1298,10 @@ def math_fmod_cg(mlir_lower, target, args, kwargs):
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)
-    # fmod(x, y) = x - trunc(x/y) * y
-    # This gives the remainder with the sign of x (truncated toward zero)
-    div = arith.divf(x, y)
-    truncated = math_dialect.trunc(div)
-    mult = arith.mulf(truncated, y)
-    result = arith.subf(x, mult)
-    mlir_lower.store_var(target, result)
+    # libdevice computes the remainder exactly; x - trunc(x / y) * y is off
+    # whenever x / y rounds, and gives nan for an infinite y
+    result = _call_libdevice_binary(mlir_lower, x, y, "__nv_fmod", "__nv_fmodf")
+    mlir_lower.store_var(target, convert(result, unified_type))
 
 
 @lower(math.remainder, types.Number, types.Number)
@@ -1290,12 +1314,10 @@ def math_remainder_cg(mlir_lower, target, args, kwargs):
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)
-    # IEEE remainder: x - round(x/y) * y (round to nearest even)
-    div = arith.divf(x, y)
-    rounded = math_dialect.roundeven(div)
-    mult = arith.mulf(rounded, y)
-    result = arith.subf(x, mult)
-    mlir_lower.store_var(target, result)
+    # libdevice computes the IEEE remainder exactly; x - roundeven(x / y) * y
+    # is off whenever x / y rounds, and gives nan for an infinite y
+    result = _call_libdevice_binary(mlir_lower, x, y, "__nv_remainder", "__nv_remainderf")
+    mlir_lower.store_var(target, convert(result, unified_type))
 
 
 @lower(math.pow, types.Number, types.Number)

@@ -492,7 +492,7 @@ def declare_mlir_library(
     from numba_cuda_mlir.lowering_utilities.discover_functions import discover_functions
 
     if isinstance(source, Path):
-        with open(source, "r") as f:
+        with open(source, "r", encoding="utf-8") as f:
             source = f.read()
 
     functions = discover_functions(source)

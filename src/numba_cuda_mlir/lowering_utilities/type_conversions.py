@@ -209,6 +209,11 @@ def to_mlir_type(obj):
     raise TypeError(f"No conversion found for type {type(obj)}")
 
 
+def record_array_element_mlir_type(record_type: "Record") -> ir.Type:
+    """MLIR element type for arrays of records: vector<N x i8>, N = record size."""
+    return T.vector(record_type.size, element_type=T.i8())
+
+
 def to_mlir_storage_type(obj):
     from numba_cuda_mlir.models import mlir_data_manager
 
@@ -407,10 +412,11 @@ def _(ty: types.Type) -> ir.Type:
                 offset=dyn_stride,
                 strides=[dyn_stride] * ty.ndim,
             )
-            # For Record arrays, use byte-based memref (i8) since llvm.ptr
-            # is not a valid memref element type
+            # Record memref elements carry the exact record byte size.
             if isinstance(ty.dtype, Record):
-                return ir.MemRefType.get([dyn] * ty.ndim, T.i8(), layout=layout)
+                return ir.MemRefType.get(
+                    [dyn] * ty.ndim, record_array_element_mlir_type(ty.dtype), layout=layout
+                )
             from numba_cuda_mlir.models import mlir_data_manager
 
             dtype = mlir_data_manager.lookup(ty.dtype).get_data_type()

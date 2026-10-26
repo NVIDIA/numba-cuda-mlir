@@ -697,3 +697,193 @@ class TestRecordArrayViews:
         out = cuda.device_array(1, np.int32)
         kernel[1, 1](ary, out)
         assert out.copy_to_host()[0] == 2
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="CUDA not available")
+class TestPackedFieldStorage:
+    @pytest.mark.parametrize("reverse_fields", [False, True])
+    @pytest.mark.parametrize("step", [1, 2, 3, -1, -2])
+    def test_read_write(self, reverse_fields, step):
+        fields = [("a", np.float64), ("b", np.int32)]
+        dtype = np.dtype(fields[::-1] if reverse_fields else fields)
+        host = np.zeros(13, dtype)
+        host["a"] = np.arange(13) + 100.0
+        host["b"] = np.arange(13) + 1000
+        start = 11 if step < 0 else 1
+        stop = 0 if step < 0 else 13
+        expected = host["a"][start:stop:step].copy()
+
+        @cuda.jit
+        def kernel(ary, out):
+            field = ary[start:stop:step].a
+            i = cuda.grid(1)
+            if i < out.size:
+                out[i] = field[i]
+                field[i] += 10.0
+
+        ary = cuda.to_device(host)
+        out = cuda.device_array(expected.size, np.float64)
+        kernel[1, expected.size](ary, out)
+        np.testing.assert_array_equal(out.copy_to_host(), expected)
+        host["a"][start:stop:step] += 10.0
+        np.testing.assert_array_equal(ary.copy_to_host(), host)
+
+    def test_field_argument_and_cache(self):
+        class FieldView:
+            dtype = np.dtype(np.float64)
+
+            def __init__(self, ary, stride):
+                self.ary = ary
+                self.__cuda_array_interface__ = {
+                    "version": 3,
+                    "shape": (6,),
+                    "strides": (stride,),
+                    "typestr": "<f8",
+                    "data": (ary.device_ctypes_pointer.value, False),
+                }
+
+        @cuda.jit
+        def kernel(field, out):
+            i = cuda.grid(1)
+            out[i] = field[i]
+            field[i] += 5.0
+
+        for packed in [False, True, False, True]:
+            dtype = np.dtype([("a", np.float64), ("b", np.int32)], align=not packed)
+            host = np.zeros(6, dtype)
+            host["a"] = np.arange(6) + 100.0
+            ary = cuda.to_device(host)
+            field = FieldView(ary, host.dtype.itemsize)
+            out = cuda.device_array(6, np.float64)
+            kernel[1, 6](field, out)
+            np.testing.assert_array_equal(out.copy_to_host(), host["a"])
+            host["a"] += 5.0
+            np.testing.assert_array_equal(ary.copy_to_host(), host)
+
+    def test_iteration_item_and_reduction(self):
+        @cuda.jit
+        def kernel(ary, out):
+            field = ary.a
+            total = 0.0
+            for value in field:
+                total += value
+            out[0] = total
+            out[1] = field.sum()
+            out[2] = field[2:3].item()
+
+        host = np.zeros(6, [("a", np.float64), ("b", np.int32)])
+        host["a"] = np.arange(6) + 100.0
+        out = cuda.device_array(3, np.float64)
+        kernel[1, 1](cuda.to_device(host), out)
+        np.testing.assert_array_equal(
+            out.copy_to_host(), [host["a"].sum(), host["a"].sum(), host["a"][2]]
+        )
+
+    def test_device_call_and_unification(self):
+        @cuda.jit(device=True, inline="never")
+        def project(ary):
+            return ary.a
+
+        @cuda.jit(device=True, inline="never")
+        def read(field, i):
+            return field[i]
+
+        @cuda.jit
+        def kernel(ary, dense, out, flag):
+            if flag:
+                field = project(ary)
+            else:
+                field = dense
+            i = cuda.grid(1)
+            out[i] = read(field, i)
+
+        host = np.zeros(6, [("a", np.float64), ("b", np.int32)])
+        host["a"] = np.arange(6) + 100.0
+        dense = np.arange(6, dtype=np.float64) + 200.0
+        out = cuda.device_array(6, np.float64)
+        for flag in [True, False]:
+            kernel[1, 6](cuda.to_device(host), cuda.to_device(dense), out, flag)
+            np.testing.assert_array_equal(out.copy_to_host(), host["a"] if flag else dense)
+
+    def test_ufunc_output_alias(self):
+        @cuda.jit
+        def kernel(ary):
+            np.sin(ary.a, ary.a)
+
+        host = np.zeros(6, [("a", np.float64), ("b", np.int32)])
+        host["a"] = np.arange(6)
+        host["b"] = np.arange(6) + 50
+        ary = cuda.to_device(host)
+        kernel[1, 1](ary)
+        host["a"] = np.sin(host["a"])
+        np.testing.assert_allclose(ary.copy_to_host()["a"], host["a"], rtol=1e-14)
+        np.testing.assert_array_equal(ary.copy_to_host()["b"], host["b"])
+
+    @pytest.mark.parametrize("dtype", [np.float64, np.complex128, np.float16])
+    @pytest.mark.parametrize("shape", [(3,), (2, 3)])
+    def test_packed_nested_field(self, dtype, shape):
+        record_dtype = np.dtype([("tag", np.int8), ("values", dtype, shape)])
+        host = np.zeros(4, record_dtype)
+        host["tag"] = np.arange(4) + 20
+        payload = np.arange(host["values"].size).reshape(host["values"].shape)
+        host["values"] = payload + 1
+
+        if len(shape) == 1:
+
+            @cuda.jit
+            def kernel(ary):
+                i = cuda.grid(1)
+                values = ary[i].values
+                values[1] = values[2]
+        else:
+
+            @cuda.jit
+            def kernel(ary):
+                i = cuda.grid(1)
+                values = ary[i].values
+                values[0, 1] = values[1, 2]
+
+        ary = cuda.to_device(host)
+        kernel[1, 4](ary)
+        if len(shape) == 1:
+            host["values"][:, 1] = host["values"][:, 2]
+        else:
+            host["values"][:, 0, 1] = host["values"][:, 1, 2]
+        np.testing.assert_array_equal(ary.copy_to_host(), host)
+
+    def test_nested_assignment_from_packed_field(self):
+        source = np.zeros(3, [("tag", np.int8), ("a", np.float64)])
+        source["a"] = [10.0, 20.0, 30.0]
+        destination = np.zeros(2, [("tag", np.int8), ("values", np.float64, (3,))])
+        destination["tag"] = [7, 8]
+
+        @cuda.jit
+        def kernel(src, dst):
+            dst[1].values = src.a
+
+        dst = cuda.to_device(destination)
+        kernel[1, 1](cuda.to_device(source), dst)
+        destination["values"][1] = source["a"]
+        np.testing.assert_array_equal(dst.copy_to_host(), destination)
+
+    @pytest.mark.parametrize("kind", ["local", "shared", "dynamic"])
+    def test_packed_allocation(self, kind):
+        dtype = np.dtype([("tag", np.int8), ("a", np.float64)])
+
+        @cuda.jit
+        def kernel(out):
+            if kind == "local":
+                ary = cuda.local.array(3, dtype)
+            elif kind == "shared":
+                ary = cuda.shared.array(3, dtype)
+            else:
+                ary = cuda.shared.array(0, dtype)
+            for i in range(3):
+                ary[i].tag = i + 10
+                ary[i].a = i + 100.0
+            for i in range(3):
+                out[i] = ary[i].a + ary[i].tag
+
+        out = cuda.device_array(3, np.float64)
+        kernel[1, 1, 0, 3 * dtype.itemsize if kind == "dynamic" else 0](out)
+        np.testing.assert_array_equal(out.copy_to_host(), [110.0, 112.0, 114.0])

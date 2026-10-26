@@ -1334,6 +1334,8 @@ llvm::Error MLIRToLLVM70::translateLoadOp(Operation *op) {
   ptr = b.buildBitCast(ptr, b.ptrTy(elemTy, as), "");
 
   LLVMValueRef val = b.buildLoad(ptr, "");
+  if (auto alignment = loadOp.getAlignment())
+    b.setGlobalAlignment(val, *alignment);
   mapValue(loadOp.getResult(), val);
   return llvm::Error::success();
 }
@@ -1356,6 +1358,8 @@ llvm::Error MLIRToLLVM70::translateStoreOp(Operation *op) {
     val = b.buildBitCast(val, elemTy, "");
 
   LLVMValueRef storeInst = b.buildStore(val, ptr);
+  if (auto alignment = storeOp.getAlignment())
+    b.setGlobalAlignment(storeInst, *alignment);
   if (storeOp.getVolatile_())
     b.setVolatile(storeInst, true);
   return llvm::Error::success();

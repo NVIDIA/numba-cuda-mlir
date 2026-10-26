@@ -10,6 +10,11 @@ class SpecialFloatType(types.Number):
         super().__init__(name)
         self.bitwidth = bitwidth
 
+    @property
+    def storage_bitwidth(self):
+        """Byte-addressable storage width, distinct from numeric precision."""
+        return ((self.bitwidth + 7) // 8) * 8
+
     def __lt__(self, other):
         if other.__class__ is not self.__class__ and not isinstance(other, types.Float):
             return TypeError(f"Cannot compare {self} and {other}")
@@ -57,4 +62,20 @@ class Float8E5M2Type(SpecialFloatType): ...
 class Float8E8M0FNUType(SpecialFloatType): ...
 
 
-class FloatTF32Type(SpecialFloatType): ...
+class FloatTF32Type(SpecialFloatType):
+    storage_bitwidth = 32
+
+
+def numeric_storage_bitwidth(dtype):
+    """Context-independent storage width for numeric scalar types.
+
+    Explicit storage metadata takes precedence over semantic precision. The
+    fallback also covers numba-cuda's bfloat16 and fp8 numeric types.
+    """
+    if not isinstance(dtype, types.Number):
+        return None
+    width = getattr(dtype, "storage_bitwidth", None)
+    if width is not None:
+        return width
+    width = getattr(dtype, "bitwidth", None)
+    return None if width is None else ((width + 7) // 8) * 8

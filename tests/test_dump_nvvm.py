@@ -14,6 +14,7 @@ TEXT_IR = b"; ModuleID = 'kernel'\ndefine void @foo() {\n  ret void\n}\n"
 @pytest.fixture
 def dump_nvvm(monkeypatch):
     def set_dump_target(value):
+        monkeypatch.setenv("NUMBA_CUDA_MLIR_DUMP_NVVM", value)
         monkeypatch.setattr(config, "CUDA_DUMP_NVVM", value)
 
     return set_dump_target

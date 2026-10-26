@@ -1036,13 +1036,18 @@ extern "C" __global__ void
         array = pyval.__cuda_array_interface__
         memref_type = self.get_mlir_type(self.get_numba_type(target.name))
         shape = array["shape"]
-        itemsize = np.dtype(array["typestr"]).itemsize
+        from numba_cuda_mlir.array_storage import ArrayStorageLayout
+
+        layout = ArrayStorageLayout(self.get_numba_type(target.name))
+        itemsize = layout.itemsize
 
         byte_strides = array.get("strides")
         if byte_strides:
-            strides = [s // itemsize for s in byte_strides]
+            if any(s % layout.unit_bytes for s in byte_strides):
+                raise TypeError("Captured array strides cannot be represented by its storage type")
+            strides = [s // layout.unit_bytes for s in byte_strides]
         else:
-            strides, s = [], 1
+            strides, s = [], itemsize // layout.unit_bytes
             for d in reversed(shape):
                 strides.insert(0, s)
                 s *= d
@@ -1281,7 +1286,11 @@ extern "C" __global__ void
 
         array = np.ascontiguousarray(value)
         dtype_numba = to_numba_type(array.dtype)
-        dtype = self.get_storage_type(dtype_numba)
+        from numba_cuda_mlir.array_storage import ArrayStorageLayout
+
+        array_numba_type = numba_type or types.Array(dtype_numba, array.ndim, "C", readonly=True)
+        layout = ArrayStorageLayout(array_numba_type)
+        dtype = layout.element_type
         name = self._constant_array_globals.get(id(value))
         if name is None:
             name = f"constant_array_{constant_array_id}"
@@ -1301,11 +1310,15 @@ extern "C" __global__ void
                 )
         ptr = llvm.mlir_addressof(llvm.PointerType.get(4), name)
         ptr = llvm.addrspacecast(llvm.PointerType.get(), ptr)
-        strides = [stride // array.itemsize for stride in array.strides]
+        strides = [stride // layout.unit_bytes for stride in array.strides]
         desc = self._build_memref_descriptor(ptr, array.shape, strides)
         if numba_type is not None:
             dynamic_size = ir.ShapedType.get_dynamic_size()
-            mr_type = T.memref(*([dynamic_size] * array.ndim), element_type=dtype)
+            mr_type = (
+                T.memref(*([dynamic_size] * array.ndim), element_type=dtype)
+                if not layout.byte_addressed
+                else layout.memref_type()
+            )
         else:
             mr_type = T.memref(*array.shape, element_type=dtype)
         return builtin.unrealized_conversion_cast([mr_type], [desc])
@@ -1525,7 +1538,7 @@ extern "C" __global__ void
             array = self.load_var(value)
             element_type = self.get_mlir_type(value_type.dtype)
             length = memref.dim(array, index_of(0))
-            aio = ArrayIterObject(self, array, element_type, length)
+            aio = ArrayIterObject(self, array, element_type, length, value_type)
             self.store_var(target, aio)
         elif isinstance(value_type, types.UniTuple):
             tup = self.load_var(value)
@@ -1630,6 +1643,14 @@ extern "C" __global__ void
                 index_type = self.get_numba_type(index.name)
             case _:
                 raise NotImplementedError(f"lowering getitem {target} = {value}[{index}]")
+
+        if (
+            isinstance(value_type, types.Array)
+            and isinstance(value_type.dtype, types.Record)
+            and isinstance(index, str)
+        ):
+            self._lower_record_array_field_view(target, value, index)
+            return
 
         if isinstance(value_type, types.BaseNamedTuple) and isinstance(index, int):
             result = self.load_var(value)[index]
@@ -1852,7 +1873,8 @@ extern "C" __global__ void
         field_info = record_type.fields[attr]
         field_offset = field_info.offset
         record_size = record_type.size
-        rank = value_type.ndim
+        rank = target_type.ndim
+        source_rank = value_type.ndim
 
         array_val = self.load_var(value)
         target_mlir_type = self.get_mlir_type(target_type)
@@ -1863,17 +1885,23 @@ extern "C" __global__ void
 
         md = memref.extract_strided_metadata(array_val)
 
-        field_size = field_info.type.bitwidth // 8
+        from numba_cuda_mlir.array_storage import ArrayStorageLayout
 
+        source_layout = ArrayStorageLayout(value_type)
+        target_layout = ArrayStorageLayout(target_type)
         sizes_i64 = []
         strides_i64 = []
-        for i in range(rank):
+        for i in range(source_rank):
             sizes_i64.append(convert(md[2 + i], T.i64()))
-            stride_i64 = convert(md[2 + rank + i], T.i64())
-            # Scale the full stride to bytes before converting to field
-            # units: packed record sizes need not be divisible by field size.
-            byte_stride = arith.muli(stride_i64, arith.constant(T.i64(), record_size))
-            strides_i64.append(arith.divsi(byte_stride, arith.constant(T.i64(), field_size)))
+            stride_i64 = convert(md[2 + source_rank + i], T.i64())
+            byte_stride = arith.muli(stride_i64, arith.constant(T.i64(), source_layout.unit_bytes))
+            strides_i64.append(
+                arith.divsi(byte_stride, arith.constant(T.i64(), target_layout.unit_bytes))
+            )
+        if isinstance(field_info.type, types.NestedArray):
+            for size, stride in zip(field_info.type.shape, field_info.type.strides):
+                sizes_i64.append(arith.constant(T.i64(), size))
+                strides_i64.append(arith.constant(T.i64(), stride // target_layout.unit_bytes))
 
         i64c = lambda v: arith.constant(T.i64(), v)
         ins = lambda d, v, *p: llvm.insertvalue(
@@ -2518,6 +2546,10 @@ extern "C" __global__ void
             return cast_impl(self.context, self, source_type, target_type, value)
         if isinstance(source_type, types.BaseTuple) and isinstance(target_type, types.BaseTuple):
             return self._lower_tuple_cast(source_type, target_type, value)
+        if isinstance(source_type, types.Array) and isinstance(target_type, types.Array):
+            from numba_cuda_mlir.lowering_utilities import convert_array_storage
+
+            return convert_array_storage(value, self.get_mlir_type(target_type))
         signed = get_conversion_signedness(source_type, target_type)
         return convert(value, self.get_mlir_type(target_type), signed=signed)
 
@@ -3210,10 +3242,13 @@ extern "C" __global__ void
         nitems = i64c(1)
         shape = llvm.UndefOp(array_type).result
         strides = llvm.UndefOp(array_type).result
+        from numba_cuda_mlir.array_storage import ArrayStorageLayout
+
+        unit_bytes = ArrayStorageLayout(numba_type).unit_bytes
         for i in range(ndim):
             extent = convert(md[2 + i], i64)
             stride = convert(md[2 + ndim + i], i64)
-            byte_stride = arith.muli(stride, i64c(itemsize))
+            byte_stride = arith.muli(stride, i64c(unit_bytes))
             nitems = arith.muli(nitems, extent)
             shape = ins(shape, extent, i)
             strides = ins(strides, byte_stride, i)
@@ -3635,6 +3670,8 @@ extern "C" __global__ void
     def _call_results_tuple(self, results):
         if results is None:
             return ()
+        if isinstance(results, ir.Value):
+            return (results,)
         if hasattr(results, "results"):
             return tuple(results.results)
         if isinstance(results, (tuple, list)):
@@ -3670,6 +3707,10 @@ extern "C" __global__ void
                 self._coerce_value_to_numba_type(t, v) for t, v in zip(numba_type.types, value)
             )
         if isinstance(value, ir.Value):
+            if isinstance(numba_type, types.Array):
+                from numba_cuda_mlir.lowering_utilities import convert_array_storage
+
+                return convert_array_storage(value, self.get_value_type(numba_type))
             return self.mlir_convert(value, self.get_value_type(numba_type))
         return value
 

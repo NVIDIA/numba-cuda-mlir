@@ -219,6 +219,55 @@ def add_kernel_nocache(a, b, out):
         assert result1[0] == 6  # 3 + 3
         assert result2[0] == 8  # 3 + 5
 
+    def test_bfloat16_cache_reuse_in_fresh_process(self, tmp_path):
+        import subprocess
+        import sys
+        import textwrap
+
+        pytest.importorskip("ml_dtypes")
+        module = tmp_path / "bfloat_cache_kernel.py"
+        module.write_text(
+            textwrap.dedent("""
+            import sys
+            import numpy as np
+            import ml_dtypes
+            from numba_cuda_mlir import cuda
+
+            class View:
+                def __init__(self, owner, dtype):
+                    self.owner = owner
+                    self.dtype = dtype
+                    self.__cuda_array_interface__ = {
+                        "version": 3, "shape": (2,), "strides": None,
+                        "typestr": dtype.str,
+                        "data": (owner.device_ctypes_pointer.value, False),
+                    }
+
+            @cuda.jit(cache=True)
+            def copy(source, out):
+                out[0], out[1] = source[0], source[1]
+
+            host = np.array([1.5, 2.5], dtype=ml_dtypes.bfloat16)
+            owner = cuda.to_device(host.view(np.uint8))
+            out = cuda.device_array(2, np.float64)
+            copy[1, 1](View(owner, host.dtype), out)
+            np.testing.assert_array_equal(out.copy_to_host(), [1.5, 2.5])
+            if sys.argv[1] == "load":
+                assert sum(copy.stats.cache_hits.values()) == 1
+                assert sum(copy.stats.cache_misses.values()) == 0
+            else:
+                assert sum(copy.stats.cache_misses.values()) == 1
+        """)
+        )
+        for phase in ("save", "load"):
+            result = subprocess.run(
+                [sys.executable, str(module), phase],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            assert result.returncode == 0, result.stdout + result.stderr
+
     def test_cache_reuse(self, tmp_path):
         """Test that cached kernels are reused on subsequent imports.
 

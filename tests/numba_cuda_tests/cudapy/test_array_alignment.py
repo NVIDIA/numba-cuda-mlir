@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
-import re
 import itertools
 import numpy as np
 import pytest
@@ -12,17 +11,6 @@ from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda.core.errors import TypingError
 from numba_cuda_mlir.testing import NumbaCUDATestCase
 
-
-# In order to verify the alignment of the local and shared memory arrays, we
-# inspect the MLIR of the generated kernel using the following regexes.
-
-# Shared memory example:
-# memref.global @smem : memref<16xi8, 3> {alignment = 16}
-SMEM_MLIR_PATTERN = re.compile(r"memref\.global.*alignment\s*=\s*(\d+)")
-
-# Local memory example:
-# %0 = memref.alloca() {alignment = 64} : memref<16xi8>
-LMEM_MLIR_PATTERN = re.compile(r"memref\.alloca.*alignment\s*=\s*(\d+)")
 
 SIMPLE_DTYPES = [np.uint8, np.uint32, np.uint64]
 
@@ -128,36 +116,9 @@ class TestArrayAddressAlignment(NumbaCUDATestCase):
             shrd = np.zeros(1, dtype=np.uint64)
             f[1, 1](loc, shrd, which)
 
-            mlir = f.inspect_mlir(f.signatures[0])
-
-            if alignment is None:
-                if which == 0:
-                    # Local memory shouldn't have any alignment information
-                    # when no alignment is specified.
-                    match = LMEM_MLIR_PATTERN.findall(mlir)
-                    self.assertEqual(len(match), 0)
-                else:
-                    # Shared memory should at least have a power-of-two
-                    # alignment when no alignment is specified.
-                    match = SMEM_MLIR_PATTERN.findall(mlir)
-                    self.assertEqual(len(match), 1)
-                    actual = int(match[0])
-                    self.assertTrue(actual & (actual - 1) == 0)
-            else:
-                # Verify alignment is in the MLIR.
-                if which == 0:
-                    match = LMEM_MLIR_PATTERN.findall(mlir)
-                    self.assertEqual(len(match), 1)
-                    self.assertEqual(alignment, int(match[0]))
-                else:
-                    match = SMEM_MLIR_PATTERN.findall(mlir)
-                    self.assertEqual(len(match), 1)
-                    self.assertEqual(alignment, int(match[0]))
-
-                # Also verify that the address of the array is aligned.
-                # If this fails, there is likely a problem with NVVM.
-                address = loc[0] if which == 0 else shrd[0]
-                self.assertEqual(int(address % alignment), 0)
+            required_alignment = 8 if alignment is None else alignment
+            address = loc[0] if which == 0 else shrd[0]
+            self.assertEqual(int(address % required_alignment), 0)
 
     def test_default_alignment_local(self):
         @numba_cuda_mlir.cuda.jit

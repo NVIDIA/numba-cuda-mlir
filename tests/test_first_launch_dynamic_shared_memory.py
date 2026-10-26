@@ -12,7 +12,7 @@ import pytest
 
 from numba_cuda_mlir import cuda, types
 from numba_cuda_mlir import descriptor as descriptor_mod
-from numba_cuda_mlir._whole_function_planners import _planner_registry
+from numba_cuda_mlir._whole_function_planners import WholeFunctionPlanner, _planner_registry
 from numba_cuda_mlir.extending import (
     require_launch_config,
     set_required_dynamic_shared_memory,
@@ -133,9 +133,64 @@ def _make_kernel():
     return window_kernel
 
 
-def _run(launcher, launches, dtype=np.int32):
+def _make_defaulted_kernel():
+    @cuda.jit
+    def window_kernel(out, guard, use_window, pad=0):
+        window = cuda.shared.array(0, types.int32)
+        i = cuda.threadIdx.x
+        if guard[0]:
+            window[i] = i
+            cuda.syncthreads()
+            out[i] = window[THREADS - 1 - i] + pad
+        else:
+            out[i] = -1
+
+    return window_kernel
+
+
+def _make_star_args_kernel():
+    @cuda.jit
+    def window_kernel(out, guard, use_window, *rest):
+        window = cuda.shared.array(0, types.int32)
+        i = cuda.threadIdx.x
+        if guard[0]:
+            window[i] = i
+            cuda.syncthreads()
+            out[i] = window[THREADS - 1 - i]
+        else:
+            out[i] = -1
+
+    return window_kernel
+
+
+# Omitting pad is not covered: the omitted argument is not marshalled
+# (NVIDIA/numba-cuda-mlir#410). *args kernels are always compiled with a
+# StarArgTuple, so their launch types never match the compiled signature.
+_SIGNATURE_SHAPES = {
+    "default_passed": (_make_defaulted_kernel, (0,)),
+    "star_args_empty": (_make_star_args_kernel, ()),
+    "star_args": (_make_star_args_kernel, (0,)),
+}
+
+
+class _NoOpPlanner(WholeFunctionPlanner):
+    def run(self):
+        return False
+
+
+@pytest.fixture
+def planner(requirement):
+    _planner_registry.register(_NoOpPlanner)
+    try:
+        yield
+    finally:
+        with _planner_registry._lock:
+            _planner_registry._planners.remove(_NoOpPlanner)
+
+
+def _run(launcher, launches, dtype=np.int32, extra=()):
     out = cuda.to_device(np.zeros(THREADS, dtype=dtype))
-    launcher(out, launches.guard, dtype == np.int32)
+    launcher(out, launches.guard, dtype == np.int32, *extra)
     cuda.synchronize()
     np.testing.assert_array_equal(out.copy_to_host(), EXPECTED)
 
@@ -195,6 +250,35 @@ def test_new_signature_gets_its_requirement(requirement, launches, compiles):
 
     assert launches == [0, 0, REQUIRED, REQUIRED]
     assert len(compiles) == 2
+
+
+def _assert_launches_get_the_requirement(kernel, extra, requirement, launches, compiles):
+    launcher = kernel[1, THREADS]
+    _run(launcher, launches, extra=extra)
+    _run(launcher, launches, extra=extra)
+    _run(kernel[2, THREADS], launches, extra=extra)
+
+    assert launches == [REQUIRED] * 3
+    # Launch-config compiles specialize on each of the two launch configurations.
+    assert len(compiles) == (2 if requirement else 1)
+
+
+@pytest.mark.parametrize(
+    "make_kernel, extra", list(_SIGNATURE_SHAPES.values()), ids=list(_SIGNATURE_SHAPES)
+)
+def test_defaulted_and_star_args_kernels_get_the_requirement(
+    requirement, launches, compiles, make_kernel, extra
+):
+    _assert_launches_get_the_requirement(make_kernel(), extra, requirement, launches, compiles)
+
+
+@pytest.mark.parametrize(
+    "make_kernel, extra", list(_SIGNATURE_SHAPES.values()), ids=list(_SIGNATURE_SHAPES)
+)
+def test_defaulted_and_star_args_kernels_with_a_planner(
+    requirement, planner, launches, compiles, make_kernel, extra
+):
+    _assert_launches_get_the_requirement(make_kernel(), extra, requirement, launches, compiles)
 
 
 def test_kernel_without_requirement_is_unchanged(requirement, launches, monkeypatch):

@@ -7,6 +7,7 @@ import operator
 import sys
 import sysconfig
 import os
+import shutil
 import threading
 from functools import cached_property
 
@@ -20,6 +21,7 @@ from numba_cuda_mlir.errors import UserFacingInternalCompilerError
 from numba_cuda_mlir.logging import trace
 import inspect
 
+from cuda import pathfinder
 from numba_cuda_mlir import codegen
 from numba_cuda_mlir.decorators import mlir_jit
 from numba_cuda_mlir.numba_cuda.errors import normalize_kernel_dimensions
@@ -3510,23 +3512,28 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         if cubin is None:
             raise RuntimeError("No cubin available for disassembly")
 
+        nvdisasm_path = pathfinder.find_nvidia_binary_utility("nvdisasm") or shutil.which(
+            "nvdisasm"
+        )
+        if nvdisasm_path is None:
+            raise RuntimeError(
+                "nvdisasm has not been found. It is included with the CUDA "
+                "toolkit: install the toolkit on your system or, for CUDA 13 "
+                "and newer, install a Python-packaged toolkit in this environment "
+                "(for example cuda-toolkit with the nvdisasm extra). "
+                "The Python-packaged nvdisasm is not available for CUDA 12.\n"
+            )
+
         with tempfile.TemporaryDirectory() as tmpdir:
             cubin_path = os.path.join(tmpdir, "module.cubin")
             # Close the file before nvdisasm opens it, including on Windows.
             with open(cubin_path, "wb") as f:
                 f.write(cubin)
-            try:
-                cp = subprocess.run(
-                    ["nvdisasm", "-gi", cubin_path],
-                    check=True,
-                    capture_output=True,
-                )
-            except FileNotFoundError as e:
-                raise RuntimeError(
-                    "nvdisasm has not been found. You may need "
-                    "to install the CUDA toolkit and ensure that "
-                    "it is available on your PATH.\n"
-                ) from e
+            cp = subprocess.run(
+                [nvdisasm_path, "-gi", cubin_path],
+                check=True,
+                capture_output=True,
+            )
             return cp.stdout.decode("utf-8")
 
     def compile_device(self, sig):

@@ -74,6 +74,8 @@ public:
   // --- Basic blocks ---
   LLVMBasicBlockRef appendBB(LLVMValueRef fn, const char *name);
   void positionAtEnd(LLVMBasicBlockRef bb);
+  void positionBefore(LLVMValueRef inst);
+  LLVMValueRef getTerminator(LLVMBasicBlockRef bb);
   LLVMBasicBlockRef getInsertBlock();
 
   // --- Constants ---
@@ -105,8 +107,14 @@ public:
 
   // --- Arithmetic ---
   LLVMValueRef buildAdd(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
+  LLVMValueRef buildNSWAdd(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
+  LLVMValueRef buildNUWAdd(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
   LLVMValueRef buildSub(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
+  LLVMValueRef buildNSWSub(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
+  LLVMValueRef buildNUWSub(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
   LLVMValueRef buildMul(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
+  LLVMValueRef buildNSWMul(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
+  LLVMValueRef buildNUWMul(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
   LLVMValueRef buildSDiv(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
   LLVMValueRef buildUDiv(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
   LLVMValueRef buildSRem(LLVMValueRef lhs, LLVMValueRef rhs, const char *name);
@@ -221,7 +229,8 @@ public:
                                       bool fullDebug = false);
   LLVMMetadataRef createDISubroutineType(LLVMMetadataRef file);
   LLVMMetadataRef createDIFunction(LLVMMetadataRef scope, const char *name,
-                                   size_t nameLen, LLVMMetadataRef file,
+                                   size_t nameLen, const char *linkageName,
+                                   size_t linkageNameLen, LLVMMetadataRef file,
                                    unsigned lineNo, LLVMMetadataRef type);
   void setSubprogram(LLVMValueRef fn, LLVMMetadataRef sp);
   void setDebugLocation(unsigned line, unsigned col, LLVMMetadataRef scope);
@@ -360,6 +369,8 @@ private:
   // Builder
   LLVM_FN(LLVMBuilderRef, fnCreateBuilder, LLVMContextRef)
   LLVM_FN(void, fnPositionAtEnd, LLVMBuilderRef, LLVMBasicBlockRef)
+  LLVM_FN(void, fnPositionBefore, LLVMBuilderRef, LLVMValueRef)
+  LLVM_FN(LLVMValueRef, fnGetTerminator, LLVMBasicBlockRef)
   LLVM_FN(void, fnDisposeBuilder, LLVMBuilderRef)
 
   // Constants
@@ -392,6 +403,8 @@ private:
   using BinOpFn = LLVMValueRef (*)(LLVMBuilderRef, LLVMValueRef, LLVMValueRef,
                                    const char *);
   BinOpFn fnBuildAdd = nullptr, fnBuildSub = nullptr, fnBuildMul = nullptr;
+  BinOpFn fnBuildNSWAdd = nullptr, fnBuildNSWSub = nullptr, fnBuildNSWMul = nullptr;
+  BinOpFn fnBuildNUWAdd = nullptr, fnBuildNUWSub = nullptr, fnBuildNUWMul = nullptr;
   BinOpFn fnBuildSDiv = nullptr, fnBuildUDiv = nullptr;
   BinOpFn fnBuildSRem = nullptr, fnBuildURem = nullptr;
   BinOpFn fnBuildFAdd = nullptr, fnBuildFSub = nullptr;

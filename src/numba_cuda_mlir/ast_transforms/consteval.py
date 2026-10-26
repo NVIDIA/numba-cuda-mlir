@@ -43,16 +43,16 @@ class TargetOptionsReplacer(ast.NodeTransformer):
 
 
 class VariableReplacer(ast.NodeTransformer):
-    """Replace a variable name with an expression throughout an AST."""
+    """Replace variable names with expressions throughout an AST."""
 
-    def __init__(self, var_name: str, replacement: ast.expr):
-        self.var_name = var_name
-        self.replacement = replacement
+    def __init__(self, replacements: dict[str, ast.expr]):
+        self.replacements = replacements
 
     def visit_Name(self, node: ast.Name) -> ast.AST:
-        if node.id == self.var_name:
-            return ast.copy_location(copy.deepcopy(self.replacement), node)
-        return node
+        replacement = self.replacements.get(node.id)
+        if replacement is None:
+            return node
+        return ast.copy_location(copy.deepcopy(replacement), node)
 
 
 class ConstevalTransformer(ast.NodeTransformer):
@@ -154,16 +154,17 @@ class ConstevalTransformer(ast.NodeTransformer):
         if len(node.args) != 1 or node.keywords:
             raise ConstevalError("consteval expects exactly one positional argument")
 
-        arg = node.args[0]
-        value = self._eval_expr(arg)
+        value = self._eval_expr(node.args[0])
         self.modified = True
+        return ast.copy_location(self._value_expr(value), node)
 
+    def _value_expr(self, value) -> ast.expr:
+        """An expression yielding ``value``: a constant, or a reference to a stored value."""
+        if isinstance(value, ast.expr):
+            return value
         if self._can_be_constant(value):
-            return ast.copy_location(ast.Constant(value=value), node)
-        else:
-            # Store complex value and reference it by name
-            name = self._store_value(value)
-            return ast.copy_location(ast.Name(id=name, ctx=ast.Load()), node)
+            return ast.Constant(value=value)
+        return ast.Name(id=self._store_value(value), ctx=ast.Load())
 
     def _process_statement_list(self, stmts: list[ast.stmt]) -> list[ast.stmt]:
         """Process a list of statements in order, tracking consteval assignments."""
@@ -222,56 +223,81 @@ class ConstevalTransformer(ast.NodeTransformer):
     def _unroll_for_loop(self, node: ast.For) -> list[ast.stmt]:
         """Unroll a for loop with consteval iterator."""
         self._check_unroll_loop_control(node)
+        self._check_unroll_loop_variables(node)
 
-        # Evaluate the iterator
-        iter_value = self._eval_expr(node.iter.args[0])
-        try:
-            items = list(iter_value)
-        except TypeError as e:
-            raise ConstevalError(
-                f"consteval iterator must be iterable, got {type(iter_value).__name__}"
-            ) from e
+        # Evaluate the iterator. A parameter name evaluates to its Numba type,
+        # so it yields element accesses rather than compile-time values.
+        items = self._parameter_element_exprs(node.iter.args[0])
+        if items is None:
+            iter_value = self._eval_expr(node.iter.args[0])
+            try:
+                items = list(iter_value)
+            except TypeError as e:
+                raise ConstevalError(
+                    f"consteval iterator must be iterable, got {type(iter_value).__name__}"
+                ) from e
 
         self.modified = True
 
         # Unroll: for each value, copy the body and replace the variable
         unrolled = []
+        bindings = {}
         for value in items:
-            # Save current local_consts state
-            saved_consts = self.local_consts.copy()
             bindings = self._bind_loop_target(node.target, value)
-            # Add loop variables to local_consts for this iteration
-            self.local_consts.update(bindings)
-            replacements = {}
-            for var_name, bound_value in bindings.items():
-                if self._can_be_constant(bound_value):
-                    replacements[var_name] = ast.Constant(value=bound_value)
-                else:
-                    replacements[var_name] = ast.Name(
-                        id=self._store_value(bound_value), ctx=ast.Load()
-                    )
+            unrolled.extend(self._unroll_statements(node.body, bindings))
 
-            for body_stmt in node.body:
-                # Deep copy the statement
-                stmt_copy = copy.deepcopy(body_stmt)
-                # Replace each loop variable with its constant value
-                for var_name, replacement in replacements.items():
-                    replacer = VariableReplacer(var_name, replacement)
-                    stmt_copy = replacer.visit(stmt_copy)
-                ast.fix_missing_locations(stmt_copy)
-                # Process the statement (handles nested constevals)
-                transformed = self._transform_statement(stmt_copy)
-                if isinstance(transformed, list):
-                    unrolled.extend(transformed)
-                else:
-                    unrolled.append(transformed)
-
-            # Restore local_consts state
-            self.local_consts = saved_consts
-
-        # Note: we ignore the else clause (orelse) since unrolled loops
-        # don't have a natural "else" semantic
+        # The loop variables keep their final values after the loop, and
+        # ``break`` is rejected above, so the ``else`` clause always runs.
+        self.local_consts.update(bindings)
+        for name, value in bindings.items():
+            target = ast.Name(id=name, ctx=ast.Store())
+            assign = ast.Assign(targets=[target], value=self._value_expr(value))
+            unrolled.append(ast.fix_missing_locations(ast.copy_location(assign, node)))
+        unrolled.extend(self._process_statement_list(node.orelse))
         return unrolled
+
+    def _unroll_statements(self, stmts: list[ast.stmt], bindings: dict) -> list[ast.stmt]:
+        """Copy ``stmts`` with the loop variables in ``bindings`` substituted."""
+        replacer = VariableReplacer({name: self._value_expr(v) for name, v in bindings.items()})
+        copies = [ast.fix_missing_locations(replacer.visit(copy.deepcopy(s))) for s in stmts]
+
+        # Make the loop variables visible to nested constevals for these statements only
+        saved_consts = self.local_consts.copy()
+        self.local_consts.update(bindings)
+        result = self._process_statement_list(copies)
+        self.local_consts = saved_consts
+        return result
+
+    def _parameter_element_exprs(self, iter_arg: ast.expr) -> list[ast.expr] | None:
+        """Element accesses for ``consteval(<tuple parameter>)``, else ``None``.
+
+        Evaluating a parameter name yields the parameter's Numba type, whose
+        members are *types*. Substituting those into the body would silently
+        replace each element with its type, so a tuple parameter is unrolled
+        into ``p[0]``, ``p[1]``, ... instead, leaving the values at runtime.
+        """
+        if not isinstance(iter_arg, ast.Name):
+            return None
+        # ``context`` lets param types shadow other bindings, so match that here.
+        param_type = self.param_type_map.get(iter_arg.id)
+        if param_type is None:
+            return None
+
+        from numba_cuda_mlir.numba_cuda import types
+
+        if not isinstance(param_type, types.BaseTuple):
+            raise ConstevalError(
+                f"Cannot unroll over parameter '{iter_arg.id}' of type {param_type}: "
+                "only a tuple parameter has a compile-time length"
+            )
+        return [
+            ast.Subscript(
+                value=ast.Name(id=iter_arg.id, ctx=ast.Load()),
+                slice=ast.Constant(value=index),
+                ctx=ast.Load(),
+            )
+            for index in range(len(param_type))
+        ]
 
     def _check_unroll_loop_control(self, node: ast.For) -> None:
         """Reject loop control statements that would escape an unrolled loop."""
@@ -302,6 +328,25 @@ class ConstevalTransformer(ast.NodeTransformer):
             finder.visit(stmt)
         if finder.control:
             raise ConstevalError(f"Loop unrolling does not support {finder.control} statements")
+
+    def _check_unroll_loop_variables(self, node: ast.For) -> None:
+        """Reject bodies that rebind a loop variable of an unrolled loop.
+
+        Unrolling substitutes the bound value for every use of the variable,
+        which has no meaning for an assignment target: ``v = 0`` would become
+        ``3 = 0`` or ``t[0] = 0``.
+        """
+        loop_vars = {name.id for name in ast.walk(node.target) if isinstance(name, ast.Name)}
+        for stmt in node.body:
+            for name in ast.walk(stmt):
+                if (
+                    isinstance(name, ast.Name)
+                    and name.id in loop_vars
+                    and isinstance(name.ctx, (ast.Store, ast.Del))
+                ):
+                    raise ConstevalError(
+                        f"Loop unrolling does not support rebinding loop variable '{name.id}'"
+                    )
 
     def _bind_loop_target(self, target: ast.expr, value) -> dict[str, object]:
         """Bind a consteval loop target to a compile-time value."""

@@ -4,6 +4,7 @@ import numba_cuda_mlir
 from numba_cuda_mlir.cuda.experimental import consteval
 from numba_cuda_mlir.ast_transforms import ConstevalError
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir.numba_cuda import types
 import numpy as np
 import pytest
 
@@ -409,3 +410,106 @@ def test_unroll_nested_loops_runs():
 
     expected = [0, 1, 2, 10, 11, 12]
     np.testing.assert_array_equal(result, expected)
+
+
+def test_unroll_tuple_parameter():
+    """A tuple parameter unrolls to element accesses, not to its member types."""
+
+    @numba_cuda_mlir.cuda.jit
+    def kernel(out, t):
+        for v in consteval(t):
+            out[0] += v
+
+    sig = types.void(types.float64[:], types.UniTuple(types.float64, 2))
+    cres = kernel.compile(sig)
+    source = cres.metadata["transformed_source"]
+    assert "out[0] += t[0]" in source
+    assert "out[0] += t[1]" in source
+    assert "for v in" not in source
+
+
+def test_unroll_tuple_parameter_runs():
+    """Values reach the body rather than the member types, whatever those are.
+
+    Each element access is typed separately, so the elements may differ.
+    """
+
+    @numba_cuda_mlir.cuda.jit
+    def kernel(out, t):
+        for v in consteval(t):
+            out[0] += v
+
+    out = np.zeros(1)
+    kernel[1, 1](out, (np.int32(1), np.float32(2.5), np.float64(3.25)))
+    np.testing.assert_allclose(out, [6.75])
+
+
+def test_unroll_varargs_bundle_runs():
+    """The ``*args`` bundle is a tuple parameter and unrolls the same way."""
+
+    @numba_cuda_mlir.cuda.jit
+    def kernel(out, *args):
+        for v in consteval(args):
+            out[0] += v
+
+    out = np.zeros(1)
+    kernel[1, 1](out, np.float32(1.5), np.float64(2.5))
+    np.testing.assert_allclose(out, [4.0])
+
+
+def test_unroll_tuple_parameter_preserves_else_clause():
+    """The else clause and the code after the loop see the final loop value."""
+
+    @numba_cuda_mlir.cuda.jit
+    def kernel(out, t):
+        for v in consteval(t):
+            out[0] += v
+        else:
+            out[1] = v
+        out[2] = v
+
+    sig = types.void(types.float64[:], types.UniTuple(types.float64, 2))
+    source = kernel.compile(sig).metadata["transformed_source"]
+    assert source.index("out[0] += t[1]") < source.index("v = t[1]") < source.index("out[1] = v")
+
+    out = np.zeros(3)
+    kernel[1, 1](out, (1.0, 2.0))
+    np.testing.assert_allclose(out, [3.0, 2.0, 2.0])
+
+
+def test_unroll_tuple_parameter_rebinding_rejected():
+    """Rebinding the loop variable must not become a store into the tuple."""
+
+    @numba_cuda_mlir.cuda.jit
+    def kernel(out, t):
+        for v in consteval(t):
+            v = 0
+            out[0] += v
+
+    with pytest.raises(ConstevalError, match="rebinding loop variable 'v'"):
+        kernel.compile(types.void(types.float64[:], types.UniTuple(types.float64, 2)))
+
+
+def test_unroll_non_tuple_parameter_rejected():
+    """A parameter with no compile-time length is diagnosed, not substituted."""
+
+    @numba_cuda_mlir.cuda.jit
+    def kernel(out, n):
+        for v in consteval(n):
+            out[0] += v
+
+    with pytest.raises(ConstevalError, match="only a tuple parameter"):
+        kernel.compile(types.void(types.float64[:], types.int64))
+
+
+def test_unroll_tuple_parameter_destructuring_rejected():
+    """A parameter element is one expression, so it cannot be unpacked."""
+
+    @numba_cuda_mlir.cuda.jit
+    def kernel(out, t):
+        for i, v in consteval(t):
+            out[i] = v
+
+    with pytest.raises(ConstevalError, match="Cannot unpack"):
+        pair = types.UniTuple(types.int64, 2)
+        kernel.compile(types.void(types.float64[:], types.UniTuple(pair, 2)))

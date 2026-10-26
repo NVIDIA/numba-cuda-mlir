@@ -195,10 +195,10 @@ def compute_dead_maps(cfg, blocks, live_map, var_def_map):
             exit_dead_map[offset] = terminator_liveset
 
     # Verify that the dead maps cover all live variables
-    all_vars = reduce(operator.or_, live_map.values(), set())
-    internal_dead_vars = reduce(operator.or_, internal_dead_map.values(), set())
-    escaping_dead_vars = reduce(operator.or_, escaping_dead_map.values(), set())
-    exit_dead_vars = reduce(operator.or_, exit_dead_map.values(), set())
+    all_vars = set().union(*live_map.values())
+    internal_dead_vars = set().union(*internal_dead_map.values())
+    escaping_dead_vars = set().union(*escaping_dead_map.values())
+    exit_dead_vars = set().union(*exit_dead_map.values())
     dead_vars = internal_dead_vars | escaping_dead_vars | exit_dead_vars
     missing_vars = all_vars - dead_vars
     if missing_vars:

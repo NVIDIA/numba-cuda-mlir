@@ -5,7 +5,7 @@
 # "magictoken" is used for markers as beginning and ending of example text.
 
 import unittest
-from numba.cuda.testing import (
+from numba_cuda_mlir.numba_cuda.testing import (
     CUDATestCase,
     skip_if_cudadevrt_missing,
     skip_unless_cc_60,
@@ -17,8 +17,8 @@ from numba.cuda.testing import (
 class TestCooperativeGroups(CUDATestCase):
     def test_ex_grid_sync(self):
         # magictoken.ex_grid_sync_kernel.begin
-        from numba import cuda
-        from numba.cuda import int32
+        from numba_cuda_mlir import cuda
+        from numba_cuda_mlir.cuda import int32
         import numpy as np
 
         sig = (int32[:, ::1],)

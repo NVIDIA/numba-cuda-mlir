@@ -33,6 +33,20 @@ def k_array_2d(a):
     a[0, i] = a[0, i] + 1.0
 
 
+def k_shape_local(a, out):
+    n = a.shape[0]
+    i = cuda.grid(1)
+    if i < n:
+        out[i] = a[i] + n
+
+
+def k_size_local(a, out):
+    n = a.size
+    i = cuda.grid(1)
+    if i < n:
+        out[i] = a[i] + n
+
+
 def test_mlir_emission_kind_full():
     """debug=True must set emissionKind = Full (not LineTablesOnly)."""
     mlir = compiler.compile_mlir(
@@ -845,6 +859,26 @@ def test_mlir_scalar_int_arg_type(int_arg, expected_name, size_bits, encoding):
     )
 
 
+@pytest.mark.parametrize("fn", [k_shape_local, k_size_local], ids=["shape", "size"])
+def test_llvm_ir_dbg_value_index_local(fn):
+    """A local holding an array extent is described by an i64, not an index.
+
+    memref.dim yields index type, needs to cast to the DI variable's own integer width.
+    """
+    kernel = cuda.jit(debug=True, opt=False)(fn)
+    sig = (types.float32[:], types.float32[:])
+    kernel.compile(types.void(*sig))
+    llvm_ir = kernel.inspect_llvm(sig)
+
+    testing.filecheck(
+        """
+        CHECK: dbg{{[._]}}value({{(metadata )?}}i64 %{{[0-9]+}}, {{(metadata )?}}![[N_VAR:[0-9]+]]
+        CHECK: ![[N_VAR]] = !DILocalVariable(name: "n",
+        """,
+        llvm_ir,
+    )
+
+
 def test_llvm_ir_array_arg_is_parameter_of_descriptor_type():
     """An array arg is described by its full descriptor type in the LLVM IR."""
 
@@ -872,6 +906,25 @@ def test_llvm_ir_array_arg_is_parameter_of_descriptor_type():
         CHECK-DAG: !DICompositeType(tag: DW_TAG_array_type,{{.*}}elements: ![[DIMS:[0-9]+]])
         CHECK-DAG: !DISubrange(count: 1)
         CHECK-DAG: !DILocalVariable(name: "output_arr", arg: 2,{{.*}}type: ![[TY]])
+        """,
+        llvm_ir,
+    )
+
+
+def test_llvm_ir_subprogram_name():
+    """The subprogram is named after the source, not the mangled symbol."""
+
+    @cuda.jit(debug=True, opt=False)
+    def k_foo(out, a):
+        out[0] = a + 1
+
+    sig = (types.int32[:], types.int32)
+    k_foo.compile(types.void(*sig))
+    llvm_ir = k_foo.inspect_llvm(sig)
+
+    testing.filecheck(
+        """
+        CHECK: !DISubprogram(name: "k_foo",
         """,
         llvm_ir,
     )

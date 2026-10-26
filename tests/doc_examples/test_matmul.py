@@ -10,7 +10,7 @@ Contents in this file are referenced from the sphinx-generated docs.
 "magictoken" is used for markers as beginning and ending of example text.
 """
 
-from numba.cuda.tests.support import captured_stdout
+from numba_cuda_mlir.numba_cuda.tests.support import captured_stdout
 
 
 def test_matmul():
@@ -18,8 +18,7 @@ def test_matmul():
     # Prevent output from this test showing up when running the test suite
     with captured_stdout():
         # magictoken.ex_import.begin
-        from numba import cuda
-        from numba.cuda import float32
+        from numba_cuda_mlir import cuda, types
         import numpy as np
         import math
         # magictoken.ex_import.end
@@ -72,8 +71,8 @@ def test_matmul():
             """
             # Define an array in the shared memory
             # The size and type of the arrays must be known at compile time
-            sA = cuda.shared.array(shape=(TPB, TPB), dtype=float32)
-            sB = cuda.shared.array(shape=(TPB, TPB), dtype=float32)
+            sA = cuda.shared.array(shape=(TPB, TPB), dtype=types.float32)
+            sB = cuda.shared.array(shape=(TPB, TPB), dtype=types.float32)
 
             x, y = cuda.grid(2)
 
@@ -83,7 +82,7 @@ def test_matmul():
 
             # Each thread computes one element in the result matrix.
             # The dot product is chunked into dot products of TPB-long vectors.
-            tmp = float32(0.0)
+            tmp = types.float32(0.0)
             for i in range(bpg):
                 # Preload data into shared memory
                 sA[ty, tx] = 0

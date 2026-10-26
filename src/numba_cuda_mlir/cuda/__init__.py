@@ -45,6 +45,11 @@ libdevicefuncs = importlib.import_module("numba_cuda_mlir.cuda.libdevicefuncs")
 vector = importlib.import_module("numba_cuda_mlir.cuda.vector")
 vector_types = importlib.import_module("numba_cuda_mlir.cuda.vector_types")
 
+# `numba.cuda.random` has no thunk of its own; alias the implementation so both
+# `cuda.random.foo` and `from ...cuda.random import foo` resolve.
+random = importlib.import_module("numba_cuda_mlir.numba_cuda.random")
+sys.modules[f"{__name__}.random"] = random
+
 # Expose vector type constructors (float32x4, int32x2, etc.) at module level
 from .vector_types import *  # noqa: F401,F403
 

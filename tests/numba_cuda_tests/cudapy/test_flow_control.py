@@ -2,11 +2,14 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 import pytest
+import inspect
 import itertools
+import sys
 
 import unittest
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda.core.controlflow import CFGraph, ControlFlowAnalysis
+from numba_cuda_mlir.numba_cuda.core.byteflow import Flow
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core.bytecode import (
     FunctionIdentity,
@@ -17,6 +20,17 @@ from numba_cuda_mlir.numba_cuda import utils
 from numba_cuda_mlir.testing import NumbaCUDATestCase
 import numpy as np
 import pytest
+
+
+@pytest.mark.skipif(utils.PYVERSION != (3, 15), reason="Python 3.15 bytecode")
+def test_python315_comprehension_byteflow():
+    def usecase(xs):
+        return [x if x else -x for x in xs]
+
+    bytecode = ByteCode(FunctionIdentity.from_function(usecase))
+    assert any(inst.opname == "GET_ITER" for inst in bytecode)
+    assert any(inst.opname == "POP_ITER" for inst in bytecode)
+    Flow(bytecode).run()
 
 
 def for_loop_usecase1(x, y, res1, res2):
@@ -631,6 +645,33 @@ class TestCFGraph(NumbaCUDATestCase):
             ),
         )
 
+    def test_topo_order_deep_graph(self):
+        # Diamond chain longer than the recursion limit.
+        n_diamonds = 2000
+        adj = {}
+        for i in range(n_diamonds):
+            head, body, join = 2 * i, 2 * i + 1, 2 * i + 2
+            adj[head] = [body, join]
+            adj[body] = [join]
+        adj[2 * n_diamonds] = []
+        g = self.from_adj_list(adj)
+        g.set_entry_point(0)
+        g.process()
+
+        current_depth = len(inspect.stack())
+        old_limit = sys.getrecursionlimit()
+        sys.setrecursionlimit(current_depth + 200)
+        try:
+            order = g.topo_order()
+        finally:
+            sys.setrecursionlimit(old_limit)
+
+        self.assertEqual(sorted(order), sorted(adj))
+        position = {node: i for i, node in enumerate(order)}
+        for src, dests in adj.items():
+            for dest in dests:
+                self.assertLess(position[src], position[dest])
+
     def test_topo_sort(self):
         def check_topo_sort(nodes, expected):
             self.assertIn(list(g.topo_sort(nodes)), expected)
@@ -729,6 +770,34 @@ class TestCFGraph(NumbaCUDATestCase):
                 26: [0, 10, 13, 26],
             },
         )
+
+    def test_dominators_deep_graph(self):
+        # Diamond chain: head 2i -> body 2i+1 -> join 2i+2, head 2i -> join 2i+2.
+        n_diamonds = 2000
+        adj = {}
+        for i in range(n_diamonds):
+            head, body, join = 2 * i, 2 * i + 1, 2 * i + 2
+            adj[head] = [body, join]
+            adj[body] = [join]
+        last = 2 * n_diamonds
+        adj[last] = []
+        g = self.from_adj_list(adj)
+        g.set_entry_point(0)
+        g.process()
+
+        spine = set(range(0, last + 1, 2))
+        self.assertEqual(g.backbone(), spine)
+        idoms = g.immediate_dominators()
+        self.assertEqual(idoms[0], 0)
+        for i in range(n_diamonds):
+            self.assertEqual(idoms[2 * i + 1], 2 * i)
+            self.assertEqual(idoms[2 * i + 2], 2 * i)
+        doms = g.dominators()
+        self.assertEqual(doms[last], spine)
+        self.assertEqual(doms[last - 1], (spine - {last}) | {last - 1})
+        pdoms = g.post_dominators()
+        self.assertEqual(pdoms[0], spine)
+        self.assertEqual(pdoms[1], (spine - {0}) | {1})
 
     def test_post_dominators_loopless(self):
         def eq_(d, l):

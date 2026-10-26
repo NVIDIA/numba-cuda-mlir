@@ -18,7 +18,7 @@ from numba_cuda_mlir.numba_cuda.extending import intrinsic
 # to build NVVM IR with llvmlite, but on the MLIR path these grid / syncthreads
 # / warp shuffle / warp vote operations are lowered by
 # numba_cuda_mlir.lowering.cuda, so the codegen closures are never invoked (a
-# numba_cuda_mlir.numba_cuda intrinsic builder is filtered out by MLIRLower).
+# numba_cuda_mlir.numba_cuda intrinsic builder is never run on the MLIR path).
 # The codegen is therefore a single shared tombstone.
 def _dead_codegen(context, builder, sig, args):
     raise NotImplementedError(

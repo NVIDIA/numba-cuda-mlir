@@ -163,10 +163,10 @@ def _make_star_args_kernel():
     return window_kernel
 
 
-# Omitting pad is not covered: the omitted argument is not marshalled
-# (NVIDIA/numba-cuda-mlir#410). *args kernels are always compiled with a
-# StarArgTuple, so their launch types never match the compiled signature.
+# Omitted defaults compile as types.Omitted and *args as a StarArgTuple, so
+# those launch types never match the compiled signature.
 _SIGNATURE_SHAPES = {
+    "default_omitted": (_make_defaulted_kernel, ()),
     "default_passed": (_make_defaulted_kernel, (0,)),
     "star_args_empty": (_make_star_args_kernel, ()),
     "star_args": (_make_star_args_kernel, (0,)),

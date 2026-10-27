@@ -616,7 +616,11 @@ dynamic bytes as elements of its dtype; its <code class="docutils literal notran
 <p>Runtime-sized allocations consume the dynamic region in execution order.
 Each allocation starts at an offset aligned for its dtype and its
 <code class="docutils literal notranslate"><span class="pre">alignment</span></code> (8 bytes by default). Include this padding in the launch’s
-byte count. For example:</p>
+byte count. Kernels containing runtime-sized shared allocations require a
+nonzero dynamic shared-memory byte count at launch; omitting it or passing
+zero raises <code class="docutils literal notranslate"><span class="pre">ValueError</span></code> before the kernel runs. The caller must still
+provide enough bytes for the allocations and their alignment padding.
+For example:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
@@ -639,6 +643,19 @@ byte count. For example:</p>
 <p>The prefix uses bytes 0 through 2. The tail begins at byte 8 and contains
 six <code class="docutils literal notranslate"><span class="pre">int32</span></code> elements. All threads that share these allocations must follow
 the same allocation path and use the same sizes.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Compatibility and migration:</strong> Runtime-sized shared arrays previously
+began immediately after the preceding payload. Allocation starts are now
+aligned, so the memory layout and required launch budget can change even
+though the <code class="docutils literal notranslate"><span class="pre">cuda.shared.array</span></code> signature is unchanged.</p>
+<p>When calculating the launch budget, round the current byte offset up to
+each allocation’s alignment before adding its storage size. Include both
+alignment padding and padded vector storage: <code class="docutils literal notranslate"><span class="pre">float32x3</span></code> uses 16 bytes
+per element. Update pointer arithmetic and FFI code that assumes adjacent
+allocations have no gap. Zero-sized declarations remain non-consuming
+views of the remaining region; they do not reserve independent storage.</p>
+</div>
 <p>A zero-sized declaration views the remaining window without consuming it.
 Repeated zero-sized declarations with the same alignment therefore alias,
 unless a runtime-sized allocation intervenes. With no preceding runtime-sized

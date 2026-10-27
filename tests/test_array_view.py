@@ -378,3 +378,52 @@ def test_packed_field_reverse_slice_omitted_bounds(step):
     expected = records.copy()
     expected["value"][::step][1:] = 37
     np.testing.assert_array_equal(device.copy_to_host(), expected)
+
+
+@pytest.mark.parametrize(
+    "start,stop,step",
+    [
+        (-2, None, -1),
+        (None, -1, -1),
+        (-2, -7, -2),
+        (100, -100, -2),
+        (-100, 100, 3),
+        (-6, -1, 2),
+        (100, None, 1),
+        (-100, None, -1),
+    ],
+)
+@pytest.mark.parametrize("packed", [False, True])
+def test_slice_explicit_bounds_preserve_payload_and_writes(start, stop, step, packed):
+    omit_start, omit_stop = start is None, stop is None
+
+    @cuda.jit
+    def kernel(owner, out, size, runtime_start, runtime_stop, step):
+        source = owner.value if packed else owner
+        start = None if omit_start else runtime_start
+        stop = None if omit_stop else runtime_stop
+        view = source[start:stop:step]
+        size[0] = view.size
+        for i in range(view.size):
+            out[i] = view[i]
+        source[start:stop:step] = 37
+
+    values = np.arange(8, dtype=np.float64) + 0.5
+    records = np.zeros(8, [("tag", np.int32), ("value", np.float64)])
+    records["tag"] = np.arange(8) + 100
+    records["value"] = values
+    host = records if packed else values
+    selection = slice(start, stop, step)
+    expected_values = values[selection].copy()
+    device = cuda.to_device(host)
+    out = cuda.to_device(np.full(8, -999.0, np.float64))
+    size = cuda.device_array(1, np.int64)
+    kernel[1, 1](device, out, size, start or 0, stop or 0, step)
+    np.testing.assert_array_equal(size.copy_to_host(), [expected_values.size])
+    expected_out = np.full(8, -999.0, np.float64)
+    expected_out[: expected_values.size] = expected_values
+    np.testing.assert_array_equal(out.copy_to_host(), expected_out)
+    expected = host.copy()
+    payload = expected["value"] if packed else expected
+    payload[selection] = 37
+    np.testing.assert_array_equal(device.copy_to_host(), expected)

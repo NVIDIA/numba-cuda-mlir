@@ -1298,10 +1298,26 @@ def _slice_bounds(array, slice_value, dim=0):
     zero, one = index_of(0), index_of(1)
     extent = memref.dim(array, index_of(dim))
     negative = arith.cmpi(arith.CmpIPredicate.slt, step, zero)
+    lower_bound = arith.select(negative, index_of(-1), zero)
+    upper_bound = arith.select(negative, arith.subi(extent, one), extent)
+
+    def normalize(bound):
+        bound = index_of(bound)
+        bound = arith.select(
+            arith.cmpi(arith.CmpIPredicate.slt, bound, zero),
+            arith.addi(bound, extent),
+            bound,
+        )
+        return arith.minsi(arith.maxsi(bound, lower_bound), upper_bound)
+
     if start is None:
         start = arith.select(negative, arith.subi(extent, one), zero)
+    else:
+        start = normalize(start)
     if stop is None:
         stop = arith.select(negative, index_of(-1), extent)
+    else:
+        stop = normalize(stop)
     distance = arith.select(negative, arith.subi(start, stop), arith.subi(stop, start))
     distance = arith.maxsi(distance, zero)
     magnitude = arith.select(negative, arith.subi(zero, step), step)

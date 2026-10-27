@@ -334,8 +334,7 @@ class ConstArrayLikeTemplate(AbstractTemplate):
     def generic(self, args, kws):
         if len(args) == 1 and isinstance(args[0], types.Array):
             arr = args[0]
-            # const.array_like returns an array with same shape and dtype
-            return signature(types.Array(dtype=arr.dtype, ndim=arr.ndim, layout=arr.layout), arr)
+            return signature(arr.copy(), arr)
         return None
 
 

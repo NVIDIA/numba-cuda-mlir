@@ -89,6 +89,73 @@ def test_concurrent_cold_cuda_compile():
     assert "concurrent-compile-ok" in result.stdout
 
 
+@pytest.mark.parametrize("backend", ["mlir", "cuda"])
+@pytest.mark.parametrize("attribute", ["typing_context", "target_context"])
+def test_concurrent_cold_target_contexts_converge(monkeypatch, backend, attribute):
+    if backend == "mlir":
+        from numba_cuda_mlir import descriptor
+
+        target = descriptor.MLIRTarget("numba_cuda_mlir")
+        constructor_name = (
+            "MLIRTypingContext" if attribute == "typing_context" else "MLIRTargetContext"
+        )
+    else:
+        from numba_cuda_mlir.numba_cuda import descriptor
+
+        target = descriptor.CUDATarget("cuda")
+        constructor_name = (
+            "CUDATypingContext" if attribute == "typing_context" else "CUDATargetContext"
+        )
+
+    constructor = getattr(descriptor, constructor_name)
+    first_constructed = threading.Event()
+    competitor_entered = threading.Event()
+    constructing_thread = None
+    construction_guard = threading.Lock()
+
+    class ContentionLock:
+        def __init__(self):
+            self.lock = threading.RLock()
+
+        def __enter__(self):
+            if first_constructed.is_set() and threading.get_ident() != constructing_thread:
+                competitor_entered.set()
+            self.lock.acquire()
+
+        def __exit__(self, *exc):
+            self.lock.release()
+
+    def paused_constructor(*args):
+        nonlocal constructing_thread
+        context = constructor(*args)
+        with construction_guard:
+            first = constructing_thread is None
+            if first:
+                constructing_thread = threading.get_ident()
+        if first:
+            first_constructed.set()
+            # The second getter either contends on the lock or, before the fix,
+            # constructs a second context while the first remains unpublished.
+            assert competitor_entered.wait(30)
+        else:
+            competitor_entered.set()
+        return context
+
+    target._initialization_lock = ContentionLock()
+    monkeypatch.setattr(descriptor, constructor_name, paused_constructor)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(getattr, target, attribute)
+        try:
+            assert first_constructed.wait(30)
+            second = executor.submit(getattr, target, attribute)
+            contexts = first.result(timeout=30), second.result(timeout=30)
+        finally:
+            competitor_entered.set()
+
+    assert contexts[0] is contexts[1] is getattr(target, attribute)
+    assert target.target_context.typing_context is target.typing_context
+
+
 def test_imports_do_not_enable_gil_by_default():
     _require_free_threaded_python()
 

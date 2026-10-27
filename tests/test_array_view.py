@@ -391,6 +391,11 @@ def test_packed_field_reverse_slice_omitted_bounds(step):
         (-6, -1, 2),
         (100, None, 1),
         (-100, None, -1),
+        (None, None, np.iinfo(np.int64).max),
+        (None, None, -np.iinfo(np.int64).max),
+        (None, None, np.iinfo(np.int64).min),
+        (0, 0, np.iinfo(np.int64).max),
+        (0, 0, np.iinfo(np.int64).min),
     ],
 )
 @pytest.mark.parametrize("packed", [False, True])

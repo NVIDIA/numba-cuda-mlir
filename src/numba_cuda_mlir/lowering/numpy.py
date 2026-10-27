@@ -1339,8 +1339,12 @@ def _slice_bounds(builder, array, slice_value, dim=0):
         stop = normalize(stop)
     distance = arith.select(negative, arith.subi(start, stop), arith.subi(stop, start))
     distance = arith.maxsi(distance, zero)
+    # Unsigned magnitude represents abs(INT64_MIN) without signed overflow.
     magnitude = arith.select(negative, arith.subi(zero, step), step)
-    size = arith.divsi(arith.addi(distance, arith.subi(magnitude, one)), magnitude)
+    nonempty = arith.cmpi(arith.CmpIPredicate.sgt, distance, zero)
+    numerator = arith.select(nonempty, arith.subi(distance, one), zero)
+    rounded_size = arith.addi(arith.divui(numerator, magnitude), one)
+    size = arith.select(nonempty, rounded_size, zero)
     return (
         arith.select(zero_step, zero, start),
         arith.select(zero_step, zero, stop),

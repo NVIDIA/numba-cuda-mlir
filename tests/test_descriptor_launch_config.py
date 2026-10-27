@@ -1214,7 +1214,7 @@ def test_compile_impl_generic_applies_shared_memory_carveout(monkeypatch):
 
     descriptor_mod._compile_arg_types.types = (types.int32,)
 
-    assert dispatcher._compile_impl([1]) == (b"generic", "kernel", False)
+    assert dispatcher._compile_impl([1]) == (b"generic", "kernel", False, False)
     assert len(applied) == 1
     assert dispatcher.overloads[(types.int32,)] is applied[0]
 
@@ -1948,7 +1948,7 @@ def test_compile_ignores_stale_launch_config_after_extension_removed():
         "cluster": None,
     }
 
-    assert dispatcher._compile_impl([np.float32(1)]) == (b"generic", "kernel", False)
+    assert dispatcher._compile_impl([np.float32(1)]) == (b"generic", "kernel", False, False)
 
 
 def test_retained_marshaller_compiles_with_extension_snapshot_after_mutation(monkeypatch):
@@ -1991,7 +1991,7 @@ def test_retained_marshaller_compiles_with_extension_snapshot_after_mutation(mon
         descriptor_mod.NumbaPerformanceWarning,
         match="Persistent disk cache is disabled for launch-config-specialized compiles",
     ):
-        assert marshaller._launch((types.int32,), [1]) == (b"launch", "kernel", False)
+        assert marshaller._launch((types.int32,), [1]) == (b"launch", "kernel", False, False)
 
     assert len(compile_calls) == 1
     assert compile_calls[0][0] == (types.int32,)
@@ -2151,7 +2151,7 @@ def test_compile_impl_launch_config_publishes_aliases_and_skips_disk_cache(monke
         descriptor_mod.NumbaPerformanceWarning,
         match="Persistent disk cache is disabled for launch-config-specialized compiles",
     ) as warning_records:
-        assert dispatcher._compile_impl([1]) == (b"cubin-1", "kernel", False)
+        assert dispatcher._compile_impl([1]) == (b"cubin-1", "kernel", False, False)
 
         second_launch_config = {
             "grid": (1, 1, 1),
@@ -2163,7 +2163,7 @@ def test_compile_impl_launch_config_publishes_aliases_and_skips_disk_cache(monke
         descriptor_mod._compile_arg_types.types = (types.int64,)
         descriptor_mod._compile_arg_types.launch_config = second_launch_config
 
-        assert dispatcher._compile_impl([2]) == (b"cubin-2", "kernel", False)
+        assert dispatcher._compile_impl([2]) == (b"cubin-2", "kernel", False, False)
 
     assert len(warning_records) == 1
     assert [call[0] for call in compile_calls] == [(types.int32,), (types.int64,)]
@@ -2230,11 +2230,11 @@ def test_compile_impl_launch_config_separates_same_signature_by_grid(monkeypatch
     ) as warning_records:
         descriptor_mod._compile_arg_types.types = (types.int32,)
         descriptor_mod._compile_arg_types.launch_config = first_launch_config
-        assert dispatcher._compile_impl([1]) == (b"cubin-1", "kernel", False)
+        assert dispatcher._compile_impl([1]) == (b"cubin-1", "kernel", False, False)
 
         descriptor_mod._compile_arg_types.types = (types.int32,)
         descriptor_mod._compile_arg_types.launch_config = second_launch_config
-        assert dispatcher._compile_impl([1]) == (b"cubin-2", "kernel", False)
+        assert dispatcher._compile_impl([1]) == (b"cubin-2", "kernel", False, False)
 
     assert len(warning_records) == 1
     assert first_launch_key != second_launch_key
@@ -2295,7 +2295,7 @@ def test_compile_impl_discards_callbacks_after_generation_retry(monkeypatch):
         descriptor_mod.NumbaPerformanceWarning,
         match="Persistent disk cache is disabled for launch-config-specialized compiles",
     ):
-        assert dispatcher._compile_impl([1]) == (b"accepted", "kernel", False)
+        assert dispatcher._compile_impl([1]) == (b"accepted", "kernel", False, False)
 
     assert len(compile_calls) == 2
     assert stale_setup_callback not in dispatcher._module_setup_callbacks
@@ -2338,7 +2338,7 @@ def test_compile_impl_discards_callbacks_from_duplicate_launch_compile(monkeypat
     descriptor_mod._compile_arg_types.types = (types.int32,)
     descriptor_mod._compile_arg_types.launch_config = launch_config
 
-    assert dispatcher._compile_impl([1]) == (b"winner", "kernel", False)
+    assert dispatcher._compile_impl([1]) == (b"winner", "kernel", False, False)
     assert losing_setup_callback not in dispatcher._module_setup_callbacks
 
 
@@ -2513,7 +2513,7 @@ def test_literal_retry_counts_concurrent_discovery_as_attempt_progress(monkeypat
     descriptor_mod._compile_arg_types.types = (types.int32,)
     descriptor_mod._compile_arg_types.values = (7,)
 
-    assert dispatcher._compile_impl([7]) == (b"literal-7", "kernel", False)
+    assert dispatcher._compile_impl([7]) == (b"literal-7", "kernel", False, False)
     assert compile_calls == [types.int32, types.literal(7)]
     assert dispatcher._literal_arg_positions == frozenset({0})
 
@@ -2618,8 +2618,8 @@ def test_literal_retry_preserves_same_attempt_launch_promotion(monkeypatch):
     literal7 = types.literal(7)
     literal9 = types.literal(9)
 
-    assert first == (b"literal-7", "kernel", False)
-    assert second == (b"literal-9", "kernel", False)
+    assert first == (b"literal-7", "kernel", False, False)
+    assert second == (b"literal-9", "kernel", False, False)
     assert [call[0] for call in compile_calls] == [(7,), (7,), (9,)]
     assert [call[1] for call in compile_calls] == [
         (types.int32,),
@@ -2697,7 +2697,7 @@ def test_literal_retry_accumulates_staged_requests_with_launch_promotion(monkeyp
     literal7 = types.literal(7)
     literal11 = types.literal(11)
 
-    assert result == (b"literal-7-11", "kernel", False)
+    assert result == (b"literal-7-11", "kernel", False, False)
     assert [call[1] for call in compile_calls] == [
         (types.int32, types.int32),
         (literal7, types.int32),
@@ -2788,7 +2788,7 @@ def test_compile_impl_promotes_available_launch_config_in_current_attempt(monkey
         "cluster": None,
     }
     launch_key = descriptor_mod._launch_config_key(normalized_launch_config)
-    assert result == (b"qualified", "kernel", False)
+    assert result == (b"qualified", "kernel", False, False)
     assert len(compile_calls) == 1
     assert "__launch_config__" not in compile_calls[0]
     tracker = compile_calls[0][_LAUNCH_CONFIG_TRACKER_OPTION]
@@ -2844,7 +2844,7 @@ def test_compile_impl_retries_only_after_promoted_config_generation_changes(monk
         descriptor_mod.NumbaPerformanceWarning,
         match="Persistent disk cache is disabled for launch-config-specialized compiles",
     ):
-        assert dispatcher._compile_impl([1]) == (b"accepted", "kernel", False)
+        assert dispatcher._compile_impl([1]) == (b"accepted", "kernel", False, False)
 
     assert len(compile_calls) == 2
     assert "__launch_config__" not in compile_calls[0]
@@ -2928,7 +2928,7 @@ def test_compile_impl_ignores_opaque_available_launch_config_without_demand(monk
     }
     dispatcher = descriptor_mod.MLIRDispatcher(kernel)
 
-    assert dispatcher._compile_impl([1]) == (b"generic", "kernel", False)
+    assert dispatcher._compile_impl([1]) == (b"generic", "kernel", False, False)
     assert len(compile_calls) == 1
     tracker = compile_calls[0][_LAUNCH_CONFIG_TRACKER_OPTION]
     assert tracker.required is False

@@ -327,6 +327,7 @@ struct CudaKernelHandle {
     CudaKernel cukernel;
     PyPtr post_load_callback;
     bool cooperative = false;
+    bool has_runtime_sized_shared_memory = false;
 };
 
 // This should compile to a no-op
@@ -1613,8 +1614,8 @@ Result<CudaKernelHandle> compile(PyObject* compile_func,
                      Py_TYPE(compile_result.get())->tp_name);
 
     Py_ssize_t tuple_size = PyTuple_GET_SIZE(compile_result.get());
-    if (tuple_size < 3 || tuple_size > 4)
-        return raise(PyExc_TypeError, "Expected compile() to return a 3- or 4-tuple, got length %zd",
+    if (tuple_size < 3 || tuple_size > 5)
+        return raise(PyExc_TypeError, "Expected compile() to return a 3-, 4-, or 5-tuple, got length %zd",
                      tuple_size);
 
     PyObject* py_cubin = PyTuple_GET_ITEM(compile_result.get(), 0);
@@ -1640,11 +1641,13 @@ Result<CudaKernelHandle> compile(PyObject* compile_func,
     if (!cukernel.is_ok()) return ErrorRaised;
 
     CudaKernelHandle handle{std::move(*cukernel), {}, cooperative};
-    if (tuple_size == 4) {
+    if (tuple_size >= 4) {
         PyObject* post_load_cb = PyTuple_GET_ITEM(compile_result.get(), 3);
         if (post_load_cb != Py_None && PyCallable_Check(post_load_cb))
             handle.post_load_callback = newref(post_load_cb);
     }
+    if (tuple_size == 5)
+        handle.has_runtime_sized_shared_memory = PyTuple_GET_ITEM(compile_result.get(), 4) == Py_True;
     return handle;
 }
 
@@ -2057,6 +2060,12 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
                 helper->cuarg_pointers.push_back(&helper->cuargs[meta.start_idx]);
             }
         }
+    }
+
+    if (sharedmem == 0 && kernel_iter->second.has_runtime_sized_shared_memory) {
+        return raise(PyExc_ValueError,
+                     "Runtime-sized shared arrays require a nonzero sharedmem launch argument; "
+                     "use kernel[grid, block, stream, sharedmem](...).");
     }
 
     // Configure dynamic shared memory if needed.

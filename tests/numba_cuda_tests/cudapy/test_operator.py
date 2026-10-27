@@ -4,6 +4,7 @@
 import numpy as np
 import numba_cuda_mlir
 from numba_cuda_mlir.testing import NumbaCUDATestCase
+from numba_cuda_mlir.numba_cuda.testing import cc_X_or_above
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.types import f2, i2, u2, b1
@@ -287,7 +288,9 @@ class TestOperatorModule:
             expected = op(arg1)
             np.testing.assert_allclose(got, expected)
 
-    @pytest.mark.xfail(True, reason="NVVM verify error")
+    @pytest.mark.xfail(
+        not cc_X_or_above(10, 0), reason="NVVM verify error below compute capability 10.0"
+    )
     def test_fp16_neg_ptx(self):
         args = (f2[:], f2)
         compiled = cuda.jit("void(f2[:], f2)", lto=True)(simple_fp16neg)

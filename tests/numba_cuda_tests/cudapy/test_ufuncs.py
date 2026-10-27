@@ -525,10 +525,7 @@ class TestBitwiseUFuncs(CUDAUFuncTestBase):
     def test_bitwise_not_ufunc(self):
         self.basic_int_ufunc_test(np.bitwise_not)
 
-    # Note: there is no entry for np.left_shift and np.right_shift
-    # because their implementations in NumPy have undefined behavior
-    # when the second argument is a negative. See the comment in
-    # numba/tests/test_ufuncs.py for more details.
+    # np.left_shift and np.right_shift are tested in tests/test_ufunc_shifts.py
 
     ############################################################################
     # Mathematical Functions

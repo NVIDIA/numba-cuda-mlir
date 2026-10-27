@@ -22,6 +22,27 @@ runs:
         dependencies=(${{ inputs.dependencies }})
         dependent_exes=(${{ inputs.dependent_exes }})
 
+        if ! (command -v sudo 2>&1 >/dev/null); then
+          if [[ $EUID == 0 ]]; then
+            alias SUDO=""
+          else
+            echo "The following operations require root access."
+            exit 1
+          fi
+        else
+          alias SUDO="sudo"
+        fi
+        shopt -s expand_aliases
+
+        # Always refresh the system trust store before anything else: pip 24.2+
+        # trusts certifi plus the OpenSSL default store additively, so a stale
+        # ca-certificates package can keep the compromised eMudhra/emSign
+        # intermediates trusted even when every requested exe below is already
+        # present (which short-circuits the rest of this step).
+        # See https://discuss.python.org/t/109576.
+        SUDO apt update
+        SUDO apt install -y ca-certificates
+
         not_found=0
         for dep in ${dependent_exes[@]}; do
           if ! (command -v $dep 2>&1 >/dev/null); then
@@ -30,19 +51,7 @@ runs:
           fi
         done
         if [[ $not_found == 0 ]]; then
-          echo "All dependencies are found. Do nothing."
+          echo "All other dependencies are found. Done."
           exit 0
         fi
-        if ! (command -v sudo 2>&1 >/dev/null); then
-          if [[ $EUID == 0 ]]; then
-            alias SUDO=""
-          else
-            echo "The following oprations require root access."
-            exit 1
-          fi
-        else
-          alias SUDO="sudo"
-        fi
-        shopt -s expand_aliases
-        SUDO apt update
         SUDO apt install -y ${dependencies[@]}

@@ -71,6 +71,12 @@ jobs:
           path: llvm-modern-install/
           key: ${{ steps.cache-key.outputs.key }}
 
+      - name: Harden pip
+        if: steps.gha-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/harden-pip
+        with:
+          python: ${{ env.PY }}
+
       - name: Install build dependencies
         if: steps.gha-cache.outputs.cache-hit != 'true'
         run: |
@@ -276,6 +282,10 @@ jobs:
           arch: arm64
           toolset: ${{ steps.cache-key.outputs.msvc-toolset }}
 
+      - name: Harden pip
+        if: steps.gha-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/harden-pip
+
       - name: Install build dependencies
         if: steps.gha-cache.outputs.cache-hit != 'true'
         run: |
@@ -333,6 +343,12 @@ jobs:
         with:
           path: llvm7-install/
           key: ${{ steps.cache-key.outputs.key }}
+
+      - name: Harden pip
+        if: steps.gha-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/harden-pip
+        with:
+          python: ${{ env.PY }}
 
       - name: Install build dependencies
         if: steps.gha-cache.outputs.cache-hit != 'true'

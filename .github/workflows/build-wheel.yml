@@ -47,6 +47,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Harden pip
+        uses: ./.github/actions/harden-pip
+
       - name: Install latest rapidsai/sccache
         if: ${{ startsWith(inputs.host-platform, 'linux') }}
         run: |
@@ -123,7 +126,7 @@ jobs:
         # and only carries 3.15.0b2 for Windows. v4.2.0+ builds 3.15 by default
         # against an rc that upstream guarantees is ABI-compatible with the final
         # release, so no prerelease opt-in is needed here.
-        uses: pypa/cibuildwheel@e090b81e30c4d855ea63bf4b6e59204c09a101ae  # v4.2.1
+        uses: pypa/cibuildwheel@b9e566a2b284570af229f6c2a33673410d0389a3  # v4.3.4
         with:
           package-dir: .
           output-dir: dist

@@ -97,6 +97,9 @@ jobs:
         env:
           AGENT_TOOLSDIRECTORY: "/opt/hostedtoolcache"
 
+      - name: Harden pip
+        uses: ./.github/actions/harden-pip
+
       - name: Set up mini CTK
         if: ${{ matrix.LOCAL_CTK == '1' }}
         uses: ./.github/actions/fetch_ctk

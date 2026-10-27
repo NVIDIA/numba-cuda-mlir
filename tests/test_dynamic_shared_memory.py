@@ -5,7 +5,95 @@ import re
 import numpy as np
 import pytest
 from numba_cuda_mlir import compiler, cuda, tools, types
+from numba_cuda_mlir.caching import MLIRCacheImpl
+from numba_cuda_mlir.numba_cuda.core import config
 from numba_cuda_mlir.types import float32
+
+
+@pytest.mark.parametrize("in_device_function", [False, True])
+def test_runtime_shared_requires_launch_budget(in_device_function):
+    @cuda.jit(device=True, inline="never")
+    def allocate(n):
+        shared = cuda.shared.array(n[0], dtype=np.int32)
+        return shared.size
+
+    @cuda.jit
+    def kernel(n, out):
+        if in_device_function:
+            out[0] = allocate(n)
+        else:
+            shared = cuda.shared.array(n[0], dtype=np.int32)
+            out[0] = shared.size
+
+    n = cuda.to_device(np.array([4], dtype=np.int64))
+    out = cuda.device_array(1, dtype=np.int64)
+    # Shape inspection keeps this regression safe even if the guard is absent.
+    missing_budget = kernel[1, 1]
+    with pytest.raises(ValueError, match="nonzero sharedmem"):
+        missing_budget(n, out)
+
+    with_budget = kernel[1, 1, 0, 16]
+    for _ in range(2):
+        with_budget(n, out)
+        np.testing.assert_array_equal(out.copy_to_host(), [4])
+
+    # Check the compiled native kernel and retained launch configurations too.
+    with pytest.raises(ValueError, match="nonzero sharedmem"):
+        kernel[1, 1, 0, 0](n, out)
+    with pytest.raises(ValueError, match="nonzero sharedmem"):
+        missing_budget(n, out)
+
+
+@pytest.mark.parametrize("legacy_cache", [False, True])
+def test_runtime_shared_requires_launch_budget_after_disk_cache(
+    monkeypatch, tmp_path, legacy_cache
+):
+    monkeypatch.setattr(config, "CACHE_DIR", str(tmp_path))
+
+    def kernel(n, out):
+        shared = cuda.shared.array(n[0], dtype=np.int32)
+        out[0] = shared.size
+
+    n = cuda.to_device(np.array([4], dtype=np.int64))
+    out = cuda.device_array(1, dtype=np.int64)
+    original = cuda.jit(cache=True)(kernel)
+    with monkeypatch.context() as patch:
+        if legacy_cache:
+            reduce = MLIRCacheImpl.reduce
+
+            def without_budget_metadata(self, cres):
+                payload = reduce(self, cres)
+                payload.pop("has_runtime_sized_shared_memory")
+                return payload
+
+            patch.setattr(MLIRCacheImpl, "reduce", without_budget_metadata)
+        original[1, 1, 0, 16](n, out)
+    np.testing.assert_array_equal(out.copy_to_host(), [4])
+
+    restored = cuda.jit(cache=True)(kernel)
+    with pytest.raises(ValueError, match="nonzero sharedmem"):
+        restored[1, 1](n, out)
+    # Older entries must be recompiled because they cannot enforce the guard.
+    assert sum(restored.stats.cache_hits.values()) == (0 if legacy_cache else 1)
+    assert sum(restored.stats.cache_misses.values()) == (1 if legacy_cache else 0)
+    restored[1, 1, 0, 16](n, out)
+    np.testing.assert_array_equal(out.copy_to_host(), [4])
+
+
+def test_static_shared_and_zero_sized_views_allow_zero_budget():
+    @cuda.jit
+    def kernel(out):
+        fixed = cuda.shared.array(4, dtype=np.int32)
+        view = cuda.shared.array(0, dtype=np.int32)
+        fixed[0] = 17
+        out[0] = fixed[0]
+        out[1] = view.size
+
+    out = cuda.device_array(2, dtype=np.int64)
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(out.copy_to_host(), [17, 0])
+    kernel[1, 1, 0, 0](out)
+    np.testing.assert_array_equal(out.copy_to_host(), [17, 0])
 
 
 def test_dynamic_shared_after_control_flow():

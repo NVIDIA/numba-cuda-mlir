@@ -458,7 +458,7 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
     if is_dynamic_shared_shape:
         array = lower._request_dynamic_shared_memory(mr_type, alignas)
     else:
-        array = lower._request_shared_memory(shape, mr_type, alignas)
+        array = lower._request_runtime_sized_shared_memory(shape, mr_type, alignas)
     if alignas != 8:
         # assume_alignment yields a new SSA value; an unused result leaves a
         # dead op that canonicalization erases, silently dropping the

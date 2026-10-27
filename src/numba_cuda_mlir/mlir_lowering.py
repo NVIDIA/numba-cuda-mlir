@@ -1732,6 +1732,8 @@ extern "C" __global__ void
         folded_argtypes, call_vars, call_argtypes = self._fold_dispatcher_call_args(fn, args, kws)
         func_name = generate_mangled_name(f"{fn.py_func.__qualname__}_{id(fn)}", call_argtypes)
         cres = fn._compile_as_device_callee(folded_argtypes, abi_name=func_name)
+        if cres.metadata.get("has_runtime_sized_shared_memory", False):
+            self.metadata["has_runtime_sized_shared_memory"] = True
 
         if callee_linker := cres.metadata.get("linker"):
             self._record_ltoirs_from_linker(callee_linker)
@@ -1928,6 +1930,8 @@ extern "C" __global__ void
         unique_qualname = f"{py_func.__qualname__}_{id(overload_disp)}"
         func_name = generate_mangled_name(unique_qualname, call_argtypes)
         cres = cuda_func.compile(folded_argtypes, abi_info={"abi_name": func_name})
+        if cres.metadata.get("has_runtime_sized_shared_memory", False):
+            self.metadata["has_runtime_sized_shared_memory"] = True
 
         if callee_linker := cres.metadata.get("linker"):
             self._record_ltoirs_from_linker(callee_linker)
@@ -2401,7 +2405,9 @@ extern "C" __global__ void
                 ptr = llvm.mlir_addressof(llvm.PointerType.get(3), name)
                 # Use inline PTX for both NVVM translation paths: the LLVM 7
                 # bridge does not support the NVVM dynamic-smem-size op.
-                size = llvm.inline_asm(T.i32(), [], "mov.u32 $0, %dynamic_smem_size;", "=r")
+                size = llvm.inline_asm(
+                    T.i32(), [], "mov.u32 $0, %dynamic_smem_size;", "=r", has_side_effects=True
+                )
                 size = arith.extui(T.i64(), size)
                 desc = llvm.UndefOp(
                     ir.Type.parse(
@@ -2496,9 +2502,10 @@ extern "C" __global__ void
     def _is_dynamic_shared_memory(self, value: ir.Value) -> bool:
         return any(value == dynamic for dynamic in self._dynamic_shared_memory_values)
 
-    def _request_shared_memory(
+    def _request_runtime_sized_shared_memory(
         self, sizes: tuple[ir.Value, ...], mr_type: ir.MemRefType, alignment
     ):
+        self.metadata["has_runtime_sized_shared_memory"] = True
         bytes, element_alignment = self._shared_memory_element_layout(mr_type.element_type)
         assert self.mlir_funcOp
         # Emit at the current insertion point: the size operands are

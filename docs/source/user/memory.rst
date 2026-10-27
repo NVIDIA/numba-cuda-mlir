@@ -211,7 +211,11 @@ dynamic bytes as elements of its dtype; its ``size`` is determined at runtime.
 Runtime-sized allocations consume the dynamic region in execution order.
 Each allocation starts at an offset aligned for its dtype and its
 ``alignment`` (8 bytes by default). Include this padding in the launch's
-byte count. For example:
+byte count. Kernels containing runtime-sized shared allocations require a
+nonzero dynamic shared-memory byte count at launch; omitting it or passing
+zero raises ``ValueError`` before the kernel runs. The caller must still
+provide enough bytes for the allocations and their alignment padding.
+For example:
 
 .. code-block:: python
 
@@ -236,6 +240,20 @@ byte count. For example:
 The prefix uses bytes 0 through 2. The tail begins at byte 8 and contains
 six ``int32`` elements. All threads that share these allocations must follow
 the same allocation path and use the same sizes.
+
+.. note::
+
+   **Compatibility and migration:** Runtime-sized shared arrays previously
+   began immediately after the preceding payload. Allocation starts are now
+   aligned, so the memory layout and required launch budget can change even
+   though the ``cuda.shared.array`` signature is unchanged.
+
+   When calculating the launch budget, round the current byte offset up to
+   each allocation's alignment before adding its storage size. Include both
+   alignment padding and padded vector storage: ``float32x3`` uses 16 bytes
+   per element. Update pointer arithmetic and FFI code that assumes adjacent
+   allocations have no gap. Zero-sized declarations remain non-consuming
+   views of the remaining region; they do not reserve independent storage.
 
 A zero-sized declaration views the remaining window without consuming it.
 Repeated zero-sized declarations with the same alignment therefore alias,

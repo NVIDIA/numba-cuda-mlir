@@ -88,7 +88,6 @@ _DISPATCHER_STATE_ATTRS = (
     "_launch_config_dispatchers",
     "_launch_config_generation",
     "_requires_launch_config",
-    "_requires_dynamic_shared_memory",
     "_literal_arg_positions",
     "_launch_config_cache_misses",
     "_launch_config_cache_hits",
@@ -101,14 +100,6 @@ _DISPATCHER_STATE_ATTRS = (
 
 def _new_dispatcher_rlock():
     return threading.RLock()
-
-
-class _RelaunchForDynamicSharedMemory(Exception):
-    """Abort a native launch whose on-demand compile requires dynamic shared memory.
-
-    The native launcher launches what it compiles with the configured
-    sharedmem, so the marshaller relaunches with the requirement applied.
-    """
 
 
 def _is_strided_memory_view(arg):
@@ -391,6 +382,14 @@ def _normalize_launch_sharedmem(sharedmem):
         raise TypeError("launch_config 'sharedmem' must be integer-convertible") from None
 
 
+def _kernel_launch_info(compile_result):
+    return (
+        compile_result.metadata["cubin"],
+        compile_result.metadata["func_name"],
+        compile_result.metadata.get("use_cooperative", False),
+    )
+
+
 def _validate_configure_cache_key(cache_key):
     try:
         hash(cache_key)
@@ -650,7 +649,6 @@ class _ArgMarshaller:
             if dispatcher is not None and (
                 _planner_registry.has_planners
                 or getattr(dispatcher, "_requires_launch_config", False)
-                or getattr(dispatcher, "_requires_dynamic_shared_memory", False)
                 or self._launch_config is not None
                 or literal_prelaunch
             ):
@@ -743,10 +741,6 @@ class _ArgMarshaller:
             elif hasattr(_compile_arg_types, "launch_config"):
                 delattr(_compile_arg_types, "launch_config")
             return launcher(*launch_args)
-        except _RelaunchForDynamicSharedMemory:
-            # The dispatcher now requires dynamic shared memory, so this
-            # launch takes the prepared path.
-            return self._launch(argtypes, launch_args, launch_values)
         except UserFacingInternalCompilerError as e:
             if os.environ.get("NUMBA_CUDA_MLIR_ICE_FULL_TB", "0").strip() == "1":
                 raise
@@ -1677,9 +1671,6 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         self._launch_config_dispatchers = collections.OrderedDict()
         self._launch_config_generation = 0
         self._requires_launch_config = False
-        # Set once any compile records required dynamic shared memory; launches
-        # then size dynamic shared memory before calling the native launcher.
-        self._requires_dynamic_shared_memory = False
         self._literal_arg_positions = frozenset()
         self._c = self._new_kernel_dispatcher()
         self.extensions = targetoptions.get("extensions") or []
@@ -1945,8 +1936,6 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 self._launch_config_generation = 0
             if not hasattr(self, "_requires_launch_config"):
                 self._requires_launch_config = False
-            if not hasattr(self, "_requires_dynamic_shared_memory"):
-                self._requires_dynamic_shared_memory = False
             if not hasattr(self, "_literal_arg_positions"):
                 self._literal_arg_positions = frozenset()
             if not hasattr(self, "_launch_config_cache_misses"):
@@ -2971,17 +2960,35 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
 
     def _compile(self, args):
         with global_compiler_lock:
-            # A launch made while the dispatcher had no requirement was not
-            # sized for one, so a first requirement aborts it.
-            launch_sized = getattr(self, "_requires_dynamic_shared_memory", False)
-            cubin, func_name, cooperative = self._compile_impl(args)
-            if self._requires_dynamic_shared_memory and not launch_sized:
-                raise _RelaunchForDynamicSharedMemory
+            cres = self._compile_overload(args)
+            cubin, func_name, cooperative = _kernel_launch_info(cres)
+            post_load_hook = None
             if self._module_setup_callbacks or self._module_teardown_callbacks:
-                return (cubin, func_name, cooperative, self._make_post_load_hook())
+                post_load_hook = self._make_post_load_hook()
+            required_dynamic_shared_memory = cres.metadata.get(
+                _REQUIRED_DYNAMIC_SHARED_MEMORY_KEY, 0
+            )
+            if required_dynamic_shared_memory:
+                # The native launcher applies this to every launch of the kernel.
+                return (
+                    cubin,
+                    func_name,
+                    cooperative,
+                    post_load_hook,
+                    required_dynamic_shared_memory,
+                )
+            if post_load_hook is not None:
+                return (cubin, func_name, cooperative, post_load_hook)
             return (cubin, func_name, cooperative)
 
     def _compile_impl(
+        self,
+        args,
+        launch_config_retry_budget=_CONFIGURE_CACHE_STALE_RETRY_LIMIT,
+    ):
+        return _kernel_launch_info(self._compile_overload(args, launch_config_retry_budget))
+
+    def _compile_overload(
         self,
         args,
         launch_config_retry_budget=_CONFIGURE_CACHE_STALE_RETRY_LIMIT,
@@ -3040,15 +3047,6 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             with self._launch_config_lock:
                 active_launch_config_generation = self._launch_config_generation
 
-        def _result(cres):
-            if cres.metadata.get(_REQUIRED_DYNAMIC_SHARED_MEMORY_KEY):
-                self._requires_dynamic_shared_memory = True
-            return (
-                cres.metadata["cubin"],
-                cres.metadata["func_name"],
-                cres.metadata.get("use_cooperative", False),
-            )
-
         if active_launch_config_key is not None:
             # Launch metadata is visible to compilation. Keep those
             # specializations separate so consteval/rewrite users never observe
@@ -3060,14 +3058,14 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 )
                 if reusable is not None:
                     self._launch_config_cache_hits[(argtypes, active_launch_config_key)] += 1
-                    return _result(reusable)
+                    return reusable
         elif self.overloads:
             for overloads in (self.overloads, self._launch_argtype_overloads):
                 for sig_args, cres in tuple(overloads.items()):
                     if len(sig_args) == len(argtypes) and all(
                         self._can_reuse_overload(s, r) for s, r in zip(sig_args, argtypes)
                     ):
-                        return _result(cres)
+                        return cres
 
         if not self._can_compile:
             if active_launch_config_key is not None:
@@ -3108,14 +3106,14 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                         f"type(s) {argtypes} and launch config {active_launch_config}"
                         f"{generic_note}"
                     )
-                return _result(cres)
+                return cres
             best, has_any = self._resolve_overload(argtypes, allow_unsafe=True)
             if not has_any:
                 raise TypeError(f"No matching definition for argument type(s) {argtypes}")
             if len(best) > 1:
                 self._raise_ambiguous(argtypes, best)
             cres = self.overloads[best[0]]
-            return _result(cres)
+            return cres
 
         self._resolve_target_options()
         targetoptions = self.targetoptions
@@ -3156,7 +3154,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                             self._cache_hits[argtypes] += 1
                             wrapped = CompileResult(cres)
                             self.overloads[argtypes] = wrapped
-                            return _result(wrapped)
+                            return wrapped
                         disk_cache_miss = True
 
         # Cache miss - need to compile
@@ -3191,7 +3189,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 raise errors.CompilerError(
                     "Repeated literal typing request during kernel compilation"
                 ) from exc
-            return self._compile_impl(args, launch_config_retry_budget)
+            return self._compile_overload(args, launch_config_retry_budget)
         except _RequireLaunchConfig:
             raise RuntimeError(
                 "whole-function planner requires launch metadata, but compilation "
@@ -3228,7 +3226,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                         # A duplicate compile can lose a race to another thread that
                         # published an equivalent overload. Discard this result
                         # without publishing callbacks from an unused module.
-                        return _result(existing)
+                        return existing
                     self._launch_config_cache_misses[(argtypes, active_launch_config_key)] += 1
                     emit_launch_config_cache_notice = not self._launch_config_cache_notice_emitted
                     self._launch_config_cache_notice_emitted = True
@@ -3248,7 +3246,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                         "Kernel launch configuration was invalidated repeatedly during compile(); "
                         "retry after concurrent recompile() calls finish."
                     )
-                return self._compile_impl(args, launch_config_retry_budget - 1)
+                return self._compile_overload(args, launch_config_retry_budget - 1)
             if emit_launch_config_cache_notice:
                 message = (
                     "Persistent disk cache is disabled for launch-config-specialized "
@@ -3269,7 +3267,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 if not _planner_registry._planners:
                     self._cache.save_overload(sig, result)
 
-        return _result(wrapped)
+        return wrapped
 
     def compile(self, sig, abi_info=None, output=None):
         self._ensure_dispatcher_state()

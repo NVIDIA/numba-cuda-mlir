@@ -327,6 +327,8 @@ struct CudaKernelHandle {
     CudaKernel cukernel;
     PyPtr post_load_callback;
     bool cooperative = false;
+    // Minimum dynamic shared memory every launch of this kernel gets.
+    int required_dynamic_sharedmem = 0;
 };
 
 // This should compile to a no-op
@@ -1613,8 +1615,8 @@ Result<CudaKernelHandle> compile(PyObject* compile_func,
                      Py_TYPE(compile_result.get())->tp_name);
 
     Py_ssize_t tuple_size = PyTuple_GET_SIZE(compile_result.get());
-    if (tuple_size < 3 || tuple_size > 4)
-        return raise(PyExc_TypeError, "Expected compile() to return a 3- or 4-tuple, got length %zd",
+    if (tuple_size < 3 || tuple_size > 5)
+        return raise(PyExc_TypeError, "Expected compile() to return a 3- to 5-tuple, got length %zd",
                      tuple_size);
 
     PyObject* py_cubin = PyTuple_GET_ITEM(compile_result.get(), 0);
@@ -1636,11 +1638,26 @@ Result<CudaKernelHandle> compile(PyObject* compile_func,
 
     bool cooperative = (py_cooperative == Py_True);
 
+    int required_dynamic_sharedmem = 0;
+    if (tuple_size == 5) {
+        PyObject* py_required = PyTuple_GET_ITEM(compile_result.get(), 4);
+        if (!PyLong_Check(py_required))
+            return raise(PyExc_TypeError,
+                         "Expected compile() to return an int required dynamic shared memory, got %s",
+                         Py_TYPE(py_required)->tp_name);
+        required_dynamic_sharedmem = pylong_as<int>(py_required);
+        if (required_dynamic_sharedmem == -1 && PyErr_Occurred()) return ErrorRaised;
+        if (required_dynamic_sharedmem < 0)
+            return raise(PyExc_ValueError,
+                         "required dynamic shared memory must be non-negative, got %d",
+                         required_dynamic_sharedmem);
+    }
+
     Result<CudaKernel> cukernel = load_cuda_kernel(cubin, cufunc_name);
     if (!cukernel.is_ok()) return ErrorRaised;
 
-    CudaKernelHandle handle{std::move(*cukernel), {}, cooperative};
-    if (tuple_size == 4) {
+    CudaKernelHandle handle{std::move(*cukernel), {}, cooperative, required_dynamic_sharedmem};
+    if (tuple_size >= 4) {
         PyObject* post_load_cb = PyTuple_GET_ITEM(compile_result.get(), 3);
         if (post_load_cb != Py_None && PyCallable_Check(post_load_cb))
             handle.post_load_callback = newref(post_load_cb);
@@ -2058,6 +2075,11 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
             }
         }
     }
+
+    // The kernel's required dynamic shared memory travels with the cached
+    // kernel, so every launcher applies it, including one configured before
+    // the kernel was compiled.
+    sharedmem = std::max(sharedmem, kernel_iter->second.required_dynamic_sharedmem);
 
     // Configure dynamic shared memory if needed.
     //

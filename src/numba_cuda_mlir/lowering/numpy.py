@@ -632,6 +632,13 @@ def _reshape_byte_array(builder, target, array, shape):
         arith.select(arith.cmpi(arith.CmpIPredicate.eq, extent, minus_one), inferred_size, extent)
         for extent in sizes
     ]
+    same_shape = arith.cmpi(arith.CmpIPredicate.eq, zero, one)
+    if len(sizes) == source_rank:
+        same_shape = arith.cmpi(arith.CmpIPredicate.eq, one, one)
+        for extent, source_extent in zip(sizes, source_sizes):
+            same_shape = arith.andi(
+                same_shape, arith.cmpi(arith.CmpIPredicate.eq, extent, source_extent)
+            )
 
     # A descriptor-only reshape must preserve the source's C-order sequence.
     stride = index_of(ArrayStorageLayout(target_type).itemsize)
@@ -648,7 +655,7 @@ def _reshape_byte_array(builder, target, array, shape):
             singleton, expected_stride, arith.muli(expected_stride, extent)
         )
     empty = arith.cmpi(arith.CmpIPredicate.eq, count, zero)
-    valid = arith.andi(valid, arith.ori(empty, compatible))
+    valid = arith.andi(valid, arith.ori(same_shape, arith.ori(empty, compatible)))
     error_memref = builder._get_or_create_error_global()
     with scf.if_ctx_manager(arith.xori(valid, arith.cmpi(arith.CmpIPredicate.eq, one, one))):
         set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
@@ -661,6 +668,11 @@ def _reshape_byte_array(builder, target, array, shape):
     for extent in reversed(sizes):
         strides.insert(0, stride)
         stride = arith.muli(stride, extent)
+    if len(sizes) == source_rank:
+        strides = [
+            arith.select(same_shape, source_stride, result_stride)
+            for source_stride, result_stride in zip(source_strides, strides)
+        ]
     return memref_dialect.reinterpret_cast(
         result_type,
         array,
@@ -1292,10 +1304,17 @@ def slice_memref(mr: ir.Value, mrs: MemRefSlices) -> ir.Value:
     return value
 
 
-def _slice_bounds(array, slice_value, dim=0):
+def _slice_bounds(builder, array, slice_value, dim=0):
     start, stop, step = slice_value.start, slice_value.stop, slice_value.step
     step = index_of(1) if step is None else index_of(step)
     zero, one = index_of(0), index_of(1)
+    zero_step = arith.cmpi(arith.CmpIPredicate.eq, step, zero)
+    error_memref = builder._get_or_create_error_global()
+    with scf.if_ctx_manager(zero_step):
+        set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+        scf.yield_([])
+    # Use a safe divisor and empty bounds while the launcher reports the error.
+    step = arith.select(zero_step, one, step)
     extent = memref.dim(array, index_of(dim))
     negative = arith.cmpi(arith.CmpIPredicate.slt, step, zero)
     lower_bound = arith.select(negative, index_of(-1), zero)
@@ -1322,7 +1341,12 @@ def _slice_bounds(array, slice_value, dim=0):
     distance = arith.maxsi(distance, zero)
     magnitude = arith.select(negative, arith.subi(zero, step), step)
     size = arith.divsi(arith.addi(distance, arith.subi(magnitude, one)), magnitude)
-    return start, stop, step, size
+    return (
+        arith.select(zero_step, zero, start),
+        arith.select(zero_step, zero, stop),
+        step,
+        arith.select(zero_step, zero, size),
+    )
 
 
 @lower(operator.getitem, types.Array, types.SliceType)
@@ -1333,7 +1357,7 @@ def lower_array_slice_getitem(builder, target, args, kwargs):
     dtype = mr_type.element_type
     rank = mr_type.rank
     slice = builder.load_var(args[1])
-    start, stop, step, first_size = _slice_bounds(mr, slice)
+    start, stop, step, first_size = _slice_bounds(builder, mr, slice)
     starts, stops, steps = [start], [stop], [step]
     for i in range(1, rank):
         starts.append(index_of(0))
@@ -1826,7 +1850,7 @@ def lower_array_slice_setitem(builder, target, args, kwargs):
     mr_type = array.type
     rank = mr_type.rank
 
-    start, stop, step, size = _slice_bounds(array, slice_val)
+    start, stop, step, size = _slice_bounds(builder, array, slice_val)
 
     # Iterate logical positions with a positive loop step, even for reverse slices.
     starts = [index_of(0)] * rank

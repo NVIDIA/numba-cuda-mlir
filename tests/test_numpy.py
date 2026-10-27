@@ -763,6 +763,33 @@ def test_byte_reshape_rejects_incompatible_fortran_strides():
     np.testing.assert_array_equal(device.copy_to_host(), host)
 
 
+@pytest.mark.parametrize("order", ["C", "F"])
+@pytest.mark.parametrize("shape", [(2, 3), (-1, 3)])
+def test_byte_reshape_same_shape_preserves_strides_and_alias(order, shape):
+    @cuda.jit(debug=True, opt=False)
+    def kernel(records, out, strides, shape):
+        result = records.value.reshape(shape)
+        strides[0] = result.strides[0]
+        strides[1] = result.strides[1]
+        for i in range(result.shape[0]):
+            for j in range(result.shape[1]):
+                out[i, j] = result[i, j]
+                result[i, j] += 10
+
+    host = np.zeros((2, 3), [("value", np.float64), ("guard", np.int32)], order=order)
+    host["value"] = np.arange(6).reshape(2, 3) + 0.5
+    host["guard"] = 123
+    expected = host.copy(order="K")
+    expected["value"] += 10
+    device = cuda.to_device(host)
+    out = cuda.device_array(host.shape, np.float64)
+    strides = cuda.device_array(2, np.int64)
+    kernel[1, 1](device, out, strides, shape)
+    np.testing.assert_array_equal(out.copy_to_host(), host["value"])
+    np.testing.assert_array_equal(strides.copy_to_host(), host["value"].strides)
+    np.testing.assert_array_equal(device.copy_to_host(), expected)
+
+
 @pytest.mark.parametrize(
     "source_shape,source_strides,target_shape",
     [

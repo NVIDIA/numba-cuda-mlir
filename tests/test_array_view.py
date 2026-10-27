@@ -427,3 +427,29 @@ def test_slice_explicit_bounds_preserve_payload_and_writes(start, stop, step, pa
     payload = expected["value"] if packed else expected
     payload[selection] = 37
     np.testing.assert_array_equal(device.copy_to_host(), expected)
+
+
+@pytest.mark.parametrize("packed", [False, True])
+@pytest.mark.parametrize("operation", ["view", "assign"])
+@pytest.mark.parametrize("literal", [False, True])
+def test_zero_slice_step_rejected_without_writes(packed, operation, literal):
+    @cuda.jit(debug=True, opt=False)
+    def kernel(owner, step):
+        source = owner.value if packed else owner
+        step = 0 if literal else step
+        if operation == "view":
+            view = source[::step]
+            for i in range(view.size):
+                view[i] = 99
+        else:
+            source[::step] = 99
+
+    values = np.arange(6, dtype=np.float64) + 0.5
+    records = np.zeros(6, [("guard", np.int32), ("value", np.float64)])
+    records["guard"] = 123
+    records["value"] = values
+    host = records if packed else values
+    device = cuda.to_device(host)
+    with pytest.raises(ValueError):
+        kernel[1, 1](device, 0)
+    np.testing.assert_array_equal(device.copy_to_host(), host)

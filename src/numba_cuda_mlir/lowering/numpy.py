@@ -24,7 +24,9 @@ from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.type_defs.vector_types import VectorType
+from numba_cuda_mlir.numba_cuda.np import numpy_support
 from numba_cuda_mlir.numba_cuda.np.npyimpl import _make_dtype_object
+from numba_cuda_mlir.numba_cuda.np.arraymath import _np_round_float
 
 registry = LoweringRegistry()
 lower = registry.lower
@@ -37,7 +39,19 @@ from numba_cuda_mlir.numba_cuda.core import errors
 from typing import Any, cast
 from numba_cuda_mlir.logging import trace
 import numpy as np
-from numba_cuda_mlir.numba_cuda.np.arrayobj import numpy_empty_like_nd, _zero_fill_array_method
+from numba_cuda_mlir.numba_cuda.np.arrayobj import (
+    numpy_empty_like_nd,
+    _zero_fill_array_method,
+    np_expand_dims,
+    np_concatenate,
+    np_column_stack,
+    np_stack_common,
+    _np_hstack,
+    _np_vstack,
+    _np_dstack,
+    _as_layout_array_intrinsic,
+    _build_flip_slice_tuple,
+)
 from .ufunc_registry import UFuncRegistry
 
 from numba_cuda_mlir.lowering_utilities import (
@@ -51,6 +65,7 @@ from numba_cuda_mlir.lowering_utilities import (
     set_error_code_if_zero,
     try_extract_constant,
     NdIterIterObject,
+    FlatIterObject,
     is_nonelike,
     get_conversion_signedness,
     storage_itemsize_bytes,
@@ -1146,8 +1161,12 @@ def _rank_reducing_subview(
     return memref.collapse_shape(result_type, subview, reassociation)
 
 
-def _normalize_negative_index(array: ir.Value, index: ir.Value | int, dim: int) -> ir.Value:
-    """Normalize a possibly-negative integer index for one array dimension."""
+def _normalize_negative_index(
+    array: ir.Value, index: ir.Value | int, dim: int, index_numba_type: types.Type | None = None
+) -> ir.Value:
+    """Wrap signed indices; unsigned indices cannot be negative."""
+    if isinstance(index_numba_type, types.Integer) and not index_numba_type.signed:
+        return index_of(index)
     index = index_of(index)
     zero = index_of(0)
     is_negative = arith.cmpi(arith.CmpIPredicate.slt, index, zero)
@@ -1184,7 +1203,12 @@ def lower_array_getitem(builder, target, args, kwargs):
     if not array_type.has_rank:
         raise NotImplementedError("NYI: unranked memrefs")
 
-    index = _normalize_negative_index(array, index, 0)
+    index = _normalize_negative_index(
+        array,
+        index,
+        0,
+        None if isinstance(args[1], int) else builder.get_numba_type(args[1].name),
+    )
     if array_type.rank == 1:
         value = lowering_utilities.array_element_value_load(
             array_numba_type,
@@ -1758,7 +1782,12 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
     array = builder.load_var(args[0])
     index_arg = args[1]
     index = index_arg if isinstance(index_arg, int) else builder.load_var(index_arg)
-    index = _normalize_negative_index(array, index, 0)
+    index = _normalize_negative_index(
+        array,
+        index,
+        0,
+        None if isinstance(index_arg, int) else builder.get_numba_type(index_arg.name),
+    )
     value = builder.load_var(args[2])
     value_numba_type = builder.get_numba_type(args[2].name)
     signed = get_conversion_signedness(value_numba_type, array_numba_type.dtype)
@@ -1794,6 +1823,7 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
 def _setitem_indices_to_memref_indices(
     array: ir.Value,
     indices: tuple[ir.Value | int, ...] | ir.Value,
+    index_numba_types: types.BaseTuple | tuple[types.Type, ...] | None = None,
 ) -> tuple[ir.Value, ...]:
     match indices:
         case tuple():
@@ -1811,8 +1841,13 @@ def _setitem_indices_to_memref_indices(
             raise InternalCompilerError(
                 f"Indices must be a tuple of integers or a value, got {type(indices)}"
             )
+    if isinstance(index_numba_types, types.BaseTuple):
+        index_numba_types = index_numba_types.types
+    if index_numba_types is None:
+        index_numba_types = (None,) * len(raw_indices)
     return tuple(
-        _normalize_negative_index(array, index, dim) for dim, index in enumerate(raw_indices)
+        _normalize_negative_index(array, index, dim, index_type)
+        for dim, (index, index_type) in enumerate(zip(raw_indices, index_numba_types))
     )
 
 
@@ -1831,7 +1866,7 @@ def lower_array_setitem_tuple(builder, target, args, kwargs):
     array = builder.load_var(args[0])
     tup = args[1]
     tup = builder.load_var(tup) if isinstance(tup, numba_ir.Var) else tup
-    indices = _setitem_indices_to_memref_indices(array, tup)
+    indices = _setitem_indices_to_memref_indices(array, tup, builder.get_numba_type(args[1].name))
     value = builder.load_var(args[2])
     lowering_utilities.array_element_value_store(
         array_numba_type,
@@ -1909,8 +1944,15 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
     zero = arith.constant(result=T.index(), value=0)
     dims = [memref.dim(array, index_of(i)) for i in range(source_rank)]
 
+    tuple_numba_type = builder.get_numba_type(args[1].name)
     offsets, sizes, strides, is_scalar = [], [], [], []
     for dim, index in enumerate(tuple_indices):
+        if isinstance(index, slice) and index == slice(None, None, -1):
+            offsets.append(arith.subi(dims[dim], index_of(1)))
+            sizes.append(dims[dim])
+            strides.append(index_of(-1))
+            is_scalar.append(False)
+            continue
         match index:
             case Slice(start=start, stop=stop, step=step):
                 if not isinstance(target_type, types.Array):
@@ -1929,7 +1971,8 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
                         set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
                         scf.yield_([])
             case int() | ir.Value() as value:
-                offsets.append(_normalize_negative_index(array, value, dim))
+                index_type = tuple_numba_type.types[dim]
+                offsets.append(_normalize_negative_index(array, value, dim, index_type))
                 sizes.append(1)
                 strides.append(1)
                 is_scalar.append(True)
@@ -4175,11 +4218,26 @@ def np_arctan2_array_to_array_cg(builder, target, args, kwargs):
 
 
 def _hypot_fn(x, y):
-    """Compute hypot(x, y) = sqrt(x*x + y*y)"""
-    x_sq = arith.mulf(x, x)
-    y_sq = arith.mulf(y, y)
-    sum_sq = arith.addf(x_sq, y_sq)
-    return math_dialect.sqrt(sum_sq)
+    """Compute hypot(x, y) = sqrt(x*x + y*y) without overflow or underflow.
+
+    It is evaluated as big * sqrt(1 + (small / big)**2), where big and small are
+    the larger and smaller of |x| and |y|; squaring x and y directly gives inf
+    for hypot(1e200, 1e200) and 0 for hypot(3e-200, 4e-200).
+    """
+    a = math_dialect.absf(x)
+    b = math_dialect.absf(y)
+    big = arith.maximumf(a, b)
+    small = arith.minimumf(a, b)
+    zero = float_of(0.0, x.type)
+    ratio = arith.divf(small, big)
+    result = arith.mulf(
+        big, math_dialect.sqrt(arith.addf(float_of(1.0, x.type), arith.mulf(ratio, ratio)))
+    )
+    # hypot(0, 0) is 0 rather than 0 * sqrt(1 + nan), and an infinite argument
+    # gives inf even when the other one is nan
+    result = arith.select(arith.cmpf(arith.CmpFPredicate.OEQ, big, zero), zero, result)
+    is_inf = arith.ori(math_dialect.isinf(x), math_dialect.isinf(y))
+    return arith.select(is_inf, float_of(float("inf"), x.type), result)
 
 
 @lower(np.hypot, types.Float, types.Float)
@@ -4667,6 +4725,119 @@ def _bitwise_not_fn(a):
 def np_bitwise_not_array_to_array_cg(builder, target, args, kwargs):
     """bitwise_not(a, out) - element-wise ~a"""
     create_elementwise_op_with_output(builder, target, args, _bitwise_not_fn)
+
+
+# Shift ufuncs
+
+
+def _shift_fn(left, signed):
+    """A shift as NumPy defines it (npy_lshift, npy_rshift).
+
+    Shifting by the bit width or more, or by a negative count, gives 0, or -1 for a
+    right shift of a negative value. MLIR's shifts give poison there, so shift by the
+    count clamped to width - 1 and select 0 for the counts out of range.
+    """
+
+    def shift(a, n):
+        def const(value):
+            return arith.constant(result=a.type, value=value)
+
+        width = a.type.width
+        in_range = arith.cmpi(arith.CmpIPredicate.ult, n, const(width))
+        # Clamp even though the select drops the result: for sm_100+, libNVVM 13.4 folds a
+        # select of the unclamped shift into a PTX shift by the low 32 bits of a 64-bit
+        # count, so 1 << 2**32 gave 1. A clamp written as a select on in_range gets folded
+        # away the same way.
+        count = arith.minui(n, const(width - 1))
+        if signed and not left:
+            # Shifting by width - 1 fills the value with its sign bit, giving 0 or -1
+            return arith.shrsi(a, count)
+        shifted = arith.shli(a, count) if left else arith.shrui(a, count)
+        return arith.select(in_range, shifted, const(0))
+
+    return shift
+
+
+def _shift_op(builder, ufunc, a_type, b_type, out_type):
+    """ufunc for values of scalar types a_type and b_type, giving an out_type value.
+
+    The shift is computed in the type of the ufunc loop that typing selected.
+    """
+    loop = numpy_support.ufunc_find_matching_loop(ufunc, (a_type, b_type))
+    loop_type = loop.outputs[0]
+    value_type = builder.get_value_type(loop_type)
+    out_value_type = builder.get_value_type(out_type)
+    shift = _shift_fn(ufunc is np.left_shift, loop_type.signed)
+
+    def op(a, n):
+        a = convert(a, value_type, signed=get_conversion_signedness(a_type, loop_type))
+        n = convert(n, value_type, signed=get_conversion_signedness(b_type, loop_type))
+        return convert(shift(a, n), out_value_type, signed=loop_type.signed)
+
+    return op
+
+
+def _shift_scalar(builder, target, args, ufunc):
+    assert len(args) == 2
+    a_type, b_type = (builder.get_numba_type(arg.name) for arg in args)
+    shift = _shift_op(builder, ufunc, a_type, b_type, builder.get_numba_type(target.name))
+    builder.store_var(target, shift(builder.load_var(args[0]), builder.load_var(args[1])))
+
+
+def _shift_scalar_to_array(builder, target, args, ufunc):
+    assert len(args) == 3
+    a_type, b_type = (builder.get_numba_type(arg.name) for arg in args[:2])
+    out_type = builder.get_numba_type(args[2].name).dtype
+    shift = _shift_op(builder, ufunc, a_type, b_type, out_type)
+    result = shift(builder.load_var(args[0]), builder.load_var(args[1]))
+    out_arr = builder.load_var(args[2])
+    _store_first_output_value(builder, args[2], out_arr, result)
+    builder.store_var(target, out_arr)
+
+
+def _shift_array_to_array(builder, target, args, ufunc):
+    assert len(args) == 3
+    a_type, b_type, out_type = (builder.get_numba_type(arg.name).dtype for arg in args)
+    shift = _shift_op(builder, ufunc, a_type, b_type, out_type)
+    create_binary_elementwise_op_with_output(
+        builder, target, args, shift, f"np.{ufunc.__name__}", convert_inputs=False
+    )
+
+
+@lower(np.left_shift, types.Integer, types.Integer)
+def np_left_shift_scalar_cg(builder, target, args, kwargs):
+    """left_shift(a, b) - scalar a << b"""
+    _shift_scalar(builder, target, args, np.left_shift)
+
+
+@lower(np.left_shift, types.Integer, types.Integer, types.Array)
+def np_left_shift_scalar_to_array_cg(builder, target, args, kwargs):
+    """left_shift(a, b, out) - scalar a << b to output array"""
+    _shift_scalar_to_array(builder, target, args, np.left_shift)
+
+
+@lower(np.left_shift, types.Array, types.Array, types.Array)
+def np_left_shift_array_to_array_cg(builder, target, args, kwargs):
+    """left_shift(a, b, out) - element-wise a << b"""
+    _shift_array_to_array(builder, target, args, np.left_shift)
+
+
+@lower(np.right_shift, types.Integer, types.Integer)
+def np_right_shift_scalar_cg(builder, target, args, kwargs):
+    """right_shift(a, b) - scalar a >> b"""
+    _shift_scalar(builder, target, args, np.right_shift)
+
+
+@lower(np.right_shift, types.Integer, types.Integer, types.Array)
+def np_right_shift_scalar_to_array_cg(builder, target, args, kwargs):
+    """right_shift(a, b, out) - scalar a >> b to output array"""
+    _shift_scalar_to_array(builder, target, args, np.right_shift)
+
+
+@lower(np.right_shift, types.Array, types.Array, types.Array)
+def np_right_shift_array_to_array_cg(builder, target, args, kwargs):
+    """right_shift(a, b, out) - element-wise a >> b"""
+    _shift_array_to_array(builder, target, args, np.right_shift)
 
 
 # Log ufuncs with output array
@@ -5329,6 +5500,13 @@ def numpy_dtype(dtype, align=False, copy=False):
         raise errors.NumbaTypeError("unknown dtype descriptor: {}".format(dtype))
 
 
+@lower_getattr(types.Array, "flat")
+def make_array_flatiter(context, builder, target, array):
+    array_type = builder.get_numba_type(array.name)
+    iterator = FlatIterObject(builder, [builder.load_var(array)], array_type.ndim)
+    builder.store_var(target, iterator)
+
+
 @lower(np.nditer, types.Any)
 def make_array_nditer(builder, target, args, kws):
     if len(args) != 1:
@@ -5375,3 +5553,327 @@ def number_item_impl(builder, target, args, kws):
     The no-op .item() method on booleans and numbers.
     """
     builder.store_var(target, builder.load_var(args[0]))
+
+
+@lower(_np_round_float, types.Float)
+def lower_np_round_float(builder, target, args, kwargs):
+    builder.store_var(target, math_dialect.roundeven(builder.load_var(args[0])))
+
+
+@lower(np_expand_dims, types.Array, types.Integer)
+def lower_np_expand_dims(builder, target, args, kwargs):
+    source = builder.load_var(args[0])
+    rank = source.type.rank
+    axis = _intrinsic_axis(builder, args[1], rank + 1)
+
+    md = memref_dialect.extract_strided_metadata(source)
+    sizes = list(md[2 : 2 + rank])
+    strides = list(md[2 + rank : 2 + 2 * rank])
+    candidate_sizes = []
+    candidate_strides = []
+    for insertion_axis in range(rank + 1):
+        new_sizes = list(sizes)
+        new_strides = list(strides)
+        inserted_stride = (
+            arith.muli(sizes[insertion_axis], strides[insertion_axis])
+            if insertion_axis < rank
+            else index_of(1)
+        )
+        new_sizes.insert(insertion_axis, index_of(1))
+        new_strides.insert(insertion_axis, inserted_stride)
+        candidate_sizes.append(new_sizes)
+        candidate_strides.append(new_strides)
+
+    result_sizes = [
+        _intrinsic_select_axis(axis, [candidate[i] for candidate in candidate_sizes])
+        for i in range(rank + 1)
+    ]
+    result_strides = [
+        _intrinsic_select_axis(axis, [candidate[i] for candidate in candidate_strides])
+        for i in range(rank + 1)
+    ]
+    result_type = builder.get_mlir_type(builder.get_numba_type(target.name))
+    result = memref_dialect.reinterpret_cast(
+        result_type,
+        source,
+        offsets=[md[1]],
+        sizes=result_sizes,
+        strides=result_strides,
+        static_offsets=[ir.ShapedType.get_dynamic_stride_or_offset()],
+        static_sizes=[ir.ShapedType.get_dynamic_size()] * (rank + 1),
+        static_strides=[ir.ShapedType.get_dynamic_stride_or_offset()] * (rank + 1),
+    )
+    builder.store_var(target, result)
+
+
+@lower(_build_flip_slice_tuple, types.IntegerLiteral)
+def lower_flip_slice_tuple(builder, target, args, kwargs):
+    ndim = builder.get_numba_type(args[0].name).literal_value
+    builder.store_var(target, (slice(None, None, -1),) * ndim)
+
+
+def _intrinsic_arrays(builder, arg):
+    arrays = builder.load_var(arg)
+    assert isinstance(arrays, tuple) and arrays
+    return arrays
+
+
+def _intrinsic_axis(builder, arg, rank):
+    axis = index_of(builder.load_var(arg))
+    axis = arith.select(
+        arith.cmpi(arith.CmpIPredicate.slt, axis, index_of(0)),
+        arith.addi(axis, index_of(rank)),
+        axis,
+    )
+    invalid = arith.cmpi(arith.CmpIPredicate.uge, axis, index_of(rank))
+    if error_memref := builder._get_or_create_error_global():
+        with scf.if_ctx_manager(invalid):
+            set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+            scf.yield_([])
+    return axis
+
+
+def _intrinsic_copy_array(builder, source, result, map_index):
+    def emit(dim, source_indices):
+        if dim == source.type.rank:
+            value = memref.load(source, source_indices)
+            value = builder.mlir_convert(value, result.type.element_type)
+            memref.store(value, result, map_index(source_indices))
+            return
+        for i in scf.for_(index_of(0), memref.dim(source, index_of(dim)), index_of(1)):
+            emit(dim + 1, (*source_indices, i))
+            scf.yield_([])
+
+    emit(0, ())
+
+
+def _intrinsic_alloc(builder, target, shape):
+    target_type = builder.get_numba_type(target.name)
+    element_type = builder.get_storage_type(target_type.dtype)
+    if target_type.layout != "F" or len(shape) < 2:
+        return memref.alloc(shape, element_type=element_type)
+
+    reversed_alloc = memref.alloc(list(reversed(shape)), element_type=element_type)
+    rank = len(shape)
+    dyn = ir.ShapedType.get_dynamic_size()
+    strides = [1] + [ir.ShapedType.get_dynamic_stride_or_offset()] * (rank - 1)
+    transposed_type = ir.MemRefType.get(
+        [dyn] * rank,
+        element_type,
+        layout=ir.StridedLayoutAttr.get(0, strides),
+    )
+    permutation = ir.AffineMap.get_permutation(list(reversed(range(rank))))
+    return memref_dialect.transpose(transposed_type, reversed_alloc, permutation)
+
+
+def _intrinsic_concat(builder, target, arrays, axis):
+    rank = arrays[0].type.rank
+    sizes = [[memref.dim(array, index_of(i)) for i in range(rank)] for array in arrays]
+    shape = []
+    for dim in range(rank):
+        total = sizes[0][dim]
+        for member in sizes[1:]:
+            total = arith.addi(total, member[dim])
+        is_axis = arith.cmpi(arith.CmpIPredicate.eq, axis, index_of(dim))
+        shape.append(arith.select(is_axis, total, sizes[0][dim]))
+        if error_memref := builder._get_or_create_error_global():
+            for member in sizes[1:]:
+                mismatch = arith.cmpi(arith.CmpIPredicate.ne, member[dim], sizes[0][dim])
+                invalid = arith.andi(
+                    mismatch,
+                    arith.xori(is_axis, arith.constant(result=T.bool(), value=1)),
+                )
+                with scf.if_ctx_manager(invalid):
+                    set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+                    scf.yield_([])
+
+    result = _intrinsic_alloc(builder, target, shape)
+    offset = index_of(0)
+    for array, member in zip(arrays, sizes):
+        base = offset
+
+        def map_index(indices, base=base):
+            return [
+                arith.select(
+                    arith.cmpi(arith.CmpIPredicate.eq, axis, index_of(dim)),
+                    arith.addi(index, base),
+                    index,
+                )
+                for dim, index in enumerate(indices)
+            ]
+
+        _intrinsic_copy_array(builder, array, result, map_index)
+        for dim in range(rank):
+            offset = arith.select(
+                arith.cmpi(arith.CmpIPredicate.eq, axis, index_of(dim)),
+                arith.addi(offset, member[dim]),
+                offset,
+            )
+    target_type = builder.get_mlir_type(builder.get_numba_type(target.name))
+    builder.store_var(target, memref.cast(target_type, result))
+
+
+@lower(np_concatenate, types.BaseTuple, types.Integer)
+def lower_np_concatenate(builder, target, args, kwargs):
+    arrays = _intrinsic_arrays(builder, args[0])
+    axis = _intrinsic_axis(builder, args[1], arrays[0].type.rank)
+    _intrinsic_concat(builder, target, arrays, axis)
+
+
+def _intrinsic_select_axis(axis, candidates):
+    selected = candidates[0]
+    for candidate_axis in range(1, len(candidates)):
+        selected = arith.select(
+            arith.cmpi(arith.CmpIPredicate.eq, axis, index_of(candidate_axis)),
+            candidates[candidate_axis],
+            selected,
+        )
+    return selected
+
+
+def _intrinsic_stack(builder, target, arrays, axis, leading_units=0, trailing_units=0):
+    rank = arrays[0].type.rank
+    input_sizes = [[memref.dim(array, index_of(i)) for i in range(rank)] for array in arrays]
+    if error_memref := builder._get_or_create_error_global():
+        for member in input_sizes[1:]:
+            for left, right in zip(input_sizes[0], member):
+                mismatch = arith.cmpi(arith.CmpIPredicate.ne, left, right)
+                with scf.if_ctx_manager(mismatch):
+                    set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+                    scf.yield_([])
+
+    candidate_shapes = []
+    for insertion_axis in range(rank + 1):
+        shape = list(input_sizes[0])
+        shape.insert(insertion_axis, index_of(len(arrays)))
+        candidate_shapes.append(shape)
+    shape = [index_of(1)] * leading_units
+    shape += [
+        _intrinsic_select_axis(axis, [candidate[dim] for candidate in candidate_shapes])
+        for dim in range(rank + 1)
+    ]
+    shape += [index_of(1)] * trailing_units
+    result = _intrinsic_alloc(builder, target, shape)
+
+    for array_number, array in enumerate(arrays):
+        candidate_indices = []
+        for insertion_axis in range(rank + 1):
+
+            def map_for_axis(indices, insertion_axis=insertion_axis, array_number=array_number):
+                positions = list(indices)
+                positions.insert(insertion_axis, index_of(array_number))
+                return [index_of(0)] * leading_units + positions + [index_of(0)] * trailing_units
+
+            candidate_indices.append(map_for_axis)
+
+        def map_index(indices, candidate_indices=tuple(candidate_indices)):
+            options = [candidate(indices) for candidate in candidate_indices]
+            return [
+                _intrinsic_select_axis(axis, [option[dim] for option in options])
+                for dim in range(len(shape))
+            ]
+
+        _intrinsic_copy_array(builder, array, result, map_index)
+
+    target_type = builder.get_mlir_type(builder.get_numba_type(target.name))
+    builder.store_var(target, memref.cast(target_type, result))
+
+
+@lower(np_stack_common, types.BaseTuple, types.Integer)
+def lower_np_stack_common(builder, target, args, kwargs):
+    arrays = _intrinsic_arrays(builder, args[0])
+    axis = _intrinsic_axis(builder, args[1], arrays[0].type.rank + 1)
+    _intrinsic_stack(builder, target, arrays, axis)
+
+
+@lower(_np_hstack, types.BaseTuple)
+def lower_np_hstack(builder, target, args, kwargs):
+    arrays = _intrinsic_arrays(builder, args[0])
+    rank = arrays[0].type.rank
+    if rank == 0:
+        _intrinsic_stack(builder, target, arrays, index_of(0))
+    else:
+        _intrinsic_concat(builder, target, arrays, index_of(0 if rank == 1 else 1))
+
+
+@lower(_np_vstack, types.BaseTuple)
+def lower_np_vstack(builder, target, args, kwargs):
+    arrays = _intrinsic_arrays(builder, args[0])
+    rank = arrays[0].type.rank
+    if rank == 0:
+        _intrinsic_stack(builder, target, arrays, index_of(0), trailing_units=1)
+    elif rank == 1:
+        _intrinsic_stack(builder, target, arrays, index_of(0))
+    else:
+        _intrinsic_concat(builder, target, arrays, index_of(0))
+
+
+@lower(_np_dstack, types.BaseTuple)
+def lower_np_dstack(builder, target, args, kwargs):
+    arrays = _intrinsic_arrays(builder, args[0])
+    rank = arrays[0].type.rank
+    if rank == 0:
+        _intrinsic_stack(builder, target, arrays, index_of(0), leading_units=2)
+    elif rank == 1:
+        _intrinsic_stack(builder, target, arrays, index_of(1), leading_units=1)
+    elif rank == 2:
+        _intrinsic_stack(builder, target, arrays, index_of(2))
+    else:
+        _intrinsic_concat(builder, target, arrays, index_of(2))
+
+
+@lower(np_column_stack, types.BaseTuple)
+def lower_np_column_stack(builder, target, args, kwargs):
+    arrays = _intrinsic_arrays(builder, args[0])
+    promoted = []
+    for array in arrays:
+        if array.type.rank == 2:
+            promoted.append(array)
+            continue
+        if array.type.rank != 1:
+            raise NotImplementedError("np.column_stack requires 1D or 2D arrays")
+        md = memref_dialect.extract_strided_metadata(array)
+        dyn = ir.ShapedType.get_dynamic_size()
+        dyn_s = ir.ShapedType.get_dynamic_stride_or_offset()
+        view_type = ir.MemRefType.get(
+            [dyn, 1],
+            array.type.element_type,
+            layout=ir.StridedLayoutAttr.get(dyn_s, [dyn_s, 1]),
+            memory_space=array.type.memory_space,
+        )
+        promoted.append(
+            memref_dialect.reinterpret_cast(
+                view_type,
+                array,
+                offsets=[md[1]],
+                sizes=[md[2]],
+                strides=[md[3]],
+                static_offsets=[dyn_s],
+                static_sizes=[dyn, 1],
+                static_strides=[dyn_s, 1],
+            )
+        )
+    _intrinsic_concat(builder, target, promoted, index_of(1))
+
+
+@lower(_as_layout_array_intrinsic, types.Array, types.StringLiteral)
+def lower_as_layout_array(builder, target, args, kwargs):
+    source = builder.load_var(args[0])
+    source_type = builder.get_numba_type(args[0].name)
+    target_type = builder.get_numba_type(target.name)
+    if source.type.rank > 0 and (
+        source_type.layout == target_type.layout
+        or (source.type.rank == 1 and source_type.layout in "CF")
+    ):
+        builder.store_var(target, source)
+        return
+
+    shape = [memref.dim(source, index_of(i)) for i in range(source.type.rank)]
+    if not shape:
+        shape = [index_of(1)]
+    result = _intrinsic_alloc(builder, target, shape)
+    if source.type.rank == 0:
+        memref.store(memref.load(source, []), result, [index_of(0)])
+    else:
+        _intrinsic_copy_array(builder, source, result, lambda indices: indices)
+    builder.store_var(target, memref.cast(builder.get_mlir_type(target_type), result))

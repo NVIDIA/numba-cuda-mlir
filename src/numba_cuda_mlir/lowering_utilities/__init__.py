@@ -1086,9 +1086,8 @@ def convert_none(value: ir.NoneType, target_type: ir.NoneType, **_):
     return value
 
 
-@unverified_convert.register(type)
-@unverified_convert.register(MLIRDispatcher)
-def opaque_data_model_convert(value, target_type: ir.NoneType, **_):
+@unverified_convert.register
+def opaque_data_model_convert(value: type | MLIRDispatcher, target_type: ir.NoneType, **_):
     """
     For types with an opaque data model, we defer the real lowering until later - we
     hopefully resolve this at compile time anyways.
@@ -1117,13 +1116,9 @@ def _memory_spaces_match(lhs: ir.MemRefType, rhs: ir.MemRefType) -> bool:
             return True
 
 
-@unverified_convert.register(ir.Value)
-@unverified_convert.register(int)
-@unverified_convert.register(float)
-@unverified_convert.register(bool)
-@unverified_convert.register(complex)
+@unverified_convert.register
 def unverified_basic_mlir_convert(
-    value,
+    value: ir.Value | int | float | bool | complex,
     target_type: ir.Type,
     *,
     signed: bool | None = None,
@@ -1834,6 +1829,26 @@ class NdIterIterObject:
         if len(views) == 1:
             return IterResult(views[0], is_valid)
         return IterResult(tuple(views), is_valid)
+
+
+class FlatIterObject(NdIterIterObject):
+    """C-order array.flat iterator, yielding scalars instead of rank-0 views."""
+
+    def next(self) -> IterResult:
+        current_index = self.index
+        is_valid = arith.cmpi(predicate=arith.CmpIPredicate.slt, lhs=current_index, rhs=self.size)
+        array = self._arrays[0]
+        element_type = array.type.element_type
+        load_if_valid = scf.IfOp(is_valid, results_=[element_type], has_else=True)
+        with ir.InsertionPoint(load_if_valid.then_block):
+            indices = self._unravel_c_order(current_index)
+            scf.yield_([memref.load(array, indices)])
+        with ir.InsertionPoint(load_if_valid.else_block):
+            scf.yield_([_zero_value_for_type(element_type)])
+        next_index = arith.addi(current_index, int_of(1, ty=T.i64()))
+        updated_index = arith.select(is_valid, next_index, current_index)
+        memref.store(updated_index, self._index_memref, [index_of(0)])
+        return IterResult(load_if_valid.results[0], is_valid)
 
 
 def _types_match(ty1, ty2, exact=False):

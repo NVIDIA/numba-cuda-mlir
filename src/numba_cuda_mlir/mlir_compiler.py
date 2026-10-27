@@ -388,6 +388,26 @@ def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
     return cres
 
 
+def _check_argument_count(pyfunc, sig, args):
+    """Refuse a call whose arguments cannot fit *sig*.
+
+    The argument types below are built by walking the declared parameters and
+    indexing the supplied arguments, so without this check a surplus argument
+    is never visited -- the call succeeds and the data is silently dropped --
+    and a missing one indexes off the end as a bare ``IndexError``.
+
+    Ask the signature rather than counting parameter kinds here.  The bound is
+    not equality -- defaults make a shorter call legal and ``*args`` removes
+    the upper bound -- and ``bind`` already knows all of that, including which
+    parameter went unfilled.
+    """
+    try:
+        sig.bind(*args)
+    except TypeError as exc:
+        name = getattr(pyfunc, "__name__", "<kernel>")
+        raise TypeError(f"{name}() {exc} ({len(args)} given)") from None
+
+
 @global_compiler_lock
 def mlir_compiler_entry(
     pyfunc,
@@ -431,6 +451,7 @@ def mlir_compiler_entry(
     abi_info = abi_info or dict()
     default_values = list(pyfunc.__defaults__) if pyfunc.__defaults__ else []
     sig = inspect.signature(pyfunc)
+    _check_argument_count(pyfunc, sig, func_args)
 
     # construct a list of remaining arguments of default values
     func_args_remained = default_values[

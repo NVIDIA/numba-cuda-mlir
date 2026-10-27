@@ -291,6 +291,8 @@ class FuncBase:
 
     def _is_decl(self):
         # magic constant found from looking at the code for an empty fn
+        if sys.version_info.minor == 15:
+            return self.body_builder.__code__.co_code == b"\x80\x00\x00\x00P\x07!\x00"
         if sys.version_info.minor == 14:
             return self.body_builder.__code__.co_code == b"\x80\x00R\x00#\x00"
         if sys.version_info.minor == 13:
@@ -299,8 +301,6 @@ class FuncBase:
             return self.body_builder.__code__.co_code == b"\x97\x00y\x00"
         if sys.version_info.minor == 11:
             return self.body_builder.__code__.co_code == b"\x97\x00d\x00S\x00"
-        if sys.version_info.minor in {8, 9, 10}:
-            return self.body_builder.__code__.co_code == b"d\x00S\x00"
         raise NotImplementedError(f"{sys.version_info.minor} not supported.")
 
     def __str__(self):

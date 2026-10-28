@@ -93,6 +93,26 @@ def test_arithmetic_operand_conversion_preserves_signedness(op, lhs, rhs, expect
     np.testing.assert_equal(out.copy_to_host()[0], expected)
 
 
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_float_not_equal_nan(dtype):
+    @cuda.jit
+    def kernel(lhs, rhs, unequal, self_unequal):
+        i = cuda.grid(1)
+        if i < lhs.size:
+            unequal[i] = lhs[i] != rhs[i]
+            self_unequal[i] = lhs[i] != lhs[i]
+
+    values = np.array([np.nan, -np.inf, -1.0, -0.0, 0.0, 1.0, np.inf], dtype=dtype)
+    lhs = np.repeat(values, values.size)
+    rhs = np.tile(values, values.size)
+    unequal = cuda.device_array(lhs.size, dtype=np.bool_)
+    self_unequal = cuda.device_array(lhs.size, dtype=np.bool_)
+    kernel[1, lhs.size](cuda.to_device(lhs), cuda.to_device(rhs), unequal, self_unequal)
+
+    np.testing.assert_array_equal(unequal.copy_to_host(), np.not_equal(lhs, rhs))
+    np.testing.assert_array_equal(self_unequal.copy_to_host(), np.isnan(lhs))
+
+
 # Every value below has its high bit set, so reading it as signed yields a
 # negative number and the wrong answer is obvious rather than a rounding
 # difference. math.ceil/floor/trunc of an integer are pure conversions, which

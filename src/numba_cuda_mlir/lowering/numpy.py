@@ -4346,26 +4346,34 @@ def np_logical_not_array_to_array_cg(builder, target, args, kwargs):
 # Min/max ufuncs
 
 
-def _float_min_max(a, b, predicate, nan_operand):
-    """NumPy's float min/max: a if (a <predicate> b or nan_operand is nan) else b.
+def _min_max(a, b, ordered, nan_wins):
+    """NumPy's min/max of a and b, given ordered, the result when neither is nan.
 
-    maximum and minimum test a, so a nan in either argument wins; fmax and fmin
-    test b, so they return the other argument when one is nan.
+    When one is nan, maximum and minimum (nan_wins) return it, and fmax and fmin
+    return the other; when both are, all four return a. A complex number is nan
+    when either part is.
     """
-    keep_a = arith.ori(
-        arith.cmpf(predicate, a, b),
-        arith.cmpf(arith.CmpFPredicate.UNO, nan_operand, nan_operand),
-    )
-    return arith.select(keep_a, a, b)
+    if _is_complex_type(a.type):
+        a_is_nan, b_is_nan = (
+            arith.cmpf(arith.CmpFPredicate.UNO, complex_dialect.re(z), complex_dialect.im(z))
+            for z in (a, b)
+        )
+    else:
+        a_is_nan, b_is_nan = (arith.cmpf(arith.CmpFPredicate.UNO, x, x) for x in (a, b))
+    if nan_wins:
+        return arith.select(a_is_nan, a, arith.select(b_is_nan, b, ordered))
+    return arith.select(b_is_nan, a, arith.select(a_is_nan, b, ordered))
 
 
 def _maximum_fn(a, b):
     if isinstance(a.type, ir.IntegerType):
         cmp = arith.cmpi(arith.CmpIPredicate.sgt, a, b)
     elif _is_complex_type(a.type):
-        cmp = _complex_greater(a, b)
+        # Lexicographic, a when equal
+        return _min_max(a, b, arith.select(_complex_greater_equal(a, b), a, b), nan_wins=True)
     else:
-        return _float_min_max(a, b, arith.CmpFPredicate.OGE, a)
+        # maxnumf orders -0.0 below 0.0
+        return _min_max(a, b, arith.maxnumf(a, b), nan_wins=True)
     return arith.select(cmp, a, b)
 
 
@@ -4373,9 +4381,9 @@ def _minimum_fn(a, b):
     if isinstance(a.type, ir.IntegerType):
         cmp = arith.cmpi(arith.CmpIPredicate.slt, a, b)
     elif _is_complex_type(a.type):
-        cmp = _complex_less(a, b)
+        return _min_max(a, b, arith.select(_complex_less_equal(a, b), a, b), nan_wins=True)
     else:
-        return _float_min_max(a, b, arith.CmpFPredicate.OLE, a)
+        return _min_max(a, b, arith.minnumf(a, b), nan_wins=True)
     return arith.select(cmp, a, b)
 
 
@@ -4386,11 +4394,9 @@ def _fmax_fn(a, b):
         cmp = arith.cmpi(arith.CmpIPredicate.sgt, a, b)
         return arith.select(cmp, a, b)
     elif _is_complex_type(a.type):
-        # For complex, compare like maximum
-        cmp = _complex_greater(a, b)
-        return arith.select(cmp, a, b)
+        return _min_max(a, b, arith.select(_complex_greater_equal(a, b), a, b), nan_wins=False)
     else:
-        return _float_min_max(a, b, arith.CmpFPredicate.OGE, b)
+        return _min_max(a, b, arith.maxnumf(a, b), nan_wins=False)
 
 
 def _fmin_fn(a, b):
@@ -4400,11 +4406,9 @@ def _fmin_fn(a, b):
         cmp = arith.cmpi(arith.CmpIPredicate.slt, a, b)
         return arith.select(cmp, a, b)
     elif _is_complex_type(a.type):
-        # For complex, compare like minimum
-        cmp = _complex_less(a, b)
-        return arith.select(cmp, a, b)
+        return _min_max(a, b, arith.select(_complex_less_equal(a, b), a, b), nan_wins=False)
     else:
-        return _float_min_max(a, b, arith.CmpFPredicate.OLE, b)
+        return _min_max(a, b, arith.minnumf(a, b), nan_wins=False)
 
 
 @ufunc_registry.register(np.maximum)

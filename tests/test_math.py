@@ -333,6 +333,50 @@ def test_round_integer(dtype):
     np.testing.assert_array_equal(out, values)
 
 
+@pytest.mark.parametrize("value", [True, False])
+def test_round_boolean(value):
+    """round(bool) is 1 or 0.
+
+    ``Boolean`` is not a subclass of ``Integer`` in Numba's type hierarchy, so
+    the integer lowering does not cover it, and the generic lowering emits a
+    float rounding op on an ``i1``.
+    """
+
+    @cuda.jit
+    def kernel(values, out):
+        i = cuda.grid(1)
+        if i < values.size:
+            out[i] = round(values[i])
+
+    values = np.array([value], dtype=np.bool_)
+    out = np.zeros(1, dtype=np.int64)
+    kernel[1, 1](values, out)
+    np.testing.assert_array_equal(out, [int(round(value))])
+
+
+@pytest.mark.parametrize("ndigits", [3, 1, 0, -1, -2, -4])
+def test_round_integer_ndigits(ndigits):
+    """round(int, ndigits) computes through the float operand the signature declares.
+
+    Numba types ``round(int64, int64)`` as ``(float64, int64) -> float64``, so
+    the result is a float even though Python returns an int here.  Only the
+    value is pinned.
+    """
+
+    @cuda.jit
+    def kernel(values, digits, out):
+        i = cuda.grid(1)
+        if i < values.size:
+            out[i] = round(values[i], digits[0])
+
+    values = np.array([0, 7, 12345, -12345, 98765], dtype=np.int64)
+    digits = np.array([ndigits], dtype=np.int64)
+    out = np.zeros(values.size, dtype=np.float64)
+    kernel[1, 8](values, digits, out)
+    expected = np.array([float(round(int(v), ndigits)) for v in values], dtype=np.float64)
+    np.testing.assert_array_equal(out, expected)
+
+
 def test_abs_fabs():
     """Test absolute value functions"""
 

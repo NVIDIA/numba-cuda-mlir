@@ -887,3 +887,57 @@ class TestPackedFieldStorage:
         out = cuda.device_array(3, np.float64)
         kernel[1, 1, 0, 3 * dtype.itemsize if kind == "dynamic" else 0](out)
         np.testing.assert_array_equal(out.copy_to_host(), [110.0, 112.0, 114.0])
+
+    @pytest.mark.parametrize("packed", [False, True])
+    @pytest.mark.parametrize("reserve", [0, 2])
+    @pytest.mark.parametrize("count", [6, 10])
+    def test_dynshared_extent_and_slice_bounds(self, packed, reserve, count):
+        dtype = np.dtype([("tag", np.uint8), ("value", np.float64)]) if packed else np.int32
+        itemsize = np.dtype(dtype).itemsize
+
+        @cuda.jit
+        def kernel(out, metadata, prefix_size):
+            if reserve:
+                prefix = cuda.shared.array(prefix_size, np.uint8)
+                prefix[0] = 123
+            ary = cuda.shared.array(0, dtype)
+            metadata[0] = ary.size
+            metadata[1] = ary.shape[0]
+            metadata[2] = ary.strides[0]
+            for i in range(ary.size):
+                if packed:
+                    ary[i].tag = i + 10
+                    ary[i].value = i + 0.5
+                else:
+                    ary[i] = i + 10
+            selected = ary[-5:100:2]
+            reverse = ary[::-2]
+            metadata[3] = selected.size
+            metadata[4] = reverse.size
+            for i in range(selected.size):
+                out[i] = selected[i].value if packed else selected[i]
+            for i in range(reverse.size):
+                out[3 + i] = reverse[i].value if packed else reverse[i]
+            replacement = ary[1:3]
+            if packed:
+                replacement[0].value = 71
+                replacement[1].value = 73
+            else:
+                replacement[0] = 71
+                replacement[1] = 73
+            out[3 + reverse.size] = ary[1].value if packed else ary[1]
+            out[4 + reverse.size] = ary[2].value if packed else ary[2]
+            if reserve:
+                metadata[5] = prefix[0]
+
+        out = cuda.to_device(np.full(5 + (count + 1) // 2, -1.0))
+        metadata = cuda.to_device(np.zeros(6, np.int64))
+        kernel[1, 1, 0, (reserve + count) * itemsize](out, metadata, reserve * itemsize)
+        values = np.arange(count) + (0.5 if packed else 10)
+        np.testing.assert_array_equal(
+            out.copy_to_host(), np.r_[values[-5:100:2], values[::-2], 71, 73]
+        )
+        np.testing.assert_array_equal(
+            metadata.copy_to_host(),
+            [count, count, itemsize, 3, (count + 1) // 2, 123 if reserve else 0],
+        )

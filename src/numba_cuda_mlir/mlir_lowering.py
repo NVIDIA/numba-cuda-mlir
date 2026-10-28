@@ -2452,7 +2452,8 @@ extern "C" __global__ void
         bytes_op = arith.constant(result=T.index(), value=bytes)
         shm_base = self._get_shared_memory_base()
         total_shared_memory_bytes = self._load_total_shared_memory_bytes()
-        dynamic_shared_bytes = memref.dim(shm_base, index_of(0))
+        # The base descriptor has a zero-size sentinel, not the launch allocation.
+        dynamic_shared_bytes = convert(nvvm.read_ptx_sreg_dynamic_smem_size(), T.index())
         remaining_bytes = arith.subi(lhs=dynamic_shared_bytes, rhs=total_shared_memory_bytes)
         size = arith.divui(lhs=remaining_bytes, rhs=bytes_op)
         view = memref.view(

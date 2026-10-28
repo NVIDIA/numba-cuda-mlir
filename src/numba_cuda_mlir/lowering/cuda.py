@@ -832,14 +832,23 @@ def _shfl_sync_lowering(builder: MLIRLower, target, args, kwargs, shfl_kind):
     mask = int_of(mask, T.i32())
     offset = int_of(offset, T.i32())
     original_type = value.type
-    value = f32_of(value) if isinstance(value.type, ir.FloatType) else i32_of(value)
-
+    is_float = isinstance(original_type, ir.FloatType)
     mask_and_clamp = constant(0 if shfl_kind == nvvm.ShflKind.up else 0x1F, T.i32())
-    result = nvvm.shfl_sync(mask, value, offset, mask_and_clamp, shfl_kind)
 
-    # Convert result back to original type if needed
-    if isinstance(original_type, ir.FloatType) and original_type.width == 64:
-        result = arith.extf(T.f64(), result)
+    if original_type.width == 64:
+        # Shuffle a 64-bit value as the two 32-bit halves of its bit pattern,
+        # as numba-cuda does; narrowing to f32 or i32 would drop bits.
+        bits = arith.bitcast(T.i64(), value) if is_float else value
+        shift = constant(32, T.i64())
+        lo = arith.trunci(T.i32(), bits)
+        hi = arith.trunci(T.i32(), arith.shrui(bits, shift))
+        lo = nvvm.shfl_sync(mask, lo, offset, mask_and_clamp, shfl_kind)
+        hi = nvvm.shfl_sync(mask, hi, offset, mask_and_clamp, shfl_kind)
+        bits = arith.ori(arith.extui(T.i64(), lo), arith.shli(arith.extui(T.i64(), hi), shift))
+        result = arith.bitcast(original_type, bits) if is_float else bits
+    else:
+        value = f32_of(value) if is_float else i32_of(value)
+        result = nvvm.shfl_sync(mask, value, offset, mask_and_clamp, shfl_kind)
 
     builder.store_var(target, result)
 

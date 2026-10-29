@@ -7,6 +7,64 @@ import numpy as np
 import pytest
 
 
+def test_tuple_equality_in_kernel():
+    @cuda.jit
+    def kernel(out):
+        left = (np.int64(1), np.int32(2))
+        right = (np.int64(1), np.int32(2))
+        out[0] = 1 if left == right else 0
+
+    out = np.zeros(1, dtype=np.uint64)
+    kernel[1, 1](out)
+    assert out[0] == 1
+
+
+@pytest.mark.parametrize(
+    "left, right",
+    [
+        ((1, 2), (1, 2)),
+        ((1, 2), (9, 2)),
+        ((1, 2), (1, 9)),
+        ((np.int64(1), np.int32(2)), (np.int32(1), np.int64(2))),
+        ((1, 2.5), (1.0, 2.5)),
+        ((1, 2.5), (1.0, 3.5)),
+        ((True, False), (1, 0)),
+        ((float("nan"),), (float("nan"),)),
+        ((), ()),
+        ((), (1,)),
+        ((1,), ()),
+        ((1, 2), (1, 2, 3)),
+        (((1, 2.5), ()), ((1, 2.5), ())),
+        (((1, 2.5), ()), ((1, 3.5), ())),
+        (((1,), 2), ((1, 3), 2)),
+    ],
+)
+def test_tuple_equality_arguments(left, right):
+    @cuda.jit
+    def kernel(out, left, right):
+        out[0] = left == right
+        out[1] = left != right
+
+    out = np.zeros(2, dtype=np.bool_)
+    kernel[1, 1](out, left, right)
+    np.testing.assert_array_equal(out, (left == right, left != right))
+
+
+def test_namedtuple_equality():
+    Point = namedtuple("Point", ("x", "y"))
+
+    @cuda.jit
+    def kernel(out, left, right):
+        out[0] = left == right
+        out[1] = left != right
+
+    out = np.zeros(2, dtype=np.bool_)
+    left = Point(1, 2.5)
+    for right in (Point(1, 2.5), Point(2, 2.5), (1, 2.5)):
+        kernel[1, 1](out, left, right)
+        np.testing.assert_array_equal(out, (left == right, left != right))
+
+
 def test_compile_time_tuple_slice():
     @cuda.jit
     def kernel(out):

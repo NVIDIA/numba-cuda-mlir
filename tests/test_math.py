@@ -374,8 +374,9 @@ def test_round_boolean(value):
     np.testing.assert_array_equal(out, [int(round(value))])
 
 
+@pytest.mark.parametrize("dtype", [np.int64, np.uint32, np.uint64])
 @pytest.mark.parametrize("ndigits", [3, 1, 0, -1, -2, -4])
-def test_round_integer_ndigits(ndigits):
+def test_round_integer_ndigits(ndigits, dtype):
     """round(int, ndigits) computes through the float operand the signature declares.
 
     Numba types ``round(int64, int64)`` as ``(float64, int64) -> float64``, so
@@ -389,11 +390,17 @@ def test_round_integer_ndigits(ndigits):
         if i < values.size:
             out[i] = round(values[i], digits[0])
 
-    values = np.array([0, 7, 12345, -12345, 98765], dtype=np.int64)
+    limits = np.iinfo(dtype)
+    values = [0, 7, 12345, 98765]
+    if limits.min < 0:
+        values.append(-12345)
+    else:
+        values.extend([2 ** (limits.bits - 1), 2 ** (limits.bits - 1) + 1, limits.max])
+    values = np.array(values, dtype=dtype)
     digits = np.array([ndigits], dtype=np.int64)
     out = np.zeros(values.size, dtype=np.float64)
     kernel[1, 8](values, digits, out)
-    expected = np.array([float(round(int(v), ndigits)) for v in values], dtype=np.float64)
+    expected = np.array([round(float(v), ndigits) for v in values], dtype=np.float64)
     np.testing.assert_array_equal(out, expected)
 
 

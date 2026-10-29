@@ -2155,9 +2155,16 @@ extern "C" __global__ void
                 f"Could not find function {fn.name} in MLIR module."
                 f" Expected to find function after linking in {fn}."
             )
-        args = self.load_vars(args)
         callee_type = get_func_type(callee)
-        args = [convert(arg, arg_type) for arg, arg_type in zip(args, callee_type.inputs)]
+        # MLIR integers are signless; retain source Numba types for conversion.
+        args = [
+            convert(
+                self.load_var(arg),
+                arg_type,
+                signed=get_conversion_signedness(self.get_numba_type(arg.name), numba_type),
+            )
+            for arg, arg_type, numba_type in zip(args, callee_type.inputs, fn.sig.args)
+        ]
         # Use callee's actual type to preserve layout information
         call_result = func.call(
             result=callee_type.results,

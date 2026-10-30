@@ -84,9 +84,11 @@ _DISPATCHER_STATE_ATTRS = (
     "_launch_config_lock",
     "_launch_lock",
     "_launch_config_overloads",
+    "_launch_argtype_overloads",
     "_launch_config_dispatchers",
     "_launch_config_generation",
     "_requires_launch_config",
+    "_requires_dynamic_shared_memory",
     "_literal_arg_positions",
     "_launch_config_cache_misses",
     "_launch_config_cache_hits",
@@ -99,6 +101,14 @@ _DISPATCHER_STATE_ATTRS = (
 
 def _new_dispatcher_rlock():
     return threading.RLock()
+
+
+class _RelaunchForDynamicSharedMemory(Exception):
+    """Abort a native launch whose on-demand compile requires dynamic shared memory.
+
+    The native launcher launches what it compiles with the configured
+    sharedmem, so the marshaller relaunches with the requirement applied.
+    """
 
 
 def _is_strided_memory_view(arg):
@@ -640,6 +650,7 @@ class _ArgMarshaller:
             if dispatcher is not None and (
                 _planner_registry.has_planners
                 or getattr(dispatcher, "_requires_launch_config", False)
+                or getattr(dispatcher, "_requires_dynamic_shared_memory", False)
                 or self._launch_config is not None
                 or literal_prelaunch
             ):
@@ -732,6 +743,10 @@ class _ArgMarshaller:
             elif hasattr(_compile_arg_types, "launch_config"):
                 delattr(_compile_arg_types, "launch_config")
             return launcher(*launch_args)
+        except _RelaunchForDynamicSharedMemory:
+            # The dispatcher now requires dynamic shared memory, so this
+            # launch takes the prepared path.
+            return self._launch(argtypes, launch_args, launch_values)
         except UserFacingInternalCompilerError as e:
             if os.environ.get("NUMBA_CUDA_MLIR_ICE_FULL_TB", "0").strip() == "1":
                 raise
@@ -1659,9 +1674,16 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         # reinstall their native dispatcher after dispatcher cache eviction, but
         # recompile() invalidates old launch-config generations.
         self._launch_config_overloads = {}
+        # Generic overloads keyed by launch argument types where those differ
+        # from the compiled signature (omitted defaults, *args). Kept out of
+        # self.overloads so each signature is listed once.
+        self._launch_argtype_overloads = {}
         self._launch_config_dispatchers = collections.OrderedDict()
         self._launch_config_generation = 0
         self._requires_launch_config = False
+        # Set once any compile records required dynamic shared memory; launches
+        # then size dynamic shared memory before calling the native launcher.
+        self._requires_dynamic_shared_memory = False
         self._literal_arg_positions = frozenset()
         self._c = self._new_kernel_dispatcher()
         self.extensions = targetoptions.get("extensions") or []
@@ -1811,6 +1833,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             old_dispatchers = [self._c, *self._launch_config_dispatchers.values()]
             self._literal_arg_positions = updated
             self.overloads.clear()
+            self._launch_argtype_overloads.clear()
             self._launch_config_overloads.clear()
             self._launch_config_generation += 1
             self._launch_config_dispatchers.clear()
@@ -1918,12 +1941,16 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 self._launch_lock = _new_dispatcher_rlock() if _PY_GIL_DISABLED else None
             if not hasattr(self, "_launch_config_overloads"):
                 self._launch_config_overloads = {}
+            if not hasattr(self, "_launch_argtype_overloads"):
+                self._launch_argtype_overloads = {}
             if not hasattr(self, "_launch_config_dispatchers"):
                 self._launch_config_dispatchers = collections.OrderedDict()
             if not hasattr(self, "_launch_config_generation"):
                 self._launch_config_generation = 0
             if not hasattr(self, "_requires_launch_config"):
                 self._requires_launch_config = False
+            if not hasattr(self, "_requires_dynamic_shared_memory"):
+                self._requires_dynamic_shared_memory = False
             if not hasattr(self, "_literal_arg_positions"):
                 self._literal_arg_positions = frozenset()
             if not hasattr(self, "_launch_config_cache_misses"):
@@ -2703,15 +2730,22 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             launch_config_key = _launch_config_key(launch_config)
             with self._launch_config_lock:
                 return self._find_launch_config_overload_locked(argtypes, launch_config_key)
-        exact = self.overloads.get(argtypes)
+        exact = self._generic_overload_for(argtypes)
         if exact is not None:
             return exact
-        for sig_args, cres in self.overloads.items():
-            if len(sig_args) == len(argtypes) and all(
-                self._can_reuse_overload(s, r) for s, r in zip(sig_args, argtypes)
-            ):
-                return cres
+        for overloads in (self.overloads, self._launch_argtype_overloads):
+            for sig_args, cres in tuple(overloads.items()):
+                if len(sig_args) == len(argtypes) and all(
+                    self._can_reuse_overload(s, r) for s, r in zip(sig_args, argtypes)
+                ):
+                    return cres
         return None
+
+    def _generic_overload_for(self, argtypes):
+        compile_result = self.overloads.get(argtypes)
+        if compile_result is None:
+            compile_result = self._launch_argtype_overloads.get(argtypes)
+        return compile_result
 
     def _get_ready_launch(
         self,
@@ -2725,7 +2759,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
 
         if configured_launch_config is None and not self._requires_launch_config:
             kernel_dispatcher = self._c
-            compile_result = self.overloads.get(argtypes)
+            compile_result = self._generic_overload_for(argtypes)
             if (
                 configured_kernel_dispatcher is not kernel_dispatcher
                 or configured_launch_config_generation is not None
@@ -2941,7 +2975,12 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
 
     def _compile(self, args):
         with global_compiler_lock:
+            # A launch made while the dispatcher had no requirement was not
+            # sized for one, so a first requirement aborts it.
+            launch_sized = getattr(self, "_requires_dynamic_shared_memory", False)
             cubin, func_name, cooperative = self._compile_impl(args)
+            if self._requires_dynamic_shared_memory and not launch_sized:
+                raise _RelaunchForDynamicSharedMemory
             if self._module_setup_callbacks or self._module_teardown_callbacks:
                 return (cubin, func_name, cooperative, self._make_post_load_hook())
             return (cubin, func_name, cooperative)
@@ -3006,6 +3045,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 active_launch_config_generation = self._launch_config_generation
 
         def _result(cres):
+            if cres.metadata.get(_REQUIRED_DYNAMIC_SHARED_MEMORY_KEY):
+                self._requires_dynamic_shared_memory = True
             return (
                 cres.metadata["cubin"],
                 cres.metadata["func_name"],
@@ -3025,11 +3066,12 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                     self._launch_config_cache_hits[(argtypes, active_launch_config_key)] += 1
                     return _result(reusable)
         elif self.overloads:
-            for sig_args, cres in tuple(self.overloads.items()):
-                if len(sig_args) == len(argtypes) and all(
-                    self._can_reuse_overload(s, r) for s, r in zip(sig_args, argtypes)
-                ):
-                    return _result(cres)
+            for overloads in (self.overloads, self._launch_argtype_overloads):
+                for sig_args, cres in tuple(overloads.items()):
+                    if len(sig_args) == len(argtypes) and all(
+                        self._can_reuse_overload(s, r) for s, r in zip(sig_args, argtypes)
+                    ):
+                        return _result(cres)
 
         if not self._can_compile:
             if active_launch_config_key is not None:
@@ -3222,6 +3264,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             self._propagate_compile_callbacks(result.metadata)
             self._apply_shared_memory_carveout(wrapped)
             self.overloads[result.signature.args] = wrapped
+            if tuple(result.signature.args) != argtypes:
+                self._launch_argtype_overloads[argtypes] = wrapped
 
         # Save to disk cache
         if disk_cache_eligible:
@@ -3589,6 +3633,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     def _recompile_impl(self):
         # Clear Python-side overloads
         self.overloads.clear()
+        self._launch_argtype_overloads.clear()
 
         # Clear cache counters
         self._cache_hits.clear()

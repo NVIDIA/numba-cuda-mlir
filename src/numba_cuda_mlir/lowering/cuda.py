@@ -1042,6 +1042,18 @@ def register_activemask_lowering():
 register_activemask_lowering()
 
 
+@lower(numba_cuda_mlir.cuda.lanemask_lt)
+def lower_cuda_lanemask_lt(builder: MLIRLower, target, args, kwargs):
+    # %lanemask_lt has one bit set for each lane below the calling thread's: (1 << laneid) - 1.
+    # Read it with inline asm, as activemask does: the LLVM 7 translator has no case for
+    # nvvm.read.ptx.sreg.lanemask.lt.
+    i32_type = ir.IntegerType.get_signless(32)
+    result = llvm.inline_asm(
+        i32_type, [], "mov.u32 $0, %lanemask_lt;", "=r", has_side_effects=False
+    )
+    builder.store_var(target, result)
+
+
 def _get_string_value(value: ir.StringAttr | str) -> str:
     match value:
         case ir.StringAttr() as s:

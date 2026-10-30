@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+Keep device example selection independent of pytest's automatic IDs
+
+pytest 9.2 replaces string parameters longer than 100 characters with IDs such
+as sample0. Device example parameters contain absolute paths longer than that,
+so the harness's `-k "numba_cuda_mlir and not perf"` filter selects no examples.
+
+Use explicit paths relative to examples/device as IDs. They preserve the backend
+and filename for selection without depending on the checkout location or pytest's
+long-string ID strategy. Keep the harness's zero-tests guard unchanged.
+
+Drop this patch once nvmath-python supplies explicit backend-qualified example IDs.
+Applied by ci/tools/run-nvmath-python-mlir-tests.
+
+diff --git a/tests/example_tests/device_tests/test_device_samples.py b/tests/example_tests/device_tests/test_device_samples.py
+--- a/tests/example_tests/device_tests/test_device_samples.py
++++ b/tests/example_tests/device_tests/test_device_samples.py
+@@ -39,7 +39,11 @@ fp16_examples = {
+ }
+ 
+ 
+-@pytest.mark.parametrize("sample", sample_files)
++@pytest.mark.parametrize(
++    "sample",
++    sample_files,
++    ids=[os.path.relpath(sample, samples_path) for sample in sample_files],
++)
+ class TestDeviceSamples:
+     def test_sample(self, sample, request):
+         ctk_version = get_nvrtc_version()

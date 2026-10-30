@@ -519,6 +519,54 @@ def atomic_cas_2dim(res, old, ary, fill_val):
         old[gid] = cuda.atomic.cas(res, gid, fill_val, ary[gid])
 
 
+def gen_atomic_cas_literal_val_funcs(val):
+    """
+    CAS kernels with `val` spelled as a literal in the kernel source. A literal is not
+    materialised at the array's element width, so these exercise the narrowing of the
+    `val` operand that array-element and kernel-argument operands never require.
+    """
+    fns = dedent(
+        """
+    def atomic_cas_1dim(res, old, ary):
+        gid = cuda.grid(1)
+        if gid < res.size:
+            old[gid] = cuda.atomic.cas(res, gid, ary[gid], {val})
+
+    def atomic_cas_2dim(res, old, ary):
+        gid = cuda.grid(2)
+        if gid[0] < res.shape[0] and gid[1] < res.shape[1]:
+            old[gid] = cuda.atomic.cas(res, gid, ary[gid], {val})
+
+    def atomic_compare_and_swap(res, old, ary):
+        gid = cuda.grid(1)
+        if gid < res.size:
+            old[gid] = cuda.atomic.compare_and_swap(res[gid:], ary[gid], {val})
+    """
+    ).format(val=val)
+    ld = {}
+    exec(fns, {"cuda": cuda}, ld)
+    return (
+        ld["atomic_cas_1dim"],
+        ld["atomic_cas_2dim"],
+        ld["atomic_compare_and_swap"],
+    )
+
+
+CAS_LITERAL_VAL = 42
+CAS_LITERAL_VAL_UINT32_MAX = 0xFFFFFFFF
+
+(
+    atomic_cas_1dim_literal_val,
+    atomic_cas_2dim_literal_val,
+    atomic_compare_and_swap_literal_val,
+) = gen_atomic_cas_literal_val_funcs(CAS_LITERAL_VAL)
+(
+    atomic_cas_1dim_literal_val_uint32_max,
+    atomic_cas_2dim_literal_val_uint32_max,
+    atomic_compare_and_swap_literal_val_uint32_max,
+) = gen_atomic_cas_literal_val_funcs(CAS_LITERAL_VAL_UINT32_MAX)
+
+
 class TestCudaAtomics(NumbaCUDATestCase):
     def setUp(self):
         super().setUp()
@@ -1434,6 +1482,155 @@ class TestCudaAtomics(NumbaCUDATestCase):
             dtype=np.uint64,
             cas_func=atomic_cas_2dim,
             ndim=2,
+        )
+
+    def check_cas_literal_val(self, dtype, cas_func, val, ndim=1):
+        """
+        Check a CAS kernel whose `val` operand is a literal. Half the elements of `res`
+        match the `old` operand and must be swapped for `val`; the other half must be
+        left alone. Either way the pre-existing element is returned.
+        """
+        n = 100
+        match, nomatch = 7, 9
+        res = np.asarray([match, nomatch] * (n // 2), dtype=dtype)
+        np.random.shuffle(res)
+        if ndim == 2:
+            res = res.reshape(10, -1)
+        # The `old` operand, read back out of a same-dtype array as the existing tests do.
+        ary = np.full(res.shape, match, dtype=dtype)
+        out = np.zeros_like(res)
+
+        expect_res = res.copy()
+        expect_res[res == match] = dtype(val)
+        expect_out = res.copy()
+
+        cuda_func = numba_cuda_mlir.cuda.jit(cas_func)
+        if ndim == 1:
+            cuda_func[10, 10](res, out, ary)
+        else:
+            cuda_func[(10, 10), (10, 10)](res, out, ary)
+
+        np.testing.assert_array_equal(expect_res, res)
+        np.testing.assert_array_equal(expect_out, out)
+
+    def test_atomic_cas_1dim_literal_val_int32(self):
+        self.check_cas_literal_val(
+            dtype=np.int32,
+            cas_func=atomic_cas_1dim_literal_val,
+            val=CAS_LITERAL_VAL,
+        )
+
+    def test_atomic_cas_1dim_literal_val_uint32(self):
+        self.check_cas_literal_val(
+            dtype=np.uint32,
+            cas_func=atomic_cas_1dim_literal_val,
+            val=CAS_LITERAL_VAL,
+        )
+
+    def test_atomic_cas_1dim_literal_val_int64(self):
+        self.check_cas_literal_val(
+            dtype=np.int64,
+            cas_func=atomic_cas_1dim_literal_val,
+            val=CAS_LITERAL_VAL,
+        )
+
+    def test_atomic_cas_1dim_literal_val_uint64(self):
+        self.check_cas_literal_val(
+            dtype=np.uint64,
+            cas_func=atomic_cas_1dim_literal_val,
+            val=CAS_LITERAL_VAL,
+        )
+
+    def test_atomic_cas_2dim_literal_val_int32(self):
+        self.check_cas_literal_val(
+            dtype=np.int32,
+            cas_func=atomic_cas_2dim_literal_val,
+            val=CAS_LITERAL_VAL,
+            ndim=2,
+        )
+
+    def test_atomic_cas_2dim_literal_val_uint32(self):
+        self.check_cas_literal_val(
+            dtype=np.uint32,
+            cas_func=atomic_cas_2dim_literal_val,
+            val=CAS_LITERAL_VAL,
+            ndim=2,
+        )
+
+    def test_atomic_cas_2dim_literal_val_int64(self):
+        self.check_cas_literal_val(
+            dtype=np.int64,
+            cas_func=atomic_cas_2dim_literal_val,
+            val=CAS_LITERAL_VAL,
+            ndim=2,
+        )
+
+    def test_atomic_cas_2dim_literal_val_uint64(self):
+        self.check_cas_literal_val(
+            dtype=np.uint64,
+            cas_func=atomic_cas_2dim_literal_val,
+            val=CAS_LITERAL_VAL,
+            ndim=2,
+        )
+
+    def test_atomic_compare_and_swap_literal_val_int32(self):
+        self.check_cas_literal_val(
+            dtype=np.int32,
+            cas_func=atomic_compare_and_swap_literal_val,
+            val=CAS_LITERAL_VAL,
+        )
+
+    def test_atomic_compare_and_swap_literal_val_uint32(self):
+        self.check_cas_literal_val(
+            dtype=np.uint32,
+            cas_func=atomic_compare_and_swap_literal_val,
+            val=CAS_LITERAL_VAL,
+        )
+
+    def test_atomic_compare_and_swap_literal_val_int64(self):
+        self.check_cas_literal_val(
+            dtype=np.int64,
+            cas_func=atomic_compare_and_swap_literal_val,
+            val=CAS_LITERAL_VAL,
+        )
+
+    def test_atomic_compare_and_swap_literal_val_uint64(self):
+        self.check_cas_literal_val(
+            dtype=np.uint64,
+            cas_func=atomic_compare_and_swap_literal_val,
+            val=CAS_LITERAL_VAL,
+        )
+
+    # A literal at the top of the uint32 range narrows to an all-ones element. It must
+    # be stored as-is rather than being re-widened as a negative value.
+
+    def test_atomic_cas_1dim_literal_val_uint32_max(self):
+        self.check_cas_literal_val(
+            dtype=np.uint32,
+            cas_func=atomic_cas_1dim_literal_val_uint32_max,
+            val=CAS_LITERAL_VAL_UINT32_MAX,
+        )
+
+    def test_atomic_cas_2dim_literal_val_uint32_max(self):
+        self.check_cas_literal_val(
+            dtype=np.uint32,
+            cas_func=atomic_cas_2dim_literal_val_uint32_max,
+            val=CAS_LITERAL_VAL_UINT32_MAX,
+            ndim=2,
+        )
+
+    def test_atomic_compare_and_swap_literal_val_uint32_max(self):
+        self.check_cas_literal_val(
+            dtype=np.uint32,
+            cas_func=atomic_compare_and_swap_literal_val_uint32_max,
+            val=CAS_LITERAL_VAL_UINT32_MAX,
+        )
+
+    def test_atomic_cas_1dim_literal_val_uint64_uint32_max(self):
+        self.check_cas_literal_val(
+            dtype=np.uint64,
+            cas_func=atomic_cas_1dim_literal_val_uint32_max,
+            val=CAS_LITERAL_VAL_UINT32_MAX,
         )
 
     # Tests that the atomic add, min, and max operations return the old value -

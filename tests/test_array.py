@@ -582,6 +582,93 @@ class TestArrayStrides:
         assert self._kernel_strides(arr) == arr.strides
 
 
+class TestArrayAttributes:
+    @staticmethod
+    def _kernel_scalar(arr, attr):
+        src = f"def kernel(a, out):\n    out[0] = a.{attr}\n"
+        ns = {}
+        exec(src, ns)
+        out = np.zeros(1, dtype=np.int64)
+        cuda.jit(ns["kernel"])[1, 1](arr, out)
+        return int(out[0])
+
+    @pytest.mark.parametrize("attr", ["ndim", "itemsize", "nbytes", "size"])
+    @pytest.mark.parametrize(
+        "arr",
+        [
+            np.zeros(5, dtype=np.int8),
+            np.zeros((3, 4), dtype=np.int32),
+            np.asfortranarray(np.zeros((3, 4), dtype=np.float64)),
+            np.zeros((2, 3, 4), dtype=np.float32),
+            np.zeros(4, dtype=np.dtype([("x", np.float32), ("y", np.int64)], align=True)),
+        ],
+        ids=["1d_i1", "2d_c_i4", "2d_f_f8", "3d_f4", "record"],
+    )
+    def test_scalar_attributes(self, arr, attr):
+        assert self._kernel_scalar(arr, attr) == getattr(arr, attr)
+
+    def test_ndim_of_derived_array(self):
+        # ``ndim`` on a kernel parameter is folded before lowering; a derived
+        # array is the case that reaches the lowering.
+        @cuda.jit
+        def kernel(a, out):
+            out[0] = a.T.ndim
+
+        out = np.zeros(1, dtype=np.int64)
+        kernel[1, 1](np.zeros((3, 4), dtype=np.int32), out)
+        assert out[0] == 2
+
+    @pytest.mark.parametrize(
+        "arr",
+        [
+            np.arange(5, dtype=np.int32),
+            np.arange(12, dtype=np.int32).reshape(3, 4),
+            np.asfortranarray(np.arange(12, dtype=np.float64).reshape(3, 4)),
+            np.arange(24, dtype=np.float32).reshape(2, 3, 4),
+        ],
+        ids=["1d", "2d_c", "2d_f", "3d"],
+    )
+    def test_transpose_shape_and_strides(self, arr):
+        @cuda.jit
+        def kernel(a, shape, strides):
+            t = a.T
+            for i in range(len(t.shape)):
+                shape[i] = t.shape[i]
+                strides[i] = t.strides[i]
+
+        shape = np.zeros(arr.ndim, dtype=np.int64)
+        strides = np.zeros(arr.ndim, dtype=np.int64)
+        kernel[1, 1](arr, shape, strides)
+        assert tuple(shape) == arr.T.shape
+        assert tuple(strides) == arr.T.strides
+
+    def test_transpose_reads_transposed_element(self):
+        @cuda.jit
+        def kernel(a, out):
+            out[0] = a.T[2, 1]
+
+        arr = np.arange(12, dtype=np.int32).reshape(3, 4)
+        out = np.zeros(1, dtype=np.int32)
+        kernel[1, 1](arr, out)
+        assert out[0] == arr.T[2, 1]
+
+    def test_transpose_round_trip_and_write_through(self):
+        @cuda.jit
+        def kernel(a, out):
+            out[0] = a.T.T[0, 1]
+            a.T[1, 0] = 99
+
+        arr = np.arange(12, dtype=np.int32).reshape(3, 4)
+        dev = cuda.to_device(arr)
+        out = np.zeros(1, dtype=np.int32)
+        kernel[1, 1](dev, out)
+
+        expected = arr.copy()
+        expected.T[1, 0] = 99
+        assert out[0] == arr[0, 1]
+        np.testing.assert_array_equal(dev.copy_to_host(), expected)
+
+
 if __name__ == "__main__":
     import logging
 

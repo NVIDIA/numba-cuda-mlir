@@ -617,6 +617,51 @@ def lower_strides(
     mlir_lower.store_var(target, strides)
 
 
+@lower_getattr(types.Array, "T")
+def lower_array_transpose(
+    _: MLIRTargetContext,
+    mlir_lower: MLIRLower,
+    target: numba_ir.Var,
+    array: numba_ir.Var,
+):
+    source = mlir_lower.load_var(array)
+    if not isinstance(source.type, ir.MemRefType):
+        raise NotImplementedError(f"T not implemented for {source.type}")
+
+    rank = source.type.rank
+    if rank <= 1:
+        mlir_lower.store_var(target, source)
+        return
+
+    md = memref.extract_strided_metadata(source)
+    offset = md[1]
+    sizes = list(md[2 : 2 + rank])
+    strides = list(md[2 + rank : 2 + 2 * rank])
+
+    dyn_size = ir.ShapedType.get_dynamic_size()
+    dyn_stride = ir.ShapedType.get_dynamic_stride_or_offset()
+    result_type = ir.MemRefType.get(
+        shape=[dyn_size] * rank,
+        element_type=source.type.element_type,
+        layout=ir.StridedLayoutAttr.get(dyn_stride, [dyn_stride] * rank),
+        memory_space=source.type.memory_space,
+    )
+
+    mlir_lower.store_var(
+        target,
+        memref.reinterpret_cast(
+            result_type,
+            source,
+            offsets=[offset],
+            sizes=sizes[::-1],
+            strides=strides[::-1],
+            static_offsets=[dyn_stride],
+            static_sizes=[dyn_size] * rank,
+            static_strides=[dyn_stride] * rank,
+        ),
+    )
+
+
 def _dim3_attr_to_dimension(attr: str):
     match attr:
         case "x":

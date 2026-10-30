@@ -447,7 +447,6 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         compiled[nctaid, ntid](ary)
         self.assertEqual(ary[0], nctaid * ntid)
 
-    @pytest.mark.xfail(True, reason="Incorrect result")
     def test_issue_9229(self):
         # Ensure that grid and grid size are correct - #9229 showed that they
         # overflowed an int32.

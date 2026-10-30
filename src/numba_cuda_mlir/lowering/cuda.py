@@ -785,18 +785,6 @@ def lower_cuda_gridsize(
         raise ValueError(f"cuda.gridsize() only supports dimensions 1, 2, or 3, got {dim_literal}")
 
 
-def _tuple_size_from_dimension(dim: types.Type):
-    match dim:
-        case types.IntegerLiteral(literal_value=1):
-            return types.int64
-        case types.IntegerLiteral(literal_value=2):
-            return types.UniTuple(types.int64, 2)
-        case types.IntegerLiteral(literal_value=3):
-            return types.UniTuple(types.int64, 3)
-        case _:
-            raise ValueError(f"cuda.gridsize() only supports dimensions 1, 2, or 3, got {dim}")
-
-
 def get_syncthreads_variant(reduction_op: nvvm.BarrierReduction):
     def cg_syncthreads_variant(builder, target, args, kwargs):
         pred = builder.load_var(args[0]) if len(args) else None

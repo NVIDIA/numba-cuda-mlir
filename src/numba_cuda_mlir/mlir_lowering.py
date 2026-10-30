@@ -945,19 +945,12 @@ extern "C" __global__ void
         error_code = KERNEL_ERROR_CODES.get(exc_class, 4)  # Default to RuntimeError
         self.set_error_code(error_code)
 
-        # Branch to the highest-offset Return block if available.
-        return_offsets = [
-            offset
-            for offset, block in self.blocks.items()
-            if block.body and isinstance(block.body[-1], numba_ir.Return)
-        ]
-        if return_offsets:
-            cf.br([], self.blkmap[max(return_offsets)])
-            return
-
-        # Terminate the current block if no reachable Return block is found.
+        # Return here rather than branch to a Return block: that block can hold
+        # user code that must not run after the raise, and values it uses need
+        # not dominate the raise site.
         return_ctor = gpu.ReturnOp if isinstance(self.mlir_funcOp, gpu.GPUFuncOp) else func.ReturnOp
-        return_ctor([])
+        result_types = self.mlir_funcOp.function_type.value.results
+        return_ctor([self._zero_value_for_type(result_type) for result_type in result_types])
 
     def lower_assign(self, assign_inst):
         """
@@ -2601,6 +2594,9 @@ extern "C" __global__ void
         if isinstance(mlir_type, ir.VectorType):
             zero = self._zero_value_for_type(mlir_type.element_type)
             return vector_dialect.broadcast(mlir_type, zero)
+        if isinstance(mlir_type, ir.MemRefType) and mlir_type.memory_space is None:
+            desc = llvm.mlir_zero(res=memref_descriptor_type(mlir_type.rank))
+            return builtin.unrealized_conversion_cast([mlir_type], [desc])
         if str(mlir_type).startswith("!llvm."):
             return llvm.mlir_undef(res=mlir_type)
         raise InternalCompilerError(f"Cannot materialize zero value for {mlir_type}.")

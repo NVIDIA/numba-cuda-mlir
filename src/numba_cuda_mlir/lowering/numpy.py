@@ -3788,18 +3788,19 @@ def create_binary_elementwise_op(builder, target, args, kwargs, math_fn, op_name
     in2_tensor = lowering_utilities.memref_to_value_tensor(in2_array_type, in2_memref)
     input_tensor_type = in1_tensor.type
 
-    # Extract dynamic dimensions for tensor.empty (use target type for output)
+    # Sizes for tensor.empty: static dimensions as ints, dynamic ones from the memref
     rank = input_tensor_type.rank
-    dynamic_sizes = []
+    sizes = []
     for i in range(rank):
         if input_tensor_type.shape[i] == ir.ShapedType.get_dynamic_size():
-            dim_size = memref.dim(
-                source=in1_memref, index=arith.constant(result=T.index(), value=i)
+            sizes.append(
+                memref.dim(source=in1_memref, index=arith.constant(result=T.index(), value=i))
             )
-            dynamic_sizes.append(dim_size)
+        else:
+            sizes.append(input_tensor_type.shape[i])
 
     # Create empty output tensor with target element type
-    init = tensor.EmptyOp(dynamic_sizes, element_type=target_mlir_type).result
+    init = tensor.EmptyOp(sizes, element_type=target_mlir_type).result
 
     # Use linalg.GenericOp for element-wise operation
     affine_map = ir.AffineMap.get_identity(rank)

@@ -1372,6 +1372,7 @@ class _FunctionCompiler:
             normal_handler,
             default_handler,
             stararg_handler,
+            name=self.py_func.__name__,
         )
         return self.pysig, args
 

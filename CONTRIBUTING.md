@@ -41,6 +41,33 @@ Remember, if you are unsure about anything, don't hesitate to comment on issues
 and ask for clarifications!
 
 
+## Ecosystem compatibility CI
+
+The **Ecosystem compatibility** workflow runs the cuDF, Numbast,
+nvmath-python, and CCCL integration tests daily at 03:17 UTC on `main`.
+It builds LLVM and Numba-CUDA-MLIR wheels in the same run, then tests both
+Linux x86-64 and aarch64 using the existing library matrices in
+`ci/test-matrix.yml`. Test reports remain available as workflow artifacts.
+
+These library integrations do not run in ordinary PR CI or contribute to
+the required **Check job status** check. The separate **Ecosystem job status**
+check fails if any build or library job fails, is cancelled, or is skipped.
+
+To check an integration-sensitive branch or release candidate before merging,
+select **Ecosystem compatibility** in GitHub Actions, choose **Run workflow**,
+and select the branch. Once the workflow is on the default branch, the same
+run can be started with:
+
+```bash
+gh workflow run ecosystem-compatibility.yml \
+  --repo NVIDIA/numba-cuda-mlir --ref <branch>
+```
+
+The schedule becomes active after the workflow is merged into `main`.
+Results are reported in GitHub Actions; this workflow does not send webhook
+notifications or create tracking issues.
+
+
 ## Pre-commit hooks
 
 We use [pre-commit hooks](https://pre-commit.com/) for formatting and basic linting that should

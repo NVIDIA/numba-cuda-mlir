@@ -608,16 +608,12 @@ def lower_strides(
     if not isinstance(array.type, ir.MemRefType):
         raise NotImplementedError(f"strides not implemented for {array.type}")
 
-    # Record/CharSeq/UnicodeCharSeq arrays are byte-based memrefs whose strides
-    # are already in bytes; other memrefs carry strides in elements.
-    if isinstance(array_numba_type.dtype, (types.Record, types.CharSeq, types.UnicodeCharSeq)):
-        element_size = 1
-    else:
-        element_size = storage_itemsize_bytes(array_numba_type)
+    # Descriptor strides count elements, numpy counts bytes.
+    element_size = index_of(storage_itemsize_bytes(array_numba_type))
 
     rank = array.type.rank
     md = memref.extract_strided_metadata(array)
-    strides = tuple(arith.muli(md[2 + rank + i], index_of(element_size)) for i in range(rank))
+    strides = tuple(arith.muli(md[2 + rank + i], element_size) for i in range(rank))
     mlir_lower.store_var(target, strides)
 
 

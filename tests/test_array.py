@@ -563,9 +563,22 @@ class TestArrayStrides:
         kernel[1, 1](arr, out)
         assert tuple(out) == arr[::2, ::3].strides
 
-    def test_record_array(self):
-        rec = np.dtype([("x", np.float32), ("y", np.int64)], align=True)
-        arr = np.zeros(4, dtype=rec)
+    @pytest.mark.parametrize(
+        "dtype",
+        [
+            np.dtype([("x", np.float32), ("y", np.int64)], align=True),
+            np.dtype([("x", np.float32), ("y", np.int64)]),
+            np.dtype("S5"),
+            np.dtype("U4"),
+        ],
+        ids=["record_aligned", "record_packed", "charseq", "unicode_charseq"],
+    )
+    def test_byte_sized_dtypes(self, dtype):
+        arr = np.zeros(4, dtype=dtype)
+        assert self._kernel_strides(arr) == arr.strides
+
+    def test_record_array_2d(self):
+        arr = np.zeros((3, 4), dtype=np.dtype([("x", np.int32)], align=True))
         assert self._kernel_strides(arr) == arr.strides
 
 

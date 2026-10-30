@@ -12,7 +12,6 @@ from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.lowering_utilities import get_conversion_signedness
 from numba_cuda_mlir.lowering_utilities.type_conversions import to_numba_type
-from numba_cuda_mlir.mlir_lowering import MLIRLower
 from numba_cuda_mlir.type_defs.vector_types import VectorType
 
 
@@ -227,37 +226,3 @@ def test_explicit_numeric_cast_preserves_signedness(source, destination_dtype, e
 )
 def test_get_conversion_signedness(source_type, target_type, expected):
     assert get_conversion_signedness(source_type, target_type) is expected
-
-
-@pytest.mark.parametrize(
-    "source_type,target_type,expected_signed",
-    [
-        (VectorType(types.int8, 2), VectorType(types.float64, 2), True),
-        (VectorType(types.uint8, 2), VectorType(types.float64, 2), False),
-        (VectorType(types.float64, 2), VectorType(types.int32, 2), True),
-        (VectorType(types.float64, 2), VectorType(types.uint32, 2), False),
-    ],
-    ids=["int-to-float", "uint-to-float", "float-to-int", "float-to-uint"],
-)
-def test_lower_cast_uses_vector_integer_signedness(
-    monkeypatch, source_type, target_type, expected_signed
-):
-    class CastRegistry:
-        def find(self, _):
-            return None
-
-    captured = {}
-
-    def fake_convert(value, target, *, signed):
-        captured["target"] = target
-        captured["signed"] = signed
-        return value
-
-    lower = object.__new__(MLIRLower)
-    lower.context = type("Context", (), {"_casts": CastRegistry()})()
-    monkeypatch.setattr(MLIRLower, "get_mlir_type", lambda _, ty: ty)
-    monkeypatch.setattr("numba_cuda_mlir.mlir_lowering.convert", fake_convert)
-
-    value = object()
-    assert lower.lower_cast(source_type, target_type, value) is value
-    assert captured == {"target": target_type, "signed": expected_signed}

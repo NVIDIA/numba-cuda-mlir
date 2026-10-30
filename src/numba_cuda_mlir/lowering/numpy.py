@@ -140,6 +140,41 @@ def lower_get_size(
     builder.store_var(target, size)
 
 
+@lower_getattr(types.Array, "ndim")
+def lower_get_ndim(
+    _: MLIRTargetContext,
+    builder: MLIRLower,
+    target: numba_ir.Var,
+    array: numba_ir.Var,
+):
+    builder.store_var(target, index_of(builder.get_numba_type(array).ndim))
+
+
+@lower_getattr(types.Array, "itemsize")
+def lower_get_itemsize(
+    _: MLIRTargetContext,
+    builder: MLIRLower,
+    target: numba_ir.Var,
+    array: numba_ir.Var,
+):
+    itemsize = storage_itemsize_bytes(builder.get_numba_type(array))
+    builder.store_var(target, index_of(itemsize))
+
+
+@lower_getattr(types.Array, "nbytes")
+def lower_get_nbytes(
+    _: MLIRTargetContext,
+    builder: MLIRLower,
+    target: numba_ir.Var,
+    array: numba_ir.Var,
+):
+    itemsize = storage_itemsize_bytes(builder.get_numba_type(array))
+    array = builder.load_var(array)
+    rank = array.type.rank
+    dims = [memref.dim(array, index_of(i)) for i in range(rank)]
+    builder.store_var(target, functools.reduce(operator.mul, dims, index_of(itemsize)))
+
+
 def _lower_array_complex_real_imag(builder, target, array_var, attr):
     """Lower array.real / array.imag for complex arrays.
 

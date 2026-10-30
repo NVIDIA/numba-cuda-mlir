@@ -1088,7 +1088,12 @@ extern "C" __global__ void
         else:
             arg_type = self.fndesc.argtypes[arg.index]
 
-            if isinstance(arg_type, types.NoneType):
+            if isinstance(arg_type, (types.IntegerLiteral, types.BooleanLiteral)):
+                # Specialization fixes this value even though the argument keeps
+                # its ABI slot. Materialize it so ordinary arithmetic and loop
+                # bounds retain the constant information from typing.
+                self.lower_const_assign(target, numba_ir.Const(arg_type.literal_value, arg.loc))
+            elif isinstance(arg_type, types.NoneType):
                 # NoneType args are excluded from the MLIR function signature;
                 # store the MLIR NoneType as a placeholder
                 self.store_var(target, ir.NoneType.get())
@@ -1797,11 +1802,15 @@ extern "C" __global__ void
         args: list[numba_ir.Var],
         kws: list[tuple[str, numba_ir.Var]] | None = None,
     ):
-        """Emit a func.call back to the function currently being compiled."""
-        _ = target
-        _ = fn_type
+        """Emit a call to the recursive specialization selected by typing."""
         if kws is None:
             kws = []
+        dispatcher = fn_type.dispatcher_type.dispatcher
+        argtypes, _, _ = self._fold_dispatcher_call_args(dispatcher, args, kws)
+        if argtypes != self.fndesc.argtypes:
+            # A literal entry argument can become runtime-valued on recursion,
+            # e.g. fib(10) calls fib(n - 1). Do not recurse into the literal body.
+            return self.build_user_defined_function_call(target, dispatcher, args, kws)
         assert self.mlir_funcOp is not None
         callee_function_type = self.mlir_funcOp.function_type.value.results
         callee_name = self.mlir_funcOp.name.value

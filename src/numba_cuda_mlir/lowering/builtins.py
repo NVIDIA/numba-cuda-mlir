@@ -773,6 +773,11 @@ def operator_neg_number_lower(builder, target, args, kwargs):
             result = complex_dialect.neg(value)
         case _:
             result = constant(0, value.type) - value
+    source_type = builder.get_numba_type(args[0].name)
+    if isinstance(source_type, types.Integer) and not source_type.signed:
+        # Wrap at the input width before zero-extending, like stock numba-cuda.
+        target_type = builder.get_numba_type(target.name)
+        result = convert(result, builder.get_mlir_type(target_type), signed=False)
     builder.store_var(target, result)
 
 

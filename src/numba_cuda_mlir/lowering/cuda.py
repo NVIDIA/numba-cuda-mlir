@@ -1271,6 +1271,7 @@ def cuda_atomic_cas_cg(builder, target, mr, indices, old, value):
     """
     value_type = mr.type.element_type
     old = convert(old, value_type)
+    value = convert(value, value_type)
     indices = list(map(index_of, indices))
 
     @generic_rmw(value_type, mr, indices)

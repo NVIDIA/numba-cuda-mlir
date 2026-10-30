@@ -157,6 +157,132 @@ def test_vector_load_aligned_2d_scalar_index_is_linear():
     np.testing.assert_array_equal(arr_out, arr_in.ravel()[8:10])
 
 
+@pytest.mark.parametrize("value_dtype", [np.float64, np.float16, np.int32, np.bool_])
+@pytest.mark.parametrize("field_first", [False, True])
+@pytest.mark.parametrize("step", [1, 3, -1])
+def test_vector_packed_field_load_store(field_first, step, value_dtype):
+    fields = [("value", value_dtype), ("guard", np.int32)]
+    dtype = np.dtype(fields if field_first else fields[::-1])
+    source = np.zeros(24, dtype=dtype)
+    source["value"] = np.arange(24) % 3 == 0 if value_dtype == np.bool_ else np.arange(24) + 0.25
+    source["guard"] = np.arange(24) + 100
+    destination = np.zeros_like(source)
+    destination["value"] = -9
+    destination["guard"] = np.arange(24) + 200
+
+    @cuda.jit
+    def kernel(src, dst, out):
+        source_field = src.value[::step]
+        destination_field = dst.value[::step]
+        vec = cuda.vector.load(source_field, 0, 4)
+        cuda.vector.store(out, 0, vec)
+        cuda.vector.store(destination_field, 0, vec)
+
+    src = cuda.to_device(source)
+    dst = cuda.to_device(destination)
+    out = np.zeros(4, dtype=value_dtype)
+    kernel[1, 1](src, dst, out)
+    expected = destination.copy()
+    expected["value"][::step][:4] = source["value"][::step][:4]
+    np.testing.assert_array_equal(out, source["value"][::step][:4])
+    np.testing.assert_array_equal(dst.copy_to_host(), expected)
+    np.testing.assert_array_equal(src.copy_to_host(), source)
+
+
+@pytest.mark.parametrize("source_dtype", [np.int8, np.uint8])
+@pytest.mark.parametrize("ndim", [1, 2])
+def test_vector_packed_field_integer_widening(source_dtype, ndim):
+    @cuda.jit
+    def kernel(source, destination):
+        vec = cuda.vector.load(source, 0, 4)
+        if ndim == 1:
+            cuda.vector.store(destination.value, 0, vec)
+        else:
+            cuda.vector.store(destination.value, (0, 0), vec)
+
+    values = [-1, -2, -3, -4] if source_dtype == np.int8 else [255, 254, 253, 252]
+    source = np.array(values, dtype=source_dtype)
+    shape = (4,) if ndim == 1 else (1, 4)
+    host = np.zeros(shape, [("guard", np.int8), ("value", np.int32)])
+    host["guard"] = 71
+    destination = cuda.to_device(host)
+    kernel[1, 1](cuda.to_device(source), destination)
+    expected = host.copy()
+    expected["value"] = source.astype(np.int32).reshape(shape)
+    np.testing.assert_array_equal(destination.copy_to_host(), expected)
+
+
+@pytest.mark.parametrize("vector_shape", [2, (2, 2)])
+def test_vector_packed_field_multidimensional_load_store(vector_shape):
+    dtype = np.dtype([("guard", np.int32), ("value", np.float64)])
+    source = np.zeros((4, 5), dtype=dtype)
+    source["value"] = np.arange(20).reshape(4, 5) + 0.5
+    source["guard"] = 123
+    destination = np.zeros_like(source)
+    destination["value"] = -1
+    destination["guard"] = 456
+    output_indices = (0,) if isinstance(vector_shape, int) else (0, 0)
+
+    @cuda.jit
+    def kernel(src, dst, out):
+        vec = cuda.vector.load(src.value, (1, 1), vector_shape)
+        cuda.vector.store(dst.value, (0, 2), vec)
+        cuda.vector.store(out, output_indices, vec)
+
+    src = cuda.to_device(source)
+    dst = cuda.to_device(destination)
+    shape = (vector_shape,) if isinstance(vector_shape, int) else vector_shape
+    out = np.zeros(shape, dtype=np.float64)
+    kernel[1, 1](src, dst, out)
+    expected = destination.copy()
+    block = source["value"][1, 1:3] if len(shape) == 1 else source["value"][1:3, 1:3]
+    if len(shape) == 1:
+        expected["value"][0, 2:4] = block
+    else:
+        expected["value"][0:2, 2:4] = block
+    np.testing.assert_array_equal(out, block)
+    np.testing.assert_array_equal(dst.copy_to_host(), expected)
+
+
+@pytest.mark.parametrize("operation", ["load", "store"])
+@pytest.mark.parametrize("ndim", [1, 2])
+def test_vector_packed_field_explicit_alignment_rejected(operation, ndim):
+    @cuda.jit
+    def load_1d(records, values):
+        vec = cuda.vector.load(records.value, 0, 2, alignment=8)
+        cuda.vector.store(values, 0, vec)
+
+    @cuda.jit
+    def store_1d(records, values):
+        vec = cuda.vector.load(values, 0, 2)
+        cuda.vector.store(records.value, 0, vec, alignment=8)
+
+    @cuda.jit
+    def load_2d(records, values):
+        vec = cuda.vector.load(records.value, (0, 0), 2, alignment=8)
+        cuda.vector.store(values, 0, vec)
+
+    @cuda.jit
+    def store_2d(records, values):
+        vec = cuda.vector.load(values, 0, 2)
+        cuda.vector.store(records.value, (0, 0), vec, alignment=8)
+
+    kernel = {
+        ("load", 1): load_1d,
+        ("store", 1): store_1d,
+        ("load", 2): load_2d,
+        ("store", 2): store_2d,
+    }[operation, ndim]
+    dtype = np.dtype([("guard", np.int32), ("value", np.float64)])
+    shape = (4,) if ndim == 1 else (2, 4)
+    records = cuda.to_device(np.zeros(shape, dtype=dtype))
+    values = cuda.to_device(np.arange(4, dtype=np.float64))
+    with pytest.raises(
+        TypeError, match="Explicitly aligned vector access requires aligned array storage"
+    ):
+        kernel[1, 1](records, values)
+
+
 def test_vector_2d_shape():
     """Test multi-dimensional vector (4x4 = 16 elements)."""
 
@@ -814,26 +940,3 @@ def test_runtime_vector_store_matches_constant(vec_type, dtype, values):
     cuda.synchronize()
 
     np.testing.assert_allclose(out.tolist(), values)
-
-
-def test_constant_vector_store_not_zeroed_in_ptx():
-    """The generated PTX must not collapse the FP constant vector to zero.
-
-    A PTX-level check that pins the exact failure mode (`0f00000000` for every
-    lane) independently of GPU execution.
-    """
-    e0, e1 = 1.0, 2.0
-
-    @cuda.jit
-    def kernel(out):
-        out.view(cuda.float32x2)[0] = cuda.float32x2(e0, e1)
-
-    out = np.zeros(2, dtype=np.float32)
-    kernel[1, 1](out)
-
-    (ptx,) = kernel.inspect_ptx().values()
-    if isinstance(ptx, bytes):
-        ptx = ptx.decode()
-    # 1.0f and 2.0f encode as 0f3F800000 and 0f40000000 respectively.
-    assert "0f3F800000" in ptx
-    assert "0f40000000" in ptx

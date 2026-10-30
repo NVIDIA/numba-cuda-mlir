@@ -119,7 +119,7 @@ def _memref_index_offset(array: ir.Value, indices: list[ir.Value]) -> ir.Value:
     return linear_idx
 
 
-def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value], element_type: ir.Type) -> ir.Value:
+def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value]) -> ir.Value:
     """Convert memref + indices to LLVM pointer.
 
     Extracts base pointer from a potentially-strided memref and computes the
@@ -128,42 +128,135 @@ def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value], element_type: i
     Args:
         array: Memref value (potentially strided)
         indices: List of index values
-        element_type: Element type for getelementptr
 
     Returns:
         LLVM pointer (!llvm.ptr) to the indexed element
     """
-    ptr_type = _memref_llvm_pointer_type(ir.MemRefType(array.type))
-    base_ptr = llvm.addrspacecast(ptr_type, memref_data_pointer(array))
+    base_ptr = memref_data_pointer(array)
+    ptr_type = base_ptr.type
 
+    # Advance the pointer in bytes, not by a typed getelementptr: LLVM's data
+    # layout rounds the allocation size of non-power-of-2 vector types (e.g.
+    # vector<48 x i8> scales by 64), which would scale element-unit offsets
+    # incorrectly.
     linear_idx = _memref_index_offset(array, indices)
+    mr_elem_type = ir.MemRefType(array.type).element_type
+    elem_bytes = arith.constant(T.i64(), get_type_size_bytes(mr_elem_type))
+    byte_offset = arith.muli(linear_idx, elem_bytes)
     return llvm.getelementptr(
         ptr_type,
         base_ptr,
-        [linear_idx],
+        [byte_offset],
         [GEP_DYNAMIC_INDEX],
-        to_llvm_storable_type(element_type),
+        T.i8(),
         None,
     )
 
 
-def to_llvm_storable_type(element_type: ir.Type) -> ir.Type:
-    if is_complex_type(element_type):
-        return get_llvm_struct_for_complex(element_type)
-    return element_type
+def convert_array_storage(array, target_type):
+    """Rescale descriptor units for a view conversion, without copying payload."""
+    if array.type == target_type:
+        return array
+    src_type = ir.MemRefType(array.type)
+    src_bytes = get_type_size_bytes(src_type.element_type)
+    dst_bytes = get_type_size_bytes(target_type.element_type)
+    if src_bytes == dst_bytes and src_type.element_type == target_type.element_type:
+        return convert(array, target_type)
+    if src_bytes % dst_bytes:
+        raise TypeError("Cannot implicitly convert byte-based array storage to typed storage")
+    md = memref.extract_strided_metadata(array)
+    rank = src_type.rank
+    desc = llvm.UndefOp(memref_descriptor_type(rank)).result
+
+    def ins(value, *pos):
+        nonlocal desc
+        desc = llvm.insertvalue(desc, value, list(pos))
+
+    ptr = memref_data_pointer(array)
+    ins(ptr, 0)
+    ins(ptr, 1)
+    ins(arith.constant(T.i64(), 0), 2)
+    factor = arith.constant(T.i64(), src_bytes // dst_bytes)
+    for i in range(rank):
+        ins(convert(md[2 + i], T.i64()), 3, i)
+        ins(arith.muli(convert(md[2 + rank + i], T.i64()), factor), 4, i)
+    return builtin.unrealized_conversion_cast([target_type], [desc])
 
 
-def llvm_ptr_load(element_type: ir.Type, ptr: ir.Value) -> ir.Value:
+def byte_array_view(array_type, backing, shape):
+    """View tightly packed byte storage with logical extents and byte strides."""
+    from numba_cuda_mlir.array_storage import ArrayStorageLayout
+
+    layout = ArrayStorageLayout(array_type)
+    strides = [None] * len(shape)
+    stride = index_of(layout.itemsize)
+    axes = range(len(shape)) if array_type.layout == "F" else reversed(range(len(shape)))
+    for axis in axes:
+        strides[axis] = stride
+        stride = stride * shape[axis]
+    return memref.reinterpret_cast(
+        layout.memref_type(memory_space=backing.type.memory_space),
+        backing,
+        offsets=[],
+        sizes=list(shape),
+        strides=strides,
+        static_offsets=[0],
+        static_sizes=[ir.ShapedType.get_dynamic_size()] * len(shape),
+        static_strides=[ir.ShapedType.get_dynamic_stride_or_offset()] * len(shape),
+    )
+
+
+def array_alloca(array_type, shape, *, memory_space=None, alignment=None):
+    """Allocate logical elements, then expose the descriptor chosen by policy."""
+    from numba_cuda_mlir.array_storage import ArrayStorageLayout
+
+    layout = ArrayStorageLayout(array_type)
+    if not layout.byte_addressed:
+        allocation_shape = list(reversed(shape)) if array_type.layout == "F" else list(shape)
+        array = memref.alloca(
+            ir.MemRefType.get(
+                [ir.ShapedType.get_dynamic_size()] * len(shape),
+                layout.element_type,
+                memory_space=memory_space,
+            ),
+            allocation_shape,
+            [],
+            alignment=alignment,
+        )
+        if array_type.layout == "F" and len(shape) > 1:
+            permutation = ir.AffineMap.get_permutation(list(reversed(range(len(shape)))))
+            strides, offset = array.type.get_strides_and_offset()
+            transposed_type = ir.MemRefType.get(
+                [ir.ShapedType.get_dynamic_size()] * len(shape),
+                layout.element_type,
+                layout=ir.StridedLayoutAttr.get(offset, list(reversed(strides))),
+                memory_space=memory_space,
+            )
+            array = memref.transpose(transposed_type, array, permutation)
+        return array
+    count = index_of(layout.itemsize)
+    for extent in shape:
+        count = count * extent
+    backing = memref.alloca(
+        ir.MemRefType.get([ir.ShapedType.get_dynamic_size()], T.i8(), memory_space=memory_space),
+        [count],
+        [],
+        alignment=alignment,
+    )
+    return byte_array_view(array_type, backing, shape)
+
+
+def llvm_ptr_load(element_type: ir.Type, ptr: ir.Value, *, alignment=None) -> ir.Value:
     if is_complex_type(element_type):
-        loaded = llvm.load(get_llvm_struct_for_complex(element_type), ptr)
+        loaded = llvm.load(get_llvm_struct_for_complex(element_type), ptr, alignment=alignment)
         return llvm_struct_to_complex(loaded, element_type)
-    return llvm.load(element_type, ptr)
+    return llvm.load(element_type, ptr, alignment=alignment)
 
 
-def llvm_ptr_store(value: ir.Value, ptr: ir.Value) -> None:
+def llvm_ptr_store(value: ir.Value, ptr: ir.Value, *, alignment=None) -> None:
     if is_complex_type(value.type):
         value = complex_to_llvm_struct(value)
-    llvm.store(value, ptr)
+    llvm.store(value, ptr, alignment=alignment)
 
 
 def memref_to_tensor(memref):
@@ -328,6 +421,11 @@ def _numba_type_bitwidth(numba_type: types.Type, value_type: ir.Type | None = No
 
 
 def storage_bitwidth(numba_type: types.Type) -> int:
+    from numba_cuda_mlir.type_defs.float_types import numeric_storage_bitwidth
+
+    width = numeric_storage_bitwidth(numba_type)
+    if width is not None:
+        return width
     storage_type = get_storage_type(numba_type)
     return get_type_width(storage_type)
 
@@ -461,10 +559,15 @@ def array_element_value_load(
     *,
     dynamic_shared_memory: bool = False,
 ):
-    if dynamic_shared_memory:
+    from numba_cuda_mlir.array_storage import ArrayStorageLayout
+
+    layout = ArrayStorageLayout(array_type)
+    if isinstance(array_type.dtype, types.Record):
+        return memref_to_llvm_ptr(array, list(indices))
+    if dynamic_shared_memory or layout.byte_addressed:
         storage_type = get_storage_type(array_type.dtype)
-        ptr = memref_to_llvm_ptr(array, list(indices), storage_type)
-        stored = llvm_ptr_load(storage_type, ptr)
+        ptr = memref_to_llvm_ptr(array, list(indices))
+        stored = llvm_ptr_load(storage_type, ptr, alignment=layout.alignment)
     else:
         stored = memref.load(array, list(indices))
     return storage_to_value(array_type.dtype, stored)
@@ -479,18 +582,75 @@ def array_element_value_store(
     dynamic_shared_memory: bool = False,
     signed: bool | None = None,
 ):
+    from numba_cuda_mlir.array_storage import ArrayStorageLayout
+
+    layout = ArrayStorageLayout(array_type)
+    if isinstance(array_type.dtype, types.Record):
+        ptr = memref_to_llvm_ptr(array, list(indices))
+        llvm.MemcpyOp(ptr, value, arith.constant(T.i64(), layout.itemsize), False)
+        return
     stored = value_to_storage(array_type.dtype, value, signed=signed)
-    if dynamic_shared_memory:
-        ptr = memref_to_llvm_ptr(array, list(indices), stored.type)
-        llvm_ptr_store(stored, ptr)
+    if dynamic_shared_memory or layout.byte_addressed:
+        ptr = memref_to_llvm_ptr(array, list(indices))
+        llvm_ptr_store(stored, ptr, alignment=layout.alignment)
     else:
         memref.store(value=stored, memref=array, indices=list(indices))
+
+
+def for_each_array_index(array, body):
+    """Emit a logical C-order loop nest; also handles rank zero."""
+
+    def visit(indices):
+        if len(indices) == array.type.rank:
+            body(indices)
+            return
+        loop = scf.ForOp(index_of(0), memref.dim(array, index_of(len(indices))), index_of(1))
+        with ir.InsertionPoint(loop.body):
+            visit([*indices, loop.body.arguments[0]])
+            scf.yield_([])
+
+    visit([])
+
+
+def dense_array_storage(array_type, array):
+    """Gather logical payloads for operations requiring typed dense storage."""
+    from numba_cuda_mlir.array_storage import ArrayStorageLayout
+
+    if not ArrayStorageLayout(array_type).byte_addressed:
+        return array
+    storage_type = get_storage_type(array_type.dtype)
+    shape = [memref.dim(array, index_of(d)) for d in range(array.type.rank)]
+    dense = memref.alloca(
+        ir.MemRefType.get([ir.ShapedType.get_dynamic_size()] * len(shape), storage_type), shape, []
+    )
+
+    def gather(indices):
+        value = array_element_value_load(array_type, array, indices)
+        memref.store(value_to_storage(array_type.dtype, value), dense, indices)
+
+    for_each_array_index(array, gather)
+    return dense
+
+
+def copy_array_storage(array_type, source, destination):
+    """Scatter typed payloads into the original view, retaining aliasing."""
+    from numba_cuda_mlir.array_storage import ArrayStorageLayout
+
+    if not ArrayStorageLayout(array_type).byte_addressed:
+        memref.copy(source, destination)
+        return
+
+    def scatter(indices):
+        value = storage_to_value(array_type.dtype, memref.load(source, indices))
+        array_element_value_store(array_type, destination, indices, value)
+
+    for_each_array_index(destination, scatter)
 
 
 def memref_to_value_tensor(array_type: types.Array, array: ir.Value) -> ir.Value:
     from numba_cuda_mlir._mlir.dialects import linalg, tensor
 
-    tensor_value = memref_to_tensor(array)
+    tensor_value = memref_to_tensor(dense_array_storage(array_type, array))
     value_element_type = get_value_type(array_type.dtype)
     if tensor_value.type.element_type == value_element_type:
         return tensor_value
@@ -513,10 +673,13 @@ def memref_to_value_tensor(array_type: types.Array, array: ir.Value) -> ir.Value
 
 def value_tensor_to_storage_memref(array_type: types.Array, tensor_value: ir.Value) -> ir.Value:
     from numba_cuda_mlir._mlir.dialects import linalg, tensor
+    from numba_cuda_mlir.array_storage import ArrayStorageLayout
 
     storage_element_type = get_storage_type(array_type.dtype)
     if tensor_value.type.element_type == storage_element_type:
-        return tensor_to_memref(tensor_value)
+        return convert_array_storage(
+            tensor_to_memref(tensor_value), ArrayStorageLayout(array_type).memref_type()
+        )
 
     result_type = T.tensor(*tensor_value.type.shape, storage_element_type)
     init = tensor.empty(
@@ -531,7 +694,9 @@ def value_tensor_to_storage_memref(array_type: types.Array, tensor_value: ir.Val
     block = result.mapper.blocks.append(tensor_value.type.element_type, storage_element_type)
     with ir.InsertionPoint(block):
         linalg.yield_([value_to_storage(array_type.dtype, block.arguments[0])])
-    return tensor_to_memref(result.result[0])
+    return convert_array_storage(
+        tensor_to_memref(result.result[0]), ArrayStorageLayout(array_type).memref_type()
+    )
 
 
 @singledispatch
@@ -1501,8 +1666,9 @@ class ArrayIterObject:
     Holds the state of an array iterator object.
     """
 
-    def __init__(self, lower, array: ir.Value, element_type: ir.Type, length: ir.Value):
+    def __init__(self, lower, array: ir.Value, element_type: ir.Type, length: ir.Value, array_type):
         self._array = array
+        self._array_type = array_type
         self._element_type = element_type
         with lower.alloca_insertion_point():
             self._index_memref = memref.alloca(T.memref(1, T.i64()), [], [])
@@ -1533,7 +1699,15 @@ class ArrayIterObject:
         load_if_valid = scf.IfOp(is_valid, results_=[self._element_type], has_else=True)
         with ir.InsertionPoint(load_if_valid.then_block):
             index_as_index = arith.index_cast(out=ir.IndexType.get(), in_=current_index)
-            current_value = memref.load(self._array, [index_as_index])
+            if isinstance(self._element_type, llvm.PointerType):
+                # Record values point to their storage; do not load a pointer
+                # from the record's payload bytes.
+                ptr = memref_to_llvm_ptr(self._array, [index_as_index])
+                current_value = llvm.addrspacecast(self._element_type, ptr)
+            else:
+                current_value = array_element_value_load(
+                    self._array_type, self._array, [index_as_index]
+                )
             scf.yield_([current_value])
         with ir.InsertionPoint(load_if_valid.else_block):
             scf.yield_([_zero_value_for_type(self._element_type)])

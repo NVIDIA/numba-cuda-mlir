@@ -512,6 +512,387 @@ def test_complex_minmax_ufuncs(ufunc, dtype):
     )
 
 
+def test_packed_complex_components_preserve_aliases():
+    @cuda.jit(dump=False)
+    def kernel(records, out):
+        real = records.value.real
+        imag = records.value.imag
+        for i in range(real.size):
+            out[i, 0] = real[i]
+            out[i, 1] = imag[i]
+            real[i] = real[i] + 10
+            imag[i] = imag[i] - 20
+
+    records = np.zeros(5, dtype=[("tag", np.uint8), ("value", np.complex128)])
+    records["tag"] = np.arange(5) + 70
+    records["value"] = np.arange(5) + 0.5 + (np.arange(5) + 1.5) * 1j
+    device = cuda.to_device(records)
+    out = cuda.device_array((5, 2), dtype=np.float64)
+    kernel[1, 1](device, out)
+    np.testing.assert_array_equal(
+        out.copy_to_host(), np.column_stack((records["value"].real, records["value"].imag))
+    )
+    expected = records.copy()
+    expected["value"] += 10 - 20j
+    np.testing.assert_array_equal(device.copy_to_host(), expected)
+
+
+def test_unaligned_reshape_ravel_aliases():
+    class UnalignedArray:
+        def __init__(self, buffer):
+            self.buffer = buffer
+            self.__cuda_array_interface__ = dict(buffer.__cuda_array_interface__)
+            pointer, readonly = self.__cuda_array_interface__["data"]
+            self.__cuda_array_interface__.update(
+                data=(pointer + 1, readonly),
+                shape=(2, 3),
+                strides=None,
+                typestr=np.dtype(np.float64).str,
+            )
+
+    @cuda.jit(dump=False)
+    def kernel(array, out):
+        reshaped = array.reshape((3, 2))
+        flat = reshaped.ravel()
+        for i in range(flat.size):
+            out[i] = flat[i]
+        reshaped[1, 1] = 41
+        flat[5] = 73
+
+    values = np.arange(6, dtype=np.float64) + 0.5
+    raw = np.concatenate(
+        (np.array([0xA5], np.uint8), values.view(np.uint8), np.array([0x5A], np.uint8))
+    )
+    device = cuda.to_device(raw)
+    out = cuda.device_array(6, dtype=np.float64)
+    kernel[1, 1](UnalignedArray(device), out)
+    np.testing.assert_array_equal(out.copy_to_host(), values)
+    expected = raw.copy()
+    expected[1:-1].view(np.float64)[[3, 5]] = [41, 73]
+    np.testing.assert_array_equal(device.copy_to_host(), expected)
+
+
+def test_packed_field_empty_like_math_and_scalar_output():
+    @cuda.jit(dump=False)
+    def kernel(records, out):
+        source = records.value
+        temporary = np.empty_like(source)
+        temporary[:] = 3.5
+        result = np.add(source, temporary)
+        for i in range(source.size):
+            out[i] = result[i]
+            np.sin(source[i], source[i : i + 1])
+
+    records = np.zeros(5, dtype=[("tag", np.int32), ("value", np.float64)])
+    records["tag"] = np.arange(5) + 200
+    records["value"] = np.arange(5) / 4
+    device = cuda.to_device(records)
+    out = cuda.device_array(5, dtype=np.float64)
+    kernel[1, 1](device, out)
+    np.testing.assert_array_equal(out.copy_to_host(), records["value"] + 3.5)
+    actual = device.copy_to_host()
+    np.testing.assert_array_equal(actual["tag"], records["tag"])
+    np.testing.assert_allclose(actual["value"], np.sin(records["value"]), rtol=1e-14)
+
+
+def test_packed_field_transpose_preserves_alias():
+    @cuda.jit(dump=False)
+    def kernel(records, out):
+        transposed = np.transpose(records.value)
+        for i in range(transposed.shape[0]):
+            for j in range(transposed.shape[1]):
+                out[i, j] = transposed[i, j]
+        transposed[2, 1] = 59
+
+    records = np.zeros((2, 3), dtype=[("tag", np.int32), ("value", np.float64)])
+    records["tag"] = np.arange(6).reshape(2, 3) + 90
+    records["value"] = np.arange(6).reshape(2, 3) + 0.5
+    device = cuda.to_device(records)
+    out = cuda.device_array((3, 2), dtype=np.float64)
+    kernel[1, 1](device, out)
+    np.testing.assert_array_equal(out.copy_to_host(), records["value"].T)
+    expected = records.copy()
+    expected["value"][1, 2] = 59
+    np.testing.assert_array_equal(device.copy_to_host(), expected)
+
+
+@pytest.mark.parametrize("packed", [False, True])
+@pytest.mark.parametrize(
+    "form,axes",
+    [(form, axes) for form in ("tuple", "varargs") for axes in ((0, 1), (1, 0), (-1, -2))]
+    + [("none", (1, 0)), ("default", (1, 0))],
+)
+def test_transpose_method_axes_preserve_payload_and_alias(packed, form, axes):
+    @cuda.jit
+    def kernel(owner, out, axes):
+        source = owner.value if packed else owner
+        if form == "tuple":
+            view = source.transpose(axes)
+        elif form == "varargs":
+            view = source.transpose(axes[0], axes[1])
+        elif form == "none":
+            view = source.transpose(None)
+        else:
+            view = source.transpose()
+        for i in range(view.shape[0]):
+            for j in range(view.shape[1]):
+                out[i, j] = view[i, j]
+        view[0, 1] = 59
+
+    values = np.arange(6, dtype=np.float64).reshape(2, 3) + 0.5
+    host = np.zeros(values.shape, [("guard", np.int32), ("value", np.float64)])
+    host["guard"] = 71
+    host["value"] = values
+    owner = cuda.to_device(host if packed else values)
+    permutation = axes if form in ("tuple", "varargs") else None
+    expected_values = values.transpose(permutation).copy()
+    out = cuda.device_array(expected_values.shape, np.float64)
+    kernel[1, 1](owner, out, axes)
+    np.testing.assert_array_equal(out.copy_to_host(), expected_values)
+    expected = host.copy() if packed else values.copy()
+    payload = expected["value"] if packed else expected
+    payload.transpose(permutation)[0, 1] = 59
+    np.testing.assert_array_equal(owner.copy_to_host(), expected)
+
+
+@pytest.mark.parametrize("axes", [(0, 0), (0, 2), (-3, 1)])
+def test_transpose_method_invalid_axes_do_not_write(axes):
+    @cuda.jit(debug=True, opt=False)
+    def kernel(source, axes):
+        view = source.transpose(axes)
+        for i in range(view.shape[0]):
+            for j in range(view.shape[1]):
+                view[i, j] = 99
+
+    host = np.arange(6, dtype=np.float64).reshape(2, 3)
+    source = cuda.to_device(host)
+    with pytest.raises(ValueError):
+        kernel[1, 1](source, axes)
+    np.testing.assert_array_equal(source.copy_to_host(), host)
+
+
+@pytest.mark.parametrize("order", ["C", "F"])
+def test_empty_like_preserves_layout_and_dtype_override(order):
+    @cuda.jit(dump=False)
+    def kernel(source, out, strides):
+        temporary = np.empty_like(source, dtype=np.int32)
+        strides[0] = temporary.strides[0]
+        strides[1] = temporary.strides[1]
+        for i in range(temporary.shape[0]):
+            for j in range(temporary.shape[1]):
+                temporary[i, j] = source[i, j] + 10
+        for i in range(temporary.shape[0]):
+            for j in range(temporary.shape[1]):
+                out[i, j] = temporary[i, j]
+
+    source = np.array(np.arange(6).reshape(2, 3), dtype=np.float64, order=order)
+    device = cuda.to_device(source)
+    out = cuda.device_array(source.shape, dtype=np.int32)
+    strides = cuda.device_array(2, dtype=np.int64)
+    kernel[1, 1](device, out, strides)
+    np.testing.assert_array_equal(out.copy_to_host(), source.astype(np.int32) + 10)
+    np.testing.assert_array_equal(
+        strides.copy_to_host(), np.empty_like(source, dtype=np.int32).strides
+    )
+    np.testing.assert_array_equal(device.copy_to_host(), source)
+
+
+@pytest.mark.parametrize("shape", [(3, 2), (-1, 2), (3, -1)])
+def test_unaligned_reshape_infers_dimensions_and_preserves_values(shape):
+    class View:
+        def __init__(self, owner):
+            self.owner = owner
+            self.__cuda_array_interface__ = {
+                "version": 3,
+                "shape": (2, 3),
+                "strides": None,
+                "typestr": "<f8",
+                "data": (owner.device_ctypes_pointer.value + 1, False),
+            }
+
+    @cuda.jit
+    def kernel(source, out, dimensions):
+        result = source.reshape(shape)
+        dimensions[0] = result.shape[0]
+        dimensions[1] = result.shape[1]
+        for i in range(result.shape[0]):
+            for j in range(result.shape[1]):
+                out[i, j] = result[i, j]
+
+    values = np.arange(6, dtype=np.float64) + 0.5
+    raw = np.concatenate((np.array([0xA5], np.uint8), values.view(np.uint8)))
+    out = cuda.device_array((3, 2), np.float64)
+    dimensions = cuda.device_array(2, np.int64)
+    kernel[1, 1](View(cuda.to_device(raw)), out, dimensions)
+    np.testing.assert_array_equal(dimensions.copy_to_host(), [3, 2])
+    np.testing.assert_array_equal(out.copy_to_host(), values.reshape((3, 2)))
+
+
+@pytest.mark.parametrize("shape", [(4, 2), (-1, -1), (-2, 3), (0, -1)])
+def test_byte_reshape_rejects_invalid_shape_without_writes(shape):
+    @cuda.jit(debug=True, opt=False)
+    def kernel(records):
+        result = records.value.reshape(shape)
+        for i in range(result.shape[0]):
+            for j in range(result.shape[1]):
+                result[i, j] = 99
+
+    host = np.zeros((2, 3), [("value", np.float64), ("guard", np.int32)])
+    host["value"] = np.arange(6).reshape(2, 3) + 0.5
+    host["guard"] = 123
+    device = cuda.to_device(host)
+    with pytest.raises(ValueError):
+        kernel[1, 1](device)
+    np.testing.assert_array_equal(device.copy_to_host(), host)
+
+
+def test_byte_reshape_rejects_incompatible_fortran_strides():
+    @cuda.jit(debug=True, opt=False)
+    def kernel(records):
+        result = records.value.reshape((3, 2))
+        for i in range(result.shape[0]):
+            for j in range(result.shape[1]):
+                result[i, j] = 99
+
+    host = np.zeros((2, 3), [("value", np.float64), ("guard", np.int32)], order="F")
+    host["value"] = np.arange(6).reshape(2, 3) + 0.5
+    host["guard"] = 123
+    device = cuda.to_device(host)
+    with pytest.raises(ValueError):
+        kernel[1, 1](device)
+    np.testing.assert_array_equal(device.copy_to_host(), host)
+
+
+@pytest.mark.parametrize("order", ["C", "F"])
+@pytest.mark.parametrize("shape", [(2, 3), (-1, 3)])
+def test_byte_reshape_same_shape_preserves_strides_and_alias(order, shape):
+    @cuda.jit(debug=True, opt=False)
+    def kernel(records, out, strides, shape):
+        result = records.value.reshape(shape)
+        strides[0] = result.strides[0]
+        strides[1] = result.strides[1]
+        for i in range(result.shape[0]):
+            for j in range(result.shape[1]):
+                out[i, j] = result[i, j]
+                result[i, j] += 10
+
+    host = np.zeros((2, 3), [("value", np.float64), ("guard", np.int32)], order=order)
+    host["value"] = np.arange(6).reshape(2, 3) + 0.5
+    host["guard"] = 123
+    expected = host.copy(order="K")
+    expected["value"] += 10
+    device = cuda.to_device(host)
+    out = cuda.device_array(host.shape, np.float64)
+    strides = cuda.device_array(2, np.int64)
+    kernel[1, 1](device, out, strides, shape)
+    np.testing.assert_array_equal(out.copy_to_host(), host["value"])
+    np.testing.assert_array_equal(strides.copy_to_host(), host["value"].strides)
+    np.testing.assert_array_equal(device.copy_to_host(), expected)
+
+
+@pytest.mark.parametrize(
+    "source_shape,source_strides,target_shape",
+    [
+        ((2, 3, 1), (24, 8, 256), (1, 2, 3)),
+        ((1, 2, 3), (256, 24, 8), (2, 3, 1)),
+        ((2, 1, 3), (24, 256, 8), (1, 2, 3)),
+        ((2, 3, 1), (48, 16, 256), (1, 2, 3)),
+        ((1, 1, 1), (256, 128, 64), (1, 1, 1)),
+    ],
+)
+def test_byte_reshape_ignores_singleton_strides(source_shape, source_strides, target_shape):
+    class View:
+        def __init__(self, owner):
+            self.owner = owner
+            self.__cuda_array_interface__ = {
+                "version": 3,
+                "shape": source_shape,
+                "strides": source_strides,
+                "typestr": "<f8",
+                "data": (owner.device_ctypes_pointer.value + 1, False),
+            }
+
+    @cuda.jit(debug=True, opt=False)
+    def kernel(source, out):
+        result = source.reshape(target_shape)
+        for i in range(result.shape[0]):
+            for j in range(result.shape[1]):
+                for k in range(result.shape[2]):
+                    out[i, j, k] = result[i, j, k]
+                    result[i, j, k] += 10
+
+    nbytes = 9 + sum((extent - 1) * stride for extent, stride in zip(source_shape, source_strides))
+    raw = np.full(nbytes, 0xA5, np.uint8)
+    source = np.ndarray(source_shape, np.float64, buffer=raw, offset=1, strides=source_strides)
+    source[:] = np.arange(source.size).reshape(source_shape) + 0.5
+    expected_values = source.reshape(target_shape).copy()
+    expected_raw = raw.copy()
+    np.ndarray(source_shape, np.float64, buffer=expected_raw, offset=1, strides=source_strides)[
+        :
+    ] += 10
+    device = cuda.to_device(raw)
+    out = cuda.device_array(target_shape, np.float64)
+    kernel[1, 1](View(device), out)
+    np.testing.assert_array_equal(out.copy_to_host(), expected_values)
+    np.testing.assert_array_equal(device.copy_to_host(), expected_raw)
+
+
+@pytest.mark.parametrize("offset", [0, 1])
+def test_nditer_byte_view_preserves_payload_and_alias(offset):
+    @cuda.jit
+    def kernel(raw, out):
+        values = raw[offset : offset + out.size * 8].view(np.float64)
+        i = 0
+        for element in np.nditer(values):
+            out[i] = element.item()
+            element[()] = element.item() + 10
+            i += 1
+
+    values = np.array([1.5, 2.5, -3.5], np.float64)
+    raw = np.full(offset + values.nbytes + 1, 0xA5, np.uint8)
+    raw[offset : offset + values.nbytes] = values.view(np.uint8)
+    expected = raw.copy()
+    expected[offset : offset + values.nbytes] = (values + 10).view(np.uint8)
+    device = cuda.to_device(raw)
+    out = cuda.device_array(values.shape, np.float64)
+    kernel[1, 1](device, out)
+    np.testing.assert_array_equal(out.copy_to_host(), values)
+    np.testing.assert_array_equal(device.copy_to_host(), expected)
+
+
+@pytest.mark.parametrize("byte_first", [True, False])
+def test_nditer_mixed_storage_operands(byte_first):
+    @cuda.jit
+    def kernel(records, typed, out):
+        if byte_first:
+            operands = (records.value, typed)
+        else:
+            operands = (typed, records.value)
+        i = 0
+        for first, second in np.nditer(operands):
+            out[i, 0] = first.item()
+            out[i, 1] = second.item()
+            first[()] = first.item() + 10
+            second[()] = second.item() + 20
+            i += 1
+
+    records = np.zeros(3, dtype=[("guard", np.int32), ("value", np.float64)])
+    records["guard"] = 12345
+    records["value"] = [1.5, 2.5, -3.5]
+    typed = np.array([4.5, -5.5, 6.5], np.float64)
+    expected = records.copy()
+    expected["value"] += 10 if byte_first else 20
+    expected_typed = typed + (20 if byte_first else 10)
+    columns = (records["value"], typed) if byte_first else (typed, records["value"])
+    device_records = cuda.to_device(records)
+    device_typed = cuda.to_device(typed)
+    out = cuda.device_array((3, 2), np.float64)
+    kernel[1, 1](device_records, device_typed, out)
+    np.testing.assert_array_equal(out.copy_to_host(), np.column_stack(columns))
+    np.testing.assert_array_equal(device_records.copy_to_host(), expected)
+    np.testing.assert_array_equal(device_typed.copy_to_host(), expected_typed)
+
+
 if __name__ == "__main__":
     test_np_ops()
     test_np_reduction_ops()

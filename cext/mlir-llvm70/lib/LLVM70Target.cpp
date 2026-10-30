@@ -507,7 +507,13 @@ llvm::Error MLIRToLLVM70::translateGlobalOp(Operation *op) {
   else
     gv = b.addGlobal(ty, globalOp.getName().str().c_str());
 
-  if (globalOp.getLinkage() == LLVM::Linkage::Internal)
+  // A zero-length shared symbol denotes launch-provided storage, not an empty
+  // allocation whose contents LLVM may infer from stores at constant offsets.
+  auto arrayType = dyn_cast<LLVM::LLVMArrayType>(globalOp.getType());
+  bool dynamicShared = addrSpace == 3 && arrayType && arrayType.getNumElements() == 0;
+  if (dynamicShared)
+    b.setLinkage(gv, LLVMExternalLinkage);
+  else if (globalOp.getLinkage() == LLVM::Linkage::Internal)
     b.setLinkage(gv, LLVMInternalLinkage);
   else if (globalOp.getLinkage() == LLVM::Linkage::Private)
     b.setLinkage(gv, LLVMPrivateLinkage);
@@ -537,7 +543,7 @@ llvm::Error MLIRToLLVM70::translateGlobalOp(Operation *op) {
         "global '%s' has a body-region initializer; "
         "a constant-folding pass should have collapsed this to an attribute first",
         globalOp.getName().str().c_str());
-  } else if (globalOp.getLinkage() != LLVM::Linkage::External) {
+  } else if (!dynamicShared && globalOp.getLinkage() != LLVM::Linkage::External) {
     b.setInitializer(gv, b.constNull(ty));
   }
 
@@ -1367,6 +1373,8 @@ llvm::Error MLIRToLLVM70::translateLoadOp(Operation *op) {
   ptr = b.buildBitCast(ptr, b.ptrTy(elemTy, as), "");
 
   LLVMValueRef val = b.buildLoad(ptr, "");
+  if (auto alignment = loadOp.getAlignment())
+    b.setGlobalAlignment(val, *alignment);
   mapValue(loadOp.getResult(), val);
   return llvm::Error::success();
 }
@@ -1389,6 +1397,8 @@ llvm::Error MLIRToLLVM70::translateStoreOp(Operation *op) {
     val = b.buildBitCast(val, elemTy, "");
 
   LLVMValueRef storeInst = b.buildStore(val, ptr);
+  if (auto alignment = storeOp.getAlignment())
+    b.setGlobalAlignment(storeInst, *alignment);
   if (storeOp.getVolatile_())
     b.setVolatile(storeInst, true);
   return llvm::Error::success();
@@ -2360,6 +2370,8 @@ llvm::Error MLIRToLLVM70::translateSregOp(Operation *op) {
        "mov.u32 $0, %smid;"},
       {[](Operation *o) { return isa<NVVM::WarpDimOp>(o); },
        "mov.u32 $0, %nwarpid;"},
+      {[](Operation *o) { return isa<NVVM::DynamicSmemSize>(o); },
+       "mov.u32 $0, %dynamic_smem_size;"},
       {[](Operation *o) { return isa<NVVM::ClusterIdXOp>(o); },
        "mov.u32 $0, %clusterid.x;"},
       {[](Operation *o) { return isa<NVVM::ClusterIdYOp>(o); },
@@ -2663,7 +2675,7 @@ llvm::Error MLIRToLLVM70::translateNVVMOp(Operation *op) {
             NVVM::BlockIdXOp, NVVM::BlockIdYOp, NVVM::BlockIdZOp,
             NVVM::GridDimXOp, NVVM::GridDimYOp, NVVM::GridDimZOp,
             NVVM::WarpIdOp, NVVM::WarpDimOp, NVVM::LaneIdOp, NVVM::WarpSizeOp,
-            NVVM::SmIdOp,
+            NVVM::SmIdOp, NVVM::DynamicSmemSize,
             NVVM::ClusterIdXOp, NVVM::ClusterIdYOp, NVVM::ClusterIdZOp,
             NVVM::ClusterDimXOp, NVVM::ClusterDimYOp, NVVM::ClusterDimZOp,
             NVVM::ClusterDimBlocksXOp, NVVM::ClusterDimBlocksYOp,

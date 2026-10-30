@@ -23,7 +23,9 @@ from numba_cuda_mlir.numba_cuda.datamodel.registry import DataModelManager, regi
 from numba_cuda_mlir.numba_cuda.types import misc as nb_types_misc
 from numba_cuda_mlir.numba_cuda.types.ext_types import GridGroup as GridGroupClass
 from numba_cuda_mlir.type_defs import float_types
-from numba_cuda_mlir.lowering_utilities.type_conversions import to_mlir_type
+from numba_cuda_mlir.lowering_utilities.type_conversions import (
+    to_mlir_type,
+)
 from numba_cuda_mlir.numba_cuda.types.containers import (
     NamedTuple,
     NamedUniTuple,
@@ -503,41 +505,17 @@ class UnionType(PrimitiveModel):
 @register_model(types.Array)
 class ArrayModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
-        from numba_cuda_mlir.types import Record
+        from numba_cuda_mlir.array_storage import ArrayStorageLayout
 
-        # For Record, CharSeq, and UnicodeCharSeq arrays, use byte-based
-        # memref (memref<?xi8>).  Elements are accessed via byte offset
-        # pointer arithmetic.
-        if isinstance(fe_type.dtype, (Record, types.CharSeq, types.UnicodeCharSeq)):
-            shape = [ShapedType.get_dynamic_size() for _ in range(fe_type.ndim)]
+        super().__init__(dmm, fe_type, ArrayStorageLayout(fe_type).memref_type())
 
-            dyn_stride = MemRefType.get_dynamic_stride_or_offset()
-            layout = ir.StridedLayoutAttr.get(
-                offset=dyn_stride,
-                strides=[dyn_stride] * fe_type.ndim,
-            )
-            be_type = MemRefType.get(shape, IntegerType.get_signless(8), layout=layout)
-            super().__init__(dmm, fe_type, be_type)
-            return
+    def as_data(self, builder, value):
+        from numba_cuda_mlir.lowering_utilities import convert_array_storage
 
-        ele_ty = dmm.lookup(fe_type.dtype).get_data_type()
-        shape = [ShapedType.get_dynamic_size() for _ in range(fe_type.ndim)]
+        return convert_array_storage(value, self.get_data_type())
 
-        # Create strided layout with all dynamic strides
-        # This allows the memref to work with any stride pattern (row-major, column-major, etc.)
-
-        dyn_stride = MemRefType.get_dynamic_stride_or_offset()
-        layout = ir.StridedLayoutAttr.get(
-            offset=dyn_stride,  # dynamic offset
-            strides=[dyn_stride] * fe_type.ndim,  # all strides are dynamic
-        )
-
-        # This will create memref<?x?xf32> with strided layout for 2D arrays
-        if isinstance(ele_ty, IntegerType):
-            be_type = MemRefType.get(shape, IntegerType.get_signless(ele_ty.width), layout=layout)
-        else:
-            be_type = MemRefType.get(shape, ele_ty, layout=layout)
-        super().__init__(dmm, fe_type, be_type)
+    def as_return(self, builder, value):
+        return self.as_data(builder, value)
 
 
 @register_model(types.Boolean)
@@ -624,7 +602,7 @@ class RangeIteratorModel(PrimitiveModel):
 @register_model(float_types.BFloat16Type)
 class BFloat16TypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        super().__init__(dmm, fe_type, T.bf16(), T.i16())
+        super().__init__(dmm, fe_type, T.bf16(), T.i(float_types.numeric_storage_bitwidth(fe_type)))
 
 
 # Register model for numba-cuda's Bfloat16 type
@@ -634,7 +612,7 @@ from numba_cuda_mlir.numba_cuda.types.ext_types import Bfloat16
 @register_model(Bfloat16)
 class NumbaCudaBfloat16Model(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        super().__init__(dmm, fe_type, T.bf16(), T.i16())
+        super().__init__(dmm, fe_type, T.bf16(), T.i(float_types.numeric_storage_bitwidth(fe_type)))
 
 
 @register_model(float_types.NVFP4Type)
@@ -646,73 +624,101 @@ class NVFP4TypeModel(PrimitiveModel):
 @register_model(float_types.Float4E2M1FNType)
 class Float4E2M1FNTypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        super().__init__(dmm, fe_type, T.f4E2M1FN(), T.i8())
+        super().__init__(
+            dmm, fe_type, T.f4E2M1FN(), T.i(float_types.numeric_storage_bitwidth(fe_type))
+        )
 
 
 @register_model(float_types.Float6E2M3FNType)
 class Float6E2M3FNTypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        super().__init__(dmm, fe_type, T.f6E2M3FN(), T.i8())
+        super().__init__(
+            dmm, fe_type, T.f6E2M3FN(), T.i(float_types.numeric_storage_bitwidth(fe_type))
+        )
 
 
 @register_model(float_types.Float6E3M2FNType)
 class Float6E3M2FNTypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        super().__init__(dmm, fe_type, T.f6E3M2FN(), T.i8())
+        super().__init__(
+            dmm, fe_type, T.f6E3M2FN(), T.i(float_types.numeric_storage_bitwidth(fe_type))
+        )
 
 
 @register_model(float_types.Float8E3M4Type)
 class Float8E3M4TypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        super().__init__(dmm, fe_type, T.f8E3M4(), T.i8())
+        super().__init__(
+            dmm, fe_type, T.f8E3M4(), T.i(float_types.numeric_storage_bitwidth(fe_type))
+        )
 
 
 @register_model(float_types.Float8E4M3B11FNUZType)
 class Float8E4M3B11FNUZTypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        super().__init__(dmm, fe_type, T.f8E4M3B11FNUZ(), T.i8())
+        super().__init__(
+            dmm, fe_type, T.f8E4M3B11FNUZ(), T.i(float_types.numeric_storage_bitwidth(fe_type))
+        )
 
 
 @register_model(float_types.Float8E4M3FNType)
 class Float8E4M3FNTypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        super().__init__(dmm, fe_type, T.f8E4M3FN(), T.i8())
+        super().__init__(
+            dmm, fe_type, T.f8E4M3FN(), T.i(float_types.numeric_storage_bitwidth(fe_type))
+        )
 
 
 @register_model(float_types.Float8E4M3FNUZType)
 class Float8E4M3FNUZTypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        super().__init__(dmm, fe_type, ir.Float8E4M3FNUZType.get(), T.i8())
+        super().__init__(
+            dmm,
+            fe_type,
+            ir.Float8E4M3FNUZType.get(),
+            T.i(float_types.numeric_storage_bitwidth(fe_type)),
+        )
 
 
 @register_model(float_types.Float8E4M3Type)
 class Float8E4M3TypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        super().__init__(dmm, fe_type, T.f8E4M3(), T.i8())
+        super().__init__(
+            dmm, fe_type, T.f8E4M3(), T.i(float_types.numeric_storage_bitwidth(fe_type))
+        )
 
 
 @register_model(float_types.Float8E5M2FNUZType)
 class Float8E5M2FNUZTypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        super().__init__(dmm, fe_type, ir.Float8E5M2FNUZType.get(), T.i8())
+        super().__init__(
+            dmm,
+            fe_type,
+            ir.Float8E5M2FNUZType.get(),
+            T.i(float_types.numeric_storage_bitwidth(fe_type)),
+        )
 
 
 @register_model(float_types.Float8E5M2Type)
 class Float8E5M2TypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        super().__init__(dmm, fe_type, T.f8E5M2(), T.i8())
+        super().__init__(
+            dmm, fe_type, T.f8E5M2(), T.i(float_types.numeric_storage_bitwidth(fe_type))
+        )
 
 
 @register_model(float_types.Float8E8M0FNUType)
 class Float8E8M0FNUTypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        super().__init__(dmm, fe_type, T.f8E8M0FNU(), T.i8())
+        super().__init__(
+            dmm, fe_type, T.f8E8M0FNU(), T.i(float_types.numeric_storage_bitwidth(fe_type))
+        )
 
 
 @register_model(float_types.FloatTF32Type)
 class FloatTF32TypeModel(StoragePrimitiveModel):
     def __init__(self, dmm, fe_type):
-        super().__init__(dmm, fe_type, T.tf32(), T.i32())
+        super().__init__(dmm, fe_type, T.tf32(), T.i(float_types.numeric_storage_bitwidth(fe_type)))
 
 
 @register_model(types.AggregateType)
@@ -852,17 +858,23 @@ def register_fp8_models():
     @register_model(type(_type_fp8_e5m2))
     class FP8E5M2Model(StoragePrimitiveModel):
         def __init__(self, dmm, fe_type):
-            super().__init__(dmm, fe_type, T.f8E5M2(), T.i8())
+            super().__init__(
+                dmm, fe_type, T.f8E5M2(), T.i(float_types.numeric_storage_bitwidth(fe_type))
+            )
 
     @register_model(type(_type_fp8_e4m3))
     class FP8E4M3Model(StoragePrimitiveModel):
         def __init__(self, dmm, fe_type):
-            super().__init__(dmm, fe_type, T.f8E4M3FN(), T.i8())
+            super().__init__(
+                dmm, fe_type, T.f8E4M3FN(), T.i(float_types.numeric_storage_bitwidth(fe_type))
+            )
 
     @register_model(type(_type_fp8_e8m0))
     class FP8E8M0Model(StoragePrimitiveModel):
         def __init__(self, dmm, fe_type):
-            super().__init__(dmm, fe_type, T.f8E8M0FNU(), T.i8())
+            super().__init__(
+                dmm, fe_type, T.f8E8M0FNU(), T.i(float_types.numeric_storage_bitwidth(fe_type))
+            )
 
     @register_model(bfloat16_raw_class)
     class Bfloat16RawModel(PrimitiveModel):

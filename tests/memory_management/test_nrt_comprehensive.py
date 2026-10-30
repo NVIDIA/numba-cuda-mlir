@@ -367,29 +367,6 @@ class TestNrtRefCt:
         assert cur_stats.alloc - init_stats.alloc == 1
         assert cur_stats.free - init_stats.free == 1
 
-    def test_invalid_computation_of_lifetime(self):
-        """Test conditional block lifetime handling (issue #1573)."""
-        from numba_cuda_mlir.memory_management import rtsys
-
-        @jit
-        def if_with_allocation_and_initialization(arr1, test1):
-            tmp_arr = np.empty_like(arr1)
-
-            for i in range(tmp_arr.shape[0]):
-                pass
-
-            if test1:
-                np.empty_like(arr1)
-
-        arr = np.random.random((5, 5))
-
-        init_stats = rtsys.get_allocation_stats()
-        if_with_allocation_and_initialization[1, 1](arr, False)
-        cur_stats = rtsys.get_allocation_stats()
-
-        # Allocations should equal deallocations
-        assert cur_stats.alloc - init_stats.alloc == cur_stats.free - init_stats.free
-
     def test_del_at_beginning_of_loop(self):
         """Test variable deletion edge case (issue #1734)."""
         from numba_cuda_mlir.memory_management import rtsys

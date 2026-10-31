@@ -120,6 +120,9 @@ jobs:
           python-version: ${{ matrix.PY_VER }}
           allow-prereleases: ${{ startsWith(matrix.PY_VER, '3.15') }}
 
+      - name: Harden pip
+        uses: ./.github/actions/harden-pip
+
       - name: Set up mini CTK
         if: ${{ matrix.LOCAL_CTK == '1' }}
         uses: ./.github/actions/fetch_ctk

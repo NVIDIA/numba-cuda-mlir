@@ -31,7 +31,20 @@ Write-Host "Using Python: $pythonExe"
 & $pythonExe --version
 
 & $pythonExe -m ensurepip --upgrade
-& $pythonExe -m pip install --upgrade pip
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+# Bootstrap pip 26.2.2 from a hash-pinned URL before any other use of pip:
+# older pip releases still trust the compromised eMudhra/emSign intermediate
+# CAs via their vendored certifi and cannot upgrade themselves safely. Keep
+# the URL in sync with .github/actions/harden-pip/action.yml.
+# See https://discuss.python.org/t/109576.
+# $ErrorActionPreference = 'Stop' does not trap native-command exit codes
+# in Windows PowerShell 5.1, so these two installs need an explicit check:
+# a silent failure on either would let the hardening be bypassed by a
+# subsequent command that resets $LASTEXITCODE.
+& $pythonExe -m pip install --disable-pip-version-check "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& $pythonExe -m pip install --disable-pip-version-check --upgrade pip
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 if ($Mode -eq 'modern') {
     # MLIR asks for nanobind 2.9 and nanobind's CMake config only accepts a

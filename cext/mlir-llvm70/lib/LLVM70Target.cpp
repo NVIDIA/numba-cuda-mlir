@@ -1367,6 +1367,8 @@ llvm::Error MLIRToLLVM70::translateLoadOp(Operation *op) {
   ptr = b.buildBitCast(ptr, b.ptrTy(elemTy, as), "");
 
   LLVMValueRef val = b.buildLoad(ptr, "");
+  if (loadOp.getVolatile_())
+    b.setVolatile(val, true);
   mapValue(loadOp.getResult(), val);
   return llvm::Error::success();
 }

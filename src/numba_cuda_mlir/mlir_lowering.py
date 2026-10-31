@@ -1688,6 +1688,10 @@ extern "C" __global__ void
         def stararg_handler(index, param, values):
             return tuple(values)
 
+        def starkwarg_handler(index, param, values):
+            # In keyword order, the order ``star_kwarg_tuple`` lays fields out in.
+            return tuple(values.values())
+
         folded_vars = typing.fold_arguments(
             pysig,
             tuple(args),
@@ -1695,6 +1699,7 @@ extern "C" __global__ void
             normal_handler,
             default_handler,
             stararg_handler,
+            starkwarg_handler,
         )
         call_vars = [
             var

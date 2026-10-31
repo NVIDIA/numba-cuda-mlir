@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 import types as pytypes  # avoid confusion with numba.types
+import contextvars
 import copy
 import ctypes
 from numba_cuda_mlir.numba_cuda import HAS_NUMBA
@@ -243,6 +244,19 @@ def check_reduce_func(func_ir, func_var):
     return reduce_func
 
 
+# While InlineInlinables partially types a caller, it stores a function here.
+# MLIRDispatcher.get_call_template asks that function for a call's signature,
+# which it gets by typing the callee's transformed IR instead of compiling the
+# callee. Type inference has no other way to pass this through to call typing.
+inlinee_typer = contextvars.ContextVar("inlinee_typer", default=None)
+
+
+class InlineeNeedsArgTypes(Exception):
+    """Raised inside an inlinee's untyped run to ask the enclosing InlineInlinables
+    to type the call and inline the callee again. Never reaches the user.
+    """
+
+
 class InlineWorker:
     """A worker class for inlining, this is a more advanced version of
     `inline_closure_call` in that it permits inlining from function type, Numba
@@ -261,6 +275,8 @@ class InlineWorker:
         validator=callee_ir_validator,
         typemap=None,
         calltypes=None,
+        targetoptions=None,
+        inlinee_transform=None,
     ):
         """
         Instantiate a new InlineWorker, all arguments are optional though some
@@ -270,6 +286,7 @@ class InlineWorker:
         is a function taking Numba IR and validating it for use when inlining
         (this is optional and really to just provide better error messages about
         things which the inliner cannot handle like yield in closure).
+        inlinee_transform(func, targetoptions, argtypes) runs on chosen inlinees.
         """
 
         def check(arg, name):
@@ -298,6 +315,8 @@ class InlineWorker:
         self.pipeline = pipeline
         self.flags = flags
         self.validator = validator
+        self.targetoptions = targetoptions
+        self.inlinee_transform = inlinee_transform
         self.debug_print = _make_debug_print("InlineWorker")
 
         # check whether this inliner can also support typemap and calltypes
@@ -434,22 +453,56 @@ class InlineWorker:
         return callee_ir_original, callee_blocks, var_dict, new_blocks
 
     def inline_function(self, caller_ir, block, i, function, arg_typs=None):
-        """Inlines the function in the caller_ir at statement index i of block
-        `block`. If `arg_typs` is given and the InlineWorker instance was
-        initialized with a typemap and calltypes then they will be appropriately
-        updated based on the arg_typs.
+        """Inline ``function`` into ``caller_ir`` at statement ``i`` of ``block``.
+
+        We run the function's untyped passes with ``arg_typs`` as its argument
+        types. If this worker has a typemap and calltypes, we also update them
+        for the inlined function.
         """
-        callee_ir = self.run_untyped_passes(function)
+        callee_ir = self.run_untyped_passes(function, arg_typs=arg_typs)
         freevars = function.__code__.co_freevars
         return self.inline_ir(caller_ir, block, i, callee_ir, freevars, arg_typs=arg_typs)
 
-    def run_untyped_passes(self, func, enable_ssa=False):
+    def type_callee(self, function, arg_typs):
+        """Run the untyped passes over a callee in SSA form and type it for arg_typs.
+
+        Returns
+        -------
+        tuple
+            The callee's IR and its ``type_inference_stage`` results.
+        """
+        from numba_cuda_mlir.numba_cuda.core.typed_passes import type_inference_stage
+
+        callee_ir = self.run_untyped_passes(function, enable_ssa=True, arg_typs=arg_typs)
+        typing = type_inference_stage(self.typingctx, self.targetctx, callee_ir, arg_typs, None)
+        return callee_ir, typing
+
+    def transform_inlinee(self, function, arg_typs=None):
+        """Transform an inlinee with the compiling function's inlinee transform.
+
+        Without a configured transform we return ``function`` unchanged. Otherwise
+        we return what the transform returns: ``function`` itself when there is
+        nothing to change, a new function when there is, or None when ``arg_typs``
+        is None and the transform needs the call's argument types. InlineInlinables
+        then types the call and calls this again with them.
+        """
+        if self.inlinee_transform is None:
+            return function
+        return self.inlinee_transform(function, self.targetoptions, arg_typs)
+
+    def run_untyped_passes(self, func, enable_ssa=False, arg_typs=None):
         """
         Run the compiler frontend's untyped passes over the given Python
         function, and return the function's canonical Numba IR.
 
         Disable SSA transformation by default, since the call site won't be in
         SSA form and self.inline_ir depends on this being the case.
+
+        Without `arg_typs` we type every argument as pyobject. The untyped
+        passes need argument types only to lift loops into object mode, so the
+        placeholder serves any inline that does not need the call's types.
+        InlineInlinables also reads pyobject arguments as the sign that it is
+        running inside such an inline.
         """
         from numba_cuda_mlir.numba_cuda.core.compiler import StateDict, _CompileStatus
         from numba_cuda_mlir.numba_cuda.core.untyped_passes import ExtractByteCode
@@ -472,11 +525,18 @@ class InlineWorker:
         state.status = _CompileStatus(False)
         state.return_type = None
         state.metadata = {}
+        if self.targetoptions is not None:
+            state.metadata["targetoptions"] = self.targetoptions
+        if self.inlinee_transform is not None:
+            state.metadata["inlinee_transform"] = self.inlinee_transform
 
         ExtractByteCode().run_pass(state)
-        # This is a lie, just need *some* args for the case where an obj mode
-        # with lift is needed
-        state.args = len(state.bc.func_id.pysig.parameters) * (types.pyobject,)
+        if arg_typs is not None:
+            state.args = tuple(arg_typs)
+        else:
+            # This is a lie, just need *some* args for the case where an obj mode
+            # with lift is needed
+            state.args = len(state.bc.func_id.pysig.parameters) * (types.pyobject,)
 
         pm = self._compiler_pipeline(state)
 

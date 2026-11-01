@@ -45,10 +45,17 @@ jobs:
         id: setup-python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
-          python-version: "3.12"
+          # Host Python only drives cibuildwheel; the wheel targets are set by
+          # CIBW_BUILD and independent of this version. Pin to a floor that
+          # setup-python can resolve on both Linux and Windows (3.11-3.13 have
+          # no eMudhra-fixed Windows build in actions/python-versions as of
+          # 2026-10-31; see https://github.com/actions/setup-python/issues/1383),
+          # so the Windows wheel-build host runs update-pip on a CA-clean
+          # interpreter too.
+          python-version: "~3.14.10"
 
-      - name: Harden pip
-        uses: ./.github/actions/harden-pip
+      - name: Update pip
+        uses: ./.github/actions/update-pip
 
       - name: Install latest rapidsai/sccache
         if: ${{ startsWith(inputs.host-platform, 'linux') }}
@@ -132,8 +139,10 @@ jobs:
           output-dir: dist
         env:
           CIBW_BUILD: ${{ steps.wheel-tags.outputs.cibw-build }}
-          CIBW_MANYLINUX_X86_64_IMAGE: quay.io/pypa/manylinux_2_28_x86_64
-          CIBW_MANYLINUX_AARCH64_IMAGE: quay.io/pypa/manylinux_2_28_aarch64
+          # Let cibuildwheel use its own bundled SHA-pinned manylinux_2_28
+          # images, which track the eMudhra-fixed CA bundle and pip 26.2.2+.
+          # The previous CIBW_MANYLINUX_*_IMAGE overrides pointed at the
+          # unpinned quay.io/pypa/manylinux_2_28_* tags and defeated that.
           CIBW_ENVIRONMENT_LINUX: >
             MLIR_DIR=/host/${{ github.workspace }}/llvm-modern-install/lib/cmake/mlir
             LIBLLVM7=/host/${{ github.workspace }}/llvm7-install/lib/libLLVM-7.so

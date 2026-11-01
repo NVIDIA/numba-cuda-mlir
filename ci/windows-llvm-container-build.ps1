@@ -35,7 +35,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 # Bootstrap pip 26.2.2 from a hash-pinned URL before any other use of pip:
 # older pip releases still trust the compromised eMudhra/emSign intermediate
 # CAs via their vendored certifi and cannot upgrade themselves safely. Keep
-# the URL in sync with .github/actions/harden-pip/action.yml.
+# the URL in sync with .github/actions/update-pip/action.yml.
 # See https://discuss.python.org/t/109576.
 # $ErrorActionPreference = 'Stop' does not trap native-command exit codes
 # in Windows PowerShell 5.1, so these two installs need an explicit check:

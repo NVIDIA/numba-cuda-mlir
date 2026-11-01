@@ -43,6 +43,28 @@ runs:
         SUDO apt update
         SUDO apt install -y ca-certificates
 
+        # Explicitly distrust the compromised eMudhra/emSign root CAs. Keeping
+        # the apt install above picks up a future Ubuntu security update that
+        # removes them from the shipped bundle, but today Ubuntu 22.04 has not
+        # published a fixed ca-certificates build, so the apt install is a
+        # no-op there and the roots remain trusted. Prefixing the entry in
+        # /etc/ca-certificates.conf with '!' deactivates the cert; the
+        # grep guard makes this a no-op when the entry is already absent or
+        # already deactivated.
+        _ca_changed=0
+        for cert in \
+            "mozilla/emSign_ECC_Root_CA_-_G3.crt" \
+            "mozilla/emSign_Root_CA_-_G1.crt"; do
+          if grep -qxF "${cert}" /etc/ca-certificates.conf 2>/dev/null; then
+            SUDO sed -i "s|^${cert}$|!${cert}|" /etc/ca-certificates.conf
+            echo "Distrusted: ${cert}"
+            _ca_changed=1
+          fi
+        done
+        if [[ ${_ca_changed} -eq 1 ]]; then
+          SUDO update-ca-certificates
+        fi
+
         not_found=0
         for dep in ${dependent_exes[@]}; do
           if ! (command -v $dep 2>&1 >/dev/null); then

@@ -64,9 +64,6 @@ jobs:
       matrix: ${{ fromJSON(needs.compute-matrix.outputs.MATRIX) }}
     runs-on: "windows-${{ matrix.ARCH }}-gpu-${{ matrix.GPU }}-${{ matrix.DRIVER }}-${{ matrix.GPU_COUNT }}"
     timeout-minutes: 30
-    # Tolerate failures while actions/setup-python#1383 (Windows 3.11/3.12/3.13
-    # patched binaries missing from the manifest) is open.
-    continue-on-error: ${{ contains(fromJSON('["3.11","3.12","3.13"]'), matrix.PY_VER) }}
     if: ${{ github.repository_owner == 'nvidia' && !cancelled() }}
     steps:
       - name: Checkout ${{ github.event.repository.name }}
@@ -133,6 +130,10 @@ jobs:
 
       - name: Update pip
         uses: ./.github/actions/update-pip
+        # Scoped tolerance for Windows 3.11/3.12/3.13 while
+        # actions/setup-python#1383 is open; downstream steps still run on the
+        # unpatched interpreter but pip is already 26.2.2 from setup-python.
+        continue-on-error: ${{ contains(fromJSON('["3.11","3.12","3.13"]'), matrix.PY_VER) }}
 
       - name: Set up mini CTK
         if: ${{ matrix.LOCAL_CTK == '1' }}

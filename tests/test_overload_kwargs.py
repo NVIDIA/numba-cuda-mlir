@@ -42,17 +42,12 @@ def ol_kw_affine(arr, idx, scale=1.0, shift=0.0):
     return impl
 
 
-seen_kwargs = []
-
-
 def scaled(a, **kwargs):
     pass
 
 
 @overload(scaled, target="cuda", typing_registry=typing_registry)
 def ol_scaled(a, **kwargs):
-    # The typing function receives the keywords as a name-to-type dict.
-    seen_kwargs.append(dict(kwargs))
     if "scale" in kwargs:
 
         def impl(a, **kwargs):
@@ -203,13 +198,33 @@ def test_overload_method_keyword_arguments():
 def test_overload_kwargs_attribute_access():
     """The typing function sees the keywords by name; the implementation reads them by name."""
 
+    seen_kwargs = []
+
+    def scaled(a, **kwargs):
+        pass
+
+    @overload(scaled, target="cuda", typing_registry=typing_registry)
+    def ol_scaled(a, **kwargs):
+        # The typing function receives the keywords as a name-to-type dict.
+        seen_kwargs.append(dict(kwargs))
+        if "scale" in kwargs:
+
+            def impl(a, **kwargs):
+                return a * kwargs.scale + len(kwargs)
+
+            return impl
+
+        def impl(a, **kwargs):
+            return a + len(kwargs)
+
+        return impl
+
     @cuda.jit
     def kernel(out, a):
         i = cuda.grid(1)
         if i < out.size:
             out[i] = scaled(a[i], scale=3.0) + 10 * scaled(a[i])
 
-    seen_kwargs.clear()
     a = np.arange(4.0)
     out = _run(kernel, np.zeros(4), a)
     np.testing.assert_allclose(out, (a * 3.0 + 1) + 10 * a)

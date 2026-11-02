@@ -99,6 +99,9 @@ def test_positional_only_passed_by_keyword(inline):
     def f(a, b, /):
         return a + b
 
+    with pytest.raises(TypeError) as bind_excinfo:
+        inspect.signature(f).bind(0, b=1)
+
     f = _device(inline, f)
 
     def body(out):
@@ -108,7 +111,7 @@ def test_positional_only_passed_by_keyword(inline):
         _compile(cuda.jit(body))
     _assert_binding_error(
         excinfo,
-        "f() missing a required positional-only argument: 'b'",
+        f"f() {bind_excinfo.value}",
         body,
         "f(out[0], b=1)",
     )

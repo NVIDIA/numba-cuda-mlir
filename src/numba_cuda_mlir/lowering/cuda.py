@@ -643,13 +643,63 @@ def lower_strides(
 ):
     from numba_cuda_mlir.array_storage import ArrayStorageLayout
 
-    array_numba_type = mlir_lower.get_numba_type(array.name)
-    value = mlir_lower.load_var(array)
-    rank = value.type.rank
-    metadata = memref.extract_strided_metadata(value)
-    unit = arith.constant(T.i64(), ArrayStorageLayout(array_numba_type).unit_bytes)
-    result = tuple(convert(metadata[2 + rank + i], T.i64()) * unit for i in range(rank))
-    mlir_lower.store_var(target, result)
+    array_numba_type = mlir_lower.get_numba_type(array)
+    array = mlir_lower.load_var(array)
+    if not isinstance(array.type, ir.MemRefType):
+        raise NotImplementedError(f"strides not implemented for {array.type}")
+
+    # Descriptor strides count storage units; NumPy exposes byte strides.
+    element_size = index_of(ArrayStorageLayout(array_numba_type).unit_bytes)
+
+    rank = array.type.rank
+    md = memref.extract_strided_metadata(array)
+    strides = tuple(arith.muli(md[2 + rank + i], element_size) for i in range(rank))
+    mlir_lower.store_var(target, strides)
+
+
+@lower_getattr(types.Array, "T")
+def lower_array_transpose(
+    _: MLIRTargetContext,
+    mlir_lower: MLIRLower,
+    target: numba_ir.Var,
+    array: numba_ir.Var,
+):
+    source = mlir_lower.load_var(array)
+    if not isinstance(source.type, ir.MemRefType):
+        raise NotImplementedError(f"T not implemented for {source.type}")
+
+    rank = source.type.rank
+    if rank <= 1:
+        mlir_lower.store_var(target, source)
+        return
+
+    md = memref.extract_strided_metadata(source)
+    offset = md[1]
+    sizes = list(md[2 : 2 + rank])
+    strides = list(md[2 + rank : 2 + 2 * rank])
+
+    dyn_size = ir.ShapedType.get_dynamic_size()
+    dyn_stride = ir.ShapedType.get_dynamic_stride_or_offset()
+    result_type = ir.MemRefType.get(
+        shape=[dyn_size] * rank,
+        element_type=source.type.element_type,
+        layout=ir.StridedLayoutAttr.get(dyn_stride, [dyn_stride] * rank),
+        memory_space=source.type.memory_space,
+    )
+
+    mlir_lower.store_var(
+        target,
+        memref.reinterpret_cast(
+            result_type,
+            source,
+            offsets=[offset],
+            sizes=sizes[::-1],
+            strides=strides[::-1],
+            static_offsets=[dyn_stride],
+            static_sizes=[dyn_size] * rank,
+            static_strides=[dyn_stride] * rank,
+        ),
+    )
 
 
 def _dim3_attr_to_dimension(attr: str):
@@ -845,14 +895,23 @@ def _shfl_sync_lowering(builder: MLIRLower, target, args, kwargs, shfl_kind):
     mask = int_of(mask, T.i32())
     offset = int_of(offset, T.i32())
     original_type = value.type
-    value = f32_of(value) if isinstance(value.type, ir.FloatType) else i32_of(value)
-
+    is_float = isinstance(original_type, ir.FloatType)
     mask_and_clamp = constant(0 if shfl_kind == nvvm.ShflKind.up else 0x1F, T.i32())
-    result = nvvm.shfl_sync(mask, value, offset, mask_and_clamp, shfl_kind)
 
-    # Convert result back to original type if needed
-    if isinstance(original_type, ir.FloatType) and original_type.width == 64:
-        result = arith.extf(T.f64(), result)
+    if original_type.width == 64:
+        # Shuffle a 64-bit value as the two 32-bit halves of its bit pattern,
+        # as numba-cuda does; narrowing to f32 or i32 would drop bits.
+        bits = arith.bitcast(T.i64(), value) if is_float else value
+        shift = constant(32, T.i64())
+        lo = arith.trunci(T.i32(), bits)
+        hi = arith.trunci(T.i32(), arith.shrui(bits, shift))
+        lo = nvvm.shfl_sync(mask, lo, offset, mask_and_clamp, shfl_kind)
+        hi = nvvm.shfl_sync(mask, hi, offset, mask_and_clamp, shfl_kind)
+        bits = arith.ori(arith.extui(T.i64(), lo), arith.shli(arith.extui(T.i64(), hi), shift))
+        result = arith.bitcast(original_type, bits) if is_float else bits
+    else:
+        value = f32_of(value) if is_float else i32_of(value)
+        result = nvvm.shfl_sync(mask, value, offset, mask_and_clamp, shfl_kind)
 
     builder.store_var(target, result)
 

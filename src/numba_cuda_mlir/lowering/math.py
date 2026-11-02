@@ -1060,10 +1060,18 @@ def invert_cg(builder, target, args, kwargs):
     assert len(args) == 1, "invert_cg expects 1 argument"
     target_type = builder.get_numba_type(target.name)
     target_mlir_type = builder.get_mlir_type(target_type)
-    operand = _load_and_convert_operand(builder, args[0], target_type, target_mlir_type)
+    source_type = builder.get_numba_type(args[0].name)
+    unsigned = isinstance(source_type, types.Integer) and not source_type.signed
+    if unsigned:
+        # Invert at the input width; widening first changes unsigned results.
+        operand = builder.load_var(args[0])
+    else:
+        operand = _load_and_convert_operand(builder, args[0], target_type, target_mlir_type)
     fill = 1 if isinstance(target_type, types.Boolean) else -1
-    all_ones = lowering_utilities.constant(fill, target_mlir_type)
+    all_ones = lowering_utilities.constant(fill, operand.type)
     result = arith.xori(operand, all_ones)
+    if unsigned:
+        result = _convert_operand(result, source_type, target_type, target_mlir_type)
     builder.store_var(target, result)
 
 

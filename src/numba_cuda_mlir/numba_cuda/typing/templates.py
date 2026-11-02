@@ -196,7 +196,16 @@ def signature(return_type, *args, **kws):
 
 
 def fold_arguments(
-    pysig, args, kws, normal_handler, default_handler, stararg_handler, *, name=None, loc=None
+    pysig,
+    args,
+    kws,
+    normal_handler,
+    default_handler,
+    stararg_handler,
+    starkwarg_handler=None,
+    *,
+    name=None,
+    loc=None,
 ):
     """
     Given the signature *pysig*, explicit *args* and *kws*, resolve
@@ -206,6 +215,8 @@ def fold_arguments(
     - normal_handler(index, param, value) is called for normal arguments
     - default_handler(index, param, default) is called for omitted arguments
     - stararg_handler(index, param, values) is called for a "*args" argument
+    - starkwarg_handler(index, param, values) is called for a "**kwargs"
+      argument, with the name-to-value dict of the keywords it collects
     If the arguments do not bind, an ArgumentBindingError is raised; given the
     callee's *name*, its message is Python's, and *loc* is the call's location.
     """
@@ -247,6 +258,14 @@ def fold_arguments(
             out = stararg_handler(i, param, argval)
 
             ba.arguments[name] = out
+        elif param.kind == param.VAR_KEYWORD:
+            if starkwarg_handler is None:
+                raise TypingError(
+                    f"The use of VAR_KEYWORD (e.g. **kwargs) is unsupported here. "
+                    f"(offending argument name is '{param}')"
+                )
+            # Like a stararg, an omitted "**kwargs" is simply empty.
+            ba.arguments[name] = starkwarg_handler(i, param, ba.arguments.get(name, {}))
         elif name in ba.arguments:
             # Non-stararg, present
             ba.arguments[name] = normal_handler(i, param, ba.arguments[name])
@@ -638,11 +657,20 @@ def _spread_bundle(collected):
     return spread
 
 
-def strip_star_args(numba_type):
-    """The same tuple type without any ``*args`` bundle marker.
+_STAR_BUNDLES = (
+    types.StarArgTuple,
+    types.StarArgUniTuple,
+    types.StarKwargTuple,
+    types.StarKwargUniTuple,
+)
 
-    ``StarArgTuple``/``StarArgUniTuple`` record that a call site folded these
-    types into one parameter.  That is true of the parameter and false of a
+
+def strip_star_args(numba_type):
+    """The same tuple type without any ``*args`` or ``**kwargs`` bundle marker.
+
+    ``StarArgTuple``/``StarArgUniTuple`` (and their ``**kwargs`` counterparts
+    ``StarKwargTuple``/``StarKwargUniTuple``) record that a call site folded
+    these types into one parameter.  That is true of the parameter and false of a
     value: an implementation returning ``args`` hands back an ordinary tuple,
     and the marker riding along makes whoever receives it mistake it for a
     bundle of their own and splice its elements in.  Strip it wherever a
@@ -654,9 +682,7 @@ def strip_star_args(numba_type):
     if not isinstance(numba_type, types.BaseTuple):
         return numba_type
     element_types = tuple(strip_star_args(t) for t in numba_type.types)
-    if element_types == numba_type.types and not isinstance(
-        numba_type, (types.StarArgTuple, types.StarArgUniTuple)
-    ):
+    if element_types == numba_type.types and not isinstance(numba_type, _STAR_BUNDLES):
         return numba_type
     return types.BaseTuple.from_types(
         element_types, pyclass=getattr(numba_type, "instance_class", None)
@@ -686,15 +712,20 @@ def canonical_call_key(impl_func, arg_types, kw_types):
 
     key = []
     for name, param in pysig.parameters.items():
-        if name not in ba.arguments:
+        if param.kind is param.VAR_KEYWORD:
+            # The names go in alongside the types: the bundle's fields are
+            # named, so keywords with the same types under other names are
+            # another bundle, and so another entry.
+            collected = ba.arguments.get(name, {})
+            key.append(tuple(collected))
+            key.extend(collected.values())
+        elif name not in ba.arguments:
             # Unsupplied, so the callee will use its default.  Recording the
             # default itself keeps two calls that differ in what they omitted
             # from collapsing onto one key.
             key.append(types.Omitted(param.default))
         elif param.kind is param.VAR_POSITIONAL:
             key.extend(_spread_bundle(ba.arguments[name]))
-        elif param.kind is param.VAR_KEYWORD:
-            key.extend(ba.arguments[name].values())
         else:
             key.append(ba.arguments[name])
     return tuple(key)
@@ -763,34 +794,43 @@ class _OverloadFunctionTemplate(AbstractTemplate):
         # Things that are invalid:
         # 5. Use of *args in the typing signature that is not replicated
         #    in the implementing signature
-        # 6. Use of **kwargs
+        # 6. Use of **kwargs in only one of the typing and implementation
+        #    signatures
 
         def get_args_kwargs(sig):
             kws = []
             args = []
             pos_arg = None
+            kw_arg = None
             for x in sig.parameters.values():
-                if x.default == utils.pyParameter.empty:
+                if x.kind == utils.pyParameter.VAR_KEYWORD:
+                    kw_arg = x
+                elif x.default == utils.pyParameter.empty:
                     args.append(x)
                     if x.kind == utils.pyParameter.VAR_POSITIONAL:
                         pos_arg = x
-                    elif x.kind == utils.pyParameter.VAR_KEYWORD:
-                        msg = (
-                            "The use of VAR_KEYWORD (e.g. **kwargs) is "
-                            "unsupported. (offending argument name is '%s')"
-                        )
-                        raise InternalError(msg % x)
                 else:
                     kws.append(x)
-            return args, kws, pos_arg
+            return args, kws, pos_arg, kw_arg
 
-        ty_args, ty_kws, ty_pos = get_args_kwargs(typing_sig)
-        im_args, im_kws, im_pos = get_args_kwargs(impl_sig)
+        ty_args, ty_kws, ty_pos, ty_kw = get_args_kwargs(typing_sig)
+        im_args, im_kws, im_pos, im_kw = get_args_kwargs(impl_sig)
 
         sig_fmt = "Typing signature:         %s\nImplementation signature: %s"
         sig_str = sig_fmt % (typing_sig, impl_sig)
 
         err_prefix = "Typing and implementation arguments differ in "
+
+        if (ty_kw is None) != (im_kw is None) or (ty_kw and ty_kw.name != im_kw.name):
+            # case 6. described above
+            offending = ty_kw if im_kw is None else im_kw
+            msg = (
+                "The use of VAR_KEYWORD (e.g. **kwargs) is unsupported unless "
+                "it appears by the same name in both the typing and the "
+                "implementing function signature. (offending argument name is "
+                "'%s')\n%s"
+            ) % (offending, sig_str)
+            raise InternalError(msg)
 
         a = ty_args
         b = im_args

@@ -29,6 +29,8 @@ from numba_cuda_mlir.numba_cuda.types.containers import (
     NamedUniTuple,
     StarArgTuple,
     StarArgUniTuple,
+    StarKwargTuple,
+    StarKwargUniTuple,
 )
 
 
@@ -305,6 +307,7 @@ class OpaqueModel(PrimitiveModel):
 @register_model(types.Tuple)
 @register_model(NamedTuple)
 @register_model(StarArgTuple)
+@register_model(StarKwargTuple)
 class TupleModel(PrimitiveModel):
     """Tuple values are represented as Python tuples of MLIR values."""
 
@@ -436,6 +439,7 @@ class UnicodeCharSeqModel(PrimitiveModel):
 @register_model(types.UniTuple)
 @register_model(NamedUniTuple)
 @register_model(StarArgUniTuple)
+@register_model(StarKwargUniTuple)
 class UniTupleModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
         self._elem_model = dmm.lookup(fe_type.dtype)

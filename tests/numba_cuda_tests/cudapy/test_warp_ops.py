@@ -184,7 +184,6 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
         for func in subtest:
             compile_ptx(func, (int32[:], int32), cc=(10, 0))
 
-    @pytest.mark.xfail(True, reason="Assertion error")
     def test_shfl_sync_types(self):
         types = int32, int64, float32, float64
         values = (
@@ -199,6 +198,32 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
             ary = np.empty(nelem, dtype=val.dtype)
             compiled[1, nelem](ary, val)
             self.assertTrue(np.all(ary == val))
+
+    def test_shfl_sync_64bit_values(self):
+        # 64-bit values must survive every shuffle kind bit for bit; a value
+        # with distinct low bits per lane catches narrowing to 32 bits.
+        @numba_cuda_mlir.cuda.jit
+        def shuffle_all(x, idx, up, down, bfly):
+            i = cuda.threadIdx.x
+            v = x[i]
+            idx[i] = cuda.shfl_sync(0xFFFFFFFF, v, 5)
+            up[i] = cuda.shfl_up_sync(0xFFFFFFFF, v, 3)
+            down[i] = cuda.shfl_down_sync(0xFFFFFFFF, v, 3)
+            bfly[i] = cuda.shfl_xor_sync(0xFFFFFFFF, v, 7)
+
+        nelem = 32
+        lane = np.arange(nelem)
+        inputs = (
+            np.pi + lane * 2.0**-40,
+            (np.int64(1) << 40) + lane * ((np.int64(1) << 33) + 1),
+        )
+        for x in inputs:
+            outs = [np.empty_like(x) for _ in range(4)]
+            shuffle_all[1, nelem](x, *outs)
+            up = np.where(lane >= 3, lane - 3, lane)
+            down = np.where(lane < nelem - 3, lane + 3, lane)
+            for out, src in zip(outs, (np.full(nelem, 5), up, down, lane ^ 7)):
+                np.testing.assert_array_equal(out, x[src])
 
     @pytest.mark.xfail(True, reason="Assertion error")
     def test_vote_sync_const_mode_val(self):

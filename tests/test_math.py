@@ -93,6 +93,45 @@ def test_arithmetic_operand_conversion_preserves_signedness(op, lhs, rhs, expect
     np.testing.assert_equal(out.copy_to_host()[0], expected)
 
 
+@pytest.mark.parametrize("op", [operator.neg, operator.invert], ids=["neg", "invert"])
+@pytest.mark.parametrize("dtype", [np.uint8, np.uint16, np.uint32])
+def test_unsigned_unary_wraparound(op, dtype):
+    @cuda.jit
+    def kernel(src, out):
+        out[0] = op(src[0])
+
+    limit = np.iinfo(dtype).max
+    values = np.array([0, 1, 7, limit // 2, limit // 2 + 1, limit], dtype=dtype)
+    expected = op(values).astype(np.int64)
+    got = np.empty(values.size, dtype=np.int64)
+    out = cuda.device_array(1, dtype=np.int64)
+    for i, value in enumerate(values):
+        src = cuda.to_device(np.array([value], dtype=dtype))
+        kernel[1, 1](src, out)
+        got[i] = out.copy_to_host()[0]
+    np.testing.assert_array_equal(got, expected)
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_float_not_equal_nan(dtype):
+    @cuda.jit
+    def kernel(lhs, rhs, unequal, self_unequal):
+        i = cuda.grid(1)
+        if i < lhs.size:
+            unequal[i] = lhs[i] != rhs[i]
+            self_unequal[i] = lhs[i] != lhs[i]
+
+    values = np.array([np.nan, -np.inf, -1.0, -0.0, 0.0, 1.0, np.inf], dtype=dtype)
+    lhs = np.repeat(values, values.size)
+    rhs = np.tile(values, values.size)
+    unequal = cuda.device_array(lhs.size, dtype=np.bool_)
+    self_unequal = cuda.device_array(lhs.size, dtype=np.bool_)
+    kernel[1, lhs.size](cuda.to_device(lhs), cuda.to_device(rhs), unequal, self_unequal)
+
+    np.testing.assert_array_equal(unequal.copy_to_host(), np.not_equal(lhs, rhs))
+    np.testing.assert_array_equal(self_unequal.copy_to_host(), np.isnan(lhs))
+
+
 # Every value below has its high bit set, so reading it as signed yields a
 # negative number and the wrong answer is obvious rather than a rounding
 # difference. math.ceil/floor/trunc of an integer are pure conversions, which
@@ -309,6 +348,79 @@ def test_rounding_functions():
     assert a_result == 3.0
     assert b_result == 2.0
     assert c_result == -2.0
+
+
+@pytest.mark.parametrize(
+    "dtype", [np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64]
+)
+def test_round_integer(dtype):
+    @cuda.jit
+    def kernel(values, out):
+        i = cuda.grid(1)
+        if i < values.size:
+            out[i] = round(values[i])
+
+    limits = np.iinfo(dtype)
+    values = [limits.min, 0, 1, 7, limits.max]
+    if limits.min < 0:
+        values.extend([-7, -1])
+    if limits.bits == 64:
+        values.append(2**53 + 1)
+    values = np.array(values, dtype=dtype)
+    out = np.zeros(values.size, dtype=np.uint64 if dtype == np.uint64 else np.int64)
+    kernel[1, 32](values, out)
+    np.testing.assert_array_equal(out, values)
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_round_boolean(value):
+    """round(bool) is 1 or 0.
+
+    ``Boolean`` is not a subclass of ``Integer`` in Numba's type hierarchy, so
+    the integer lowering does not cover it, and the generic lowering emits a
+    float rounding op on an ``i1``.
+    """
+
+    @cuda.jit
+    def kernel(values, out):
+        i = cuda.grid(1)
+        if i < values.size:
+            out[i] = round(values[i])
+
+    values = np.array([value], dtype=np.bool_)
+    out = np.zeros(1, dtype=np.int64)
+    kernel[1, 1](values, out)
+    np.testing.assert_array_equal(out, [int(round(value))])
+
+
+@pytest.mark.parametrize("dtype", [np.int64, np.uint32, np.uint64])
+@pytest.mark.parametrize("ndigits", [3, 1, 0, -1, -2, -4])
+def test_round_integer_ndigits(ndigits, dtype):
+    """round(int, ndigits) computes through the float operand the signature declares.
+
+    Numba types ``round(int64, int64)`` as ``(float64, int64) -> float64``, so
+    the result is a float even though Python returns an int here.  Only the
+    value is pinned.
+    """
+
+    @cuda.jit
+    def kernel(values, digits, out):
+        i = cuda.grid(1)
+        if i < values.size:
+            out[i] = round(values[i], digits[0])
+
+    limits = np.iinfo(dtype)
+    values = [0, 7, 12345, 98765]
+    if limits.min < 0:
+        values.append(-12345)
+    else:
+        values.extend([2 ** (limits.bits - 1), 2 ** (limits.bits - 1) + 1, limits.max])
+    values = np.array(values, dtype=dtype)
+    digits = np.array([ndigits], dtype=np.int64)
+    out = np.zeros(values.size, dtype=np.float64)
+    kernel[1, 8](values, digits, out)
+    expected = np.array([round(float(v), ndigits) for v in values], dtype=np.float64)
+    np.testing.assert_array_equal(out, expected)
 
 
 def test_abs_fabs():

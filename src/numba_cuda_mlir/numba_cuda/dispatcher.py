@@ -1364,6 +1364,9 @@ class _FunctionCompiler:
         def stararg_handler(index, param, values):
             return types.StarArgTuple(values)
 
+        def starkwarg_handler(index, param, values):
+            return types.star_kwarg_tuple(values)
+
         # For now, we take argument values from the @jit function
         args = fold_arguments(
             self.pysig,
@@ -1372,6 +1375,7 @@ class _FunctionCompiler:
             normal_handler,
             default_handler,
             stararg_handler,
+            starkwarg_handler,
         )
         return self.pysig, args
 

@@ -63,6 +63,10 @@ def __getattr__(name):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
+def __dir__():
+    return sorted(set(globals()) | {"random"})
+
+
 def inline_ptx(format_string: str, *args) -> None:
     """
     Add PTX code directly into the kernel.
@@ -149,3 +153,6 @@ def stwb(array, i, value):
 def stwt(array, i, value):
     """Generate a `st.global.wt` instruction for element `i` of an array."""
     pass
+
+
+__all__ = [name for name in globals() if not name.startswith("_")] + ["random"]

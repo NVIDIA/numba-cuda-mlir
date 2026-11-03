@@ -18,6 +18,7 @@ from types import MethodType, FunctionType, MappingProxyType
 from numba_cuda_mlir import numba_cuda
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core.errors import (
+    ArgumentBindingError,
     TypingError,
     InternalError,
 )
@@ -194,7 +195,18 @@ def signature(return_type, *args, **kws):
     return Signature(return_type, args, recvr=recvr)
 
 
-def fold_arguments(pysig, args, kws, normal_handler, default_handler, stararg_handler):
+def fold_arguments(
+    pysig,
+    args,
+    kws,
+    normal_handler,
+    default_handler,
+    stararg_handler,
+    starkwarg_handler=None,
+    *,
+    name=None,
+    loc=None,
+):
     """
     Given the signature *pysig*, explicit *args* and *kws*, resolve
     omitted arguments and keyword arguments. A tuple of positional
@@ -203,39 +215,30 @@ def fold_arguments(pysig, args, kws, normal_handler, default_handler, stararg_ha
     - normal_handler(index, param, value) is called for normal arguments
     - default_handler(index, param, default) is called for omitted arguments
     - stararg_handler(index, param, values) is called for a "*args" argument
+    - starkwarg_handler(index, param, values) is called for a "**kwargs"
+      argument, with the name-to-value dict of the keywords it collects
+    If the arguments do not bind, an ArgumentBindingError is raised; given the
+    callee's *name*, its message is Python's, and *loc* is the call's location.
     """
     if isinstance(kws, Sequence):
         # Normalize dict kws
         kws = dict(kws)
 
-    # deal with kwonly args
-    params = pysig.parameters
-    kwonly = []
-    for name, p in params.items():
-        if p.kind == p.KEYWORD_ONLY:
-            kwonly.append(name)
-
-    if kwonly:
-        bind_args = args[: -len(kwonly)]
-    else:
-        bind_args = args
-    bind_kws = kws.copy()
-    if kwonly:
-        for idx, n in enumerate(kwonly):
-            bind_kws[n] = args[len(kwonly) + idx]
-
     # now bind
     try:
-        ba = pysig.bind(*bind_args, **bind_kws)
+        ba = pysig.bind(*args, **kws)
     except TypeError as e:
         # The binding attempt can raise if the args don't match up, this needs
         # to be converted to a TypingError so that e.g. partial type inference
-        # doesn't just halt.
-        msg = (
-            f"Cannot bind 'args={bind_args} kws={bind_kws}' to "
-            f"signature '{pysig}' due to \"{type(e).__name__}: {e}\"."
-        )
-        raise TypingError(msg)
+        # doesn't just halt. It stays a TypeError, as in Python.
+        if name is None:
+            msg = (
+                f"Cannot bind 'args={args} kws={kws}' to "
+                f"signature '{pysig}' due to \"{type(e).__name__}: {e}\"."
+            )
+        else:
+            msg = f"{name}() {e}"
+        raise ArgumentBindingError(msg, loc=loc)
     for i, param in enumerate(pysig.parameters.values()):
         name = param.name
         default = param.default
@@ -255,6 +258,14 @@ def fold_arguments(pysig, args, kws, normal_handler, default_handler, stararg_ha
             out = stararg_handler(i, param, argval)
 
             ba.arguments[name] = out
+        elif param.kind == param.VAR_KEYWORD:
+            if starkwarg_handler is None:
+                raise TypingError(
+                    f"The use of VAR_KEYWORD (e.g. **kwargs) is unsupported here. "
+                    f"(offending argument name is '{param}')"
+                )
+            # Like a stararg, an omitted "**kwargs" is simply empty.
+            ba.arguments[name] = starkwarg_handler(i, param, ba.arguments.get(name, {}))
         elif name in ba.arguments:
             # Non-stararg, present
             ba.arguments[name] = normal_handler(i, param, ba.arguments[name])
@@ -629,12 +640,105 @@ def _flags_match_reads(flags, reads):
     return all(_read_flag(flags, read) == value for read, value in reads)
 
 
-def _select_overload_dispatcher(templates, args_match, cur_flags):
+def _spread_bundle(collected):
+    """The types a ``*args`` parameter contributes, however they arrived.
+
+    Typing folds a bundle into one ``StarArg`` tuple while a call site supplies
+    its elements individually.  Only the folded form carries the ``StarArg``
+    marker, so a genuine trailing tuple argument is never mistaken for a
+    bundle the way a plain ``BaseTuple`` check would mistake it.
+    """
+    spread = []
+    for arg_type in collected:
+        if isinstance(arg_type, (types.StarArgTuple, types.StarArgUniTuple)):
+            spread.extend(arg_type.types)
+        else:
+            spread.append(arg_type)
+    return spread
+
+
+_STAR_BUNDLES = (
+    types.StarArgTuple,
+    types.StarArgUniTuple,
+    types.StarKwargTuple,
+    types.StarKwargUniTuple,
+)
+
+
+def strip_star_args(numba_type):
+    """The same tuple type without any ``*args`` or ``**kwargs`` bundle marker.
+
+    ``StarArgTuple``/``StarArgUniTuple`` (and their ``**kwargs`` counterparts
+    ``StarKwargTuple``/``StarKwargUniTuple``) record that a call site folded
+    these types into one parameter.  That is true of the parameter and false of a
+    value: an implementation returning ``args`` hands back an ordinary tuple,
+    and the marker riding along makes whoever receives it mistake it for a
+    bundle of their own and splice its elements in.  Strip it wherever a
+    bundle becomes a value, so only a freshly folded parameter carries it.
+
+    Recurse into nested tuples too: indexing a returned tuple can expose an
+    inner bundle as an argument to another call.
+    """
+    if not isinstance(numba_type, types.BaseTuple):
+        return numba_type
+    element_types = tuple(strip_star_args(t) for t in numba_type.types)
+    if element_types == numba_type.types and not isinstance(numba_type, _STAR_BUNDLES):
+        return numba_type
+    return types.BaseTuple.from_types(
+        element_types, pyclass=getattr(numba_type, "instance_class", None)
+    )
+
+
+def canonical_call_key(impl_func, arg_types, kw_types):
+    """Argument types laid out in the order *impl_func* declares its parameters.
+
+    Binding puts every supplied type in the slot the callee declared for it, so
+    the result does not depend on how the call spelled them: keywords in any
+    order, an omitted default, and a ``*args`` bundle whether it arrives
+    collected or spread all produce the same tuple.  Omitted defaults become
+    ``types.Omitted`` and a bundle is spread inline, which is the form a call
+    site supplies them in.
+
+    Returns ``None`` when the arguments do not fit the declared parameters -- a
+    caller comparing against a cache entry should read that as "not this one"
+    rather than an error, since a mismatched arity is exactly what it is looking
+    to rule out.
+    """
+    try:
+        pysig = utils.pysignature(impl_func)
+        ba = pysig.bind(*arg_types, **kw_types)
+    except (TypeError, ValueError):
+        return None
+
+    key = []
+    for name, param in pysig.parameters.items():
+        if param.kind is param.VAR_KEYWORD:
+            # The names go in alongside the types: the bundle's fields are
+            # named, so keywords with the same types under other names are
+            # another bundle, and so another entry.
+            collected = ba.arguments.get(name, {})
+            key.append(tuple(collected))
+            key.extend(collected.values())
+        elif name not in ba.arguments:
+            # Unsupplied, so the callee will use its default.  Recording the
+            # default itself keeps two calls that differ in what they omitted
+            # from collapsing onto one key.
+            key.append(types.Omitted(param.default))
+        elif param.kind is param.VAR_POSITIONAL:
+            key.extend(_spread_bundle(ba.arguments[name]))
+        else:
+            key.append(ba.arguments[name])
+    return tuple(key)
+
+
+def _select_overload_dispatcher(templates, entry_matches, cur_flags):
     """Pick the cached overload Dispatcher for *cur_flags* from *templates*.
 
-    Scans every ``_impl_cache`` entry whose argument types satisfy *args_match*:
-    exact flag match first, then flags agreeing on every option the body read, then
-    the first argument match.
+    Scans every ``_impl_cache`` entry that *entry_matches* accepts, which is
+    called as ``entry_matches(py_func, args, kws)`` with the entry's own
+    implementation function and the positional and keyword types it was cached
+    under: exact flag match first, then flags agreeing on every option the body
+    read, then the first argument match.
     """
     observed = fallback = None
     for temp_cls in templates:
@@ -647,10 +751,10 @@ def _select_overload_dispatcher(templates, args_match, cur_flags):
                 continue
             _, args, kws, entry_flags = cache_key
             args = tuple(args)
-            if not args_match(args, kws):
-                continue
             disp, _ = cache_value
             if not hasattr(disp, "py_func"):
+                continue
+            if not entry_matches(disp.py_func, args, dict(kws)):
                 continue
             if cur_flags is None or entry_flags == cur_flags:
                 return disp
@@ -690,34 +794,43 @@ class _OverloadFunctionTemplate(AbstractTemplate):
         # Things that are invalid:
         # 5. Use of *args in the typing signature that is not replicated
         #    in the implementing signature
-        # 6. Use of **kwargs
+        # 6. Use of **kwargs in only one of the typing and implementation
+        #    signatures
 
         def get_args_kwargs(sig):
             kws = []
             args = []
             pos_arg = None
+            kw_arg = None
             for x in sig.parameters.values():
-                if x.default == utils.pyParameter.empty:
+                if x.kind == utils.pyParameter.VAR_KEYWORD:
+                    kw_arg = x
+                elif x.default == utils.pyParameter.empty:
                     args.append(x)
                     if x.kind == utils.pyParameter.VAR_POSITIONAL:
                         pos_arg = x
-                    elif x.kind == utils.pyParameter.VAR_KEYWORD:
-                        msg = (
-                            "The use of VAR_KEYWORD (e.g. **kwargs) is "
-                            "unsupported. (offending argument name is '%s')"
-                        )
-                        raise InternalError(msg % x)
                 else:
                     kws.append(x)
-            return args, kws, pos_arg
+            return args, kws, pos_arg, kw_arg
 
-        ty_args, ty_kws, ty_pos = get_args_kwargs(typing_sig)
-        im_args, im_kws, im_pos = get_args_kwargs(impl_sig)
+        ty_args, ty_kws, ty_pos, ty_kw = get_args_kwargs(typing_sig)
+        im_args, im_kws, im_pos, im_kw = get_args_kwargs(impl_sig)
 
         sig_fmt = "Typing signature:         %s\nImplementation signature: %s"
         sig_str = sig_fmt % (typing_sig, impl_sig)
 
         err_prefix = "Typing and implementation arguments differ in "
+
+        if (ty_kw is None) != (im_kw is None) or (ty_kw and ty_kw.name != im_kw.name):
+            # case 6. described above
+            offending = ty_kw if im_kw is None else im_kw
+            msg = (
+                "The use of VAR_KEYWORD (e.g. **kwargs) is unsupported unless "
+                "it appears by the same name in both the typing and the "
+                "implementing function signature. (offending argument name is "
+                "'%s')\n%s"
+            ) % (offending, sig_str)
+            raise InternalError(msg)
 
         a = ty_args
         b = im_args
@@ -868,7 +981,10 @@ class _OverloadFunctionTemplate(AbstractTemplate):
             if sig is None:  # can't resolve for this target
                 return None
             self._compiled_overloads[sig.args] = disp_type.get_overload(sig)
-        return sig
+        # Keyed on sig.args, which the return type does not take part in, so
+        # the registrations above stay addressable by the same key.
+        return_type = strip_star_args(sig.return_type)
+        return sig if return_type == sig.return_type else sig.replace(return_type=return_type)
 
     def _get_impl(self, args, kws):
         """Get implementation given the argument types.

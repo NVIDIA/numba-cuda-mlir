@@ -422,7 +422,9 @@ def test_overload_builder_prefers_entry_agreeing_on_observed_options():
     """Lowering prefers flags agreeing on what the body read over the first argument match."""
 
     class Disp:
-        py_func = None
+        # Lowering reads the parameters this declares to line the call up
+        # against the types the entry was cached under.
+        py_func = staticmethod(lambda x: None)
 
     def flags(**options):
         result = CUDAFlags()
@@ -544,7 +546,7 @@ def test_overload_builder_does_not_take_flagless_entry_over_exact_match():
     """An entry resolved with no flags is a fallback, not an exact match for any flags."""
 
     class Disp:
-        py_func = None
+        py_func = staticmethod(lambda x: None)
 
     template_cls = _make_template(lambda x: None)
     args = (types.int32,)
@@ -564,3 +566,40 @@ def test_overload_builder_does_not_take_flagless_entry_over_exact_match():
         )
 
     assert builder.__defaults__[0] is exact
+
+
+def test_keyword_order_does_not_pick_another_entry():
+    """A call lines up with its own entry whatever order its keywords are written in.
+
+    Both calls below reach the same overload, so both have an entry in the
+    cache, and the two entries differ only in which parameter received the
+    integer.  Laying the keywords out positionally in the order they are
+    written makes the second call's types read as the first call's, which is
+    enough to lower it through the wrong body.
+    """
+
+    def pick(a, lo, hi):
+        pass
+
+    @overload(pick, typing_registry=typing_registry, target="cuda")
+    def ol_pick(a, lo, hi):
+        # Bake in which slot held the integer, so taking the wrong entry shows
+        # up as the wrong value rather than as a typing failure.
+        tag = 1.0 if isinstance(lo, types.Integer) else 2.0
+
+        def impl(a, lo, hi):
+            return a + tag
+
+        return impl
+
+    refresh_registries()
+
+    @cuda.jit
+    def kernel(out):
+        out[0] = pick(0.0, 1.0, 2)
+        out[1] = pick(0.0, hi=4.0, lo=3)
+
+    out = np.zeros(2, dtype=np.float64)
+    kernel[1, 1](out)
+
+    assert (out[0], out[1]) == (2.0, 1.0)

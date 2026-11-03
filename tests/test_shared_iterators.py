@@ -19,6 +19,8 @@ from numba_cuda_mlir.numba_cuda.types import Type
 
 def test_locked_counter_is_unique_across_threads():
     counter = _LockedCounter(3)
+    if hasattr(threading, "serialize_iterator"):
+        assert type(counter) is threading.serialize_iterator
     workers = 8
     values_per_worker = 100
     start = threading.Barrier(workers)

@@ -87,7 +87,7 @@ fi
 
 
 echo "Ensuring libcudf and pylibcudf are installed..."
-mamba install -n "${CONDA_ENV_NAME}" -c rapidsai-nightly -c conda-forge \
+mamba install -n "${CONDA_ENV_NAME}" -c rapidsai -c conda-forge \
   "libcudf=26.08.*" "pylibcudf=26.08.*" \
   "cuda-version=${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}" -y
 

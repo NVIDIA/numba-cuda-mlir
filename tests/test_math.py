@@ -93,6 +93,45 @@ def test_arithmetic_operand_conversion_preserves_signedness(op, lhs, rhs, expect
     np.testing.assert_equal(out.copy_to_host()[0], expected)
 
 
+@pytest.mark.parametrize("op", [operator.neg, operator.invert], ids=["neg", "invert"])
+@pytest.mark.parametrize("dtype", [np.uint8, np.uint16, np.uint32])
+def test_unsigned_unary_wraparound(op, dtype):
+    @cuda.jit
+    def kernel(src, out):
+        out[0] = op(src[0])
+
+    limit = np.iinfo(dtype).max
+    values = np.array([0, 1, 7, limit // 2, limit // 2 + 1, limit], dtype=dtype)
+    expected = op(values).astype(np.int64)
+    got = np.empty(values.size, dtype=np.int64)
+    out = cuda.device_array(1, dtype=np.int64)
+    for i, value in enumerate(values):
+        src = cuda.to_device(np.array([value], dtype=dtype))
+        kernel[1, 1](src, out)
+        got[i] = out.copy_to_host()[0]
+    np.testing.assert_array_equal(got, expected)
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_float_not_equal_nan(dtype):
+    @cuda.jit
+    def kernel(lhs, rhs, unequal, self_unequal):
+        i = cuda.grid(1)
+        if i < lhs.size:
+            unequal[i] = lhs[i] != rhs[i]
+            self_unequal[i] = lhs[i] != lhs[i]
+
+    values = np.array([np.nan, -np.inf, -1.0, -0.0, 0.0, 1.0, np.inf], dtype=dtype)
+    lhs = np.repeat(values, values.size)
+    rhs = np.tile(values, values.size)
+    unequal = cuda.device_array(lhs.size, dtype=np.bool_)
+    self_unequal = cuda.device_array(lhs.size, dtype=np.bool_)
+    kernel[1, lhs.size](cuda.to_device(lhs), cuda.to_device(rhs), unequal, self_unequal)
+
+    np.testing.assert_array_equal(unequal.copy_to_host(), np.not_equal(lhs, rhs))
+    np.testing.assert_array_equal(self_unequal.copy_to_host(), np.isnan(lhs))
+
+
 # Every value below has its high bit set, so reading it as signed yields a
 # negative number and the wrong answer is obvious rather than a rounding
 # difference. math.ceil/floor/trunc of an integer are pure conversions, which
@@ -311,6 +350,79 @@ def test_rounding_functions():
     assert c_result == -2.0
 
 
+@pytest.mark.parametrize(
+    "dtype", [np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64]
+)
+def test_round_integer(dtype):
+    @cuda.jit
+    def kernel(values, out):
+        i = cuda.grid(1)
+        if i < values.size:
+            out[i] = round(values[i])
+
+    limits = np.iinfo(dtype)
+    values = [limits.min, 0, 1, 7, limits.max]
+    if limits.min < 0:
+        values.extend([-7, -1])
+    if limits.bits == 64:
+        values.append(2**53 + 1)
+    values = np.array(values, dtype=dtype)
+    out = np.zeros(values.size, dtype=np.uint64 if dtype == np.uint64 else np.int64)
+    kernel[1, 32](values, out)
+    np.testing.assert_array_equal(out, values)
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_round_boolean(value):
+    """round(bool) is 1 or 0.
+
+    ``Boolean`` is not a subclass of ``Integer`` in Numba's type hierarchy, so
+    the integer lowering does not cover it, and the generic lowering emits a
+    float rounding op on an ``i1``.
+    """
+
+    @cuda.jit
+    def kernel(values, out):
+        i = cuda.grid(1)
+        if i < values.size:
+            out[i] = round(values[i])
+
+    values = np.array([value], dtype=np.bool_)
+    out = np.zeros(1, dtype=np.int64)
+    kernel[1, 1](values, out)
+    np.testing.assert_array_equal(out, [int(round(value))])
+
+
+@pytest.mark.parametrize("dtype", [np.int64, np.uint32, np.uint64])
+@pytest.mark.parametrize("ndigits", [3, 1, 0, -1, -2, -4])
+def test_round_integer_ndigits(ndigits, dtype):
+    """round(int, ndigits) computes through the float operand the signature declares.
+
+    Numba types ``round(int64, int64)`` as ``(float64, int64) -> float64``, so
+    the result is a float even though Python returns an int here.  Only the
+    value is pinned.
+    """
+
+    @cuda.jit
+    def kernel(values, digits, out):
+        i = cuda.grid(1)
+        if i < values.size:
+            out[i] = round(values[i], digits[0])
+
+    limits = np.iinfo(dtype)
+    values = [0, 7, 12345, 98765]
+    if limits.min < 0:
+        values.append(-12345)
+    else:
+        values.extend([2 ** (limits.bits - 1), 2 ** (limits.bits - 1) + 1, limits.max])
+    values = np.array(values, dtype=dtype)
+    digits = np.array([ndigits], dtype=np.int64)
+    out = np.zeros(values.size, dtype=np.float64)
+    kernel[1, 8](values, digits, out)
+    expected = np.array([round(float(v), ndigits) for v in values], dtype=np.float64)
+    np.testing.assert_array_equal(out, expected)
+
+
 def test_abs_fabs():
     """Test absolute value functions"""
 
@@ -344,6 +456,46 @@ def test_unary_operators():
 
     assert x_result == -5.0
     assert y_result == 3.0
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64, np.complex128])
+def test_negation_signs(dtype):
+    """-x flips the sign of zeros and infinities too, in every component"""
+
+    @cuda.jit()
+    def neg_kernel(out, inp):
+        i = cuda.grid(1)
+        if i < out.shape[0]:
+            out[i] = -inp[i]
+
+    values = [0.0, -0.0, 1.5, -1.5, np.inf, -np.inf]
+    if dtype == np.complex128:
+        values = [complex(re, im) for re in values for im in values]
+    inp = np.array(values, dtype=dtype)
+    out = cuda.to_device(np.empty_like(inp))
+    neg_kernel[1, inp.size, 0, 0](out, cuda.to_device(inp))
+
+    result = out.copy_to_host()
+    expected = -inp
+    np.testing.assert_array_equal(result, expected)
+    np.testing.assert_array_equal(np.signbit(result.real), np.signbit(expected.real))
+    np.testing.assert_array_equal(np.signbit(result.imag), np.signbit(expected.imag))
+
+
+def test_negated_constants():
+    """Negated constants keep the sign of the negation when folded"""
+
+    @cuda.jit()
+    def const_kernel(out):
+        zero = 0.0
+        out[0] = -zero
+        out[1] = -np.nan
+        out[2] = -np.inf
+
+    out = cuda.to_device(np.zeros(3))
+    const_kernel[1, 1, 0, 0](out)
+
+    np.testing.assert_array_equal(np.signbit(out.copy_to_host()), [True, True, True])
 
 
 def test_floor_division():
@@ -1047,6 +1199,41 @@ def test_remainder():
     y = cuda.to_device(np.array([3.0]))
     remainder_kernel[1, 1, 0, 0](result, x, y)
     np.testing.assert_almost_equal(result.copy_to_host()[0], 1.0, decimal=5)
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize(
+    "x, y",
+    [
+        (1e17, 3.0),
+        (5.0, np.inf),
+        (-5.0, np.inf),
+        (-0.0, 1.0),
+        (-7.5, 2.0),
+        (7.0, -2.0),
+        (5.0, 2.0),
+        (1.0, 0.1),
+        (1e30, 1e-30),
+    ],
+)
+def test_fmod_remainder_exact(dtype, x, y):
+    """fmod and remainder are exact, even where x / y rounds"""
+
+    @cuda.jit()
+    def fmod_remainder_kernel(out, x, y):
+        out[0] = math.fmod(x[0], y[0])
+        out[1] = math.remainder(x[0], y[0])
+
+    xs, ys = np.array([x], dtype=dtype), np.array([y], dtype=dtype)
+    out = cuda.to_device(np.zeros(2, dtype=dtype))
+    fmod_remainder_kernel[1, 1, 0, 0](out, cuda.to_device(xs), cuda.to_device(ys))
+
+    # Both results are exact, so they are representable in dtype
+    xf, yf = float(xs[0]), float(ys[0])
+    expected = np.array([math.fmod(xf, yf), math.remainder(xf, yf)], dtype=dtype)
+    result = out.copy_to_host()
+    np.testing.assert_array_equal(result, expected)
+    np.testing.assert_array_equal(np.signbit(result), np.signbit(expected))
 
 
 def test_pow():

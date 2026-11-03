@@ -70,7 +70,8 @@ gh run download "$RUN_ID" -R NVIDIA/numba-cuda-mlir -p "numba-cuda-mlir-python31
 pip install numba-cuda-mlir-python312-linux-64-*/numba_cuda_mlir*.whl[cu13]
 ```
 
-Replace `python312` with your Python version (e.g. `python313`, `python314`, `python314t`).
+Replace `python312` with your Python version (e.g. `python313`, `python314`,
+`python314t`, `python315`, `python315t`).
 For aarch64, replace `linux-64` with `linux-aarch64`.
 Replace `cu13` with `cu12` for CUDA 12.x environments.
 

@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+set -euo pipefail
+
+: "${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR:?must be set by ci/tools/env-vars}"
+: "${LOCAL_CTK:?must be set by the workflow}"
+: "${TEST_CUDA_MAJOR:?must be set by ci/tools/env-vars}"
+
+CCCL_REPO="${CCCL_REPO:-https://github.com/NVIDIA/cccl.git}"
+CCCL_REF="${CCCL_REF:-main}"
+CCCL_CHECKOUT="$(mktemp -d)/cccl"
+JUNIT_DIR="${GITHUB_WORKSPACE:-$(pwd)}"
+
+wheels=("${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR}"/*.whl)
+if [[ ${#wheels[@]} -ne 1 || ! -f "${wheels[0]}" ]]; then
+  echo "ERROR: expected exactly one numba-cuda-mlir wheel in ${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR}"
+  exit 1
+fi
+wheel="${wheels[0]}"
+
+python -m pip install --upgrade pip
+
+echo "Cloning CCCL (${CCCL_REF})"
+git clone --filter=blob:none "${CCCL_REPO}" "${CCCL_CHECKOUT}"
+git -C "${CCCL_CHECKOUT}" checkout --quiet "${CCCL_REF}"
+git -C "${CCCL_CHECKOUT}" log -1 --format='%H %h %s'
+
+# The minimal extra supplies CUDA dependencies without requiring a released
+# numba-cuda-mlir version. Always install this run's wheel explicitly instead.
+ctk_flavor="cu"
+cupy_req="cupy-cuda${TEST_CUDA_MAJOR}x[ctk]"
+backend_req="${wheel}[cu${TEST_CUDA_MAJOR}]"
+if [[ "${LOCAL_CTK}" == 1 ]]; then
+  ctk_flavor="sysctk"
+  cupy_req="cupy-cuda${TEST_CUDA_MAJOR}x"
+  backend_req="${wheel}"
+fi
+
+# Source-build the default v1/NVRTC backend, not experimental v2/HostJIT.
+python -m pip install \
+  "${CCCL_CHECKOUT}/python/cuda_cccl[minimal-${ctk_flavor}${TEST_CUDA_MAJOR}]" \
+  "${backend_req}" "${cupy_req}" pytest pytest-xdist ml_dtypes \
+  --config-settings=cmake.define.CCCL_PYTHON_USE_V2=OFF
+
+python -m pip check
+python - "${wheel}" <<'PY'
+import importlib.metadata as metadata
+import sys
+from pathlib import Path
+
+import cuda.compute
+import numba_cuda_mlir
+from cuda.compute import _mlir
+from cuda.compute._build_info import USING_V2
+
+expected = Path(sys.argv[1]).name.split('-')[1]
+assert metadata.version('numba-cuda-mlir') == expected
+assert _mlir.cuda is numba_cuda_mlir.cuda
+assert not USING_V2
+for package in ('numba', 'numba-cuda'):
+    try:
+        metadata.distribution(package)
+    except metadata.PackageNotFoundError:
+        continue
+    raise RuntimeError(f'{package} installed: expected only the MLIR backend')
+print(f'numba-cuda-mlir {expected} from {numba_cuda_mlir.__file__}')
+print(f'cuda.compute from {cuda.compute.__file__} (v1/NVRTC)')
+PY
+
+export NUMBA_CUDA_MLIR_ICE_FULL_TB=1
+export PYTHONSAFEPATH=1
+cd "${CCCL_CHECKOUT}/python/cuda_cccl/tests"
+
+# Bound parallelism and serialize large allocations, matching CCCL's own CI.
+# Run every group even after failures so each produces its own JUnit report.
+status=0
+python -m pytest compute/ -n 6 -v -ra --tb=short \
+  -m 'not large and not free_threading' \
+  --junit-xml="${JUNIT_DIR}/cccl-compute-mlir-junit-compute.xml" \
+  "$@" || status=1
+python -m pytest compute/ -n 0 -v -ra --tb=short \
+  -m 'large and not free_threading' \
+  --junit-xml="${JUNIT_DIR}/cccl-compute-mlir-junit-large.xml" \
+  "$@" || status=1
+python -m pytest test_examples.py -n 6 -v -ra --tb=short \
+  --junit-xml="${JUNIT_DIR}/cccl-compute-mlir-junit-examples.xml" \
+  "$@" || status=1
+exit "${status}"

@@ -128,6 +128,39 @@ def lower_tuple_concat(builder, target, args, kwargs):
     builder.store_var(target, lhs + rhs)
 
 
+def _tuple_equal_value(builder, target, args, kwargs):
+    from numba_cuda_mlir import cuda
+    from numba_cuda_mlir.cuda.experimental import consteval
+
+    lhs_type, rhs_type = (builder.get_numba_type(arg.name) for arg in args)
+    if len(lhs_type) != len(rhs_type):
+        return arith.constant(T.bool(), False)
+
+    # Unroll by field so heterogeneous and nested tuples use their own
+    # element comparison lowerings, including the usual numeric promotions.
+    indices = tuple(range(len(lhs_type)))
+
+    @cuda.jit(device=True)
+    def impl(lhs, rhs):
+        result = True
+        for i in consteval(indices):
+            result = result & (lhs[i] == rhs[i])
+        return result
+
+    return builder.build_user_defined_function_call(target, impl, args, kwargs)
+
+
+@lower(operator.eq, types.BaseTuple, types.BaseTuple)
+def lower_tuple_eq(builder, target, args, kwargs):
+    builder.store_var(target, _tuple_equal_value(builder, target, args, kwargs))
+
+
+@lower(operator.ne, types.BaseTuple, types.BaseTuple)
+def lower_tuple_ne(builder, target, args, kwargs):
+    result = _tuple_equal_value(builder, target, args, kwargs)
+    builder.store_var(target, arith.xori(result, arith.constant(T.bool(), True)))
+
+
 @lower(range, types.Number)
 @lower(range, types.Number, types.Number)
 @lower(range, types.Number, types.Number, types.Number)
@@ -531,23 +564,30 @@ lower(types.NumberClass, types.Number)(type_convert)
 lower(types.NumberClass, types.Boolean)(type_convert)
 
 
+def _minmax_operands(builder, target, args):
+    """Convert operands to the inferred common type using source signedness."""
+    target_type = builder.get_numba_type(target)
+    mlir_type = builder.get_mlir_type(target)
+    return tuple(
+        convert(
+            builder.load_var(arg),
+            mlir_type,
+            signed=get_conversion_signedness(builder.get_numba_type(arg), target_type),
+        )
+        for arg in args
+    )
+
+
 @lower(max, types.Number, types.Number)
 def lower_max(builder, target, args, kwargs):
     """Lower built-in max(a, b) for numeric types."""
-    from numba_cuda_mlir.lowering_utilities import coerce_numpy_scalars_for_binary_op
-
-    a = builder.load_var(args[0])
-    b = builder.load_var(args[1])
-
-    # Promote types using numpy implicit type promotion
-    a, b = coerce_numpy_scalars_for_binary_op(a, b)
+    a, b = _minmax_operands(builder, target, args)
 
     # Use appropriate max operation based on type
     if isinstance(a.type, ir.FloatType):
         result = arith.maxnumf(a, b)
     elif isinstance(a.type, ir.IntegerType):
-        # For simplicity, use signed max (could enhance to detect signed/unsigned)
-        result = arith.maxsi(a, b)
+        result = arith.maxsi(a, b) if builder.get_numba_type(target).signed else arith.maxui(a, b)
     else:
         raise NotImplementedError(f"max not implemented for type {a.type}")
 
@@ -557,20 +597,13 @@ def lower_max(builder, target, args, kwargs):
 @lower(min, types.Number, types.Number)
 def lower_min(builder, target, args, kwargs):
     """Lower built-in min(a, b) for numeric types."""
-    from numba_cuda_mlir.lowering_utilities import coerce_numpy_scalars_for_binary_op
-
-    a = builder.load_var(args[0])
-    b = builder.load_var(args[1])
-
-    # Promote types using numpy implicit type promotion
-    a, b = coerce_numpy_scalars_for_binary_op(a, b)
+    a, b = _minmax_operands(builder, target, args)
 
     # Use appropriate min operation based on type
     if isinstance(a.type, ir.FloatType):
         result = arith.minnumf(a, b)
     elif isinstance(a.type, ir.IntegerType):
-        # For simplicity, use signed min (could enhance to detect signed/unsigned)
-        result = arith.minsi(a, b)
+        result = arith.minsi(a, b) if builder.get_numba_type(target).signed else arith.minui(a, b)
     else:
         raise NotImplementedError(f"min not implemented for type {a.type}")
 
@@ -584,11 +617,28 @@ def lower_round(builder, target, args, kwargs):
     trace()
     value = builder.load_var(args[0])
     ndigits = builder.load_var(args[1])
-    fname = f"round_ndigits_type_{str(value.type)}_type_{str(ndigits.type)}"
+    value_type = value.type
+    if isinstance(value_type, ir.IntegerType):
+        # Numba types round(int, ndigits) as (float, intp) -> float, so pick the
+        # float variant the signature declares. The call lowering converts each
+        # operand to the callee's declared input type.
+        value_type = builder.get_mlir_type(builder.get_numba_type(target.name))
+    fname = f"round_ndigits_type_{str(value_type)}_type_{str(ndigits.type)}"
     if func := getattr(round, fname, None):
         builder.lower_call_external_mlir_library_function(target, func, args, {})
         return
     raise NotImplementedError(f"round intrinsic for types {value.type} and {ndigits.type}")
+
+
+@lower(round, types.Integer)
+@lower(round, types.Boolean)
+def lower_round_integer(builder, target, args, kwargs):
+    # Boolean is not a subclass of Integer in Numba's type hierarchy, so it
+    # needs its own registration to reach this already-rounded path.
+    source_type = builder.get_numba_type(args[0].name)
+    target_type = builder.get_numba_type(target.name)
+    value = builder.lower_cast(source_type, target_type, builder.load_var(args[0]))
+    builder.store_var(target, value)
 
 
 @lower(round, types.Number)
@@ -596,7 +646,10 @@ def lower_round_single(builder, target, args, kwargs):
     from numba_cuda_mlir._mlir.dialects import math
 
     value = builder.load_var(args[0])
-    res = math.round(value)
+    # math.round takes halfway cases away from zero; Python, NumPy and
+    # numba-cuda take them to even, which is math.roundeven.  The two-argument
+    # lowering already goes through runtime.round_intrinsics for this reason.
+    res = math.roundeven(value)
     builder.store_var(target, res)
 
 
@@ -716,10 +769,24 @@ def operator_imul_array_lower(builder, target, args, kwargs):
 
 @lower(operator.neg, types.Number)
 def operator_neg_number_lower(builder, target, args, kwargs):
-    """Lower operator.neg for numbers by using arith.negf"""
+    """Lower operator.neg for numbers"""
     value = builder.load_var(args[0])
-    c0 = constant(0, value.type)
-    result = c0 - value
+    match value.type:
+        case ir.FloatType():
+            # Flip the sign bit: 0.0 - x would give +0.0 for x = 0.0, and fold
+            # constants such as -nan to +nan
+            result = arith.negf(value)
+        case ir.ComplexType():
+            from numba_cuda_mlir._mlir.dialects import complex as complex_dialect
+
+            result = complex_dialect.neg(value)
+        case _:
+            result = constant(0, value.type) - value
+    source_type = builder.get_numba_type(args[0].name)
+    if isinstance(source_type, types.Integer) and not source_type.signed:
+        # Wrap at the input width before zero-extending, like stock numba-cuda.
+        target_type = builder.get_numba_type(target.name)
+        result = convert(result, builder.get_mlir_type(target_type), signed=False)
     builder.store_var(target, result)
 
 

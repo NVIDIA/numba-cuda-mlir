@@ -223,7 +223,7 @@ def _operator_mapping() -> dict:
             None,
         ),
         operator.ne: OpForType(
-            _make_fcmp(arith.CmpFPredicate.ONE),
+            _make_fcmp(arith.CmpFPredicate.UNE),
             _make_icmp(arith.CmpIPredicate.ne),
             _make_icmp(arith.CmpIPredicate.ne),
             None,

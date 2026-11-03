@@ -12,6 +12,25 @@ from numba_cuda_mlir import types
 from numba_cuda_mlir.experimental import host
 from numba_cuda_mlir.numba_cuda.core.errors import TypingError
 
+UINT64_GLOBAL = np.uint64(2**64 - 1)
+
+
+@pytest.mark.parametrize("value", [0, 2**63 - 1, 2**63, 2**64 - 1])
+def test_uint64_captures(value, monkeypatch):
+    captured = np.uint64(value)
+    monkeypatch.setitem(globals(), "UINT64_GLOBAL", captured)
+
+    @host.jit
+    def read_global():
+        return UINT64_GLOBAL
+
+    @host.jit
+    def read_closure():
+        return captured
+
+    assert read_global() == value
+    assert read_closure() == value
+
 
 @pytest.mark.parametrize(
     "dtype,values",
@@ -70,6 +89,26 @@ def test_bitwise_unary_and_comparisons():
 
     for args in ((5, 3), (-5, 3), (3, 3)):
         assert compute(*args) == compute.py_func(*args)
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize(
+    "a,b",
+    [
+        (float("nan"), 0.0),
+        (0.0, float("nan")),
+        (float("nan"), float("nan")),
+        (1.0, 2.0),
+        (1.0, 1.0),
+        (0.0, -0.0),
+    ],
+)
+def test_float_inequality(dtype, a, b):
+    @host.jit
+    def not_equal(a, b):
+        return a != b
+
+    assert not_equal(dtype(a), dtype(b)) == bool(dtype(a) != dtype(b))
 
 
 @pytest.mark.parametrize(

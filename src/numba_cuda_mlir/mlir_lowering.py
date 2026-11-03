@@ -1231,6 +1231,9 @@ extern "C" __global__ void
             self._store_complex_constant(target, glob.value)
         elif isinstance(glob.value, (bool, int, float, np.number, np.bool_)):
             mlir_type = self.get_mlir_type(target_type)
+            if isinstance(target_type, types.Integer):
+                self.lower_const_assign(target, numba_ir.Const(glob.value, glob.loc))
+                return
             # Check if the MLIR type supports constants
             if not isinstance(
                 mlir_type,

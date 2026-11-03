@@ -14,6 +14,10 @@ def jit(func_or_sig=None, **options):
     Each argument-type tuple has one compiled return type. Explicit signatures
     requesting a different return type for an existing overload raise TypeError.
 
+    Scalar globals and closure captures are compiled with their scalar types,
+    including the full uint64 range. Floating-point inequality follows Python:
+    NaN compares unequal to every value, including itself.
+
     A dispatcher and any retained compiled entry point keep their execution
     engine alive. Releasing both allows the engine and its runtime callbacks
     to be collected.

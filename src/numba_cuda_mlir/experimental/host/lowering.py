@@ -108,6 +108,12 @@ class Lower(mlir_lowering.MLIRLower):
             raise TypingError(f"host.jit supports scalar values only; got {typ}")
         super().lower_assign(inst)
 
+    def lower_free_var_assign(self, target, free_var):
+        if isinstance(types.unliteral(self.get_numba_type(target.name)), types.Integer):
+            self.lower_const_assign(target, numba_ir.Const(free_var.value, free_var.loc))
+        else:
+            super().lower_free_var_assign(target, free_var)
+
     def _check_float_to_integer(self, source_type, target_type, value):
         source_type = types.unliteral(source_type)
         target_type = types.unliteral(target_type)

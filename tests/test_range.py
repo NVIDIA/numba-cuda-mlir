@@ -56,6 +56,25 @@ def test_range_neg_stride():
     assert x[0] == sum(range(10, 3, -2))
 
 
+@pytest.mark.parametrize("dtype", [np.int64, np.uint64])
+@pytest.mark.parametrize("debug", [False, True])
+def test_range_zero_step_skips_body(dtype, debug):
+    @cuda.jit(debug=debug, opt=not debug)
+    def count(out, start, stop, step):
+        for _ in range(start, stop, step):
+            out[0] += 1
+        out[1] = 1
+
+    out = cuda.to_device(np.zeros(2, dtype=np.int64))
+    args = (out, dtype(10), dtype(0), dtype(0))
+    if debug:
+        with pytest.raises(ZeroDivisionError):
+            count[1, 1](*args)
+    else:
+        count[1, 1](*args)
+    np.testing.assert_array_equal(out.copy_to_host(), [0, 1])
+
+
 @pytest.mark.parametrize(
     "args,expected",
     [

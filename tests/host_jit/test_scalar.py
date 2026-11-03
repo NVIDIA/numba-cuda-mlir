@@ -508,6 +508,30 @@ def test_signature_list():
         identity(41)
 
 
+def test_reject_conflicting_signature_list_return_types():
+    def identity(value):
+        return value
+
+    with pytest.raises(TypeError):
+        host.jit([types.int32(types.int32), types.float64(types.int32)])(identity)
+
+
+@pytest.mark.parametrize("infer_return_type", [False, True])
+def test_compile_return_type_conflict_preserves_overload(infer_return_type):
+    @host.jit
+    def identity(value):
+        return value
+
+    signature = (types.int8,) if infer_return_type else types.int8(types.int8)
+    identity.compile(signature)
+    with pytest.raises(TypeError):
+        identity.compile(types.int64(types.int8))
+
+    identity.compile(types.int8(types.int8))
+    assert identity(np.int8(-7)) == -7
+    assert identity.compile((types.int8,)).entry_point(128) == -128
+
+
 def test_reject_unsupported_scalar_operations():
     def power(value):
         return value**2

@@ -1317,6 +1317,7 @@ class RangeObject:
             arith.cmpi(predicate, start_i64, stop_i64),
             arith.cmpi(predicate, stop_i64, start_i64),
         )
+        nonempty = arith.andi(nonempty, arith.cmpi(arith.CmpIPredicate.ne, step_i64, zero_i64))
         distance = arith.select(
             step_positive,
             arith.subi(stop_i64, start_i64),

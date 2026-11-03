@@ -65,7 +65,13 @@ class Dispatcher:
                 f"expected {len(self._arg_annotations)} argument types, got {len(argtypes)}"
             )
         if argtypes in self.overloads:
-            return self.overloads[argtypes]
+            existing = self.overloads[argtypes]
+            if return_type is not None and existing.signature.return_type != return_type:
+                raise TypeError(
+                    f"host.jit signature {argtypes} already compiled with return type "
+                    f"{existing.signature.return_type}, not {return_type}"
+                )
+            return existing
         if not self._can_compile:
             raise TypeError(f"no matching host.jit signature for {argtypes}")
         result = compile(self.py_func, return_type, argtypes, self.targetoptions)

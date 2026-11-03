@@ -23,6 +23,7 @@ from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.type_defs.vector_types import VectorType
+from numba_cuda_mlir.numba_cuda.np import numpy_support
 from numba_cuda_mlir.numba_cuda.np.npyimpl import _make_dtype_object
 from numba_cuda_mlir.numba_cuda.np.arraymath import _np_round_float
 
@@ -137,6 +138,41 @@ def lower_get_size(
     dims = [memref.dim(array, index_of(i)) for i in range(rank)]
     size = functools.reduce(operator.mul, dims, index_of(1))
     builder.store_var(target, size)
+
+
+@lower_getattr(types.Array, "ndim")
+def lower_get_ndim(
+    _: MLIRTargetContext,
+    builder: MLIRLower,
+    target: numba_ir.Var,
+    array: numba_ir.Var,
+):
+    builder.store_var(target, index_of(builder.get_numba_type(array).ndim))
+
+
+@lower_getattr(types.Array, "itemsize")
+def lower_get_itemsize(
+    _: MLIRTargetContext,
+    builder: MLIRLower,
+    target: numba_ir.Var,
+    array: numba_ir.Var,
+):
+    itemsize = storage_itemsize_bytes(builder.get_numba_type(array))
+    builder.store_var(target, index_of(itemsize))
+
+
+@lower_getattr(types.Array, "nbytes")
+def lower_get_nbytes(
+    _: MLIRTargetContext,
+    builder: MLIRLower,
+    target: numba_ir.Var,
+    array: numba_ir.Var,
+):
+    itemsize = storage_itemsize_bytes(builder.get_numba_type(array))
+    array = builder.load_var(array)
+    rank = array.type.rank
+    dims = [memref.dim(array, index_of(i)) for i in range(rank)]
+    builder.store_var(target, functools.reduce(operator.mul, dims, index_of(itemsize)))
 
 
 def _lower_array_complex_real_imag(builder, target, array_var, attr):
@@ -544,8 +580,7 @@ def len_cg(builder, target, args, kwargs):
     builder.store_var(target, product)
 
 
-@lower(len, types.UniTuple)
-@lower(len, types.Tuple)
+@lower(len, types.BaseTuple)
 def tuple_len_cg(builder, target, args, kwargs):
     tup = builder.load_var(args[0])
     builder.store_var(target, arith.constant(result=T.index(), value=len(tup)))
@@ -2288,19 +2323,19 @@ def create_elementwise_op(builder, target, args, kwargs, math_fn, op_name):
     array = lowering_utilities.memref_to_value_tensor(input_array_type, array_memref)
     input_tensor_type = array.type
 
-    # Extract dynamic dimensions for tensor.empty (use target type for output)
+    # Sizes for tensor.empty: static dimensions as ints, dynamic ones from the memref
     rank = input_tensor_type.rank
-    dynamic_sizes = []
+    sizes = []
     for i in range(rank):
         if input_tensor_type.shape[i] == ir.ShapedType.get_dynamic_size():
-            # Extract dynamic dimension from the original memref
-            dim_size = memref.dim(
-                source=array_memref, index=arith.constant(result=T.index(), value=i)
+            sizes.append(
+                memref.dim(source=array_memref, index=arith.constant(result=T.index(), value=i))
             )
-            dynamic_sizes.append(dim_size)
+        else:
+            sizes.append(input_tensor_type.shape[i])
 
     # Create empty output tensor with target element type
-    init = tensor.EmptyOp(dynamic_sizes, element_type=target_mlir_type).result
+    init = tensor.EmptyOp(sizes, element_type=target_mlir_type).result
 
     # Use linalg.GenericOp for element-wise operation
     affine_map = ir.AffineMap.get_identity(rank)
@@ -2582,35 +2617,54 @@ def operator_itruediv_array_lower(builder, target, args, kwargs):
     lower_np_binop(builder, target, target_type, args, linalg.div)
 
 
+def _negate(value):
+    """-value. Floats flip their sign bit: 0.0 - x would give +0.0 for x = 0.0."""
+    if isinstance(value.type, ir.IntegerType):
+        return arith.subi(arith.constant(result=value.type, value=0), value)
+    if isinstance(value.type, ir.ComplexType):
+        return complex_dialect.neg(value)
+    return arith.negf(value)
+
+
 @lower(operator.neg, types.Array)
 def operator_neg_array_lower(builder, target, args, kwargs):
-    """Lower operator.neg for arrays by using linalg.sub(0.0, array)"""
-    assert len(args) == 1, "operator.neg expects 1 argument"
+    """Lower operator.neg for arrays element-wise"""
 
-    # Get the array argument
-    array_arg = args[0]
-    array_type = builder.get_numba_type(array_arg.name)
-    target_type = builder.get_numba_type(target.name)
+    def neg_fn(
+        input_element_type,
+        target_element_type,
+        input_mlir_type,
+        target_mlir_type,
+        in_elem,
+    ):
+        value = lowering_utilities.convert(
+            in_elem,
+            target_mlir_type,
+            signed=get_conversion_signedness(input_element_type, target_element_type),
+        )
+        return _negate(value)
 
-    # Create a scalar 0.0 value
-    from numba_cuda_mlir.mlir.dialect_exts import arith
+    create_elementwise_op(builder, target, args, kwargs, neg_fn, "operator.neg")
 
-    element_type = builder.get_value_type(array_type.dtype)
-    zero_scalar = arith.constant(
-        result=element_type, value=_zero_literal_for_numba_type(array_type.dtype)
-    )
 
-    # Store the zero scalar in a temporary variable for lower_np_binop
-    import numba_cuda_mlir.numba_cuda.core.ir as numba_ir
+@lower(operator.pos, types.Array)
+def operator_pos_array_lower(builder, target, args, kwargs):
+    """Lower operator.pos for arrays: an element-wise copy, as +x returns a new array"""
 
-    zero_var = numba_ir.Var(
-        scope=array_arg.scope, name=f"$const_zero_{array_arg.name}", loc=array_arg.loc
-    )
-    builder.store_var(zero_var, zero_scalar)
-    builder.typemap[zero_var.name] = array_type.dtype
+    def pos_fn(
+        input_element_type,
+        target_element_type,
+        input_mlir_type,
+        target_mlir_type,
+        in_elem,
+    ):
+        return lowering_utilities.convert(
+            in_elem,
+            target_mlir_type,
+            signed=get_conversion_signedness(input_element_type, target_element_type),
+        )
 
-    # Call lower_np_binop with 0.0 - array
-    lower_np_binop(builder, target, target_type, [zero_var, array_arg], linalg.sub)
+    create_elementwise_op(builder, target, args, kwargs, pos_fn, "operator.pos")
 
 
 @lower(abs, types.Array)
@@ -4345,13 +4399,26 @@ def np_logical_not_array_to_array_cg(builder, target, args, kwargs):
 # Min/max ufuncs
 
 
+def _float_min_max(a, b, predicate, nan_operand):
+    """NumPy's float min/max: a if (a <predicate> b or nan_operand is nan) else b.
+
+    maximum and minimum test a, so a nan in either argument wins; fmax and fmin
+    test b, so they return the other argument when one is nan.
+    """
+    keep_a = arith.ori(
+        arith.cmpf(predicate, a, b),
+        arith.cmpf(arith.CmpFPredicate.UNO, nan_operand, nan_operand),
+    )
+    return arith.select(keep_a, a, b)
+
+
 def _maximum_fn(a, b):
     if isinstance(a.type, ir.IntegerType):
         cmp = arith.cmpi(arith.CmpIPredicate.sgt, a, b)
     elif _is_complex_type(a.type):
         cmp = _complex_greater(a, b)
     else:
-        cmp = arith.cmpf(arith.CmpFPredicate.OGT, a, b)
+        return _float_min_max(a, b, arith.CmpFPredicate.OGE, a)
     return arith.select(cmp, a, b)
 
 
@@ -4361,7 +4428,7 @@ def _minimum_fn(a, b):
     elif _is_complex_type(a.type):
         cmp = _complex_less(a, b)
     else:
-        cmp = arith.cmpf(arith.CmpFPredicate.OLT, a, b)
+        return _float_min_max(a, b, arith.CmpFPredicate.OLE, a)
     return arith.select(cmp, a, b)
 
 
@@ -4376,7 +4443,7 @@ def _fmax_fn(a, b):
         cmp = _complex_greater(a, b)
         return arith.select(cmp, a, b)
     else:
-        return arith.maximumf(a, b)
+        return _float_min_max(a, b, arith.CmpFPredicate.OGE, b)
 
 
 def _fmin_fn(a, b):
@@ -4390,7 +4457,7 @@ def _fmin_fn(a, b):
         cmp = _complex_less(a, b)
         return arith.select(cmp, a, b)
     else:
-        return arith.minimumf(a, b)
+        return _float_min_max(a, b, arith.CmpFPredicate.OLE, b)
 
 
 @ufunc_registry.register(np.maximum)
@@ -4477,6 +4544,119 @@ def _bitwise_not_fn(a):
 def np_bitwise_not_array_to_array_cg(builder, target, args, kwargs):
     """bitwise_not(a, out) - element-wise ~a"""
     create_elementwise_op_with_output(builder, target, args, _bitwise_not_fn)
+
+
+# Shift ufuncs
+
+
+def _shift_fn(left, signed):
+    """A shift as NumPy defines it (npy_lshift, npy_rshift).
+
+    Shifting by the bit width or more, or by a negative count, gives 0, or -1 for a
+    right shift of a negative value. MLIR's shifts give poison there, so shift by the
+    count clamped to width - 1 and select 0 for the counts out of range.
+    """
+
+    def shift(a, n):
+        def const(value):
+            return arith.constant(result=a.type, value=value)
+
+        width = a.type.width
+        in_range = arith.cmpi(arith.CmpIPredicate.ult, n, const(width))
+        # Clamp even though the select drops the result: for sm_100+, libNVVM 13.4 folds a
+        # select of the unclamped shift into a PTX shift by the low 32 bits of a 64-bit
+        # count, so 1 << 2**32 gave 1. A clamp written as a select on in_range gets folded
+        # away the same way.
+        count = arith.minui(n, const(width - 1))
+        if signed and not left:
+            # Shifting by width - 1 fills the value with its sign bit, giving 0 or -1
+            return arith.shrsi(a, count)
+        shifted = arith.shli(a, count) if left else arith.shrui(a, count)
+        return arith.select(in_range, shifted, const(0))
+
+    return shift
+
+
+def _shift_op(builder, ufunc, a_type, b_type, out_type):
+    """ufunc for values of scalar types a_type and b_type, giving an out_type value.
+
+    The shift is computed in the type of the ufunc loop that typing selected.
+    """
+    loop = numpy_support.ufunc_find_matching_loop(ufunc, (a_type, b_type))
+    loop_type = loop.outputs[0]
+    value_type = builder.get_value_type(loop_type)
+    out_value_type = builder.get_value_type(out_type)
+    shift = _shift_fn(ufunc is np.left_shift, loop_type.signed)
+
+    def op(a, n):
+        a = convert(a, value_type, signed=get_conversion_signedness(a_type, loop_type))
+        n = convert(n, value_type, signed=get_conversion_signedness(b_type, loop_type))
+        return convert(shift(a, n), out_value_type, signed=loop_type.signed)
+
+    return op
+
+
+def _shift_scalar(builder, target, args, ufunc):
+    assert len(args) == 2
+    a_type, b_type = (builder.get_numba_type(arg.name) for arg in args)
+    shift = _shift_op(builder, ufunc, a_type, b_type, builder.get_numba_type(target.name))
+    builder.store_var(target, shift(builder.load_var(args[0]), builder.load_var(args[1])))
+
+
+def _shift_scalar_to_array(builder, target, args, ufunc):
+    assert len(args) == 3
+    a_type, b_type = (builder.get_numba_type(arg.name) for arg in args[:2])
+    out_type = builder.get_numba_type(args[2].name).dtype
+    shift = _shift_op(builder, ufunc, a_type, b_type, out_type)
+    result = shift(builder.load_var(args[0]), builder.load_var(args[1]))
+    out_arr = builder.load_var(args[2])
+    _store_first_output_value(builder, args[2], out_arr, result)
+    builder.store_var(target, out_arr)
+
+
+def _shift_array_to_array(builder, target, args, ufunc):
+    assert len(args) == 3
+    a_type, b_type, out_type = (builder.get_numba_type(arg.name).dtype for arg in args)
+    shift = _shift_op(builder, ufunc, a_type, b_type, out_type)
+    create_binary_elementwise_op_with_output(
+        builder, target, args, shift, f"np.{ufunc.__name__}", convert_inputs=False
+    )
+
+
+@lower(np.left_shift, types.Integer, types.Integer)
+def np_left_shift_scalar_cg(builder, target, args, kwargs):
+    """left_shift(a, b) - scalar a << b"""
+    _shift_scalar(builder, target, args, np.left_shift)
+
+
+@lower(np.left_shift, types.Integer, types.Integer, types.Array)
+def np_left_shift_scalar_to_array_cg(builder, target, args, kwargs):
+    """left_shift(a, b, out) - scalar a << b to output array"""
+    _shift_scalar_to_array(builder, target, args, np.left_shift)
+
+
+@lower(np.left_shift, types.Array, types.Array, types.Array)
+def np_left_shift_array_to_array_cg(builder, target, args, kwargs):
+    """left_shift(a, b, out) - element-wise a << b"""
+    _shift_array_to_array(builder, target, args, np.left_shift)
+
+
+@lower(np.right_shift, types.Integer, types.Integer)
+def np_right_shift_scalar_cg(builder, target, args, kwargs):
+    """right_shift(a, b) - scalar a >> b"""
+    _shift_scalar(builder, target, args, np.right_shift)
+
+
+@lower(np.right_shift, types.Integer, types.Integer, types.Array)
+def np_right_shift_scalar_to_array_cg(builder, target, args, kwargs):
+    """right_shift(a, b, out) - scalar a >> b to output array"""
+    _shift_scalar_to_array(builder, target, args, np.right_shift)
+
+
+@lower(np.right_shift, types.Array, types.Array, types.Array)
+def np_right_shift_array_to_array_cg(builder, target, args, kwargs):
+    """right_shift(a, b, out) - element-wise a >> b"""
+    _shift_array_to_array(builder, target, args, np.right_shift)
 
 
 # Log ufuncs with output array

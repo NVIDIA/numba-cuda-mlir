@@ -801,6 +801,15 @@ class NumbaTypeError(TypingError):
     pass
 
 
+class ArgumentBindingError(TypingError, TypeError):
+    """
+    The arguments of a call do not fit the callee's signature.  Also a
+    TypeError, as the same call raises in Python.
+    """
+
+    pass
+
+
 class NumbaAttributeError(TypingError):
     pass
 

@@ -1088,7 +1088,12 @@ extern "C" __global__ void
         else:
             arg_type = self.fndesc.argtypes[arg.index]
 
-            if isinstance(arg_type, types.NoneType):
+            if isinstance(arg_type, (types.IntegerLiteral, types.BooleanLiteral)):
+                # Specialization fixes this value even though the argument keeps
+                # its ABI slot. Materialize it so ordinary arithmetic and loop
+                # bounds retain the constant information from typing.
+                self.lower_const_assign(target, numba_ir.Const(arg_type.literal_value, arg.loc))
+            elif isinstance(arg_type, types.NoneType):
                 # NoneType args are excluded from the MLIR function signature;
                 # store the MLIR NoneType as a placeholder
                 self.store_var(target, ir.NoneType.get())
@@ -1683,6 +1688,10 @@ extern "C" __global__ void
         def stararg_handler(index, param, values):
             return tuple(values)
 
+        def starkwarg_handler(index, param, values):
+            # In keyword order, the order ``star_kwarg_tuple`` lays fields out in.
+            return tuple(values.values())
+
         folded_vars = typing.fold_arguments(
             pysig,
             tuple(args),
@@ -1690,6 +1699,7 @@ extern "C" __global__ void
             normal_handler,
             default_handler,
             stararg_handler,
+            starkwarg_handler,
         )
         call_vars = [
             var
@@ -1797,11 +1807,15 @@ extern "C" __global__ void
         args: list[numba_ir.Var],
         kws: list[tuple[str, numba_ir.Var]] | None = None,
     ):
-        """Emit a func.call back to the function currently being compiled."""
-        _ = target
-        _ = fn_type
+        """Emit a call to the recursive specialization selected by typing."""
         if kws is None:
             kws = []
+        dispatcher = fn_type.dispatcher_type.dispatcher
+        argtypes, _, _ = self._fold_dispatcher_call_args(dispatcher, args, kws)
+        if argtypes != self.fndesc.argtypes:
+            # A literal entry argument can become runtime-valued on recursion,
+            # e.g. fib(10) calls fib(n - 1). Do not recurse into the literal body.
+            return self.build_user_defined_function_call(target, dispatcher, args, kws)
         assert self.mlir_funcOp is not None
         callee_function_type = self.mlir_funcOp.function_type.value.results
         callee_name = self.mlir_funcOp.name.value
@@ -2155,9 +2169,16 @@ extern "C" __global__ void
                 f"Could not find function {fn.name} in MLIR module."
                 f" Expected to find function after linking in {fn}."
             )
-        args = self.load_vars(args)
         callee_type = get_func_type(callee)
-        args = [convert(arg, arg_type) for arg, arg_type in zip(args, callee_type.inputs)]
+        # MLIR integers are signless; retain source Numba types for conversion.
+        args = [
+            convert(
+                self.load_var(arg),
+                arg_type,
+                signed=get_conversion_signedness(self.get_numba_type(arg.name), numba_type),
+            )
+            for arg, arg_type, numba_type in zip(args, callee_type.inputs, fn.sig.args)
+        ]
         # Use callee's actual type to preserve layout information
         call_result = func.call(
             result=callee_type.results,

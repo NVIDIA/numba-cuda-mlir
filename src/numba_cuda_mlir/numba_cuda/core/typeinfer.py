@@ -40,6 +40,7 @@ from numba_cuda_mlir.numba_cuda.core import ir
 from numba_cuda_mlir.numba_cuda import typing
 from numba_cuda_mlir.numba_cuda.typing.templates import Signature
 from numba_cuda_mlir.numba_cuda.core.errors import (
+    ArgumentBindingError,
     TypingError,
     UntypedAttributeError,
     new_error_context,
@@ -188,7 +189,12 @@ class ConstraintNetwork:
                     errors.append(e)
                 except TypingError as e:
                     _logger.debug("captured error", exc_info=e)
-                    new_exc = TypingError(
+                    # A call that does not bind stays a TypeError whether or
+                    # not the callee was inlined before typing.
+                    cls = (
+                        ArgumentBindingError if isinstance(e, ArgumentBindingError) else TypingError
+                    )
+                    new_exc = cls(
                         str(e),
                         loc=constraint.loc,
                         highlighting=False,

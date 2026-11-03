@@ -2242,6 +2242,7 @@ extern "C" __global__ void
             self.store_var(target, result)
         else:
             func.call(result=[], callee=callee.name.value, operands_=operands)
+            self.store_var(target, ir.NoneType.get())
 
     def lower_call_expr_assign(self, target, fn, args, kws, expr=None):
         trace("target: %s, fn: %s, args: %s, kws: %s", target, fn, args, kws)
@@ -2311,6 +2312,23 @@ extern "C" __global__ void
             return
 
         fn_type = self.get_numba_type(fn.name)
+        from numba_cuda_mlir.runtime_closures import RuntimeClosure
+
+        if isinstance(fn_type, RuntimeClosure):
+            capture_values = self._lookup_model(fn_type).unpack_captures(self, fn_value)
+            capture_vars = []
+            for i, (capture_type, capture_value) in enumerate(
+                zip(fn_type.capture_types, capture_values)
+            ):
+                name = f"$closure_capture_{fn.name}_{i}"
+                self.fndesc.typemap[name] = capture_type
+                self.varmap[name] = capture_value
+                capture_vars.append(numba_ir.Var(fn.scope, name, fn.loc))
+            call = self.build_user_defined_function_call(
+                target, fn_type.body_dispatcher, capture_vars + list(args), kws
+            )
+            self.store_var(target, call)
+            return
 
         if isinstance(fn_type, types.RecursiveCall):
             call = self.build_recursive_call(target, fn_type, args, kws)

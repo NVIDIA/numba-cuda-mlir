@@ -941,3 +941,40 @@ class TestPackedFieldStorage:
             metadata.copy_to_host(),
             [count, count, itemsize, 3, (count + 1) // 2, 123 if reserve else 0],
         )
+
+    @pytest.mark.parametrize("packed", [False, True])
+    @pytest.mark.parametrize("reserve", [0, 2])
+    def test_dynamic_shared_declarations_alias_remaining_storage(self, packed, reserve):
+        dtype = np.dtype([("tag", np.uint8), ("value", np.uint32)]) if packed else np.uint32
+        itemsize = np.dtype(dtype).itemsize
+
+        @cuda.jit
+        def kernel(out, metadata, prefix_size):
+            if reserve:
+                prefix = cuda.shared.array(prefix_size, np.uint8)
+                prefix[0] = 99
+            values = cuda.shared.array(0, dtype)
+            raw = cuda.shared.array(0, np.uint8)
+            metadata[0] = values.size
+            metadata[1] = raw.size
+            for i in range(values.size):
+                if packed:
+                    values[i].tag = i + 10
+                    values[i].value = 0x01020304
+                else:
+                    values[i] = 0x01020304
+            raw[itemsize + (1 if packed else 0)] = 0x7B
+            for i in range(values.size):
+                out[i] = values[i].value if packed else values[i]
+            if packed:
+                metadata[2] = values[1].tag
+            if reserve:
+                metadata[3] = prefix[0]
+
+        out = cuda.device_array(3, np.uint32)
+        metadata = cuda.to_device(np.zeros(4, np.int64))
+        kernel[1, 1, 0, (reserve + 3) * itemsize](out, metadata, reserve * itemsize)
+        np.testing.assert_array_equal(out.copy_to_host(), [0x01020304, 0x0102037B, 0x01020304])
+        np.testing.assert_array_equal(
+            metadata.copy_to_host(), [3, 3 * itemsize, 11 if packed else 0, 99 if reserve else 0]
+        )

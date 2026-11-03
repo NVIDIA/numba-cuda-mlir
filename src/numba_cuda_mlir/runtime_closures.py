@@ -166,7 +166,10 @@ class _CaptureCodec:
         self.model = dmm.lookup(typ)
         self.value_type = self.model.get_value_type()
         self.children = None
-        if isinstance(self.value_type, mlir_ir.MemRefType):
+        self.is_static = isinstance(self.value_type, mlir_ir.NoneType)
+        if self.is_static:
+            self.data_type = mlir_ir.IntegerType.get_signless(8)
+        elif isinstance(self.value_type, mlir_ir.MemRefType):
             from numba_cuda_mlir.lowering_utilities import memref_descriptor_type
 
             self.data_type = memref_descriptor_type(self.value_type.rank)
@@ -177,6 +180,8 @@ class _CaptureCodec:
             self.data_type = self.model.get_data_type()
 
     def pack(self, builder, value):
+        if self.is_static:
+            return llvm.mlir_undef(self.data_type)
         if isinstance(self.value_type, mlir_ir.MemRefType):
             return builtin.unrealized_conversion_cast([self.data_type], [value])
         if self.children is not None:
@@ -188,6 +193,8 @@ class _CaptureCodec:
         return self.model.as_data(builder, value)
 
     def unpack(self, builder, value):
+        if self.is_static:
+            return self.value_type
         if isinstance(self.value_type, mlir_ir.MemRefType):
             return builtin.unrealized_conversion_cast([self.value_type], [value])
         if self.children is not None:

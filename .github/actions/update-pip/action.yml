@@ -22,8 +22,8 @@ runs:
 
         # Fail if the interpreter predates the CPython security releases whose
         # ssl module rejects the compromised eMudhra/emSign keys. The same
-        # patch floors appear in ci/versions.yml and the python-version specs
-        # of the calling workflows; update them all together.
+        # patch floors appear in the python-version specs of the calling
+        # workflows; update them together.
         minima = {11: 18, 12: 16, 13: 18, 14: 10, 15: 2}
         v = sys.version_info
         if v.major != 3 or v.minor not in minima or v.micro < minima[v.minor]:

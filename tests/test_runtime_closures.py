@@ -91,6 +91,35 @@ def test_same_code_multiple_runtime_environments():
     np.testing.assert_array_equal(output, [21, -1])
 
 
+def test_device_dispatcher_passed_through_extension():
+    @cuda.jit(device=True)
+    def transform(value):
+        return value * 3 - 2
+
+    @cuda.jit
+    def kernel(value, output):
+        output[0] = extension_consume(transform, value)
+
+    output = np.zeros(1, dtype=np.int64)
+    for value in (7, -4):
+        kernel[1, 1](value, output)
+        assert output[0] == value * 3 - 2
+
+
+def test_static_function_capture_preserves_runtime_fields():
+    helper = abs
+
+    @cuda.jit
+    def kernel(bias, output):
+        fn = lambda x: helper(x) + bias
+        output[0] = consume(fn, -4)
+
+    output = np.zeros(1, dtype=np.int64)
+    for bias in (3, -9):
+        kernel[1, 1](bias, output)
+        assert output[0] == 4 + bias
+
+
 def test_explicit_capture_function_preserves_globals_and_local_variables():
     def outer(bias):
         def inner(x):

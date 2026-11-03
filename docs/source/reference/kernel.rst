@@ -59,8 +59,10 @@ This is similar to launch configuration in CUDA C/C++:
 
 While compilation is enabled, integer arguments with different widths or
 signedness select distinct overloads, including when an extension specializes
-the kernel by launch configuration. Disabling compilation retains integer
-coercion to compatible existing overloads.
+the kernel by launch configuration. Parameter annotations still select the
+declared integer type rather than the runtime type, including for partially
+annotated kernels used with whole-function planners. Disabling compilation
+retains integer coercion to compatible existing overloads.
 
 Dispatcher objects also provide several utility methods for inspection and
 creating a specialized instance:

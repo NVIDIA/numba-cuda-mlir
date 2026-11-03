@@ -3240,6 +3240,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         else:
             self._propagate_compile_callbacks(result.metadata)
             self._apply_shared_memory_carveout(wrapped)
+            # Annotations may normalize runtime types; retain the request for
+            # exact prelaunch lookup, as for launch-qualified overloads above.
+            self.overloads[argtypes] = wrapped
             self.overloads[result.signature.args] = wrapped
 
         # Save to disk cache

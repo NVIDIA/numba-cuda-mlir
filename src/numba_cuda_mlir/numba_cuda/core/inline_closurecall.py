@@ -720,12 +720,8 @@ def _get_callee_args(call_expr, callee, loc, func_ir):
         normal_handler = lambda index, param, default: default
         default_handler = lambda index, param, default: ir.Const(default, loc)
 
-        # Throw error for stararg
-        # TODO: handle stararg
-        def stararg_handler(index, param, default):
-            raise NotImplementedError(
-                "Stararg not supported in inliner for arg {} {}".format(index, param)
-            )
+        def stararg_handler(index, param, arguments):
+            return ir.Expr.build_tuple(list(arguments), loc)
 
         if call_expr.op == "call":
             kws = dict(call_expr.kws)

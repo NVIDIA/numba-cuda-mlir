@@ -151,7 +151,6 @@ class TestMakeFunctionToJITFunction(NumbaCUDATestCase):
 
         self.assertEqual(impl(), cfunc())
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_close_over_consts(self):
         def impl_factory(consumer_func):
             def impl():
@@ -169,7 +168,6 @@ class TestMakeFunctionToJITFunction(NumbaCUDATestCase):
 
         self.assertEqual(impl(), cfunc())
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_close_over_consts_w_args(self):
         def impl_factory(consumer_func):
             def impl(x):
@@ -256,7 +254,6 @@ class TestMakeFunctionToJITFunction(NumbaCUDATestCase):
         a = 10
         np.testing.assert_allclose(impl(a), cfunc(a))
 
-    # this needs true SSA to be able to work correctly, check error for now
     def test_multiply_defined_freevar(self):
         def impl(c):
             if c:
@@ -275,24 +272,22 @@ class TestMakeFunctionToJITFunction(NumbaCUDATestCase):
                 r = consumer(inner, 2)
             return r
 
-        with self.assertRaises(errors.TypingError) as e:
-            numba_cuda_mlir.cuda.jit("void(int64)")(impl)
-
-        self.assertIn("Cannot capture a constant value for variable", str(e.exception))
+        cfunc = wrap_with_kernel_one_arg(impl)
+        with self.assertRaises(errors.UnsupportedError):
+            cfunc(1)
 
     def test_non_const_in_escapee(self):
         def impl(x):
-            z = np.arange(x)
+            z = x * 2
 
             def inner(val):
-                return 1 + z + val  # z is non-const freevar
+                return 1 + z + val
 
             return consumer(inner, x)
 
-        with self.assertRaises(errors.TypingError) as e:
-            numba_cuda_mlir.cuda.jit("void(int64)")(impl)
-
-        self.assertIn("Cannot capture the non-constant value associated", str(e.exception))
+        cfunc = wrap_with_kernel_one_arg(impl)
+        for x in (3, 19, -8):
+            self.assertEqual(cfunc(x), 1 + 3 * x)
 
     @pytest.mark.xfail(True, reason="ICE")
     def test_escape_with_kwargs(self):

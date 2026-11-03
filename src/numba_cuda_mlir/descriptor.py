@@ -217,12 +217,15 @@ def _array_shape(arg):
 
 def _array_dtype(arg, ty=None):
     dtype = getattr(arg, "dtype", None)
-    if dtype is not None:
-        return np.dtype(dtype)
+    if isinstance(dtype, np.dtype):
+        return dtype
 
     cai = _cuda_array_interface(arg)
     if cai is not None:
         return np.dtype(cai["typestr"])
+
+    if dtype is not None:
+        return np.dtype(dtype)
 
     if isinstance(ty, types.Array):
         return numpy_support.as_dtype(ty.dtype)

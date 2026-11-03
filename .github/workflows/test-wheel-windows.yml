@@ -119,6 +119,21 @@ jobs:
         with:
           python-version: ${{ matrix.PY_VER }}
           allow-prereleases: ${{ startsWith(matrix.PY_VER, '3.15') }}
+          # Resolve the newest patch from the GitHub-maintained manifest. On
+          # Windows, actions/python-versions tops out at 3.11.9, 3.12.10, and
+          # 3.13.17 (no eMudhra-fixed Windows build for the 3.11-3.13 series
+          # as of 2026-10-31; see
+          # https://github.com/actions/setup-python/issues/1383), so the
+          # update-pip action's ssl-module assertion will fail those three
+          # series. 3.14 and 3.15 Windows lanes stay green.
+          check-latest: true
+
+      - name: Update pip
+        uses: ./.github/actions/update-pip
+        # Scoped tolerance for Windows 3.11/3.12/3.13 while
+        # actions/setup-python#1383 is open; downstream steps still run on the
+        # unpatched interpreter but pip is already 26.2.2 from setup-python.
+        continue-on-error: ${{ contains(fromJSON('["3.11","3.12","3.13"]'), matrix.PY_VER) }}
 
       - name: Set up mini CTK
         if: ${{ matrix.LOCAL_CTK == '1' }}

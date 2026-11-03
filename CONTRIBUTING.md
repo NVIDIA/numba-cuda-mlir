@@ -43,29 +43,33 @@ and ask for clarifications!
 
 ## Ecosystem compatibility CI
 
-The **Ecosystem compatibility** workflow runs the cuDF, Numbast,
+The **Ecosystem compatibility** workflow runs cuDF, Numbast,
 nvmath-python, and CCCL integration tests daily at 03:17 UTC on `main`.
-It builds LLVM and Numba-CUDA-MLIR wheels in the same run, then tests both
-Linux x86-64 and aarch64 using the existing library matrices in
-`ci/test-matrix.yml`. Test reports remain available as workflow artifacts.
+It uses prebuilt Numba-CUDA-MLIR wheels from the latest successful push run
+of `ci.yaml` on `main`. Numbast also uses that run's prebuilt LLVM artifacts.
+The tests cover Linux x86-64 and aarch64 using the library matrices in
+`ci/test-matrix.yml`.
 
-These library integrations do not run in ordinary PR CI or contribute to
-the required **Check job status** check. The separate **Ecosystem job status**
-check fails if any build or library job fails, is cancelled, or is skipped.
+Ecosystem compatibility is separate from the required PR **Check job status**
+check. Its **Ecosystem job status** check requires wheel discovery and every
+library job to succeed. Missing or expired artifacts, failures, cancellations,
+and skipped jobs fail this check. The workflow summary identifies the producer
+run and commit SHA; test reports are available as workflow artifacts.
 
-To check an integration-sensitive branch or release candidate before merging,
-select **Ecosystem compatibility** in GitHub Actions, choose **Run workflow**,
-and select the branch. Once the workflow is on the default branch, the same
-run can be started with:
+### Manual runs
+
+In GitHub Actions, select **Ecosystem compatibility**, choose **Run workflow**,
+and select a branch. Alternatively, use the GitHub CLI:
 
 ```bash
 gh workflow run ecosystem-compatibility.yml \
   --repo NVIDIA/numba-cuda-mlir --ref <branch>
 ```
 
-The schedule becomes active after the workflow is merged into `main`.
-Results are reported in GitHub Actions; this workflow does not send webhook
-notifications or create tracking issues.
+The selected branch supplies the integration workflows and test scripts.
+The Numba-CUDA-MLIR wheels and LLVM artifacts come from the latest successful
+`main` CI run, regardless of the selected branch. Use manual runs to check
+integration-test changes, not to validate compiler changes on that branch.
 
 
 ## Pre-commit hooks

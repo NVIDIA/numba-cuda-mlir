@@ -12,6 +12,14 @@ on:
       matrix_filter:
         type: string
         default: "."
+      run-id:
+        description: "Artifact producer run ID; empty uses the current run."
+        type: string
+        default: ""
+      sha:
+        description: "Artifact producer commit SHA."
+        type: string
+        default: ${{ github.sha }}
 
 defaults:
   run:
@@ -77,7 +85,7 @@ jobs:
           HOST_PLATFORM: ${{ inputs.host-platform }}
           LOCAL_CTK: ${{ matrix.LOCAL_CTK }}
           PY_VER: ${{ matrix.PY_VER }}
-          SHA: ${{ github.sha }}
+          SHA: ${{ inputs.sha }}
         run: ./ci/tools/env-vars test
 
       - name: Download numba-cuda-mlir build artifacts
@@ -85,6 +93,8 @@ jobs:
         with:
           name: ${{ env.NUMBA_CUDA_MLIR_CUDA_ARTIFACT_NAME }}
           path: ${{ env.NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR }}
+          github-token: ${{ inputs.run-id && github.token || '' }}
+          run-id: ${{ inputs.run-id }}
 
       - name: Display structure of downloaded numba-cuda-mlir artifacts
         run: |

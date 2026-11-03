@@ -14,167 +14,150 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
-  ci-vars:
+  find-wheels:
     if: ${{ github.repository_owner == 'nvidia' }}
     runs-on: ubuntu-latest
     outputs:
-      CUDA_BUILD_VER: ${{ steps.get-vars.outputs.cuda_build_ver }}
-      CUDA_PREV_BUILD_VER: ${{ steps.get-vars.outputs.cuda_prev_build_ver }}
-      PYTHON_VERSIONS: ${{ steps.get-vars.outputs.python_versions }}
+      RUN_ID: ${{ steps.find.outputs.run_id }}
+      HEAD_SHA: ${{ steps.find.outputs.head_sha }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-        with:
-          fetch-depth: 0
-
-      - name: Get CUDA + Python build versions
-        id: get-vars
+      - name: Find latest successful main CI wheels
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          cuda_build_ver=$(yq '.cuda.build.version' ci/versions.yml)
-          echo "cuda_build_ver=$cuda_build_ver" >> $GITHUB_OUTPUT
-          cuda_prev_build_ver=$(yq '.cuda.prev_build.version' ci/versions.yml)
-          echo "cuda_prev_build_ver=$cuda_prev_build_ver" >> $GITHUB_OUTPUT
+          RUN=$(gh run list --repo "$GH_REPO" --workflow ci.yaml \
+            --branch main --status success --event push --limit 1 \
+            --json databaseId,headSha)
+          RUN_ID=$(jq -r '.[0].databaseId // empty' <<< "$RUN")
+          HEAD_SHA=$(jq -r '.[0].headSha // empty' <<< "$RUN")
+          if [[ -z "$RUN_ID" || -z "$HEAD_SHA" ]]; then
+            echo "::error::No successful push run of ci.yaml on main is available for ecosystem wheels"
+            exit 1
+          fi
 
-          # Flattened one-line JSON for pass-through to build-wheel.yml /
-          # build-llvm.yml via fromJSON on the receiving side.
-          python_versions=$(yq -o json -I 0 '.python.supported' ci/versions.yml)
-          echo "python_versions=$python_versions" >> $GITHUB_OUTPUT
-
-  build-llvm-linux-64:
-    needs:
-      - ci-vars
-    uses: ./.github/workflows/build-llvm.yml
-    with:
-      host-platform: linux-64
-      python-versions: ${{ needs.ci-vars.outputs.PYTHON_VERSIONS }}
-    permissions:
-      contents: read
-      id-token: write
-    secrets: inherit
-
-  build-llvm-linux-aarch64:
-    needs:
-      - ci-vars
-    uses: ./.github/workflows/build-llvm.yml
-    with:
-      host-platform: linux-aarch64
-      python-versions: ${{ needs.ci-vars.outputs.PYTHON_VERSIONS }}
-    permissions:
-      contents: read
-      id-token: write
-    secrets: inherit
-
-
-  build-linux-64:
-    needs: [ci-vars, build-llvm-linux-64]
-    uses: ./.github/workflows/build-wheel.yml
-    with:
-      host-platform: linux-64
-      python-versions: ${{ needs.ci-vars.outputs.PYTHON_VERSIONS }}
-      cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
-      prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
-
-  build-linux-aarch64:
-    needs: [ci-vars, build-llvm-linux-aarch64]
-    uses: ./.github/workflows/build-wheel.yml
-    with:
-      host-platform: linux-aarch64
-      python-versions: ${{ needs.ci-vars.outputs.PYTHON_VERSIONS }}
-      cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
-      prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
+          RUN_URL="${{ github.server_url }}/$GH_REPO/actions/runs/$RUN_ID"
+          echo "Selected wheel producer: $RUN_URL"
+          echo "Producer SHA: $HEAD_SHA"
+          printf '### Ecosystem wheel producer\n\n- Run: %s\n- SHA: `%s`\n' \
+            "$RUN_URL" "$HEAD_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
   test-cudf-source-linux-64:
     name: cudf source Test linux-64
     permissions:
       contents: read
+      actions: read
     needs:
-      - build-linux-64
+      - find-wheels
     uses: ./.github/workflows/test-cudf-source-linux.yml
     with:
       host-platform: linux-64
+      run-id: ${{ needs.find-wheels.outputs.RUN_ID }}
+      sha: ${{ needs.find-wheels.outputs.HEAD_SHA }}
 
   test-cudf-source-linux-aarch64:
     name: cudf source Test linux-aarch64
     permissions:
       contents: read
+      actions: read
     needs:
-      - build-linux-aarch64
+      - find-wheels
     uses: ./.github/workflows/test-cudf-source-linux.yml
     with:
       host-platform: linux-aarch64
+      run-id: ${{ needs.find-wheels.outputs.RUN_ID }}
+      sha: ${{ needs.find-wheels.outputs.HEAD_SHA }}
 
   test-numbast-mlir-linux-64:
     name: Numbast MLIR Test linux-64
     permissions:
       contents: read
+      actions: read
     needs:
-      - build-linux-64
+      - find-wheels
     uses: ./.github/workflows/test-numbast-mlir-linux.yml
     with:
       host-platform: linux-64
+      run-id: ${{ needs.find-wheels.outputs.RUN_ID }}
+      sha: ${{ needs.find-wheels.outputs.HEAD_SHA }}
 
   test-numbast-mlir-linux-aarch64:
     name: Numbast MLIR Test linux-aarch64
     permissions:
       contents: read
+      actions: read
     needs:
-      - build-linux-aarch64
+      - find-wheels
     uses: ./.github/workflows/test-numbast-mlir-linux.yml
     with:
       host-platform: linux-aarch64
+      run-id: ${{ needs.find-wheels.outputs.RUN_ID }}
+      sha: ${{ needs.find-wheels.outputs.HEAD_SHA }}
 
   test-nvmath-python-mlir-linux-64:
     name: nvmath-python MLIR Test linux-64
     permissions:
       contents: read
+      actions: read
     needs:
-      - build-linux-64
+      - find-wheels
     uses: ./.github/workflows/test-nvmath-python-mlir-linux.yml
     with:
       host-platform: linux-64
+      run-id: ${{ needs.find-wheels.outputs.RUN_ID }}
+      sha: ${{ needs.find-wheels.outputs.HEAD_SHA }}
 
   test-nvmath-python-mlir-linux-aarch64:
     name: nvmath-python MLIR Test linux-aarch64
     permissions:
       contents: read
+      actions: read
     needs:
-      - build-linux-aarch64
+      - find-wheels
     uses: ./.github/workflows/test-nvmath-python-mlir-linux.yml
     with:
       host-platform: linux-aarch64
+      run-id: ${{ needs.find-wheels.outputs.RUN_ID }}
+      sha: ${{ needs.find-wheels.outputs.HEAD_SHA }}
 
   test-cccl-compute-mlir-linux-64:
     name: CCCL cuda.compute MLIR Test linux-64
     permissions:
       contents: read
+      actions: read
     needs:
-      - build-linux-64
+      - find-wheels
     uses: ./.github/workflows/test-cccl-compute-mlir-linux.yml
     with:
       host-platform: linux-64
+      run-id: ${{ needs.find-wheels.outputs.RUN_ID }}
+      sha: ${{ needs.find-wheels.outputs.HEAD_SHA }}
 
   test-cccl-compute-mlir-linux-aarch64:
     name: CCCL cuda.compute MLIR Test linux-aarch64
     permissions:
       contents: read
+      actions: read
     needs:
-      - build-linux-aarch64
+      - find-wheels
     uses: ./.github/workflows/test-cccl-compute-mlir-linux.yml
     with:
       host-platform: linux-aarch64
+      run-id: ${{ needs.find-wheels.outputs.RUN_ID }}
+      sha: ${{ needs.find-wheels.outputs.HEAD_SHA }}
 
   checks:
     name: Ecosystem job status
     if: ${{ always() && github.repository_owner == 'nvidia' }}
     runs-on: ubuntu-latest
     needs:
-      - ci-vars
-      - build-llvm-linux-64
-      - build-llvm-linux-aarch64
-      - build-linux-64
-      - build-linux-aarch64
+      - find-wheels
       - test-cudf-source-linux-64
       - test-cudf-source-linux-aarch64
       - test-numbast-mlir-linux-64
@@ -184,10 +167,10 @@ jobs:
       - test-cccl-compute-mlir-linux-64
       - test-cccl-compute-mlir-linux-aarch64
     steps:
-      - name: Check build and library test results
+      - name: Check wheel producer and library test results
         env:
           JOB_RESULTS: ${{ toJSON(needs) }}
         run: |
           echo "$JOB_RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          # Skipped tests after an upstream build failure must not pass this gate.
+          # Skipped tests after an unavailable wheel producer must not pass this gate.
           echo "$JOB_RESULTS" | jq -e 'all(.[]; .result == "success")'

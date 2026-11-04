@@ -28,6 +28,7 @@ from numba_cuda_mlir.models import mlir_data_manager
 
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.extending.argument_handler import ArgumentHandler
+from numba_cuda_mlir.extending.struct_proxy import StructProxy
 from numba_cuda_mlir._whole_function_planners import (
     WholeFunctionPlanner,
     register_planner,
@@ -43,6 +44,7 @@ register_model = functools.partial(register, mlir_data_manager)
 
 __all__ = [
     "ArgumentHandler",
+    "StructProxy",
     "WholeFunctionPlanner",
     "intrinsic",
     "lowering_registry",

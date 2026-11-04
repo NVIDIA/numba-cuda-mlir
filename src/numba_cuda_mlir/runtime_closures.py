@@ -26,7 +26,7 @@ class CallableSpecialization:
 
 
 def _explicit_capture_function(code, globals_dict):
-    """Turn freevar reads into leading arguments without source reconstruction."""
+    """Prepend captures; reject fast-local encodings that cannot be shifted safely."""
     captures = code.co_freevars
     if code.co_cellvars:
         raise errors.UnsupportedError(
@@ -51,6 +51,12 @@ def _explicit_capture_function(code, globals_dict):
             "LOAD_FAST_AND_CLEAR",
         ):
             replacement = (instruction.opcode, instruction.arg + len(captures))
+        elif "FAST" in op:
+            # Fused and borrowed loads encode local slots differently. Never
+            # leave their indices unchanged after prepending capture arguments.
+            raise errors.UnsupportedError(
+                "Escaping closures using opcode %s are unsupported on this Python version" % op
+            )
         if replacement is not None:
             opcode, argument = replacement
             start = instruction.offset
@@ -141,6 +147,7 @@ def get_callable_specialization(callable_type, argument_types, typing_context=No
     ``body_signature`` has capture arguments first, followed by user arguments.
     Its body can be compiled with ``compile(..., abi='c', output='ltoir')``.
     Ordinary device dispatchers have an empty capture list.
+    Return ``None`` when the callable cannot specialize for these arguments.
     """
     if typing_context is None:
         from numba_cuda_mlir.descriptor import mlir_target
@@ -150,6 +157,8 @@ def get_callable_specialization(callable_type, argument_types, typing_context=No
         return callable_type.specialize(typing_context, argument_types)
     if isinstance(callable_type, types.Dispatcher):
         sig = callable_type.get_call_type(typing_context, tuple(argument_types), {})
+        if sig is None:
+            return None
         function = callable_type.dispatcher.py_func
         return CallableSpecialization(
             sig, sig, function, (), (), (function.__code__, id(function.__globals__))

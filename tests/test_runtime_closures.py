@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Consumer-visible behavior of escaping read-only runtime device closures."""
 
+import dis
+
 import numpy as np
 import pytest
 
@@ -129,9 +131,41 @@ def test_explicit_capture_function_preserves_globals_and_local_variables():
         return inner
 
     function = outer(1000)
-    body = _explicit_capture_function(function.__code__, function.__globals__)
-    assert body(3, 4) == 31
-    assert body(-8, 2) == 6
+    unsupported = [
+        i.opname
+        for i in dis.get_instructions(function)
+        if "FAST" in i.opname
+        and i.opname
+        not in {"LOAD_FAST", "STORE_FAST", "DELETE_FAST", "LOAD_FAST_CHECK", "LOAD_FAST_AND_CLEAR"}
+    ]
+    if unsupported:
+        with pytest.raises(UnsupportedError, match=f"opcode {unsupported[0]} .*unsupported"):
+            _explicit_capture_function(function.__code__, function.__globals__)
+    else:
+        body = _explicit_capture_function(function.__code__, function.__globals__)
+        assert body(3, 4) == 31
+        assert body(-8, 2) == 6
+
+
+def test_explicit_capture_function_rejects_unhandled_fast_local_opcodes():
+    def outer(bias):
+        def inner(x):
+            local = x * GLOBAL_SCALE
+            return x + local + bias
+
+        return inner
+
+    function = outer(1000)
+    supported = {"LOAD_FAST", "STORE_FAST", "DELETE_FAST", "LOAD_FAST_CHECK", "LOAD_FAST_AND_CLEAR"}
+    unhandled = [
+        i.opname
+        for i in dis.get_instructions(function)
+        if "FAST" in i.opname and i.opname not in supported
+    ]
+    if not unhandled:
+        pytest.skip("This Python version does not emit fused or borrowed fast-local opcodes")
+    with pytest.raises(UnsupportedError, match=f"opcode {unhandled[0]} .*unsupported"):
+        _explicit_capture_function(function.__code__, function.__globals__)
 
 
 def test_nonlocal_mutation_rejected():
@@ -226,3 +260,17 @@ def test_void_external_lto_call_returned_by_runtime_closure():
     for bias in (3, 19):
         kernel[1, 1](pointer, bias)
         np.testing.assert_array_equal(output.copy_to_host(), [4 + bias])
+
+
+def test_unsupported_dispatcher_specialization_declines():
+    from numba_cuda_mlir.numba_cuda.types import Dispatcher
+
+    @cuda.jit(types.int64(types.int64), device=True)
+    def scalar_only(value):
+        return value + 1
+
+    scalar_only.disable_compile()
+    specialization = extending.get_callable_specialization(
+        Dispatcher(scalar_only), (types.float32[::1],)
+    )
+    assert specialization is None

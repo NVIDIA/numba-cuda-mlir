@@ -107,3 +107,31 @@ def test_cupy_array_signature_cache_tracks_dtype_and_ndim():
 
     assert len(configured._array_sig_cache[type_key]) == 2
     np.testing.assert_allclose(cp.asnumpy(out64), cp.asnumpy(a64 + b64))
+
+
+def test_cuda_array_interface_launch_tracks_string_record_dtype():
+    class RecordWrapper:
+        def __init__(self, data, dtype):
+            self.data = data
+            self.dtype = dtype
+            self.__cuda_array_interface__ = data.__cuda_array_interface__
+
+    @cuda.jit
+    def add_fields(records, output):
+        i = cuda.grid(1)
+        if i < records.size:
+            output[i] = records[i].f0 + records[i].f1
+
+    configured = add_fields[1, 32]
+    for dtype, left, right in (
+        ("i4,i4", [2, -3, 7], [5, 9, -1]),
+        ("f4,f4", [0.5, -1.25, 3.5], [1.75, 4.5, -0.25]),
+        ("i4,i4", [8, -4, 1], [-2, 3, 6]),
+    ):
+        host = np.empty(3, dtype=dtype)
+        host["f0"] = left
+        host["f1"] = right
+        records = RecordWrapper(cuda.to_device(host), dtype)
+        output = cuda.device_array(3, dtype=np.float32)
+        configured(records, output)
+        np.testing.assert_allclose(output.copy_to_host(), host["f0"] + host["f1"])

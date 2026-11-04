@@ -46,6 +46,11 @@ class StructProxy:
         elif init is not None:
             raise ValueError("init cannot be combined with an existing value")
 
+        elif not isinstance(value, ir.Value):
+            raise TypeError(
+                f"value for {fe_type} must be an MLIR value, got {type(value).__name__}"
+            )
+
         elif value.type != struct_type:
             raise TypeError(f"value for {fe_type} must have type {struct_type}, got {value.type}")
 
@@ -103,3 +108,6 @@ class StructProxy:
 
             result = llvm.insertvalue(result, field_value, index)
         return StructProxy(self._fe_type, result)
+
+    def __repr__(self) -> str:
+        return f"StructProxy({self._fe_type}, fields={self._model._fields})"

@@ -86,6 +86,24 @@ def test_rejects_value_of_wrong_type():
         k[1, 1](np.zeros(1, dtype=np.int32))
 
 
+def test_rejects_non_mlir_value():
+    @extending.intrinsic
+    def wrap_int(typingctx, x):
+        def codegen(builder, target, args, kwargs):
+            StructProxy(pair_type, 7)
+
+        return types.void(x), codegen
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def k(a):
+        wrap_int(a[0])
+
+    with pytest.raises(TypeError, match=r"StructProxyTestPair.*MLIR value.*int"):
+        k[1, 1](np.zeros(1, dtype=np.int32))
+
+
 def test_new_struct_is_zero_by_default():
     @extending.intrinsic
     def zero_pair_y(typingctx, x):
@@ -617,3 +635,24 @@ def test_bool_field_uses_value_type():
     # CHECK: llvm.mlir.zero : !llvm.struct<(i1, i32)>
     # CHECK: llvm.insertvalue {{.*}}[0] : !llvm.struct<(i1, i32)>
     testing.filecheck_with_comments(mlir)
+
+
+def test_repr_shows_type_and_fields():
+    reprs = []
+
+    @extending.intrinsic
+    def capture_repr(typingctx, x):
+        def codegen(builder, target, args, kwargs):
+            reprs.append(repr(StructProxy(pair_type)))
+
+        return types.void(x), codegen
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def k(a):
+        capture_repr(a[0])
+
+    k[1, 1](np.zeros(1, dtype=np.int32))
+
+    assert reprs == ["StructProxy(StructProxyTestPair, fields=('x', 'y'))"]

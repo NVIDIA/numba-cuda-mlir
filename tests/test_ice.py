@@ -82,6 +82,26 @@ def test_internal_compiler_failure_keeps_ice_policy(monkeypatch, full_tb):
     assert not isinstance(caught.value, UnsupportedError)
 
 
+@pytest.mark.parametrize("full_tb", ["0", "1"])
+def test_package_lowering_failure_reports_user_call(monkeypatch, full_tb):
+    monkeypatch.setenv("NUMBA_CUDA_MLIR_ICE_FULL_TB", full_tb)
+    package_dir = Path(inspect.getsourcefile(handle_lowering_error)).parent
+
+    def kernel(out):
+        value = out[0]
+        out[1] = out[2] in (value, 3)
+
+    expected_line = kernel.__code__.co_firstlineno + 2
+    with pytest.raises(UnsupportedError) as caught:
+        cuda.jit(kernel).compile((types.int64[::1],))
+
+    error = caught.value
+    assert error.loc.filename == __file__
+    assert error.loc.line == expected_line
+    assert "Tuple contains is not implemented" in error.msg
+    assert str(package_dir) not in str(error)
+
+
 def test_package_lowering_location_replaced_by_user_call(monkeypatch):
     monkeypatch.setenv("NUMBA_CUDA_MLIR_ICE_FULL_TB", "0")
     package_file = inspect.getsourcefile(handle_lowering_error)

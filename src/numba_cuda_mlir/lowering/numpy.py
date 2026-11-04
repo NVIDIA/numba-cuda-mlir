@@ -1598,6 +1598,7 @@ def lower_charseq_array_setitem_string(builder: MLIRLower, target, args, kwargs)
         llvm.store(byte_const, byte_ptr)
 
 
+@lower(operator.setitem, types.Array, types.Integer, types.EnumMember)
 @lower(operator.setitem, types.Array, types.Integer, types.Boolean)
 @lower(operator.setitem, types.Array, types.Integer, types.Number)
 @lower(operator.setitem, types.Array, types.Integer, types.NPDatetime)

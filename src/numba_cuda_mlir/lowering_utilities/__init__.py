@@ -374,6 +374,11 @@ def get_conversion_signedness(source_type: types.Type, target_type: types.Type) 
     if isinstance(target_type, VectorType):
         target_type = target_type.dtype
 
+    if isinstance(source_type, types.EnumMember):
+        source_type = source_type.dtype
+    if isinstance(target_type, types.EnumMember):
+        target_type = target_type.dtype
+
     if _is_bool_numba_type(source_type):
         return False
     if isinstance(source_type, types.Integer):

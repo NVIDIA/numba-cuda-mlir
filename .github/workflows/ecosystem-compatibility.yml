@@ -4,9 +4,6 @@
 name: Ecosystem compatibility
 
 on:
-  push:
-    branches:
-      - ci/ecosystem-nightly
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:

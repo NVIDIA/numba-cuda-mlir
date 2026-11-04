@@ -428,3 +428,68 @@ def test_x3_shared_allocation_stride(runtime_sized, alignment, dtype, element_by
         expected.append(77)
     np.testing.assert_array_equal(out.copy_to_host(), expected)
     np.testing.assert_array_equal(extent.copy_to_host(), [count])
+
+
+@pytest.mark.parametrize("allocation", ["runtime", "view", "static", "local"])
+@pytest.mark.parametrize(
+    "dtype,element_bytes",
+    [
+        (cuda.int8x3, 4),
+        (cuda.int16x3, 8),
+        (cuda.float32x3, 16),
+        (cuda.float64x3, 32),
+        (cuda.float32x2, 8),
+        (cuda.float32x4, 16),
+    ],
+)
+def test_vector_array_byte_metadata(allocation, dtype, element_bytes):
+    @cuda.jit
+    def kernel(n, out):
+        if allocation == "runtime":
+            shared = cuda.shared.array(n[0], dtype=dtype)
+        elif allocation == "view":
+            shared = cuda.shared.array(0, dtype=dtype)
+        elif allocation == "static":
+            shared = cuda.shared.array(2, dtype=dtype)
+        else:
+            shared = cuda.local.array(2, dtype=dtype)
+        tail = cuda.shared.array(0, dtype=np.uint8)
+        out[0] = shared.strides[0]
+        out[1] = shared.itemsize
+        out[2] = shared.nbytes
+        out[3] = 64 - tail.size
+
+    n = cuda.to_device(np.array([2], dtype=np.int64))
+    out = cuda.device_array(4, dtype=np.int64)
+    kernel[1, 1, 0, 64](n, out)
+    count = 64 // element_bytes if allocation == "view" else 2
+    reserved = count * element_bytes if allocation == "runtime" else 0
+    np.testing.assert_array_equal(
+        out.copy_to_host(),
+        [
+            element_bytes,
+            element_bytes,
+            count * element_bytes,
+            reserved,
+        ],
+    )
+
+
+def test_multidimensional_vector_array_byte_metadata():
+    @cuda.jit
+    def kernel(n, out):
+        shared = cuda.shared.array((n[0], 2), dtype=cuda.float32x3)
+        tail = cuda.shared.array(0, dtype=np.uint8)
+        transposed = shared.T
+        out[0] = shared.strides[0]
+        out[1] = shared.strides[1]
+        out[2] = shared.nbytes
+        out[3] = 96 - tail.size
+        out[4] = transposed.strides[0]
+        out[5] = transposed.strides[1]
+        out[6] = transposed.nbytes
+
+    n = cuda.to_device(np.array([2], dtype=np.int64))
+    out = cuda.device_array(7, dtype=np.int64)
+    kernel[1, 1, 0, 96](n, out)
+    np.testing.assert_array_equal(out.copy_to_host(), [32, 16, 64, 64, 16, 32, 64])

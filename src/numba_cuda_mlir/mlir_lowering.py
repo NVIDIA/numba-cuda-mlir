@@ -45,6 +45,7 @@ from numba_cuda_mlir.lowering_utilities import (
     lookup_callee_in_module,
     get_func_type,
     get_type_size_bytes,
+    get_type_storage_layout,
     get_conversion_signedness,
     llvm_ptr_add_bytes,
     memref_data_pointer,
@@ -2479,22 +2480,8 @@ extern "C" __global__ void
         alignment = index_of(alignment)
         return arith.muli(arith.ceildivui(offset, alignment), alignment)
 
-    def _shared_memory_element_layout(self, element_type):
-        if isinstance(element_type, ir.VectorType):
-            # LLVM pads the innermost vector to its power-of-two ABI alignment.
-            # Outer dimensions lower to arrays of those padded vectors.
-            inner_type = ir.VectorType.get([element_type.shape[-1]], element_type.element_type)
-            inner_bytes = get_type_size_bytes(inner_type)
-            alignment = 1 << (inner_bytes - 1).bit_length()
-            bytes = alignment
-            for dimension in element_type.shape[:-1]:
-                bytes *= dimension
-            return bytes, alignment
-        bytes = get_type_size_bytes(element_type)
-        return bytes, bytes
-
     def _request_dynamic_shared_memory(self, mr_type: ir.MemRefType, alignment):
-        bytes, element_alignment = self._shared_memory_element_layout(mr_type.element_type)
+        bytes, element_alignment = get_type_storage_layout(mr_type.element_type)
         assert self.mlir_funcOp
         # Emit at the current insertion point: the entry block may
         # already have a terminator once the request appears after
@@ -2528,7 +2515,7 @@ extern "C" __global__ void
         self, sizes: tuple[ir.Value, ...], mr_type: ir.MemRefType, alignment
     ):
         self.metadata["has_runtime_sized_shared_memory"] = True
-        bytes, element_alignment = self._shared_memory_element_layout(mr_type.element_type)
+        bytes, element_alignment = get_type_storage_layout(mr_type.element_type)
         assert self.mlir_funcOp
         # Emit at the current insertion point: the size operands are
         # computed here, and the entry block may already have a

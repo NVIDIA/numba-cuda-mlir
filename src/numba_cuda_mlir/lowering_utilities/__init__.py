@@ -285,6 +285,22 @@ def get_type_size_bytes(ty: ir.Type) -> int:
     return max(1, (get_type_width(ty) + 7) // 8)
 
 
+def get_type_storage_layout(ty: ir.Type) -> tuple[int, int]:
+    """Return the element allocation size and ABI alignment in bytes."""
+    if isinstance(ty, ir.VectorType):
+        # LLVM pads the innermost vector to its power-of-two ABI alignment.
+        # Outer dimensions lower to arrays of those padded vectors.
+        inner_type = ir.VectorType.get([ty.shape[-1]], ty.element_type)
+        inner_bytes = get_type_size_bytes(inner_type)
+        alignment = 1 << (inner_bytes - 1).bit_length()
+        size = alignment
+        for dimension in ty.shape[:-1]:
+            size *= dimension
+        return size, alignment
+    size = get_type_size_bytes(ty)
+    return size, size
+
+
 def _lookup_datamodel_type(numba_type: types.Type, context: str) -> ir.Type:
     from numba_cuda_mlir.models import mlir_data_manager
 
@@ -334,13 +350,18 @@ def storage_bitwidth(numba_type: types.Type) -> int:
 
 def storage_itemsize_bytes(numba_type: types.Type) -> int:
     from numba_cuda_mlir.types import NestedArray, Record
+    from numba_cuda_mlir.type_defs.vector_types import VectorType
 
     if isinstance(numba_type, Record):
         return numba_type.size
     if isinstance(numba_type, NestedArray):
         return storage_itemsize_bytes(numba_type.dtype)
 
-    dtype = getattr(numba_type, "dtype", numba_type)
+    dtype = (
+        numba_type
+        if isinstance(numba_type, VectorType)
+        else getattr(numba_type, "dtype", numba_type)
+    )
     if isinstance(dtype, Record):
         return dtype.size
     if isinstance(dtype, NestedArray):
@@ -351,6 +372,8 @@ def storage_itemsize_bytes(numba_type: types.Type) -> int:
         return getattr(dtype, "count", 1) * np.dtype("U1").itemsize
     if isinstance(dtype, types.CharSeq):
         return getattr(dtype, "count", 1)
+    if isinstance(dtype, VectorType):
+        return get_type_storage_layout(get_storage_type(dtype))[0]
     bitwidth = storage_bitwidth(dtype)
     return (bitwidth + 7) // 8
 

@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 
 from numba_cuda_mlir import cuda, extending, testing, types
-from numba_cuda_mlir._mlir.dialects import llvm
 from numba_cuda_mlir._mlir.extras import types as T
+from numba_cuda_mlir.mlir.dialect_exts import llvm
 from numba_cuda_mlir.extending import StructProxy
 from numba_cuda_mlir.models import StructModel, register_model
 
@@ -133,11 +133,18 @@ def test_new_struct_from_undef():
     testing.filecheck_with_comments(mlir)
 
 
-def test_rejects_unknown_init():
+@pytest.mark.parametrize(
+    "init",
+    [
+        pytest.param("garbage", id="unknown"),
+        pytest.param("", id="empty"),
+    ],
+)
+def test_rejects_unknown_init(init):
     @extending.intrinsic
     def bad_init(typingctx, x):
         def codegen(builder, target, args, kwargs):
-            StructProxy(pair_type, init="garbage")
+            StructProxy(pair_type, init=init)
 
         return types.void(x), codegen
 
@@ -147,7 +154,7 @@ def test_rejects_unknown_init():
     def k(a):
         bad_init(a[0])
 
-    with pytest.raises(ValueError, match=r"init.*'garbage'"):
+    with pytest.raises(ValueError, match=rf"init.*{init!r}"):
         k[1, 1](np.zeros(1, dtype=np.int32))
 
 
@@ -479,3 +486,134 @@ def test_setting_field_is_rejected_with_replace_hint():
 
     with pytest.raises(AttributeError, match=r"immutable.*replace\(x="):
         k[1, 1](np.zeros(1, dtype=np.int32))
+
+
+class OddNamesType(types.Type):
+    def __init__(self):
+        super().__init__(name="StructProxyTestOddNames")
+
+
+odd_names_type = OddNamesType()
+
+
+@register_model(OddNamesType)
+class OddNamesModel(StructModel):
+    def __init__(self, dmm, fe_type):
+        members = [("value", types.int32), ("self", types.int32), ("_hidden", types.float32)]
+        super().__init__(dmm, fe_type, members)
+
+
+def test_read_and_replace_fields_shadowed_by_api_names():
+    @extending.intrinsic
+    def make_odd(typingctx, v, s, h):
+        def codegen(builder, target, args, kwargs):
+            v, s, h = builder.load_vars(args)
+            p = StructProxy(odd_names_type).replace(value=v, self=s, _hidden=h)
+
+            builder.store_var(target, p.value)
+
+        return odd_names_type(v, s, h), codegen
+
+    @extending.intrinsic
+    def read_value(typingctx, odd):
+        def codegen(builder, target, args, kwargs):
+            p = StructProxy(odd_names_type, builder.load_var(args[0]))
+
+            builder.store_var(target, p.read("value"))
+
+        return types.int32(odd), codegen
+
+    @extending.intrinsic
+    def read_self(typingctx, odd):
+        def codegen(builder, target, args, kwargs):
+            p = StructProxy(odd_names_type, builder.load_var(args[0]))
+
+            builder.store_var(target, p.read("self"))
+
+        return types.int32(odd), codegen
+
+    @extending.intrinsic
+    def read_hidden(typingctx, odd):
+        def codegen(builder, target, args, kwargs):
+            p = StructProxy(odd_names_type, builder.load_var(args[0]))
+
+            builder.store_var(target, p.read("_hidden"))
+
+        return types.float32(odd), codegen
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def k(ints, floats):
+        p = make_odd(ints[0], ints[1], floats[0])
+        ints[2] = read_value(p)
+        ints[3] = read_self(p)
+        floats[1] = read_hidden(p)
+
+    ints = np.array([42, 7, 0, 0], dtype=np.int32)
+    floats = np.array([2.5, 0.0], dtype=np.float32)
+    k[1, 1](ints, floats)
+
+    assert ints[2] == 42
+    assert ints[3] == 7
+    assert floats[1] == np.float32(2.5)
+
+
+class FlagType(types.Type):
+    def __init__(self):
+        super().__init__(name="StructProxyTestFlag")
+
+
+flag_type = FlagType()
+
+
+@register_model(FlagType)
+class FlagModel(StructModel):
+    def __init__(self, dmm, fe_type):
+        super().__init__(dmm, fe_type, [("flag", types.boolean), ("n", types.int32)])
+
+
+def test_bool_field_uses_value_type():
+    @extending.intrinsic
+    def make_flag(typingctx, flag, n):
+        def codegen(builder, target, args, kwargs):
+            flag, n = builder.load_vars(args)
+            p = StructProxy(flag_type).replace(flag=flag, n=n)
+
+            builder.store_var(target, p.value)
+
+        return flag_type(flag, n), codegen
+
+    @extending.intrinsic
+    def flag_of(typingctx, f):
+        def codegen(builder, target, args, kwargs):
+            builder.store_var(target, StructProxy(flag_type, builder.load_var(args[0])).flag)
+
+        return types.boolean(f), codegen
+
+    @extending.intrinsic
+    def n_of(typingctx, f):
+        def codegen(builder, target, args, kwargs):
+            builder.store_var(target, StructProxy(flag_type, builder.load_var(args[0])).n)
+
+        return types.int32(f), codegen
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def k(flags, ns):
+        p = make_flag(flags[0], ns[0])
+        flags[1] = flag_of(p)
+        ns[1] = n_of(p)
+
+    flags = np.array([True, False])
+    ns = np.array([42, 0], dtype=np.int32)
+    k[1, 1](flags, ns)
+
+    assert flags[1]
+    assert ns[1] == 42
+
+    mlir = next(iter(k.inspect_mlir().values()))
+    # CHECK: llvm.mlir.zero : !llvm.struct<(i1, i32)>
+    # CHECK: llvm.insertvalue {{.*}}[0] : !llvm.struct<(i1, i32)>
+    testing.filecheck_with_comments(mlir)

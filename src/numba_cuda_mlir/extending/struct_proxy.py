@@ -32,7 +32,8 @@ class StructProxy:
 
         struct_type = model.get_value_type()
         if value is None:
-            init = init or "zero"
+            if init is None:
+                init = "zero"
 
             if init not in _INIT_OPS:
                 raise ValueError(f"init must be one of {sorted(_INIT_OPS)}, got {init!r}")
@@ -72,14 +73,17 @@ class StructProxy:
     def _field_type(self, index: int) -> ir.Type:
         return self._model.get_model(index).get_value_type()
 
+    def read(self, name: str) -> ir.Value:
+        index = self._index(name)
+        return llvm.extractvalue(self._field_type(index), self._value, [index])
+
     def __getattr__(self, name: str) -> ir.Value:
         if name.startswith("_"):
             raise AttributeError(name)
 
-        index = self._index(name)
-        return llvm.extractvalue(self._field_type(index), self._value, [index])
+        return self.read(name)
 
-    def replace(self, **fields: ir.Value) -> "StructProxy":
+    def replace(self, /, **fields: ir.Value) -> "StructProxy":
         result = self._value
 
         for name, field_value in fields.items():

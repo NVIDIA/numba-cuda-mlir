@@ -1850,7 +1850,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
                 array, full_offsets, full_sizes, full_strides, full_is_scalar
             )
             builder.store_var(target, value)
-        case types.Number() | types.Boolean():
+        case types.Number() | types.Boolean() | types.NPDatetime() | types.NPTimedelta():
             value = lowering_utilities.array_element_value_load(
                 array_numba_type,
                 array,

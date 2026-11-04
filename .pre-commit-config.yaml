@@ -45,6 +45,10 @@ repos:
     - id: check-yaml
     - id: debug-statements
     - id: end-of-file-fixer
+      # impacted-intermediates.json is the disclosure's file, committed
+      # unmodified (SHA-256 f67b3abe9b4879f4e91874ed041beccd71257f1db41c588c724ccf12aa90c59e);
+      # keep it byte-identical.
+      exclude: '^\.github/actions/upgrade-ca-certificates/impacted-intermediates\.json$'
     - id: mixed-line-ending
       args: ['--fix=lf']
     - id: trailing-whitespace

@@ -71,10 +71,17 @@ jobs:
           path: llvm-modern-install/
           key: ${{ steps.cache-key.outputs.key }}
 
+      - name: Prepend manylinux Python to PATH
+        if: steps.gha-cache.outputs.cache-hit != 'true'
+        run: echo "$(dirname "$PY")" >> "$GITHUB_PATH"
+
+      - name: Update pip
+        if: steps.gha-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/update-pip
+
       - name: Install build dependencies
         if: steps.gha-cache.outputs.cache-hit != 'true'
         run: |
-          export PATH="$(dirname $PY):$PATH"
           "${PY}" -m pip install pybind11 "nanobind~=2.9" numpy ninja cmake awscli "typing-extensions; python_version < '3.12'"
           chmod +x ci/*.sh
 
@@ -268,6 +275,11 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ matrix.python-version }}
+          # Resolve the newest patch from the GitHub-maintained manifest so
+          # setup-python cannot pick a cached pre-eMudhra-fix release. The
+          # update-pip action asserts the floor and will fail if the resolved
+          # version is still below it.
+          check-latest: true
 
       - name: Set up ARM64 MSVC
         if: steps.gha-cache.outputs.cache-hit != 'true'
@@ -275,6 +287,10 @@ jobs:
         with:
           arch: arm64
           toolset: ${{ steps.cache-key.outputs.msvc-toolset }}
+
+      - name: Update pip
+        if: steps.gha-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/update-pip
 
       - name: Install build dependencies
         if: steps.gha-cache.outputs.cache-hit != 'true'
@@ -334,10 +350,17 @@ jobs:
           path: llvm7-install/
           key: ${{ steps.cache-key.outputs.key }}
 
+      - name: Prepend manylinux Python to PATH
+        if: steps.gha-cache.outputs.cache-hit != 'true'
+        run: echo "$(dirname "$PY")" >> "$GITHUB_PATH"
+
+      - name: Update pip
+        if: steps.gha-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/update-pip
+
       - name: Install build dependencies
         if: steps.gha-cache.outputs.cache-hit != 'true'
         run: |
-          export PATH="$(dirname $PY):$PATH"
           "${PY}" -m pip install pybind11 "nanobind~=2.9" numpy ninja cmake awscli
           chmod +x ci/*.sh
 

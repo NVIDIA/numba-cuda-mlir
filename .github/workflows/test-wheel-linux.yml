@@ -132,9 +132,17 @@ jobs:
         with:
           python-version: ${{ matrix.PY_VER }}
           allow-prereleases: ${{ startsWith(matrix.PY_VER, '3.15') }}
+          # Resolve the newest patch from the GitHub-maintained manifest so
+          # setup-python cannot pick a cached pre-eMudhra-fix release. The
+          # update-pip action asserts the floor and will fail if the resolved
+          # version is still below it (CVE-2026-115557).
+          check-latest: true
         env:
           # we use self-hosted runners on which setup-python behaves weirdly...
           AGENT_TOOLSDIRECTORY: "/opt/hostedtoolcache"
+
+      - name: Update pip
+        uses: ./.github/actions/update-pip
 
       - name: Set up mini CTK
         if: ${{ matrix.LOCAL_CTK == '1' }}

@@ -625,11 +625,28 @@ def lower_round(builder, target, args, kwargs):
     trace()
     value = builder.load_var(args[0])
     ndigits = builder.load_var(args[1])
-    fname = f"round_ndigits_type_{str(value.type)}_type_{str(ndigits.type)}"
+    value_type = value.type
+    if isinstance(value_type, ir.IntegerType):
+        # Numba types round(int, ndigits) as (float, intp) -> float, so pick the
+        # float variant the signature declares. The call lowering converts each
+        # operand to the callee's declared input type.
+        value_type = builder.get_mlir_type(builder.get_numba_type(target.name))
+    fname = f"round_ndigits_type_{str(value_type)}_type_{str(ndigits.type)}"
     if func := getattr(round, fname, None):
         builder.lower_call_external_mlir_library_function(target, func, args, {})
         return
     raise NotImplementedError(f"round intrinsic for types {value.type} and {ndigits.type}")
+
+
+@lower(round, types.Integer)
+@lower(round, types.Boolean)
+def lower_round_integer(builder, target, args, kwargs):
+    # Boolean is not a subclass of Integer in Numba's type hierarchy, so it
+    # needs its own registration to reach this already-rounded path.
+    source_type = builder.get_numba_type(args[0].name)
+    target_type = builder.get_numba_type(target.name)
+    value = builder.lower_cast(source_type, target_type, builder.load_var(args[0]))
+    builder.store_var(target, value)
 
 
 @lower(round, types.Number)
@@ -773,6 +790,11 @@ def operator_neg_number_lower(builder, target, args, kwargs):
             result = complex_dialect.neg(value)
         case _:
             result = constant(0, value.type) - value
+    source_type = builder.get_numba_type(args[0].name)
+    if isinstance(source_type, types.Integer) and not source_type.signed:
+        # Wrap at the input width before zero-extending, like stock numba-cuda.
+        target_type = builder.get_numba_type(target.name)
+        result = convert(result, builder.get_mlir_type(target_type), signed=False)
     builder.store_var(target, result)
 
 

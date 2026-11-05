@@ -33,25 +33,30 @@ if [[ "${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}" == "12.2" ]]; then
   CUDA_BINDINGS_SPEC="cuda-bindings>=12.9.1,<13.0.0"
 fi
 
-# Pin cuda-toolkit to the matrix version in both modes. Otherwise the
-# test-cu${TEST_CUDA_MAJOR} group's "cuda-toolkit[cccl]==${TEST_CUDA_MAJOR}.*" floats to the
-# newest release, whose compiler output the matrix CTK's cuobjdump cannot parse.
-# nvJitLink embeds its own ptxas and is only lower-bounded by cuda-toolkit, so
-# pin it too (cu12 wheels are capped at 12.9 and have no 12.2 match).
-CUDA_TOOLKIT_SPEC=("cuda-toolkit[cccl,cudart]==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*")
+CUDA_TOOLKIT_SPEC="cuda-toolkit[cccl,cudart]==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*"
+
+# For CUDA 13, also pin cuda-toolkit when using a local CTK, and pin nvJitLink
+# in both modes. Otherwise the test-cu13 group's "cuda-toolkit[cccl]==13.*" and
+# cuda-toolkit's nvidia-nvjitlink lower bound float to the newest release,
+# whose embedded ptxas emits cubins the matrix CTK's cuobjdump cannot parse.
+# CUDA 12 is left alone: its 12.2 wheels have no aarch64 builds, so an exact
+# pin cannot resolve for the arm64 local-CTK entry.
+CUDA_PINS=()
+LOCAL_CTK_PINS=()
 if [[ "${TEST_CUDA_MAJOR}" == 13 ]]; then
-  CUDA_TOOLKIT_SPEC+=("nvidia-nvjitlink==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*")
+  CUDA_PINS=("nvidia-nvjitlink==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*")
+  LOCAL_CTK_PINS=("${CUDA_TOOLKIT_SPEC}")
 fi
 
 if [[ "${LOCAL_CTK}" == 1 ]]; then
   pip install "${pip_wheel}" --group "test-cu${TEST_CUDA_MAJOR}" \
     "${CUDA_BINDINGS_SPEC}" "cuda-core[cu${TEST_CUDA_MAJOR}]" \
-    "${CUDA_TOOLKIT_SPEC[@]}" \
+    "${LOCAL_CTK_PINS[@]}" "${CUDA_PINS[@]}" \
     "${coverage_packages[@]}"
 else
   pip install "${pip_wheel}[cu${TEST_CUDA_MAJOR}]" --group "test-cu${TEST_CUDA_MAJOR}" \
     "${CUDA_BINDINGS_SPEC}" "cuda-core[cu${TEST_CUDA_MAJOR}]" \
-    "${CUDA_TOOLKIT_SPEC[@]}" \
+    "${CUDA_TOOLKIT_SPEC}" "${CUDA_PINS[@]}" \
     "${coverage_packages[@]}"
 fi
 

@@ -33,14 +33,20 @@ if [[ "${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}" == "12.2" ]]; then
   CUDA_BINDINGS_SPEC="cuda-bindings>=12.9.1,<13.0.0"
 fi
 
+# Pin cuda-toolkit to the matrix version in both modes. Otherwise the
+# test-cu${TEST_CUDA_MAJOR} group's "cuda-toolkit[cccl]==${TEST_CUDA_MAJOR}.*" floats to the
+# newest release, whose compiler output the matrix CTK's cuobjdump cannot parse.
+CUDA_TOOLKIT_SPEC="cuda-toolkit[cccl,cudart]==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*"
+
 if [[ "${LOCAL_CTK}" == 1 ]]; then
   pip install "${pip_wheel}" --group "test-cu${TEST_CUDA_MAJOR}" \
     "${CUDA_BINDINGS_SPEC}" "cuda-core[cu${TEST_CUDA_MAJOR}]" \
+    "${CUDA_TOOLKIT_SPEC}" \
     "${coverage_packages[@]}"
 else
   pip install "${pip_wheel}[cu${TEST_CUDA_MAJOR}]" --group "test-cu${TEST_CUDA_MAJOR}" \
     "${CUDA_BINDINGS_SPEC}" "cuda-core[cu${TEST_CUDA_MAJOR}]" \
-    "cuda-toolkit[cccl,cudart]==${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}.*" \
+    "${CUDA_TOOLKIT_SPEC}" \
     "${coverage_packages[@]}"
 fi
 

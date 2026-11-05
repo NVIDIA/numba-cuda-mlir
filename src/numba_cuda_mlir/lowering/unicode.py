@@ -43,6 +43,20 @@ registry = LoweringRegistry()
 lower = registry.lower
 
 
+@lower(len, types.StringLiteral)
+def _lower_string_literal_len(builder, target, args, kwargs):
+    """``len()`` of a string literal, in code points, as a compile-time constant.
+
+    The generic ``@overload(len)`` for ``UnicodeType`` reads ``s._length`` out of
+    the ``unicode_type`` struct.  A literal has no such struct to read from --
+    ``StringLiteralModel`` is a bare pointer -- so the count has to come from the
+    type, the way ``==`` on literals already does.
+    """
+    literal = builder.get_numba_type(args[0].name).literal_value
+    target_type = builder.get_mlir_type(builder.get_numba_type(target.name))
+    builder.store_var(target, arith.constant(result=target_type, value=len(literal)))
+
+
 def _unicode_eq_lower(builder, target, args, kwargs):
     """Lower unicode_type == unicode_type / StringLiteral.
 

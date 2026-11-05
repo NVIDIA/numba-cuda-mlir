@@ -156,6 +156,13 @@ class ConstevalTransformer(ast.NodeTransformer):
 
         value = self._eval_expr(node.args[0])
         self.modified = True
+
+        from numba_cuda_mlir.numba_cuda.core.options import FastMathOptions
+
+        # FastMathOptions materializes as its flag tuple: truthy when any flag is set.
+        if isinstance(value, FastMathOptions):
+            value = tuple(sorted(value.flags))
+
         return ast.copy_location(self._value_expr(value), node)
 
     def _value_expr(self, value) -> ast.expr:

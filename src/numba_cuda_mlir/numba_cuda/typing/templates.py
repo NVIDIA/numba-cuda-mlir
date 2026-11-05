@@ -18,6 +18,7 @@ from types import MethodType, FunctionType, MappingProxyType
 from numba_cuda_mlir import numba_cuda
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core.errors import (
+    ArgumentBindingError,
     TypingError,
     InternalError,
 )
@@ -202,6 +203,9 @@ def fold_arguments(
     default_handler,
     stararg_handler,
     starkwarg_handler=None,
+    *,
+    name=None,
+    loc=None,
 ):
     """
     Given the signature *pysig*, explicit *args* and *kws*, resolve
@@ -213,6 +217,8 @@ def fold_arguments(
     - stararg_handler(index, param, values) is called for a "*args" argument
     - starkwarg_handler(index, param, values) is called for a "**kwargs"
       argument, with the name-to-value dict of the keywords it collects
+    If the arguments do not bind, an ArgumentBindingError is raised; given the
+    callee's *name*, its message is Python's, and *loc* is the call's location.
     """
     if isinstance(kws, Sequence):
         # Normalize dict kws
@@ -224,12 +230,15 @@ def fold_arguments(
     except TypeError as e:
         # The binding attempt can raise if the args don't match up, this needs
         # to be converted to a TypingError so that e.g. partial type inference
-        # doesn't just halt.
-        msg = (
-            f"Cannot bind 'args={args} kws={kws}' to "
-            f"signature '{pysig}' due to \"{type(e).__name__}: {e}\"."
-        )
-        raise TypingError(msg)
+        # doesn't just halt. It stays a TypeError, as in Python.
+        if name is None:
+            msg = (
+                f"Cannot bind 'args={args} kws={kws}' to "
+                f"signature '{pysig}' due to \"{type(e).__name__}: {e}\"."
+            )
+        else:
+            msg = f"{name}() {e}"
+        raise ArgumentBindingError(msg, loc=loc)
     for i, param in enumerate(pysig.parameters.values()):
         name = param.name
         default = param.default

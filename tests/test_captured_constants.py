@@ -14,6 +14,19 @@ PY_COMPLEX = 2.0 - 1.5j
 NP_C64 = np.complex64(2.0 - 1.5j)
 COMPLEX_TUPLE = (2.0 - 1.5j, 0.5j)
 
+# Attributes of a module are lowered through getattr rather than as globals.
+CONSTANTS = ModuleType("constants")
+CONSTANTS.ONE = np.uint64(1)
+CONSTANTS.F32 = NP_F32
+CONSTANTS.I8 = NP_I8
+CONSTANTS.TRUE = NP_TRUE
+CONSTANTS.C64 = NP_C64
+CONSTANTS.PY_TWO = 2
+CONSTANTS.NP_TWO = np.int32(2)
+CONSTANTS.PY_HALF = 0.5
+CONSTANTS.NP_HALF = np.float32(0.5)
+CONSTANTS.NP_ZERO = np.float32(0.0)
+
 
 def test_np_bool_global_in_branch():
     @cuda.jit
@@ -66,6 +79,36 @@ def test_np_scalar_globals_arithmetic():
     out = cuda.to_device(np.zeros(2, dtype=np.float64))
     k[1, 1](out)
     np.testing.assert_allclose(out.copy_to_host(), [7.0, 8.0])
+
+
+def test_np_scalar_module_attributes():
+    @cuda.jit
+    def k(out, cout):
+        out[0] = np.uint64(5) + CONSTANTS.ONE
+        out[1] = CONSTANTS.F32 * 2.0
+        out[2] = CONSTANTS.I8 + 1
+        out[3] = 1 if CONSTANTS.TRUE else 0
+        cout[0] = CONSTANTS.C64 + 1
+
+    out = cuda.to_device(np.zeros(4, dtype=np.float64))
+    cout = cuda.to_device(np.zeros(1, dtype=np.complex128))
+    k[1, 1](out, cout)
+    np.testing.assert_allclose(out.copy_to_host(), [6.0, 7.0, 8.0, 1.0])
+    np.testing.assert_array_equal(cout.copy_to_host(), [3.0 - 1.5j])
+
+
+def test_numeric_module_attributes_as_conditions():
+    @cuda.jit
+    def k(out):
+        out[0] = 1 if CONSTANTS.PY_TWO else 0
+        out[1] = 1 if CONSTANTS.NP_TWO else 0
+        out[2] = 1 if CONSTANTS.PY_HALF else 0
+        out[3] = 1 if CONSTANTS.NP_HALF else 0
+        out[4] = 1 if CONSTANTS.NP_ZERO else 0
+
+    out = cuda.to_device(np.zeros(5, dtype=np.int32))
+    k[1, 1](out)
+    np.testing.assert_array_equal(out.copy_to_host(), [1, 1, 1, 1, 0])
 
 
 @pytest.mark.parametrize("dtype", [np.complex64, np.complex128], ids=["c64", "c128"])

@@ -25,6 +25,7 @@ from cuda import pathfinder
 from numba_cuda_mlir import codegen
 from numba_cuda_mlir.decorators import mlir_jit
 from numba_cuda_mlir.numba_cuda.errors import normalize_kernel_dimensions
+from numba_cuda_mlir.numba_cuda.api_util import resolve_cuda_array_interface_dtype
 from numba_cuda_mlir.numba_cuda.core.errors import NumbaPerformanceWarning
 from numba_cuda_mlir.numba_cuda.core import config as cuda_config
 from numba_cuda_mlir.numba_cuda.cudadrv import driver as numba_cuda_driver
@@ -217,12 +218,13 @@ def _array_shape(arg):
 
 def _array_dtype(arg, ty=None):
     cai = _cuda_array_interface(arg)
-    if cai is not None:
-        from numba_cuda_mlir.numba_cuda.api_util import resolve_cuda_array_interface_dtype
-
-        return resolve_cuda_array_interface_dtype(cai["typestr"], getattr(arg, "dtype", None))
-
     dtype = getattr(arg, "dtype", None)
+    if cai is not None:
+        return resolve_cuda_array_interface_dtype(cai["typestr"], dtype)
+
+    if isinstance(dtype, np.dtype):
+        return dtype
+
     if dtype is not None:
         return np.dtype(dtype)
 
@@ -909,6 +911,7 @@ class _ArgMarshaller:
                             array_checks.append(
                                 (i, _array_cache_key(args[i], ct, runtime_type=argtypes[i]))
                             )
+
                     array_checks = tuple(array_checks)
                     entries = self._array_sig_cache.setdefault(type_key, [])
                     if not any(checks == array_checks for _, checks in entries):

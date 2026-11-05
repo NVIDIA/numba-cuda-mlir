@@ -1100,6 +1100,15 @@ def number_class_convert(value: types.Type, target_type: types.functions.NumberC
     return value
 
 
+@unverified_convert.register
+def numpy_scalar_convert(value: np.generic, target_type: ir.Type, *, signed: bool | None = None):
+    """
+    NumPy scalars reach here as module attribute constants (`constants.ONE` where
+    `ONE = np.uint64(1)`); lower them as the Python scalar they hold.
+    """
+    return unverified_convert(value.item(), target_type, signed=signed)
+
+
 def _memory_spaces_match(lhs: ir.MemRefType, rhs: ir.MemRefType) -> bool:
     """
     `lhs.memory_space == rhs.memory_space` works when both memrefs _have_ a memory
@@ -1953,6 +1962,9 @@ def constant(
         # This is useful for converting literals to the appropriate type.
         case ir.Value(), t if t is None:
             return value
+        case int() | float(), ir.IntegerType() if ty.width == 1:
+            # An i1 holds truthiness: 2 and 0.5 are true, but their low bit is 0.
+            return arith.constant(ty, value=bool(value))
         case int(), ir.IntegerType():
             return arith.constant(ty, value=value)
         case int(), ir.IndexType():

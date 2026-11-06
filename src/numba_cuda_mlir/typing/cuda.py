@@ -450,9 +450,11 @@ class CudaGridTemplate(AbstractTemplate):
         if not isinstance(args[0], types.Integer):
             return None
         value = args[0].literal_value
+        # A one-dimensional launch may hold up to (2**31 - 1) * 1024 threads, so
+        # the global thread index and the grid size do not fit in 32 bits.
         if value == 1:
-            return signature(types.int32, types.int32)
-        ret_types = [types.int32 for i in range(value)]
+            return signature(types.int64, types.int32)
+        ret_types = [types.int64 for i in range(value)]
         ret_ty = types.Tuple(ret_types)
         return signature(ret_ty, types.int32)
 

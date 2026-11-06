@@ -836,8 +836,12 @@ def optimize(cres):
 
         # TODO: parse CC from the object and ensure it's not greater than the
         # greatest supported CC via _get_gpu_compute_capability()
+        from numba_cuda_mlir.mlir_lowering import _is_omitted_arg
+
+        # Match the symbol the lowering emits, which leaves omitted arguments out.
         cres.metadata["func_name"] = generate_mangled_name(
-            cres.fndesc.qualname, cres.fndesc.argtypes
+            cres.fndesc.qualname,
+            [argtype for argtype in cres.fndesc.argtypes if not _is_omitted_arg(argtype)],
         )
 
         cres.library._ptx = cres.metadata["ptx"]

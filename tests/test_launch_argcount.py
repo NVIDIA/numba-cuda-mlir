@@ -69,13 +69,7 @@ def test_exact_argument_count_still_launches():
 
 
 def test_omitting_a_defaulted_argument_is_not_refused():
-    """Defaults make a shorter call legal, so the floor is the required count.
-
-    Only the count is asserted here.  Omitting a defaulted argument currently
-    leaves the parameter holding garbage rather than the default, which is a
-    separate defect in how the launcher passes values; this test must not start
-    passing or failing on account of it.
-    """
+    """Defaults make a shorter call legal, so the floor is the required count."""
 
     @cuda.jit
     def k(out, addend=7):
@@ -86,6 +80,7 @@ def test_omitting_a_defaulted_argument_is_not_refused():
     out = cuda.to_device(np.zeros(4, np.int32))
     k[1, 4](out)  # must not raise
     cuda.synchronize()
+    np.testing.assert_equal(out.copy_to_host(), np.arange(7, 11, dtype=np.int32))
 
     supplied = cuda.to_device(np.zeros(4, np.int32))
     k[1, 4](supplied, 20)

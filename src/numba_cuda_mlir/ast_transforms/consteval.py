@@ -6,7 +6,7 @@ import copy
 import inspect
 from typing import Callable
 
-from numba_cuda_mlir.ast_transforms.common import get_function_context
+from numba_cuda_mlir.ast_transforms.common import get_function_ast, get_function_context
 from numba_cuda_mlir.ast_transforms.pipeline import ASTTransformPass, TransformContext
 
 
@@ -110,14 +110,15 @@ class ConstevalTransformer(ast.NodeTransformer):
         ctx["__numba_cuda_mlir_target_options__"] = self.targetoptions
         return ctx
 
-    def _is_consteval_call(self, node: ast.expr) -> bool:
+    @classmethod
+    def _is_consteval_call(cls, node: ast.expr) -> bool:
         """Check if a node is a call to consteval or literally."""
         if not isinstance(node, ast.Call):
             return False
         if isinstance(node.func, ast.Name):
-            return node.func.id in self.CONSTEVAL_NAMES
+            return node.func.id in cls.CONSTEVAL_NAMES
         elif isinstance(node.func, ast.Attribute):
-            return node.func.attr in self.CONSTEVAL_NAMES
+            return node.func.attr in cls.CONSTEVAL_NAMES
         return False
 
     def _eval_expr(self, node: ast.expr) -> any:
@@ -483,6 +484,31 @@ class ConstevalTransformer(ast.NodeTransformer):
             return node
 
         return self._transform_consteval(node)
+
+
+def reads_parameters(func: Callable) -> bool:
+    """Return whether a consteval in ``func`` names one of its parameters.
+
+    We look inside ``consteval(...)`` arguments and ``with consteval():``
+    bodies, because the consteval pass reads parameter types nowhere else.
+    """
+    tree = get_function_ast(func)
+    if tree is None:
+        return False
+
+    is_consteval = ConstevalTransformer._is_consteval_call
+    parameters = set(inspect.signature(func).parameters)
+    for node in ast.walk(tree):
+        if is_consteval(node):
+            scanned = node.args
+        elif isinstance(node, ast.With) and any(is_consteval(i.context_expr) for i in node.items):
+            scanned = node.body
+        else:
+            continue
+        for part in scanned:
+            if any(isinstance(n, ast.Name) and n.id in parameters for n in ast.walk(part)):
+                return True
+    return False
 
 
 def transform_consteval(

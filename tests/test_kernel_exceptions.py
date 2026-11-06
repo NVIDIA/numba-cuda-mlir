@@ -13,6 +13,8 @@ documented behavior in ``docs/source/user/cudapysupported.rst``: with
 import numpy as np
 import pytest
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir.compiler import compile_ptx
+from numba_cuda_mlir.cuda import literal_unroll
 from numba_cuda_mlir.numba_cuda import require_context, types
 from numba_cuda_mlir.numba_cuda.testing import skip_if_nvjitlink_missing
 from numba_cuda_mlir.tools import get_gpu_compute_capability
@@ -167,3 +169,130 @@ def test_raise_only_kernel(debug, opt):
         # and must not raise.
         k[1, 1]()
         cuda.synchronize()
+
+
+def _launch(kernel, debug, *values):
+    """Launch ``kernel`` on (out, x); return out and whether the launch raised ValueError."""
+    out = cuda.to_device(np.zeros(2, dtype=np.int64))
+    x = cuda.to_device(np.array(values, dtype=np.int64))
+    raised = False
+    try:
+        kernel[1, 1](out, x)
+        cuda.synchronize()
+    except ValueError:
+        raised = True
+    assert raised == (debug and values[0] < 0)
+    return out.copy_to_host().tolist()
+
+
+@pytest.mark.parametrize("debug", [False, True])
+def test_raise_skips_code_after_raise(debug):
+    """A taken raise returns from the kernel; the store after it does not run."""
+
+    @cuda.jit(debug=debug, opt=not debug)
+    def k(out, x):
+        if x[0] < 0:
+            raise ValueError("negative")
+        out[0] = 5
+
+    assert _launch(k, debug, 1, 0) == [5, 0]
+    assert _launch(k, debug, -1, 0) == [0, 0]
+
+
+@pytest.mark.parametrize("debug", [False, True])
+def test_raise_before_branching_tail(debug):
+    """A value defined after the raise and used past a later branch compiles.
+
+    The raise used to branch to the last Return block, which here holds
+    ``out[0] = v``; ``v`` does not dominate the raise, so the module failed to
+    verify ("operand #0 does not dominate this use").
+    """
+
+    @cuda.jit(debug=debug, opt=not debug)
+    def k(out, x):
+        if x[0] < 0:
+            raise ValueError("negative")
+        v = x[0] * 2
+        if x[1] > 0:
+            out[1] = 1
+        out[0] = v
+
+    assert _launch(k, debug, 3, 0) == [6, 0]
+    assert _launch(k, debug, 3, 1) == [6, 1]
+    assert _launch(k, debug, -1, 1) == [0, 0]
+
+
+def test_literal_unroll_before_branching_tail():
+    """literal_unroll's unmatched-case raise does not break a branching tail."""
+
+    @cuda.jit
+    def k(out, x):
+        value = 0
+        for item in literal_unroll((1, 2)):
+            value += item
+        v = value * x[0]
+        if x[1] > 0:
+            out[1] = 1
+        out[0] = v
+
+    assert _launch(k, False, 2, 1) == [6, 1]
+
+
+@cuda.jit(device=True, inline="never")
+def _checked_scale(v, flag):
+    if v < 0:
+        raise ValueError("negative")
+    w = v * 2
+    if flag:
+        v += 1
+    return w
+
+
+@cuda.jit(device=True, inline="never")
+def _checked_pair(v):
+    if v < 0:
+        raise ValueError("negative")
+    w = (v, v * 2.0)
+    if v > 3:
+        v += 1
+    return w
+
+
+@pytest.mark.parametrize("debug", [False, True])
+def test_raise_in_value_returning_device_function(debug):
+    """A device function that raises returns from the raise site, for scalar and tuple results."""
+
+    @cuda.jit(debug=debug, opt=not debug)
+    def k(out, x):
+        out[0] = _checked_scale(x[0], x[1] > 0)
+        p = _checked_pair(x[0])
+        out[1] = p[0] + int(p[1])
+
+    assert _launch(k, debug, 3, 1) == [6, 9]
+    _launch(k, debug, -1, 1)
+
+
+@pytest.mark.parametrize("ndim", [1, 2])
+def test_raise_in_array_returning_device_function(ndim):
+    """A device function returning an array view compiles when it can raise."""
+
+    def view_1d(a, n):
+        if n < 0:
+            raise ValueError("negative")
+        b = a[n:]
+        if n > 3:
+            a[0] = 1
+        return b
+
+    def view_2d(a, n):
+        if n < 0:
+            raise ValueError("negative")
+        b = a[n:, 1:]
+        if n > 3:
+            a[0, 0] = 1
+        return b
+
+    pyfunc = view_1d if ndim == 1 else view_2d
+    array_type = types.Array(types.float32, ndim, "C")
+    ptx, _ = compile_ptx(pyfunc, (array_type, types.int64), device=True)
+    assert "ret;" in ptx

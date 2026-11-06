@@ -166,8 +166,20 @@ def lower_tuple_ne(builder, target, args, kwargs):
 @lower(range, types.Number, types.Number, types.Number)
 def lower_range(builder: MLIRLower, target, args, kwargs):
     start, stop, step = _get_range_object(builder, args)
-    ro = RangeObject(builder, start, stop, step)
-    builder.store_var(target, ro)
+    dtype = builder.get_numba_type(target.name).dtype
+    element_type = builder.get_mlir_type(dtype)
+    source_types = [builder.get_numba_type(arg.name) for arg in args]
+    if len(args) == 1:
+        source_types = [dtype, source_types[0], dtype]
+    elif len(args) == 2:
+        source_types.append(dtype)
+    start, stop, step = (
+        convert(value, element_type, signed=get_conversion_signedness(source_type, dtype))
+        for value, source_type in zip((start, stop, step), source_types, strict=True)
+    )
+    with builder.checked_range_step_context(step):
+        ro = RangeObject(builder, start, stop, step, signed=dtype.signed)
+        builder.store_var(target, ro)
 
 
 @lower(operator.contains, types.Tuple, types.Number)
@@ -484,7 +496,6 @@ def type_convert(builder, target, args, kwargs):
     target_numba_ty = builder.get_numba_type(target)
     to_type = builder.get_mlir_type(target)
     source_numba_ty = builder.get_numba_type(args[0])
-    signed = get_conversion_signedness(source_numba_ty, target_numba_ty)
 
     if isinstance(target_numba_ty, (types.IntegerLiteral, types.Literal)):
         result = constant(target_numba_ty.literal_value, to_type)
@@ -492,30 +503,11 @@ def type_convert(builder, target, args, kwargs):
         return
 
     value = builder.load_var(args[0])
-
-    if (const_val := try_extract_constant(value)) is not None:
-        result = constant(const_val, to_type)
-        builder.store_var(target, result)
-        return
-
-    # An i1 target is excluded so it falls through to `convert`, which compares against
-    # zero rather than truncating; fptosi/fptoui to i1 keeps the low bit, so bf16(0.0)
-    # came out True and bf16(2.0) came out False.
-    if (
-        isinstance(value.type, ir.BF16Type)
-        and isinstance(to_type, ir.IntegerType)
-        and to_type.width > 1
-    ):
-        value = (
-            arith.fptosi(out=to_type, in_=value) if signed else arith.fptoui(out=to_type, in_=value)
-        )
-    else:
-        value = convert(
-            value,
-            to_type,
-            signed=signed,
-        )
-    builder.store_var(target, value)
+    if not isinstance(value, ir.Value):
+        value = constant(value, builder.get_mlir_type(source_numba_ty))
+    value = builder.lower_cast(source_numba_ty, target_numba_ty, value)
+    with builder.scalar_conversion_context():
+        builder.store_var(target, value)
 
 
 @lower(float, types.StringLiteral)

@@ -101,6 +101,18 @@ def restore_compile_arg_types():
     descriptor_mod._compile_arg_types.__dict__.update(state)
 
 
+def test_launch_config_preserves_integer_specializations():
+    @cuda.jit(extensions=[_LaunchConfigExtension()])
+    def store(out, value):
+        out[0] = value
+
+    out = cuda.to_device(np.zeros(1, dtype=np.uint64))
+    launch = store[1, 1]
+    for value in (np.int32(1), np.int64(1 << 40), np.uint64(1 << 63), np.int32(7)):
+        launch(out, value)
+        assert out.copy_to_host()[0] == int(value)
+
+
 def test_target_initialization_waits_for_concurrent_initialization():
     class Context:
         def __init__(self, started=None, release=None):

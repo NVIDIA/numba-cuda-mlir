@@ -797,7 +797,9 @@ class _ArgMarshaller:
         # register per-launch callbacks through prepare_args().
         type_key = None
         if not has_ext:
-            type_key = tuple(type(a) for a in args)
+            type_key = tuple(
+                (type(a), int.__ge__(a, 1 << 63)) if isinstance(a, int) else type(a) for a in args
+            )
             cached = self._sig_cache.get(type_key)
             if cached is not None:
                 cached_argtypes, fast_ok = cached
@@ -2576,9 +2578,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         return self.inspect_asm(sig)
 
     @staticmethod
-    def _can_reuse_overload(sig_arg, runtime_type):
-        """Check if a pre-compiled overload for sig_arg can be reused for
-        runtime_type, allowing subtype compatibility."""
+    def _can_reuse_overload(sig_arg, runtime_type, *, allow_integer_coercion=True):
+        """Check type compatibility, optionally requiring exact integer types."""
         if sig_arg == runtime_type:
             return True
         if isinstance(sig_arg, types.Literal) or isinstance(runtime_type, types.Literal):
@@ -2586,17 +2587,20 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         # If signature has CPointer and runtime is int (pointer address), accept
         if isinstance(sig_arg, types.CPointer) and isinstance(runtime_type, types.Integer):
             return True
-        # Allow integer type coercion (e.g., int64 runtime -> int32 sig)
         if isinstance(sig_arg, types.Integer) and isinstance(runtime_type, types.Integer):
-            return True
+            return allow_integer_coercion
         # Allow array type compatibility (matching dtype and ndim)
         if isinstance(sig_arg, types.Array) and isinstance(runtime_type, types.Array):
             return sig_arg.dtype == runtime_type.dtype and sig_arg.ndim == runtime_type.ndim
         # Recursively check Tuple element compatibility
         if isinstance(sig_arg, types.BaseTuple) and isinstance(runtime_type, types.BaseTuple):
             if len(sig_arg) == len(runtime_type):
-                reuse = MLIRDispatcher._can_reuse_overload
-                return all(reuse(s, r) for s, r in zip(sig_arg, runtime_type))
+                return all(
+                    MLIRDispatcher._can_reuse_overload(
+                        s, r, allow_integer_coercion=allow_integer_coercion
+                    )
+                    for s, r in zip(sig_arg, runtime_type)
+                )
         return False
 
     @staticmethod
@@ -2706,13 +2710,16 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         if launch_config is not None:
             launch_config_key = _launch_config_key(launch_config)
             with self._launch_config_lock:
-                return self._find_launch_config_overload_locked(argtypes, launch_config_key)
+                return self._find_launch_config_overload_locked(
+                    argtypes, launch_config_key, allow_integer_coercion=not self._can_compile
+                )
         exact = self.overloads.get(argtypes)
         if exact is not None:
             return exact
         for sig_args, cres in self.overloads.items():
             if len(sig_args) == len(argtypes) and all(
-                self._can_reuse_overload(s, r) for s, r in zip(sig_args, argtypes)
+                self._can_reuse_overload(s, r, allow_integer_coercion=not self._can_compile)
+                for s, r in zip(sig_args, argtypes)
             ):
                 return cres
         return None
@@ -2754,7 +2761,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             if launch_config is None:
                 return None
             launch_config_key = _launch_config_key(launch_config)
-            compile_result = self._find_launch_config_overload_locked(argtypes, launch_config_key)
+            compile_result = self._find_launch_config_overload_locked(
+                argtypes, launch_config_key, allow_integer_coercion=not self._can_compile
+            )
             if (
                 compile_result is None
                 or configured_launch_config_generation != self._launch_config_generation
@@ -2882,7 +2891,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 if cb not in self._module_teardown_callbacks:
                     self._module_teardown_callbacks.append(cb)
 
-    def _find_launch_config_overload_locked(self, argtypes, launch_config_key):
+    def _find_launch_config_overload_locked(
+        self, argtypes, launch_config_key, *, allow_integer_coercion=True
+    ):
         # Exact hits are O(1). Compatible fallback scans the bounded launch
         # overload table to preserve existing overload-reuse semantics.
         exact = self._launch_config_overloads.get((argtypes, launch_config_key))
@@ -2893,7 +2904,10 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             if (
                 key == launch_config_key
                 and len(sig_args) == len(argtypes)
-                and all(self._can_reuse_overload(s, r) for s, r in zip(sig_args, argtypes))
+                and all(
+                    self._can_reuse_overload(s, r, allow_integer_coercion=allow_integer_coercion)
+                    for s, r in zip(sig_args, argtypes)
+                )
             ):
                 reusable = cres
                 break
@@ -3023,7 +3037,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             # launch.
             with self._launch_config_lock:
                 reusable = self._find_launch_config_overload_locked(
-                    argtypes, active_launch_config_key
+                    argtypes, active_launch_config_key, allow_integer_coercion=not self._can_compile
                 )
                 if reusable is not None:
                     self._launch_config_cache_hits[(argtypes, active_launch_config_key)] += 1
@@ -3031,7 +3045,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         elif self.overloads:
             for sig_args, cres in tuple(self.overloads.items()):
                 if len(sig_args) == len(argtypes) and all(
-                    self._can_reuse_overload(s, r) for s, r in zip(sig_args, argtypes)
+                    self._can_reuse_overload(s, r, allow_integer_coercion=not self._can_compile)
+                    for s, r in zip(sig_args, argtypes)
                 ):
                     return _result(cres)
 
@@ -3184,11 +3199,15 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                     retry_launch_config_compile = True
                 else:
                     existing = self._find_launch_config_overload_locked(
-                        argtypes, active_launch_config_key
+                        argtypes,
+                        active_launch_config_key,
+                        allow_integer_coercion=not self._can_compile,
                     )
                     if existing is None and normalized_args != argtypes:
                         existing = self._find_launch_config_overload_locked(
-                            normalized_args, active_launch_config_key
+                            normalized_args,
+                            active_launch_config_key,
+                            allow_integer_coercion=not self._can_compile,
                         )
                     if existing is not None:
                         # A duplicate compile can lose a race to another thread that
@@ -3225,6 +3244,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         else:
             self._propagate_compile_callbacks(result.metadata)
             self._apply_shared_memory_carveout(wrapped)
+            # Annotations may normalize runtime types; retain the request for
+            # exact prelaunch lookup, as for launch-qualified overloads above.
+            self.overloads[argtypes] = wrapped
             self.overloads[result.signature.args] = wrapped
 
         # Save to disk cache

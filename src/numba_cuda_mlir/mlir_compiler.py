@@ -357,9 +357,12 @@ def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
                 )
             )
 
-    # We should offer the Python error model for easier debugging of numerical
-    # errors - e.g. division by zero.
-    flags.error_model = "python"
+    # Debug kernels get the Python error model, which raises on numerical
+    # errors such as division by zero; everything else gets the NumPy model,
+    # which leaves the hardware result alone. Keyed on ``debug`` rather than
+    # ``flags.debuginfo`` so that ``lineinfo`` stays free of error checks, per
+    # the comment above.
+    flags.error_model = "python" if targetoptions.get("debug", False) else "numpy"
 
     # Run compilation pipeline
     from numba_cuda_mlir.numba_cuda.core.target_extension import target_override

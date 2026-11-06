@@ -801,6 +801,44 @@ def set_error_code_if_zero(error_ptr: ir.Value, error_code: int):
     )
 
 
+def guard_zero_division(builder, divisor: ir.Value):
+    """Record ``ZeroDivisionError`` when *divisor* is zero.
+
+    A zero divisor is undefined behaviour for ``arith.divsi``/``floordivsi``/
+    ``remsi`` and their unsigned forms, so the hardware instruction they lower
+    to returns a fabricated value instead of faulting. Numba answers this with
+    the error model: the Python model raises exactly where CPython does, and
+    the NumPy model keeps the unchecked divide. Gating on it here means the
+    comparison and branch are only emitted for ``debug=True`` kernels.
+
+    ``fastmath`` promises finite floating-point operands, so a zero divisor is
+    a broken promise rather than an error to report. Integer division carries
+    no such promise and stays checked.
+    """
+    error_model = getattr(builder.context, "error_model", None)
+    if error_model is None or not error_model.raise_on_fp_zero_division:
+        return
+
+    match divisor.type:
+        case ir.IntegerType() | ir.IndexType():
+            is_zero = arith.cmpi(arith.CmpIPredicate.eq, divisor, constant(0, divisor.type))
+        case ir.FloatType():
+            if builder.targetoptions.get("fastmath", False):
+                return
+            # OEQ also matches -0.0, and is false for a NaN divisor, which
+            # propagates rather than raising.
+            is_zero = arith.cmpf(arith.CmpFPredicate.OEQ, divisor, constant(0.0, divisor.type))
+        case _:
+            return
+
+    from numba_cuda_mlir.mlir_lowering import KERNEL_ERROR_CODES
+
+    error_ptr = builder._get_or_create_error_global()
+    with scf.if_ctx_manager(is_zero):
+        set_error_code_if_zero(error_ptr, KERNEL_ERROR_CODES[ZeroDivisionError])
+        scf.yield_([])
+
+
 def set_error_and_return(
     condition: ir.Value, error_memref: ir.Value, error_code: int, return_block: ir.Block
 ):

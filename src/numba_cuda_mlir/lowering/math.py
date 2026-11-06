@@ -412,6 +412,11 @@ def _bin_op_cg(op, builder, target, args, kwargs):
     if promoted_numba_type is None:
         unified_type = lowering_utilities.numpy_implicit_type_promotion(lhs.type, rhs.type)
 
+    if op in (operator.truediv, operator.itruediv):
+        # Checked before the operands are widened: conversion to the unified
+        # type cannot turn a zero divisor into a nonzero one, or vice versa.
+        lowering_utilities.guard_zero_division(builder, rhs)
+
     trace("op: %s, target_mlir_type: %s", op, target_mlir_type)
     if found_op := _get_operation_for_op_and_type(op, unified_type, is_unsigned):
         info, op = found_op
@@ -937,6 +942,7 @@ def mod_cg(builder, target, args, kwargs):
     lhs, rhs = args
     lhs = _load_and_convert_operand(builder, lhs, target_type, target_mlir_type)
     rhs = _load_and_convert_operand(builder, rhs, target_type, target_mlir_type)
+    lowering_utilities.guard_zero_division(builder, rhs)
 
     match target_mlir_type:
         case ir.IntegerType():
@@ -1085,6 +1091,7 @@ def floordiv_cg(builder, target, args, kwargs):
     lhs, rhs = args
     lhs = _load_and_convert_operand(builder, lhs, target_type, target_mlir_type)
     rhs = _load_and_convert_operand(builder, rhs, target_type, target_mlir_type)
+    lowering_utilities.guard_zero_division(builder, rhs)
 
     match target_mlir_type:
         case ir.FloatType():

@@ -465,6 +465,11 @@ static void adapt_inline_asm_intrinsics(LLVMModuleRef mod, LLVMContextRef ctx) {
         g_LLVMFunctionType(void_ty, &ns_param, 1, 0),
         "nanosleep.u32 $0;", "r", true);
 
+    replace_intrinsic_with_asm(
+        mod, ctx, "llvm.nvvm.read.ptx.sreg.dynamic_smem_size",
+        g_LLVMFunctionType(i32_ty, nullptr, 0, 0),
+        "mov.u32 $0, %dynamic_smem_size;", "=r", false);
+
     replace_intrinsic_with_asm(mod, ctx, "llvm.stacksave.p0",
         g_LLVMFunctionType(ptr_ty, nullptr, 0, 0),
         "stacksave.u64 $0;", "=l", true);

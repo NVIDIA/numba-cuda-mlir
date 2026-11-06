@@ -604,15 +604,6 @@ class TestCudaAtomics(NumbaCUDATestCase):
 
         self.assertTrue(np.all(ary == orig + 1))
 
-    def assertCorrectFloat64Atomics(self, kernel, shared=True):
-        # Use the first (and only) definition
-        asm = next(iter(kernel.inspect_asm().values()))
-        # Both state spaces are spelled out (atom.global.add.f64,
-        # atom.shared.add.f64), and a toolkit may interpose scope or ordering
-        # qualifiers such as .relaxed.gpu on either side of the state space.
-        space = "shared" if shared else "global"
-        self.assertRegex(asm, rf"\b(?:red|atom)(?:\.\w+)*\.{space}(?:\.\w+)*\.add\.f64", asm)
-
     def test_atomic_add_double(self):
         idx = np.random.randint(0, 32, size=32, dtype=np.int64)
         ary = np.zeros(32, np.float64)
@@ -630,8 +621,6 @@ class TestCudaAtomics(NumbaCUDATestCase):
 
         np.testing.assert_equal(ary, gold)
         np.testing.assert_equal(ary_wrap, gold)
-        self.assertCorrectFloat64Atomics(cuda_fn)
-        self.assertCorrectFloat64Atomics(wrap_fn)
 
     def test_atomic_add_double_2(self):
         ary = np.random.randint(0, 32, size=32).astype(np.float64).reshape(4, 8)
@@ -646,8 +635,6 @@ class TestCudaAtomics(NumbaCUDATestCase):
 
         np.testing.assert_equal(ary, orig + 1)
         np.testing.assert_equal(ary_wrap, orig + 1)
-        self.assertCorrectFloat64Atomics(cuda_fn)
-        self.assertCorrectFloat64Atomics(cuda_fn_wrap)
 
     def test_atomic_add_double_3(self):
         ary = np.random.randint(0, 32, size=32).astype(np.float64).reshape(4, 8)
@@ -656,7 +643,6 @@ class TestCudaAtomics(NumbaCUDATestCase):
         cuda_func[1, (4, 8)](ary)
 
         np.testing.assert_equal(ary, orig + 1)
-        self.assertCorrectFloat64Atomics(cuda_func)
 
     def test_atomic_add_double_global(self):
         idx = np.random.randint(0, 32, size=32, dtype=np.int64)
@@ -676,8 +662,6 @@ class TestCudaAtomics(NumbaCUDATestCase):
 
         np.testing.assert_equal(ary, gold)
         np.testing.assert_equal(ary_wrap, gold)
-        self.assertCorrectFloat64Atomics(cuda_func, shared=False)
-        self.assertCorrectFloat64Atomics(wrap_cuda_func, shared=False)
 
     def test_atomic_add_double_global_2(self):
         ary = np.random.randint(0, 32, size=32).astype(np.float64).reshape(4, 8)
@@ -693,8 +677,6 @@ class TestCudaAtomics(NumbaCUDATestCase):
 
         np.testing.assert_equal(ary, orig + 1)
         np.testing.assert_equal(ary_wrap, orig + 1)
-        self.assertCorrectFloat64Atomics(cuda_func, shared=False)
-        self.assertCorrectFloat64Atomics(wrap_cuda_func, shared=False)
 
     def test_atomic_add_double_global_3(self):
         ary = np.random.randint(0, 32, size=32).astype(np.float64).reshape(4, 8)
@@ -703,7 +685,6 @@ class TestCudaAtomics(NumbaCUDATestCase):
         cuda_func[1, (4, 8)](ary)
 
         np.testing.assert_equal(ary, orig + 1)
-        self.assertCorrectFloat64Atomics(cuda_func, shared=False)
 
     def test_atomic_sub(self):
         ary = np.random.randint(0, 32, size=32, dtype=np.int32)

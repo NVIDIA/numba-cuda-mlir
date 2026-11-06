@@ -1,0 +1,71 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: "Diagnose Windows managed memory"
+
+on:
+  push:
+    branches: ["pull-request/438"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: managed-memory-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    if: github.repository == 'NVIDIA/numba-cuda-mlir' && github.ref == 'refs/heads/pull-request/438'
+    runs-on: windows-amd64-gpu-rtxpro6000-latest-1
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DRIVER_MODE: MCDM
+      GPU_TYPE: rtxpro6000
+      PYTHONFAULTHANDLER: "1"
+      PYTHONUNBUFFERED: "1"
+      NUMBA_CUDA_MLIR_TEST_WHEEL_ONLY: "1"
+      NUMBA_CUDA_MLIR_CUDA_TEST_WHEEL_ONLY: "1"
+      NUMBA_CUDA_TEST_WHEEL_ONLY: "1"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Checkout released tests
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: v0.6.0
+          path: released-tests
+      - name: Select MCDM driver
+        run: ./ci/tools/install_gpu_driver.ps1
+      - name: Record driver and verify mode
+        run: |
+          New-Item -ItemType Directory -Force diagnostic-results | Out-Null
+          nvidia-smi -q | Tee-Object diagnostic-results/driver.txt
+          if ($LASTEXITCODE -ne 0) { throw "nvidia-smi failed" }
+          if (-not (Select-String -Path diagnostic-results/driver.txt -Pattern 'MCDM')) {
+            throw "Runner is not in MCDM mode"
+          }
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Install released wheel and diagnostic dependencies
+        run: |
+          python -m pip install --upgrade 'pip==26.2.2'
+          if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed" }
+          python -m pip install 'numba-cuda-mlir[cu13]==0.6.0' 'cuda-toolkit[cccl,cudart]==13.4.2' 'cuda-bindings==13.4.*' 'nvidia-nvjitlink==13.4.*' --group test pytest-randomly
+          if ($LASTEXITCODE -ne 0) { throw "Diagnostic dependency installation failed" }
+          python -m pip freeze | Out-File diagnostic-results/packages.txt
+      - name: Run isolated comparisons
+        run: |
+          python ci/tools/diagnose_managed_memory.py --source released-tests --output diagnostic-results
+          if ($LASTEXITCODE -ne 0) { throw "Diagnostic contains failures or incomplete cases; inspect artifacts" }
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-managed-memory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: diagnostic-results
+          if-no-files-found: warn

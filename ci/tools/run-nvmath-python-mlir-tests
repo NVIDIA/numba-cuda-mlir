@@ -150,6 +150,7 @@ python -m pytest ./tests/example_tests/device_tests/test_device_samples.py \
   -n auto \
   --junit-xml="${JUNIT_EXAMPLES}" \
   -o addopts= \
+  -o parametrize_long_str_id_strategy=legacy \
   "$@" || true
 
 echo "Collecting nvmath-python device tests (numba-cuda-mlir params)"

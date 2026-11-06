@@ -62,12 +62,19 @@ class MLIRCacheImpl(CacheImpl):
             "mlir_module_optimized": cres.metadata.get("mlir_module_optimized"),
             "needs_nrt": cres.metadata.get("needs_nrt"),
             "nrt_inline": cres.metadata.get("nrt_inline"),
+            "has_runtime_sized_shared_memory": cres.metadata.get(
+                "has_runtime_sized_shared_memory", False
+            ),
             "targetoptions": cres.metadata.get("targetoptions", {}),
             "gpu_target": cres.metadata.get("gpu_target"),
         }
 
     def rebuild(self, target_context, payload):
         """Deserialize a compile result from cache."""
+        if "has_runtime_sized_shared_memory" not in payload:
+            # Older cache entries lack the metadata needed to reject launches
+            # that omit storage for runtime-sized shared arrays. Recompile them.
+            return None
         signature_args = payload["signature_args"]
         signature_return_type = payload["signature_return_type"]
         cubin = payload["cubin"]
@@ -92,6 +99,7 @@ class MLIRCacheImpl(CacheImpl):
                 "mlir_module_optimized": mlir_module_optimized,
                 "needs_nrt": needs_nrt,
                 "nrt_inline": nrt_inline,
+                "has_runtime_sized_shared_memory": payload["has_runtime_sized_shared_memory"],
                 "targetoptions": targetoptions,
                 "gpu_target": gpu_target,
             },

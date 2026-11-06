@@ -308,7 +308,7 @@ def test_active_planners_bypass_persistent_dispatch_cache(
         raising=False,
     )
 
-    assert dispatcher._compile_impl([1]) == (b"compiled", "kernel", False)
+    assert dispatcher._compile_impl([1]) == (b"compiled", "kernel", False, False)
     assert not dispatcher._cache_hits
     assert not dispatcher._cache_misses
 
@@ -356,7 +356,7 @@ def test_planner_registered_during_compile_prevents_persistent_cache_save(
         raising=False,
     )
 
-    assert dispatcher._compile_impl([1]) == (b"compiled", "kernel", False)
+    assert dispatcher._compile_impl([1]) == (b"compiled", "kernel", False, False)
     assert dispatcher._cache.load_calls == 1
     assert dispatcher._cache.save_calls == 0
     assert dispatcher._cache_misses[(types.int32,)] == 1

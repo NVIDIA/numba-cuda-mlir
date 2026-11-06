@@ -1137,9 +1137,10 @@ class MLIRTargetContext(BaseContext):
 
     def __init__(self, typingctx, target="numba_cuda_mlir"):
         super().__init__(typingctx, target)
-        from numba_cuda_mlir.models import mlir_data_manager
+        from numba_cuda_mlir.models import OpaqueModel, mlir_data_manager
 
         self.data_model_manager = mlir_data_manager
+        self.data_model_manager.register(MLIRDispatcherType, OpaqueModel)
 
     def _is_nonconst_module_attr(self, typ, attr):
         """

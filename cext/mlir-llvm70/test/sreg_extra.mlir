@@ -35,6 +35,12 @@ module {
       llvm.store %nw, %out : i32, !llvm.ptr<1>
       llvm.return
     }
+
+    llvm.func @read_lanemask_lt(%out: !llvm.ptr<1>) attributes {gpu.kernel} {
+      %lm = nvvm.read.ptx.sreg.lanemask.lt : i32
+      llvm.store %lm, %out : i32, !llvm.ptr<1>
+      llvm.return
+    }
   }
 }
 
@@ -67,3 +73,9 @@ module {
 
 // CHECK-PTX: .visible .entry read_nwarpid
 // CHECK-PTX: mov.u32 %r{{[0-9]+}}, %nwarpid
+
+// CHECK-IR: define ptx_kernel void @read_lanemask_lt
+// CHECK-IR: call i32 asm "mov.u32 $0, %lanemask_lt;", "=r"()
+
+// CHECK-PTX: .visible .entry read_lanemask_lt
+// CHECK-PTX: mov.u32 %r{{[0-9]+}}, %lanemask_lt

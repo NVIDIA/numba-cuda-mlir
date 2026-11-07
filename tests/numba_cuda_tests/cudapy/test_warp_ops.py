@@ -432,7 +432,6 @@ class TestCudaWarpOperations(NumbaCUDATestCase):
         expected = np.tile((0x55555555, 0xAAAAAAAA), 16)
         np.testing.assert_equal(expected, out)
 
-    @pytest.mark.xfail(True, reason="Lanemask not implemented")
     def test_lanemask_lt(self):
         @numba_cuda_mlir.cuda.jit
         def use_lanemask_lt(x):

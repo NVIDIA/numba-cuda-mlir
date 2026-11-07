@@ -1075,6 +1075,17 @@ class TestBranchPrunePostSemanticConstRewrites(TestBranchPruneBase):
             tuple([1, 2]),
         )
 
+    def test_tuple_display_len(self):
+        # len() of a tuple display is its item count, known before typing (#109).
+        def impl(m, res):
+            tup = (m, m)
+            if len(tup) == 2:
+                res[0] = tup[1]
+            else:
+                res[0] = tup[2]
+
+        self.assert_prune(impl, (types.int64,), [False], 3)
+
     def test_attr_not_len(self):
         # The purpose of this test is to make sure that the conditions guarding
         # the rewrite part do not themselves raise exceptions.

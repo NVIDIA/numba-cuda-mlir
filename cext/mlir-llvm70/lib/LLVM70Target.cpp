@@ -2323,8 +2323,9 @@ llvm::Error MLIRToLLVM70::translateAtomicCmpXchgOp(Operation *op) {
 llvm::Error MLIRToLLVM70::translateSregOp(Operation *op) {
   // Lower all special-register reads to inline PTX directly, bypassing
   // libnvvm intrinsics which aren't reliably recognized across versions.
-  using SregMap =
-      std::pair<llvm::function_ref<bool(Operation *)>, const char *>;
+  // Plain function pointers: the lambdas below are temporaries, and a
+  // function_ref to one would dangle once this array is initialized.
+  using SregMap = std::pair<bool (*)(Operation *), const char *>;
   const SregMap sregOps[] = {
       {[](Operation *o) { return isa<NVVM::ThreadIdXOp>(o); },
        "mov.u32 $0, %tid.x;"},

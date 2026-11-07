@@ -311,10 +311,11 @@ def np_sum_cg(builder, target, args, kwargs):
     loc = ir.Location.unknown()
 
     # Create a rank-0 tensor initialized with the neutral element (0) for the reduction.
-    c0 = _zero_literal_for_numba_type(input_element_type)
-    c0 = arith.constant(result=input_dtype, value=c0)
-    result_type = ir.RankedTensorType.get((), input_dtype)
+    c0 = _zero_literal_for_numba_type(target_numba_type)
+    c0 = arith.constant(result=target_dtype, value=c0)
+    result_type = ir.RankedTensorType.get((), target_dtype)
     init = tensor.splat(result_type, c0, [])
+    signed = lowering_utilities.get_conversion_signedness(input_element_type, target_numba_type)
 
     # Reduce across all dimensions of the input tensor.
     rank = array.type.rank
@@ -327,17 +328,15 @@ def np_sum_cg(builder, target, args, kwargs):
         dimensions=dims_attr,
     )
     region = reduce_op.combiner
-    block = region.blocks.append(input_dtype, input_dtype)
+    block = region.blocks.append(input_dtype, target_dtype)
     with ir.InsertionPoint(block):
-        out_arg, in_arg = block.arguments
+        in_arg, out_arg = block.arguments
+        in_arg = lowering_utilities.convert(in_arg, target_dtype, signed=signed)
         linalg.yield_([lowering_utilities.add(out_arg, in_arg)])
 
     # Extract the scalar from the rank-0 tensor result.
     reduce_result_tensor = reduce_op.results[0]
     result_scalar = tensor.extract(reduce_result_tensor, [])
-
-    # Convert to target type if needed
-    result_scalar = lowering_utilities.convert(result_scalar, target_dtype)
 
     builder.store_var(target, result_scalar)
 
@@ -1906,9 +1905,11 @@ def create_reduction_op(builder, target, args, kwargs, init_value_fn, combiner_f
     # Get initialization value from the provided function using input element type
     init_val = init_value_fn(input_element_type)
 
-    init_const = arith.constant(result=input_dtype, value=init_val)
-    result_type = ir.RankedTensorType.get((), input_dtype)
+    # Accumulate in the result type: np.sum and np.prod widen small integers
+    init_const = arith.constant(result=target_dtype, value=init_val)
+    result_type = ir.RankedTensorType.get((), target_dtype)
     init = tensor.splat(result_type, init_const, [])
+    signed = lowering_utilities.get_conversion_signedness(input_element_type, target_numba_type)
 
     # Reduce across all dimensions
     rank = array.type.rank
@@ -1923,18 +1924,16 @@ def create_reduction_op(builder, target, args, kwargs, init_value_fn, combiner_f
     region = reduce_op.combiner
     block = region.blocks.append()
     in_arg = block.add_argument(input_dtype, loc=loc)
-    out_arg = block.add_argument(input_dtype, loc=loc)
+    out_arg = block.add_argument(target_dtype, loc=loc)
     with ir.InsertionPoint(block):
         # Apply combiner operation using input element type
+        in_arg = lowering_utilities.convert(in_arg, target_dtype, signed=signed)
         result_val = combiner_fn(input_element_type, out_arg, in_arg)
         linalg.yield_([result_val])
 
     # Extract the scalar from the rank-0 tensor result
     reduce_result_tensor = next(iter(cast(Any, reduce_op.operation.results)))
     result_scalar = tensor.extract(reduce_result_tensor, [])
-
-    # Convert to target type if needed
-    result_scalar = lowering_utilities.convert(result_scalar, target_dtype)
 
     builder.store_var(target, result_scalar)
 

@@ -59,6 +59,19 @@ def consteval(value=None):
         with consteval():
             config = load_config()
             N = config["block_size"]
+
+    Inside ``consteval``, a kernel parameter is its Numba type, not its runtime
+    value, so it can be compared only with types::
+
+        if consteval(x == types.int32):  # a type check, folded at compile time
+            ...
+        if x == 0:  # a value check: use a regular ``if``
+            ...
+
+    Comparing a parameter with a non-type value (``consteval(x == 0)``,
+    ``consteval(x is None)``) or using it as a truth value (``consteval(x)`` as
+    an ``if`` test, ``not x``, ``bool(x)``) raises ``ConstevalError``. Its type's
+    attributes are compile-time values, for example ``consteval(arr.ndim == 1)``.
     """
     if value is None:
         return _ConstevalContextManager()

@@ -42,6 +42,172 @@ class TargetOptionsReplacer(ast.NodeTransformer):
         return False
 
 
+_UNSET = object()
+
+# Nodes that evaluate code with side effects or new scopes; an operand containing one
+# is not evaluated a second time just to check it.
+_NOT_REEVALUATED = (
+    ast.Call,
+    ast.Lambda,
+    ast.NamedExpr,
+    ast.ListComp,
+    ast.SetComp,
+    ast.DictComp,
+    ast.GeneratorExp,
+    ast.Await,
+    ast.Yield,
+    ast.YieldFrom,
+)
+
+
+def _is_numba_type(value) -> bool:
+    from numba_cuda_mlir.numba_cuda import types
+
+    return isinstance(value, types.Type)
+
+
+def _is_type_like(value) -> bool:
+    """A Numba type, or a container whose members (dict keys) are all Numba types."""
+    if _is_numba_type(value):
+        return True
+    if isinstance(value, (tuple, list, set, frozenset)):
+        return all(_is_type_like(v) for v in value)
+    if isinstance(value, dict):
+        return all(_is_type_like(k) for k in value)
+    return False
+
+
+class _TypeAsValueChecker(ast.NodeVisitor):
+    """Reject a consteval expression that uses a Numba type as if it were a runtime value.
+
+    Inside ``consteval``, a parameter name evaluates to the parameter's Numba type. A
+    comparison such as ``x == 0`` then compares a type with an int: Python returns
+    ``False`` instead of raising, and the fold silently picks the wrong branch. The same
+    holds for a type's truth value. A comparison whose other operand is a type, such as
+    ``x == types.int32`` or ``x in (types.int32, types.int64)``, is a type check and is
+    left alone.
+    """
+
+    def __init__(self, context: dict, source: str):
+        self.context = context
+        self.source = source
+        self.shadowed: list[set[str]] = []
+
+    def check(self, node: ast.expr, truth_test: bool) -> None:
+        if truth_test:
+            self._check_truth(node)
+        self.visit(node)
+
+    def _is_shadowed(self, node: ast.expr) -> bool:
+        return any(
+            isinstance(n, ast.Name) and any(n.id in names for names in self.shadowed)
+            for n in ast.walk(node)
+        )
+
+    def _value(self, node: ast.expr):
+        """The compile-time value of ``node``, or ``_UNSET`` if it is not safe to evaluate."""
+        if self._is_shadowed(node) or any(isinstance(n, _NOT_REEVALUATED) for n in ast.walk(node)):
+            return _UNSET
+        try:
+            return eval(ast.unparse(node), self.context)
+        except Exception:
+            return _UNSET  # the evaluation proper reports the error
+
+    def _type_of(self, node: ast.expr):
+        """The Numba type ``node`` names, for a name or attribute chain such as ``arr.dtype``."""
+        root = node
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        if not isinstance(root, ast.Name):
+            return None
+        value = self._value(node)
+        return value if _is_numba_type(value) else None
+
+    def _error(self, node: ast.expr, numba_type, problem: str) -> ConstevalError:
+        name = ast.unparse(node)
+        return ConstevalError(
+            f"Cannot evaluate consteval argument '{self.source}' at compile time: inside "
+            f"consteval, '{name}' is the Numba type {numba_type}, not a runtime value, so "
+            f"{problem}. Compare it with a Numba type (for example '{name} == types.int32'), "
+            "or use a regular 'if' to test the runtime value."
+        )
+
+    def _check_truth(self, node: ast.expr) -> None:
+        numba_type = self._type_of(node)
+        if numba_type is not None:
+            raise self._error(
+                node, numba_type, "its truth value says nothing about the runtime value"
+            )
+
+    def visit_Compare(self, node: ast.Compare) -> None:
+        operands = [node.left, *node.comparators]
+        for op, left, right in zip(node.ops, operands, operands[1:]):
+            for typed, other in ((left, right), (right, left)):
+                numba_type = self._type_of(typed)
+                if numba_type is None:
+                    continue
+                other_value = self._value(other)
+                if other_value is _UNSET or _is_type_like(other_value):
+                    continue
+                pair = ast.Compare(left=left, ops=[op], comparators=[right])
+                outcome = self._value(pair)
+                problem = f"'{ast.unparse(pair)}' compares a type with {other_value!r}"
+                if isinstance(outcome, bool):
+                    problem += f" and is always {outcome}"
+                raise self._error(typed, numba_type, problem)
+        self.generic_visit(node)
+
+    def visit_UnaryOp(self, node: ast.UnaryOp) -> None:
+        if isinstance(node.op, ast.Not):
+            self._check_truth(node.operand)
+        self.generic_visit(node)
+
+    def visit_BoolOp(self, node: ast.BoolOp) -> None:
+        for value in node.values:
+            self._check_truth(value)
+        self.generic_visit(node)
+
+    def visit_IfExp(self, node: ast.IfExp) -> None:
+        self._check_truth(node.test)
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        func = node.func
+        if (
+            isinstance(func, ast.Name)
+            and func.id == "bool"
+            and self.context.get("bool", bool) is bool
+            and len(node.args) == 1
+            and not node.keywords
+        ):
+            self._check_truth(node.args[0])
+        self.generic_visit(node)
+
+    def _visit_scope(self, node: ast.AST, names: set[str]) -> None:
+        self.shadowed.append(names)
+        self.generic_visit(node)
+        self.shadowed.pop()
+
+    def _visit_comprehension(
+        self, node: ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp
+    ) -> None:
+        names = {
+            n.id
+            for generator in node.generators
+            for n in ast.walk(generator.target)
+            if isinstance(n, ast.Name)
+        }
+        self._visit_scope(node, names)
+
+    visit_ListComp = visit_SetComp = visit_DictComp = visit_GeneratorExp = _visit_comprehension
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        args = node.args
+        params = [*args.posonlyargs, *args.args, *args.kwonlyargs]
+        params += [a for a in (args.vararg, args.kwarg) if a is not None]
+        self._visit_scope(node, {a.arg for a in params})
+
+
 class VariableReplacer(ast.NodeTransformer):
     """Replace variable names with expressions throughout an AST."""
 
@@ -87,6 +253,8 @@ class ConstevalTransformer(ast.NodeTransformer):
         self.targetoptions = targetoptions or {}
         self.argtypes = argtypes or ()
         self.param_type_map = self._build_param_type_map(func, self.argtypes)
+        # consteval arguments in an ``if``/``while`` test, whose truth value picks the branch
+        self._truth_tests: list[ast.expr] = []
 
     def _build_param_type_map(self, func: Callable, argtypes: tuple) -> dict:
         """Build a mapping from parameter names to their Numba types."""
@@ -122,12 +290,15 @@ class ConstevalTransformer(ast.NodeTransformer):
 
     def _eval_expr(self, node: ast.expr) -> any:
         """Evaluate an AST expression node using the current context."""
+        truth_test = any(node is test for test in self._truth_tests)
         # Pre-process: replace current_target_options() calls with context reference
         node = TargetOptionsReplacer().visit(copy.deepcopy(node))
         ast.fix_missing_locations(node)
         expr_source = ast.unparse(node)
+        context = self.context
+        _TypeAsValueChecker(context, expr_source).check(node, truth_test)
         try:
-            return eval(expr_source, self.context)
+            return eval(expr_source, context)
         except Exception as e:
             raise ConstevalError(
                 f"Cannot evaluate consteval argument '{expr_source}' at compile time: {e}"
@@ -453,9 +624,19 @@ class ConstevalTransformer(ast.NodeTransformer):
         # Don't process decorators - they're not part of the function body
         return node
 
+    def _visit_test(self, test: ast.expr) -> ast.expr:
+        """Visit an ``if``/``while`` test, marking a ``consteval(...)`` test as a truth test."""
+        if self._is_consteval_call(test) and len(test.args) == 1:
+            self._truth_tests.append(test.args[0])
+            try:
+                return self.visit(test)
+            finally:
+                self._truth_tests.pop()
+        return self.visit(test)
+
     def visit_If(self, node: ast.If) -> ast.If:
         """Process if statement bodies in order."""
-        node.test = self.visit(node.test)
+        node.test = self._visit_test(node.test)
         node.body = self._process_statement_list(node.body)
         node.orelse = self._process_statement_list(node.orelse)
         return node
@@ -469,7 +650,7 @@ class ConstevalTransformer(ast.NodeTransformer):
 
     def visit_While(self, node: ast.While) -> ast.While:
         """Process while loop body in order."""
-        node.test = self.visit(node.test)
+        node.test = self._visit_test(node.test)
         node.body = self._process_statement_list(node.body)
         node.orelse = self._process_statement_list(node.orelse)
         return node

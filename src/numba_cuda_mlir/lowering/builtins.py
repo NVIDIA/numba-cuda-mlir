@@ -6,7 +6,6 @@ import math as builtin_math
 import operator
 from numba_cuda_mlir.lowering_utilities import (
     DeferredMethodCall,
-    type_conversions,
     convert,
     constant,
     numpy_implicit_type_promotion,
@@ -374,6 +373,19 @@ def lower_broadcasted_binary(builder, target, args, kwargs):
     builder.store_var(target, result)
 
 
+def _array_floor_divide(builder, lhs, rhs, dtype):
+    """One element of NumPy's floor_divide: rounds towards -inf, and x // 0 is 0 for integers."""
+    from numba_cuda_mlir.lowering.math import _float_divmod
+
+    if isinstance(lhs.type, ir.FloatType):
+        return _float_divmod(builder, lhs, rhs)[0]
+    zero, one = constant(0, lhs.type), constant(1, lhs.type)
+    rhs_is_zero = arith.cmpi(arith.CmpIPredicate.eq, rhs, zero)
+    divisor = arith.select(rhs_is_zero, one, rhs)
+    quotient = arith.floordivsi(lhs, divisor) if dtype.signed else arith.divui(lhs, divisor)
+    return arith.select(rhs_is_zero, zero, quotient)
+
+
 @ufunc_registry.register(operator.floordiv)
 @lower(operator.floordiv, types.Array, types.Array)
 def lower_broadcasted_floor_division(builder, target, args, kwargs):
@@ -384,9 +396,6 @@ def lower_broadcasted_floor_division(builder, target, args, kwargs):
     target_type = builder.get_numba_type(target.name)
     result_value_type = builder.get_value_type(target_type.dtype)
     compute_type = result_value_type
-    if isinstance(result_value_type, ir.FloatType):
-        compute_type = type_conversions.integer_of_width(result_value_type.width)
-        compute_type = type_conversions.to_mlir_type(compute_type)
 
     lhs_arg, rhs_arg = args
     lhs_type = builder.get_numba_type(lhs_arg.name)
@@ -419,8 +428,7 @@ def lower_broadcasted_floor_division(builder, target, args, kwargs):
     )
     def casted_div(lhs: lhs_etype, rhs: rhs_etype, init: result_value_type):
         lhs, rhs = lhs_conv(lhs), rhs_conv(rhs)
-        result = arith.divsi(lhs, rhs)
-        return convert(result, result_value_type)
+        return _array_floor_divide(builder, lhs, rhs, target_type.dtype)
 
     result = value_tensor_to_storage_memref(target_type, casted_div)
     builder.store_var(target, result)

@@ -201,6 +201,44 @@ def test_consteval_type_as_truth_value_raises_343(tmp_path, expr):
         kernel.compile("void(float32[:], int32)")
 
 
+@pytest.mark.parametrize(
+    "test_lines",
+    [
+        "    if not consteval(x):\n",
+        "    if consteval(x) and x > 0:\n",
+        "    if x > 0 or consteval(x):\n",
+        "    if (1 if consteval(x) else 0):\n",
+        "    while not consteval(x):\n",
+        "    y = 1 if consteval(x) else 0\n    if y:\n",
+        "    y = not consteval(x)\n    if y:\n",
+        "    y = consteval(x) or 1\n    if y:\n",
+    ],
+)
+def test_consteval_type_truth_tested_outside_the_call_raises_343(tmp_path, test_lines):
+    """``not``, ``and``/``or`` and a conditional expression around ``consteval(x)`` truth-test it."""
+    kernel = _kernel_from_source(tmp_path, test_lines)
+    with pytest.raises(
+        ConstevalError, match="its truth value says nothing about the runtime value"
+    ):
+        kernel.compile("void(float32[:], int32)")
+
+
+@pytest.mark.parametrize(
+    "test_lines",
+    [
+        "    if not consteval(arr.ndim == 2):\n",
+        "    if consteval(arr.ndim == 1) and x > 0:\n",
+        "    if (1 if consteval(arr.ndim == 1) else 0):\n",
+        "    y = 0 or consteval(x == numba_cuda_mlir.types.int32)\n    if y:\n",
+    ],
+)
+def test_consteval_value_truth_tested_outside_the_call_folds_343(tmp_path, test_lines):
+    """A consteval value that is not a type keeps folding in those positions."""
+    kernel = _kernel_from_source(tmp_path, test_lines)
+    source = kernel.compile("void(float32[:], int32)").metadata["transformed_source"]
+    assert "consteval" not in source.split("def kernel", 1)[1]
+
+
 def test_consteval_type_checks_still_fold_343():
     """Type comparisons, type attributes and shadowing names keep working."""
     from numba_cuda_mlir import types

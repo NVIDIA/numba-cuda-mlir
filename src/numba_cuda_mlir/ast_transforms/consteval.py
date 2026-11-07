@@ -624,15 +624,52 @@ class ConstevalTransformer(ast.NodeTransformer):
         # Don't process decorators - they're not part of the function body
         return node
 
+    def _truth_tested_args(self, node: ast.expr) -> list[ast.expr]:
+        """Arguments of the ``consteval(...)`` calls whose truth value ``node``'s truth value uses.
+
+        That is ``node`` itself, the operand of ``not``, every operand of ``and``/``or``, and both
+        branches of a conditional expression.
+        """
+        if self._is_consteval_call(node):
+            return list(node.args[:1]) if len(node.args) == 1 else []
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            return self._truth_tested_args(node.operand)
+        if isinstance(node, ast.BoolOp):
+            return [arg for value in node.values for arg in self._truth_tested_args(value)]
+        if isinstance(node, ast.IfExp):
+            return [
+                arg
+                for part in (node.test, node.body, node.orelse)
+                for arg in self._truth_tested_args(part)
+            ]
+        return []
+
+    def _visit_truth_tested(self, node: ast.AST, tests: list[ast.expr], visit: Callable):
+        """Visit ``node`` with the consteval arguments that ``tests`` truth-test marked."""
+        marked = [arg for test in tests for arg in self._truth_tested_args(test)]
+        self._truth_tests.extend(marked)
+        try:
+            return visit(node)
+        finally:
+            del self._truth_tests[len(self._truth_tests) - len(marked) :]
+
     def _visit_test(self, test: ast.expr) -> ast.expr:
-        """Visit an ``if``/``while`` test, marking a ``consteval(...)`` test as a truth test."""
-        if self._is_consteval_call(test) and len(test.args) == 1:
-            self._truth_tests.append(test.args[0])
-            try:
-                return self.visit(test)
-            finally:
-                self._truth_tests.pop()
-        return self.visit(test)
+        """Visit an ``if``/``while`` test, marking the consteval arguments it truth-tests."""
+        return self._visit_truth_tested(test, [test], self.visit)
+
+    def visit_UnaryOp(self, node: ast.UnaryOp) -> ast.AST:
+        """``not consteval(...)`` truth-tests the consteval value."""
+        if isinstance(node.op, ast.Not):
+            return self._visit_truth_tested(node, [node.operand], self.generic_visit)
+        return self.generic_visit(node)
+
+    def visit_BoolOp(self, node: ast.BoolOp) -> ast.AST:
+        """``and``/``or`` truth-test every operand but the last, whose value is the result."""
+        return self._visit_truth_tested(node, node.values[:-1], self.generic_visit)
+
+    def visit_IfExp(self, node: ast.IfExp) -> ast.AST:
+        """A conditional expression truth-tests its test."""
+        return self._visit_truth_tested(node, [node.test], self.generic_visit)
 
     def visit_If(self, node: ast.If) -> ast.If:
         """Process if statement bodies in order."""

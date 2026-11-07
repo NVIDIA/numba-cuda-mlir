@@ -14,6 +14,7 @@ from numba_cuda_mlir.lowering_utilities import (
     mul,
     add,
     expensive_coerce_tensor_type,
+    get_operand_signedness,
 )
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.mlir_lowering import KERNEL_ERROR_CODES
@@ -60,8 +61,12 @@ def lower_matmul(mlir_lower, target, target_type, args):
 
     lhs_tensor = memref_to_value_tensor(lhs_type, mlir_lower.load_var(lhs))
     rhs_tensor = memref_to_value_tensor(rhs_type, mlir_lower.load_var(rhs))
-    lhs_tensor = expensive_coerce_tensor_type(lhs_tensor, element_type)
-    rhs_tensor = expensive_coerce_tensor_type(rhs_tensor, element_type)
+    lhs_tensor = expensive_coerce_tensor_type(
+        lhs_tensor, element_type, signed=get_operand_signedness(lhs_type, target_type)
+    )
+    rhs_tensor = expensive_coerce_tensor_type(
+        rhs_tensor, element_type, signed=get_operand_signedness(rhs_type, target_type)
+    )
 
     result_tensor = tensor.empty(sizes=result_dims, element_type=element_type)
 
@@ -87,7 +92,9 @@ def get_array_dims(mlir_lower, arg, arg_type):
         return [], 0
 
 
-def broadcast_tensor(mlir_lower, input_tensor, input_dims, target_ndim, target_shape, target_type):
+def broadcast_tensor(
+    mlir_lower, input_tensor, input_dims, target_ndim, target_shape, target_type, signed=None
+):
     """Tensor broadcasting using nested SCF loops"""
     input_ndim = len(input_dims)
 
@@ -124,7 +131,9 @@ def broadcast_tensor(mlir_lower, input_tensor, input_dims, target_ndim, target_s
 
             # Extract value from input tensor
             extracted_value = tensor.extract(tensor=input_tensor, indices=input_indices)
-            converted_value = convert(extracted_value, mlir_lower.get_value_type(target_type.dtype))
+            converted_value = convert(
+                extracted_value, mlir_lower.get_value_type(target_type.dtype), signed=signed
+            )
 
             # Insert into output tensor
             return tensor.insert(scalar=converted_value, dest=tensor_arg, indices=indices_so_far)
@@ -162,6 +171,7 @@ def broadcast_if_needed(
     broadcast_shape,
     broadcast_dims,
     target_type,
+    signed=None,
 ):
     target_element_type = mlir_lower.get_value_type(target_type.dtype)
     if tensor_ndim == result_ndim and tensor_arg.type.element_type == target_element_type:
@@ -182,6 +192,7 @@ def broadcast_if_needed(
                         result_ndim,
                         broadcast_dims,
                         target_type,
+                        signed,
                     )
                 ]
             )
@@ -194,6 +205,7 @@ def broadcast_if_needed(
             result_ndim,
             broadcast_dims,
             target_type,
+            signed,
         )
 
 
@@ -215,27 +227,31 @@ def lower_np_binop(mlir_lower, target, target_type, args, linalg_op):
     lhs_type = mlir_lower.get_numba_type(args[0].name)
     rhs_type = mlir_lower.get_numba_type(args[1].name)
     element_type = mlir_lower.get_value_type(target_type.dtype)
+    lhs_signed = get_operand_signedness(lhs_type, target_type)
+    rhs_signed = get_operand_signedness(rhs_type, target_type)
 
     if isinstance(lhs_type, types.Number):
         # Scalar + Array case
         rhs_dims, rhs_ndim = get_array_dims(mlir_lower, args[1], rhs_type)
-        scalar_value = convert(mlir_lower.load_var(args[0]), element_type)
+        scalar_value = convert(mlir_lower.load_var(args[0]), element_type, signed=lhs_signed)
         empty = tensor.empty(sizes=rhs_dims, element_type=element_type)
         lhs_broadcast = linalg.fill(scalar_value, outs=[empty])
         rhs_broadcast = expensive_coerce_tensor_type(
             memref_to_value_tensor(rhs_type, mlir_lower.load_var(args[1])),
             element_type,
+            signed=rhs_signed,
         )
         broadcast_dims = rhs_dims
     elif isinstance(rhs_type, types.Number):
         # Array + Scalar case
         lhs_dims, lhs_ndim = get_array_dims(mlir_lower, args[0], lhs_type)
-        scalar_value = convert(mlir_lower.load_var(args[1]), element_type)
+        scalar_value = convert(mlir_lower.load_var(args[1]), element_type, signed=rhs_signed)
         empty = tensor.empty(sizes=lhs_dims, element_type=element_type)
         rhs_broadcast = linalg.fill(scalar_value, outs=[empty])
         lhs_broadcast = expensive_coerce_tensor_type(
             memref_to_value_tensor(lhs_type, mlir_lower.load_var(args[0])),
             element_type,
+            signed=lhs_signed,
         )
         broadcast_dims = lhs_dims
     else:
@@ -278,6 +294,7 @@ def lower_np_binop(mlir_lower, target, target_type, args, linalg_op):
             broadcast_shape,
             broadcast_dims,
             target_type,
+            lhs_signed,
         )
         rhs_broadcast = broadcast_if_needed(
             mlir_lower,
@@ -289,10 +306,11 @@ def lower_np_binop(mlir_lower, target, target_type, args, linalg_op):
             broadcast_shape,
             broadcast_dims,
             target_type,
+            rhs_signed,
         )
 
-    lhs_broadcast = expensive_coerce_tensor_type(lhs_broadcast, element_type)
-    rhs_broadcast = expensive_coerce_tensor_type(rhs_broadcast, element_type)
+    lhs_broadcast = expensive_coerce_tensor_type(lhs_broadcast, element_type, signed=lhs_signed)
+    rhs_broadcast = expensive_coerce_tensor_type(rhs_broadcast, element_type, signed=rhs_signed)
     empty = tensor.empty(sizes=broadcast_dims, element_type=element_type)
 
     result_tensor = linalg_op(lhs_broadcast, rhs_broadcast, outs=[empty])
@@ -379,9 +397,13 @@ def lower_linalg_scalar_array_dot(mlir_lower, target, target_type, args):
 
     # Type convert arguments if needed
     if scalar_type != target_type.dtype:
-        scalar_value = convert(scalar_value, element_type)
+        scalar_value = convert(
+            scalar_value, element_type, signed=get_operand_signedness(scalar_type, target_type)
+        )
 
-    array_tensor = expensive_coerce_tensor_type(array_tensor, element_type)
+    array_tensor = expensive_coerce_tensor_type(
+        array_tensor, element_type, signed=get_operand_signedness(array_type, target_type)
+    )
 
     @tensor.generate(empty_tensor.type, dynamic_extents=target_extracts)
     def generate_scalar_array_dot(i1: index_type):

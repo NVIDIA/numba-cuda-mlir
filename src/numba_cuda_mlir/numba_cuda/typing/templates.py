@@ -942,7 +942,11 @@ class _OverloadFunctionTemplate(AbstractTemplate):
             # situations that will succeed. For context see #5887.
             resolve = disp_type.dispatcher.get_call_template
             template, pysig, folded_args, kws = resolve(new_args, kws)
-            ir = inline_worker.run_untyped_passes(disp_type.dispatcher.py_func, enable_ssa=True)
+            # The resolved argument types let branch pruning drop branches that cannot type
+            # for them, such as ``x if x is not None else ...`` for an omitted ``x``.
+            ir = inline_worker.run_untyped_passes(
+                disp_type.dispatcher.py_func, enable_ssa=True, arg_types=folded_args
+            )
 
             (typemap, return_type, calltypes, _) = typed_passes.type_inference_stage(
                 self.context, tgctx, ir, folded_args, None

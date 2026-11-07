@@ -788,3 +788,95 @@ def test_inline_overload_returning_dtype_token_for_local_array():
     buf = np.zeros(1, dtype=np.float32)
     kernel[1, 1](buf)
     assert buf[0] == 1
+
+
+@cuda.jit(device=True, forceinline=True)
+def _times_five(ld):
+    return ld * 5
+
+
+def test_inline_overload_prunes_branch_on_omitted_argument():
+    """#108: ``x if x is not None else default`` drops the None branch for an omitted ``x``."""
+
+    def scaled(x=None):
+        pass
+
+    @extending.overload(
+        scaled,
+        inline="always",
+        typing_registry=extending.typing_registry,
+        lowering_registry=extending.lowering_registry,
+    )
+    def ol_scaled(x=None):
+        def impl(x=None):
+            return _times_five(x if x is not None else 7)
+
+        return impl
+
+    @cuda.jit
+    def kernel(out):
+        out[0] = scaled()
+        out[1] = scaled(3)
+
+    out = np.zeros(2, dtype=np.int64)
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(out, [35, 15])
+
+
+def test_inline_overload_method_prunes_branch_on_omitted_argument():
+    """#108: the issue's case, an omitted method argument with an attribute default."""
+
+    from numba_cuda_mlir._mlir.extras import types as T
+
+    class Dummy:
+        pass
+
+    class DummyType(types.Type):
+        def __init__(self):
+            super().__init__(name="Dummy108")
+
+    dummy_type = DummyType()
+
+    @typeof_impl.register(Dummy)
+    def typeof_dummy(val, c):
+        return dummy_type
+
+    class DummyModel(PrimitiveModel):
+        def __init__(self, dmm, fe_type):
+            super().__init__(dmm, fe_type, T.i8())
+
+    register_model(DummyType)(DummyModel)
+
+    @extending.overload_attribute(
+        DummyType,
+        "lda",
+        inline="always",
+        typing_registry=extending.typing_registry,
+        lowering_registry=extending.lowering_registry,
+    )
+    def ol_lda(api):
+        return lambda api: 7
+
+    @extending.overload_method(
+        DummyType,
+        "strides",
+        strict=False,
+        inline="always",
+        typing_registry=extending.typing_registry,
+    )
+    def ol_strides(api, lda=None):
+        def impl(api, lda=None):
+            return _times_five(lda if lda is not None else api.lda)
+
+        return impl
+
+    dummy = Dummy()
+
+    @cuda.jit
+    def kernel(out):
+        out[0] = dummy.strides()
+        out[1] = dummy.strides(3)
+
+    out = np.zeros(2, dtype=np.int64)
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(out, [35, 15])

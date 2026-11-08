@@ -45,3 +45,16 @@ from numba_cuda_mlir.numba_cuda.np.numpy_support import carray, farray  # noqa: 
 make_nanobind_metaclass_inheritable()
 
 __all__ = ["cuda", "carray", "farray", "__version__"]
+
+
+def __getattr__(name):
+    # `from numba_cuda_mlir import cuda` already works, because that spelling
+    # falls back to importing the submodule. Plain attribute access does not,
+    # so `cuda` was exported in __all__ without ever being bound. Import it on
+    # demand rather than at module scope: binding it eagerly adds ~100ms to a
+    # ~420ms import, which every user pays whether or not they touch it.
+    if name == "cuda":
+        import importlib
+
+        return importlib.import_module("numba_cuda_mlir.cuda")
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

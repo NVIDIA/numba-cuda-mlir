@@ -198,9 +198,9 @@ def get_callable_specialization(callable_type, argument_types, typing_context=No
 class _CaptureLayout:
     """Encode model data representations without changing their conversions.
 
-    Python tuples become LLVM aggregates, memrefs become descriptors, and static
-    placeholders occupy no field. LLVM model storage is already an aggregate
-    representation and remains opaque, including previously packed closures.
+    Python tuples and complex scalars become LLVM aggregates, memrefs become
+    descriptors, and static placeholders occupy no field. LLVM model storage
+    remains opaque, including previously packed closures.
     """
 
     def __init__(self, storage_type):
@@ -220,6 +220,10 @@ class _CaptureLayout:
                 children.append((child, field))
             self.children = tuple(children)
             self.data_type = llvm.StructType.get_literal(data_types) if data_types else None
+        elif isinstance(storage_type, mlir_ir.ComplexType):
+            from numba_cuda_mlir.lowering_utilities import get_llvm_struct_for_complex
+
+            self.data_type = get_llvm_struct_for_complex(storage_type)
         elif isinstance(storage_type, mlir_ir.MemRefType):
             from numba_cuda_mlir.lowering_utilities import memref_descriptor_type
 
@@ -240,6 +244,10 @@ class _CaptureLayout:
             return result
         if self.data_type is None:
             return None
+        if isinstance(self.storage_type, mlir_ir.ComplexType):
+            from numba_cuda_mlir.lowering_utilities import complex_to_llvm_struct
+
+            return complex_to_llvm_struct(value)
         if isinstance(self.storage_type, mlir_ir.MemRefType):
             return builtin.unrealized_conversion_cast([self.data_type], [value])
         return value
@@ -256,6 +264,10 @@ class _CaptureLayout:
             )
         if self.data_type is None:
             return self.storage_type
+        if isinstance(self.storage_type, mlir_ir.ComplexType):
+            from numba_cuda_mlir.lowering_utilities import llvm_struct_to_complex
+
+            return llvm_struct_to_complex(value, self.storage_type)
         if isinstance(self.storage_type, mlir_ir.MemRefType):
             return builtin.unrealized_conversion_cast([self.storage_type], [value])
         return value

@@ -74,6 +74,38 @@ def test_array_and_boolean_captures():
         assert output[0] == (13 if enabled else -13)
 
 
+@pytest.mark.parametrize("dtype", [np.complex64, np.complex128])
+@pytest.mark.parametrize("capture_kind", ["scalar", "tuple", "closure"])
+def test_complex_capture_preserves_real_and_imaginary_parts(dtype, capture_kind):
+    if capture_kind == "scalar":
+
+        @cuda.jit(device=True)
+        def make(bias):
+            return lambda value: value * bias + bias
+    elif capture_kind == "tuple":
+
+        @cuda.jit(device=True)
+        def make(bias):
+            environment = ((None, bias),)
+            return lambda value: value * environment[0][1] + environment[0][1]
+    else:
+
+        @cuda.jit(device=True)
+        def make(bias):
+            inner = lambda value: value * bias
+            return lambda value: inner(value) + bias
+
+    @cuda.jit
+    def kernel(bias, value, output):
+        output[0] = consume(make(bias), value)
+
+    output = np.zeros(1, dtype=dtype)
+    value = dtype(2 - 3j)
+    for bias in (dtype(3 + 2j), dtype(-7 + 5j)):
+        kernel[1, 1](bias, value, output)
+        np.testing.assert_array_equal(output, [value * bias + bias])
+
+
 def test_same_code_multiple_runtime_environments():
     @cuda.jit(device=True)
     def make(bias):

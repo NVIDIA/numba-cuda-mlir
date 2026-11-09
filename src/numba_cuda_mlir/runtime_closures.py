@@ -195,57 +195,100 @@ def get_callable_specialization(callable_type, argument_types, typing_context=No
     )
 
 
+class _CaptureLayout:
+    """Encode model data representations without changing their conversions.
+
+    Python tuples become LLVM aggregates, memrefs become descriptors, and static
+    placeholders occupy no field. LLVM model storage is already an aggregate
+    representation and remains opaque, including previously packed closures.
+    """
+
+    def __init__(self, storage_type):
+        self.storage_type = storage_type
+        self.children = None
+        if storage_type is None or isinstance(storage_type, mlir_ir.NoneType):
+            self.data_type = None
+        elif isinstance(storage_type, tuple):
+            children = []
+            data_types = []
+            for typ in storage_type:
+                child = _CaptureLayout(typ)
+                field = None
+                if child.data_type is not None:
+                    field = len(data_types)
+                    data_types.append(child.data_type)
+                children.append((child, field))
+            self.children = tuple(children)
+            self.data_type = llvm.StructType.get_literal(data_types) if data_types else None
+        elif isinstance(storage_type, mlir_ir.MemRefType):
+            from numba_cuda_mlir.lowering_utilities import memref_descriptor_type
+
+            self.data_type = memref_descriptor_type(storage_type.rank)
+        else:
+            self.data_type = storage_type
+
+    def pack(self, value):
+        if self.children is not None:
+            if len(value) != len(self.children):
+                raise ValueError("Closure environment does not match its data layout")
+            if self.data_type is None:
+                return None
+            result = llvm.UndefOp(self.data_type).result
+            for (child, field), member in zip(self.children, value):
+                if field is not None:
+                    result = llvm.insertvalue(result, child.pack(member), [field])
+            return result
+        if self.data_type is None:
+            return None
+        if isinstance(self.storage_type, mlir_ir.MemRefType):
+            return builtin.unrealized_conversion_cast([self.data_type], [value])
+        return value
+
+    def unpack(self, value):
+        if self.children is not None:
+            return tuple(
+                child.unpack(
+                    llvm.extractvalue(child.data_type, value, [field])
+                    if field is not None
+                    else None
+                )
+                for child, field in self.children
+            )
+        if self.data_type is None:
+            return self.storage_type
+        if isinstance(self.storage_type, mlir_ir.MemRefType):
+            return builtin.unrealized_conversion_cast([self.storage_type], [value])
+        return value
+
+
 class _CaptureCodec:
-    """Keep memrefs out of LLVM structs, preserving extension model storage."""
+    """Preserve each model's value/data boundary around environment encoding."""
 
     def __init__(self, dmm, typ):
         self.model = dmm.lookup(typ)
         self.value_type = self.model.get_value_type()
-        self.children = None
         self.is_static = isinstance(self.value_type, mlir_ir.NoneType)
-        if self.is_static:
-            self.data_type = mlir_ir.IntegerType.get_signless(8)
-        elif isinstance(self.value_type, mlir_ir.MemRefType):
-            from numba_cuda_mlir.lowering_utilities import memref_descriptor_type
-
-            self.data_type = memref_descriptor_type(self.value_type.rank)
-        elif isinstance(self.model, StructModel):
-            self.children = tuple(_CaptureCodec(dmm, t) for t in self.model._members)
-            self.data_type = llvm.StructType.get_literal([c.data_type for c in self.children])
-        else:
-            self.data_type = self.model.get_data_type()
+        self.layout = _CaptureLayout(
+            self.value_type if self.is_static else self.model.get_data_type()
+        )
+        self.data_type = self.layout.data_type
 
     def pack(self, builder, value):
         if self.is_static:
-            return llvm.mlir_undef(self.data_type)
-        if isinstance(self.value_type, mlir_ir.MemRefType):
-            return builtin.unrealized_conversion_cast([self.data_type], [value])
-        if self.children is not None:
-            result = llvm.UndefOp(self.data_type).result
-            for i, child in enumerate(self.children):
-                field = llvm.extractvalue(child.value_type, value, [i])
-                result = llvm.insertvalue(result, child.pack(builder, field), [i])
-            return result
-        return self.model.as_data(builder, value)
+            return None
+        return self.layout.pack(self.model.as_data(builder, value))
 
     def unpack(self, builder, value):
         if self.is_static:
             return self.value_type
-        if isinstance(self.value_type, mlir_ir.MemRefType):
-            return builtin.unrealized_conversion_cast([self.value_type], [value])
-        if self.children is not None:
-            result = llvm.UndefOp(self.value_type).result
-            for i, child in enumerate(self.children):
-                field = llvm.extractvalue(child.data_type, value, [i])
-                result = llvm.insertvalue(result, child.unpack(builder, field), [i])
-            return result
-        return self.model.from_data(builder, value)
+        return self.model.from_data(builder, self.layout.unpack(value))
 
 
 @register_model(RuntimeClosure)
 class RuntimeClosureModel(StructModel):
     def __init__(self, dmm, fe_type):
         self.codecs = tuple(_CaptureCodec(dmm, t) for t in fe_type.capture_types)
+        self.layout = _CaptureLayout(tuple(codec.data_type for codec in self.codecs))
         super().__init__(dmm, fe_type, list(zip(fe_type.capture_names, fe_type.capture_types)))
 
     def get_value_type(self):
@@ -253,7 +296,9 @@ class RuntimeClosureModel(StructModel):
 
     def get_data_type(self):
         if self._data_type is None:
-            self._data_type = llvm.StructType.get_literal([c.data_type for c in self.codecs])
+            self._data_type = self.layout.data_type
+            if self._data_type is None:
+                self._data_type = llvm.StructType.get_literal([])
         return self._data_type
 
     def as_data(self, builder, value):
@@ -263,15 +308,17 @@ class RuntimeClosureModel(StructModel):
         return value
 
     def pack_captures(self, builder, values):
-        result = llvm.UndefOp(self.get_data_type()).result
-        for i, (codec, value) in enumerate(zip(self.codecs, values)):
-            result = llvm.insertvalue(result, codec.pack(builder, value), [i])
-        return result
+        if len(values) != len(self.codecs):
+            raise ValueError("Closure captures do not match their environment layout")
+        packed = self.layout.pack(
+            tuple(codec.pack(builder, value) for codec, value in zip(self.codecs, values))
+        )
+        return llvm.UndefOp(self.get_data_type()).result if packed is None else packed
 
     def unpack_captures(self, builder, value):
         return tuple(
-            codec.unpack(builder, llvm.extractvalue(codec.data_type, value, [i]))
-            for i, codec in enumerate(self.codecs)
+            codec.unpack(builder, member)
+            for codec, member in zip(self.codecs, self.layout.unpack(value))
         )
 
 
@@ -297,6 +344,86 @@ def _closure_constructor(body_function, original_code):
 
     refresh_registries(typing=False, target=True)
     return construct
+
+
+def annotate_closure_captures(func_ir):
+    """Prove snapshot safety before any inlining erases shared-cell identity.
+
+    Annotate, rather than reject, so directly inlined closures retain their
+    existing shared-cell semantics. Only surviving escaping closures require
+    an immutable environment. A single IR definition must dominate construction
+    and must not execute in a loop; counting bytecode writes cannot prove that.
+    """
+    closures = [
+        (label, index, stmt.value)
+        for label, block in func_ir.blocks.items()
+        for index, stmt in enumerate(block.body)
+        if isinstance(stmt, ir.Assign)
+        and isinstance(stmt.value, ir.Expr)
+        and stmt.value.op == "make_function"
+        and stmt.value.code.co_freevars
+    ]
+    if not closures:
+        return
+
+    from numba_cuda_mlir.numba_cuda.core.analysis import compute_cfg_from_blocks
+
+    code = func_ir.func_id.func.__code__
+    cfg = compute_cfg_from_blocks(func_ir.blocks)
+    dominators = cfg.dominators()
+    names = {name for _, _, node in closures for name in node.code.co_freevars}
+    definitions = {name: [] for name in names}
+    for label in cfg.nodes():
+        for index, stmt in enumerate(func_ir.blocks[label].body):
+            if isinstance(stmt, ir.Assign) and stmt.target.name in definitions:
+                definitions[stmt.target.name].append((label, index))
+
+    # Detect writes through sibling/nested closures before local inlining can
+    # hide them. These semantic cell operations are inspected, never rewritten.
+    def nonlocal_writes(parent, shared):
+        written = set()
+        for child in parent.co_consts:
+            if isinstance(child, pytypes.CodeType):
+                child_shared = shared.intersection(child.co_freevars)
+                if child_shared:
+                    written.update(
+                        instruction.argval
+                        for instruction in dis.get_instructions(child)
+                        if instruction.opname in ("STORE_DEREF", "DELETE_DEREF")
+                        and instruction.argval in child_shared
+                    )
+                    written.update(nonlocal_writes(child, child_shared))
+        return written
+
+    mutated = nonlocal_writes(code, names)
+    deleted = {
+        instruction.argval
+        for instruction in dis.get_instructions(code)
+        if instruction.opname == "DELETE_DEREF"
+    }
+    for label, index, node in closures:
+        error = None
+        for name in node.code.co_freevars:
+            if name in deleted:
+                error = "Escaping closure captures a deleted shared cell '%s'" % name
+            elif name in mutated:
+                error = "Escaping closure shares a mutable nonlocal cell '%s'" % name
+            elif name in code.co_freevars and not definitions[name]:
+                # Host free variables are supplied as compile-time values.
+                continue
+            elif len(definitions[name]) != 1:
+                error = "Escaping closure captures reassigned shared cell '%s'" % name
+            else:
+                definition_label, definition_index = definitions[name][0]
+                if cfg.in_loops(definition_label):
+                    error = "Escaping closure captures loop-carried shared cell '%s'" % name
+                elif definition_label not in dominators[label] or (
+                    definition_label == label and definition_index >= index
+                ):
+                    error = "Escaping closure captures an uninitialized shared cell '%s'" % name
+            if error is not None:
+                break
+        node._kws["_runtime_capture_error"] = error
 
 
 @register_pass(mutates_CFG=True, analysis_only=False)
@@ -337,55 +464,13 @@ class ConvertRuntimeClosures(FunctionPass):
                             "Cannot resolve escaping closure environment", loc=stmt.loc
                         )
                     captures = list(closure.items)
-                # Reject reassignment of this closure's cells, not other locals.
-                outer_code = func_ir.func_id.func.__code__
-                instructions = list(dis.get_instructions(outer_code))
-                for instruction in instructions:
-                    if (
-                        instruction.opname == "DELETE_DEREF"
-                        and instruction.argval in node.code.co_freevars
-                    ):
-                        raise errors.UnsupportedError(
-                            "Escaping closure captures a deleted shared cell", loc=stmt.loc
-                        )
-                    if (
-                        instruction.opname == "LOAD_CLOSURE"
-                        and instruction.argval in node.code.co_freevars
-                    ):
-                        # A sibling closure can mutate the same cell even when
-                        # the enclosing function itself never reassigns it.
-                        for sibling in outer_code.co_consts:
-                            if (
-                                isinstance(sibling, pytypes.CodeType)
-                                and instruction.argval in sibling.co_freevars
-                            ):
-                                if any(
-                                    i.opname in ("STORE_DEREF", "DELETE_DEREF")
-                                    and i.argval == instruction.argval
-                                    for i in dis.get_instructions(sibling)
-                                ):
-                                    raise errors.UnsupportedError(
-                                        "Escaping closure shares a mutable nonlocal cell '%s'"
-                                        % instruction.argval,
-                                        loc=stmt.loc,
-                                    )
-                for name in node.code.co_freevars:
-                    writes = [
-                        i for i in instructions if i.opname == "STORE_DEREF" and i.argval == name
-                    ]
-                    initial_writes = (
-                        0
-                        if name
-                        in outer_code.co_varnames[
-                            : outer_code.co_argcount + outer_code.co_kwonlyargcount
-                        ]
-                        else 1
+                if "_runtime_capture_error" not in node._kws:
+                    raise errors.UnsupportedError(
+                        "Cannot prove escaping closure capture safety", loc=stmt.loc
                     )
-                    if len(writes) > initial_writes:
-                        raise errors.UnsupportedError(
-                            "Escaping closure captures reassigned shared cell '%s'" % name,
-                            loc=stmt.loc,
-                        )
+                capture_error = node._kws["_runtime_capture_error"]
+                if capture_error is not None:
+                    raise errors.UnsupportedError(capture_error, loc=stmt.loc)
                 function = _make_closure_body(node.code, func_ir.func_id.func.__globals__)
                 constructor = _closure_constructor(function, node.code)
                 from numba_cuda_mlir.numba_cuda.core.ir_utils import mk_unique_var

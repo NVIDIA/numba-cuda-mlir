@@ -1092,9 +1092,7 @@ extern "C" __global__ void
                 # its ABI slot. Materialize it so ordinary arithmetic and loop
                 # bounds retain the constant information from typing.
                 self.lower_const_assign(target, numba_ir.Const(arg_type.literal_value, arg.loc))
-            elif not isinstance(arg_type, types.BaseTuple) and isinstance(
-                self.get_argument_type(arg_type), ir.NoneType
-            ):
+            elif self._is_static_abi_type(arg_type):
                 self.store_var(target, ir.NoneType.get())
             elif isinstance(arg_type, types.BaseTuple):
                 flat_start_idx = self._get_flat_arg_start_index(arg.index)
@@ -3767,15 +3765,19 @@ extern "C" __global__ void
         except TypeError:
             return (results,)
 
+    def _is_static_abi_type(self, numba_type):
+        """Static leaves retain typing metadata but occupy no ABI operand."""
+        return not isinstance(numba_type, types.BaseTuple) and isinstance(
+            self.get_argument_type(numba_type), ir.NoneType
+        )
+
     def _flatten_abi_operands(self, numba_type, value) -> list:
         """Flatten ``value`` to the operands its type occupies in the ABI.
 
         Mirrors ``_flatten_type``: compile-time-only leaves have no MLIR operand,
         or every operand after them shifts by one.
         """
-        if not isinstance(numba_type, types.BaseTuple) and isinstance(
-            self.get_argument_type(numba_type), ir.NoneType
-        ):
+        if self._is_static_abi_type(numba_type):
             return []
         if isinstance(numba_type, types.BaseTuple):
             return [
@@ -3796,9 +3798,7 @@ extern "C" __global__ void
         return [value]
 
     def _unflatten_abi_value(self, numba_type, values_iter):
-        if not isinstance(numba_type, types.BaseTuple) and isinstance(
-            self.get_argument_type(numba_type), ir.NoneType
-        ):
+        if self._is_static_abi_type(numba_type):
             return ir.NoneType.get()
         if isinstance(numba_type, types.UniTuple):
             return tuple(
@@ -3882,9 +3882,7 @@ extern "C" __global__ void
 
     def _count_flat_elements(self, numba_type) -> int:
         """Count how many flat MLIR arguments a type expands to."""
-        if not isinstance(numba_type, types.BaseTuple) and isinstance(
-            self.get_argument_type(numba_type), ir.NoneType
-        ):
+        if self._is_static_abi_type(numba_type):
             return 0
         if isinstance(numba_type, types.BaseTuple):
             if isinstance(numba_type, types.UniTuple):
@@ -3896,9 +3894,7 @@ extern "C" __global__ void
 
     def _flatten_type(self, numba_type) -> list:
         """Recursively flatten a Numba type to a list of scalar/array types."""
-        if not isinstance(numba_type, types.BaseTuple) and isinstance(
-            self.get_argument_type(numba_type), ir.NoneType
-        ):
+        if self._is_static_abi_type(numba_type):
             return []
         if isinstance(numba_type, types.BaseTuple):
             if isinstance(numba_type, types.UniTuple):
@@ -3921,25 +3917,11 @@ extern "C" __global__ void
         return flat_idx
 
     def _reassemble_tuple_from_block_args(self, numba_type, start_idx: int) -> tuple:
-        """Reassemble a tuple from flattened block arguments. Returns Python tuple of ir.Values."""
-        if not isinstance(numba_type, types.BaseTuple):
-            return self.mlir_funcOp.entry_block.arguments[start_idx]
-        elements = []
-        idx = start_idx
-        for elem_type in self._tuple_element_types(numba_type):
-            if isinstance(elem_type, types.NoneType):
-                # ``_flatten_type`` gives a None leaf no block argument, so do
-                # not consume one; use the same placeholder as a top-level
-                # None argument in ``lower_arg_assign``.
-                elem = ir.NoneType.get()
-            elif isinstance(elem_type, types.BaseTuple):
-                elem = self._reassemble_tuple_from_block_args(elem_type, idx)
-                idx += self._count_flat_elements(elem_type)
-            else:
-                elem = self.mlir_funcOp.entry_block.arguments[idx]
-                idx += 1
-            elements.append(elem)
-        return tuple(elements)
+        """Use the same layout for incoming arguments and returned aggregates."""
+        arguments = self.mlir_funcOp.entry_block.arguments
+        return self._unflatten_abi_value(
+            numba_type, (arguments[i] for i in range(start_idx, len(arguments)))
+        )
 
     def verify_mlir_module(self):
         trace("Verifying MLIR module:\n%s", str(self.mlir_module))

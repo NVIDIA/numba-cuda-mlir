@@ -270,6 +270,8 @@ class InlineWorker:
         is a function taking Numba IR and validating it for use when inlining
         (this is optional and really to just provide better error messages about
         things which the inliner cannot handle like yield in closure).
+        If the compiler pipeline supplies ``define_untyped_pipeline``, use it
+        for inlinees as well, including recursively inlined functions.
         """
 
         def check(arg, name):
@@ -290,7 +292,9 @@ class InlineWorker:
         elif all(compiler_group):
             check(typingctx, "typingctx")
 
-        self._compiler_pipeline = DefaultPassBuilder.define_untyped_pipeline
+        self._compiler_pipeline = getattr(
+            pipeline, "define_untyped_pipeline", DefaultPassBuilder.define_untyped_pipeline
+        )
 
         self.typingctx = typingctx
         self.targetctx = targetctx

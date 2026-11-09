@@ -109,22 +109,6 @@ class NumbaCudaMlirInlineInlinables(InlineInlinables):
                 return False
         except Exception:
             pass
-        # The inline worker otherwise uses the constant-only CUDA pipeline.
-        from numba_cuda_mlir.numba_cuda.core.untyped_passes import MakeFunctionToJitFunction
-        from numba_cuda_mlir.runtime_closures import ConvertRuntimeClosures
-        from numba_cuda_mlir.numba_cuda.compiler import DefaultPassBuilder
-
-        def closure_pipeline(callee_state):
-            pm = DefaultPassBuilder.define_untyped_pipeline(callee_state)
-            passes = []
-            for implementation, description in pm.passes:
-                if implementation is MakeFunctionToJitFunction:
-                    passes.append((ConvertRuntimeClosures, "convert runtime closure environments"))
-                passes.append((implementation, description))
-            pm.passes = passes
-            return pm
-
-        inline_worker._compiler_pipeline = closure_pipeline
         return super()._do_work(state, work_list, block, i, expr, inline_worker)
 
     @staticmethod
@@ -149,3 +133,37 @@ class PostInlineWholeFunctionPlanners(FunctionPass):
 
     def run_pass(self, state):
         return _planner_registry.apply(state)
+
+
+def define_mlir_untyped_pipeline(state, name="untyped", *, run_planners=True):
+    """Build the MLIR frontend shared by direct compilation and inlinees.
+
+    Inlinees retain closure conversion and recursive MLIR inlining, but defer
+    whole-function planning until their IR has been merged into the caller.
+    """
+    from numba_cuda_mlir.numba_cuda.compiler import DefaultPassBuilder
+    from numba_cuda_mlir.numba_cuda.core.compiler_machinery import PassManager
+    from numba_cuda_mlir.numba_cuda.core.untyped_passes import (
+        LiteralUnroll,
+        MakeFunctionToJitFunction,
+    )
+    from numba_cuda_mlir.runtime_closures import ConvertRuntimeClosures
+
+    pm = PassManager(name)
+    for implementation, description in DefaultPassBuilder.define_untyped_pipeline(state).passes:
+        if implementation is MakeFunctionToJitFunction:
+            pm.add_pass(ConvertRuntimeClosures, "convert runtime closure environments")
+
+        if implementation is LiteralUnroll:
+            implementation = NumbaCudaMlirLiteralUnroll
+        elif implementation is InlineInlinables:
+            implementation = NumbaCudaMlirInlineInlinables
+        pm.add_pass(implementation, description)
+
+        if implementation is NumbaCudaMlirInlineInlinables and run_planners:
+            pm.add_pass(
+                PostInlineWholeFunctionPlanners,
+                "post-inline whole-function extension planners",
+            )
+    pm.finalize()
+    return pm

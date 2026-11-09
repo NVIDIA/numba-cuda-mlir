@@ -173,3 +173,26 @@ long long cpp_callable_bridge(long long scale, long long bias, long long value) 
         assert not calls["python"], calls["python"]
     else:
         assert calls["python"], "No-inline control failed to retain its C++ bridge boundary"
+
+
+def test_composed_environment_through_cpp_lto_bridge():
+    consume = _cross_language_consumer("always")
+
+    @cuda.jit(lto=True)
+    def kernel(values, bias, enabled, output):
+        index = cuda.grid(1)
+        if index < values.size:
+            environment = (values, bias, enabled)
+            inner = lambda i: (
+                environment[0][i] + environment[1] if environment[2] else -environment[0][i]
+            )
+            fn = lambda i: inner(i) * 2
+            output[index] = consume(fn, index)
+
+    values = np.array([-17, -1, 0, 4, 29], dtype=np.int64)
+    device_values = cuda.to_device(values)
+    output = cuda.device_array_like(values)
+    for bias, enabled in ((7, True), (-3, False), (-9, True)):
+        kernel[1, 32](device_values, bias, enabled, output)
+        expected = (values + bias if enabled else -values) * 2
+        np.testing.assert_array_equal(output.copy_to_host(), expected)

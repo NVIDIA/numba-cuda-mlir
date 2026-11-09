@@ -279,3 +279,143 @@ def test_unsupported_dispatcher_specialization_declines():
         Dispatcher(scalar_only), (types.float32[::1],)
     )
     assert specialization is None
+
+
+def test_loop_carried_shared_cell_rejected():
+    @cuda.jit
+    def kernel(output):
+        for bias in range(3):
+            fn = lambda x: x + bias
+            if bias == 0:
+                first = fn
+        output[0] = consume(first, 10)
+
+    # A single STORE_DEREF executes repeatedly. Snapshotting the first closure
+    # would return 10, whereas Python's final shared-cell value produces 12.
+    with pytest.raises(UnsupportedError, match="loop-carried shared cell 'bias'"):
+        kernel[1, 1](np.zeros(1, dtype=np.int64))
+
+
+def test_sibling_mutation_rejected_before_local_inlining():
+    @cuda.jit
+    def kernel(bias, output):
+        def mutate():
+            nonlocal bias
+            bias += 1
+
+        fn = lambda x: x + bias
+        mutate()
+        output[0] = consume(fn, 4)
+
+    with pytest.raises(UnsupportedError, match="mutable nonlocal cell 'bias'"):
+        kernel[1, 1](3, np.zeros(1, dtype=np.int64))
+
+
+def test_directly_inlined_mutable_closure_remains_supported():
+    @cuda.jit
+    def kernel(bias, output):
+        def update(value):
+            nonlocal bias
+            bias += value
+            return bias
+
+        output[0] = update(4)
+        output[1] = update(5)
+
+    output = np.zeros(2, dtype=np.int64)
+    kernel[1, 1](3, output)
+    np.testing.assert_array_equal(output, [7, 12])
+
+
+@pytest.mark.parametrize("inline", ["never", "always"])
+@pytest.mark.parametrize("capture_kind", ["tuple", "closure"])
+def test_composed_environments_across_nested_device_calls(inline, capture_kind):
+    @cuda.jit(device=True)
+    def transform(value):
+        return value * 3
+
+    if capture_kind == "tuple":
+
+        @cuda.jit(device=True, inline=inline)
+        def make(bias, enabled, values):
+            environment = ((bias, enabled), (values, transform, None))
+            return lambda index: (
+                environment[1][1](environment[1][0][index]) + environment[0][0]
+                if environment[0][1]
+                else -environment[1][0][index]
+            )
+    else:
+
+        @cuda.jit(device=True, inline=inline)
+        def make(bias, enabled, values):
+            inner = lambda index: values[index] if enabled else -values[index]
+            return lambda index: inner(index) + bias
+
+    @cuda.jit(device=True, inline=inline)
+    def forward(bias, enabled, values):
+        return make(bias, enabled, values)
+
+    @cuda.jit
+    def kernel(bias, enabled, values, output):
+        output[0] = consume(forward(bias, enabled, values), 1)
+
+    values = np.array([5, 13], dtype=np.int64)
+    output = np.zeros(1, dtype=np.int64)
+    for bias, enabled in ((7, True), (-2, False)):
+        kernel[1, 1](bias, enabled, values, output)
+        if capture_kind == "tuple":
+            expected = 3 * values[1] + bias if enabled else -values[1]
+        else:
+            expected = (values[1] if enabled else -values[1]) + bias
+        assert output[0] == expected
+
+
+def test_closure_with_only_static_environment():
+    helper = abs
+
+    @cuda.jit
+    def kernel(value, output):
+        fn = lambda x: helper(x)
+        output[0] = consume(fn, value)
+
+    output = np.zeros(1, dtype=np.int64)
+    for value in (-4, 7):
+        kernel[1, 1](value, output)
+        assert output[0] == abs(value)
+
+
+def test_local_inlining_preserves_nested_escaping_capture_analysis():
+    @cuda.jit
+    def kernel(bias, output):
+        def make(value):
+            return lambda x: x + value
+
+        output[0] = consume(make(bias), 4)
+
+    output = np.zeros(1, dtype=np.int64)
+    kernel[1, 1](7, output)
+    assert output[0] == 11
+
+
+def test_capture_requires_dominating_initialization():
+    @cuda.jit
+    def kernel(initialize, bias, output):
+        if initialize:
+            local = bias
+        fn = lambda x: x + local
+        output[0] = consume(fn, 4)
+
+    with pytest.raises(UnsupportedError, match="uninitialized shared cell 'local'"):
+        kernel[1, 1](False, 7, np.zeros(1, dtype=np.int64))
+
+
+def test_immutable_capture_constructed_in_loop():
+    @cuda.jit
+    def kernel(bias, output):
+        for index in range(output.size):
+            fn = lambda x: x + bias
+            output[index] = consume(fn, index)
+
+    output = np.zeros(3, dtype=np.int64)
+    kernel[1, 1](7, output)
+    np.testing.assert_array_equal(output, [7, 8, 9])

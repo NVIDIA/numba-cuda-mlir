@@ -1395,6 +1395,12 @@ class Interpreter:
             peepholes.append(peep_hole_fuse_dict_add_updates)
 
         post_processed_ir = self.post_process(peepholes, func_ir)
+        # Preserve cell identity before local closure inlining and SSA replace
+        # cells with independent values. Escaping conversion consumes these
+        # annotations; directly inlined closures are not restricted by them.
+        from numba_cuda_mlir.runtime_closures import annotate_closure_captures
+
+        annotate_closure_captures(post_processed_ir)
 
         return post_processed_ir
 

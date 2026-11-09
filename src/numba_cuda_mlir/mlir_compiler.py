@@ -43,17 +43,7 @@ from numba_cuda_mlir.numba_cuda.core.typed_passes import (
 import numba_cuda_mlir.numba_cuda.core.ir as _cuda_ir
 
 from numba_cuda_mlir.numba_cuda.typing.typeof import Purpose, typeof
-from numba_cuda_mlir.numba_cuda.core.untyped_passes import (
-    LiteralUnroll,
-    InlineInlinables,
-)
-from numba_cuda_mlir.numba_cuda.core.untyped_passes import MakeFunctionToJitFunction
-from numba_cuda_mlir.runtime_closures import ConvertRuntimeClosures
-from numba_cuda_mlir.numbair_transforms import (
-    NumbaCudaMlirLiteralUnroll,
-    NumbaCudaMlirInlineInlinables,
-    PostInlineWholeFunctionPlanners,
-)
+from numba_cuda_mlir.numbair_transforms import define_mlir_untyped_pipeline
 
 import numba_cuda_mlir.mlir_lowering as lowering
 import numba_cuda_mlir.mlir_optimization as opt
@@ -221,33 +211,18 @@ def get_compiler_class(
     launch_config_tracker=None,
 ):
     class MLIRCompiler(CompilerBase):
+        @staticmethod
+        def define_untyped_pipeline(state):
+            # InlineWorker retains this compiler instance in nested states.
+            # Plan only after inlinees have been merged into their caller.
+            return define_mlir_untyped_pipeline(state, run_planners=False)
+
         def define_pipelines(self):
             dpb = DefaultPassBuilder
             pm = PassManager("mlir")
 
-            untyped_passes = dpb.define_untyped_pipeline(self.state)
-            # Replace passes with numba_cuda_mlir-specific versions:
-            # - LiteralUnroll -> NumbaCudaMlirLiteralUnroll (supports both literal_unroll versions)
-            # - InlineInlinables -> NumbaCudaMlirInlineInlinables (skips self-recursive functions)
-            modified_passes = []
-            for impl, desc in untyped_passes.passes:
-                if impl is MakeFunctionToJitFunction:
-                    modified_passes.append(
-                        (ConvertRuntimeClosures, "convert runtime closure environments")
-                    )
-                if impl is LiteralUnroll:
-                    modified_passes.append((NumbaCudaMlirLiteralUnroll, desc))
-                elif impl is InlineInlinables:
-                    modified_passes.append((NumbaCudaMlirInlineInlinables, desc))
-                    modified_passes.append(
-                        (
-                            PostInlineWholeFunctionPlanners,
-                            "post-inline whole-function extension planners",
-                        )
-                    )
-                else:
-                    modified_passes.append((impl, desc))
-            pm.passes.extend(modified_passes)
+            untyped_passes = define_mlir_untyped_pipeline(self.state)
+            pm.passes.extend(untyped_passes.passes)
 
             typed_passes = dpb.define_typed_pipeline(self.state)
 

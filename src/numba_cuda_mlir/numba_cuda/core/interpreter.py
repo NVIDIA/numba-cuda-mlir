@@ -1307,6 +1307,12 @@ class Interpreter:
         """
         Generate IR for this bytecode.
         """
+        # Compiler-generated functions may provide untyped IR directly. Use the
+        # same entry point for compilation, inline cost models, and inline workers.
+        ir_factory = getattr(self.func_id.func, "_numba_cuda_mlir_ir", None)
+        if ir_factory is not None:
+            return ir_factory()
+
         self.bytecode = bytecode
 
         self.scopes = []

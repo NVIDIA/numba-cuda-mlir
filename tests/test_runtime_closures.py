@@ -2,14 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Consumer-visible behavior of escaping read-only runtime device closures."""
 
-import dis
-
 import numpy as np
 import pytest
 
 from numba_cuda_mlir import cuda, extending, types
 from numba_cuda_mlir.numba_cuda.core.errors import UnsupportedError
-from numba_cuda_mlir.runtime_closures import _explicit_capture_function
+from numba_cuda_mlir.runtime_closures import _make_closure_body
 
 GLOBAL_SCALE = 7
 
@@ -122,50 +120,57 @@ def test_static_function_capture_preserves_runtime_fields():
         assert output[0] == 4 + bias
 
 
-def test_explicit_capture_function_preserves_globals_and_local_variables():
-    def outer(bias):
+@pytest.mark.parametrize("mode", ["never", "always", "lto"])
+@pytest.mark.parametrize("source_available", [True, False])
+def test_closure_body_preserves_globals_locals_and_runtime_captures(source_available, mode):
+    def outer(bias, scale):
         def inner(x):
-            local = x * GLOBAL_SCALE
-            return local + bias
+            __capture_bias = x * GLOBAL_SCALE
+            signature = __capture_bias * scale
+            if x > 0:
+                return x + signature + bias
+            return __capture_bias - bias
 
         return inner
 
-    function = outer(1000)
-    unsupported = [
-        i.opname
-        for i in dis.get_instructions(function)
-        if "FAST" in i.opname
-        and i.opname
-        not in {"LOAD_FAST", "STORE_FAST", "DELETE_FAST", "LOAD_FAST_CHECK", "LOAD_FAST_AND_CLEAR"}
-    ]
-    if unsupported:
-        with pytest.raises(UnsupportedError, match=f"opcode {unsupported[0]} .*unsupported"):
-            _explicit_capture_function(function.__code__, function.__globals__)
+    if not source_available:
+        namespace = {"GLOBAL_SCALE": GLOBAL_SCALE}
+        exec(
+            "def outer(bias, scale):\n"
+            "    def inner(x):\n"
+            "        __capture_bias = x * GLOBAL_SCALE\n"
+            "        signature = __capture_bias * scale\n"
+            "        if x > 0:\n"
+            "            return x + signature + bias\n"
+            "        return __capture_bias - bias\n"
+            "    return inner\n",
+            namespace,
+        )
+        outer = namespace["outer"]
+    function = outer(1000, 2000)
+    body = _make_closure_body(function.__code__, function.__globals__)
+    if mode == "lto":
+        from numba_cuda_mlir import compiler
+
+        symbol = "explicit_ir_capture_body"
+        sig = types.int64(types.int64, types.int64, types.int64)
+        native, _ = compiler.compile(
+            body, sig, device=True, abi="c", output="ltoir", abi_info={"abi_name": symbol}
+        )
+        device_body = cuda.declare_device(symbol, sig, abi="c", link=cuda.LTOIR(native))
     else:
-        body = _explicit_capture_function(function.__code__, function.__globals__)
-        assert body(3, 4) == 31
-        assert body(-8, 2) == 6
+        device_body = cuda.jit(device=True, inline=mode)(body)
 
+    @cuda.jit
+    def kernel(bias, scale, x, output):
+        output[0] = device_body(bias, scale, x)
 
-def test_explicit_capture_function_rejects_unhandled_fast_local_opcodes():
-    def outer(bias):
-        def inner(x):
-            local = x * GLOBAL_SCALE
-            return x + local + bias
-
-        return inner
-
-    function = outer(1000)
-    supported = {"LOAD_FAST", "STORE_FAST", "DELETE_FAST", "LOAD_FAST_CHECK", "LOAD_FAST_AND_CLEAR"}
-    unhandled = [
-        i.opname
-        for i in dis.get_instructions(function)
-        if "FAST" in i.opname and i.opname not in supported
-    ]
-    if not unhandled:
-        pytest.skip("This Python version does not emit fused or borrowed fast-local opcodes")
-    with pytest.raises(UnsupportedError, match=f"opcode {unhandled[0]} .*unsupported"):
-        _explicit_capture_function(function.__code__, function.__globals__)
+    output = np.zeros(1, dtype=np.int64)
+    for bias, scale, x in ((3, 2, 4), (-8, 5, 2), (9, 3, -2)):
+        expected = outer(bias, scale)(x)
+        assert body(bias, scale, x) == expected
+        kernel[1, 1](bias, scale, x, output)
+        assert output[0] == expected
 
 
 def test_nonlocal_mutation_rejected():
@@ -179,7 +184,7 @@ def test_nonlocal_mutation_rejected():
 
     function = outer(1)
     with pytest.raises(UnsupportedError, match="nonlocal mutation"):
-        _explicit_capture_function(function.__code__, function.__globals__)
+        _make_closure_body(function.__code__, function.__globals__)
 
 
 def test_reassigned_shared_cell_rejected():

@@ -60,7 +60,7 @@ jobs:
           python -m pip freeze | Out-File diagnostic-results/packages.txt
       - name: Run isolated comparisons
         run: |
-          python ci/tools/diagnose_managed_memory.py --source released-tests --output diagnostic-results
+          python ci/tools/diagnose_managed_memory.py --source released-tests --output diagnostic-results --delay-stream-test --skip-suite --attempts 2
           if ($LASTEXITCODE -ne 0) { throw "Diagnostic contains failures or incomplete cases; inspect artifacts" }
       - name: Upload diagnostic evidence
         if: always()

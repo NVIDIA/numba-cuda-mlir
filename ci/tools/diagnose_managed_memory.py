@@ -139,7 +139,7 @@ def probe(synchronize):
         checked(nvrtc.nvrtcDestroyProgram(program))
 
 
-def prepare(source, destination, variant):
+def prepare(source, destination, variant, delay_stream_test):
     shutil.copytree(source / "tests", destination / "tests")
     shutil.copy2(source / "pyproject.toml", destination / "pyproject.toml")
     if variant in ("stream-sync", "both"):
@@ -157,6 +157,37 @@ def prepare(source, destination, variant):
             raise RuntimeError("Released managed-memory helper anchor changed")
         # Every managed-memory test calls this helper before CPU initialization.
         path.write_text(text.replace(anchor, anchor + "\n    ctx.synchronize()"))
+    if delay_stream_test:
+        path = destination / "tests/numba_cuda_tests/cudapy/test_cuda_array_interface.py"
+        text = path.read_text()
+        start = text.index("    def test_launch_sync_two_streams(self):")
+        end = text.index("\n    def ", start + 1)
+        test = text[start:end]
+        anchor = "        def f(x, y):\n            pass"
+        if test.count(anchor) != 1:
+            raise RuntimeError("Released two-stream kernel anchor changed")
+        test = test.replace(
+            anchor,
+            "        def f(x, y):\n"
+            "            for _ in range(1000):\n"
+            "                cuda.nanosleep(1000000)",
+        )
+        path.write_text(text[:start] + test + text[end:])
+        path = destination / "tests/test_managed_memory.py"
+        text = path.read_text()
+        anchor = "        src[:] = np.arange(100, dtype=np.double)"
+        if text.count(anchor) != 1:
+            raise RuntimeError("Released managed-memory initialization anchor changed")
+        expected = "CUDA_ERROR_NOT_READY" if variant == "baseline" else "CUDA_SUCCESS"
+        text = text.replace(
+            anchor,
+            "        from cuda.bindings import driver\n"
+            "        status = driver.cuStreamQuery(0)[0]\n"
+            "        print(f'before managed initialization: {status!s}', flush=True)\n"
+            f"        assert status == driver.CUresult.{expected}, 'Invalid overlap precondition'\n"
+            + anchor,
+        )
+        path.write_text(text)
 
 
 def run(args):
@@ -215,14 +246,14 @@ def run(args):
         variants = {}
         for variant in args.variants:
             stage = root / variant
-            prepare(source, stage, variant)
+            prepare(source, stage, variant, args.delay_stream_test)
             variants[variant] = stage
         for variant, stage in variants.items():
             child_env = env.copy()
             child_env["PYTHONPATH"] = os.pathsep.join((str(root), str(stage / "tests")))
             for attempt in range(args.attempts):
                 ok = execute(
-                    f"pair-{variant}-{attempt + 1}",
+                    f"pair-{'delayed-' if args.delay_stream_test else ''}{variant}-{attempt + 1}",
                     python + ["-m", "pytest", "-vv", "-s", "-p", "no:randomly", *PAIR],
                     stage,
                     90,
@@ -276,6 +307,7 @@ def main():
     parser.add_argument("--budget-seconds", type=int, default=1200)
     parser.add_argument("--variants", nargs="+", choices=VARIANTS, default=VARIANTS)
     parser.add_argument("--skip-suite", action="store_true")
+    parser.add_argument("--delay-stream-test", action="store_true")
     parser.add_argument("--child", choices=("environment", "overlap", "synchronized"))
     args = parser.parse_args()
     if args.child == "environment":

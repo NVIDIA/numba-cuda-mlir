@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import inspect
+import os
 from pathlib import Path
 
 import pytest
@@ -100,6 +101,7 @@ def test_package_lowering_failure_reports_user_call(monkeypatch, full_tb):
     assert error.loc.line == expected_line
     assert "Tuple contains is not implemented" in error.msg
     assert str(package_dir) not in str(error)
+    assert os.path.relpath(package_dir) not in str(error)
 
 
 def test_package_lowering_location_replaced_by_user_call(monkeypatch):

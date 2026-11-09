@@ -3,8 +3,10 @@
 """Read-only escaping device closures with runtime aggregate environments."""
 
 import dis
+import inspect
 import types as pytypes
 from dataclasses import dataclass
+from functools import partial
 
 from numba_cuda_mlir._mlir import ir as mlir_ir
 from numba_cuda_mlir._mlir.dialects import builtin, llvm
@@ -25,65 +27,90 @@ class CallableSpecialization:
     code_identity: object
 
 
-def _explicit_capture_function(code, globals_dict):
-    """Prepend captures; reject fast-local encodings that cannot be shifted safely."""
-    captures = code.co_freevars
+def _make_closure_body(code, globals_dict):
+    """Expose a capture-first signature without changing the closure's code.
+
+    The Python callable remains executable for host-side inspection. Compilation
+    uses ``_closure_body_ir`` instead of translating this adapter's implementation.
+    """
     if code.co_cellvars:
         raise errors.UnsupportedError(
             "Escaping closure bodies containing nested shared cells are unsupported"
         )
-    bytecode = bytearray(code.co_code)
-    instructions = list(dis.get_instructions(code, show_caches=True))
-    for instruction in instructions:
-        op = instruction.opname
-        if op in ("STORE_DEREF", "DELETE_DEREF"):
-            raise errors.UnsupportedError("Escaping closures do not support nonlocal mutation")
-        replacement = None
-        if op == "COPY_FREE_VARS":
-            replacement = (dis.opmap["NOP"], 0)
-        elif op == "LOAD_DEREF":
-            replacement = (dis.opmap["LOAD_FAST"], captures.index(instruction.argval))
-        elif op in (
-            "LOAD_FAST",
-            "STORE_FAST",
-            "DELETE_FAST",
-            "LOAD_FAST_CHECK",
-            "LOAD_FAST_AND_CLEAR",
-        ):
-            replacement = (instruction.opcode, instruction.arg + len(captures))
-        elif "FAST" in op:
-            # Fused and borrowed loads encode local slots differently. Never
-            # leave their indices unchanged after prepending capture arguments.
-            raise errors.UnsupportedError(
-                "Escaping closures using opcode %s are unsupported on this Python version" % op
-            )
-        if replacement is not None:
-            opcode, argument = replacement
-            start = instruction.offset
-            while start >= 2 and bytecode[start - 2] == dis.opmap["EXTENDED_ARG"]:
-                start -= 2
-            width = (instruction.offset - start) // 2 + 1
-            if argument >= 1 << (8 * width):
-                raise errors.UnsupportedError(
-                    "Escaping closure has too many local variables for capture argument conversion"
-                )
-            for offset in range(instruction.offset, start - 1, -2):
-                bytecode[offset] = (
-                    opcode if offset == instruction.offset else dis.opmap["EXTENDED_ARG"]
-                )
-                bytecode[offset + 1] = argument & 255
-                argument >>= 8
-    converted = code.replace(
-        co_code=bytes(bytecode),
-        co_argcount=code.co_argcount + len(captures),
-        co_posonlyargcount=code.co_posonlyargcount + len(captures),
-        co_nlocals=code.co_nlocals + len(captures),
-        co_varnames=tuple("__capture_" + name for name in captures) + code.co_varnames,
-        co_freevars=(),
-        co_name="__runtime_closure_%x" % id(code),
-        co_qualname="%s.__runtime_closure_%x" % (code.co_qualname, id(code)),
+    if any(i.opname in ("STORE_DEREF", "DELETE_DEREF") for i in dis.get_instructions(code)):
+        raise errors.UnsupportedError("Escaping closures do not support nonlocal mutation")
+
+    function_type = pytypes.FunctionType
+    cell_type = pytypes.CellType
+    original = function_type(
+        code, globals_dict, closure=tuple(cell_type(None) for _ in code.co_freevars)
     )
-    return pytypes.FunctionType(converted, globals_dict, code.co_name)
+    original_signature = inspect.signature(original)
+    capture_parameters = []
+    used_names = set(code.co_varnames)
+    for name in code.co_freevars:
+        parameter_name = "__capture_" + name
+        while parameter_name in used_names:
+            parameter_name += "_"
+        used_names.add(parameter_name)
+        capture_parameters.append(
+            inspect.Parameter(parameter_name, inspect.Parameter.POSITIONAL_ONLY)
+        )
+    signature = original_signature.replace(
+        parameters=capture_parameters + list(original_signature.parameters.values())
+    )
+    capture_count = len(capture_parameters)
+
+    def body(*args, **kwargs):
+        bound = signature.bind(*args, **kwargs)
+        function = function_type(
+            code,
+            globals_dict,
+            closure=tuple(cell_type(value) for value in bound.args[:capture_count]),
+        )
+        return function(*bound.args[capture_count:], **bound.kwargs)
+
+    # Retain the original globals identity used by callable specialization keys.
+    body = function_type(body.__code__, globals_dict, closure=body.__closure__)
+    body.__name__ = "__runtime_closure_%x" % id(code)
+    body.__qualname__ = "%s.%s" % (code.co_qualname, body.__name__)
+    body.__signature__ = signature
+    body._numba_cuda_mlir_closure = original
+    body._numba_cuda_mlir_ir = partial(_closure_body_ir, body)
+    return body
+
+
+def _closure_body_ir(body):
+    """Convert free-variable reads to leading arguments in fresh untyped IR."""
+    from numba_cuda_mlir.numba_cuda.compiler import run_frontend
+    from numba_cuda_mlir.numba_cuda.core.bytecode import FunctionIdentity
+
+    original = body._numba_cuda_mlir_closure
+    func_ir = run_frontend(original)
+    capture_names = original.__code__.co_freevars
+    count = len(capture_names)
+    parameter_names = tuple(inspect.signature(body).parameters)[:count]
+    entry = func_ir.blocks[min(func_ir.blocks)]
+    captures = {}
+    arguments = []
+    for index, (name, parameter) in enumerate(zip(capture_names, parameter_names)):
+        variable = entry.scope.define(parameter, entry.loc)
+        captures[name] = variable
+        arguments.append(ir.Assign(ir.Arg(parameter, index, entry.loc), variable, entry.loc))
+    for block in func_ir.blocks.values():
+        for stmt in block.body:
+            if isinstance(stmt, ir.Assign):
+                if isinstance(stmt.value, ir.Arg):
+                    stmt.value = ir.Arg(stmt.value.name, stmt.value.index + count, stmt.value.loc)
+                elif isinstance(stmt.value, ir.FreeVar):
+                    stmt.value = captures[stmt.value.name]
+    entry.body[:0] = arguments
+    func_ir.arg_count += count
+    func_ir.arg_names = parameter_names + tuple(func_ir.arg_names)
+    func_ir.func_id = FunctionIdentity.from_function(body)
+    func_ir._definitions = build_definitions(func_ir.blocks)
+    postproc.PostProcessor(func_ir).run()
+    return func_ir
 
 
 class RuntimeClosure(types.Callable):
@@ -359,7 +386,7 @@ class ConvertRuntimeClosures(FunctionPass):
                             "Escaping closure captures reassigned shared cell '%s'" % name,
                             loc=stmt.loc,
                         )
-                function = _explicit_capture_function(node.code, func_ir.func_id.func.__globals__)
+                function = _make_closure_body(node.code, func_ir.func_id.func.__globals__)
                 constructor = _closure_constructor(function, node.code)
                 from numba_cuda_mlir.numba_cuda.core.ir_utils import mk_unique_var
 

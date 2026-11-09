@@ -440,7 +440,9 @@ class InlineWorker:
         updated based on the arg_typs.
         """
         callee_ir = self.run_untyped_passes(function)
-        freevars = function.__code__.co_freevars
+        # An IR provider resolves its own environment; adapter cells are not
+        # free variables of the generated body.
+        freevars = () if hasattr(function, "_numba_cuda_mlir_ir") else function.__code__.co_freevars
         return self.inline_ir(caller_ir, block, i, callee_ir, freevars, arg_typs=arg_typs)
 
     def run_untyped_passes(self, func, enable_ssa=False):

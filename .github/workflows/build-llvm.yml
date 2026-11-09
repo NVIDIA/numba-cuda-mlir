@@ -181,6 +181,14 @@ jobs:
           path: ${{ env.INSTALL_DIR }}/
           key: ${{ steps.params.outputs.key }}
 
+      - name: Install verified uv
+        if: steps.gha-cache.outputs.cache-hit != 'true'
+        id: uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "latest-known"
+          enable-cache: false
+
       - name: Pull devcontainer image
         if: steps.gha-cache.outputs.cache-hit != 'true'
         shell: pwsh
@@ -195,6 +203,7 @@ jobs:
         env:
           BUILD_MODE: ${{ matrix.mode }}
           PYTHON_VERSION: ${{ matrix.python-version }}
+          UV_PATH: ${{ steps.uv.outputs.uv-path }}
         run: |
           . ./ci/windows-common.ps1
           Import-EnvFile ci/windows-devcontainer.env
@@ -203,12 +212,14 @@ jobs:
           $py = $env:PYTHON_VERSION
           $mode = $env:BUILD_MODE
           $cname = $env:CONTAINER_NAME
+          $uvDir = Split-Path -Parent $env:UV_PATH
           docker run --rm --name $cname --isolation=process `
             --mount "type=bind,source=$src,target=C:\workspace" `
+            --mount "type=bind,source=$uvDir,target=C:\verified-uv,readonly" `
             --workdir C:\workspace `
             --env "PARALLEL=${{ env.PARALLEL }}" `
             $img `
-            powershell -NoProfile -ExecutionPolicy Bypass -File C:\workspace\ci\windows-llvm-container-build.ps1 -PythonVersion $py -Mode $mode
+            powershell -NoProfile -ExecutionPolicy Bypass -File C:\workspace\ci\windows-llvm-container-build.ps1 -PythonVersion $py -Mode $mode -UvPath C:\verified-uv\uv.exe
           if ($LASTEXITCODE -ne 0) {
             throw "$mode LLVM build container failed with exit code $LASTEXITCODE"
           }
@@ -272,14 +283,9 @@ jobs:
 
       - name: Set up native Arm Python
         if: steps.gha-cache.outputs.cache-hit != 'true'
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        uses: ./.github/actions/setup-hardened-python
         with:
           python-version: ${{ matrix.python-version }}
-          # Resolve the newest patch from the GitHub-maintained manifest so
-          # setup-python cannot pick a cached pre-eMudhra-fix release. The
-          # update-pip action asserts the floor and will fail if the resolved
-          # version is still below it.
-          check-latest: true
 
       - name: Set up ARM64 MSVC
         if: steps.gha-cache.outputs.cache-hit != 'true'
@@ -287,10 +293,6 @@ jobs:
         with:
           arch: arm64
           toolset: ${{ steps.cache-key.outputs.msvc-toolset }}
-
-      - name: Update pip
-        if: steps.gha-cache.outputs.cache-hit != 'true'
-        uses: ./.github/actions/update-pip
 
       - name: Install build dependencies
         if: steps.gha-cache.outputs.cache-hit != 'true'

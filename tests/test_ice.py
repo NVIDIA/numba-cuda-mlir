@@ -16,11 +16,10 @@ from numba_cuda_mlir.numba_cuda.core.errors import UnsupportedError
 from numba_cuda_mlir.numba_cuda.core.ir import Loc
 
 
-@pytest.mark.parametrize("full_tb", ["0", "1"])
 @pytest.mark.parametrize("device", [False, True])
 @pytest.mark.parametrize("debug", [False, True])
-def test_missing_lowering_reports_user_instruction(monkeypatch, full_tb, device, debug):
-    monkeypatch.setenv("NUMBA_CUDA_MLIR_ICE_FULL_TB", full_tb)
+def test_missing_lowering_reports_user_instruction(monkeypatch, device, debug):
+    monkeypatch.setenv("NUMBA_CUDA_MLIR_ICE_FULL_TB", "0")
 
     @extending.intrinsic
     def unsupported(typingctx, value):
@@ -54,10 +53,6 @@ def test_missing_lowering_reports_user_instruction(monkeypatch, full_tb, device,
     assert error.loc.filename == __file__
     assert error.loc.line == expected_line
     assert "unsupported test operation" in error.msg
-    if full_tb == "0":
-        assert error.__suppress_context__
-    else:
-        assert isinstance(error.__cause__, NotImplementedError)
 
 
 @pytest.mark.parametrize("full_tb", ["0", "1"])
@@ -102,6 +97,15 @@ def test_package_lowering_failure_reports_user_call(monkeypatch, full_tb):
     assert "Tuple contains is not implemented" in error.msg
     assert str(package_dir) not in str(error)
     assert os.path.relpath(package_dir) not in str(error)
+    diagnostic = str(error)
+    if full_tb == "0":
+        assert error.__suppress_context__
+        assert "Failed in " not in diagnostic
+        assert "During: " not in diagnostic
+    else:
+        assert isinstance(error.__cause__, NotImplementedError)
+        assert "Failed in " in diagnostic
+        assert "During: " in diagnostic
 
 
 def test_package_lowering_location_replaced_by_user_call(monkeypatch):

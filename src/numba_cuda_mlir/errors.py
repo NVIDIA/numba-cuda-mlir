@@ -88,7 +88,7 @@ def handle_lowering_error(lower, func_ir):
                 loc = exc.loc
             message = exc.msg
         else:
-            message = f"Unsupported operation in MLIR lowering: {exc}"
+            message = f"Unsupported operation: {exc}"
         error = UnsupportedLoweringError(message, loc=loc, full_traceback=full_tb_env == "1")
         if full_tb_env == "1":
             raise error from exc

@@ -7,6 +7,7 @@ from functools import lru_cache
 
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.typing.ctypes_utils import to_ctypes
+from numba_cuda_mlir.runtime_errors import ErrorCode
 
 try:
     from numba_cuda_mlir._mlir import execution_engine
@@ -79,18 +80,18 @@ class ExecutionEngine:
             # ExecutionEngine's packed trampoline loads scalar values through
             # pointers; the scalar return buffer is the final packed slot.
             packed = packed_type(*(ctypes.addressof(slot) for slot in slots))
-            self._errors.code = 0
+            self._errors.code = ErrorCode.SUCCESS
             self._packed_function(packed)
             code = self._errors.code
-            if code == 1:
+            if code == ErrorCode.ZERO_DIVISION:
                 raise ZeroDivisionError("division by zero in host_jit")
-            if code == 2:
+            if code == ErrorCode.RANGE_STEP_ZERO:
                 raise ValueError("range() arg 3 must not be zero")
-            if code == 3:
+            if code == ErrorCode.SIGNED_DIVISION_OVERFLOW:
                 raise OverflowError("signed integer division overflow in host_jit")
-            if code == 4:
+            if code == ErrorCode.FLOAT_TO_INT_NAN:
                 raise ValueError("cannot convert float NaN to integer")
-            if code == 5:
+            if code == ErrorCode.FLOAT_TO_INT_OVERFLOW:
                 raise OverflowError("float-to-integer conversion overflow in host_jit")
             if code:
                 raise RuntimeError(f"host_jit scalar execution failed with code {code}")

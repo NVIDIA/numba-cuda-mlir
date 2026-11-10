@@ -10,6 +10,7 @@ from numba_cuda_mlir import mlir_lowering
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core import ir as numba_ir
 from numba_cuda_mlir.numba_cuda.core.errors import TypingError
+from numba_cuda_mlir.runtime_errors import ErrorCode
 from numba_cuda_mlir.tools import generate_mangled_name
 
 
@@ -68,7 +69,10 @@ class Lower(mlir_lowering.MLIRLower):
 
     def checked_range_step_context(self, step):
         """Validate the range step and return the continuation insertion context."""
-        self._fail_if(arith.cmpi(arith.CmpIPredicate.eq, step, arith.constant(step.type, 0)), 2)
+        self._fail_if(
+            arith.cmpi(arith.CmpIPredicate.eq, step, arith.constant(step.type, 0)),
+            ErrorCode.RANGE_STEP_ZERO,
+        )
         return ir.InsertionPoint(self._host_active_block)
 
     def lower_inst(self, inst):
@@ -121,7 +125,7 @@ class Lower(mlir_lowering.MLIRLower):
             return
         if not isinstance(value, ir.Value):
             value = arith.constant(self.get_mlir_type(source_type), float(value))
-        self._fail_if(arith.cmpf(arith.CmpFPredicate.UNO, value, value), 4)
+        self._fail_if(arith.cmpf(arith.CmpFPredicate.UNO, value, value), ErrorCode.FLOAT_TO_INT_NAN)
         with ir.InsertionPoint(self._host_active_block):
             # Check the truncated value, so e.g. uint8(-0.5) remains valid.
             truncated = math.trunc(value)
@@ -135,7 +139,7 @@ class Lower(mlir_lowering.MLIRLower):
                     arith.CmpFPredicate.OGE, truncated, arith.constant(value.type, float(upper))
                 ),
             )
-            self._fail_if(overflow, 5)
+            self._fail_if(overflow, ErrorCode.FLOAT_TO_INT_OVERFLOW)
 
     def scalar_conversion_context(self):
         return ir.InsertionPoint(self._host_active_block)
@@ -189,7 +193,7 @@ class Lower(mlir_lowering.MLIRLower):
             if isinstance(right.type, ir.FloatType)
             else arith.cmpi(arith.CmpIPredicate.eq, right, zero)
         )
-        self._fail_if(failed, 1)
+        self._fail_if(failed, ErrorCode.ZERO_DIVISION)
         typ = types.unliteral(typ)
         with ir.InsertionPoint(self._host_active_block):
             if operation is operator.floordiv and isinstance(typ, types.Integer) and typ.signed:
@@ -199,5 +203,5 @@ class Lower(mlir_lowering.MLIRLower):
                     arith.cmpi(arith.CmpIPredicate.eq, left, minimum),
                     arith.cmpi(arith.CmpIPredicate.eq, right, minus_one),
                 )
-                self._fail_if(overflow, 3)
+                self._fail_if(overflow, ErrorCode.SIGNED_DIVISION_OVERFLOW)
         return ir.InsertionPoint(self._host_active_block)

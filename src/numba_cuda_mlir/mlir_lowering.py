@@ -21,6 +21,7 @@ from numba_cuda_mlir import types
 from numba_cuda_mlir.numba_cuda.datamodel.models import ArrayModel
 from numba_cuda_mlir.annotations import Builder, AnyCallable, PS
 from numba_cuda_mlir.errors import InternalCompilerError, ensure_verifies
+from numba_cuda_mlir.runtime_errors import ErrorCode
 from numba_cuda_mlir.lowering_utilities.type_conversions import (
     to_mlir_type,
     to_numba_type,
@@ -91,11 +92,11 @@ from numba_cuda_mlir.types import Record
 
 ERROR_CODE_GLOBAL_NAME = "__numba_cuda_mlir_error_code"
 KERNEL_ERROR_CODES = {
-    AssertionError: 1,
-    IndexError: 2,
-    ValueError: 3,
-    RuntimeError: 4,
-    ZeroDivisionError: 5,
+    AssertionError: ErrorCode.ASSERTION,
+    IndexError: ErrorCode.INDEX,
+    ValueError: ErrorCode.VALUE,
+    RuntimeError: ErrorCode.RUNTIME,
+    ZeroDivisionError: ErrorCode.ZERO_DIVISION,
 }
 # MLIR LLVM dialect dynamic GEP sentinel, LLVM::GEPOp::kDynamicIndex / INT32_MIN.
 _GEP_DYNAMIC_INDEX = -2147483648
@@ -961,7 +962,7 @@ extern "C" __global__ void
         trace(static_raise_inst)
 
         exc_class = static_raise_inst.exc_class
-        error_code = KERNEL_ERROR_CODES.get(exc_class, 4)  # Default to RuntimeError
+        error_code = KERNEL_ERROR_CODES.get(exc_class, ErrorCode.RUNTIME)
         self.set_error_code(error_code)
 
         # Branch to the highest-offset Return block if available.

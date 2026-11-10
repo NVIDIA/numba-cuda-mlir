@@ -14,75 +14,51 @@ function Import-EnvFile {
     }
 }
 
-function Install-PythonViaNuGet {
+function Install-HardenedPython {
     param(
         [string]$Spec,
-        [string]$TargetDir
+        [string]$TargetDir,
+        [string]$UvPath
     )
 
-    $freethreaded = $Spec -match 't$'
-    $baseVersion = $Spec.TrimEnd('t').Trim()
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+    # The caller passes setup-uv's verified binary through a read-only mount.
+    $uvExe = (Resolve-Path -LiteralPath $UvPath).Path
+    if (-not (Test-Path -LiteralPath $uvExe -PathType Leaf)) {
+        throw "Verified uv executable not found: $UvPath"
+    }
+    $TargetDir = [System.IO.Path]::GetFullPath($TargetDir)
 
-    $nugetExe = Join-Path $env:TEMP 'nuget.exe'
-    if (-not (Test-Path $nugetExe)) {
-        Write-Host 'Downloading nuget.exe'
-        Invoke-WebRequest -Uri 'https://dist.nuget.org/win-x86-commandline/latest/nuget.exe' -OutFile $nugetExe -UseBasicParsing
+    $oldNoConfig = $env:UV_NO_CONFIG
+    $oldInstallDir = $env:UV_PYTHON_INSTALL_DIR
+    $oldPython = $env:PYTHON
+    try {
+        $env:UV_NO_CONFIG = '1'
+        $env:UV_PYTHON_INSTALL_DIR = Join-Path $TargetDir 'managed-python'
+        & $uvExe python install --no-bin --no-registry $Spec | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "uv python install failed with exit code $LASTEXITCODE" }
+        $managedPython = & $uvExe python find --managed-python --no-project $Spec
+        if ($LASTEXITCODE -ne 0) { throw "uv python find failed with exit code $LASTEXITCODE" }
+        if (-not ($managedPython -is [string]) -or -not (Test-Path -LiteralPath $managedPython -PathType Leaf)) {
+            throw 'uv did not return a managed Python executable'
+        }
+        $venvDir = Join-Path $TargetDir 'venv'
+        & $managedPython -m venv $venvDir | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "Python venv creation failed with exit code $LASTEXITCODE" }
+        $pythonExe = Join-Path $venvDir 'Scripts\python.exe'
+        if (-not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {
+            throw "Venv Python executable not found: $pythonExe"
+        }
+        $env:PYTHON = $pythonExe
+        & $pythonExe (Join-Path $repoRoot 'ci/tools/check_python_security.py') | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "Python security check failed with exit code $LASTEXITCODE" }
+        return $pythonExe
     }
-
-    if ($freethreaded) {
-        $packageId = 'python-freethreaded'
+    finally {
+        $env:UV_NO_CONFIG = $oldNoConfig
+        $env:UV_PYTHON_INSTALL_DIR = $oldInstallDir
+        $env:PYTHON = $oldPython
     }
-    else {
-        $packageId = 'python'
-    }
-
-    # `nuget install -Version` takes an exact version, not a range, and it skips
-    # prereleases by default. Ask the flat container index which versions exist
-    # and pick the best match for $baseVersion, preferring a stable release.
-    # Python 3.15 only has prereleases until it ships on 2026-10-01, after which
-    # this resolves 3.15.x stable with no change here.
-    $indexUrl = "https://api.nuget.org/v3-flatcontainer/$($packageId.ToLower())/index.json"
-    Write-Host "Resolving $packageId $baseVersion from $indexUrl"
-    $available = (Invoke-RestMethod -Uri $indexUrl -UseBasicParsing).versions
-    # The index is ordered oldest to newest, so the last match is the newest.
-    $matching = @($available | Where-Object { $_ -eq $baseVersion -or $_.StartsWith("${baseVersion}.") })
-    if ($matching.Count -eq 0) {
-        throw "No $packageId version matching $baseVersion published on nuget.org"
-    }
-    $stable = @($matching | Where-Object { $_ -notmatch '-' })
-    if ($stable.Count -gt 0) {
-        $version = $stable[-1]
-    }
-    else {
-        $version = $matching[-1]
-        Write-Host "No stable $baseVersion release yet, using prerelease $version"
-    }
-
-    Write-Host "Installing $packageId $version via NuGet to $TargetDir"
-    $nugetArgs = @(
-        'install', $packageId,
-        '-Version', $version,
-        '-OutputDirectory', $TargetDir,
-        '-ExcludeVersion',
-        '-PreRelease'
-    )
-    $p = Start-Process -FilePath $nugetExe -ArgumentList $nugetArgs -Wait -NoNewWindow -PassThru
-    if ($p.ExitCode -ne 0) {
-        throw "Failed to install $packageId $version via NuGet"
-    }
-
-    $pkgDir = Join-Path $TargetDir $packageId
-    $toolsDir = Join-Path $pkgDir 'tools'
-    if (-not (Test-Path $toolsDir)) {
-        throw "NuGet package installed but tools/ directory not found under $pkgDir"
-    }
-
-    $pyExe = Join-Path $toolsDir 'python.exe'
-    if (-not (Test-Path $pyExe)) {
-        throw "python.exe not found under $toolsDir"
-    }
-
-    return $pyExe
 }
 
 function Resolve-Bash {

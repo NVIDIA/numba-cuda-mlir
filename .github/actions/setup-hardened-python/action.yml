@@ -1,0 +1,86 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Set up hardened Python
+description: >-
+  Install CPython with a pinned uv, create a venv from it, and put the venv
+  first on PATH. setup-uv verifies the uv binary and uv verifies the
+  python-build-standalone archive against embedded checksums, so the
+  interpreter's integrity does not depend on TLS. The job then fails unless
+  the interpreter meets the shared CVE-2026-115557 security release floor,
+  and pip is updated through that interpreter's ssl module. Unlike setup-python,
+  this provides patched Windows builds of maintenance series, for which
+  python.org publishes no installers. See
+  https://github.com/NVIDIA/cuda-python/pull/3275 and
+  https://discuss.python.org/t/109678.
+
+inputs:
+  python-version:
+    description: >-
+      uv Python request, e.g. "3.12" or "3.14t" (free-threaded). The newest
+      patch known to the pinned uv is installed. Only series with a fixed
+      release listed in the interpreter check (3.11-3.15) are accepted.
+    required: true
+  venv:
+    description: Directory for the venv. Defaults to a new directory under RUNNER_TEMP.
+    default: ""
+
+outputs:
+  python-path:
+    description: Absolute path of the venv's interpreter.
+    value: ${{ steps.venv.outputs.python-path }}
+  python-version:
+    description: Full version of the interpreter, e.g. "3.14.10".
+    value: ${{ steps.venv.outputs.python-version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+      with:
+        # The newest uv whose checksum is embedded in this SHA-pinned action.
+        # Dependabot updates the action pin and therefore the selected uv.
+        version: "latest-known"
+        enable-cache: false
+
+    - name: Install Python and create venv
+      id: venv
+      shell: bash --noprofile --norc -euo pipefail {0}
+      env:
+        PY_REQUEST: ${{ inputs.python-version }}
+        VENV_DIR: ${{ inputs.venv }}
+        # A per-job install directory ensures the newest patch known to the
+        # pinned uv is used, never an older interpreter left on a persistent
+        # self-hosted runner.
+        UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/setup-hardened-python/interpreters
+        UV_NO_CONFIG: "1"
+      run: |
+        uv python install --no-bin --no-registry "${PY_REQUEST}"
+        base="$(uv python find --managed-python --no-project "${PY_REQUEST}")"
+        venv="${VENV_DIR}"
+        if [[ -z "${venv}" ]]; then
+          # A fresh directory per call, so a second call in the same job
+          # leaves the first venv intact.
+          venv="$("${base}" -c 'import sys, tempfile; print(tempfile.mkdtemp(prefix="venv-", dir=sys.argv[1]))' "${RUNNER_TEMP}")"
+        fi
+        # The stdlib venv seeds pip from the interpreter's bundled wheel, so
+        # nothing is downloaded before the ssl check below.
+        "${base}" -m venv --clear "${venv}"
+        if [[ "${RUNNER_OS}" == Windows ]]; then
+          py="${venv}/Scripts/python.exe"
+        else
+          py="${venv}/bin/python"
+        fi
+        # Let the interpreter report native absolute paths (Windows included).
+        python_path="$("${py}" -c 'import sys; print(sys.executable)')"
+        "${py}" -c 'import os, sys; print(os.path.dirname(sys.executable))' >> "${GITHUB_PATH}"
+        {
+          echo "python-path=${python_path}"
+          echo "python-version=$("${py}" -c 'import platform; print(platform.python_version())')"
+        } >> "${GITHUB_OUTPUT}"
+
+    - name: Check interpreter and update pip
+      uses: ./.github/actions/update-pip
+      with:
+        python-path: ${{ steps.venv.outputs.python-path }}

@@ -269,7 +269,7 @@ def test_raise_in_value_returning_device_function(debug):
         out[1] = p[0] + int(p[1])
 
     assert _launch(k, debug, 3, 1) == [6, 9]
-    _launch(k, debug, -1, 1)
+    assert _launch(k, debug, -1, 1) == [0, 0]
 
 
 @pytest.mark.parametrize("ndim", [1, 2])

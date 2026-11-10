@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from numba_cuda_mlir.experimental.host.descriptor import target
-from numba_cuda_mlir.experimental.host.execution import scalar_ctype
+from numba_cuda_mlir.experimental.host.execution import ExecutionEngine, scalar_ctype
 from numba_cuda_mlir.experimental.host.lowering import Lower
 from numba_cuda_mlir.experimental.host.optimization import lower_to_llvm_dialect
 from numba_cuda_mlir import mlir_compiler
@@ -76,11 +76,8 @@ def compile_to_llvm_dialect(pyfunc, return_type, args, targetoptions):
     return cres, lower_to_llvm_dialect(cres)
 
 
-@global_compiler_lock
 def compile(pyfunc, return_type, args, targetoptions):
     cres, module = compile_to_llvm_dialect(pyfunc, return_type, args, targetoptions)
-    from numba_cuda_mlir.experimental.host.execution import ExecutionEngine
-
     engine = ExecutionEngine(
         module, cres.signature, cres.metadata["host_symbol_name"], targetoptions
     )

@@ -1042,6 +1042,13 @@ def register_activemask_lowering():
 register_activemask_lowering()
 
 
+@lower(numba_cuda_mlir.cuda.lanemask_lt)
+def lower_cuda_lanemask_lt(builder: MLIRLower, target, args, kwargs):
+    # %lanemask_lt has one bit set for each lane below the calling thread's: (1 << laneid) - 1.
+    result = nvvm.read_ptx_sreg_lanemask_lt()
+    builder.store_var(target, result)
+
+
 def _get_string_value(value: ir.StringAttr | str) -> str:
     match value:
         case ir.StringAttr() as s:

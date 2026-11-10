@@ -2323,8 +2323,9 @@ llvm::Error MLIRToLLVM70::translateAtomicCmpXchgOp(Operation *op) {
 llvm::Error MLIRToLLVM70::translateSregOp(Operation *op) {
   // Lower all special-register reads to inline PTX directly, bypassing
   // libnvvm intrinsics which aren't reliably recognized across versions.
-  using SregMap =
-      std::pair<llvm::function_ref<bool(Operation *)>, const char *>;
+  // Plain function pointers: the lambdas below are temporaries, and a
+  // function_ref to one would dangle once this array is initialized.
+  using SregMap = std::pair<bool (*)(Operation *), const char *>;
   const SregMap sregOps[] = {
       {[](Operation *o) { return isa<NVVM::ThreadIdXOp>(o); },
        "mov.u32 $0, %tid.x;"},
@@ -2354,6 +2355,8 @@ llvm::Error MLIRToLLVM70::translateSregOp(Operation *op) {
        "mov.u32 $0, %warpid;"},
       {[](Operation *o) { return isa<NVVM::LaneIdOp>(o); },
        "mov.u32 $0, %laneid;"},
+      {[](Operation *o) { return isa<NVVM::LaneMaskLtOp>(o); },
+       "mov.u32 $0, %lanemask_lt;"},
       {[](Operation *o) { return isa<NVVM::WarpSizeOp>(o); },
        "mov.u32 $0, WARP_SZ;"},
       {[](Operation *o) { return isa<NVVM::SmIdOp>(o); },
@@ -2663,7 +2666,7 @@ llvm::Error MLIRToLLVM70::translateNVVMOp(Operation *op) {
             NVVM::BlockIdXOp, NVVM::BlockIdYOp, NVVM::BlockIdZOp,
             NVVM::GridDimXOp, NVVM::GridDimYOp, NVVM::GridDimZOp,
             NVVM::WarpIdOp, NVVM::WarpDimOp, NVVM::LaneIdOp, NVVM::WarpSizeOp,
-            NVVM::SmIdOp,
+            NVVM::LaneMaskLtOp, NVVM::SmIdOp,
             NVVM::ClusterIdXOp, NVVM::ClusterIdYOp, NVVM::ClusterIdZOp,
             NVVM::ClusterDimXOp, NVVM::ClusterDimYOp, NVVM::ClusterDimZOp,
             NVVM::ClusterDimBlocksXOp, NVVM::ClusterDimBlocksYOp,

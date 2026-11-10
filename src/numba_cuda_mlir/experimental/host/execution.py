@@ -29,7 +29,7 @@ def scalar_ctype(typ):
     ):
         return to_ctypes(typ)
     raise TypeError(
-        f"host.jit supports only boolean, integer, and float32/float64 scalars; got {typ}"
+        f"host_jit supports only boolean, integer, and float32/float64 scalars; got {typ}"
     )
 
 
@@ -45,7 +45,7 @@ class ExecutionEngine:
     def __init__(self, module, signature, symbol_name, targetoptions):
         if execution_engine is None:
             raise RuntimeError(
-                "host.jit requires the MLIR ExecutionEngine Python binding "
+                "host_jit requires the MLIR ExecutionEngine Python binding "
                 "(_mlirExecutionEngine), but it is not available in this build"
             ) from _EXECUTION_ENGINE_IMPORT_ERROR
         self.module = module
@@ -83,17 +83,17 @@ class ExecutionEngine:
             self._packed_function(packed)
             code = self._errors.code
             if code == 1:
-                raise ZeroDivisionError("division by zero in host.jit")
+                raise ZeroDivisionError("division by zero in host_jit")
             if code == 2:
                 raise ValueError("range() arg 3 must not be zero")
             if code == 3:
-                raise OverflowError("signed integer division overflow in host.jit")
+                raise OverflowError("signed integer division overflow in host_jit")
             if code == 4:
                 raise ValueError("cannot convert float NaN to integer")
             if code == 5:
-                raise OverflowError("float-to-integer conversion overflow in host.jit")
+                raise OverflowError("float-to-integer conversion overflow in host_jit")
             if code:
-                raise RuntimeError(f"host.jit scalar execution failed with code {code}")
+                raise RuntimeError(f"host_jit scalar execution failed with code {code}")
             return result.value if result is not None else None
 
         return call

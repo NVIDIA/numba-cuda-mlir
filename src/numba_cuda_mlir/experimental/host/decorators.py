@@ -8,7 +8,7 @@ from numba_cuda_mlir.numba_cuda import types, typing
 from numba_cuda_mlir.numba_cuda.core import sigutils
 
 
-def jit(func_or_sig=None, **options):
+def host_jit(func_or_sig=None, **options):
     """Compile a scalar function for native host execution.
 
     Each argument-type tuple has one compiled return type. Explicit signatures
@@ -22,6 +22,20 @@ def jit(func_or_sig=None, **options):
     engine alive. Releasing both allows the engine and its runtime callbacks
     to be collected.
     """
+    targetoptions = _validated_options(options)
+    signatures = _requested_signatures(func_or_sig)
+
+    def decorate(function):
+        dispatcher = Dispatcher(function, dict(targetoptions))
+        _compile_eagerly(dispatcher, signatures)
+        return dispatcher
+
+    if callable(func_or_sig) and signatures is None:
+        return decorate(func_or_sig)
+    return decorate
+
+
+def _validated_options(options):
     targetoptions = {
         "opt_level": 2,
         "dump": False,
@@ -31,48 +45,47 @@ def jit(func_or_sig=None, **options):
     }
     unknown = set(options).difference(targetoptions)
     if unknown:
-        raise ValueError(f"Unsupported host.jit option(s): {', '.join(sorted(unknown))}")
+        raise ValueError(f"Unsupported host_jit option(s): {', '.join(sorted(unknown))}")
     targetoptions.update(options)
     if type(targetoptions["opt_level"]) is not int or not 0 <= targetoptions["opt_level"] <= 3:
         raise ValueError("opt_level must be an integer between 0 and 3")
     for key in targetoptions.keys() - {"opt_level"}:
         if not isinstance(targetoptions[key], bool):
             raise TypeError(f"{key} must be a boolean")
+    return targetoptions
 
+
+def _requested_signatures(func_or_sig):
     if sigutils.is_signature(func_or_sig):
-        signatures = [func_or_sig]
-    elif isinstance(func_or_sig, list):
-        signatures = func_or_sig
-    elif func_or_sig is None or callable(func_or_sig):
-        signatures = None
-    else:
-        raise TypeError("host.jit expects a function or a Numba signature")
+        return [func_or_sig]
+    if isinstance(func_or_sig, list):
+        if not func_or_sig:
+            raise ValueError("host_jit requires at least one explicit signature")
+        return func_or_sig
+    if func_or_sig is None or callable(func_or_sig):
+        return None
+    raise TypeError("host_jit expects a function or a Numba signature")
 
-    def decorate(function):
-        dispatcher = Dispatcher(function, dict(targetoptions))
-        annotation = dispatcher._signature.return_annotation
-        if signatures is not None:
-            if annotation is not inspect.Signature.empty:
-                raise TypeError("Cannot combine an explicit signature with a return annotation")
-            for signature in signatures:
-                argtypes, _ = sigutils.normalize_signature(signature)
-                if any(
-                    parameter is not inspect.Signature.empty and parameter != argtype
-                    for parameter, argtype in zip(dispatcher._arg_annotations, argtypes)
-                ):
-                    raise TypeError("Explicit signature conflicts with parameter annotations")
-                dispatcher.compile(signature)
-            dispatcher.disable_compile()
-        elif annotation is not inspect.Signature.empty:
-            return_type = types.none if annotation is None else annotation
-            if not isinstance(return_type, types.Type):
-                raise TypeError("host.jit annotations must be Numba scalar types or None")
-            arguments = dispatcher._arg_annotations
-            if any(argument is inspect.Signature.empty for argument in arguments):
-                raise TypeError("A return annotation requires Numba scalar parameter annotations")
-            dispatcher.compile(typing.signature(return_type, *arguments))
-        return dispatcher
 
-    if callable(func_or_sig) and signatures is None:
-        return decorate(func_or_sig)
-    return decorate
+def _compile_eagerly(dispatcher, signatures):
+    annotation = dispatcher._signature.return_annotation
+    if signatures is not None:
+        if annotation is not inspect.Signature.empty:
+            raise TypeError("Cannot combine an explicit signature with a return annotation")
+        for signature in signatures:
+            argtypes, _ = sigutils.normalize_signature(signature)
+            if any(
+                parameter is not inspect.Signature.empty and parameter != argtype
+                for parameter, argtype in zip(dispatcher._arg_annotations, argtypes, strict=True)
+            ):
+                raise TypeError("Explicit signature conflicts with parameter annotations")
+            dispatcher.compile(signature)
+        dispatcher.disable_compile()
+    elif annotation is not inspect.Signature.empty:
+        return_type = types.none if annotation is None else annotation
+        if not isinstance(return_type, types.Type):
+            raise TypeError("host_jit annotations must be Numba scalar types or None")
+        arguments = dispatcher._arg_annotations
+        if any(argument is inspect.Signature.empty for argument in arguments):
+            raise TypeError("A return annotation requires Numba scalar parameter annotations")
+        dispatcher.compile(typing.signature(return_type, *arguments))

@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from numba_cuda_mlir import types
-from numba_cuda_mlir.experimental import host
+from numba_cuda_mlir.experimental.host import host_jit
 from numba_cuda_mlir.numba_cuda.core.errors import TypingError
 
 UINT64_GLOBAL = np.uint64(2**64 - 1)
@@ -20,11 +20,11 @@ def test_uint64_captures(value, monkeypatch):
     captured = np.uint64(value)
     monkeypatch.setitem(globals(), "UINT64_GLOBAL", captured)
 
-    @host.jit
+    @host_jit
     def read_global():
         return UINT64_GLOBAL
 
-    @host.jit
+    @host_jit
     def read_closure():
         return captured
 
@@ -49,7 +49,7 @@ def test_uint64_captures(value, monkeypatch):
     ],
 )
 def test_scalar_roundtrip(dtype, values):
-    @host.jit
+    @host_jit
     def identity(value):
         return value
 
@@ -58,7 +58,7 @@ def test_scalar_roundtrip(dtype, values):
 
 
 def test_arithmetic_branching_and_loops():
-    @host.jit
+    @host_jit
     def compute(n):
         result = 0
         for i in range(n):
@@ -75,7 +75,7 @@ def test_arithmetic_branching_and_loops():
 
 
 def test_bitwise_unary_and_comparisons():
-    @host.jit
+    @host_jit
     def compute(a, b):
         value = ~a
         value &= b
@@ -104,7 +104,7 @@ def test_bitwise_unary_and_comparisons():
     ],
 )
 def test_float_inequality(dtype, a, b):
-    @host.jit
+    @host_jit
     def not_equal(a, b):
         return a != b
 
@@ -128,7 +128,7 @@ def test_float_inequality(dtype, a, b):
     ],
 )
 def test_range_iteration(args):
-    @host.jit
+    @host_jit
     def count(start, stop, step):
         total = 0
         for _ in range(start, stop, step):
@@ -139,7 +139,7 @@ def test_range_iteration(args):
 
 
 def test_range_values_and_errors():
-    @host.jit
+    @host_jit
     def sum_range(start, stop, step):
         total = 0
         for value in range(start, stop, step):
@@ -154,7 +154,7 @@ def test_range_values_and_errors():
 
 @pytest.mark.parametrize("args", [(0, 4, 1), (4, -1, -2), (3, 1, 1)])
 def test_range_reuse(args):
-    @host.jit
+    @host_jit
     def compute(start, stop, step):
         values = range(start, stop, step)
         total = 0
@@ -175,15 +175,15 @@ def test_range_reuse(args):
     [(7, 3), (-7, 3), (7, -3), (-7, -3), (7.5, 2.5)],
 )
 def test_division_and_remainder(args):
-    @host.jit
+    @host_jit
     def divide(a, b):
         return a / b
 
-    @host.jit
+    @host_jit
     def quotient(a, b):
         return a // b
 
-    @host.jit
+    @host_jit
     def remainder(a, b):
         return a % b
 
@@ -196,12 +196,12 @@ def test_division_and_remainder(args):
 
 
 def test_none_and_no_argument_returns():
-    @host.jit
+    @host_jit
     def no_result(value):
         if value:
             return
 
-    @host.jit
+    @host_jit
     def answer():
         return 42
 
@@ -211,11 +211,11 @@ def test_none_and_no_argument_returns():
 
 
 def test_explicit_signature_and_annotations():
-    @host.jit(types.int32(types.int32))
+    @host_jit(types.int32(types.int32))
     def narrow(value):
         return value + 1
 
-    @host.jit
+    @host_jit
     def annotated(value: types.float32) -> types.float32:
         return value * 2
 
@@ -230,21 +230,21 @@ def test_signature_annotation_precedence():
         return value
 
     with pytest.raises(TypeError):
-        host.jit(types.int64(types.int64))(identity)
+        host_jit(types.int64(types.int64))(identity)
     with pytest.raises(TypeError):
-        host.jit([types.int32(types.int32), types.int64(types.int64)])(identity)
+        host_jit([types.int32(types.int32), types.int64(types.int64)])(identity)
 
-    compiled = host.jit(types.int32(types.int32))(identity)
+    compiled = host_jit(types.int32(types.int32))(identity)
     assert compiled(np.int32(41)) == 41
 
 
 @pytest.mark.parametrize("value", [0, 2, -2, 0.0, -0.0, 2.0, float("nan")])
 def test_boolean_conversions(value):
-    @host.jit
+    @host_jit
     def captured():
         return bool(value)
 
-    @host.jit
+    @host_jit
     def runtime(value):
         return bool(value)
 
@@ -253,7 +253,7 @@ def test_boolean_conversions(value):
 
 
 def test_scalar_constructors():
-    @host.jit
+    @host_jit
     def construct(value):
         result = float(np.int32(abs(int(value))))
         return result + 1.0 if bool(2) else result
@@ -268,7 +268,7 @@ def test_scalar_constructors():
 @pytest.mark.parametrize("source_dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("opt_level", [0, 3])
 def test_float_to_integer_boundaries(dtype, source_dtype, opt_level):
-    @host.jit(opt_level=opt_level)
+    @host_jit(opt_level=opt_level)
     def convert(value):
         return dtype(value)
 
@@ -307,15 +307,15 @@ def test_float_to_integer_boundaries(dtype, source_dtype, opt_level):
 )
 @pytest.mark.parametrize("opt_level", [0, 3])
 def test_builtin_int_conversion_errors(value, error, opt_level):
-    @host.jit(opt_level=opt_level)
+    @host_jit(opt_level=opt_level)
     def runtime(value):
         return int(value)
 
-    @host.jit(opt_level=opt_level)
+    @host_jit(opt_level=opt_level)
     def captured():
         return int(value)
 
-    @host.jit(types.int64(types.float64), opt_level=opt_level)
+    @host_jit(types.int64(types.float64), opt_level=opt_level)
     def return_cast(value):
         return value
 
@@ -331,7 +331,7 @@ def test_builtin_int_conversion_errors(value, error, opt_level):
 
 @pytest.mark.parametrize("value", [np.arange(3), (1, 2), [1, 2], 1 + 2j, "text"])
 def test_reject_non_scalar_arguments(value):
-    @host.jit
+    @host_jit
     def identity(value):
         return value
 
@@ -340,7 +340,7 @@ def test_reject_non_scalar_arguments(value):
 
 
 def test_reject_non_scalar_return():
-    @host.jit
+    @host_jit
     def pair(value):
         return value, value
 
@@ -349,7 +349,7 @@ def test_reject_non_scalar_return():
 
 
 def test_argument_count_and_keywords():
-    @host.jit
+    @host_jit
     def add(a, b):
         return a + b
 
@@ -369,22 +369,22 @@ def test_signed_remainder_boundary(opt_level, inplace):
         a %= b
         return a
 
-    remainder = host.jit(opt_level=opt_level)(mutate if inplace else ordinary)
+    remainder = host_jit(opt_level=opt_level)(mutate if inplace else ordinary)
     minimum = -(2**63)
     assert remainder(minimum, -1) == 0
 
 
 @pytest.mark.parametrize("opt_level", [0, 3])
 def test_mixed_integer_division_and_remainder(opt_level):
-    @host.jit(opt_level=opt_level)
+    @host_jit
     def quotient(a, b):
         return a // b
 
-    @host.jit(opt_level=opt_level)
+    @host_jit
     def remainder(a, b):
         return a % b
 
-    @host.jit(opt_level=opt_level)
+    @host_jit
     def divide(a, b):
         return a / b
 
@@ -397,7 +397,7 @@ def test_mixed_integer_division_and_remainder(opt_level):
 
 
 def test_signed_division_overflow():
-    @host.jit
+    @host_jit
     def quotient(a, b):
         return a // b
 
@@ -419,11 +419,11 @@ def test_signed_division_overflow():
     ],
 )
 def test_float_floor_division_and_remainder(a, b):
-    @host.jit
+    @host_jit
     def quotient(a, b):
         return a // b
 
-    @host.jit
+    @host_jit
     def remainder(a, b):
         return a % b
 
@@ -435,7 +435,7 @@ def test_float_floor_division_and_remainder(a, b):
 
 @pytest.mark.parametrize("value", [np.arange(3), (1, 2), 1 + 2j])
 def test_annotated_identity_rejects_non_scalar_actuals(value):
-    @host.jit
+    @host_jit
     def identity(value: types.int64):
         return value
 
@@ -447,7 +447,7 @@ def test_annotated_identity_rejects_non_scalar_actuals(value):
 
 
 def test_concurrent_first_calls_publish_one_specialization():
-    @host.jit
+    @host_jit
     def add_one(value):
         return value + 1
 
@@ -459,7 +459,7 @@ def test_concurrent_first_calls_publish_one_specialization():
 
 def test_entry_point_retains_engine_until_released():
     def compile_entry_point():
-        @host.jit
+        @host_jit
         def quotient(a, b):
             return a // b
 
@@ -485,7 +485,7 @@ def test_direct_compile_boundaries(compile_name):
     def add_one(value):
         return value + 1
 
-    dispatcher = host.jit(add_one)
+    dispatcher = host_jit(add_one)
     compile_function = getattr(compiler, compile_name)
     result = compile_function(add_one, None, (types.int64,), dispatcher.targetoptions)
     if compile_name == "compile_to_llvm_dialect":
@@ -503,7 +503,7 @@ def test_direct_compile_boundaries(compile_name):
 
 @pytest.mark.parametrize("args", [(7, 3), (-7, 3), (7.5, 2.5)])
 def test_inplace_arithmetic(args):
-    @host.jit
+    @host_jit
     def compute(a, b):
         a += b
         a -= 1
@@ -524,20 +524,34 @@ def test_inplace_arithmetic(args):
 )
 def test_reject_unsupported_options(options):
     with pytest.raises((TypeError, ValueError)):
-        host.jit(**options)
+        host_jit(**options)
 
 
 @pytest.mark.parametrize("opt_level", [0, 3])
 def test_optimization_levels(opt_level):
-    @host.jit(opt_level=opt_level)
+    @host_jit(opt_level=opt_level)
     def compute(value):
         return value * 3 - 1
 
     assert compute(7) == 20
 
 
+def test_reject_empty_signature_list():
+    with pytest.raises(ValueError):
+        host_jit([])
+
+
+@pytest.mark.parametrize("argtypes", [(types.int32,), (types.int32,) * 3])
+def test_reject_signature_arity_mismatch(argtypes):
+    def add(left: types.int32, right: types.int32):
+        return left + right
+
+    with pytest.raises((TypeError, ValueError)):
+        host_jit(types.int32(*argtypes))(add)
+
+
 def test_signature_list():
-    @host.jit([types.int32(types.int32), types.float64(types.float64)])
+    @host_jit([types.int32(types.int32), types.float64(types.float64)])
     def identity(value):
         return value
 
@@ -552,12 +566,12 @@ def test_reject_conflicting_signature_list_return_types():
         return value
 
     with pytest.raises(TypeError):
-        host.jit([types.int32(types.int32), types.float64(types.int32)])(identity)
+        host_jit([types.int32(types.int32), types.float64(types.int32)])(identity)
 
 
 @pytest.mark.parametrize("infer_return_type", [False, True])
 def test_compile_return_type_conflict_preserves_overload(infer_return_type):
-    @host.jit
+    @host_jit
     def identity(value):
         return value
 
@@ -589,7 +603,7 @@ def test_reject_unsupported_scalar_operations():
 
     for function in (power, shift, attribute, call):
         with pytest.raises(TypingError):
-            host.jit(function)(1)
+            host_jit(function)(1)
 
 
 def test_reject_unsupported_parameter_forms():
@@ -601,11 +615,11 @@ def test_reject_unsupported_parameter_forms():
 
     for function in (variadic, keyword_only):
         with pytest.raises(TypeError):
-            host.jit(function)
+            host_jit(function)
 
 
 def test_none_return_annotation():
-    @host.jit
+    @host_jit
     def no_result(value: types.int64) -> None:
         if value:
             return
@@ -623,7 +637,7 @@ def test_none_return_annotation():
     ],
 )
 def test_annotated_argument_coercion(typ, cases):
-    @host.jit
+    @host_jit
     def identity(value: typ):
         return value
 
@@ -632,7 +646,7 @@ def test_annotated_argument_coercion(typ, cases):
 
 
 def test_integer_argument_rejection_and_recovery():
-    @host.jit
+    @host_jit
     def identity(value: types.int8):
         return value
 
@@ -653,15 +667,15 @@ def test_integer_argument_rejection_and_recovery():
 
 
 def test_inferred_annotated_and_explicit_argument_specialization():
-    @host.jit
+    @host_jit
     def inferred(value):
         return value
 
-    @host.jit
+    @host_jit
     def annotated(value: types.int8):
         return value
 
-    @host.jit(types.int8(types.int8))
+    @host_jit(types.int8(types.int8))
     def explicit(value):
         return value
 

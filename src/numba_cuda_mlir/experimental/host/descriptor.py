@@ -46,11 +46,11 @@ class Dispatcher:
                 inspect.Parameter.POSITIONAL_ONLY,
                 inspect.Parameter.POSITIONAL_OR_KEYWORD,
             ):
-                raise TypeError("host.jit supports only fixed positional parameters")
+                raise TypeError("host_jit supports only fixed positional parameters")
         for annotation in self._arg_annotations:
             if annotation is not inspect.Signature.empty:
                 if not isinstance(annotation, types.Type):
-                    raise TypeError("host.jit annotations must be Numba scalar types")
+                    raise TypeError("host_jit annotations must be Numba scalar types")
                 scalar_ctype(annotation)
         update_wrapper(self, py_func)
 
@@ -68,12 +68,12 @@ class Dispatcher:
             existing = self.overloads[argtypes]
             if return_type is not None and existing.signature.return_type != return_type:
                 raise TypeError(
-                    f"host.jit signature {argtypes} already compiled with return type "
+                    f"host_jit signature {argtypes} already compiled with return type "
                     f"{existing.signature.return_type}, not {return_type}"
                 )
             return existing
         if not self._can_compile:
-            raise TypeError(f"no matching host.jit signature for {argtypes}")
+            raise TypeError(f"no matching host_jit signature for {argtypes}")
         result = compile(self.py_func, return_type, argtypes, self.targetoptions)
         self.overloads[argtypes] = result
         return result
@@ -83,7 +83,7 @@ class Dispatcher:
 
     def __call__(self, *args, **kwargs):
         if kwargs:
-            raise TypeError("host.jit does not support keyword arguments")
+            raise TypeError("host_jit does not support keyword arguments")
         if len(args) != len(self._arg_annotations):
             raise TypeError(f"expected {len(self._arg_annotations)} arguments, got {len(args)}")
         # Validate actual scalars before annotations select the specialization;

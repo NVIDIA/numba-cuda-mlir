@@ -82,7 +82,7 @@ class Lower(mlir_lowering.MLIRLower):
                 numba_ir.Return,
             ),
         ):
-            raise TypingError(f"host.jit does not support {type(inst).__name__}: {inst}")
+            raise TypingError(f"host_jit does not support {type(inst).__name__}: {inst}")
         super().lower_inst(inst)
 
     def lower_expr_assign(self, target, expr):
@@ -99,13 +99,13 @@ class Lower(mlir_lowering.MLIRLower):
             "pair_second",
             "null",
         ):
-            raise TypingError(f"host.jit does not support expression {expr.op}")
+            raise TypingError(f"host_jit does not support expression {expr.op}")
         super().lower_expr_assign(target, expr)
 
     def lower_assign(self, inst):
         typ = types.unliteral(self.get_numba_type(inst.target.name))
         if isinstance(typ, (types.Array, types.BaseTuple, types.Complex, types.Optional)):
-            raise TypingError(f"host.jit supports scalar values only; got {typ}")
+            raise TypingError(f"host_jit supports scalar values only; got {typ}")
         super().lower_assign(inst)
 
     def lower_free_var_assign(self, target, free_var):
@@ -154,7 +154,7 @@ class Lower(mlir_lowering.MLIRLower):
         # Module attributes identifying supported scalar constructors may be
         # resolved by shared lowering; scalar/custom attribute access is not.
         if not isinstance(typ, types.NumberClass):
-            raise TypingError(f"host.jit does not support attribute access {attr!r}")
+            raise TypingError(f"host_jit does not support attribute access {attr!r}")
         super().lower_getattr_assign(target, value, attr)
 
     def lower_call_expr_assign(self, target, fn, args, kws, expr=None):
@@ -162,11 +162,11 @@ class Lower(mlir_lowering.MLIRLower):
         typ = self.get_numba_type(fn.name)
         if value not in (range, bool, int, float, abs) and not isinstance(typ, types.NumberClass):
             raise TypingError(
-                f"host.jit does not support calls to {getattr(value, '__qualname__', value)!r}; "
+                f"host_jit does not support calls to {getattr(value, '__qualname__', value)!r}; "
                 "only range and scalar constructors/abs are supported"
             )
         if value not in (range, abs) and (kws or len(args) != 1):
-            raise TypingError("host.jit scalar constructors require one positional argument")
+            raise TypingError("host_jit scalar constructors require one positional argument")
         super().lower_call_expr_assign(target, fn, args, kws, expr)
 
     def lower_binop_expr_assign(self, target, fn, lhs, rhs):
@@ -178,7 +178,7 @@ class Lower(mlir_lowering.MLIRLower):
             operator.ilshift,
             operator.irshift,
         ):
-            raise TypingError(f"host.jit does not support operator {fn.__name__}")
+            raise TypingError(f"host_jit does not support operator {fn.__name__}")
         return super().lower_binop_expr_assign(target, fn, lhs, rhs)
 
     def checked_division_context(self, operation, typ, left, right):

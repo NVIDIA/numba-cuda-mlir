@@ -607,12 +607,11 @@ class TestCudaAtomics(NumbaCUDATestCase):
     def assertCorrectFloat64Atomics(self, kernel, shared=True):
         # Use the first (and only) definition
         asm = next(iter(kernel.inspect_asm().values()))
-        inst = "(red|atom)"
-
-        if shared:
-            inst = f"{inst}\\.shared"
-
-        self.assertRegex(asm, f"{inst}.add.f64", asm)
+        # Both state spaces are spelled out (atom.global.add.f64,
+        # atom.shared.add.f64), and a toolkit may interpose scope or ordering
+        # qualifiers such as .relaxed.gpu on either side of the state space.
+        space = "shared" if shared else "global"
+        self.assertRegex(asm, rf"\b(?:red|atom)(?:\.\w+)*\.{space}(?:\.\w+)*\.add\.f64", asm)
 
     def test_atomic_add_double(self):
         idx = np.random.randint(0, 32, size=32, dtype=np.int64)
@@ -659,7 +658,6 @@ class TestCudaAtomics(NumbaCUDATestCase):
         np.testing.assert_equal(ary, orig + 1)
         self.assertCorrectFloat64Atomics(cuda_func)
 
-    @pytest.mark.xfail(True, reason="Regex doesn't match")
     def test_atomic_add_double_global(self):
         idx = np.random.randint(0, 32, size=32, dtype=np.int64)
         ary = np.zeros(32, np.float64)
@@ -681,7 +679,6 @@ class TestCudaAtomics(NumbaCUDATestCase):
         self.assertCorrectFloat64Atomics(cuda_func, shared=False)
         self.assertCorrectFloat64Atomics(wrap_cuda_func, shared=False)
 
-    @pytest.mark.xfail(True, reason="Regex doesn't match")
     def test_atomic_add_double_global_2(self):
         ary = np.random.randint(0, 32, size=32).astype(np.float64).reshape(4, 8)
         ary_wrap = ary.copy()
@@ -699,7 +696,6 @@ class TestCudaAtomics(NumbaCUDATestCase):
         self.assertCorrectFloat64Atomics(cuda_func, shared=False)
         self.assertCorrectFloat64Atomics(wrap_cuda_func, shared=False)
 
-    @pytest.mark.xfail(True, reason="Regex doesn't match")
     def test_atomic_add_double_global_3(self):
         ary = np.random.randint(0, 32, size=32).astype(np.float64).reshape(4, 8)
         orig = ary.copy()

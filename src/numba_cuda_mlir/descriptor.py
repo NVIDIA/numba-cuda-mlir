@@ -25,6 +25,7 @@ from cuda import pathfinder
 from numba_cuda_mlir import codegen
 from numba_cuda_mlir.decorators import mlir_jit
 from numba_cuda_mlir.numba_cuda.errors import normalize_kernel_dimensions
+from numba_cuda_mlir.numba_cuda.api_util import resolve_cuda_array_interface_dtype
 from numba_cuda_mlir.numba_cuda.core.errors import NumbaPerformanceWarning
 from numba_cuda_mlir.numba_cuda.core import config as cuda_config
 from numba_cuda_mlir.numba_cuda.cudadrv import driver as numba_cuda_driver
@@ -217,12 +218,15 @@ def _array_shape(arg):
 
 def _array_dtype(arg, ty=None):
     dtype = getattr(arg, "dtype", None)
-    if dtype is not None:
-        return np.dtype(dtype)
+    if isinstance(dtype, np.dtype):
+        return dtype
 
     cai = _cuda_array_interface(arg)
     if cai is not None:
-        return np.dtype(cai["typestr"])
+        return resolve_cuda_array_interface_dtype(cai["typestr"], dtype)
+
+    if dtype is not None:
+        return np.dtype(dtype)
 
     if isinstance(ty, types.Array):
         return numpy_support.as_dtype(ty.dtype)
@@ -1516,14 +1520,18 @@ class MLIRTarget(TargetDescriptor):
     @property
     def typing_context(self):
         if self._typingctx is None:
-            self._typingctx = MLIRTypingContext()
+            with self._initialization_lock:
+                if self._typingctx is None:
+                    self._typingctx = MLIRTypingContext()
         return self._typingctx
 
     @property
     def target_context(self):
         if self._targetctx is None:
-            # Ensure typing context is initialized before target context.
-            self._targetctx = MLIRTargetContext(self.typing_context)
+            with self._initialization_lock:
+                if self._targetctx is None:
+                    # Keep the target bound to the canonical typing context.
+                    self._targetctx = MLIRTargetContext(self.typing_context)
         return self._targetctx
 
     def ensure_initialized(self):

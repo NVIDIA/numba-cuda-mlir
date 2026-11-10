@@ -19,7 +19,7 @@ from numba_cuda_mlir.numba_cuda.flags import CUDAFlags
 
 
 @dataclass
-class CompileResult:
+class HostCompileResult:
     signature: typing.Signature
     fndesc: Any
     mlir: str
@@ -85,7 +85,7 @@ def compile(pyfunc, return_type, args, targetoptions):
     engine = ExecutionEngine(
         module, cres.signature, cres.metadata["host_symbol_name"], targetoptions
     )
-    return CompileResult(
+    return HostCompileResult(
         signature=cres.signature,
         fndesc=cres.fndesc,
         mlir=get_mlir_module_str(cres.metadata),

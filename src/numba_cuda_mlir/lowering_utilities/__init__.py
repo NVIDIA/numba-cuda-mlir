@@ -374,6 +374,11 @@ def get_conversion_signedness(source_type: types.Type, target_type: types.Type) 
     if isinstance(target_type, VectorType):
         target_type = target_type.dtype
 
+    if isinstance(source_type, types.EnumMember):
+        source_type = source_type.dtype
+    if isinstance(target_type, types.EnumMember):
+        target_type = target_type.dtype
+
     if _is_bool_numba_type(source_type):
         return False
     if isinstance(source_type, types.Integer):
@@ -933,6 +938,15 @@ def opaque_data_model_convert(value: type | MLIRDispatcher, target_type: ir.None
 @unverified_convert.register
 def number_class_convert(value: types.Type, target_type: types.functions.NumberClass, **_):
     return value
+
+
+@unverified_convert.register
+def numpy_scalar_convert(value: np.generic, target_type: ir.Type, *, signed: bool | None = None):
+    """
+    NumPy scalars reach here as module attribute constants (`constants.ONE` where
+    `ONE = np.uint64(1)`); lower them as the Python scalar they hold.
+    """
+    return unverified_convert(value.item(), target_type, signed=signed)
 
 
 def _memory_spaces_match(lhs: ir.MemRefType, rhs: ir.MemRefType) -> bool:
@@ -1779,6 +1793,9 @@ def constant(
         # This is useful for converting literals to the appropriate type.
         case ir.Value(), t if t is None:
             return value
+        case int() | float(), ir.IntegerType() if ty.width == 1:
+            # An i1 holds truthiness: 2 and 0.5 are true, but their low bit is 0.
+            return arith.constant(ty, value=bool(value))
         case int(), ir.IntegerType():
             return arith.constant(ty, value=value)
         case int(), ir.IndexType():

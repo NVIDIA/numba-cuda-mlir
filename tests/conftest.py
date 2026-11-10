@@ -335,10 +335,24 @@ def numba_cuda_test_binaries(request):
 
 @pytest.fixture(scope="session", autouse=True)
 def disable_low_occupancy_warnings():
-    """Disable low occupancy warnings during tests (similar to numba-cuda CUDATestCase)."""
+    """Disable low occupancy warnings during tests (similar to numba-cuda CUDATestCase).
+
+    Set through the environment as well as the attribute. ``reload_config()``
+    runs before every compilation and re-derives every option from the
+    environment whenever a ``NUMBA_*`` variable has changed, so an override
+    that exists only as an attribute lasts until the first such change.
+    """
+    import os
+
+    original_env = os.environ.get("NUMBA_CUDA_LOW_OCCUPANCY_WARNINGS")
     original_value = cuda_config.CUDA_LOW_OCCUPANCY_WARNINGS
+    os.environ["NUMBA_CUDA_LOW_OCCUPANCY_WARNINGS"] = "0"
     cuda_config.CUDA_LOW_OCCUPANCY_WARNINGS = 0
     yield
+    if original_env is None:
+        os.environ.pop("NUMBA_CUDA_LOW_OCCUPANCY_WARNINGS", None)
+    else:
+        os.environ["NUMBA_CUDA_LOW_OCCUPANCY_WARNINGS"] = original_env
     cuda_config.CUDA_LOW_OCCUPANCY_WARNINGS = original_value
 
 
@@ -349,6 +363,11 @@ def show_full_ice_tracebacks():
 
     original = os.environ.get("NUMBA_CUDA_MLIR_ICE_FULL_TB")
     os.environ["NUMBA_CUDA_MLIR_ICE_FULL_TB"] = "1"
+    # The config module recorded the environment at import time, during
+    # collection, so this addition would otherwise first be noticed by the
+    # reload that runs before the session's first compilation -- re-deriving
+    # every option at an arbitrary point. Absorb it here instead.
+    cuda_config.reload_config()
     yield
     if original is None:
         os.environ.pop("NUMBA_CUDA_MLIR_ICE_FULL_TB", None)

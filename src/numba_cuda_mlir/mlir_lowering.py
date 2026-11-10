@@ -240,6 +240,7 @@ class MLIRLower(object):
         self._deferred_dbg_declare_vars: set[str] = set()
         self._debug_forced_alloca: set[str] = set()
         self._poly_dbg_alloca: dict[str, ir.Value] = {}
+        self._dbg_decl_slots: dict[str, tuple[ir.Value, ir.Type]] = {}
 
         self.nrt = MLIRNRTContext(context.data_model_manager)
 
@@ -945,19 +946,12 @@ extern "C" __global__ void
         error_code = KERNEL_ERROR_CODES.get(exc_class, 4)  # Default to RuntimeError
         self.set_error_code(error_code)
 
-        # Branch to the highest-offset Return block if available.
-        return_offsets = [
-            offset
-            for offset, block in self.blocks.items()
-            if block.body and isinstance(block.body[-1], numba_ir.Return)
-        ]
-        if return_offsets:
-            cf.br([], self.blkmap[max(return_offsets)])
-            return
-
-        # Terminate the current block if no reachable Return block is found.
+        # Return here rather than branch to a Return block: that block can hold
+        # user code that must not run after the raise, and values it uses need
+        # not dominate the raise site.
         return_ctor = gpu.ReturnOp if isinstance(self.mlir_funcOp, gpu.GPUFuncOp) else func.ReturnOp
-        return_ctor([])
+        result_types = self.mlir_funcOp.function_type.value.results
+        return_ctor([self._zero_value_for_type(result_type) for result_type in result_types])
 
     def lower_assign(self, assign_inst):
         """
@@ -2622,6 +2616,9 @@ extern "C" __global__ void
         if isinstance(mlir_type, ir.VectorType):
             zero = self._zero_value_for_type(mlir_type.element_type)
             return vector_dialect.broadcast(mlir_type, zero)
+        if isinstance(mlir_type, ir.MemRefType) and mlir_type.memory_space is None:
+            desc = llvm.mlir_zero(res=memref_descriptor_type(mlir_type.rank))
+            return builtin.unrealized_conversion_cast([mlir_type], [desc])
         if str(mlir_type).startswith("!llvm."):
             return llvm.mlir_undef(res=mlir_type)
         raise InternalCompilerError(f"Cannot materialize zero value for {mlir_type}.")
@@ -3382,12 +3379,15 @@ extern "C" __global__ void
             if not isinstance(numba_type, types.Integer):
                 return
             mlir_value = arith.index_cast(out=self.get_mlir_type(numba_type), in_=mlir_value)
-        is_arg = base_name in self._di_builder.arg_names
         is_boolean = isinstance(numba_type, types.Boolean)
-        if is_arg and not is_boolean:
-            # Use dbg.declare (alloca+store) for scalar args, except boolean
-            # args which use dbg.value to avoid a known NVVM crash.
-            self._emit_dbg_declare(base_name, mlir_value, var_attr)
+        if not is_boolean:
+            # Use dbg.declare on a volatile slot, except for booleans which use
+            # dbg.value to avoid a known NVVM crash.  dbg.value describes a
+            # value at a point, which NVVM lowers to a range-limited
+            # .debug_loc entry that does not cover the kernel entry
+            # breakpoint, so the debugger reports the variable as optimized
+            # out even at opt=False.
+            self._emit_dbg_declare(base_name, mlir_value, var_attr, volatile=True)
         else:
             llvm.intr_dbg_value(
                 mlir_value,
@@ -3398,10 +3398,25 @@ extern "C" __global__ void
     def _emit_dbg_declare(self, var_name, value, var_attr, volatile=False):
         """Emit llvm.intr.dbg.declare for a value materialized in stack storage.
 
-        Pass volatile for aggregate slots: avoid the slot being optimized away.
+        Pass volatile to keep the slot: a promotable one leaves the variable
+        with a register location that the debugger may not be able to resolve.
+
+        A source variable gets one slot, reused by later assignments. Numba's
+        SSA versions (``c``, ``c.1``) collapse to a single DILocalVariable, and
+        dbg.declare names an address for the whole scope rather than for a PC
+        range, so a second declare at a second address is not an update -- a
+        consumer keeps one location and the debugger then reads a stale slot.
+        Variables whose versions differ in type are filtered earlier by
+        ``_poly_dbg_types``; the type guard below is a backstop.
         """
+        slot, slot_type = self._dbg_decl_slots.get(var_name, (None, None))
+        if slot is not None:
+            if slot_type == value.type:
+                llvm.store(value, slot, volatile_=volatile)
+            return
         alloca_ptr = self.alloca(value.type)
         llvm.store(value, alloca_ptr, volatile_=volatile)
+        self._dbg_decl_slots[var_name] = (alloca_ptr, value.type)
         llvm.intr_dbg_declare(
             alloca_ptr,
             var_attr,

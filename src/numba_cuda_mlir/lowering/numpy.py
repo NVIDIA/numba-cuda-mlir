@@ -1792,6 +1792,7 @@ def lower_charseq_array_setitem_string(builder: MLIRLower, target, args, kwargs)
         llvm.store(byte_const, byte_ptr)
 
 
+@lower(operator.setitem, types.Array, types.Integer, types.EnumMember)
 @lower(operator.setitem, types.Array, types.Integer, types.Boolean)
 @lower(operator.setitem, types.Array, types.Integer, types.Number)
 @lower(operator.setitem, types.Array, types.Integer, types.NPDatetime)
@@ -2032,7 +2033,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
                 array, full_offsets, full_sizes, full_strides, full_is_scalar
             )
             builder.store_var(target, value)
-        case types.Number() | types.Boolean():
+        case types.Number() | types.Boolean() | types.NPDatetime() | types.NPTimedelta():
             value = lowering_utilities.array_element_value_load(
                 array_numba_type,
                 array,

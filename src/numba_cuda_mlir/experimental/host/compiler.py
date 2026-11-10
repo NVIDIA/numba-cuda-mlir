@@ -15,7 +15,7 @@ from numba_cuda_mlir.numba_cuda.core.compiler_lock import global_compiler_lock
 from numba_cuda_mlir.numba_cuda.core.errors import TypingError
 from numba_cuda_mlir.numba_cuda.core.compiler_machinery import register_pass
 from numba_cuda_mlir.numba_cuda.core.target_extension import target_override
-from numba_cuda_mlir.numba_cuda.flags import CUDAFlags
+from numba_cuda_mlir.numba_cuda.flags import Flags
 
 
 @dataclass
@@ -56,11 +56,10 @@ def compile_to_llvm_dialect(pyfunc, return_type, args, targetoptions):
         raise TypingError(str(exc)) from exc
     typingctx = target.typing_context
     targetctx = target.target_context
-    flags = CUDAFlags()
+    flags = Flags()
     flags.no_compile = True
     flags.no_cpython_wrapper = True
     flags.no_cfunc_wrapper = True
-    flags.nvvm_options = {}
     with target_override("numba_cuda_mlir_host"):
         typingctx.refresh()
         targetctx.refresh()

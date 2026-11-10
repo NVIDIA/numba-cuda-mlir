@@ -473,6 +473,12 @@ def mlir_compiler_entry(
             argtypes.append(types.StarArgTuple.from_types(vararg_types))
             break
 
+        if i >= len(func_args):
+            # The launch does not pass omitted defaults, so they must not
+            # become kernel parameters; lowering materializes them instead.
+            argtypes.append(types.Omitted(param.default))
+            continue
+
         override_argtype = (
             override_argtypes[i]
             if override_argtypes is not None and i < len(override_argtypes)

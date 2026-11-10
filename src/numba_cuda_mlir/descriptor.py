@@ -797,7 +797,9 @@ class _ArgMarshaller:
         # register per-launch callbacks through prepare_args().
         type_key = None
         if not has_ext:
-            type_key = tuple(type(a) for a in args)
+            type_key = tuple(
+                (type(a), int.__ge__(a, 1 << 63)) if isinstance(a, int) else type(a) for a in args
+            )
             cached = self._sig_cache.get(type_key)
             if cached is not None:
                 cached_argtypes, fast_ok = cached
@@ -2401,7 +2403,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         if launch_key is not None:
             argtypes, launch_config_key = launch_key
             with self._launch_config_lock:
-                found = self._find_launch_config_overload_locked(argtypes, launch_config_key)
+                found = self._find_launch_config_overload_locked(
+                    argtypes, launch_config_key, coerce=True
+                )
                 if found is not None:
                     return found
             raise KeyError(f"No launch-config overload found for signature {sig}")
@@ -2575,8 +2579,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             return {sig: self.inspect_ptx(sig) for sig in self._inspectable_overloads()}
         return self.inspect_asm(sig)
 
-    @staticmethod
-    def _can_reuse_overload(sig_arg, runtime_type):
+    def _can_reuse_overload(self, sig_arg, runtime_type, *, coerce=False):
         """Check if a pre-compiled overload for sig_arg can be reused for
         runtime_type, allowing subtype compatibility."""
         if sig_arg == runtime_type:
@@ -2588,15 +2591,15 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             return True
         # Allow integer type coercion (e.g., int64 runtime -> int32 sig)
         if isinstance(sig_arg, types.Integer) and isinstance(runtime_type, types.Integer):
-            return True
+            return coerce or not self._can_compile
         # Allow array type compatibility (matching dtype and ndim)
         if isinstance(sig_arg, types.Array) and isinstance(runtime_type, types.Array):
             return sig_arg.dtype == runtime_type.dtype and sig_arg.ndim == runtime_type.ndim
         # Recursively check Tuple element compatibility
         if isinstance(sig_arg, types.BaseTuple) and isinstance(runtime_type, types.BaseTuple):
             if len(sig_arg) == len(runtime_type):
-                reuse = MLIRDispatcher._can_reuse_overload
-                return all(reuse(s, r) for s, r in zip(sig_arg, runtime_type))
+                reuse = self._can_reuse_overload
+                return all(reuse(s, r, coerce=coerce) for s, r in zip(sig_arg, runtime_type))
         return False
 
     @staticmethod
@@ -2882,7 +2885,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 if cb not in self._module_teardown_callbacks:
                     self._module_teardown_callbacks.append(cb)
 
-    def _find_launch_config_overload_locked(self, argtypes, launch_config_key):
+    def _find_launch_config_overload_locked(self, argtypes, launch_config_key, *, coerce=False):
         # Exact hits are O(1). Compatible fallback scans the bounded launch
         # overload table to preserve existing overload-reuse semantics.
         exact = self._launch_config_overloads.get((argtypes, launch_config_key))
@@ -2893,7 +2896,10 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             if (
                 key == launch_config_key
                 and len(sig_args) == len(argtypes)
-                and all(self._can_reuse_overload(s, r) for s, r in zip(sig_args, argtypes))
+                and all(
+                    self._can_reuse_overload(s, r, coerce=coerce)
+                    for s, r in zip(sig_args, argtypes)
+                )
             ):
                 reusable = cres
                 break
@@ -3225,6 +3231,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         else:
             self._propagate_compile_callbacks(result.metadata)
             self._apply_shared_memory_carveout(wrapped)
+            # Annotations may normalize runtime types; retain the request for
+            # exact prelaunch lookup, as for launch-qualified overloads above.
+            self.overloads[argtypes] = wrapped
             self.overloads[result.signature.args] = wrapped
 
         # Save to disk cache

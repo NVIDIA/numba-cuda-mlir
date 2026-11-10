@@ -931,6 +931,25 @@ def test_literal_retry_accumulates_requests_from_multiple_planners(
 
 
 @pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
+def test_generic_planner_preserves_partial_integer_annotation(isolated_global_planners):
+    class HarmlessPlanner(WholeFunctionPlanner):
+        def run(self):
+            return False
+
+    register_planner(HarmlessPlanner)
+
+    @cuda.jit
+    def kernel(output, value: types.int32):
+        output[0] = value
+
+    output = cuda.to_device(np.zeros(1, dtype=np.int32))
+    launch = kernel[1, 1]
+    for value, expected in ((7, 7), (1 << 32, 0)):
+        launch(output, value)
+        assert output.copy_to_host()[0] == expected
+
+
+@pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
 def test_literal_retry_overrides_partial_parameter_annotation(isolated_global_planners):
     class LiteralPlanner(WholeFunctionPlanner):
         def run(self):

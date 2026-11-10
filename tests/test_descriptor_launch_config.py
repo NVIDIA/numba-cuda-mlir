@@ -101,6 +101,40 @@ def restore_compile_arg_types():
     descriptor_mod._compile_arg_types.__dict__.update(state)
 
 
+@pytest.mark.parametrize("launch_mode", ["array", "scalar", "launch-config"])
+def test_dispatch_preserves_integer_specializations(launch_mode):
+    out = cuda.to_device(np.zeros(1, dtype=np.float64))
+    if launch_mode == "scalar":
+        # Capturing the output leaves only scalar arguments for native fast extraction.
+        @cuda.jit
+        def store(value):
+            out[0] = value
+    else:
+        extensions = [_LaunchConfigExtension()] if launch_mode == "launch-config" else []
+
+        @cuda.jit(extensions=extensions)
+        def store(out, value):
+            out[0] = value
+
+    launch = store[1, 1]
+    # Exercise width changes, both signedness transitions, and warm-cache reuse.
+    for value in (
+        np.int32(1),
+        np.int64(1 << 40),
+        np.uint64(1 << 63),
+        -1,
+        2**63 - 1,
+        2**63,
+        2**64 - 1,
+        -1,
+        2**63,
+        np.int32(7),
+    ):
+        args = (value,) if launch_mode == "scalar" else (out, value)
+        launch(*args)
+        assert out.copy_to_host()[0] == float(value)
+
+
 def test_target_initialization_waits_for_concurrent_initialization():
     class Context:
         def __init__(self, started=None, release=None):
@@ -1405,6 +1439,7 @@ def test_launch_config_compatible_lookup_reuses_without_alias_growth():
         found = dispatcher._find_launch_config_overload_locked(
             (types.int64,),
             launch_key,
+            coerce=True,
         )
 
     assert found is compile_result

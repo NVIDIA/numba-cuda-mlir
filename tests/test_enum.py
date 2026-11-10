@@ -25,6 +25,12 @@ class RequestError(IntEnum):
     internal_error = 500
 
 
+class IntegerBoundary(IntEnum):
+    negative = -1
+    minimum = -(2**63)
+    maximum = 2**63 - 1
+
+
 class Temperature(Enum):
     freezing = 0.0
     boiling = 100.0
@@ -136,6 +142,45 @@ class TestIntEnum:
         out = cuda.device_array(2, dtype=np.bool_)
         kernel[1, 1](out)
         np.testing.assert_array_equal(out.copy_to_host(), [True, True])
+
+    @pytest.mark.parametrize(
+        "member,scalar",
+        [
+            (RequestError.not_found, np.int8(-108)),
+            (RequestError.not_found, np.uint8(148)),
+            (RequestError.not_found, np.int16(404)),
+            (RequestError.not_found, np.uint16(404)),
+            (RequestError.not_found, np.uint64(2**64 - 1)),
+            (IntegerBoundary.negative, np.int8(-1)),
+            (IntegerBoundary.negative, np.uint8(255)),
+            (IntegerBoundary.negative, np.uint64(2**64 - 1)),
+            (IntegerBoundary.minimum, np.int64(-(2**63))),
+            (IntegerBoundary.minimum, np.uint64(2**63)),
+            (IntegerBoundary.maximum, np.uint64(2**63 - 1)),
+        ],
+    )
+    def test_mixed_integer_equality(self, member, scalar):
+        @cuda.jit
+        def kernel(member, scalar, out):
+            out[0] = member == scalar
+            out[1] = scalar == member
+            out[2] = member != scalar
+            out[3] = scalar != member
+
+        out = cuda.device_array(4, dtype=np.bool_)
+        kernel[1, 1](member, scalar, out)
+        equal = int(member) == int(scalar)
+        np.testing.assert_array_equal(out.copy_to_host(), [equal, equal, not equal, not equal])
+
+    def test_store_member_in_integer_array(self):
+        @cuda.jit
+        def kernel(member, out):
+            out[0] = member
+            out[1] = RequestError.internal_error
+
+        out = cuda.device_array(2, dtype=np.int64)
+        kernel[1, 1](RequestError.not_found, out)
+        np.testing.assert_array_equal(out.copy_to_host(), [404, 500])
 
 
 class TestFloatEnum:

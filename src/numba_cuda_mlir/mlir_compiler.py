@@ -46,6 +46,7 @@ from numba_cuda_mlir.numba_cuda.typing.typeof import Purpose, typeof
 from numba_cuda_mlir.numba_cuda.core.untyped_passes import (
     LiteralUnroll,
     InlineInlinables,
+    RewriteSemanticConstants,
 )
 from numba_cuda_mlir.numbair_transforms import (
     NumbaCudaMlirLiteralUnroll,
@@ -237,6 +238,14 @@ def get_compiler_class(
                             "post-inline whole-function extension planners",
                         )
                     )
+                    # An inlined device function's parameters are now locals of the caller, which
+                    # the rewrite before inlining never saw. Fold their len()/ndim again so the
+                    # dead branch pruning that follows inlining can drop a branch that does not
+                    # type-check for the actual arguments (#109).
+                    if not self.state.flags.no_rewrites:
+                        modified_passes.append(
+                            (RewriteSemanticConstants, "rewrite semantic constants after inlining")
+                        )
                 else:
                     modified_passes.append((impl, desc))
             pm.passes.extend(modified_passes)

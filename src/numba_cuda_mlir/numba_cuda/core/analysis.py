@@ -371,6 +371,10 @@ def rewrite_semantic_constants(func_ir, called_args):
                     argty = arg_def.dtype
                     if isinstance(argty, types.BaseTuple):
                         rewrite_statement(func_ir, stmt, argty.count)
+                elif isinstance(arg_def, ir.Expr) and arg_def.op == "build_tuple":
+                    # A tuple display has a fixed length, known before typing. An inlined
+                    # function's tuple parameter resolves to one (numba-cuda-mlir #109).
+                    rewrite_statement(func_ir, stmt, len(arg_def.items))
 
     from numba_cuda_mlir.numba_cuda.core.ir_utils import get_definition, guard
 

@@ -443,13 +443,17 @@ class InlineWorker:
         freevars = function.__code__.co_freevars
         return self.inline_ir(caller_ir, block, i, callee_ir, freevars, arg_typs=arg_typs)
 
-    def run_untyped_passes(self, func, enable_ssa=False):
+    def run_untyped_passes(self, func, enable_ssa=False, arg_types=None):
         """
         Run the compiler frontend's untyped passes over the given Python
         function, and return the function's canonical Numba IR.
 
         Disable SSA transformation by default, since the call site won't be in
         SSA form and self.inline_ir depends on this being the case.
+
+        ``arg_types``, when the argument types are already known, lets the
+        semantic-constant rewrite and dead branch pruning use them, for example
+        to drop the ``is not None`` branch of an omitted argument.
         """
         from numba_cuda_mlir.numba_cuda.core.compiler import StateDict, _CompileStatus
         from numba_cuda_mlir.numba_cuda.core.untyped_passes import ExtractByteCode
@@ -474,9 +478,13 @@ class InlineWorker:
         state.metadata = {}
 
         ExtractByteCode().run_pass(state)
-        # This is a lie, just need *some* args for the case where an obj mode
-        # with lift is needed
-        state.args = len(state.bc.func_id.pysig.parameters) * (types.pyobject,)
+        nargs = len(state.bc.func_id.pysig.parameters)
+        if arg_types is not None and len(arg_types) == nargs:
+            state.args = tuple(arg_types)
+        else:
+            # This is a lie, just need *some* args for the case where an obj mode
+            # with lift is needed
+            state.args = nargs * (types.pyobject,)
 
         pm = self._compiler_pipeline(state)
 

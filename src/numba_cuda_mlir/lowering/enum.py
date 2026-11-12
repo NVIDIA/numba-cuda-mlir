@@ -9,7 +9,11 @@ from numba_cuda_mlir._mlir.dialects import arith
 
 from numba_cuda_mlir import types
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
-from numba_cuda_mlir.lowering_utilities import convert
+from numba_cuda_mlir.lowering_utilities import (
+    convert,
+    get_conversion_signedness,
+    numpy_implicit_type_promotion,
+)
 from numba_cuda_mlir.lowering_utilities.type_conversions import to_mlir_type
 
 registry = LoweringRegistry()
@@ -123,6 +127,45 @@ def _int_enum_mixed_values(builder, args):
     elif isinstance(rhs_type, types.IntEnumMember):
         rhs_val = convert(rhs_val, lhs_val.type)
     return lhs_val, rhs_val
+
+
+def _int_enum_mixed_cmp(builder, target, args, predicate):
+    """Compare integer values without narrowing or confusing sign bits."""
+    lhs, rhs = args
+    lhs_type = builder.get_numba_type(lhs.name)
+    rhs_type = builder.get_numba_type(rhs.name)
+    lhs_val = builder.load_var(lhs)
+    rhs_val = builder.load_var(rhs)
+    common_type = numpy_implicit_type_promotion(lhs_val.type, rhs_val.type)
+    lhs_signed = get_conversion_signedness(lhs_type, rhs_type)
+    rhs_signed = get_conversion_signedness(rhs_type, lhs_type)
+    lhs_val = convert(lhs_val, common_type, signed=lhs_signed)
+    rhs_val = convert(rhs_val, common_type, signed=rhs_signed)
+    result = arith.cmpi(predicate, lhs_val, rhs_val)
+    if lhs_signed != rhs_signed:
+        signed_val = lhs_val if lhs_signed else rhs_val
+        # Equal-width signed/unsigned values can share bits but not values.
+        # This also handles int64/uint64 without requiring wider GPU integers.
+        zero = arith.constant(common_type, 0)
+        if predicate == arith.CmpIPredicate.eq:
+            nonnegative = arith.cmpi(arith.CmpIPredicate.sge, signed_val, zero)
+            result = arith.andi(result, nonnegative)
+        else:
+            negative = arith.cmpi(arith.CmpIPredicate.slt, signed_val, zero)
+            result = arith.ori(result, negative)
+    builder.store_var(target, result)
+
+
+@lower(operator.eq, types.Integer, types.IntEnumMember)
+@lower(operator.eq, types.IntEnumMember, types.Integer)
+def int_enum_eq_mixed(builder, target, args, kws):
+    _int_enum_mixed_cmp(builder, target, args, arith.CmpIPredicate.eq)
+
+
+@lower(operator.ne, types.Integer, types.IntEnumMember)
+@lower(operator.ne, types.IntEnumMember, types.Integer)
+def int_enum_ne_mixed(builder, target, args, kws):
+    _int_enum_mixed_cmp(builder, target, args, arith.CmpIPredicate.ne)
 
 
 @lower(operator.gt, types.Integer, types.IntEnumMember)

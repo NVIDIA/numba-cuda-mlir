@@ -85,6 +85,7 @@ class _UnhashableLaunchConfigExtension(_LaunchConfigExtension):
 
 class _CompileResult:
     objectmode = False
+    entry_point = None
 
     def __init__(self, sig_args, ptx="ptx"):
         self.signature = cuda_typing.signature(types.none, *sig_args)
@@ -1199,6 +1200,7 @@ def test_compile_impl_generic_applies_shared_memory_carveout(monkeypatch):
     applied = []
 
     class CompilerResult:
+        entry_point = None
         signature = cuda_typing.signature(types.none, types.int32)
         metadata = {"cubin": b"generic", "func_name": "kernel"}
 
@@ -2492,6 +2494,8 @@ def test_literal_retry_counts_concurrent_discovery_as_attempt_progress(monkeypat
     compile_calls = []
 
     class CompilerResult:
+        entry_point = None
+
         def __init__(self, argtype):
             self.signature = cuda_typing.signature(types.none, argtype)
             self.metadata = {"cubin": b"literal-7", "func_name": "kernel"}
@@ -2527,6 +2531,8 @@ def test_literal_retry_allows_later_generic_signature(monkeypatch):
     compile_calls = []
 
     class CompilerResult:
+        entry_point = None
+
         def __init__(self, argtype):
             self.signature = cuda_typing.signature(types.none, argtype)
             self.metadata = {
@@ -2907,6 +2913,7 @@ def test_compile_impl_ignores_opaque_available_launch_config_without_demand(monk
     compile_calls = []
 
     class CompilerResult:
+        entry_point = None
         signature = cuda_typing.signature(types.none, types.int32)
         metadata = {"cubin": b"generic", "func_name": "kernel"}
 

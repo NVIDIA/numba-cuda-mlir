@@ -908,12 +908,7 @@ def _float_divmod(mlir_lower, x: ir.Value, y: ir.Value) -> tuple[ir.Value, ir.Va
     zero = lowering_utilities.constant(0.0, ty)
     one = lowering_utilities.constant(1.0, ty)
     half = lowering_utilities.constant(0.5, ty)
-    # CPU remf lowers to native fmod; GPU uses libdevice's exact implementation.
-    mod = (
-        arith.remf(x, y)
-        if mlir_lower._mlir_gpu_module is None
-        else convert(_call_libdevice_binary(mlir_lower, x, y, "__nv_fmod", "__nv_fmodf"), ty)
-    )
+    mod = mlir_lower.lower_float_remainder(x, y)
     div = arith.divf(arith.subf(x, mod), y)
     # A nonzero remainder takes the sign of the divisor
     mod_nonzero = arith.cmpf(arith.CmpFPredicate.UNE, mod, zero)

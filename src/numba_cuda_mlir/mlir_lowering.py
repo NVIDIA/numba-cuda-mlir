@@ -449,6 +449,15 @@ class MLIRLower(object):
         """Device division retains its existing unchecked arithmetic policy."""
         return nullcontext()
 
+    def lower_float_remainder(self, x: ir.Value, y: ir.Value) -> ir.Value:
+        """Emit the device's exact floating-point remainder."""
+        from numba_cuda_mlir.lowering.math import _call_libdevice_binary
+
+        return convert(
+            _call_libdevice_binary(self, x, y, "__nv_fmod", "__nv_fmodf"),
+            x.type,
+        )
+
     def set_error_code(self, error_code: int | ir.Value):
         """Atomically set the error code global (first error wins).
 

@@ -198,6 +198,10 @@ class Lower(mlir_lowering.MLIRLower):
             raise TypingError(f"host_jit does not support operator {fn.__name__}")
         return super().lower_binop_expr_assign(target, fn, lhs, rhs)
 
+    def lower_float_remainder(self, x: ir.Value, y: ir.Value) -> ir.Value:
+        """Emit native floating-point remainder."""
+        return arith.remf(x, y)
+
     def checked_division_context(self, operation, typ, left, right):
         """Check the converted operands immediately before division or remainder."""
         zero = arith.constant(right.type, 0.0 if isinstance(right.type, ir.FloatType) else 0)

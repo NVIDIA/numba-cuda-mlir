@@ -43,6 +43,19 @@ class Lower(mlir_lowering.MLIRLower):
                 self.lower_inst(inst)
 
     def _fail_if(self, failed, code):
+        """Emit a conditional error exit for a checked host scalar operation.
+
+        On failure, the generated code reports `code` through `host_scalar_error`
+        and returns zero-valued placeholders for the function results. The Python
+        execution wrapper raises the corresponding exception after the native
+        call returns.
+
+        Set `self._host_active_block` to a new continuation block for the
+        non-failing path. The current insertion point is unchanged: callers must
+        enter an insertion point on the continuation before emitting more code.
+
+        `code` is a `runtime_errors.ErrorCode` value.
+        """
         error_block = self.mlir_funcOp.body.blocks.append()
         continuation = self.mlir_funcOp.body.blocks.append()
         cf.cond_br(failed, [], [], error_block, continuation)

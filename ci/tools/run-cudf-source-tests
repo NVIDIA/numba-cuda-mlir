@@ -12,33 +12,15 @@ set -euo pipefail
 : "${TEST_CUDA_MAJOR:?TEST_CUDA_MAJOR must be set by ci/tools/env-vars}"
 : "${TEST_CUDA_MINOR:?TEST_CUDA_MINOR must be set by ci/tools/env-vars}"
 
-CUDF_REPO="${CUDF_REPO:-https://github.com/brandon-b-miller/cudf.git}"
-CUDF_BRANCH="${CUDF_BRANCH:-cudf-numba-cuda-mlir-extension-backend}"
+# cudf is installed as a prebuilt package; the checkout exists only to supply
+# the test files, which cudf does not ship inside the package.
+CUDF_REPO="${CUDF_REPO:-https://github.com/rapidsai/cudf.git}"
+CUDF_CHANNEL="${CUDF_CHANNEL:-rapidsai-nightly}"
 
 export CUDA_VERSION="${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}"
 
 MINIFORGE_URL="https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-$(uname -m).sh"
 CONDA_ENV_NAME="cudf_build"
-
-declare -A CUDA_TO_ENV_YAML=(
-  ["12.9"]="all_cuda-129_arch-x86_64.yaml"
-  ["13.2"]="all_cuda-132_arch-x86_64.yaml"
-)
-
-ARCH=$(uname -m)
-if [[ "${ARCH}" == "aarch64" ]]; then
-  CUDA_TO_ENV_YAML["12.9"]="all_cuda-129_arch-aarch64.yaml"
-  CUDA_TO_ENV_YAML["13.2"]="all_cuda-132_arch-aarch64.yaml"
-fi
-
-# Map CUDA major.minor to the env yaml key (e.g. 12.9)
-ENV_YAML_KEY="${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}"
-if [[ -z "${CUDA_TO_ENV_YAML[${ENV_YAML_KEY}]+_}" ]]; then
-  echo "ERROR: No cudf conda environment YAML for CUDA ${ENV_YAML_KEY}"
-  echo "Supported versions: ${!CUDA_TO_ENV_YAML[*]}"
-  exit 1
-fi
-ENV_YAML_NAME="${CUDA_TO_ENV_YAML[${ENV_YAML_KEY}]}"
 
 # --- Locate numba-cuda-mlir wheel ---
 wheels=("${NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR}"/*.whl)
@@ -63,33 +45,14 @@ if [[ ! -x "${MAMBA_DIR}/bin/mamba" ]]; then
 fi
 export PATH="${MAMBA_DIR}/bin:${PATH}"
 
-# --- Clone cudf ---
-CUDF_DIR="/tmp/cudf"
-if [[ ! -d "${CUDF_DIR}" ]]; then
-  echo "Cloning cudf (branch: ${CUDF_BRANCH})..."
-  git clone --single-branch --branch "${CUDF_BRANCH}" "${CUDF_REPO}" "${CUDF_DIR}"
-fi
-echo "cudf commit:"
-git -C "${CUDF_DIR}" log -1 --format='%H %h %s'
-
-# --- Create conda environment ---
-ENV_YAML="${CUDF_DIR}/conda/environments/${ENV_YAML_NAME}"
-if [[ ! -f "${ENV_YAML}" ]]; then
-  echo "ERROR: Environment YAML not found: ${ENV_YAML}"
-  ls "${CUDF_DIR}/conda/environments/"
-  exit 1
-fi
-
+# --- Create conda environment with a prebuilt cudf ---
 if [[ ! -d "${MAMBA_DIR}/envs/${CONDA_ENV_NAME}" ]]; then
-  echo "Creating conda environment '${CONDA_ENV_NAME}' from ${ENV_YAML_NAME}..."
-  mamba env create -f "${ENV_YAML}" -n "${CONDA_ENV_NAME}" "python=${PY_VER}" -y
+  echo "Creating conda environment '${CONDA_ENV_NAME}' with cudf from ${CUDF_CHANNEL}..."
+  mamba create -n "${CONDA_ENV_NAME}" -y \
+    -c "${CUDF_CHANNEL}" -c conda-forge \
+    "python=${PY_VER}" cudf pytest \
+    "cuda-version=${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}"
 fi
-
-
-echo "Ensuring libcudf and pylibcudf are installed..."
-mamba install -n "${CONDA_ENV_NAME}" -c rapidsai -c conda-forge \
-  "libcudf=26.08.*" "pylibcudf=26.08.*" \
-  "cuda-version=${TEST_CUDA_MAJOR}.${TEST_CUDA_MINOR}" -y
 
 # Ensure nvidia-smi is accessible inside conda env
 ENV_BIN="${MAMBA_DIR}/envs/${CONDA_ENV_NAME}/bin"
@@ -100,13 +63,56 @@ if [[ ! -e "${ENV_BIN}/nvidia-smi" ]]; then
   fi
 fi
 
-# mlir wheel
+# --- Fetch the test files ---
+# cudf packages do not ship cudf/tests, so the test files come from a checkout.
+# Pin it to the commit the installed package was built from, recorded in
+# cudf/GIT_COMMIT, so the tests cannot drift from the code under test.
+CUDF_COMMIT="${CUDF_COMMIT:-$(conda run -n "${CONDA_ENV_NAME}" python -c '
+import importlib.util, pathlib, sys
+spec = importlib.util.find_spec("cudf")
+if spec is None or spec.origin is None:
+    sys.exit("cudf is not importable in the test environment")
+marker = pathlib.Path(spec.origin).parent / "GIT_COMMIT"
+if not marker.is_file():
+    sys.exit(f"installed cudf does not record its source commit at {marker}")
+print(marker.read_text().strip())
+')}"
+
+CUDF_DIR="/tmp/cudf"
+echo "Fetching cudf test files at ${CUDF_COMMIT}..."
+if [[ ! -d "${CUDF_DIR}/.git" ]]; then
+  git init -q "${CUDF_DIR}"
+  git -C "${CUDF_DIR}" remote add origin "${CUDF_REPO}"
+fi
+git -C "${CUDF_DIR}" fetch --depth 1 origin "${CUDF_COMMIT}"
+git -C "${CUDF_DIR}" checkout --detach "${CUDF_COMMIT}"
+git -C "${CUDF_DIR}" log -1 --format='cudf commit: %H %s'
+
+# --- mlir wheel ---
+# Installed last so it replaces the numba-cuda-mlir that cudf pulled in: the
+# point of this job is to exercise the wheel built by this run.
 echo "Installing numba-cuda-mlir wheel into conda env..."
 EXTRAS="cu${TEST_CUDA_MAJOR}"
 conda run -n "${CONDA_ENV_NAME}" pip install "${wheel}[${EXTRAS}]"
 
-# source build
-conda run -n "${CONDA_ENV_NAME}" bash -c "cd ${CUDF_DIR} && bash build.sh cudf"
+# cudf pulls its own numba-cuda-mlir from conda. If that one is still the
+# installed distribution the job silently tests a released build instead of
+# this run's, so check rather than assume the pip install won.
+WHEEL_VERSION=$(basename "${wheel}" | cut -d- -f2)
+conda run -n "${CONDA_ENV_NAME}" python -c '
+import sys
+from importlib.metadata import version
+from packaging.version import Version
+
+expected = Version(sys.argv[1])
+installed = Version(version("numba-cuda-mlir"))
+if installed != expected:
+    sys.exit(
+        f"numba-cuda-mlir {installed} is installed, but this run built "
+        f"{expected}; the conda package shadowed the wheel"
+    )
+print("numba-cuda-mlir under test:", installed)
+' "${WHEEL_VERSION}"
 conda run -n "${CONDA_ENV_NAME}" pip list
 
 # --- Run cudf UDF tests ---

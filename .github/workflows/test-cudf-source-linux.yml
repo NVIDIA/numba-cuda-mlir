@@ -117,8 +117,8 @@ jobs:
         env:
           CUDA_VER: ${{ matrix.CUDA_VER }}
           LOCAL_CTK: ${{ matrix.LOCAL_CTK }}
-          CUDF_REPO: ${{ matrix.CUDF_REPO || 'https://github.com/brandon-b-miller/cudf.git' }}
-          CUDF_BRANCH: ${{ matrix.CUDF_BRANCH || 'cudf-numba-cuda-mlir-extension-backend' }}
+          CUDF_REPO: ${{ matrix.CUDF_REPO || 'https://github.com/rapidsai/cudf.git' }}
+          CUDF_CHANNEL: ${{ matrix.CUDF_CHANNEL || 'rapidsai-nightly' }}
         run: run-cudf-source-tests
 
       - name: Upload cudf source test results

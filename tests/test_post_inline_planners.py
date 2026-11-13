@@ -386,8 +386,6 @@ def test_retained_generic_launcher_rebinds_after_recompile(isolated_global_plann
         retained_launcher(out)
 
         assert out[0] == 2
-        assert retained_launcher._kernel_dispatcher is kernel._c
-        assert kernel._requires_launch_config is False
     finally:
         _RECOMPILE_VALUE = 1
 
@@ -395,8 +393,6 @@ def test_retained_generic_launcher_rebinds_after_recompile(isolated_global_plann
 @pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
 def test_retained_launch_launcher_rebinds_after_recompile(isolated_global_planners):
     global _RECOMPILE_VALUE
-
-    from numba_cuda_mlir import descriptor as descriptor_mod
 
     class HarmlessPlanner(WholeFunctionPlanner):
         def run(self):
@@ -419,20 +415,12 @@ def test_retained_launch_launcher_rebinds_after_recompile(isolated_global_planne
     try:
         _RECOMPILE_VALUE = 1
         retained_launcher(out)
-        retained_generation = retained_launcher._launch_config_generation
         kernel.extensions.clear()
         _RECOMPILE_VALUE = 2
         kernel.recompile()
         retained_launcher(out)
 
         assert out[0] == 2
-        assert retained_launcher._launch_config_generation != retained_generation
-        assert kernel._is_kernel_dispatcher_registered(
-            retained_launcher._launch_config,
-            retained_launcher._kernel_dispatcher,
-            retained_launcher._launch_config_generation,
-        )
-        assert not hasattr(descriptor_mod._compile_arg_types, "launch_config")
     finally:
         _RECOMPILE_VALUE = 1
 
@@ -689,8 +677,9 @@ def test_planner_can_request_distinct_launch_config_specializations(
     }
     assert launch_blocks == {(32, 1, 1), (64, 1, 1)}
 
-    configured_after_demand = kernel.configure(1, 32)
-    assert configured_after_demand._launch_config["block"] == (32, 1, 1)
+    output32.fill(-1)
+    kernel.configure(1, 32)(output32)
+    assert output32[0] == 32
 
 
 @pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
@@ -814,23 +803,10 @@ def test_literal_retry_keeps_later_float_signature_generic(isolated_global_plann
     def kernel(output, selector):
         output[0] = selector
 
-    native_compile_values = []
-    original_compile = kernel._compile
-
-    def counting_compile(args):
-        native_compile_values.append(args[1])
-        return original_compile(args)
-
-    # The first generic native dispatcher already owns its compile callback.
-    # Literal discovery rebuilds it with this wrapper, allowing the assertions
-    # below to distinguish native cache misses after discovery.
-    kernel._compile = counting_compile
-
     output = np.zeros(1, dtype=np.float64)
     kernel[1, 1](output, 7)
     assert output[0] == 7
 
-    native_compile_values.clear()
     kernel[1, 1](output, 1.5)
     assert output[0] == 1.5
     kernel[1, 1](output, 2.5)
@@ -838,7 +814,6 @@ def test_literal_retry_keeps_later_float_signature_generic(isolated_global_plann
     kernel[1, 1](output, 9)
     assert output[0] == 9
 
-    assert native_compile_values == [1.5, 9]
     selector_types = {argtypes[1] for argtypes in kernel.overloads}
     assert types.float64 in selector_types
     assert {

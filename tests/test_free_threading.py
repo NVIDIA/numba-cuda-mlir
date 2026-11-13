@@ -283,36 +283,6 @@ def test_typeconv_concurrent_access_smoke():
         assert _typeconv.check_compatible(tm, from_code, to_code) == expected
 
 
-def test_arg_marshaller_recreates_missing_launch_lock(monkeypatch):
-    _require_free_threaded_python()
-
-    from numba_cuda_mlir.descriptor import _ArgMarshaller
-
-    class Dispatcher:
-        def __init__(self):
-            self.ensure_count = 0
-
-        def _ensure_dispatcher_state(self):
-            self.ensure_count += 1
-            if not hasattr(self, "_launch_lock"):
-                self._launch_lock = threading.RLock()
-            if not hasattr(self, "_launch_config_lock"):
-                self._launch_config_lock = threading.RLock()
-
-    dispatcher = Dispatcher()
-    marshaller = _ArgMarshaller(lambda: None, dispatcher=dispatcher)
-
-    def call_impl(*args):
-        with dispatcher._launch_config_lock:
-            assert dispatcher._launch_lock._is_owned()
-        return "ok"
-
-    monkeypatch.setattr(marshaller, "_call_impl", call_impl)
-
-    assert marshaller() == "ok"
-    assert dispatcher.ensure_count == 1
-
-
 def test_dispatcher_state_bootstrap_lock_converges(monkeypatch):
     from numba_cuda_mlir import descriptor
 

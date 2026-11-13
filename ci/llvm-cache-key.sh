@@ -74,6 +74,9 @@ case "${kind}" in
                     "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridge.cpp" \
                     "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridgeSmoke.cpp" \
                     "${SCRIPT_DIR}/../cext/mlir-modern/include/ModernBridge.h")"
+                if [[ "${py_tag}" == cp315t ]]; then
+                    build_hash="${build_hash}-diagnostic1"
+                fi
                 echo "llvm-modern-windows-$(cache_arch "${host_platform}")-${py_tag}-${version_short}-msvc${LLVM_WINDOWS_ARM64_MSVC_TOOLSET}-${build_hash}"
                 ;;
             *)

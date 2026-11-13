@@ -895,9 +895,9 @@ extern "C" __global__ void
         trace("offset=%s, block=%s", offset, block)
         with ir.InsertionPoint(self.blkmap[offset]):
             for inst in block.body:
+                self.loc = self.get_loc(inst.loc)
                 if self._di_subprogram is not None:
                     # Propagate location info into MLIR per instruction.
-                    self.loc = self.get_loc(inst.loc)
                     inst_loc = ir.Location.file(
                         filename=self.loc.filename,
                         line=self.loc.line,

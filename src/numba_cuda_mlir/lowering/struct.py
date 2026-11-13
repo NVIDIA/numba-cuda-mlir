@@ -111,13 +111,7 @@ def lower_aggregate_type_getattr(
     trace("Stored field '%s' (index %s) into %s", attr, field_index, target.name)
 
 
-def _lower_struct_construction_impl(
-    context,  # Unused, kept for compatibility
-    builder: "MLIRLower",
-    target: numba_ir.Var,
-    args: list[numba_ir.Var],
-    kwargs: dict,
-):
+def _lower_struct_construction_impl(builder: "MLIRLower", signature, args):
     """
     Lower struct construction: MyStruct() creates a zero-initialized struct value (inline).
 
@@ -125,10 +119,8 @@ def _lower_struct_construction_impl(
     in registers or spill to stack. Fields are set via subsequent setattr operations using
     LLVM insertvalue, which works on SSA values.
     """
-    trace(f"Lowering struct construction: target={target}, args={args}, kwargs={kwargs}")
-
     # Get the struct type being constructed
-    target_type = builder.get_numba_type(target.name)
+    target_type = signature.return_type
 
     # Get the MLIR type for the struct
     mlir_struct_type = builder.get_mlir_type(target_type)
@@ -137,16 +129,10 @@ def _lower_struct_construction_impl(
     # This is a pure SSA value - no alloca needed since we're not taking its address
     zero_struct = llvm.mlir_zero(res=mlir_struct_type)
 
-    builder.store_var(target, zero_struct)
-    trace(f"Created zero-initialized struct of type {target_type} in {target.name} (inline)")
+    return zero_struct
 
 
-@registry.lower(AggregateType)
-def lower_aggregate_type_call(
-    builder: "MLIRLower",
-    target: numba_ir.Var,
-    args: list[numba_ir.Var],
-    kwargs: dict,
-):
+@registry.lower(AggregateType, api="values")
+def lower_aggregate_type_call(builder: "MLIRLower", signature, args):
     """Lower struct construction when AggregateType is called directly."""
-    return _lower_struct_construction_impl(None, builder, target, args, kwargs)
+    return _lower_struct_construction_impl(builder, signature, args)

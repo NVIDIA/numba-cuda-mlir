@@ -15,6 +15,13 @@ import operator
 registry = Registry()
 
 
+@registry.register_global(round)
+class RoundIntegerTemplate(AbstractTemplate):
+    def generic(self, args, kws):
+        if not kws and len(args) == 1 and isinstance(args[0], (types.Integer, types.Boolean)):
+            return signature(types.int64, args[0])
+
+
 @registry.register_global(operator.mul)
 class TupleMultiplyTemplate(AbstractTemplate):
     def generic(self, args, kws):
@@ -35,12 +42,19 @@ class TupleMultiplyTemplate(AbstractTemplate):
 
 @registry.register_global(operator.setitem)
 class ArraySetitemTemplate(AbstractTemplate):
+    prefer_literal = True
+    metadata = {"target": "cuda"}
+
     def generic(self, args, kws):
         if len(args) != 3:
             return None
         array, idx, value = args
         if not isinstance(array, types.Array):
             return None
+        if isinstance(array.dtype, (types.CharSeq, types.UnicodeCharSeq)) and isinstance(
+            value, types.StringLiteral
+        ):
+            return signature(types.none, array, idx, value)
         if isinstance(value, types.Complex):
             return signature(types.none, array, idx, value)
         if (

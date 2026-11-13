@@ -7,6 +7,7 @@ Lowering support for CUDA vector types (float32x4, int32x2, etc.)
 import itertools
 import operator
 from typing import Any
+from numba_cuda_mlir.numba_cuda.types import StarArgTuple, StarArgUniTuple
 
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
@@ -65,21 +66,25 @@ def _extract_vector_elements(vec: ir.Value) -> list:
     return elements
 
 
-def _constructor_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
+def _constructor_lowering(lower_ctx: MLIRLower, signature, args: list[Any]):
     """Generic lowering for all vector type constructors.
 
     Handles any combination of scalar and vector arguments: broadcasts a
     single scalar, concatenates mixed scalar/vector args, or copies/converts
     a vector of the same width.
     """
-    target_type = lower_ctx.get_numba_type(target.name)
+    target_type = signature.return_type
     vec_type = to_mlir_type(target_type)
     num_elements = _num_vector_elements(vec_type)
 
     scalars = []
-    for arg in args:
-        val = lower_ctx.load_var(arg)
-        arg_type = lower_ctx.get_numba_type(arg.name)
+    operands = []
+    for val, arg_type in zip(args, signature.args):
+        if isinstance(arg_type, (StarArgTuple, StarArgUniTuple)):
+            operands.extend(zip(val, arg_type.types))
+        else:
+            operands.append((val, arg_type))
+    for val, arg_type in operands:
         signed = get_conversion_signedness(arg_type, target_type)
 
         if isinstance(arg_type, VectorType):
@@ -94,13 +99,13 @@ def _constructor_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs)
         scalars = scalars * num_elements
 
     result = _build_vector_from_scalars(scalars, vec_type)
-    lower_ctx.store_var(target, result)
+    return result
 
 
 # One generic registration per vector-type instead of enumerating
 # every permutation of scalar/vector argument types.
 for vec_type in _vector_types:
-    _raw_lower(vec_type, types.VarArg(types.Any))(_constructor_lowering)
+    _raw_lower(vec_type, types.VarArg(types.Any), api="values")(_constructor_lowering)
 
 
 # Register attribute access lowerings
@@ -126,14 +131,14 @@ lower_getattr(VectorType, "w")(_make_attr_lowering("w"))
 def _make_vector_binop_lowering(op):
     iop, fop = _get_mlir_bin_op_for_operator(op)
 
-    def binop_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
-        lhs = lower_ctx.load_var(args[0])
-        rhs = lower_ctx.load_var(args[1])
+    def binop_lowering(lower_ctx: MLIRLower, signature, args: list[Any]):
+        lhs = args[0]
+        rhs = args[1]
 
-        lhs_type = lower_ctx.get_numba_type(args[0].name)
-        rhs_type = lower_ctx.get_numba_type(args[1].name)
+        lhs_type = signature.args[0]
+        rhs_type = signature.args[1]
 
-        target_type = lower_ctx.get_numba_type(target.name)
+        target_type = signature.return_type
         mlir_target_type = to_mlir_type(target_type)
         elem_type = mlir_target_type.element_type
         lhs_signed = get_conversion_signedness(lhs_type, target_type)
@@ -158,7 +163,7 @@ def _make_vector_binop_lowering(op):
         else:
             result = fop(lhs, rhs)
 
-        lower_ctx.store_var(target, result)
+        return result
 
     return binop_lowering
 
@@ -177,16 +182,16 @@ for op in [
     operator.mod,
     operator.imod,
 ]:
-    _raw_lower(op, VectorType, VectorType)(_make_vector_binop_lowering(op))
-    _raw_lower(op, VectorType, types.Number)(_make_vector_binop_lowering(op))
-    _raw_lower(op, types.Number, VectorType)(_make_vector_binop_lowering(op))
+    _raw_lower(op, VectorType, VectorType, api="values")(_make_vector_binop_lowering(op))
+    _raw_lower(op, VectorType, types.Number, api="values")(_make_vector_binop_lowering(op))
+    _raw_lower(op, types.Number, VectorType, api="values")(_make_vector_binop_lowering(op))
 
 
 def _make_vector_unary_lowering(op):
-    def unary_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
-        val = lower_ctx.load_var(args[0])
+    def unary_lowering(lower_ctx: MLIRLower, signature, args: list[Any]):
+        val = args[0]
 
-        target_type = lower_ctx.get_numba_type(target.name)
+        target_type = signature.return_type
         mlir_target_type = to_mlir_type(target_type)
         elem_type = mlir_target_type.element_type
 
@@ -211,20 +216,20 @@ def _make_vector_unary_lowering(op):
         else:
             raise NotImplementedError(f"Unary operator {op} not implemented for vector types")
 
-        lower_ctx.store_var(target, result)
+        return result
 
     return unary_lowering
 
 
-_raw_lower(operator.neg, VectorType)(_make_vector_unary_lowering(operator.neg))
-_raw_lower(abs, VectorType)(_make_vector_unary_lowering(abs))
+_raw_lower(operator.neg, VectorType, api="values")(_make_vector_unary_lowering(operator.neg))
+_raw_lower(abs, VectorType, api="values")(_make_vector_unary_lowering(abs))
 
 
-def _vector_to_complex_cast(lower_ctx: MLIRLower, target, args: list[Any]):
-    target_type = lower_ctx.get_numba_type(target.name)
+def _vector_to_complex_cast(lower_ctx: MLIRLower, signature, args: list[Any]):
+    target_type = signature.return_type
     mlir_target_type = lower_ctx.get_mlir_type(target_type)
-    val = lower_ctx.load_var(args[0])
-    source_type = lower_ctx.get_numba_type(args[0].name)
+    val = args[0]
+    source_type = signature.args[0]
     signed = get_conversion_signedness(source_type, target_type)
 
     real = vector.extract(val, [], [0])
@@ -238,22 +243,22 @@ def _vector_to_complex_cast(lower_ctx: MLIRLower, target, args: list[Any]):
         real=real,
         imaginary=imag,
     )
-    lower_ctx.store_var(target, result)
+    return result
 
 
-@_raw_lower(complex, VectorType)
-def _complex_from_vector_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
+@_raw_lower(complex, VectorType, api="values")
+def _complex_from_vector_lowering(lower_ctx: MLIRLower, signature, args: list[Any]):
     """Lowering for complex(vector_type)."""
-    _vector_to_complex_cast(lower_ctx, target, args)
+    return _vector_to_complex_cast(lower_ctx, signature, args)
 
 
-@_raw_lower(types.NumberClass, VectorType)
-def _number_class_from_vector_lowering(lower_ctx: MLIRLower, target, args: list[Any], kwargs):
+@_raw_lower(types.NumberClass, VectorType, api="values")
+def _number_class_from_vector_lowering(lower_ctx: MLIRLower, signature, args: list[Any]):
     """Lowering for np.complex64(vec2) / np.complex128(vec2)."""
-    target_type = lower_ctx.get_numba_type(target.name)
+    target_type = signature.return_type
     if not isinstance(target_type, types.Complex):
         raise NotImplementedError(
             f"NumberClass({target_type})(VectorType) lowering only supports Complex targets"
         )
 
-    _vector_to_complex_cast(lower_ctx, target, args)
+    return _vector_to_complex_cast(lower_ctx, signature, args)

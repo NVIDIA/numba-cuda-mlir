@@ -1429,16 +1429,22 @@ class DeferredLowering:
     """
 
     @abstractmethod
-    def __call__(self, builder, target, args, kwargs): ...
+    def __call__(self, lowerer, target, args, kws): ...
 
 
 class DeferredMethodCall(DeferredLowering):
-    def __init__(self, _self, lowering_function: AnyCallable[PS]):
-        self._self = _self
+    _numba_cuda_mlir_lowering_api = "values"
+
+    def __init__(self, receiver, receiver_type, lowering_function: AnyCallable[PS]):
+        self.receiver = receiver
+        self.receiver_type = receiver_type
         self.lowering_function = lowering_function
 
-    def __call__(self, builder, target, args, kwargs):
-        return self.lowering_function(builder, target, [self._self] + args, kwargs)
+    def __call__(self, lowerer, signature, args):
+        receiver_type = signature.recvr or self.receiver_type
+        receiver = lowerer._cast_call_value(self.receiver_type, receiver_type, self.receiver)
+        signature = signature.replace(args=(receiver_type, *signature.args), recvr=None, pysig=None)
+        return self.lowering_function(lowerer, signature, (receiver, *args))
 
 
 @dataclass

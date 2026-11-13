@@ -88,26 +88,26 @@ def _get_mlir_type(numba_ty):
 
 
 def _make_binary(op, mlir_op, ty):
-    @lower(op, ty, ty)
-    def impl(builder, target, args, kwargs):
-        lhs = builder.load_var(args[0])
-        rhs = builder.load_var(args[1])
+    @lower(op, ty, ty, api="values")
+    def impl(builder, signature, args):
+        lhs = args[0]
+        rhs = args[1]
         target_mlir_ty = _get_mlir_type(ty)
         lhs_f32 = arith.extf(out=T.f32(), in_=lhs)
         rhs_f32 = arith.extf(out=T.f32(), in_=rhs)
         result_f32 = mlir_op(lhs_f32, rhs_f32)
         result = arith.truncf(out=target_mlir_ty, in_=result_f32)
-        builder.store_var(target, result)
+        return result
 
 
 def _make_cmp(op, predicate, ty):
-    @lower(op, ty, ty)
-    def impl(builder, target, args, kwargs):
-        lhs = builder.load_var(args[0])
-        rhs = builder.load_var(args[1])
+    @lower(op, ty, ty, api="values")
+    def impl(builder, signature, args):
+        lhs = args[0]
+        rhs = args[1]
         lhs_f32 = arith.extf(out=T.f32(), in_=lhs)
         rhs_f32 = arith.extf(out=T.f32(), in_=rhs)
-        builder.store_var(target, arith.cmpf(predicate, lhs_f32, rhs_f32))
+        return arith.cmpf(predicate, lhs_f32, rhs_f32)
 
 
 for _ty in _EXOTIC_FLOAT_TYPES:
@@ -117,40 +117,40 @@ for _ty in _EXOTIC_FLOAT_TYPES:
     for _op, _pred in _COMPARISONS.items():
         _make_cmp(_op, _pred, _ty)
 
-    @lower(operator.neg, _ty)
-    def neg_impl(builder, target, args, kwargs, _bound_ty=_ty):
-        value = builder.load_var(args[0])
-        target_mlir_ty = _get_mlir_type(_bound_ty)
+    @lower(operator.neg, _ty, api="values")
+    def neg_impl(builder, signature, args):
+        value = args[0]
+        target_mlir_ty = _get_mlir_type(signature.return_type)
         val_f32 = arith.extf(out=T.f32(), in_=value)
         neg_f32 = arith.negf(val_f32)
         result = arith.truncf(out=target_mlir_ty, in_=neg_f32)
-        builder.store_var(target, result)
+        return result
 
-    @lower(operator.pos, _ty)
-    def pos_impl(builder, target, args, kwargs):
-        value = builder.load_var(args[0])
-        builder.store_var(target, value)
+    @lower(operator.pos, _ty, api="values")
+    def pos_impl(builder, signature, args):
+        value = args[0]
+        return value
 
 
 for _py_type, _mlir_type_fn in _FP8_VARIANTS:
     for _input_ty in _FP8_CTOR_INPUT_TYPES:
 
-        @lower(_py_type, _input_ty)
-        def fp8_ctor(builder, target, args, kwargs, _fn=_mlir_type_fn):
-            value = builder.load_var(args[0])
-            result = convert(value, _fn())
-            builder.store_var(target, result)
+        @lower(_py_type, _input_ty, api="values")
+        def fp8_ctor(builder, signature, args):
+            value = args[0]
+            result = convert(value, _get_mlir_type(signature.return_type))
+            return result
 
 
-@lower(cvt_e8m0_to_bf16raw, types.uint8)
-def cvt_e8m0_to_bf16raw_impl(builder, target, args, kwargs):
-    val = builder.load_var(args[0])
+@lower(cvt_e8m0_to_bf16raw, types.uint8, api="values")
+def cvt_e8m0_to_bf16raw_impl(builder, signature, args):
+    val = args[0]
     i16_val = arith.extui(T.i16(), val)
     bf16_bits = arith.shli(i16_val, arith.constant(T.i16(), 7))
     target_ty = to_mlir_type(bfloat16_raw_type)
     desc = llvm.UndefOp(target_ty).result
     desc = llvm.insertvalue(container=desc, value=bf16_bits, position=ir.DenseI64ArrayAttr.get([0]))
-    builder.store_var(target, desc)
+    return desc
 
 
 @registry.lower_getattr(bfloat16_raw_type, "x")

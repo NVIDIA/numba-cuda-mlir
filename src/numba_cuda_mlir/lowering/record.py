@@ -305,26 +305,26 @@ def _store_nested_array_field(builder, field_ptr, value, nested_type, value_type
 # Static getitem/setitem for bracket notation: record['field']
 
 
-@lower("static_getitem", Record, types.StringLiteral)
-@lower(operator.getitem, Record, types.StringLiteral)
-def lower_record_static_getitem_str(builder, target, args, kwargs):
+@lower("static_getitem", Record, types.StringLiteral, api="values")
+@lower(operator.getitem, Record, types.StringLiteral, api="values")
+def lower_record_static_getitem_str(builder, signature, args):
     """
     Lower record['field_name'] to getattr.
     """
     record_var = args[0]
     field_name = args[1]  # This is the literal string value
 
-    record_type = builder.get_numba_type(record_var.name)
+    record_type = signature.args[0]
 
     # Get the field name from the string literal
-    field_name_type = builder.get_numba_type(field_name)
+    field_name_type = signature.args[1]
     attr = field_name_type.literal_value
 
     trace("Lowering Record static_getitem: %s['%s']", record_type, attr)
 
     # Delegate to getattr lowering
     # We need to manually invoke the getattr logic
-    record_ptr = builder.load_var(record_var)
+    record_ptr = record_var
 
     if attr not in record_type.fields:
         available = list(record_type.fields.keys())
@@ -348,22 +348,22 @@ def lower_record_static_getitem_str(builder, target, args, kwargs):
             stored = llvm.load(field_storage_type, field_ptr, alignment=1)
             result = builder.from_storage(field_numba_type, stored)
 
-    builder.store_var(target, result)
+    return result
 
 
-@lower("static_getitem", Record, types.IntegerLiteral)
-@lower(operator.getitem, Record, types.IntegerLiteral)
-def lower_record_static_getitem_int(builder, target, args, kwargs):
+@lower("static_getitem", Record, types.IntegerLiteral, api="values")
+@lower(operator.getitem, Record, types.IntegerLiteral, api="values")
+def lower_record_static_getitem_int(builder, signature, args):
     """
     Lower record[0] to getattr using field index.
     """
     record_var = args[0]
     index_var = args[1]
 
-    record_type = builder.get_numba_type(record_var.name)
+    record_type = signature.args[0]
 
     # Get the field index from the integer literal
-    index_type = builder.get_numba_type(index_var)
+    index_type = signature.args[1]
     field_index = index_type.literal_value
 
     # Get field name by index
@@ -381,7 +381,7 @@ def lower_record_static_getitem_int(builder, target, args, kwargs):
         attr,
     )
 
-    record_ptr = builder.load_var(record_var)
+    record_ptr = record_var
 
     field_ptr, field_numba_type = get_record_field_ptr(builder, record_ptr, record_type, attr)
 
@@ -400,12 +400,12 @@ def lower_record_static_getitem_int(builder, target, args, kwargs):
             stored = llvm.load(field_storage_type, field_ptr, alignment=1)
             result = builder.from_storage(field_numba_type, stored)
 
-    builder.store_var(target, result)
+    return result
 
 
-@lower("static_setitem", Record, types.StringLiteral, types.Any)
-@lower(operator.setitem, Record, types.StringLiteral, types.Any)
-def lower_record_static_setitem_str(builder, target, args, kwargs):
+@lower("static_setitem", Record, types.StringLiteral, types.Any, api="values")
+@lower(operator.setitem, Record, types.StringLiteral, types.Any, api="values")
+def lower_record_static_setitem_str(builder, signature, args):
     """
     Lower record['field_name'] = value to setattr.
     """
@@ -413,17 +413,17 @@ def lower_record_static_setitem_str(builder, target, args, kwargs):
     field_name_var = args[1]
     value_var = args[2]
 
-    record_type = builder.get_numba_type(record_var.name)
-    value_type = builder.get_numba_type(value_var.name)
+    record_type = signature.args[0]
+    value_type = signature.args[2]
 
     # Get the field name from the string literal
-    field_name_type = builder.get_numba_type(field_name_var)
+    field_name_type = signature.args[1]
     attr = field_name_type.literal_value
 
     trace("Lowering Record static_setitem: %s['%s'] = %s", record_type, attr, value_type)
 
-    record_ptr = builder.load_var(record_var)
-    value = builder.load_var(value_var)
+    record_ptr = record_var
+    value = value_var
 
     if attr not in record_type.fields:
         available = list(record_type.fields.keys())
@@ -490,19 +490,19 @@ def _compute_nested_array_elem_ptr(builder, base_ptr, nested_type, indices):
     return elem_ptr
 
 
-def lower_nested_array_getitem_int(builder, target, args, kwargs):
+def lower_nested_array_getitem_int(builder, signature, args):
     """
     Lower nested_array[i] for 1D nested arrays.
     """
     array_var = args[0]
     index_var = args[1]
 
-    nested_type = builder.get_numba_type(array_var.name)
+    nested_type = signature.args[0]
     trace("Lowering NestedArray getitem: %s[int]", nested_type)
 
     # Load the base pointer and index
-    base_ptr = builder.load_var(array_var)
-    index = builder.load_var(index_var)
+    base_ptr = array_var
+    index = index_var
 
     # Convert index to i64
     index = convert(index, T.i64())
@@ -522,11 +522,10 @@ def lower_nested_array_getitem_int(builder, target, args, kwargs):
         stored = llvm.load(builder.get_storage_type(nested_type.dtype), elem_ptr, alignment=1)
         result = builder.from_storage(nested_type.dtype, stored)
 
-    builder.store_var(target, result)
-    trace("Loaded NestedArray element into %s", target.name)
+    return result
 
 
-def lower_nested_array_setitem_int(builder, target, args, kwargs):
+def lower_nested_array_setitem_int(builder, signature, args):
     """
     Lower nested_array[i] = value for 1D nested arrays.
     """
@@ -534,13 +533,13 @@ def lower_nested_array_setitem_int(builder, target, args, kwargs):
     index_var = args[1]
     value_var = args[2]
 
-    nested_type = builder.get_numba_type(array_var.name)
+    nested_type = signature.args[0]
     trace("Lowering NestedArray setitem: %s[int] = value", nested_type)
 
     # Load the base pointer, index, and value
-    base_ptr = builder.load_var(array_var)
-    index = builder.load_var(index_var)
-    value = builder.load_var(value_var)
+    base_ptr = array_var
+    index = index_var
+    value = value_var
 
     # Convert index to i64
     index = convert(index, T.i64())
@@ -562,39 +561,25 @@ def lower_nested_array_setitem_int(builder, target, args, kwargs):
     trace("Stored value into NestedArray element")
 
 
-def _unpack_tuple_indices(indices_val, num_indices):
-    """Unpack tuple indices from a Python tuple or LLVM struct."""
-    indices = []
-    if isinstance(indices_val, tuple):
-        indices.extend(convert(idx, T.i64()) for idx in indices_val)
-    elif hasattr(indices_val, "type"):
-        for i in range(num_indices):
-            idx = llvm.extractvalue(
-                T.i64(),
-                indices_val,
-                position=ir.DenseI64ArrayAttr.get([i]),
-            )
-            indices.append(idx)
-    else:
-        raise NotImplementedError(f"Cannot unpack indices of type {type(indices_val)}")
-    return indices
+def _unpack_tuple_indices(indices):
+    """Convert canonical Python tuple indices to LLVM i64 values."""
+    return [convert(index, T.i64()) for index in indices]
 
 
-def lower_nested_array_getitem_tuple(builder, target, args, kwargs):
+def lower_nested_array_getitem_tuple(builder, signature, args):
     """
     Lower nested_array[i, j, ...] for multi-dimensional nested arrays.
     """
     array_var = args[0]
     indices_var = args[1]
 
-    nested_type = builder.get_numba_type(array_var.name)
-    indices_type = builder.get_numba_type(indices_var.name)
+    nested_type = signature.args[0]
 
     trace("Lowering NestedArray getitem: %s[tuple]", nested_type)
 
-    base_ptr = builder.load_var(array_var)
-    indices_val = builder.load_var(indices_var)
-    indices = _unpack_tuple_indices(indices_val, len(indices_type))
+    base_ptr = array_var
+    indices_val = indices_var
+    indices = _unpack_tuple_indices(indices_val)
 
     elem_ptr = _compute_nested_array_elem_ptr(builder, base_ptr, nested_type, indices)
 
@@ -610,11 +595,10 @@ def lower_nested_array_getitem_tuple(builder, target, args, kwargs):
         stored = llvm.load(builder.get_storage_type(nested_type.dtype), elem_ptr, alignment=1)
         result = builder.from_storage(nested_type.dtype, stored)
 
-    builder.store_var(target, result)
-    trace("Loaded NestedArray element into %s", target.name)
+    return result
 
 
-def lower_nested_array_setitem_tuple(builder, target, args, kwargs):
+def lower_nested_array_setitem_tuple(builder, signature, args):
     """
     Lower nested_array[i, j, ...] = value for multi-dimensional nested arrays.
     """
@@ -622,15 +606,14 @@ def lower_nested_array_setitem_tuple(builder, target, args, kwargs):
     indices_var = args[1]
     value_var = args[2]
 
-    nested_type = builder.get_numba_type(array_var.name)
-    indices_type = builder.get_numba_type(indices_var.name)
+    nested_type = signature.args[0]
 
     trace("Lowering NestedArray setitem: %s[tuple] = value", nested_type)
 
-    base_ptr = builder.load_var(array_var)
-    value = builder.load_var(value_var)
-    indices_val = builder.load_var(indices_var)
-    indices = _unpack_tuple_indices(indices_val, len(indices_type))
+    base_ptr = array_var
+    value = value_var
+    indices_val = indices_var
+    indices = _unpack_tuple_indices(indices_val)
 
     elem_ptr = _compute_nested_array_elem_ptr(builder, base_ptr, nested_type, indices)
 

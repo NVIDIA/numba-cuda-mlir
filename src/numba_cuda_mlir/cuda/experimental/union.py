@@ -206,8 +206,9 @@ def _register_union_constructor(wrapper: UnionTypeWrapper, union_type: UnionType
 
     typingctx.insert_user_function(wrapper, union_constructor_template)
 
-    def lower_union_wrapper_call(builder, target, args, kwargs):
+    def lower_union_wrapper_call(builder, signature, args):
         """Lower calls to this specific union constructor."""
-        return _lower_union_construction_impl(None, builder, target, args, kwargs)
+        return _lower_union_construction_impl(builder, signature, args)
 
+    lower_union_wrapper_call._numba_cuda_mlir_lowering_api = "values"
     targetctx.insert_func_defn([(lower_union_wrapper_call, wrapper, ())])

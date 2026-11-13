@@ -43,22 +43,21 @@ SQRT2 = 1.414213562373095048801688724209698079
 # ============================================================================
 
 
-@lower(complex, types.Number, types.Number)
-@lower(types.NumberClass, types.Number, types.Number)
-def complex_constructor_2args_cg(mlir_lower, target, args, kwargs):
+@lower(complex, types.Number, types.Number, api="values")
+@lower(types.NumberClass, types.Number, types.Number, api="values")
+def complex_constructor_2args_cg(mlir_lower, signature, args):
     """Code generator for complex(real, imag) constructor."""
-    assert not kwargs, "complex constructor does not accept keyword arguments"
     assert len(args) == 2, "complex constructor expects exactly 2 arguments"
-    real = mlir_lower.load_var(args[0])
-    imag = mlir_lower.load_var(args[1])
+    real = args[0]
+    imag = args[1]
 
     # Create complex number from real and imag
-    target_type = mlir_lower.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = mlir_lower.get_mlir_type(target_type)
     element_type = target_mlir_type.element_type
     # Convert to target element type
-    real_type = mlir_lower.get_numba_type(args[0].name)
-    imag_type = mlir_lower.get_numba_type(args[1].name)
+    real_type = signature.args[0]
+    imag_type = signature.args[1]
     real = convert(
         real,
         element_type,
@@ -70,22 +69,21 @@ def complex_constructor_2args_cg(mlir_lower, target, args, kwargs):
         signed=get_conversion_signedness(imag_type, target_type),
     )
     result = complex_dialect.create_(target_mlir_type, real, imag)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(complex, types.Number)
-def complex_constructor_1arg_cg(mlir_lower, target, args, kwargs):
+@lower(complex, types.Number, api="values")
+def complex_constructor_1arg_cg(mlir_lower, signature, args):
     """Code generator for complex(real) constructor - imag defaults to 0."""
-    assert not kwargs, "complex constructor does not accept keyword arguments"
     assert len(args) == 1, "complex constructor expects exactly 1 argument"
-    real = mlir_lower.load_var(args[0])
+    real = args[0]
 
     # Create complex number from real with imag=0
-    target_type = mlir_lower.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = mlir_lower.get_mlir_type(target_type)
     element_type = target_mlir_type.element_type
     # Convert to target element type
-    source_type = mlir_lower.get_numba_type(args[0].name)
+    source_type = signature.args[0]
     real = convert(
         real,
         element_type,
@@ -93,22 +91,21 @@ def complex_constructor_1arg_cg(mlir_lower, target, args, kwargs):
     )
     zero = arith.constant(result=element_type, value=0.0)
     result = complex_dialect.create_(target_mlir_type, real, zero)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(complex)
-def complex_constructor_0arg_cg(mlir_lower, target, args, kwargs):
+@lower(complex, api="values")
+def complex_constructor_0arg_cg(mlir_lower, signature, args):
     """Code generator for complex() constructor with no args - returns 0+0j."""
-    assert not kwargs, "complex constructor does not accept keyword arguments"
     assert len(args) == 0, "complex constructor expects no arguments"
 
     # Create complex number 0+0j
-    target_type = mlir_lower.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = mlir_lower.get_mlir_type(target_type)
     element_type = target_mlir_type.element_type
     zero = arith.constant(result=element_type, value=0.0)
     result = complex_dialect.create_(target_mlir_type, zero, zero)
-    mlir_lower.store_var(target, result)
+    return result
 
 
 # ============================================================================
@@ -145,13 +142,12 @@ def complex_imag_getattr(context: MLIRTargetContext, builder, target, value):
 
 
 # For conjugate, we use DeferredMethodCall like Array methods
-def complex_conjugate_cg(mlir_lower, target, args, kwargs):
+def complex_conjugate_cg(mlir_lower, signature, args):
     """Code generator for complex conjugate operation."""
-    assert not kwargs, "conjugate does not accept any keyword arguments"
     assert len(args) == 1, "conjugate expects exactly 1 argument (self)"
-    x = mlir_lower.load_var(args[0])
+    x = args[0]
     result = complex_dialect.conj(x)
-    mlir_lower.store_var(target, result)
+    return result
 
 
 @registry.lower_getattr(types.Complex, "conjugate")
@@ -161,7 +157,12 @@ def complex_conjugate_getattr(context: MLIRTargetContext, builder, target, value
     Returns a DeferredMethodCall that will execute the conjugate when called.
     """
     trace("complex.conjugate getattr")
-    builder.store_var(target, DeferredMethodCall(value, complex_conjugate_cg))
+    builder.store_var(
+        target,
+        DeferredMethodCall(
+            builder.load_var(value), builder.get_numba_type(value), complex_conjugate_cg
+        ),
+    )
 
 
 # ============================================================================
@@ -169,25 +170,23 @@ def complex_conjugate_getattr(context: MLIRTargetContext, builder, target, value
 # ============================================================================
 
 
-@lower(cmath.phase, types.Complex)
-def cmath_phase_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.phase, types.Complex, api="values")
+def cmath_phase_cg(mlir_lower, signature, args):
     """Code generator for cmath.phase."""
-    assert not kwargs, "phase does not accept any keyword arguments"
     assert len(args) == 1, "phase expects exactly 1 argument"
-    x = mlir_lower.load_var(args[0])
+    x = args[0]
     # phase = atan2(imag, real)
     imag = complex_dialect.im(x)
     real = complex_dialect.re(x)
     result = math_dialect.atan2(imag, real)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(cmath.polar, types.Complex)
-def cmath_polar_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.polar, types.Complex, api="values")
+def cmath_polar_cg(mlir_lower, signature, args):
     """Code generator for cmath.polar."""
-    assert not kwargs, "polar does not accept any keyword arguments"
     assert len(args) == 1, "polar expects exactly 1 argument"
-    x = mlir_lower.load_var(args[0])
+    x = args[0]
     real = complex_dialect.re(x)
     imag = complex_dialect.im(x)
     # r = hypot(real, imag)
@@ -195,21 +194,20 @@ def cmath_polar_cg(mlir_lower, target, args, kwargs):
     r = math_dialect.sqrt(r_sq)
     # phi = atan2(imag, real)
     phi = math_dialect.atan2(imag, real)
-    mlir_lower.store_var(target, (r, phi))
+    return (r, phi)
 
 
-@lower(cmath.rect, types.Number, types.Number)
-def cmath_rect_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.rect, types.Number, types.Number, api="values")
+def cmath_rect_cg(mlir_lower, signature, args):
     """Code generator for cmath.rect with special case handling."""
     from numba_cuda_mlir.runtime import cmath as cmath_lib
     from numba_cuda_mlir.lowering_utilities import link
 
-    assert not kwargs, "rect does not accept any keyword arguments"
     assert len(args) == 2, "rect expects exactly 2 arguments"
-    r = mlir_lower.load_var(args[0])
-    phi = mlir_lower.load_var(args[1])
+    r = args[0]
+    phi = args[1]
 
-    target_type = mlir_lower.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = mlir_lower.get_mlir_type(target_type)
     element_type = target_mlir_type.element_type
     type_suffix = "f32" if element_type == T.f32() else "f64"
@@ -237,7 +235,7 @@ def cmath_rect_cg(mlir_lower, target, args, kwargs):
 
     # Create complex from results
     result = complex_dialect.create_(target_mlir_type, call_results[0], call_results[1])
-    mlir_lower.store_var(target, result)
+    return result
 
 
 # ============================================================================
@@ -245,46 +243,43 @@ def cmath_rect_cg(mlir_lower, target, args, kwargs):
 # ============================================================================
 
 
-@lower(cmath.isnan, types.Complex)
-def cmath_isnan_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.isnan, types.Complex, api="values")
+def cmath_isnan_cg(mlir_lower, signature, args):
     """Code generator for cmath.isnan."""
-    assert not kwargs, "isnan does not accept any keyword arguments"
     assert len(args) == 1, "isnan expects exactly 1 argument"
-    x = mlir_lower.load_var(args[0])
+    x = args[0]
     real = complex_dialect.re(x)
     imag = complex_dialect.im(x)
     real_isnan = math_dialect.isnan(real)
     imag_isnan = math_dialect.isnan(imag)
     result = arith.ori(real_isnan, imag_isnan)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(cmath.isinf, types.Complex)
-def cmath_isinf_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.isinf, types.Complex, api="values")
+def cmath_isinf_cg(mlir_lower, signature, args):
     """Code generator for cmath.isinf."""
-    assert not kwargs, "isinf does not accept any keyword arguments"
     assert len(args) == 1, "isinf expects exactly 1 argument"
-    x = mlir_lower.load_var(args[0])
+    x = args[0]
     real = complex_dialect.re(x)
     imag = complex_dialect.im(x)
     real_isinf = math_dialect.isinf(real)
     imag_isinf = math_dialect.isinf(imag)
     result = arith.ori(real_isinf, imag_isinf)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(cmath.isfinite, types.Complex)
-def cmath_isfinite_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.isfinite, types.Complex, api="values")
+def cmath_isfinite_cg(mlir_lower, signature, args):
     """Code generator for cmath.isfinite."""
-    assert not kwargs, "isfinite does not accept any keyword arguments"
     assert len(args) == 1, "isfinite expects exactly 1 argument"
-    x = mlir_lower.load_var(args[0])
+    x = args[0]
     real = complex_dialect.re(x)
     imag = complex_dialect.im(x)
     real_isfinite = math_dialect.isfinite(real)
     imag_isfinite = math_dialect.isfinite(imag)
     result = arith.andi(real_isfinite, imag_isfinite)
-    mlir_lower.store_var(target, result)
+    return result
 
 
 # ============================================================================
@@ -322,28 +317,26 @@ def _call_cmath_intrinsic(mlir_lower, func_name, z, target_mlir_type):
     return complex_dialect.create_(target_mlir_type, call_results[0], call_results[1])
 
 
-@lower(cmath.exp, types.Complex)
-def cmath_exp_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.exp, types.Complex, api="values")
+def cmath_exp_cg(mlir_lower, signature, args):
     """Code generator for cmath.exp with proper special case handling."""
-    assert not kwargs, "exp does not accept any keyword arguments"
     assert len(args) == 1, "exp expects exactly 1 argument"
-    z = mlir_lower.load_var(args[0])
+    z = args[0]
 
-    target_type = mlir_lower.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = mlir_lower.get_mlir_type(target_type)
 
     result = _call_cmath_intrinsic(mlir_lower, "cmath_exp", z, target_mlir_type)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(cmath.log, types.Complex)
-def cmath_log_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.log, types.Complex, api="values")
+def cmath_log_cg(mlir_lower, signature, args):
     """Code generator for cmath.log using log(z) = log|z| + i*arg(z)."""
-    assert not kwargs, "log does not accept any keyword arguments"
     if len(args) == 1:
-        z = mlir_lower.load_var(args[0])
+        z = args[0]
 
-        target_type = mlir_lower.get_numba_type(target.name)
+        target_type = signature.return_type
         target_mlir_type = mlir_lower.get_mlir_type(target_type)
 
         x = complex_dialect.re(z)
@@ -359,32 +352,30 @@ def cmath_log_cg(mlir_lower, target, args, kwargs):
         phase = math_dialect.atan2(y, x)
 
         result = complex_dialect.create_(target_mlir_type, log_abs, phase)
-        mlir_lower.store_var(target, result)
+        return result
     else:
         raise NotImplementedError("cmath.log with base not implemented")
 
 
-@lower(cmath.log, types.Complex, types.Complex)
-def cmath_log_base_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.log, types.Complex, types.Complex, api="values")
+def cmath_log_base_cg(mlir_lower, signature, args):
     """Code generator for cmath.log with base."""
-    assert not kwargs, "log does not accept any keyword arguments"
     assert len(args) == 2, "log with base expects exactly 2 arguments"
-    x = mlir_lower.load_var(args[0])
-    base = mlir_lower.load_var(args[1])
+    x = args[0]
+    base = args[1]
     log_x = complex_dialect.log(x)
     log_base = complex_dialect.log(base)
     result = complex_dialect.div(log_x, log_base)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(cmath.log10, types.Complex)
-def cmath_log10_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.log10, types.Complex, api="values")
+def cmath_log10_cg(mlir_lower, signature, args):
     """Code generator for cmath.log10 using log10(z) = log(z) / ln(10)."""
-    assert not kwargs, "log10 does not accept any keyword arguments"
     assert len(args) == 1, "log10 expects exactly 1 argument"
-    z = mlir_lower.load_var(args[0])
+    z = args[0]
 
-    target_type = mlir_lower.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = mlir_lower.get_mlir_type(target_type)
     element_type = target_mlir_type.element_type
 
@@ -403,21 +394,20 @@ def cmath_log10_cg(mlir_lower, target, args, kwargs):
     imag = arith.divf(phase, ln10)
 
     result = complex_dialect.create_(target_mlir_type, real, imag)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(cmath.sqrt, types.Complex)
-def cmath_sqrt_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.sqrt, types.Complex, api="values")
+def cmath_sqrt_cg(mlir_lower, signature, args):
     """Code generator for cmath.sqrt with proper special case handling."""
-    assert not kwargs, "sqrt does not accept any keyword arguments"
     assert len(args) == 1, "sqrt expects exactly 1 argument"
-    z = mlir_lower.load_var(args[0])
+    z = args[0]
 
-    target_type = mlir_lower.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = mlir_lower.get_mlir_type(target_type)
 
     result = _call_cmath_intrinsic(mlir_lower, "cmath_sqrt", z, target_mlir_type)
-    mlir_lower.store_var(target, result)
+    return result
 
 
 # ============================================================================
@@ -425,52 +415,48 @@ def cmath_sqrt_cg(mlir_lower, target, args, kwargs):
 # ============================================================================
 
 
-@lower(cmath.cos, types.Complex)
-def cmath_cos_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.cos, types.Complex, api="values")
+def cmath_cos_cg(mlir_lower, signature, args):
     """Code generator for cmath.cos with proper special case handling."""
-    assert not kwargs, "cos does not accept any keyword arguments"
     assert len(args) == 1, "cos expects exactly 1 argument"
-    z = mlir_lower.load_var(args[0])
+    z = args[0]
 
-    target_type = mlir_lower.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = mlir_lower.get_mlir_type(target_type)
 
     result = _call_cmath_intrinsic(mlir_lower, "cmath_cos", z, target_mlir_type)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(cmath.sin, types.Complex)
-def cmath_sin_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.sin, types.Complex, api="values")
+def cmath_sin_cg(mlir_lower, signature, args):
     """Code generator for cmath.sin with proper special case handling."""
-    assert not kwargs, "sin does not accept any keyword arguments"
     assert len(args) == 1, "sin expects exactly 1 argument"
-    z = mlir_lower.load_var(args[0])
+    z = args[0]
 
-    target_type = mlir_lower.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = mlir_lower.get_mlir_type(target_type)
 
     result = _call_cmath_intrinsic(mlir_lower, "cmath_sin", z, target_mlir_type)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(cmath.tan, types.Complex)
-def cmath_tan_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.tan, types.Complex, api="values")
+def cmath_tan_cg(mlir_lower, signature, args):
     """Code generator for cmath.tan."""
-    assert not kwargs, "tan does not accept any keyword arguments"
     assert len(args) == 1, "tan expects exactly 1 argument"
-    x = mlir_lower.load_var(args[0])
+    x = args[0]
     result = complex_dialect.tan(x)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(cmath.acos, types.Complex)
-def cmath_acos_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.acos, types.Complex, api="values")
+def cmath_acos_cg(mlir_lower, signature, args):
     """Code generator for cmath.acos using acos(z) = pi/2 - asin(z)."""
-    assert not kwargs, "acos does not accept any keyword arguments"
     assert len(args) == 1, "acos expects exactly 1 argument"
-    z = mlir_lower.load_var(args[0])
+    z = args[0]
 
-    target_type = mlir_lower.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = mlir_lower.get_mlir_type(target_type)
     element_type = target_mlir_type.element_type
 
@@ -482,35 +468,33 @@ def cmath_acos_cg(mlir_lower, target, args, kwargs):
     result_real = arith.subf(pi_over_2, asin_real)
     result_imag = arith.negf(asin_imag)
     result = complex_dialect.create_(target_mlir_type, result_real, result_imag)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(cmath.asin, types.Complex)
-def cmath_asin_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.asin, types.Complex, api="values")
+def cmath_asin_cg(mlir_lower, signature, args):
     """Code generator for cmath.asin with proper special case handling."""
-    assert not kwargs, "asin does not accept any keyword arguments"
     assert len(args) == 1, "asin expects exactly 1 argument"
-    z = mlir_lower.load_var(args[0])
+    z = args[0]
 
-    target_type = mlir_lower.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = mlir_lower.get_mlir_type(target_type)
 
     result = _call_cmath_intrinsic(mlir_lower, "cmath_asin", z, target_mlir_type)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(cmath.atan, types.Complex)
-def cmath_atan_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.atan, types.Complex, api="values")
+def cmath_atan_cg(mlir_lower, signature, args):
     """Code generator for cmath.atan with proper special case handling."""
-    assert not kwargs, "atan does not accept any keyword arguments"
     assert len(args) == 1, "atan expects exactly 1 argument"
-    z = mlir_lower.load_var(args[0])
+    z = args[0]
 
-    target_type = mlir_lower.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = mlir_lower.get_mlir_type(target_type)
 
     result = _call_cmath_intrinsic(mlir_lower, "cmath_atan", z, target_mlir_type)
-    mlir_lower.store_var(target, result)
+    return result
 
 
 # ============================================================================
@@ -518,56 +502,52 @@ def cmath_atan_cg(mlir_lower, target, args, kwargs):
 # ============================================================================
 
 
-@lower(cmath.cosh, types.Complex)
-def cmath_cosh_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.cosh, types.Complex, api="values")
+def cmath_cosh_cg(mlir_lower, signature, args):
     """Code generator for cmath.cosh with proper special case handling."""
-    assert not kwargs, "cosh does not accept any keyword arguments"
     assert len(args) == 1, "cosh expects exactly 1 argument"
-    z = mlir_lower.load_var(args[0])
+    z = args[0]
 
-    target_type = mlir_lower.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = mlir_lower.get_mlir_type(target_type)
 
     result = _call_cmath_intrinsic(mlir_lower, "cmath_cosh", z, target_mlir_type)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(cmath.sinh, types.Complex)
-def cmath_sinh_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.sinh, types.Complex, api="values")
+def cmath_sinh_cg(mlir_lower, signature, args):
     """Code generator for cmath.sinh with proper special case handling."""
-    assert not kwargs, "sinh does not accept any keyword arguments"
     assert len(args) == 1, "sinh expects exactly 1 argument"
-    z = mlir_lower.load_var(args[0])
+    z = args[0]
 
-    target_type = mlir_lower.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = mlir_lower.get_mlir_type(target_type)
 
     result = _call_cmath_intrinsic(mlir_lower, "cmath_sinh", z, target_mlir_type)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(cmath.tanh, types.Complex)
-def cmath_tanh_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.tanh, types.Complex, api="values")
+def cmath_tanh_cg(mlir_lower, signature, args):
     """Code generator for cmath.tanh."""
-    assert not kwargs, "tanh does not accept any keyword arguments"
     assert len(args) == 1, "tanh expects exactly 1 argument"
-    x = mlir_lower.load_var(args[0])
+    x = args[0]
     result = complex_dialect.tanh(x)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(cmath.acosh, types.Complex)
-def cmath_acosh_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.acosh, types.Complex, api="values")
+def cmath_acosh_cg(mlir_lower, signature, args):
     """Code generator for cmath.acosh using acosh(z) = sign(z.imag)*i*acos(z).
 
     CPython: acosh(z) = i*acos(z) if z.imag >= 0, else -i*acos(z)
     Equivalently: acosh.real = |acos.imag|, acosh.imag = copysign(acos.real, z.imag)
     """
-    assert not kwargs, "acosh does not accept any keyword arguments"
     assert len(args) == 1, "acosh expects exactly 1 argument"
-    z = mlir_lower.load_var(args[0])
+    z = args[0]
 
-    target_type = mlir_lower.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = mlir_lower.get_mlir_type(target_type)
     element_type = target_mlir_type.element_type
 
@@ -588,36 +568,34 @@ def cmath_acosh_cg(mlir_lower, target, args, kwargs):
     result_real = math_dialect.absf(acos_imag)
     result_imag = math_dialect.copysign(acos_real, z_imag)
     result = complex_dialect.create_(target_mlir_type, result_real, result_imag)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(cmath.asinh, types.Complex)
-def cmath_asinh_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.asinh, types.Complex, api="values")
+def cmath_asinh_cg(mlir_lower, signature, args):
     """Code generator for cmath.asinh with proper special case handling."""
-    assert not kwargs, "asinh does not accept any keyword arguments"
     assert len(args) == 1, "asinh expects exactly 1 argument"
-    z = mlir_lower.load_var(args[0])
+    z = args[0]
 
-    target_type = mlir_lower.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = mlir_lower.get_mlir_type(target_type)
 
     result = _call_cmath_intrinsic(mlir_lower, "cmath_asinh", z, target_mlir_type)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(cmath.atanh, types.Complex)
-def cmath_atanh_cg(mlir_lower, target, args, kwargs):
+@lower(cmath.atanh, types.Complex, api="values")
+def cmath_atanh_cg(mlir_lower, signature, args):
     """Code generator for cmath.atanh using atanh(z) = 0.5 * log((1+z)/(1-z)).
 
     Special cases:
     - atanh(x ± inf*j) = copysign(0, x) ± pi/2*j for any x
     - For real z with |z| > 1: atanh(z) = atanh(1/z) + copysign(pi/2, imag(z))*j
     """
-    assert not kwargs, "atanh does not accept any keyword arguments"
     assert len(args) == 1, "atanh expects exactly 1 argument"
-    z = mlir_lower.load_var(args[0])
+    z = args[0]
 
-    target_type = mlir_lower.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = mlir_lower.get_mlir_type(target_type)
     element_type = target_mlir_type.element_type
 
@@ -694,4 +672,4 @@ def cmath_atanh_cg(mlir_lower, target, args, kwargs):
     )
     result = complex_dialect.create_(target_mlir_type, final_real, final_imag)
 
-    mlir_lower.store_var(target, result)
+    return result

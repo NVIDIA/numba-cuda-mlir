@@ -5,22 +5,25 @@ from numba_cuda_mlir.models import PrimitiveModel, register_model
 from numba_cuda_mlir.numba_cuda.extending import overload as numba_cuda_overload
 from numba_cuda_mlir.numba_cuda.extending import typeof_impl
 from numba_cuda_mlir.numba_cuda import serialize
-from numba_cuda_mlir.numba_cuda.typing.templates import ConcreteTemplate
+from numba_cuda_mlir.numba_cuda.typing.templates import AbstractTemplate, ConcreteTemplate
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
+from numba_cuda_mlir.numba_cuda.core.errors import TypingError
+from numba_cuda_mlir.numba_cuda.types import StarArgTuple
+import inspect
 import numpy as np
 import pytest
 
 
 def test_extending_intrinsic():
-    def codegen(builder, target, args, kwargs):
+    def codegen(builder, signature, args):
         from numba_cuda_mlir._mlir.dialects import cf, arith
         from numba_cuda_mlir._mlir.extras import types as T
 
         true = arith.constant(result=T.bool(), value=1)
         cf.assert_(true, "This should not be executed")
-        builder.store_var(target, builder.load_var(args[0]))
+        return args[0]
 
-    @extending.intrinsic
+    @extending.intrinsic(api="values")
     def do_nothing(typingctx, x):
         return x(x), codegen
 
@@ -42,10 +45,10 @@ def test_extending_intrinsic():
 
 
 def test_extending_intrinsic_with_array_argument():
-    @extending.intrinsic
+    @extending.intrinsic(api="values")
     def identity(typingctx, arr):
-        def codegen(builder, target, args, kwargs):
-            builder.store_var(target, builder.load_var(args[0]))
+        def codegen(builder, signature, args):
+            return args[0]
 
         return arr(arr), codegen
 
@@ -61,22 +64,26 @@ def test_extending_intrinsic_with_array_argument():
     assert out[0] == 7
 
 
-def test_intrinsic_serialization_preserves_ctor_kwargs_and_prefer_literal():
-    @extending.intrinsic
+def test_intrinsic_serialization_preserves_values_api_and_literal_dispatch():
+    @extending.intrinsic(api="values")
     def identity(typingctx, value):
-        def codegen(builder, target, args, kwargs):
-            builder.store_var(target, builder.load_var(args[0]))
+        def codegen(builder, signature, args):
+            return args[0]
 
         return value(value), codegen
 
-    from numba_cuda_mlir.numba_cuda.extending import _intrinsic
-
-    @_intrinsic(prefer_literal=True, target="cuda")
+    @extending.intrinsic(api="values", prefer_literal=True)
     def lit_identity(typingctx, value):
-        def codegen(builder, target, args, kwargs):
-            builder.store_var(target, builder.load_var(args[0]))
+        if not isinstance(value, types.IntegerLiteral):
+            return None
 
-        return value(value), codegen
+        def codegen(builder, signature, args):
+            from numba_cuda_mlir._mlir.dialects import arith
+            from numba_cuda_mlir._mlir.extras import types as T
+
+            return arith.constant(T.i64(), value.literal_value + 1)
+
+        return types.int64(value), codegen
 
     from numba_cuda_mlir.extending import _Intrinsic
 
@@ -86,14 +93,6 @@ def test_intrinsic_serialization_preserves_ctor_kwargs_and_prefer_literal():
     del _Intrinsic._memo[lit_identity._uuid]
     rebuilt = serialize.loads(payload)
     rebuilt_lit = serialize.loads(payload_lit)
-    assert rebuilt is not identity
-    assert rebuilt_lit is not lit_identity
-    # The constructor arguments must survive the round-trip: they feed
-    # make_intrinsic_template() (prefer_literal and template metadata).
-    assert rebuilt._ctor_kwargs == {"target": "cuda"}
-    assert rebuilt._prefer_literal is False
-    assert rebuilt_lit._ctor_kwargs == {"target": "cuda"}
-    assert rebuilt_lit._prefer_literal is True
 
     # The round-tripped instance is registered and usable in a kernel.
     extending.refresh_registries()
@@ -101,11 +100,12 @@ def test_intrinsic_serialization_preserves_ctor_kwargs_and_prefer_literal():
     @cuda.jit
     def k(x, out):
         out[0] = rebuilt(x)[0]
+        out[1] = rebuilt_lit(41)
 
     x = np.array([7])
-    out = np.zeros(1, dtype=x.dtype)
+    out = np.zeros(2, dtype=x.dtype)
     k[1, 1](x, out)
-    assert out[0] == 7
+    np.testing.assert_array_equal(out, [7, 42])
 
 
 @pytest.mark.parametrize("lowered_for", [None, types.Float], ids=["unlowered", "other_signature"])
@@ -122,14 +122,14 @@ def test_overload_on_vendored_intrinsic_gives_way_to_native_typing(lowered_for):
 
     vendored_codegen.__module__ = "numba_cuda_mlir.numba_cuda.fake"
 
-    @extending.intrinsic
+    @extending.intrinsic(api="values")
     def vendored_intrinsic(typingctx, x):
         return x(x), vendored_codegen
 
     if lowered_for is not None:
         # An MLIR lowering that does not cover the integer call below.
-        @lowering_registry.lower(vendored_intrinsic, lowered_for)
-        def lower_vendored_intrinsic(builder, target, args, kwargs):
+        @lowering_registry.lower(vendored_intrinsic, lowered_for, api="values")
+        def lower_vendored_intrinsic(builder, signature, args):
             raise AssertionError("lowering for another signature must not be selected")
 
     def double(x):
@@ -143,10 +143,10 @@ def test_overload_on_vendored_intrinsic_gives_way_to_native_typing(lowered_for):
     def type_double(context):
         return lambda x: x
 
-    @lowering_registry.lower(double, types.Integer)
-    def lower_double(builder, target, args, kwargs):
-        value = builder.load_var(args[0])
-        builder.store_var(target, arith.addi(value, value))
+    @lowering_registry.lower(double, types.Integer, api="values")
+    def lower_double(builder, signature, args):
+        value = args[0]
+        return arith.addi(value, value)
 
     # Makes vendored_intrinsic visible to typing, as in issue #327.
     extending.refresh_registries()
@@ -163,16 +163,15 @@ def test_overload_on_vendored_intrinsic_gives_way_to_native_typing(lowered_for):
 def test_extending_overload_with_lowering():
     from numba_cuda_mlir.extending import lowering_registry
 
-    @lowering_registry.lower(np.sum, types.Any, types.Any, types.Any)
-    def codegen(builder, target, args, kwargs):
+    @lowering_registry.lower(np.sum, types.Any, types.Any, types.Any, api="values")
+    def codegen(builder, signature, args):
         """
         TODO: we shouldn't need this...
         Numba should be able to type _and lower_ the overload as it is
         without defining a new lowering. Likely due to a misconfiguration in our
         lowering registry.
         """
-        x, _, _ = builder.load_vars(args)
-        builder.store_var(target, x)
+        return args[0]
 
     @extending.overload(np.sum, typing_registry=extending.typing_registry)
     def sum_overload(a, b, c):
@@ -788,3 +787,386 @@ def test_inline_overload_returning_dtype_token_for_local_array():
     buf = np.zeros(1, dtype=np.float32)
     kernel[1, 1](buf)
     assert buf[0] == 1
+
+
+def _register_selected_identity(selected_type, api="values"):
+    def selected_identity(value):
+        raise NotImplementedError
+
+    class SelectedIdentityTemplate(ConcreteTemplate):
+        key = selected_identity
+        cases = [selected_type(selected_type)]
+
+    extending.typing_registry.register_global(
+        selected_identity, types.Function(SelectedIdentityTemplate)
+    )
+
+    if api == "values":
+
+        @extending.lowering_registry.lower(selected_identity, selected_type, api="values")
+        def lower_selected_identity(builder, signature, args):
+            return args[0]
+    else:
+
+        @extending.lowering_registry.lower(selected_identity, selected_type)
+        def lower_selected_identity(builder, target, args, kws):
+            builder.store_var(target, builder.load_var(args[0]))
+
+    extending.refresh_registries()
+    return selected_identity
+
+
+@pytest.mark.parametrize("api", ["vars", "values"])
+@pytest.mark.parametrize(
+    "source_dtype,selected_type,value",
+    [
+        (np.uint32, types.uint64, 7),
+        (np.uint32, types.uint64, np.iinfo(np.uint32).max),
+        (np.int32, types.int64, -7),
+        (np.int32, types.int64, np.iinfo(np.int32).min),
+        (np.int32, types.float64, -7),
+        (np.float32, types.float64, 1.75),
+    ],
+    ids=["unsigned", "unsigned-boundary", "signed", "signed-boundary", "int-float", "float"],
+)
+def test_registered_call_selected_argument_conversion(source_dtype, selected_type, value, api):
+    """Selected operand conversions must not change subsequent uses of the input."""
+    selected_identity = _register_selected_identity(selected_type, api)
+
+    @cuda.jit
+    def kernel(source, converted, original):
+        value = source[0]
+        converted[0] = selected_identity(value)
+        original[0] = value
+        original[1] = value - source[0]
+
+    source = np.array([value], dtype=source_dtype)
+    converted = np.zeros(1, dtype=str(selected_type))
+    original = np.zeros(2, dtype=source_dtype)
+    kernel[1, 1](source, converted, original)
+    assert converted[0] == value
+    assert original[0] == value
+    assert original[1] == 0
+
+
+def test_registered_call_keyword_binding_uses_parameter_names():
+    from numba_cuda_mlir._mlir.dialects import arith
+    from numba_cuda_mlir._mlir.extras import types as T
+
+    def subtract(b, c):
+        raise NotImplementedError
+
+    class SubtractTemplate(AbstractTemplate):
+        key = subtract
+
+        def generic(self, args, kws):
+            return types.float64(types.int64, types.float64).replace(
+                pysig=inspect.signature(subtract)
+            )
+
+    extending.typing_registry.register_global(subtract, types.Function(SubtractTemplate))
+
+    @extending.lowering_registry.lower(subtract, types.int64, types.float64, api="values")
+    def lower_subtract(builder, signature, args):
+        b, c = args
+        return arith.subf(arith.sitofp(T.f64(), b), c)
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(b, c, out):
+        out[0] = subtract(b, c)
+        out[1] = subtract(b, c=c)
+        out[2] = subtract(b=b, c=c)
+        out[3] = subtract(c=c, b=b)
+
+    out = np.zeros(4, dtype=np.float64)
+    kernel[1, 1](np.int32(3), np.float32(1.75), out)
+    np.testing.assert_array_equal(out, [1.25] * 4)
+
+
+@pytest.mark.parametrize("keyword_only", [False, True])
+def test_registered_call_materializes_omitted_defaults(keyword_only):
+    """Both defaults are consumed as operands, including reordered keyword-only calls."""
+    from numba_cuda_mlir._mlir.dialects import arith
+    from numba_cuda_mlir._mlir.extras import types as T
+
+    if keyword_only:
+
+        def weighted(a, *, b=7, c=1.75):
+            raise NotImplementedError
+    else:
+
+        def weighted(a, b=7, c=1.75):
+            raise NotImplementedError
+
+    pysig = inspect.signature(weighted)
+
+    class WeightedTemplate(AbstractTemplate):
+        key = weighted
+
+        def generic(self, args, kws):
+            bound = pysig.bind(*args, **kws)
+            selected_args = (
+                types.int64,
+                types.int64 if "b" in bound.arguments else types.Omitted(7),
+                types.float64 if "c" in bound.arguments else types.Omitted(1.75),
+            )
+            return types.float64(*selected_args).replace(pysig=pysig)
+
+    extending.typing_registry.register_global(weighted, types.Function(WeightedTemplate))
+
+    @extending.lowering_registry.lower(weighted, types.int64, types.Any, types.Any, api="values")
+    def lower_weighted(builder, signature, args):
+        a, b, c = args
+        a = arith.sitofp(T.f64(), a)
+        b = arith.sitofp(T.f64(), b)
+        return arith.addf(arith.mulf(a, b), c)
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(a, b, c, out):
+        out[0] = weighted(a)
+        out[1] = weighted(a, c=c)
+        out[2] = weighted(c=c, a=a)
+        out[3] = weighted(a, b=b)
+        out[4] = weighted(b=b, a=a)
+        out[5] = weighted(c=c, b=b, a=a)
+
+    out = np.zeros(6, dtype=np.float64)
+    kernel[1, 1](np.int32(3), np.int32(2), np.float32(4.5), out)
+    np.testing.assert_array_equal(out, [22.75, 25.5, 25.5, 7.75, 7.75, 10.5])
+
+
+def test_registered_call_keywords_require_python_signature():
+    def missing_binding(b, c):
+        raise NotImplementedError
+
+    class MissingBindingTemplate(AbstractTemplate):
+        key = missing_binding
+
+        def generic(self, args, kws):
+            return types.float64(types.int64, types.float64)
+
+    extending.typing_registry.register_global(
+        missing_binding, types.Function(MissingBindingTemplate)
+    )
+
+    @extending.lowering_registry.lower(missing_binding, types.int64, types.float64, api="values")
+    def lower_missing_binding(builder, signature, args):
+        return args[1]
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(out):
+        out[0] = missing_binding(c=1.75, b=3)
+
+    with pytest.raises(TypingError, match="(?i)(binding|pysig|python signature)"):
+        kernel[1, 1](np.zeros(1, dtype=np.float64))
+
+
+@pytest.mark.parametrize("api", ["vars", "values"])
+def test_registered_call_selected_conversions_with_ssa_disabled(monkeypatch, api):
+    from numba_cuda_mlir import mlir_compiler
+
+    get_compiler_class = mlir_compiler.get_compiler_class
+
+    def get_non_ssa_compiler(*args, **kwargs):
+        compiler_class = get_compiler_class(*args, **kwargs)
+
+        class NonSSACompiler(compiler_class):
+            def define_pipelines(self):
+                self.state.flags.enable_ssa = False
+                return super().define_pipelines()
+
+        return NonSSACompiler
+
+    monkeypatch.setattr(mlir_compiler, "get_compiler_class", get_non_ssa_compiler)
+    selected_identity = _register_selected_identity(types.uint64, api)
+
+    @cuda.jit
+    def kernel(flag, a, b, out):
+        if flag:
+            result = selected_identity(a)
+        else:
+            result = selected_identity(b)
+        out[0] = result
+        out[1] = selected_identity(a)
+        out[2] = selected_identity(b)
+
+    out = np.zeros(3, dtype=np.uint64)
+    for flag, expected in [(True, 7), (False, 19)]:
+        kernel[1, 1](flag, np.uint32(7), np.uint32(19), out)
+        np.testing.assert_array_equal(out, [expected, 7, 19])
+
+
+@pytest.mark.parametrize("api", ["vars", "values"])
+@pytest.mark.parametrize("case", ["empty", "homogeneous", "heterogeneous", "tuple"])
+def test_registered_call_folded_varargs_and_keyword_scale(case, api):
+    from numba_cuda_mlir._mlir.dialects import arith
+    from numba_cuda_mlir._mlir.extras import types as T
+
+    def scaled_sum(*values, scale):
+        raise NotImplementedError
+
+    element_types = {
+        "empty": (),
+        "homogeneous": (types.float64, types.float64),
+        "heterogeneous": (types.int64, types.float64),
+        "tuple": (types.Tuple((types.int32, types.float32)),),
+    }[case]
+    selected_args = (StarArgTuple(element_types), types.float64)
+
+    class ScaledSumTemplate(AbstractTemplate):
+        key = scaled_sum
+
+        def generic(self, args, kws):
+            return types.float64(*selected_args).replace(pysig=inspect.signature(scaled_sum))
+
+    extending.typing_registry.register_global(scaled_sum, types.Function(ScaledSumTemplate))
+
+    def lower_scaled_sum(builder, signature, args):
+        values, scale = args
+        total = arith.constant(T.f64(), 0.0)
+        for value, arg_type in zip(values, signature.args[0].types):
+            if isinstance(arg_type, types.BaseTuple):
+                values_and_types = zip(value, arg_type.types)
+            else:
+                values_and_types = [(value, arg_type)]
+            for value, value_type in values_and_types:
+                if isinstance(value_type, types.Integer):
+                    value = arith.sitofp(T.f64(), value)
+                elif value_type == types.float32:
+                    value = arith.extf(T.f64(), value)
+                total = arith.addf(total, value)
+        # Keep the bundle's arity numerically observable: a tuple passed as one
+        # argument must remain distinct from the two expanded scalar arguments.
+        total = arith.addf(total, arith.constant(T.f64(), float(len(values))))
+        return arith.mulf(total, scale)
+
+    if api == "values":
+        extending.lowering_registry.lower(scaled_sum, *selected_args, api="values")(
+            lower_scaled_sum
+        )
+    else:
+
+        @extending.lowering_registry.lower(scaled_sum, *selected_args)
+        def lower_legacy_scaled_sum(builder, target, args, kws):
+            values = tuple(builder.load_var(arg) for arg in args)
+            scale = builder.load_var(dict(kws)["scale"])
+            result = lower_scaled_sum(builder, types.float64(*selected_args), (values, scale))
+            builder.store_var(target, result)
+
+    extending.refresh_registries()
+
+    if case == "empty":
+
+        @cuda.jit
+        def kernel(a, b, scale, out):
+            out[0] = scaled_sum(*(), scale=scale)
+    elif case == "tuple":
+
+        @cuda.jit
+        def kernel(a, b, scale, out):
+            out[0] = scaled_sum((a, b), scale=scale)
+    else:
+
+        @cuda.jit
+        def kernel(a, b, scale, out):
+            out[0] = scaled_sum(*(a, b), scale=scale)
+
+    b = np.int32(2) if case == "homogeneous" else np.float32(1.75)
+    out = np.zeros(1, dtype=np.float64)
+    kernel[1, 1](np.int32(3), b, np.int32(2), out)
+    arity = 1 if case == "tuple" else 2
+    expected = 0 if case == "empty" else (3 + b + arity) * 2
+    assert out[0] == expected
+
+
+def test_legacy_registered_call_preserves_keywords_defaults_and_literals():
+    from numba_cuda_mlir._mlir.dialects import arith
+    from numba_cuda_mlir._mlir.extras import types as T
+    from numba_cuda_mlir.numba_cuda.core.ir import Var
+
+    def weighted(a, b=7, *, c=1.75):
+        raise NotImplementedError
+
+    pysig = inspect.signature(weighted)
+
+    class WeightedTemplate(AbstractTemplate):
+        key = weighted
+
+        def generic(self, args, kws):
+            bound = pysig.bind(*args, **kws)
+            return types.float64(
+                types.int64,
+                types.int64 if "b" in bound.arguments else types.Omitted(7),
+                types.float64 if "c" in bound.arguments else types.Omitted(1.75),
+            ).replace(pysig=pysig)
+
+    extending.typing_registry.register_global(weighted, types.Function(WeightedTemplate))
+
+    @extending.lowering_registry.lower(weighted, types.int64, types.Any, types.Any)
+    def lower_weighted(builder, target, args, kws):
+        bound = pysig.bind(*args, **dict(kws))
+        bound.apply_defaults()
+
+        def load(value):
+            if not isinstance(value, Var):
+                return arith.constant(T.f64(), float(value))
+            value_type = builder.get_numba_type(value)
+            if isinstance(value_type, types.IntegerLiteral):
+                return arith.constant(T.f64(), float(value_type.literal_value))
+            lowered = builder.load_var(value)
+            if isinstance(value_type, types.Integer):
+                return arith.sitofp(T.f64(), lowered)
+            return lowered
+
+        a, b, c = (load(bound.arguments[name]) for name in ("a", "b", "c"))
+        builder.store_var(target, arith.addf(arith.mulf(a, b), c))
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(value, b, c, out, original):
+        out[0] = weighted(value)
+        out[1] = weighted(value, c=c)
+        out[2] = weighted(c=c, a=value)
+        out[3] = weighted(value, b=b)
+        out[4] = weighted(b=b, a=value)
+        out[5] = weighted(c=c, b=b, a=value)
+        out[6] = weighted(value, c=value)
+        out[7] = weighted(3, b=2, c=4.5)
+        original[0] = value
+
+    out = np.zeros(8, dtype=np.float64)
+    original = np.zeros(1, dtype=np.uint32)
+    kernel[1, 1](np.uint32(3), np.int32(2), np.float32(4.5), out, original)
+    np.testing.assert_array_equal(out, [22.75, 25.5, 25.5, 7.75, 7.75, 10.5, 24, 10.5])
+    assert original[0] == 3
+
+
+def test_legacy_intrinsic_preserves_literal_metadata():
+    @extending.intrinsic
+    def add_literal_offset(typingctx, value, offset):
+        def codegen(builder, target, args, kws):
+            from numba_cuda_mlir._mlir.dialects import arith
+            from numba_cuda_mlir._mlir.extras import types as T
+
+            offset = builder.get_numba_type(args[1]).literal_value
+            result = arith.addi(builder.load_var(args[0]), arith.constant(T.i64(), offset))
+            builder.store_var(target, result)
+
+        return types.int64(types.int64, types.int64), codegen
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(value, out):
+        out[0] = add_literal_offset(value, 11)
+
+    out = np.zeros(1, dtype=np.int64)
+    kernel[1, 1](np.int32(-7), out)
+    assert out[0] == 4

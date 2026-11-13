@@ -20,13 +20,13 @@ from numba_cuda_mlir.numba_cuda.typing.templates import (
 )
 
 from numba_cuda_mlir.numba_cuda.extending import (
-    intrinsic,
+    _intrinsic as _numba_intrinsic,
     _Intrinsic,
 )
 
 from numba_cuda_mlir.models import mlir_data_manager
 
-from numba_cuda_mlir.lowering_registry import LoweringRegistry
+from numba_cuda_mlir.lowering_registry import LoweringRegistry, _with_lowering_api
 from numba_cuda_mlir.extending.argument_handler import ArgumentHandler
 from numba_cuda_mlir._whole_function_planners import (
     WholeFunctionPlanner,
@@ -89,6 +89,24 @@ def refresh_registries(*, typing=True, target=True, include_uninitialized_cuda=T
         or cuda_target._targetctx_initialized
     ):
         cuda_target.refresh_registries(typing=typing, target=target)
+
+
+def intrinsic(func=None, *, api="vars", **options):
+    if api not in ("vars", "values"):
+        raise ValueError(f"Unsupported lowering API: {api!r}")
+
+    def decorate(definition):
+        @functools.wraps(definition)
+        def typed_definition(*args, **kwargs):
+            result = definition(*args, **kwargs)
+            if result is None:
+                return None
+            signature, codegen = result
+            return signature, _with_lowering_api(codegen, api)
+
+        return _numba_intrinsic(**{"target": "cuda", **options})(typed_definition)
+
+    return decorate(func) if func is not None else decorate
 
 
 def type_callable(func, typing_registry=None):
@@ -223,7 +241,10 @@ class _NumbaCudaMlirOverloadAttributeTemplate(_OverloadAttributeTemplate):
                 raise NotImplementedError(
                     f"No overload_attribute dispatcher for {value_type}.{attr}"
                 )
-            builder.lower_overload_call(target, disp, [value])
+            signature = builder.get_numba_type(target)(value_type)
+            signature, values = builder._fold_overload_call_values(disp, signature, (value,), ())
+            result = builder.lower_overload_call_values(disp, signature, values)
+            builder.store_var(target, result)
 
     @classmethod
     def _find_overload_dispatcher(cls, typing_context, typ):
@@ -243,7 +264,7 @@ class _NumbaCudaMlirOverloadAttributeTemplate(_OverloadAttributeTemplate):
 class _NumbaCudaMlirOverloadMethodTemplate(_OverloadMethodTemplate):
     """Override _init_once to skip numba's llvmlite lowering registration.
 
-    Method lowering in numba_cuda_mlir goes through BoundFunction → get_overload_builder,
+    Method lowering in numba_cuda_mlir goes through BoundFunction → get_overload_dispatcher,
     so the registry-based lowering from numba's _init_once is never used.
     Skipping it avoids polluting numba_cuda_mlir's lowering registry with numba closures.
     """

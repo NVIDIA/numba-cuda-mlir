@@ -89,12 +89,6 @@ def _ensure_float(value: ir.Value, source_type: types.Type | None = None) -> ir.
     return value
 
 
-def _load_as_float(mlir_lower, operand: numba_ir.Var) -> ir.Value:
-    """Load a math operand as a float, interpreting integers per their signedness."""
-    value = mlir_lower.load_var(operand)
-    return _ensure_float(value, mlir_lower.get_numba_type(operand.name))
-
-
 def _is_integer_type(ty: ir.Type) -> bool:
     """Check if the type is an integer or index type."""
     return isinstance(ty, (ir.IntegerType, ir.IndexType))
@@ -282,16 +276,14 @@ def _get_operation_for_op_and_type(op, type, is_unsigned) -> tuple[OpForType, Ma
             raise ValueError(f"Unsupported type: {type}")
 
 
-@lower(operator.pow, types.Number, types.Number)
-@lower(operator.ipow, types.Number, types.Number)
-@lower(pow, types.Number, types.Number)
-def pow_cg(builder, target, args, kwargs):
-    assert not kwargs, "pow_cg does not accept any keyword arguments"
+@lower(operator.pow, types.Number, types.Number, api="values")
+@lower(operator.ipow, types.Number, types.Number, api="values")
+@lower(pow, types.Number, types.Number, api="values")
+def pow_cg(builder, signature, args):
     assert len(args) == 2, "pow_cg expects 2 arguments"
-    target_type = builder.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = builder.get_mlir_type(target_type)
     lhs, rhs = args
-    lhs, rhs = builder.load_var(lhs), builder.load_var(rhs)
     lhs_mlir_type, rhs_mlir_type = lhs.type, rhs.type
     match (lhs_mlir_type, rhs_mlir_type):
         case (ir.FloatType(), ir.FloatType()):
@@ -320,7 +312,7 @@ def pow_cg(builder, target, args, kwargs):
 
     res = op(lhs, rhs)
     res = builder.mlir_convert(res, target_mlir_type)
-    builder.store_var(target, res)
+    return res
 
 
 def _convert_operand(value, source_type, target_type, target_mlir_type):
@@ -328,21 +320,10 @@ def _convert_operand(value, source_type, target_type, target_mlir_type):
     return lowering_utilities.convert(value, target_mlir_type, signed=signed)
 
 
-def _load_and_convert_operand(builder, operand, target_type, target_mlir_type):
-    source_type = builder.get_numba_type(operand.name)
-    value = builder.load_var(operand)
-    return _convert_operand(value, source_type, target_type, target_mlir_type)
-
-
-def _bin_op_cg(op, builder, target, args, kwargs):
-    assert not kwargs, "add_cg does not accept any keyword arguments"
+def _bin_op_cg(op, builder, signature, args):
     assert len(args) == 2, "add_cg expects 2 arguments"
     lhs, rhs = args
-    target_type, lhs_type, rhs_type = (
-        builder.get_numba_type(target.name),
-        builder.get_numba_type(lhs.name),
-        builder.get_numba_type(rhs.name),
-    )
+    target_type, lhs_type, rhs_type = (signature.return_type, signature.args[0], signature.args[1])
     target_mlir_type = builder.get_mlir_type(target_type)
 
     # Ensure numbers whose MLIR types are signless end up with the correct
@@ -390,9 +371,7 @@ def _bin_op_cg(op, builder, target, args, kwargs):
         assert promoted_numba_type is not None
         unified_type = builder.get_mlir_type(promoted_numba_type)
 
-    lhs, rhs = builder.load_var(lhs), builder.load_var(rhs)
-
-    # Handle cases where load_var returns Python/numpy scalars instead of MLIR values
+    # Handle lowered Python/numpy scalars alongside MLIR values
     # This can happen with module-level constants
     if not isinstance(lhs, ir.Value):
         # Convert numpy scalars to Python scalars
@@ -437,149 +416,146 @@ def _bin_op_cg(op, builder, target, args, kwargs):
         raise ValueError(f"No operation found for {op=} and {target_mlir_type=}")
 
     res = builder.mlir_convert(res, target_mlir_type)
-    builder.store_var(target, res)
+    return res
 
 
-@lower(operator.sub, types.Number, types.Number)
-@lower(operator.isub, types.Number, types.Number)
-@lower(operator.sub, types.Boolean, types.Number)
-@lower(operator.sub, types.Number, types.Boolean)
-@lower(operator.sub, types.Boolean, types.Boolean)
-@lower(operator.isub, types.Boolean, types.Number)
-@lower(operator.isub, types.Number, types.Boolean)
-@lower(operator.isub, types.Boolean, types.Boolean)
-def sub_cg(builder, target, args, kwargs):
-    return _bin_op_cg(operator.sub, builder, target, args, kwargs)
+@lower(operator.sub, types.Number, types.Number, api="values")
+@lower(operator.isub, types.Number, types.Number, api="values")
+@lower(operator.sub, types.Boolean, types.Number, api="values")
+@lower(operator.sub, types.Number, types.Boolean, api="values")
+@lower(operator.sub, types.Boolean, types.Boolean, api="values")
+@lower(operator.isub, types.Boolean, types.Number, api="values")
+@lower(operator.isub, types.Number, types.Boolean, api="values")
+@lower(operator.isub, types.Boolean, types.Boolean, api="values")
+def sub_cg(builder, signature, args):
+    return _bin_op_cg(operator.sub, builder, signature, args)
 
 
-@lower(operator.mul, types.Number, types.Number)
-@lower(operator.imul, types.Number, types.Number)
-@lower(operator.mul, types.Number, types.Boolean)
-@lower(operator.mul, types.Boolean, types.Number)
-@lower(operator.mul, types.Boolean, types.Boolean)
-def mul_cg(builder, target, args, kwargs):
-    return _bin_op_cg(operator.mul, builder, target, args, kwargs)
+@lower(operator.mul, types.Number, types.Number, api="values")
+@lower(operator.imul, types.Number, types.Number, api="values")
+@lower(operator.mul, types.Number, types.Boolean, api="values")
+@lower(operator.mul, types.Boolean, types.Number, api="values")
+@lower(operator.mul, types.Boolean, types.Boolean, api="values")
+def mul_cg(builder, signature, args):
+    return _bin_op_cg(operator.mul, builder, signature, args)
 
 
-@lower(operator.truediv, types.Number, types.Number)
-@lower(operator.itruediv, types.Number, types.Number)
-def truediv_cg(builder, target, args, kwargs):
-    return _bin_op_cg(operator.truediv, builder, target, args, kwargs)
+@lower(operator.truediv, types.Number, types.Number, api="values")
+@lower(operator.itruediv, types.Number, types.Number, api="values")
+def truediv_cg(builder, signature, args):
+    return _bin_op_cg(operator.truediv, builder, signature, args)
 
 
-@lower(operator.ne, types.Number, types.Number)
-@lower(operator.ne, types.Boolean, types.Boolean)
-@lower(operator.ne, types.Boolean, types.Integer)
-@lower(operator.ne, types.Integer, types.Boolean)
-def ne_cg(builder, target, args, kwargs):
-    return _bin_op_cg(operator.ne, builder, target, args, kwargs)
+@lower(operator.ne, types.Number, types.Number, api="values")
+@lower(operator.ne, types.Boolean, types.Boolean, api="values")
+@lower(operator.ne, types.Boolean, types.Integer, api="values")
+@lower(operator.ne, types.Integer, types.Boolean, api="values")
+def ne_cg(builder, signature, args):
+    return _bin_op_cg(operator.ne, builder, signature, args)
 
 
-@lower(operator.eq, types.Number, types.Number)
-@lower(operator.eq, types.Boolean, types.Boolean)
-@lower(operator.eq, types.Boolean, types.Integer)
-@lower(operator.eq, types.Integer, types.Boolean)
-def eq_cg(builder, target, args, kwargs):
-    return _bin_op_cg(operator.eq, builder, target, args, kwargs)
+@lower(operator.eq, types.Number, types.Number, api="values")
+@lower(operator.eq, types.Boolean, types.Boolean, api="values")
+@lower(operator.eq, types.Boolean, types.Integer, api="values")
+@lower(operator.eq, types.Integer, types.Boolean, api="values")
+def eq_cg(builder, signature, args):
+    return _bin_op_cg(operator.eq, builder, signature, args)
 
 
-@lower(operator.lt, types.Number, types.Number)
-@lower(operator.lt, types.Boolean, types.Boolean)
-@lower(operator.lt, types.Boolean, types.Integer)
-@lower(operator.lt, types.Integer, types.Boolean)
-def lt_cg(builder, target, args, kwargs):
-    return _bin_op_cg(operator.lt, builder, target, args, kwargs)
+@lower(operator.lt, types.Number, types.Number, api="values")
+@lower(operator.lt, types.Boolean, types.Boolean, api="values")
+@lower(operator.lt, types.Boolean, types.Integer, api="values")
+@lower(operator.lt, types.Integer, types.Boolean, api="values")
+def lt_cg(builder, signature, args):
+    return _bin_op_cg(operator.lt, builder, signature, args)
 
 
-@lower(operator.le, types.Number, types.Number)
-@lower(operator.le, types.Boolean, types.Boolean)
-@lower(operator.le, types.Boolean, types.Integer)
-@lower(operator.le, types.Integer, types.Boolean)
-def le_cg(builder, target, args, kwargs):
-    return _bin_op_cg(operator.le, builder, target, args, kwargs)
+@lower(operator.le, types.Number, types.Number, api="values")
+@lower(operator.le, types.Boolean, types.Boolean, api="values")
+@lower(operator.le, types.Boolean, types.Integer, api="values")
+@lower(operator.le, types.Integer, types.Boolean, api="values")
+def le_cg(builder, signature, args):
+    return _bin_op_cg(operator.le, builder, signature, args)
 
 
-@lower(operator.gt, types.Number, types.Number)
-@lower(operator.gt, types.Boolean, types.Boolean)
-@lower(operator.gt, types.Boolean, types.Integer)
-@lower(operator.gt, types.Integer, types.Boolean)
-def gt_cg(builder, target, args, kwargs):
-    return _bin_op_cg(operator.gt, builder, target, args, kwargs)
+@lower(operator.gt, types.Number, types.Number, api="values")
+@lower(operator.gt, types.Boolean, types.Boolean, api="values")
+@lower(operator.gt, types.Boolean, types.Integer, api="values")
+@lower(operator.gt, types.Integer, types.Boolean, api="values")
+def gt_cg(builder, signature, args):
+    return _bin_op_cg(operator.gt, builder, signature, args)
 
 
-@lower(operator.ge, types.Number, types.Number)
-@lower(operator.ge, types.Boolean, types.Boolean)
-@lower(operator.ge, types.Boolean, types.Integer)
-@lower(operator.ge, types.Integer, types.Boolean)
-def ge_cg(builder, target, args, kwargs):
-    return _bin_op_cg(operator.ge, builder, target, args, kwargs)
+@lower(operator.ge, types.Number, types.Number, api="values")
+@lower(operator.ge, types.Boolean, types.Boolean, api="values")
+@lower(operator.ge, types.Boolean, types.Integer, api="values")
+@lower(operator.ge, types.Integer, types.Boolean, api="values")
+def ge_cg(builder, signature, args):
+    return _bin_op_cg(operator.ge, builder, signature, args)
 
 
-@lower(operator.add, types.Number, types.Number)
-@lower(operator.iadd, types.Number, types.Number)
-@lower(operator.add, types.Boolean, types.Number)
-@lower(operator.add, types.Number, types.Boolean)
-@lower(operator.add, types.Boolean, types.Boolean)
-@lower(operator.iadd, types.Boolean, types.Number)
-@lower(operator.iadd, types.Number, types.Boolean)
-@lower(operator.iadd, types.Boolean, types.Boolean)
-def iadd_cg(builder, target, args, kwargs):
+@lower(operator.add, types.Number, types.Number, api="values")
+@lower(operator.iadd, types.Number, types.Number, api="values")
+@lower(operator.add, types.Boolean, types.Number, api="values")
+@lower(operator.add, types.Number, types.Boolean, api="values")
+@lower(operator.add, types.Boolean, types.Boolean, api="values")
+@lower(operator.iadd, types.Boolean, types.Number, api="values")
+@lower(operator.iadd, types.Number, types.Boolean, api="values")
+@lower(operator.iadd, types.Boolean, types.Boolean, api="values")
+def iadd_cg(builder, signature, args):
     """
     This operator is weird. Sometimes, Numba resolves addition of
     two integers to operator.add instead of operator.iadd.
     To accommodate this, we handle both cases here, and distinguish
     based on the target type.
     """
-    target_type = builder.get_numba_type(target.name)
+    target_type = signature.return_type
     if isinstance(target_type, (types.Integer, types.Boolean)):
-        return _bin_op_cg(operator.iadd, builder, target, args, kwargs)
+        return _bin_op_cg(operator.iadd, builder, signature, args)
     elif isinstance(target_type, (types.Float, types.Complex)):
-        return _bin_op_cg(operator.add, builder, target, args, kwargs)
+        return _bin_op_cg(operator.add, builder, signature, args)
     else:
         raise ValueError(f"Unsupported target type: {target_type}")
 
 
-@lower(operator.ior, types.Integer, types.Integer)
-@lower(operator.ior, types.Boolean, types.Boolean)
-@lower(operator.ior, types.Boolean, types.Integer)
-@lower(operator.ior, types.Integer, types.Boolean)
-def ior_cg(builder, target, args, kwargs):
-    return _bin_op_cg(operator.ior, builder, target, args, kwargs)
+@lower(operator.ior, types.Integer, types.Integer, api="values")
+@lower(operator.ior, types.Boolean, types.Boolean, api="values")
+@lower(operator.ior, types.Boolean, types.Integer, api="values")
+@lower(operator.ior, types.Integer, types.Boolean, api="values")
+def ior_cg(builder, signature, args):
+    return _bin_op_cg(operator.ior, builder, signature, args)
 
 
-@lower(operator.iand, types.Integer, types.Integer)
-@lower(operator.iand, types.Boolean, types.Boolean)
-@lower(operator.iand, types.Boolean, types.Integer)
-@lower(operator.iand, types.Integer, types.Boolean)
-def iand_cg(builder, target, args, kwargs):
-    return _bin_op_cg(operator.iand, builder, target, args, kwargs)
+@lower(operator.iand, types.Integer, types.Integer, api="values")
+@lower(operator.iand, types.Boolean, types.Boolean, api="values")
+@lower(operator.iand, types.Boolean, types.Integer, api="values")
+@lower(operator.iand, types.Integer, types.Boolean, api="values")
+def iand_cg(builder, signature, args):
+    return _bin_op_cg(operator.iand, builder, signature, args)
 
 
-@lower(operator.ixor, types.Integer, types.Integer)
-@lower(operator.ixor, types.Boolean, types.Boolean)
-@lower(operator.ixor, types.Boolean, types.Integer)
-@lower(operator.ixor, types.Integer, types.Boolean)
-def ixor_cg(builder, target, args, kwargs):
-    return _bin_op_cg(operator.ixor, builder, target, args, kwargs)
+@lower(operator.ixor, types.Integer, types.Integer, api="values")
+@lower(operator.ixor, types.Boolean, types.Boolean, api="values")
+@lower(operator.ixor, types.Boolean, types.Integer, api="values")
+@lower(operator.ixor, types.Integer, types.Boolean, api="values")
+def ixor_cg(builder, signature, args):
+    return _bin_op_cg(operator.ixor, builder, signature, args)
 
 
-@lower(numba_cuda_mlir.types.ptr, types.Array)
-def pointer_array_cg(builder, target, args, kwargs):
+@lower(numba_cuda_mlir.types.ptr, types.Array, api="values")
+def pointer_array_cg(builder, signature, args):
     trace()
-    assert len(args) == 1 and not kwargs, (
-        "calling types.ptr() is only supported on arrays, pointers, and integers"
-    )
-    array = builder.load_var(args[0])
-    builder.store_var(target, lowering_utilities.memref_data_pointer(array))
+    assert len(args) == 1, "calling types.ptr() is only supported on arrays, pointers, and integers"
+    array = args[0]
+    return lowering_utilities.memref_data_pointer(array)
 
 
-@lower(operator.sub, numba_cuda_mlir.types.ptr, types.Integer)
-@lower(operator.sub, types.Integer, numba_cuda_mlir.types.ptr)
-def pointer_sub_cg(builder, target, args, kwargs):
+@lower(operator.sub, numba_cuda_mlir.types.ptr, types.Integer, api="values")
+@lower(operator.sub, types.Integer, numba_cuda_mlir.types.ptr, api="values")
+def pointer_sub_cg(builder, signature, args):
     trace()
-    assert not kwargs, "pointer_sub_cg does not accept any keyword arguments"
     assert len(args) == 2, "pointer_sub_cg expects 2 arguments"
-    lhs, rhs = builder.load_vars(args)
+    lhs, rhs = args
     match lhs.type, rhs.type:
         case ir.IntegerType(), llvm.PointerType():
             I, P = lhs, rhs
@@ -589,16 +565,15 @@ def pointer_sub_cg(builder, target, args, kwargs):
             raise ValueError(f"Unsupported types: {lhs.type} and {rhs.type}")
     I = convert(I, T.i64())
     P = convert(P, llvm.PointerType.get())
-    builder.store_var(target, lowering_utilities.llvm_ptr_add_bytes(P, i64_of(0) - I))
+    return lowering_utilities.llvm_ptr_add_bytes(P, i64_of(0) - I)
 
 
-@lower(operator.add, numba_cuda_mlir.types.ptr, types.Integer)
-@lower(operator.add, types.Integer, numba_cuda_mlir.types.ptr)
-def pointer_add_cg(builder, target, args, kwargs):
+@lower(operator.add, numba_cuda_mlir.types.ptr, types.Integer, api="values")
+@lower(operator.add, types.Integer, numba_cuda_mlir.types.ptr, api="values")
+def pointer_add_cg(builder, signature, args):
     trace()
-    assert not kwargs, "pointer_add_cg does not accept any keyword arguments"
     assert len(args) == 2, "pointer_add_cg expects 2 arguments"
-    lhs, rhs = builder.load_vars(args)
+    lhs, rhs = args
     match lhs.type, rhs.type:
         case ir.IntegerType(), llvm.PointerType():
             I, P = lhs, rhs
@@ -608,289 +583,257 @@ def pointer_add_cg(builder, target, args, kwargs):
             raise ValueError(f"Unsupported types: {lhs.type} and {rhs.type}")
     I = convert(I, T.i64())
     P = convert(P, llvm.PointerType.get())
-    builder.store_var(target, lowering_utilities.llvm_ptr_add_bytes(P, I))
+    return lowering_utilities.llvm_ptr_add_bytes(P, I)
 
 
-@lower(math.ceil, types.Number)
-def math_ceil_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_ceil_intrinsic does not accept any keyword arguments"
-    value = mlir_lower.load_var(args[0])
+@lower(math.ceil, types.Number, api="values")
+def math_ceil_cg(mlir_lower, signature, args):
+    value = args[0]
     if _is_integer_type(value.type):
-        # ceil of an integer is the integer itself, but convert to float for return type
-        result = _cast_to_float_of_same_size(value, mlir_lower.get_numba_type(args[0].name))
+        result = value
     else:
         result = math_dialect.ceil(value)
-    mlir_lower.store_var(target, result)
+    return mlir_lower.mlir_convert(result, mlir_lower.get_mlir_type(signature.return_type))
 
 
-@lower(math.floor, types.Number)
-def math_floor_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_floor does not accept any keyword arguments"
-    value = mlir_lower.load_var(args[0])
+@lower(math.floor, types.Number, api="values")
+def math_floor_cg(mlir_lower, signature, args):
+    value = args[0]
     if _is_integer_type(value.type):
-        # floor of an integer is the integer itself, but convert to float for return type
-        result = _cast_to_float_of_same_size(value, mlir_lower.get_numba_type(args[0].name))
+        result = value
     else:
         result = math_dialect.floor(value)
-    mlir_lower.store_var(target, result)
+    return mlir_lower.mlir_convert(result, mlir_lower.get_mlir_type(signature.return_type))
 
 
-@lower(math.trunc, types.Number)
-def math_trunc_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_trunc does not accept any keyword arguments"
-    value = mlir_lower.load_var(args[0])
+@lower(math.trunc, types.Number, api="values")
+def math_trunc_cg(mlir_lower, signature, args):
+    value = args[0]
     if _is_integer_type(value.type):
-        # trunc of an integer is the integer itself, but convert to float for return type
-        result = _cast_to_float_of_same_size(value, mlir_lower.get_numba_type(args[0].name))
+        result = value
     else:
         result = math_dialect.trunc(value)
-    mlir_lower.store_var(target, result)
+    return mlir_lower.mlir_convert(result, mlir_lower.get_mlir_type(signature.return_type))
 
 
-@lower(math.sin, types.Number)
-def math_sin_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_sin does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.sin, types.Number, api="values")
+def math_sin_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.sin(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.cos, types.Number)
-def math_cos_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_cos does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.cos, types.Number, api="values")
+def math_cos_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.cos(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.tan, types.Number)
-def math_tan_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_tan does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.tan, types.Number, api="values")
+def math_tan_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.tan(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.sqrt, types.Number)
-def math_sqrt_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_sqrt does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.sqrt, types.Number, api="values")
+def math_sqrt_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.sqrt(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.exp, types.Number)
-def math_exp_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_exp does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.exp, types.Number, api="values")
+def math_exp_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.exp(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.log, types.Number)
-def math_log_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_log does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.log, types.Number, api="values")
+def math_log_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.log(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.log2, types.Number)
-def math_log2_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_log2 does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.log2, types.Number, api="values")
+def math_log2_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.log2(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.log10, types.Number)
-def math_log10_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_log10 does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.log10, types.Number, api="values")
+def math_log10_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.log10(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.fabs, types.Number)
-def math_fabs_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_fabs does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.fabs, types.Number, api="values")
+def math_fabs_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.absf(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.isfinite, types.Number)
-def math_isfinite_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_isfinite does not accept any keyword arguments"
+@lower(math.isfinite, types.Number, api="values")
+def math_isfinite_cg(mlir_lower, signature, args):
     assert len(args) == 1, "math_isfinite expects 1 argument"
 
-    value = mlir_lower.load_var(args[0])
+    value = args[0]
     if _is_integer_type(value.type):
         # Integers are always finite
         result = arith.constant(T.bool(), True)
     else:
         result = math_dialect.isfinite(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.isnan, types.Number)
-def math_isnan_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_isnan does not accept any keyword arguments"
+@lower(math.isnan, types.Number, api="values")
+def math_isnan_cg(mlir_lower, signature, args):
     assert len(args) == 1, "math_isnan expects 1 argument"
 
-    value = mlir_lower.load_var(args[0])
+    value = args[0]
     if _is_integer_type(value.type):
         # Integers are never NaN
         result = arith.constant(T.bool(), False)
     else:
         result = math_dialect.isnan(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.exp2, types.Number)
-def math_exp2_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_exp2 does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.exp2, types.Number, api="values")
+def math_exp2_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.exp2(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.tanh, types.Number)
-def math_tanh_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_tanh does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.tanh, types.Number, api="values")
+def math_tanh_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.tanh(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.sinh, types.Number)
-def math_sinh_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_sinh does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.sinh, types.Number, api="values")
+def math_sinh_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.sinh(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.cosh, types.Number)
-def math_cosh_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_cosh does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.cosh, types.Number, api="values")
+def math_cosh_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.cosh(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.asin, types.Number)
-def math_asin_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_asin does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.asin, types.Number, api="values")
+def math_asin_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.asin(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.acos, types.Number)
-def math_acos_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_acos does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.acos, types.Number, api="values")
+def math_acos_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.acos(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.atan, types.Number)
-def math_atan_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_atan does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.atan, types.Number, api="values")
+def math_atan_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.atan(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.asinh, types.Number)
-def math_asinh_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_asinh does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.asinh, types.Number, api="values")
+def math_asinh_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.asinh(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.acosh, types.Number)
-def math_acosh_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_acosh does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.acosh, types.Number, api="values")
+def math_acosh_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.acosh(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.atanh, types.Number)
-def math_atanh_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_atanh does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.atanh, types.Number, api="values")
+def math_atanh_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.atanh(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.isinf, types.Number)
-def math_isinf_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_isinf does not accept any keyword arguments"
+@lower(math.isinf, types.Number, api="values")
+def math_isinf_cg(mlir_lower, signature, args):
     assert len(args) == 1, "math_isinf expects 1 argument"
-    value = mlir_lower.load_var(args[0])
+    value = args[0]
     if _is_integer_type(value.type):
         # Integers are never infinity
         result = arith.constant(T.bool(), False)
     else:
         result = math_dialect.isinf(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.copysign, types.Number, types.Number)
-def math_copysign_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_copysign does not accept any keyword arguments"
+@lower(math.copysign, types.Number, types.Number, api="values")
+def math_copysign_cg(mlir_lower, signature, args):
     assert len(args) == 2, "math_copysign expects 2 arguments"
-    x = _load_as_float(mlir_lower, args[0])
-    y = _load_as_float(mlir_lower, args[1])
+    x = _ensure_float(args[0], signature.args[0])
+    y = _ensure_float(args[1], signature.args[1])
     # Ensure both have the same type
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)
     result = math_dialect.copysign(x, y)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.atan2, types.Number, types.Number)
-def math_atan2_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_atan2 does not accept any keyword arguments"
+@lower(math.atan2, types.Number, types.Number, api="values")
+def math_atan2_cg(mlir_lower, signature, args):
     assert len(args) == 2, "math_atan2 expects 2 arguments"
-    y = _load_as_float(mlir_lower, args[0])
-    x = _load_as_float(mlir_lower, args[1])
+    y = _ensure_float(args[0], signature.args[0])
+    x = _ensure_float(args[1], signature.args[1])
     # Ensure both have the same type
     unified_type = lowering_utilities.numpy_implicit_type_promotion(y.type, x.type)
     y = convert(y, unified_type)
     x = convert(x, unified_type)
     result = math_dialect.atan2(y, x)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.hypot, types.Number, types.Number)
-def math_hypot_cg(mlir_lower, target, args, kwargs):
+@lower(math.hypot, types.Number, types.Number, api="values")
+def math_hypot_cg(mlir_lower, signature, args):
     """hypot(x, y) = sqrt(x^2 + y^2), without overflow or underflow"""
-    assert not kwargs, "math_hypot does not accept any keyword arguments"
     assert len(args) == 2, "math_hypot expects 2 arguments"
-    x = _load_as_float(mlir_lower, args[0])
-    y = _load_as_float(mlir_lower, args[1])
+    x = _ensure_float(args[0], signature.args[0])
+    y = _ensure_float(args[1], signature.args[1])
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)
     # libdevice's hypot is exact; sqrt(x * x + y * y) gives inf for
     # math.hypot(1e200, 1e200)
     result = _call_libdevice_binary(mlir_lower, x, y, "__nv_hypot", "__nv_hypotf")
-    mlir_lower.store_var(target, convert(result, unified_type))
+    return convert(result, unified_type)
 
 
-@lower(math.log1p, types.Number)
-def math_log1p_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_log1p does not accept any keyword arguments"
+@lower(math.log1p, types.Number, api="values")
+def math_log1p_cg(mlir_lower, signature, args):
     assert len(args) == 1, "math_log1p expects 1 argument"
-    x = _load_as_float(mlir_lower, args[0])
+    x = _ensure_float(args[0], signature.args[0])
     result = math_dialect.log1p(x)
-    mlir_lower.store_var(target, result)
+    return result
 
 
 def _float_divmod(mlir_lower, x: ir.Value, y: ir.Value) -> tuple[ir.Value, ir.Value]:
@@ -927,16 +870,15 @@ def _float_divmod(mlir_lower, x: ir.Value, y: ir.Value) -> tuple[ir.Value, ir.Va
     return floordiv, mod
 
 
-@lower(operator.mod, types.Number, types.Number)
-@lower(operator.imod, types.Number, types.Number)
-def mod_cg(builder, target, args, kwargs):
-    assert not kwargs, "mod_cg does not accept any keyword arguments"
+@lower(operator.mod, types.Number, types.Number, api="values")
+@lower(operator.imod, types.Number, types.Number, api="values")
+def mod_cg(builder, signature, args):
     assert len(args) == 2, "mod_cg expects 2 arguments"
-    target_type = builder.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = builder.get_mlir_type(target_type)
     lhs, rhs = args
-    lhs = _load_and_convert_operand(builder, lhs, target_type, target_mlir_type)
-    rhs = _load_and_convert_operand(builder, rhs, target_type, target_mlir_type)
+    lhs = _convert_operand(lhs, signature.args[0], target_type, target_mlir_type)
+    rhs = _convert_operand(rhs, signature.args[1], target_type, target_mlir_type)
 
     match target_mlir_type:
         case ir.IntegerType():
@@ -957,134 +899,127 @@ def mod_cg(builder, target, args, kwargs):
             _, result = _float_divmod(builder, lhs, rhs)
         case _:
             raise NotImplementedError(f"mod not implemented for {target_mlir_type=}")
-    builder.store_var(target, result)
+    return result
 
 
-@lower(operator.lshift, types.Integer, types.Integer)
-@lower(operator.ilshift, types.Integer, types.Integer)
-def lshift_cg(builder, target, args, kwargs):
-    assert not kwargs, "lshift_cg does not accept any keyword arguments"
+@lower(operator.lshift, types.Integer, types.Integer, api="values")
+@lower(operator.ilshift, types.Integer, types.Integer, api="values")
+def lshift_cg(builder, signature, args):
     assert len(args) == 2, "lshift_cg expects 2 arguments"
-    target_type = builder.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = builder.get_mlir_type(target_type)
     lhs, rhs = args
-    lhs = _load_and_convert_operand(builder, lhs, target_type, target_mlir_type)
-    rhs = _load_and_convert_operand(builder, rhs, target_type, target_mlir_type)
+    lhs = _convert_operand(lhs, signature.args[0], target_type, target_mlir_type)
+    rhs = _convert_operand(rhs, signature.args[1], target_type, target_mlir_type)
     result = arith.shli(lhs, rhs)
-    builder.store_var(target, result)
+    return result
 
 
-@lower(operator.rshift, types.Integer, types.Integer)
-@lower(operator.irshift, types.Integer, types.Integer)
-def rshift_cg(builder, target, args, kwargs):
-    assert not kwargs, "rshift_cg does not accept any keyword arguments"
+@lower(operator.rshift, types.Integer, types.Integer, api="values")
+@lower(operator.irshift, types.Integer, types.Integer, api="values")
+def rshift_cg(builder, signature, args):
     assert len(args) == 2, "rshift_cg expects 2 arguments"
-    target_type = builder.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = builder.get_mlir_type(target_type)
     lhs, rhs = args
-    lhs = _load_and_convert_operand(builder, lhs, target_type, target_mlir_type)
-    rhs = _load_and_convert_operand(builder, rhs, target_type, target_mlir_type)
+    lhs = _convert_operand(lhs, signature.args[0], target_type, target_mlir_type)
+    rhs = _convert_operand(rhs, signature.args[1], target_type, target_mlir_type)
     # Use unsigned right shift for unsigned types, signed for signed types
     if target_type.signed:
         result = arith.shrsi(lhs, rhs)
     else:
         result = arith.shrui(lhs, rhs)
-    builder.store_var(target, result)
+    return result
 
 
-@lower(operator.irshift, types.Integer, types.Integer)
-def irshift_cg(builder, target, args, kwargs):
+@lower(operator.irshift, types.Integer, types.Integer, api="values")
+def irshift_cg(builder, signature, args):
     """In-place right shift (>>=). In SSA form, this is the same as regular rshift."""
-    return rshift_cg(builder, target, args, kwargs)
+    return rshift_cg(builder, signature, args)
 
 
-@lower(operator.ilshift, types.Integer, types.Integer)
-def ilshift_cg(builder, target, args, kwargs):
+@lower(operator.ilshift, types.Integer, types.Integer, api="values")
+def ilshift_cg(builder, signature, args):
     """In-place left shift (<<=). In SSA form, this is the same as regular lshift."""
-    return lshift_cg(builder, target, args, kwargs)
+    return lshift_cg(builder, signature, args)
 
 
-@lower(operator.and_, types.Integer, types.Integer)
-@lower(operator.and_, types.Boolean, types.Boolean)
-@lower(operator.and_, types.Boolean, types.Integer)
-@lower(operator.and_, types.Integer, types.Boolean)
-def and_cg(builder, target, args, kwargs):
-    assert not kwargs, "and_cg does not accept any keyword arguments"
+@lower(operator.and_, types.Integer, types.Integer, api="values")
+@lower(operator.and_, types.Boolean, types.Boolean, api="values")
+@lower(operator.and_, types.Boolean, types.Integer, api="values")
+@lower(operator.and_, types.Integer, types.Boolean, api="values")
+def and_cg(builder, signature, args):
     assert len(args) == 2, "and_cg expects 2 arguments"
-    target_type = builder.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = builder.get_mlir_type(target_type)
     lhs, rhs = args
-    lhs = _load_and_convert_operand(builder, lhs, target_type, target_mlir_type)
-    rhs = _load_and_convert_operand(builder, rhs, target_type, target_mlir_type)
+    lhs = _convert_operand(lhs, signature.args[0], target_type, target_mlir_type)
+    rhs = _convert_operand(rhs, signature.args[1], target_type, target_mlir_type)
     result = arith.andi(lhs, rhs)
-    builder.store_var(target, result)
+    return result
 
 
-@lower(operator.or_, types.Integer, types.Integer)
-@lower(operator.or_, types.Boolean, types.Boolean)
-@lower(operator.or_, types.Boolean, types.Integer)
-@lower(operator.or_, types.Integer, types.Boolean)
-def or_cg(builder, target, args, kwargs):
-    assert not kwargs, "or_cg does not accept any keyword arguments"
+@lower(operator.or_, types.Integer, types.Integer, api="values")
+@lower(operator.or_, types.Boolean, types.Boolean, api="values")
+@lower(operator.or_, types.Boolean, types.Integer, api="values")
+@lower(operator.or_, types.Integer, types.Boolean, api="values")
+def or_cg(builder, signature, args):
     assert len(args) == 2, "or_cg expects 2 arguments"
-    target_type = builder.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = builder.get_mlir_type(target_type)
     lhs, rhs = args
-    lhs = _load_and_convert_operand(builder, lhs, target_type, target_mlir_type)
-    rhs = _load_and_convert_operand(builder, rhs, target_type, target_mlir_type)
+    lhs = _convert_operand(lhs, signature.args[0], target_type, target_mlir_type)
+    rhs = _convert_operand(rhs, signature.args[1], target_type, target_mlir_type)
     result = arith.ori(lhs, rhs)
-    builder.store_var(target, result)
+    return result
 
 
-@lower(operator.xor, types.Integer, types.Integer)
-@lower(operator.xor, types.Boolean, types.Boolean)
-@lower(operator.xor, types.Boolean, types.Integer)
-@lower(operator.xor, types.Integer, types.Boolean)
-def xor_cg(builder, target, args, kwargs):
-    assert not kwargs, "xor_cg does not accept any keyword arguments"
+@lower(operator.xor, types.Integer, types.Integer, api="values")
+@lower(operator.xor, types.Boolean, types.Boolean, api="values")
+@lower(operator.xor, types.Boolean, types.Integer, api="values")
+@lower(operator.xor, types.Integer, types.Boolean, api="values")
+def xor_cg(builder, signature, args):
     assert len(args) == 2, "xor_cg expects 2 arguments"
-    target_type = builder.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = builder.get_mlir_type(target_type)
     lhs, rhs = args
-    lhs = _load_and_convert_operand(builder, lhs, target_type, target_mlir_type)
-    rhs = _load_and_convert_operand(builder, rhs, target_type, target_mlir_type)
+    lhs = _convert_operand(lhs, signature.args[0], target_type, target_mlir_type)
+    rhs = _convert_operand(rhs, signature.args[1], target_type, target_mlir_type)
     result = arith.xori(lhs, rhs)
-    builder.store_var(target, result)
+    return result
 
 
-@lower(operator.invert, types.Integer)
-@lower(operator.invert, types.Boolean)
-def invert_cg(builder, target, args, kwargs):
+@lower(operator.invert, types.Integer, api="values")
+@lower(operator.invert, types.Boolean, api="values")
+def invert_cg(builder, signature, args):
     """Bitwise NOT: xor with all-ones (~True is False for booleans)."""
-    assert not kwargs, "invert_cg does not accept any keyword arguments"
     assert len(args) == 1, "invert_cg expects 1 argument"
-    target_type = builder.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = builder.get_mlir_type(target_type)
-    source_type = builder.get_numba_type(args[0].name)
+    source_type = signature.args[0]
     unsigned = isinstance(source_type, types.Integer) and not source_type.signed
     if unsigned:
         # Invert at the input width; widening first changes unsigned results.
-        operand = builder.load_var(args[0])
+        operand = args[0]
     else:
-        operand = _load_and_convert_operand(builder, args[0], target_type, target_mlir_type)
+        operand = _convert_operand(args[0], signature.args[0], target_type, target_mlir_type)
     fill = 1 if isinstance(target_type, types.Boolean) else -1
     all_ones = lowering_utilities.constant(fill, operand.type)
     result = arith.xori(operand, all_ones)
     if unsigned:
         result = _convert_operand(result, source_type, target_type, target_mlir_type)
-    builder.store_var(target, result)
+    return result
 
 
-@lower(operator.floordiv, types.Number, types.Number)
-@lower(operator.ifloordiv, types.Number, types.Number)
-def floordiv_cg(builder, target, args, kwargs):
-    assert not kwargs, "floordiv_cg does not accept any keyword arguments"
+@lower(operator.floordiv, types.Number, types.Number, api="values")
+@lower(operator.ifloordiv, types.Number, types.Number, api="values")
+def floordiv_cg(builder, signature, args):
     assert len(args) == 2, "floordiv_cg expects 2 arguments"
-    target_type = builder.get_numba_type(target.name)
+    target_type = signature.return_type
     target_mlir_type = builder.get_mlir_type(target_type)
     lhs, rhs = args
-    lhs = _load_and_convert_operand(builder, lhs, target_type, target_mlir_type)
-    rhs = _load_and_convert_operand(builder, rhs, target_type, target_mlir_type)
+    lhs = _convert_operand(lhs, signature.args[0], target_type, target_mlir_type)
+    rhs = _convert_operand(rhs, signature.args[1], target_type, target_mlir_type)
 
     match target_mlir_type:
         case ir.FloatType():
@@ -1101,7 +1036,7 @@ def floordiv_cg(builder, target, args, kwargs):
             raise ValueError(f"Unsupported type for floor division: {target_mlir_type}")
 
     result = builder.mlir_convert(result, target_mlir_type)
-    builder.store_var(target, result)
+    return result
 
 
 def _get_attr_from_value(value: float | int, element_type: ir.Type):
@@ -1116,9 +1051,9 @@ def _get_attr_from_value(value: float | int, element_type: ir.Type):
             raise ValueError(f"Unsupported element type: {element_type}")
 
 
-@lower(complex, types.Number, types.Number)
-def complex_cg(mlir_lower, target, args, kwargs):
-    target_type = mlir_lower.get_numba_type(target.name)
+@lower(complex, types.Number, types.Number, api="values")
+def complex_cg(mlir_lower, signature, args):
+    target_type = signature.return_type
     mlir_target_type = mlir_lower.get_mlir_type(target_type)
     assert len(args) == 2, "complex_cg expects 2 arguments"
     real, imag = args
@@ -1134,18 +1069,14 @@ def complex_cg(mlir_lower, target, args, kwargs):
             complex=mlir_target_type,
             value=const_attr,
         )
-        mlir_lower.store_var(target, complex_const_op)
+        return complex_const_op
     else:
         # Create complex from runtime values
         real_val = (
-            mlir_lower.load_var(real)
-            if hasattr(real, "name")
-            else lowering_utilities.constant(real, element_type)
+            real if isinstance(real, ir.Value) else lowering_utilities.constant(real, element_type)
         )
         imag_val = (
-            mlir_lower.load_var(imag)
-            if hasattr(imag, "name")
-            else lowering_utilities.constant(imag, element_type)
+            imag if isinstance(imag, ir.Value) else lowering_utilities.constant(imag, element_type)
         )
 
         # Convert to the target element type if needed
@@ -1158,7 +1089,7 @@ def complex_cg(mlir_lower, target, args, kwargs):
             real=real_val,
             imaginary=imag_val,
         )
-        mlir_lower.store_var(target, complex_val)
+        return complex_val
 
 
 @registry.lower_getattr(types.Complex, "real")
@@ -1189,16 +1120,15 @@ def complex_imag_getattr(
     builder.store_var(target, imag_part)
 
 
-@lower(math.frexp, types.Float)
-def math_frexp_cg(mlir_lower, target, args, kwargs):
+@lower(math.frexp, types.Float, api="values")
+def math_frexp_cg(mlir_lower, signature, args):
     """
     Lower math.frexp(x) using LLVM intrinsic.
     Returns (mantissa, exponent) where mantissa is float and exponent is int32.
     """
-    assert not kwargs, "math.frexp does not accept any keyword arguments"
     assert len(args) == 1, "math.frexp expects 1 argument"
 
-    value = mlir_lower.load_var(args[0])
+    value = args[0]
     float_type = value.type
 
     # llvm.intr.frexp returns struct { float, i32 }
@@ -1209,155 +1139,143 @@ def math_frexp_cg(mlir_lower, target, args, kwargs):
     mantissa = llvm.extractvalue(float_type, result, [0])
     exp = llvm.extractvalue(T.i32(), result, [1])
 
-    mlir_lower.store_var(target, (mantissa, exp))
+    return (mantissa, exp)
 
 
-@lower(math.ldexp, types.Float, types.Integer)
-def math_ldexp_cg(mlir_lower, target, args, kwargs):
+@lower(math.ldexp, types.Float, types.Integer, api="values")
+def math_ldexp_cg(mlir_lower, signature, args):
     """
     Lower math.ldexp(x, exp) using LLVM intrinsic.
     Returns x * 2^exp.
     """
-    assert not kwargs, "math.ldexp does not accept any keyword arguments"
     assert len(args) == 2, "math.ldexp expects 2 arguments"
 
-    value = mlir_lower.load_var(args[0])
-    exp = mlir_lower.load_var(args[1])
+    value = args[0]
+    exp = args[1]
 
     # ldexp expects i32 exponent
     exp = convert(exp, T.i32())
 
     result = llvm.intr_ldexp(value.type, value, exp)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.expm1, types.Number)
-def math_expm1_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_expm1 does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.expm1, types.Number, api="values")
+def math_expm1_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.expm1(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.degrees, types.Number)
-def math_degrees_cg(mlir_lower, target, args, kwargs):
+@lower(math.degrees, types.Number, api="values")
+def math_degrees_cg(mlir_lower, signature, args):
     """Convert radians to degrees: x * (180 / pi)"""
-    assert not kwargs, "math_degrees does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+    value = _ensure_float(args[0], signature.args[0])
     # 180 / pi = 57.29577951308232
     factor = lowering_utilities.constant(57.29577951308232, value.type)
     result = arith.mulf(value, factor)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.radians, types.Number)
-def math_radians_cg(mlir_lower, target, args, kwargs):
+@lower(math.radians, types.Number, api="values")
+def math_radians_cg(mlir_lower, signature, args):
     """Convert degrees to radians: x * (pi / 180)"""
-    assert not kwargs, "math_radians does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+    value = _ensure_float(args[0], signature.args[0])
     # pi / 180 = 0.017453292519943295
     factor = lowering_utilities.constant(0.017453292519943295, value.type)
     result = arith.mulf(value, factor)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.erf, types.Number)
-def math_erf_cg(mlir_lower, target, args, kwargs):
-    assert not kwargs, "math_erf does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+@lower(math.erf, types.Number, api="values")
+def math_erf_cg(mlir_lower, signature, args):
+    value = _ensure_float(args[0], signature.args[0])
     result = math_dialect.erf(value)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.erfc, types.Number)
-def math_erfc_cg(mlir_lower, target, args, kwargs):
+@lower(math.erfc, types.Number, api="values")
+def math_erfc_cg(mlir_lower, signature, args):
     """erfc(x) = complementary error function, using libdevice for precision"""
-    assert not kwargs, "math_erfc does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+    value = _ensure_float(args[0], signature.args[0])
     result = _call_libdevice_unary(mlir_lower, value, "__nv_erfc", "__nv_erfcf")
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.gamma, types.Number)
-def math_gamma_cg(mlir_lower, target, args, kwargs):
+@lower(math.gamma, types.Number, api="values")
+def math_gamma_cg(mlir_lower, signature, args):
     """Lower math.gamma using libdevice tgamma"""
-    assert not kwargs, "math_gamma does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+    value = _ensure_float(args[0], signature.args[0])
     result = _call_libdevice_unary(mlir_lower, value, "__nv_tgamma", "__nv_tgammaf")
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.lgamma, types.Number)
-def math_lgamma_cg(mlir_lower, target, args, kwargs):
+@lower(math.lgamma, types.Number, api="values")
+def math_lgamma_cg(mlir_lower, signature, args):
     """Lower math.lgamma using libdevice lgamma"""
-    assert not kwargs, "math_lgamma does not accept any keyword arguments"
-    value = _load_as_float(mlir_lower, args[0])
+    value = _ensure_float(args[0], signature.args[0])
     result = _call_libdevice_unary(mlir_lower, value, "__nv_lgamma", "__nv_lgammaf")
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.fmod, types.Number, types.Number)
-def math_fmod_cg(mlir_lower, target, args, kwargs):
+@lower(math.fmod, types.Number, types.Number, api="values")
+def math_fmod_cg(mlir_lower, signature, args):
     """fmod(x, y) - floating point remainder with sign of x (truncated division)"""
-    assert not kwargs, "math_fmod does not accept any keyword arguments"
     assert len(args) == 2, "math_fmod expects 2 arguments"
-    x = _load_as_float(mlir_lower, args[0])
-    y = _load_as_float(mlir_lower, args[1])
+    x = _ensure_float(args[0], signature.args[0])
+    y = _ensure_float(args[1], signature.args[1])
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)
     # libdevice computes the remainder exactly; x - trunc(x / y) * y is off
     # whenever x / y rounds, and gives nan for an infinite y
     result = _call_libdevice_binary(mlir_lower, x, y, "__nv_fmod", "__nv_fmodf")
-    mlir_lower.store_var(target, convert(result, unified_type))
+    return convert(result, unified_type)
 
 
-@lower(math.remainder, types.Number, types.Number)
-def math_remainder_cg(mlir_lower, target, args, kwargs):
+@lower(math.remainder, types.Number, types.Number, api="values")
+def math_remainder_cg(mlir_lower, signature, args):
     """IEEE 754 remainder: x - round(x/y) * y"""
-    assert not kwargs, "math_remainder does not accept any keyword arguments"
     assert len(args) == 2, "math_remainder expects 2 arguments"
-    x = _load_as_float(mlir_lower, args[0])
-    y = _load_as_float(mlir_lower, args[1])
+    x = _ensure_float(args[0], signature.args[0])
+    y = _ensure_float(args[1], signature.args[1])
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)
     # libdevice computes the IEEE remainder exactly; x - roundeven(x / y) * y
     # is off whenever x / y rounds, and gives nan for an infinite y
     result = _call_libdevice_binary(mlir_lower, x, y, "__nv_remainder", "__nv_remainderf")
-    mlir_lower.store_var(target, convert(result, unified_type))
+    return convert(result, unified_type)
 
 
-@lower(math.pow, types.Number, types.Number)
-def math_pow_cg(mlir_lower, target, args, kwargs):
+@lower(math.pow, types.Number, types.Number, api="values")
+def math_pow_cg(mlir_lower, signature, args):
     """math.pow(x, y) - x raised to power y"""
-    assert not kwargs, "math_pow does not accept any keyword arguments"
     assert len(args) == 2, "math_pow expects 2 arguments"
-    x = _load_as_float(mlir_lower, args[0])
-    y = _load_as_float(mlir_lower, args[1])
+    x = _ensure_float(args[0], signature.args[0])
+    y = _ensure_float(args[1], signature.args[1])
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)
     result = math_dialect.powf(x, y)
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.nextafter, types.Number, types.Number)
-def math_nextafter_cg(mlir_lower, target, args, kwargs):
+@lower(math.nextafter, types.Number, types.Number, api="values")
+def math_nextafter_cg(mlir_lower, signature, args):
     """nextafter(x, y) - next representable floating-point value after x towards y"""
-    assert not kwargs, "math_nextafter does not accept any keyword arguments"
     assert len(args) == 2, "math_nextafter expects 2 arguments"
-    x = _load_as_float(mlir_lower, args[0])
-    y = _load_as_float(mlir_lower, args[1])
+    x = _ensure_float(args[0], signature.args[0])
+    y = _ensure_float(args[1], signature.args[1])
     unified_type = lowering_utilities.numpy_implicit_type_promotion(x.type, y.type)
     x = convert(x, unified_type)
     y = convert(y, unified_type)
     result = _call_libdevice_binary(mlir_lower, x, y, "__nv_nextafter", "__nv_nextafterf")
-    mlir_lower.store_var(target, result)
+    return result
 
 
-@lower(math.modf, types.Float)
-def math_modf_cg(mlir_lower, target, args, kwargs):
+@lower(math.modf, types.Float, api="values")
+def math_modf_cg(mlir_lower, signature, args):
     """
     modf(x) returns (fractional_part, integer_part).
     fractional_part has the same sign as x.
@@ -1366,10 +1284,9 @@ def math_modf_cg(mlir_lower, target, args, kwargs):
     - modf(-inf) = (-0.0, -inf)
     - modf(nan) = (nan, nan)
     """
-    assert not kwargs, "math_modf does not accept any keyword arguments"
     assert len(args) == 1, "math_modf expects 1 argument"
 
-    value = mlir_lower.load_var(args[0])
+    value = args[0]
     float_type = value.type
 
     # Integer part: trunc(x)
@@ -1386,4 +1303,4 @@ def math_modf_cg(mlir_lower, target, args, kwargs):
     # Select: if infinite use signed_zero, else use normal fractional part
     frac_part = arith.select(is_inf, signed_zero, frac_part_normal)
 
-    mlir_lower.store_var(target, (frac_part, int_part))
+    return (frac_part, int_part)

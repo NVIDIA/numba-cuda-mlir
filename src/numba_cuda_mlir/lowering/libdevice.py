@@ -46,13 +46,12 @@ def _generalize_type(ty: types.Type) -> types.Type:
 
 
 def libdevice_implement_by_pointer(pyfunc, py_api: typing.Signature, c_api: typing.Signature):
-    def core(lower: MLIRLower, target, args, kwargs):
+    def core(lower: MLIRLower, signature, args):
         trace("lower: %s", pyfunc.__name__)
-        args = [lower.load_var(arg) for arg in args]
         by_ptr_return_types = [ty for ty in c_api.args if isinstance(ty, types.CPointer)]
         by_ptr_return_mlir_types = [lower.get_mlir_type(ty.dtype) for ty in by_ptr_return_types]
         by_ptr_return_vars = [lower.alloca(mlir_type) for mlir_type in by_ptr_return_mlir_types]
-        args += by_ptr_return_vars
+        args = [*args, *by_ptr_return_vars]
         descriptor = _libdevice_descriptors[pyfunc]
         fn_type: ir.FunctionType = lower.get_mlir_type(descriptor.c_sig)
         libdevice_name = "__nv_" + pyfunc.__name__
@@ -63,16 +62,15 @@ def libdevice_implement_by_pointer(pyfunc, py_api: typing.Signature, c_api: typi
         result += [
             llvm.load(ty, var) for ty, var in zip(by_ptr_return_mlir_types, by_ptr_return_vars)
         ]
-        lower.store_var(target, tuple(result))
+        return tuple(result)
 
     core.__name__ = f"lower_{pyfunc.__name__}_by_pointer"
     py_args = tuple(_generalize_type(ty) for ty in py_api.args)
-    lower(pyfunc, *py_args)(core)
+    lower(pyfunc, *py_args, api="values")(core)
 
 
 def libdevice_implement_uniform(pyfunc, api):
-    def core(lower, target, args, kwargs):
-        args = [lower.load_var(arg) for arg in args]
+    def core(lower, signature, args):
         trace("%s", pyfunc.__name__)
         descriptor = _libdevice_descriptors[pyfunc]
         fn_type: ir.FunctionType = lower.get_mlir_type(descriptor.c_sig)
@@ -80,12 +78,12 @@ def libdevice_implement_uniform(pyfunc, api):
         callee = get_or_insert_function(libdevice_name, fn_type, lower.mlir_gpu_module)
         args = [convert(arg, ty) for arg, ty in zip(args, fn_type.inputs)]
         call = func.call(result=[fn_type.results[0]], callee=callee.name.value, operands_=args)
-        call = convert(call, lower.get_mlir_type(target))
-        lower.store_var(target, call)
+        call = convert(call, lower.get_mlir_type(signature.return_type))
+        return call
 
     core.__name__ = f"lower_{pyfunc.__name__}_uniform"
     arg_types = tuple(_generalize_type(ty) for ty in api.args)
-    lower(pyfunc, *arg_types)(core)
+    lower(pyfunc, *arg_types, api="values")(core)
 
 
 def libdevice_implement(pyfunc, py_api, c_api):

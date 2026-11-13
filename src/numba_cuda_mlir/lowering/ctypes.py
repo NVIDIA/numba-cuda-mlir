@@ -33,13 +33,12 @@ llvm_kDynamic = (
 )  # std::numeric_limits<int32_t>::min(), ugh we need this in the bindings...
 
 
-@registry.lower(ctypes.pointer, types.Array)
-def lower_pointer(builder, target, args, kwargs):
+@registry.lower(ctypes.pointer, types.Array, api="values")
+def lower_pointer(builder, signature, args):
     trace()
-    args = builder.load_vars(args)
     value = args[0]
     value = convert(value, llvm.PointerType.get())
-    builder.store_var(target, value)
+    return value
 
 
 @registry.lower_cast(types.Integer, types.Integer)
@@ -73,32 +72,30 @@ def lower_int_to_pointer_cast(builder, target, args, kwargs):
     builder.store_var(target, result)
 
 
-@registry.lower(ctypes.cast, types.Any, types.Any)
-def lower_cast(builder, target, args, kwargs):
+@registry.lower(ctypes.cast, types.Any, types.Any, api="values")
+def lower_cast(builder, signature, args):
     trace()
-    args = builder.load_vars(args)
     value, to_type = args
     to_type = to_mlir_type(to_type)
     value = convert(value, to_type)
-    builder.store_var(target, value)
+    return value
 
 
-@registry.lower(ctypes.POINTER, types.Any)
-def lower_pointer(builder, target, args, kwargs):
+@registry.lower(ctypes.POINTER, types.Any, api="values")
+def lower_pointer(builder, signature, args):
     trace()
-    args = builder.load_vars(args)
     value = args[0]
     nb_type = to_numba_type(value)
     nb_type = types.CPointer(nb_type)
-    builder.store_var(target, nb_type)
+    return nb_type
 
 
-@registry.lower(operator.setitem, types.CPointer, types.Number, types.Any)
-def lower_pointer_setitem(builder, target, args, kwargs):
+@registry.lower(operator.setitem, types.CPointer, types.Number, types.Any, api="values")
+def lower_pointer_setitem(builder, signature, args):
     trace()
-    ptr, idx, value = builder.load_vars(args)
+    ptr, idx, value = args
     # Get the numba type of the pointer - LLVM pointers are opaque
-    nb_type = builder.get_numba_type(args[0])
+    nb_type = signature.args[0]
     ele_ty = nb_type.dtype
     if ele_ty == types.none:
         raise TypeError(
@@ -120,11 +117,11 @@ def lower_pointer_setitem(builder, target, args, kwargs):
     llvm.store(value, elementptr)
 
 
-@registry.lower(operator.getitem, types.CPointer, types.Number)
-def lower_pointer_getitem(builder, target, args, kwargs):
+@registry.lower(operator.getitem, types.CPointer, types.Number, api="values")
+def lower_pointer_getitem(builder, signature, args):
     trace()
-    ptr, idx = builder.load_vars(args)
-    nb_type = builder.get_numba_type(args[0])
+    ptr, idx = args
+    nb_type = signature.args[0]
     ele_ty = nb_type.dtype
     if ele_ty == types.none:
         raise TypeError(
@@ -145,15 +142,15 @@ def lower_pointer_getitem(builder, target, args, kwargs):
         value = llvm.load(storage_ty, elementptr)
         value = builder.from_storage(nb_type.dtype, value)
     builder.incref(nb_type.dtype, value)
-    builder.store_var(target, value)
+    return value
 
 
-@registry.lower(operator.add, types.CPointer, types.Number)
-@registry.lower(operator.iadd, types.CPointer, types.Number)
-def lower_pointer_add(builder, target, args, kwargs):
+@registry.lower(operator.add, types.CPointer, types.Number, api="values")
+@registry.lower(operator.iadd, types.CPointer, types.Number, api="values")
+def lower_pointer_add(builder, signature, args):
     trace()
-    ptr, num = builder.load_vars(args)
-    nb_type = builder.get_numba_type(args[0])
+    ptr, num = args
+    nb_type = signature.args[0]
     ele_ty = nb_type.dtype
     if ele_ty == types.none:
         raise TypeError(
@@ -161,15 +158,15 @@ def lower_pointer_add(builder, target, args, kwargs):
         )
     w = storage_itemsize_bytes(ele_ty)
     num = convert(num, T.i64())
-    builder.store_var(target, llvm_ptr_add_bytes(ptr, num * w))
+    return llvm_ptr_add_bytes(ptr, num * w)
 
 
-@registry.lower(operator.sub, types.CPointer, types.Number)
-@registry.lower(operator.isub, types.CPointer, types.Number)
-def lower_pointer_sub(builder, target, args, kwargs):
+@registry.lower(operator.sub, types.CPointer, types.Number, api="values")
+@registry.lower(operator.isub, types.CPointer, types.Number, api="values")
+def lower_pointer_sub(builder, signature, args):
     trace()
-    ptr, num = builder.load_vars(args)
-    nb_type = builder.get_numba_type(args[0])
+    ptr, num = args
+    nb_type = signature.args[0]
     ele_ty = nb_type.dtype
     if ele_ty == types.none:
         raise TypeError(
@@ -177,31 +174,33 @@ def lower_pointer_sub(builder, target, args, kwargs):
         )
     w = storage_itemsize_bytes(ele_ty)
     num = convert(num, T.i64())
-    builder.store_var(target, llvm_ptr_add_bytes(ptr, i64_of(0) - num * w))
+    return llvm_ptr_add_bytes(ptr, i64_of(0) - num * w)
 
 
-@registry.lower(types.ptr, types.CPointer)
-def lower_aggregate_type_ptr(builder, target, args, kwargs):
-    ptr = builder.load_var(args[0])
+@registry.lower(types.ptr, types.CPointer, api="values")
+def lower_aggregate_type_ptr(builder, signature, args):
+    ptr = args[0]
     assert "llvm.ptr" in str(ptr.type), f"Expected LLVM pointer, got {ptr.type}"
-    builder.store_var(target, ptr)
+    return ptr
 
 
-@registry.lower(types.ptr, types.AggregateType)
-def lower_aggregate_type_ptr(builder, target, args, kwargs):
-    var = builder.load_var(args[0])
+@registry.lower(types.ptr, types.AggregateType, api="values")
+def lower_aggregate_type_ptr(builder, signature, args):
+    var = args[0]
     with builder.alloca_insertion_point():
         fe_type = to_numba_type(var.type)
         attrs = types.get_numba_cuda_mlir_attributes(fe_type)
         alignment = attrs.get("align", None)
         ptr = llvm.alloca(llvm.PointerType.get(), i64_of(1), var.type, alignment=alignment)
-    builder.store_var(target, ptr)
+    return ptr
 
 
 class DeferredFFIFromBuffer(DeferredLowering):
-    def __call__(self, builder, target, args, kwargs):
-        array_value = builder.load_var(args[0])
-        builder.store_var(target, memref_data_pointer(array_value))
+    _numba_cuda_mlir_lowering_api = "values"
+
+    def __call__(self, builder, signature, args):
+        array_value = args[0]
+        return memref_data_pointer(array_value)
 
 
 @lower_getattr(_numba_ffi_type, "from_buffer")

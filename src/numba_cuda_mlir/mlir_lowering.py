@@ -18,7 +18,7 @@ from numba_cuda_mlir.numba_cuda.extending import _Intrinsic
 from numba_cuda_mlir.numba_cuda.core.environment import Environment
 from numba_cuda_mlir import types
 from numba_cuda_mlir.numba_cuda.datamodel.models import ArrayModel
-from numba_cuda_mlir.annotations import Builder, AnyCallable, PS
+from numba_cuda_mlir.annotations import Builder, ValuesBuilder, AnyCallable, PS
 from numba_cuda_mlir.errors import InternalCompilerError, ensure_verifies
 from numba_cuda_mlir.lowering_utilities.type_conversions import (
     to_mlir_type,
@@ -934,10 +934,17 @@ extern "C" __global__ void
     def lower_print(self, args):
         trace()
 
-        builder = self.get_registered_builder(print, types.void())
+        arg_types = tuple(self.get_numba_type(arg) for arg in args)
+        signature = types.none(
+            numba_types.StarArgTuple(arg_types), types.StringLiteral(" "), types.StringLiteral("\n")
+        )
+        builder = self.get_registered_builder(print, signature)
         if builder is None:
             raise InternalCompilerError("Print lowering is not implemented!")
-        builder(self, None, args, [])
+        if getattr(builder, "_numba_cuda_mlir_lowering_api", "vars") == "values":
+            builder(self, signature, (tuple(self.load_vars(args)), " ", "\n"))
+        else:
+            builder(self, None, args, ())
 
     def lower_static_raise(self, static_raise_inst):
         trace(static_raise_inst)
@@ -978,10 +985,9 @@ extern "C" __global__ void
             )
 
     def _store_complex_constant(self, target, value):
-        from numba_cuda_mlir.lowering.math import complex_cg
-
-        value = complex(value)
-        complex_cg(self, target, [value.real, value.imag], {})
+        self.store_var(
+            target, self.lower_literal_if_needed(complex(value), self.get_numba_type(target))
+        )
 
     def lower_free_var_assign(self, target, free_var):
         trace("target: %s, free_var: %s", target, free_var)
@@ -1368,39 +1374,29 @@ extern "C" __global__ void
         trace("expr=%s", expr)
         match expr.op:
             case "binop" | "inplace_binop":
-                self.lower_binop_expr_assign(target, expr.fn, expr.lhs, expr.rhs)
+                self.lower_binop_expr_assign(
+                    target, expr.fn, expr.lhs, expr.rhs, self.fndesc.calltypes.get(expr)
+                )
             case "unary":
-                self.lower_unary_expr_assign(target, expr.fn, expr.value)
+                self.lower_unary_expr_assign(
+                    target, expr.fn, expr.value, self.fndesc.calltypes.get(expr)
+                )
             case "cast":
                 self.lower_cast_expr_assign(target, expr.value)
             case "getitem" | "typed_getitem":
-                self.lower_getitem_expr_assign(target, expr.value, expr.index)
+                self.lower_getitem_expr_assign(
+                    target, expr.value, expr.index, self.fndesc.calltypes.get(expr)
+                )
             case "static_getitem":
                 value_type = self.get_numba_type(expr.value.name)
                 index = expr.index
                 if not isinstance(value_type, types.BaseTuple) and expr.index_var is not None:
                     index = expr.index_var
-                self.lower_getitem_expr_assign(target, expr.value, index)
+                self.lower_getitem_expr_assign(
+                    target, expr.value, index, self.fndesc.calltypes.get(expr)
+                )
             case "call":
-                args = list(expr.args)
-                # Handle vararg (*args) - expand tuple into individual arguments
-                if expr.vararg is not None:
-                    vararg_type = self.get_numba_type(expr.vararg.name)
-                    if isinstance(vararg_type, types.BaseTuple):
-                        # Create synthetic variables for each tuple element
-                        for i in range(len(vararg_type)):
-                            # Get the element from the tuple using static_getitem
-                            elem_var = numba_ir.Var(
-                                scope=target.scope,
-                                name=f"$vararg_{expr.vararg.name}_{i}",
-                                loc=target.loc,
-                            )
-                            elem_type = vararg_type[i]
-                            self.fndesc.typemap[elem_var.name] = elem_type
-                            # Lower the static_getitem to extract tuple element
-                            self.lower_getitem_expr_assign(elem_var, expr.vararg, i)
-                            args.append(elem_var)
-                self.lower_call_expr_assign(target, expr.func, args, expr.kws, expr)
+                self.lower_call_expr_assign(target, expr.func, list(expr.args), expr.kws, expr)
             case "arrayexpr":
                 self.lower_arrayexpr_assign(target, expr.expr[0], expr.expr[1])
             case "build_tuple":
@@ -1587,31 +1583,30 @@ extern "C" __global__ void
         else:
             raise InternalCompilerError(f"Unsupported iterator type: {value_type}")
 
-    def lower_binop_expr_assign(self, target, fn, lhs, rhs):
+    def lower_binop_expr_assign(self, target, fn, lhs, rhs, signature=None):
         trace("target=%s fn=%s", target, fn)
         trace("lhs=%s rhs=%s", lhs, rhs)
         assert self.var_lowered(lhs), f"LHS var {lhs.name} not found in varmap."
         assert self.var_lowered(rhs), f"RHS var {rhs.name} not found in varmap."
 
-        # target type is used to determined the type of both lhs and rhs operands
         target_type = self.get_numba_type(target.name)
         lhs_type = self.get_numba_type(lhs.name)
         rhs_type = self.get_numba_type(rhs.name)
-        if builder := self.get_registered_builder(fn, target_type(lhs_type, rhs_type)):
-            builder(self, target, [lhs, rhs], [])
+        signature = signature or target_type(lhs_type, rhs_type)
+        if builder := self.get_registered_builder(fn, signature):
+            self._invoke_registered_builder(builder, target, signature, (lhs, rhs))
             return
         raise NotImplementedError(f"NotImplemented lowering binop {fn=}")
 
-    def lower_unary_expr_assign(self, target, fn, operand):
+    def lower_unary_expr_assign(self, target, fn, operand, signature=None):
         trace("target: %s, fn: %s, operand: %s", target, fn, operand)
         assert self.var_lowered(operand), f"Operand {operand} not found in varmap."
 
-        # target type is used to determined the type of both lhs and rhs operands
         target_type = self.get_numba_type(target.name)
         operand_type = self.get_numba_type(operand.name)
-
-        if builder := self.get_registered_builder(fn, target_type(operand_type)):
-            builder(self, target, [operand], [])
+        signature = signature or target_type(operand_type)
+        if builder := self.get_registered_builder(fn, signature):
+            self._invoke_registered_builder(builder, target, signature, (operand,))
             return
 
         raise NotImplementedError(f"NotImplemented lowering unary {fn=}")
@@ -1627,7 +1622,7 @@ extern "C" __global__ void
         self.incref(target_type, mlir_value)
         self.store_var(target, mlir_value)
 
-    def lower_getitem_expr_assign(self, target, value, index):
+    def lower_getitem_expr_assign(self, target, value, index, signature=None):
         """
         target = getitem(value=.., index=..)
         index can be either a variable or an integer constant
@@ -1662,12 +1657,14 @@ extern "C" __global__ void
             self.store_var(target, result)
             return
 
-        signature = target_type(value_type, index_type)
-        if builder := self.get_registered_builder(operator.getitem, signature):
-            builder(self, target, [value, index], [])
-            return
-        if builder := self.get_registered_builder("static_getitem", signature):
-            builder(self, target, [value, index], [])
+        signature = signature or target_type(value_type, index_type)
+        if isinstance(value_type, types.BaseTuple) and isinstance(index, int):
+            signature = signature.replace(args=(signature.args[0], index_type))
+        builder = self.get_registered_builder(operator.getitem, signature)
+        if builder is None:
+            builder = self.get_registered_builder("static_getitem", signature)
+        if builder is not None:
+            self._invoke_registered_builder(builder, target, signature, (value, index))
             return
 
         raise NotImplementedError(f"lowering getitem {target} = {value}[{index}]")
@@ -1731,8 +1728,19 @@ extern "C" __global__ void
         args: list[numba_ir.Var],
         kws: list[tuple[str, numba_ir.Var]] | None = None,
     ):
-        if kws is None:
-            kws = []
+        folded_argtypes, call_vars, _ = self._fold_dispatcher_call_args(fn, args, kws)
+        values = iter(
+            tuple(self.load_vars(var)) if isinstance(var, tuple) else self.load_var(var)
+            for var in call_vars
+        )
+        formal_values = tuple(
+            None if _is_omitted_arg(argty) else next(values) for argty in folded_argtypes
+        )
+        signature = self.get_numba_type(target)(*folded_argtypes)
+        return self.build_user_defined_function_call_values(fn, signature, formal_values)
+
+    def build_user_defined_function_call_values(self, fn, signature, args):
+        """Emit a device call from formal lowered values and selected types."""
 
         from numba_cuda_mlir.descriptor import MLIRDispatcher
 
@@ -1753,7 +1761,11 @@ extern "C" __global__ void
                 fn._device_dispatcher = MLIRDispatcher(fn.py_func, targetoptions=opts)
             fn = fn._device_dispatcher
 
-        folded_argtypes, call_vars, call_argtypes = self._fold_dispatcher_call_args(fn, args, kws)
+        folded_argtypes = signature.args
+        call_argtypes = tuple(ty for ty in folded_argtypes if not _is_omitted_arg(ty))
+        call_values = tuple(
+            value for value, ty in zip(args, folded_argtypes) if not _is_omitted_arg(ty)
+        )
         func_name = generate_mangled_name(f"{fn.py_func.__qualname__}_{id(fn)}", call_argtypes)
         cres = fn._compile_as_device_callee(folded_argtypes, abi_name=func_name)
 
@@ -1799,38 +1811,26 @@ extern "C" __global__ void
             func.call(
                 result=callee_function_type,
                 callee=callee.name.value,
-                operands_=self._call_operands_from_vars(call_vars, expected_types=call_argtypes),
+                operands_=self._call_operands_from_values(call_values, call_argtypes),
             )
         )
 
-        target_type = self.get_numba_type(target.name)
-        if len(callee_function_type) == 0:
-            return ir.NoneType.get()
-        raw_result = (
-            self._unflatten_abi_value(target_type, iter(call_results))
-            if isinstance(target_type, types.BaseTuple) and len(callee_function_type) > 1
-            else call_results[0]
-            if len(callee_function_type) == 1
-            else tuple(call_results)
-        )
+        target_type = signature.return_type
+        if isinstance(target_type, types.BaseTuple):
+            raw_result = self._unflatten_abi_value(target_type, iter(call_results))
+        elif len(callee_function_type) == 0:
+            return None
+        else:
+            raw_result = call_results[0] if len(callee_function_type) == 1 else tuple(call_results)
         return self.from_return(target_type, raw_result)
 
-    def build_recursive_call(
-        self,
-        target: numba_ir.Var,
-        fn_type: types.RecursiveCall,
-        args: list[numba_ir.Var],
-        kws: list[tuple[str, numba_ir.Var]] | None = None,
-    ):
+    def build_recursive_call_values(self, fn_type, signature, args):
         """Emit a call to the recursive specialization selected by typing."""
-        if kws is None:
-            kws = []
         dispatcher = fn_type.dispatcher_type.dispatcher
-        argtypes, _, _ = self._fold_dispatcher_call_args(dispatcher, args, kws)
-        if argtypes != self.fndesc.argtypes:
+        if signature.args != self.fndesc.argtypes:
             # A literal entry argument can become runtime-valued on recursion,
             # e.g. fib(10) calls fib(n - 1). Do not recurse into the literal body.
-            return self.build_user_defined_function_call(target, dispatcher, args, kws)
+            return self.build_user_defined_function_call_values(dispatcher, signature, args)
         assert self.mlir_funcOp is not None
         callee_function_type = self.mlir_funcOp.function_type.value.results
         callee_name = self.mlir_funcOp.name.value
@@ -1838,19 +1838,16 @@ extern "C" __global__ void
             func.call(
                 result=callee_function_type,
                 callee=callee_name,
-                operands_=self._call_operands_from_vars(args, kws),
+                operands_=self._call_operands_from_values(args, signature.args),
             )
         )
-        target_type = self.get_numba_type(target.name)
-        if len(callee_function_type) == 0:
-            return ir.NoneType.get()
-        raw_result = (
-            self._unflatten_abi_value(target_type, iter(call_results))
-            if isinstance(target_type, types.BaseTuple) and len(callee_function_type) > 1
-            else call_results[0]
-            if len(callee_function_type) == 1
-            else tuple(call_results)
-        )
+        target_type = signature.return_type
+        if isinstance(target_type, types.BaseTuple):
+            raw_result = self._unflatten_abi_value(target_type, iter(call_results))
+        elif len(callee_function_type) == 0:
+            return None
+        else:
+            raw_result = call_results[0] if len(callee_function_type) == 1 else tuple(call_results)
         return self.from_return(target_type, raw_result)
 
     def _get_struct_field_index(self, value_type, attr) -> int | None:
@@ -1934,33 +1931,61 @@ extern "C" __global__ void
         self.store_var(target, result)
         trace("Record array field view: %s.%s stored to %s", value.name, attr, target.name)
 
-    def _make_bound_receiver_var(self, fn, fn_value, recvr_type):
-        """Create a synthetic Var for a bound method's receiver (self)."""
-        name = f"$bound_self_{fn.name}_{id(fn)}"
-        self.fndesc.typemap[name] = recvr_type
-        self.varmap[name] = fn_value
-        return numba_ir.Var(scope=fn.scope, name=name, loc=fn.loc)
-
-    def lower_overload_call(
-        self,
-        target: numba_ir.Var,
-        overload_disp: dispatcher.Dispatcher,
-        args: list[numba_ir.Var],
-        kws: list[tuple[str, numba_ir.Var]] | None = None,
+    def _fold_overload_call_values(
+        self, overload_disp, signature, args, kws, vararg=None, receiver=None
     ):
-        """
-        Lower a call to an overloaded function by compiling its implementation
-        to MLIR, linking the result, and emitting a func.call.
-        """
-        if kws is None:
-            kws = []
+        """Bind values using the selected implementation's dispatcher contract."""
+        supplied = [(self.get_numba_type(arg), self.load_var(arg)) for arg in args]
+        if vararg is not None:
+            vararg_type = self.get_numba_type(vararg)
+            supplied.extend(zip(self._tuple_element_types(vararg_type), self.load_var(vararg)))
+        if receiver is not None:
+            supplied.insert(0, receiver)
+        keywords = {name: (self.get_numba_type(value), self.load_var(value)) for name, value in kws}
+        pysig, folded_argtypes = overload_disp._compiler.fold_argument_types(
+            tuple(argty for argty, _ in supplied),
+            {name: argty for name, (argty, _) in keywords.items()},
+        )
+
+        def normal_handler(index, param, supplied_value):
+            source_type, value = supplied_value
+            return self._cast_call_value(source_type, folded_argtypes[index], value)
+
+        def default_handler(index, param, default):
+            return self._materialize_call_default(default, folded_argtypes[index])
+
+        def stararg_handler(index, param, values):
+            element_types = self._tuple_element_types(folded_argtypes[index])
+            return tuple(
+                self._cast_call_value(source_type, target_type, value)
+                for (source_type, value), target_type in zip(values, element_types)
+            )
+
+        def starkwarg_handler(index, param, values):
+            return stararg_handler(index, param, tuple(values.values()))
+
+        values = typing.fold_arguments(
+            pysig,
+            tuple(supplied),
+            keywords,
+            normal_handler,
+            default_handler,
+            stararg_handler,
+            starkwarg_handler,
+        )
+        return signature.replace(args=tuple(folded_argtypes), pysig=pysig), tuple(values)
+
+    def lower_overload_call_values(self, overload_disp, signature, args):
+        """Link the selected overload implementation and call it with lowered values."""
         from numba_cuda_mlir import cuda
         from numba_cuda_mlir.lowering_utilities import link
 
         py_func = overload_disp.py_func
         cuda_func = cuda.jit(device=True)(py_func)
-        folded_argtypes, call_vars, call_argtypes = self._fold_dispatcher_call_args(
-            cuda_func, args, kws
+        folded_argtypes = signature.args
+        call_argtypes = tuple(ty for ty in folded_argtypes if not _is_omitted_arg(ty))
+        call_values = tuple(
+            value for value, ty in zip(args, folded_argtypes) if not _is_omitted_arg(ty)
         )
         unique_qualname = f"{py_func.__qualname__}_{id(overload_disp)}"
         func_name = generate_mangled_name(unique_qualname, call_argtypes)
@@ -1987,13 +2012,10 @@ extern "C" __global__ void
             )
 
         callee_type = get_func_type(callee)
-        # Tuple-typed arguments -- including the ``*args`` bundle, which
-        # ``fold_arguments`` hands over as a plain tuple of Vars -- expand to one
-        # operand per leaf. Flatten by *type* so leaves with no ABI slot
-        # (``None``) are dropped exactly as the callee signature dropped them.
+        # Flatten by type so tuple leaves without ABI slots are dropped exactly
+        # as they are in the callee signature.
         flat_values = []
-        for var, argty in zip(call_vars, call_argtypes):
-            value = self.load_vars(var) if isinstance(var, tuple) else self.load_var(var)
+        for value, argty in zip(call_values, call_argtypes):
             value = self._coerce_value_to_numba_type(argty, value)
             flat_values.extend(self._flatten_abi_operands(argty, value))
         if len(flat_values) != len(callee_type.inputs):
@@ -2008,7 +2030,7 @@ extern "C" __global__ void
             operands_=call_args,
         )
 
-        target_type = self.get_numba_type(target.name)
+        target_type = signature.return_type
         if isinstance(target_type, types.BaseTuple):
             # Rebuild from the type so ``None`` leaves, which the callee returns
             # no value for, get their placeholder back in place.  The tuple is
@@ -2020,16 +2042,16 @@ extern "C" __global__ void
                 self._unflatten_abi_value(target_type, iter(self._call_results_tuple(call_result))),
             )
         elif len(callee_type.results) == 0:
-            result = ir.NoneType.get()
+            result = None
         else:
             result = self.from_return(target_type, call_result)
-        self.store_var(target, result)
+        return result
 
     def get_registered_builder(
         self,
         fn: numba_ir.Var | _Intrinsic | AnyCallable[PS],
         signature: typing.Signature | tuple[types.Type, ...],
-    ) -> Builder | None:
+    ) -> Builder | ValuesBuilder | None:
         """
         Return the registered code generator for the function and signature
         if one exists.
@@ -2039,7 +2061,7 @@ extern "C" __global__ void
             return builder
         return None
 
-    def _lookup_actual_function(self, fn, signature) -> Builder | None:
+    def _lookup_actual_function(self, fn, signature) -> Builder | ValuesBuilder | None:
         """
         Ensure we have a real function and it exists in the context's registry
         of code generators, and return it if we can find one that matches
@@ -2092,41 +2114,32 @@ extern "C" __global__ void
             return ty.typing_key
         return None
 
-    def _get_registered_builder(self, fn, signature) -> Builder | None:
+    def _get_registered_builder(self, fn, signature) -> Builder | ValuesBuilder | None:
         """
         Look up a code generator for the given function and signature.
 
-        Priority order:
-        1. Registered lowerings in context._defns (from @lower decorators)
-        2. Intrinsic _defn builders
-        3. DeferredLowering objects
+        Explicit native registrations take precedence over intrinsic implementations
+        cached by typing. Deferred objects explicitly select their lowering API.
         """
+        fn_type = self.get_numba_type(fn) if isinstance(fn, numba_ir.Var) else None
         if isinstance(fn, numba_ir.Var):
             fn = self._extract_callable_from_var(fn)
             if fn is None:
                 return None
 
-        if fn is range:
-            trace("NOT deferring to special-handling of range built-in")
-            # return None
-
-        # Check registered lowerings first — these take priority over
-        # intrinsic _defn builders so that numba_cuda_mlir @lower registrations
-        # can shadow numba-cuda intrinsics.
         if builder := self._lookup_actual_function(fn, signature):
             return builder
 
         if isinstance(fn, _Intrinsic):
-            tyctx = self.context.typing_context
-            full_sig, maybe_builder = fn._defn(tyctx, *signature.args)
-            if is_vendored_codegen(maybe_builder):
-                # Typing rejects these (MLIRTypingContext.check_intrinsic_codegen).
+            if fn_type is None:
+                fn_type = self.context.typing_context.resolve_value_type(fn)
+            implementation = fn_type.get_impl_key(signature)
+            if is_vendored_codegen(implementation):
                 raise InternalCompilerError(
                     f"{fn!r} has no MLIR lowering for {signature}; its vendored "
                     "codegen cannot run on the MLIR path."
                 )
-            if maybe_builder:
-                return maybe_builder
+            return implementation
 
         if isinstance(fn, DeferredLowering):
             return fn
@@ -2180,9 +2193,7 @@ extern "C" __global__ void
         self._seen_mlir_libraries.add(other)
         link.link_inplace(self.mlir_module, other.source)
 
-    def lower_call_external_mlir_library_function(
-        self, target, fn: ExternMLIRLibraryFunction, args, kws
-    ):
+    def lower_call_external_mlir_library_function_values(self, fn, signature, args):
         trace("lowering call to external MLIR library function %s", fn.name)
         self._link_external_mlir_library(fn.library)
         func_ty = to_mlir_type(fn.sig)
@@ -2197,11 +2208,13 @@ extern "C" __global__ void
         # MLIR integers are signless; retain source Numba types for conversion.
         args = [
             convert(
-                self.load_var(arg),
+                value,
                 arg_type,
-                signed=get_conversion_signedness(self.get_numba_type(arg.name), numba_type),
+                signed=get_conversion_signedness(source_type, numba_type),
             )
-            for arg, arg_type, numba_type in zip(args, callee_type.inputs, fn.sig.args)
+            for value, source_type, arg_type, numba_type in zip(
+                args, signature.args, callee_type.inputs, fn.sig.args
+            )
         ]
         # Use callee's actual type to preserve layout information
         call_result = func.call(
@@ -2209,20 +2222,19 @@ extern "C" __global__ void
             callee=callee.name.value,
             operands_=args,
         )
-        target_type = self.get_numba_type(target.name)
-        if isinstance(target_type, types.BaseTuple):
-            result = tuple(call_result)
-        else:
-            result = call_result
-        self.store_var(target, result)
+        if signature.return_type in (types.none, types.void):
+            return None
+        if isinstance(signature.return_type, types.BaseTuple):
+            return self._unflatten_abi_value(
+                signature.return_type, iter(self._call_results_tuple(call_result))
+            )
+        return call_result
 
-    def lower_call_external_function(self, target, fn_value: ExternFunction, args, kws):
+    def lower_call_external_function_values(self, fn_value, args):
         self._link_external_function(fn_value)
-
         if fn_value.abi == "c":
-            self._lower_call_external_c_abi(target, fn_value, args)
-        else:
-            self._lower_call_external_numba_abi(target, fn_value, args)
+            return self._lower_call_external_c_abi(fn_value, args)
+        return self._lower_call_external_numba_abi(fn_value, args)
 
     def _external_abi_function_type(self, sig: typing.Signature, *, numba_abi=False):
         if sig.return_type in (types.none, types.void):
@@ -2232,7 +2244,7 @@ extern "C" __global__ void
         inputs = [self.get_argument_type(arg_type) for arg_type in sig.args]
         return ir.FunctionType.get(inputs=inputs, results=results)
 
-    def _lower_call_external_numba_abi(self, target, fn_value: ExternFunction, args):
+    def _lower_call_external_numba_abi(self, fn_value: ExternFunction, args):
         external_abi_signature = user_signature_to_external_abi_signature(fn_value.sig)
         external_abi_mlir_type = self._external_abi_function_type(
             external_abi_signature, numba_abi=True
@@ -2247,30 +2259,270 @@ extern "C" __global__ void
             return_mlir_type = T.i8()
         c1 = arith.constant(result=T.i32(), value=1)
         return_ptr = llvm.alloca(res=ptr, array_size=c1, elem_type=return_mlir_type)
-        operands = [return_ptr] + self._call_operands_from_vars(
-            args, expected_types=fn_value.sig.args
-        )
+        operands = [return_ptr] + self._call_operands_from_values(args, fn_value.sig.args)
 
         callee = get_or_insert_function(fn_value.name, external_abi_mlir_type, self.mlir_gpu_module)
         func.call(result=return_type, callee=callee.name.value, operands_=operands)
         if user_return_actual_type != types.void:
             stored = llvm.load(res=return_mlir_type, addr=return_ptr)
-            result = self.from_storage(user_return_actual_type, stored)
-            self.store_var(target, result)
+            return self.from_storage(user_return_actual_type, stored)
+        return None
 
-    def _lower_call_external_c_abi(self, target, fn_value: ExternFunction, args):
+    def _lower_call_external_c_abi(self, fn_value: ExternFunction, args):
         user_sig = fn_value.sig
         c_mlir_type = self._external_abi_function_type(user_sig)
         result_types = list(c_mlir_type.results)
-        operands = self._call_operands_from_vars(args, expected_types=user_sig.args)
+        operands = self._call_operands_from_values(args, user_sig.args)
 
         callee = get_or_insert_function(fn_value.name, c_mlir_type, self.mlir_gpu_module)
         if user_sig.return_type != types.void:
             raw = func.call(result=result_types, callee=callee.name.value, operands_=operands)
-            result = self.from_return(user_sig.return_type, self._call_results_tuple(raw)[0])
-            self.store_var(target, result)
+            return self.from_return(user_sig.return_type, self._call_results_tuple(raw)[0])
+        func.call(result=[], callee=callee.name.value, operands_=operands)
+        return None
+
+    def _cast_call_value(self, source_type, target_type, value):
+        """Cast an operand without changing its source variable or literal metadata."""
+        if isinstance(source_type, types.Omitted):
+            source_type = self.context.typing_context.resolve_value_type(source_type.value)
+        if isinstance(target_type, types.Omitted):
+            target_type = self.context.typing_context.resolve_value_type(target_type.value)
+        if isinstance(target_type, types.StringLiteral):
+            return target_type.literal_value
+        if isinstance(source_type, types.StringLiteral) and isinstance(value, str):
+            value = self.lower_literal_if_needed(value, source_type)
+        if source_type == target_type or numba_types.unliteral(
+            source_type
+        ) == numba_types.unliteral(target_type):
+            return value
+        return self.lower_cast(source_type, target_type, value)
+
+    def _materialize_call_default(self, value, target_type):
+        if isinstance(target_type, types.Omitted):
+            target_type = self.context.typing_context.resolve_value_type(target_type.value)
+        if isinstance(target_type, types.StringLiteral):
+            return target_type.literal_value
+        if isinstance(target_type, types.BaseTuple):
+            return tuple(
+                self._materialize_call_default(element, element_type)
+                for element, element_type in zip(value, self._tuple_element_types(target_type))
+            )
+        if isinstance(target_type, types.Optional):
+            source_type = self.context.typing_context.resolve_value_type(value)
+            lowered = self._materialize_call_default(value, source_type)
+            return self.lower_cast(source_type, target_type, lowered)
+        if value is None:
+            return ir.NoneType.get()
+        if isinstance(target_type, types.DTypeSpec):
+            return self._materialize_type_token(target_type)
+        if isinstance(value, (bool, int, float, complex, np.number, np.bool_)):
+            if isinstance(value, (np.number, np.bool_)):
+                value = value.item()
+            mlir_type = self.get_mlir_type(target_type)
+            if isinstance(value, int) and isinstance(target_type, types.Integer):
+                if not target_type.signed and value >= (1 << (target_type.bitwidth - 1)):
+                    value -= 1 << target_type.bitwidth
+            return constant(value, mlir_type)
+        return self.lower_literal_if_needed(value, target_type)
+
+    def _fold_call_arguments(self, signature, supplied, keywords, cast, default):
+        """Bind source operands once, projecting them into either lowering API."""
+        formal_types = signature.args
+        position = 0
+
+        def next_type():
+            nonlocal position
+            if position >= len(formal_types):
+                raise InternalCompilerError(
+                    f"Too many arguments for selected signature {signature}."
+                )
+            formal_type = formal_types[position]
+            position += 1
+            return formal_type
+
+        def normal_handler(index, param, supplied_value):
+            return cast(supplied_value, next_type())
+
+        def default_handler(index, param, value):
+            return default(value, next_type())
+
+        expanded_stars = set()
+
+        def stararg_handler(index, param, supplied_values):
+            if position < len(formal_types) and isinstance(
+                formal_types[position], (numba_types.StarArgTuple, numba_types.StarArgUniTuple)
+            ):
+                formal_type = next_type()
+                element_types = self._tuple_element_types(formal_type)
+                if len(supplied_values) != len(element_types):
+                    raise InternalCompilerError(
+                        f"Star argument arity does not match selected signature {signature}."
+                    )
+                return tuple(
+                    cast(value, element_type)
+                    for value, element_type in zip(supplied_values, element_types)
+                )
+            expanded_stars.add(index)
+            return tuple(normal_handler(index, param, value) for value in supplied_values)
+
+        if signature.pysig is not None:
+            folded = typing.fold_arguments(
+                signature.pysig,
+                tuple(supplied),
+                keywords,
+                normal_handler,
+                default_handler,
+                stararg_handler,
+            )
+            values = tuple(
+                value
+                for index, operand in enumerate(folded)
+                for value in (operand if index in expanded_stars else (operand,))
+            )
         else:
-            func.call(result=[], callee=callee.name.value, operands_=operands)
+            if keywords:
+                raise errors.TypingError(
+                    "Cannot lower keyword arguments without a Python signature."
+                )
+            values = []
+            supplied_position = 0
+            while position < len(formal_types):
+                formal_type = formal_types[position]
+                # Without a Python *parameter*, a StarArgTuple is an ordinary
+                # tuple operand (for example getitem(args, 0) inside f(*args)).
+                if supplied_position < len(supplied):
+                    values.append(normal_handler(position, None, supplied[supplied_position]))
+                    supplied_position += 1
+                elif isinstance(formal_type, types.Omitted):
+                    values.append(default_handler(position, None, formal_type.value))
+                else:
+                    raise InternalCompilerError(
+                        f"Missing argument for selected signature {signature}."
+                    )
+            if supplied_position != len(supplied):
+                raise InternalCompilerError(
+                    f"Too many arguments for selected signature {signature}."
+                )
+            values = tuple(values)
+        if position != len(formal_types):
+            raise InternalCompilerError(f"Arguments do not match selected signature {signature}.")
+        return values
+
+    def _call_argument_type(self, arg):
+        if isinstance(arg, numba_ir.Var):
+            return self.get_numba_type(arg)
+        return numba_types.literal(arg)
+
+    def fold_call_args(self, signature, args, kws, vararg=None):
+        """Load, bind and cast a call into the selected signature's formal operands."""
+
+        def load_argument(arg):
+            arg_type = self._call_argument_type(arg)
+            if isinstance(arg_type, types.StringLiteral):
+                value = arg_type.literal_value
+            elif isinstance(arg, numba_ir.Var):
+                value = self.load_var(arg)
+            else:
+                value = self.lower_literal_if_needed(arg, arg_type)
+            return arg_type, value
+
+        supplied = [load_argument(arg) for arg in args]
+        if vararg is not None:
+            vararg_type = self.get_numba_type(vararg)
+            if not isinstance(vararg_type, types.BaseTuple):
+                raise InternalCompilerError(f"Cannot expand non-tuple argument {vararg_type}.")
+            supplied.extend(zip(self._tuple_element_types(vararg_type), self.load_var(vararg)))
+        keywords = {name: load_argument(value) for name, value in kws}
+        return self._fold_call_arguments(
+            signature,
+            supplied,
+            keywords,
+            lambda operand, target_type: self._cast_call_value(operand[0], target_type, operand[1]),
+            self._materialize_call_default,
+        )
+
+    def _new_call_temp(self, source, numba_type):
+        counter = getattr(self, "_call_temp_counter", 0)
+        while True:
+            name = f"$registered_call_temp_{counter}"
+            counter += 1
+            if name not in self.fndesc.typemap:
+                break
+        self._call_temp_counter = counter
+        var = numba_ir.Var(scope=source.scope, name=name, loc=source.loc)
+        self.fndesc.typemap[name] = numba_type
+        return var
+
+    def _coerce_registered_call_operand(self, operand, selected_type, source):
+        source_type = self._call_argument_type(operand)
+        if isinstance(selected_type, types.Omitted):
+            selected_type = self.context.typing_context.resolve_value_type(selected_type.value)
+        if numba_types.unliteral(source_type) == numba_types.unliteral(selected_type):
+            # Preserve literal metadata and the legacy source operand representation.
+            return operand
+        value = (
+            self.load_var(operand)
+            if isinstance(operand, numba_ir.Var)
+            else self.lower_literal_if_needed(operand, source_type)
+        )
+        converted = self._new_call_temp(source, selected_type)
+        self.store_var(converted, self._cast_call_value(source_type, selected_type, value))
+        return converted
+
+    def _legacy_call_args(self, signature, args, kws, vararg, source):
+        positional = list(args)
+        if vararg is not None:
+            vararg_type = self.get_numba_type(vararg)
+            if not isinstance(vararg_type, types.BaseTuple):
+                raise InternalCompilerError(f"Cannot expand non-tuple argument {vararg_type}.")
+            for element_type, value in zip(
+                self._tuple_element_types(vararg_type), self.load_var(vararg)
+            ):
+                operand = self._new_call_temp(vararg, element_type)
+                self.store_var(operand, value)
+                positional.append(operand)
+        keywords = dict(kws)
+
+        def cast(token, target_type):
+            # Keys identify occurrences, not Vars: f(x, x) can select two types.
+            key, operand = token
+            converted = self._coerce_registered_call_operand(operand, target_type, source)
+            if isinstance(key, int):
+                positional[key] = converted
+            else:
+                keywords[key] = converted
+            return converted
+
+        self._fold_call_arguments(
+            signature,
+            list(enumerate(positional)),
+            {name: (name, value) for name, value in kws},
+            cast,
+            lambda value, target_type: None,
+        )
+        return positional, [(name, keywords[name]) for name, _ in kws]
+
+    def _invoke_registered_builder(
+        self, builder, target, signature, args, kws=(), vararg=None, receiver=None, *, store=True
+    ):
+        implementation_signature = signature.as_function() if receiver is not None else signature
+        if getattr(builder, "_numba_cuda_mlir_lowering_api", "vars") == "values":
+            values = self.fold_call_args(signature, args, kws, vararg)
+            if receiver is not None:
+                source, source_type, value = receiver
+                values = (self._cast_call_value(source_type, signature.recvr, value), *values)
+            result = builder(self, implementation_signature, values)
+            if store:
+                self.store_var(target, result)
+            return
+        source = receiver[0] if receiver is not None else target
+        positional, keywords = self._legacy_call_args(signature, args, kws, vararg, source)
+        if receiver is not None:
+            source, source_type, value = receiver
+            operand = self._new_call_temp(source, signature.recvr)
+            self.store_var(operand, self._cast_call_value(source_type, signature.recvr, value))
+            positional.insert(0, operand)
+        builder(self, target, positional, keywords)
 
     def lower_call_expr_assign(self, target, fn, args, kws, expr=None):
         trace("target: %s, fn: %s, args: %s, kws: %s", target, fn, args, kws)
@@ -2284,19 +2536,28 @@ extern "C" __global__ void
         arg_types = [self.get_numba_type(arg.name) for arg in args]
         signature = target_type(*arg_types, *kw_types.values())
 
-        if expr is not None and expr in self.fndesc.calltypes:
-            ct_sig = self.fndesc.calltypes[expr]
-            if ct_sig.recvr:
-                signature = ct_sig
+        if expr is not None:
+            signature = self.fndesc.calltypes[expr]
 
         fn_value = self.load_var(fn)
-        call_args = list(args)
+        fn_type = self.get_numba_type(fn)
+        vararg = expr.vararg if expr is not None else None
+        if vararg is not None:
+            arg_types.extend(self._tuple_element_types(self.get_numba_type(vararg)))
+        implementation_signature = (
+            signature.as_function()
+            if signature.recvr and not isinstance(fn_value, DeferredLowering)
+            else signature
+        )
 
-        if signature.recvr:
-            call_args = [
-                self._make_bound_receiver_var(fn, fn_value, signature.recvr),
-                *args,
-            ]
+        def device_call(callee):
+            if vararg is None:
+                return self.build_user_defined_function_call(target, callee, args, kws)
+            selected = signature
+            if selected.pysig is None:
+                selected = selected.replace(pysig=utils.pysignature(callee.py_func))
+            values = self.fold_call_args(selected, args, kws, vararg)
+            return self.build_user_defined_function_call_values(callee, selected, values)
 
         # Handle literal_unroll specially - it just passes through its argument
         from numba_cuda_mlir.numba_cuda.misc.special import literal_unroll
@@ -2334,33 +2595,58 @@ extern "C" __global__ void
                 self.store_var(target, iternext.value)
                 return
 
-        if builder := self.get_registered_builder(fn, signature):
-            builder_args = args if isinstance(builder, DeferredLowering) else call_args
-            builder(self, target, builder_args, kws)
+        if builder := self.get_registered_builder(fn, implementation_signature):
+            receiver = (
+                (fn, fn_type.this, fn_value)
+                if signature.recvr and not isinstance(fn_value, DeferredLowering)
+                else None
+            )
+            self._invoke_registered_builder(builder, target, signature, args, kws, vararg, receiver)
             return
 
-        fn_type = self.get_numba_type(fn.name)
-
         if isinstance(fn_type, types.RecursiveCall):
-            call = self.build_recursive_call(target, fn_type, args, kws)
+            selected = signature
+            if selected.pysig is None:
+                selected = selected.replace(
+                    pysig=utils.pysignature(fn_type.dispatcher_type.dispatcher.py_func)
+                )
+            values = self.fold_call_args(selected, args, kws, vararg)
+            call = self.build_recursive_call_values(fn_type, selected, values)
             self.store_var(target, call)
             return
 
         if isinstance(fn_value, dispatcher.Dispatcher):
-            call = self.build_user_defined_function_call(target, fn_value, args, kws)
+            call = device_call(fn_value)
             self.store_var(target, call)
         elif isinstance(fn_value, ExternFunction):
-            self.lower_call_external_function(target, fn_value, args, kws)
+            values = self.fold_call_args(fn_value.sig, args, kws, vararg)
+            self.store_var(target, self.lower_call_external_function_values(fn_value, values))
         elif isinstance(fn_value, ExternMLIRLibraryFunction):
-            self.lower_call_external_mlir_library_function(target, fn_value, args, kws)
+            values = self.fold_call_args(signature, args, kws, vararg)
+            result = self.lower_call_external_mlir_library_function_values(
+                fn_value, signature, values
+            )
+            self.store_var(target, result)
         elif fn.name in self.user_defined_functions:
             callee = self.user_defined_functions[fn.name]
-            callOp = self.build_user_defined_function_call(target, callee, args, kws)
+            callOp = device_call(callee)
             self.store_var(target, callOp)
-        elif overload_builder := self.context.get_overload_builder(
+        elif overload_disp := self.context.get_overload_dispatcher(
             fn_type, signature, arg_types, kw_types
         ):
-            overload_builder(self, target, call_args, kws)
+            receiver = None
+            if signature.recvr and not isinstance(fn_value, DeferredLowering):
+                receiver = (fn_type.this, fn_value)
+            selected, values = self._fold_overload_call_values(
+                overload_disp,
+                implementation_signature,
+                args,
+                kws,
+                vararg,
+                receiver,
+            )
+            result = self.lower_overload_call_values(overload_disp, selected, values)
+            self.store_var(target, result)
         elif getattr(fn_value, "__numba_cuda_mlir_jitable__", False):
             # Function marked by numba_cuda_mlir's @register_jitable.
             # Cache the dispatcher on the function to avoid recompilation.
@@ -2368,9 +2654,7 @@ extern "C" __global__ void
                 from numba_cuda_mlir import cuda
 
                 fn_value._numba_cuda_mlir_device_dispatcher = cuda.jit(device=True)(fn_value)
-            call = self.build_user_defined_function_call(
-                target, fn_value._numba_cuda_mlir_device_dispatcher, args, kws
-            )
+            call = device_call(fn_value._numba_cuda_mlir_device_dispatcher)
             self.store_var(target, call)
         else:
             fn_module = getattr(fn_value, "__module__", "<unknown module>")
@@ -2415,7 +2699,8 @@ extern "C" __global__ void
         if lowering_fn is None:
             name = func.__name__ if hasattr(func, "__name__") else func
             raise NotImplementedError(f"Ufunc {name} is not supported.")
-        lowering_fn(self, target, args, {})
+        signature = self.get_numba_type(target)(*(self.get_numba_type(arg) for arg in args))
+        self.store_var(target, lowering_fn(self, signature, tuple(self.load_vars(args))))
 
     def _get_shared_address_space(self):
         return ir.Attribute.parse("#gpu.address_space<workgroup>")
@@ -2556,11 +2841,9 @@ extern "C" __global__ void
         """True only for third-party extension casts (e.g. cuDF).
 
         Casts from numba.* use llvmlite APIs and are incompatible.
-        Casts from numba_cuda_mlir.* use a different calling convention
-        (builder, target, args, kwargs) and are handled by their own
-        lowering paths.  Only extension casts (neither numba nor numba_cuda_mlir)
-        follow the (context, builder, fromty, toty, val) convention we
-        call here.
+        Native casts are handled by their own lowering paths. Only extension
+        casts (neither numba nor numba_cuda_mlir) follow the distinct
+        (context, builder, fromty, toty, val) convention called here.
         """
         module = getattr(cast_impl, "__module__", "")
         return not (module.startswith("numba.") or module.startswith("numba_cuda_mlir."))
@@ -3049,28 +3332,30 @@ extern "C" __global__ void
         """
         trace("setitem_inst: %s", setitem_inst)
         target = setitem_inst.target
-        index = getattr(setitem_inst, "index_var", setitem_inst.index)
+        index = getattr(setitem_inst, "index_var", None)
+        if index is None:
+            index = setitem_inst.index
         value = setitem_inst.value
-        arg_types = [self.get_numba_type(var.name) for var in setitem_inst.list_vars()]
-        signature = types.Any(*arg_types)
+        index_type = (
+            self.get_numba_type(index)
+            if isinstance(index, numba_ir.Var)
+            else numba_types.literal(index)
+        )
+        arg_types = (self.get_numba_type(target), index_type, self.get_numba_type(value))
+        signature = self.fndesc.calltypes.get(setitem_inst, types.none(*arg_types))
         if builder := self.get_registered_builder(operator.setitem, signature):
-            builder(self, None, [target, index, value], [])
+            self._invoke_registered_builder(
+                builder, target, signature, (target, index, value), store=False
+            )
             return
         # If value is Optional, unwrap it and retry with the inner type.
-        value_type = self.get_numba_type(value.name)
+        value_type = arg_types[-1]
         if isinstance(value_type, types.Optional):
-            unwrapped_types = list(arg_types)
-            unwrapped_types[-1] = value_type.type
-            sig2 = types.Any(*unwrapped_types)
+            sig2 = signature.replace(args=(*signature.args[:-1], value_type.type))
             if builder := self.get_registered_builder(operator.setitem, sig2):
-                mlir_val = self.load_var(value)
-                inner = self._cast_from_optional(value_type, value_type.type, mlir_val)
-                tmp_var = numba_ir.Var(
-                    scope=value.scope, name=f"$optional_unwrap_{value.name}", loc=value.loc
+                self._invoke_registered_builder(
+                    builder, target, sig2, (target, index, value), store=False
                 )
-                self.fndesc.typemap[tmp_var.name] = value_type.type
-                self.store_var(tmp_var, inner)
-                builder(self, None, [target, index, tmp_var], [])
                 return
         raise NotImplementedError(
             f"lowering setitem {setitem_inst} with types {arg_types}: no registered setitem builder"
@@ -3796,23 +4081,15 @@ extern "C" __global__ void
             return self.mlir_convert(value, self.get_value_type(numba_type))
         return value
 
-    def _call_operands_from_vars(self, args, kws=(), expected_types=None):
+    def _call_operands_from_values(self, args, expected_types):
         operands = []
-        expected_iter = iter(expected_types) if expected_types is not None else None
-        for arg in args:
-            arg_type = (
-                next(expected_iter) if expected_iter is not None else self.get_numba_type(arg.name)
-            )
-            value = self._coerce_value_to_numba_type(arg_type, self.load_var(arg))
-            operands.extend(self._flatten_abi_value(self.as_argument(arg_type, value)))
-        for _, value_var in kws:
-            value_type = (
-                next(expected_iter)
-                if expected_iter is not None
-                else self.get_numba_type(value_var.name)
-            )
-            value = self._coerce_value_to_numba_type(value_type, self.load_var(value_var))
-            operands.extend(self._flatten_abi_value(self.as_argument(value_type, value)))
+        for value, arg_type in zip(args, expected_types):
+            value = self._coerce_value_to_numba_type(arg_type, value)
+            if isinstance(arg_type, types.BaseTuple):
+                for element, element_type in zip(value, self._tuple_element_types(arg_type)):
+                    operands.extend(self._call_operands_from_values((element,), (element_type,)))
+            elif not _is_omitted_arg(arg_type):
+                operands.extend(self._flatten_abi_value(self.as_argument(arg_type, value)))
         return operands
 
     def get_mlir_type(self, ty):

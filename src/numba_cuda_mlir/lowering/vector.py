@@ -41,19 +41,6 @@ def _cpointer_to_element_ptr(ptr: ir.Value, index: ir.Value, element_type: ir.Ty
     )
 
 
-def _get_alignment(lower: MLIRLower, args: list[Any], kwargs) -> int:
-    """Extract alignment value from positional args or kwargs."""
-    if len(args) > 3:
-        # Passed as positional argument (4th arg)
-        return lower.get_numba_type(args[3].name).literal_value
-    else:
-        # Search in keyword arguments
-        kwargs_dict = dict(kwargs)
-        if "alignment" not in kwargs_dict:
-            raise ValueError("alignment parameter not found in args or kwargs")
-        return lower.get_numba_type(kwargs_dict["alignment"].name).literal_value
-
-
 def _get_padding_value(element_type: ir.Type) -> ir.Value:
     """Get a zero padding value for the given element type."""
     if isinstance(element_type, ir.FloatType):
@@ -95,8 +82,8 @@ def _array_storage_vector_type(array: ir.Value, value_vec_type: ir.VectorType) -
     return _vector_with_element_type(value_vec_type, array.type.element_type)
 
 
-def _aligned_array_storage_vector_type(lower, args, array, value_vec_type):
-    array_type = lower.get_numba_type(args[0].name)
+def _aligned_array_storage_vector_type(signature, array, value_vec_type):
+    array_type = signature.args[0]
     if ArrayStorageLayout(array_type).byte_addressed:
         raise TypeError("Explicitly aligned vector access requires aligned array storage")
     return _array_storage_vector_type(array, value_vec_type)
@@ -202,21 +189,20 @@ def _value_vector_to_storage(
 # =============================================================================
 
 
-@lower(vector_module.load, types.Array, types.Integer, types.IntegerLiteral)
-@lower(vector_module.load, types.Array, types.Integer, types.Tuple)
-@lower(vector_module.load, types.Array, types.Integer, types.UniTuple)
-def vector_load_1d_index(lower: MLIRLower, target, args: list[Any], kwargs):
+@lower(vector_module.load, types.Array, types.Integer, types.IntegerLiteral, api="values")
+@lower(vector_module.load, types.Array, types.Integer, types.Tuple, api="values")
+@lower(vector_module.load, types.Array, types.Integer, types.UniTuple, api="values")
+def vector_load_1d_index(lower: MLIRLower, signature, args: list[Any]):
     """Unaligned vector load."""
-    array = lower.load_var(args[0])
-    index = lower.load_var(args[1])
+    array = args[0]
+    index = args[1]
 
-    target_type = lower.get_numba_type(target.name)
+    target_type = signature.return_type
     value_vec_type = lower.get_mlir_type(target_type)
-    array_type = lower.get_numba_type(args[0].name)
+    array_type = signature.args[0]
     if ArrayStorageLayout(array_type).byte_addressed:
         result = _byte_array_vector_load(array_type, array, [index_of(index)], value_vec_type)
-        lower.store_var(target, result)
-        return
+        return result
     vec_type = _array_storage_vector_type(array, value_vec_type)
     vec_rank = len(value_vec_type.shape)
     memref_rank = array.type.rank
@@ -226,29 +212,28 @@ def vector_load_1d_index(lower: MLIRLower, target, args: list[Any], kwargs):
     perm_map = _get_permutation_map(memref_rank, vec_rank)
     in_bounds = ir.ArrayAttr.get([ir.BoolAttr.get(True)] * vec_rank)
     result = vector.transfer_read(vec_type, array, [index], perm_map, padding, in_bounds)
-    lower.store_var(target, _storage_vector_to_value(target_type, result, value_vec_type))
+    return _storage_vector_to_value(target_type, result, value_vec_type)
 
 
-@lower(vector_module.load, types.Array, types.UniTuple, types.IntegerLiteral)
-@lower(vector_module.load, types.Array, types.UniTuple, types.Tuple)
-@lower(vector_module.load, types.Array, types.UniTuple, types.UniTuple)
-@lower(vector_module.load, types.Array, types.Tuple, types.IntegerLiteral)
-@lower(vector_module.load, types.Array, types.Tuple, types.Tuple)
-@lower(vector_module.load, types.Array, types.Tuple, types.UniTuple)
-def vector_load_nd_index(lower: MLIRLower, target, args: list[Any], kwargs):
+@lower(vector_module.load, types.Array, types.UniTuple, types.IntegerLiteral, api="values")
+@lower(vector_module.load, types.Array, types.UniTuple, types.Tuple, api="values")
+@lower(vector_module.load, types.Array, types.UniTuple, types.UniTuple, api="values")
+@lower(vector_module.load, types.Array, types.Tuple, types.IntegerLiteral, api="values")
+@lower(vector_module.load, types.Array, types.Tuple, types.Tuple, api="values")
+@lower(vector_module.load, types.Array, types.Tuple, types.UniTuple, api="values")
+def vector_load_nd_index(lower: MLIRLower, signature, args: list[Any]):
     """Unaligned vector load."""
-    array = lower.load_var(args[0])
-    indices = lower.load_var(args[1])
+    array = args[0]
+    indices = args[1]
 
-    target_type = lower.get_numba_type(target.name)
+    target_type = signature.return_type
     value_vec_type = lower.get_mlir_type(target_type)
-    array_type = lower.get_numba_type(args[0].name)
+    array_type = signature.args[0]
     if ArrayStorageLayout(array_type).byte_addressed:
         result = _byte_array_vector_load(
             array_type, array, [index_of(i) for i in indices], value_vec_type
         )
-        lower.store_var(target, result)
-        return
+        return result
     vec_type = _array_storage_vector_type(array, value_vec_type)
     vec_rank = len(value_vec_type.shape)
     memref_rank = array.type.rank
@@ -258,7 +243,7 @@ def vector_load_nd_index(lower: MLIRLower, target, args: list[Any], kwargs):
     perm_map = _get_permutation_map(memref_rank, vec_rank)
     in_bounds = ir.ArrayAttr.get([ir.BoolAttr.get(True)] * vec_rank)
     result = vector.transfer_read(vec_type, array, indices, perm_map, padding, in_bounds)
-    lower.store_var(target, _storage_vector_to_value(target_type, result, value_vec_type))
+    return _storage_vector_to_value(target_type, result, value_vec_type)
 
 
 # =============================================================================
@@ -272,26 +257,36 @@ def vector_load_nd_index(lower: MLIRLower, target, args: list[Any], kwargs):
     types.Integer,
     types.IntegerLiteral,
     types.IntegerLiteral,
+    api="values",
 )
-@lower(vector_module.load, types.Array, types.Integer, types.Tuple, types.IntegerLiteral)
-@lower(vector_module.load, types.Array, types.Integer, types.UniTuple, types.IntegerLiteral)
-def vector_load_1d_index_aligned(lower: MLIRLower, target, args: list[Any], kwargs):
+@lower(
+    vector_module.load, types.Array, types.Integer, types.Tuple, types.IntegerLiteral, api="values"
+)
+@lower(
+    vector_module.load,
+    types.Array,
+    types.Integer,
+    types.UniTuple,
+    types.IntegerLiteral,
+    api="values",
+)
+def vector_load_1d_index_aligned(lower: MLIRLower, signature, args: list[Any]):
     """Aligned vector load using llvm.load (1D index)."""
-    array = lower.load_var(args[0])
-    index = lower.load_var(args[1])
+    array = args[0]
+    index = args[1]
 
-    target_type = lower.get_numba_type(target.name)
+    target_type = signature.return_type
     value_vec_type = lower.get_mlir_type(target_type)
-    vec_type = _aligned_array_storage_vector_type(lower, args, array, value_vec_type)
+    vec_type = _aligned_array_storage_vector_type(signature, array, value_vec_type)
     index = index_of(index)
 
     # Convert memref to LLVM pointer
     ptr = memref_to_llvm_ptr(array, [index])
 
     # Use llvm.load with alignment
-    alignment = _get_alignment(lower, args, kwargs)
+    alignment = signature.args[3].literal_value
     result = llvm.load(vec_type, ptr, alignment=alignment)
-    lower.store_var(target, _storage_vector_to_value(target_type, result, value_vec_type))
+    return _storage_vector_to_value(target_type, result, value_vec_type)
 
 
 @lower(
@@ -300,14 +295,18 @@ def vector_load_1d_index_aligned(lower: MLIRLower, target, args: list[Any], kwar
     types.UniTuple,
     types.IntegerLiteral,
     types.IntegerLiteral,
+    api="values",
 )
-@lower(vector_module.load, types.Array, types.UniTuple, types.Tuple, types.IntegerLiteral)
+@lower(
+    vector_module.load, types.Array, types.UniTuple, types.Tuple, types.IntegerLiteral, api="values"
+)
 @lower(
     vector_module.load,
     types.Array,
     types.UniTuple,
     types.UniTuple,
     types.IntegerLiteral,
+    api="values",
 )
 @lower(
     vector_module.load,
@@ -315,26 +314,31 @@ def vector_load_1d_index_aligned(lower: MLIRLower, target, args: list[Any], kwar
     types.Tuple,
     types.IntegerLiteral,
     types.IntegerLiteral,
+    api="values",
 )
-@lower(vector_module.load, types.Array, types.Tuple, types.Tuple, types.IntegerLiteral)
-@lower(vector_module.load, types.Array, types.Tuple, types.UniTuple, types.IntegerLiteral)
-def vector_load_nd_index_aligned(lower: MLIRLower, target, args: list[Any], kwargs):
+@lower(
+    vector_module.load, types.Array, types.Tuple, types.Tuple, types.IntegerLiteral, api="values"
+)
+@lower(
+    vector_module.load, types.Array, types.Tuple, types.UniTuple, types.IntegerLiteral, api="values"
+)
+def vector_load_nd_index_aligned(lower: MLIRLower, signature, args: list[Any]):
     """Aligned vector load using llvm.load (N-D index)."""
-    array = lower.load_var(args[0])
-    indices = lower.load_var(args[1])
+    array = args[0]
+    indices = args[1]
 
-    target_type = lower.get_numba_type(target.name)
+    target_type = signature.return_type
     value_vec_type = lower.get_mlir_type(target_type)
-    vec_type = _aligned_array_storage_vector_type(lower, args, array, value_vec_type)
+    vec_type = _aligned_array_storage_vector_type(signature, array, value_vec_type)
     indices = [index_of(i) for i in indices]
 
     # Convert memref to LLVM pointer
     ptr = memref_to_llvm_ptr(array, indices)
 
     # Use llvm.load with alignment
-    alignment = _get_alignment(lower, args, kwargs)
+    alignment = signature.args[3].literal_value
     result = llvm.load(vec_type, ptr, alignment=alignment)
-    lower.store_var(target, _storage_vector_to_value(target_type, result, value_vec_type))
+    return _storage_vector_to_value(target_type, result, value_vec_type)
 
 
 # =============================================================================
@@ -342,19 +346,18 @@ def vector_load_nd_index_aligned(lower: MLIRLower, target, args: list[Any], kwar
 # =============================================================================
 
 
-@lower(vector_module.store, types.Array, types.Integer, VectorType)
-def vector_store_1d_index(lower: MLIRLower, target, args: list[Any], kwargs):
+@lower(vector_module.store, types.Array, types.Integer, VectorType, api="values")
+def vector_store_1d_index(lower: MLIRLower, signature, args: list[Any]):
     """Unaligned vector store."""
-    array = lower.load_var(args[0])
-    index = lower.load_var(args[1])
-    vec = lower.load_var(args[2])
+    array = args[0]
+    index = args[1]
+    vec = args[2]
 
-    vec_numba_type = lower.get_numba_type(args[2].name)
-    array_type = lower.get_numba_type(args[0].name)
+    vec_numba_type = signature.args[2]
+    array_type = signature.args[0]
     if ArrayStorageLayout(array_type).byte_addressed:
         _byte_array_vector_store(array_type, array, [index_of(index)], vec, vec_numba_type)
-        lower.store_var(target, None)
-        return
+        return None
     vec_type = _array_storage_vector_type(array, lower.get_mlir_type(vec_numba_type))
     vec = _value_vector_to_storage(vec_numba_type, vec, vec_type)
     vec_rank = len(vec_type.shape)
@@ -364,25 +367,24 @@ def vector_store_1d_index(lower: MLIRLower, target, args: list[Any], kwargs):
     perm_map = _get_permutation_map(memref_rank, vec_rank)
     in_bounds = ir.ArrayAttr.get([ir.BoolAttr.get(True)] * vec_rank)
     vector.transfer_write(None, vec, array, [index], perm_map, in_bounds)
-    lower.store_var(target, None)
+    return None
 
 
-@lower(vector_module.store, types.Array, types.UniTuple, VectorType)
-@lower(vector_module.store, types.Array, types.Tuple, VectorType)
-def vector_store_nd_index(lower: MLIRLower, target, args: list[Any], kwargs):
+@lower(vector_module.store, types.Array, types.UniTuple, VectorType, api="values")
+@lower(vector_module.store, types.Array, types.Tuple, VectorType, api="values")
+def vector_store_nd_index(lower: MLIRLower, signature, args: list[Any]):
     """Unaligned vector store."""
-    array = lower.load_var(args[0])
-    indices = lower.load_var(args[1])
-    vec = lower.load_var(args[2])
+    array = args[0]
+    indices = args[1]
+    vec = args[2]
 
-    vec_numba_type = lower.get_numba_type(args[2].name)
-    array_type = lower.get_numba_type(args[0].name)
+    vec_numba_type = signature.args[2]
+    array_type = signature.args[0]
     if ArrayStorageLayout(array_type).byte_addressed:
         _byte_array_vector_store(
             array_type, array, [index_of(i) for i in indices], vec, vec_numba_type
         )
-        lower.store_var(target, None)
-        return
+        return None
     vec_type = _array_storage_vector_type(array, lower.get_mlir_type(vec_numba_type))
     vec = _value_vector_to_storage(vec_numba_type, vec, vec_type)
     vec_rank = len(vec_type.shape)
@@ -392,7 +394,7 @@ def vector_store_nd_index(lower: MLIRLower, target, args: list[Any], kwargs):
     perm_map = _get_permutation_map(memref_rank, vec_rank)
     in_bounds = ir.ArrayAttr.get([ir.BoolAttr.get(True)] * vec_rank)
     vector.transfer_write(None, vec, array, indices, perm_map, in_bounds)
-    lower.store_var(target, None)
+    return None
 
 
 # =============================================================================
@@ -400,17 +402,19 @@ def vector_store_nd_index(lower: MLIRLower, target, args: list[Any], kwargs):
 # =============================================================================
 
 
-@lower(vector_module.store, types.Array, types.Integer, VectorType, types.IntegerLiteral)
-def vector_store_1d_index_aligned(lower: MLIRLower, target, args: list[Any], kwargs):
+@lower(
+    vector_module.store, types.Array, types.Integer, VectorType, types.IntegerLiteral, api="values"
+)
+def vector_store_1d_index_aligned(lower: MLIRLower, signature, args: list[Any]):
     """Aligned vector store using llvm.store (1D index)."""
-    array = lower.load_var(args[0])
-    index = lower.load_var(args[1])
-    vec = lower.load_var(args[2])
+    array = args[0]
+    index = args[1]
+    vec = args[2]
     index = index_of(index)
 
-    vec_numba_type = lower.get_numba_type(args[2].name)
+    vec_numba_type = signature.args[2]
     vec_type = _aligned_array_storage_vector_type(
-        lower, args, array, lower.get_mlir_type(vec_numba_type)
+        signature, array, lower.get_mlir_type(vec_numba_type)
     )
     vec = _value_vector_to_storage(vec_numba_type, vec, vec_type)
 
@@ -418,23 +422,27 @@ def vector_store_1d_index_aligned(lower: MLIRLower, target, args: list[Any], kwa
     ptr = memref_to_llvm_ptr(array, [index])
 
     # Use llvm.store with alignment
-    alignment = _get_alignment(lower, args, kwargs)
+    alignment = signature.args[3].literal_value
     llvm.store(vec, ptr, alignment=alignment)
-    lower.store_var(target, None)
+    return None
 
 
-@lower(vector_module.store, types.Array, types.UniTuple, VectorType, types.IntegerLiteral)
-@lower(vector_module.store, types.Array, types.Tuple, VectorType, types.IntegerLiteral)
-def vector_store_nd_index_aligned(lower: MLIRLower, target, args: list[Any], kwargs):
+@lower(
+    vector_module.store, types.Array, types.UniTuple, VectorType, types.IntegerLiteral, api="values"
+)
+@lower(
+    vector_module.store, types.Array, types.Tuple, VectorType, types.IntegerLiteral, api="values"
+)
+def vector_store_nd_index_aligned(lower: MLIRLower, signature, args: list[Any]):
     """Aligned vector store using llvm.store (N-D index)."""
-    array = lower.load_var(args[0])
-    indices = lower.load_var(args[1])
-    vec = lower.load_var(args[2])
+    array = args[0]
+    indices = args[1]
+    vec = args[2]
     indices = [index_of(i) for i in indices]
 
-    vec_numba_type = lower.get_numba_type(args[2].name)
+    vec_numba_type = signature.args[2]
     vec_type = _aligned_array_storage_vector_type(
-        lower, args, array, lower.get_mlir_type(vec_numba_type)
+        signature, array, lower.get_mlir_type(vec_numba_type)
     )
     vec = _value_vector_to_storage(vec_numba_type, vec, vec_type)
 
@@ -442,9 +450,9 @@ def vector_store_nd_index_aligned(lower: MLIRLower, target, args: list[Any], kwa
     ptr = memref_to_llvm_ptr(array, indices)
 
     # Use llvm.store with alignment
-    alignment = _get_alignment(lower, args, kwargs)
+    alignment = signature.args[3].literal_value
     llvm.store(vec, ptr, alignment=alignment)
-    lower.store_var(target, None)
+    return None
 
 
 # =============================================================================
@@ -458,6 +466,7 @@ def vector_store_nd_index_aligned(lower: MLIRLower, target, args: list[Any], kwa
     types.Integer,
     types.IntegerLiteral,
     types.IntegerLiteral,
+    api="values",
 )
 @lower(
     vector_module.load,
@@ -465,6 +474,7 @@ def vector_store_nd_index_aligned(lower: MLIRLower, target, args: list[Any], kwa
     types.Integer,
     types.Tuple,
     types.IntegerLiteral,
+    api="values",
 )
 @lower(
     vector_module.load,
@@ -472,35 +482,43 @@ def vector_store_nd_index_aligned(lower: MLIRLower, target, args: list[Any], kwa
     types.Integer,
     types.UniTuple,
     types.IntegerLiteral,
+    api="values",
 )
-def vector_load_cpointer_1d(lower: MLIRLower, target, args: list[Any], kwargs):
+def vector_load_cpointer_1d(lower: MLIRLower, signature, args: list[Any]):
     """Vector load from CPointer using llvm.load with alignment (1D index)."""
-    ptr = lower.load_var(args[0])
-    index = lower.load_var(args[1])
+    ptr = args[0]
+    index = args[1]
 
-    target_type = lower.get_numba_type(target.name)
+    target_type = signature.return_type
     value_vec_type = lower.get_mlir_type(target_type)
     vec_type = _scalar_storage_vector_type(lower, target_type)
 
     element_ptr = _cpointer_to_element_ptr(ptr, index, vec_type.element_type)
 
-    alignment = _get_alignment(lower, args, kwargs)
+    alignment = signature.args[3].literal_value
     result = llvm.load(vec_type, element_ptr, alignment=alignment)
-    lower.store_var(target, _storage_vector_to_value(target_type, result, value_vec_type))
+    return _storage_vector_to_value(target_type, result, value_vec_type)
 
 
-@lower(vector_module.store, types.CPointer, types.Integer, VectorType, types.IntegerLiteral)
-def vector_store_cpointer_1d(lower: MLIRLower, target, args: list[Any], kwargs):
+@lower(
+    vector_module.store,
+    types.CPointer,
+    types.Integer,
+    VectorType,
+    types.IntegerLiteral,
+    api="values",
+)
+def vector_store_cpointer_1d(lower: MLIRLower, signature, args: list[Any]):
     """Vector store to CPointer using llvm.store with alignment (1D index)."""
-    ptr = lower.load_var(args[0])
-    index = lower.load_var(args[1])
-    vec = lower.load_var(args[2])
+    ptr = args[0]
+    index = args[1]
+    vec = args[2]
 
-    vec_numba_type = lower.get_numba_type(args[2].name)
+    vec_numba_type = signature.args[2]
     vec_type = _scalar_storage_vector_type(lower, vec_numba_type)
     vec = _value_vector_to_storage(vec_numba_type, vec, vec_type)
     element_ptr = _cpointer_to_element_ptr(ptr, index, vec_type.element_type)
 
-    alignment = _get_alignment(lower, args, kwargs)
+    alignment = signature.args[3].literal_value
     llvm.store(vec, element_ptr, alignment=alignment)
-    lower.store_var(target, None)
+    return None

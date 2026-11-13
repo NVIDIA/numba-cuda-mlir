@@ -1718,6 +1718,45 @@ class TestCudaAtomics(unittest.TestCase):
         self._test_atomic_nan_returns_old(kernel, 11)
 
 
+@pytest.mark.parametrize("operation", ["cas", "cas_tuple", "compare_and_swap"])
+@pytest.mark.parametrize("array_dtype", [np.int64, np.uint64])
+@pytest.mark.parametrize("old_dtype", [np.int32, np.uint32])
+@pytest.mark.parametrize("value_dtype", [np.int32, np.uint32])
+def test_atomic_cas_operand_signedness(operation, array_dtype, old_dtype, value_dtype):
+    if operation == "cas":
+
+        @cuda.jit
+        def kernel(arr, old, value, returned):
+            i = cuda.threadIdx.x
+            returned[i] = cuda.atomic.cas(arr, i, old, value)
+    elif operation == "cas_tuple":
+
+        @cuda.jit
+        def kernel(arr, old, value, returned):
+            i = cuda.threadIdx.x
+            returned[0, i] = cuda.atomic.cas(arr, (0, i), old, value)
+    else:
+
+        @cuda.jit
+        def kernel(arr, old, value, returned):
+            i = cuda.threadIdx.x
+            returned[i] = cuda.atomic.compare_and_swap(arr[i:], old, value)
+
+    old = old_dtype(-1 if old_dtype == np.int32 else 0xFFFFFFFF)
+    value = value_dtype(-2 if value_dtype == np.int32 else 0xFFFFFFFE)
+    initial = np.array([old, 7], dtype=old_dtype).astype(array_dtype)
+    arr = initial.copy()
+    returned = np.zeros_like(arr)
+    if operation == "cas_tuple":
+        arr = arr.reshape(1, 2)
+        returned = returned.reshape(1, 2)
+    kernel[1, 2](arr, old, value, returned)
+    expected = initial.copy()
+    expected[0] = np.asarray(value).astype(array_dtype)
+    np.testing.assert_array_equal(arr.ravel(), expected)
+    np.testing.assert_array_equal(returned.ravel(), initial)
+
+
 if __name__ == "__main__":
     # unittest.main()
     TestCudaAtomics().test_atomic_nanmax_double()

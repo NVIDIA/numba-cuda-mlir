@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from contextlib import nullcontext
 from numba_cuda_mlir.descriptor import MLIRDispatcherType, is_vendored_codegen
 from io import StringIO
 import logging
@@ -20,6 +21,7 @@ from numba_cuda_mlir import types
 from numba_cuda_mlir.numba_cuda.datamodel.models import ArrayModel
 from numba_cuda_mlir.annotations import Builder, AnyCallable, PS
 from numba_cuda_mlir.errors import InternalCompilerError, ensure_verifies
+from numba_cuda_mlir.runtime_errors import ErrorCode
 from numba_cuda_mlir.lowering_utilities.type_conversions import (
     to_mlir_type,
     to_numba_type,
@@ -90,11 +92,11 @@ from numba_cuda_mlir.types import Record
 
 ERROR_CODE_GLOBAL_NAME = "__numba_cuda_mlir_error_code"
 KERNEL_ERROR_CODES = {
-    AssertionError: 1,
-    IndexError: 2,
-    ValueError: 3,
-    RuntimeError: 4,
-    ZeroDivisionError: 5,
+    AssertionError: ErrorCode.ASSERTION,
+    IndexError: ErrorCode.INDEX,
+    ValueError: ErrorCode.VALUE,
+    RuntimeError: ErrorCode.RUNTIME,
+    ZeroDivisionError: ErrorCode.ZERO_DIVISION,
 }
 # MLIR LLVM dialect dynamic GEP sentinel, LLVM::GEPOp::kDynamicIndex / INT32_MIN.
 _GEP_DYNAMIC_INDEX = -2147483648
@@ -144,30 +146,10 @@ class MLIRLower(object):
         self.metadata = metadata
         self.flags = targetconfig.ConfigStack.top_or_none()
         self.targetoptions = self.metadata["targetoptions"]
-        gpu_target = self.metadata.get("gpu_target") or resolve_gpu_target(self.targetoptions)
-        self.metadata["gpu_target"] = gpu_target
-        self.targetoptions["chip"] = gpu_target["chip"]
-        cc = gpu_target["cc"]
-        assert isinstance(cc, tuple)
-
-        linker_cc = gpu_target["linker_cc"]
-        linker_arch = gpu_target["linker_arch"]
-
-        link_files = list(self.targetoptions.get("link", []))
-
         self._debug_full = self.targetoptions.get("debug", False)
         self._line_only = self.targetoptions.get("lineinfo", False)
+        link_files = self._initialize_target_and_linker()
 
-        self._linker_config = dict(
-            cc=linker_cc,
-            arch=linker_arch,
-            verbose=self.targetoptions.get("dump", False),
-            optimization_level=int(self.targetoptions.get("opt_level", 3)),
-            debug=self._debug_full,
-            lineinfo=self._line_only,
-            ptxas_options=self.targetoptions.get("ptxas_options", None),
-            max_registers=self.targetoptions.get("max_registers", None),
-        )
         self._seen_mlir_libraries = set()
         self._cloned_device_funcs: set[str] = set()
         self._constant_array_globals = {}
@@ -248,6 +230,25 @@ class MLIRLower(object):
         # This adds:
         #  - environment: the python execution environment
         self.context = context.subtarget(environment=self.env, fndesc=self.fndesc)
+
+    def _initialize_target_and_linker(self):
+        """Resolve the GPU target, configure its deferred linker, and return link inputs."""
+        gpu_target = self.metadata.get("gpu_target") or resolve_gpu_target(self.targetoptions)
+        self.metadata["gpu_target"] = gpu_target
+        self.targetoptions["chip"] = gpu_target["chip"]
+        cc = gpu_target["cc"]
+        assert isinstance(cc, tuple)
+        self._linker_config = dict(
+            cc=gpu_target["linker_cc"],
+            arch=gpu_target["linker_arch"],
+            verbose=self.targetoptions.get("dump", False),
+            optimization_level=int(self.targetoptions.get("opt_level", 3)),
+            debug=self._debug_full,
+            lineinfo=self._line_only,
+            ptxas_options=self.targetoptions.get("ptxas_options", None),
+            max_registers=self.targetoptions.get("max_registers", None),
+        )
+        return list(self.targetoptions.get("link", []))
 
     def _create_linker(self, link_plan):
         return Linker(
@@ -372,7 +373,8 @@ class MLIRLower(object):
                 assert self.metadata
                 self.metadata["mlir_module"] = self.mlir_module
                 self.metadata["_mlir_has_debug_info"] = self._di_subprogram is not None
-                self.metadata["linker"] = self._create_resolved_linker()
+                if self._mlir_gpu_module is not None:
+                    self.metadata["linker"] = self._create_resolved_linker()
                 self.metadata["needs_nrt"] = needs_nrt
                 self.metadata["nrt_inline"] = needs_nrt
                 if self._setup_callbacks or self._teardown_callbacks:
@@ -430,6 +432,32 @@ class MLIRLower(object):
         """Get/create the error code global. Returns LLVM pointer to error code."""
         self._ensure_error_global()
         return llvm.mlir_addressof(llvm.PointerType.get(), ERROR_CODE_GLOBAL_NAME)
+
+    def checked_range_step_context(self, step):
+        """Validate the range step and return the continuation insertion context."""
+        from numba_cuda_mlir.mlir.dialect_exts.scf import if_ctx_manager
+
+        with if_ctx_manager(arith.cmpi(arith.CmpIPredicate.eq, step, arith.constant(step.type, 0))):
+            self.set_error_code(KERNEL_ERROR_CODES[ZeroDivisionError])
+            scf.yield_([])
+        return nullcontext()
+
+    def scalar_conversion_context(self):
+        """Continue consuming a cast after target-specific checks split a block."""
+        return nullcontext()
+
+    def checked_division_context(self, operation, typ, left, right):
+        """Device division retains its existing unchecked arithmetic policy."""
+        return nullcontext()
+
+    def lower_float_remainder(self, x: ir.Value, y: ir.Value) -> ir.Value:
+        """Emit the device's exact floating-point remainder."""
+        from numba_cuda_mlir.lowering.math import _call_libdevice_binary
+
+        return convert(
+            _call_libdevice_binary(self, x, y, "__nv_fmod", "__nv_fmodf"),
+            x.type,
+        )
 
     def set_error_code(self, error_code: int | ir.Value):
         """Atomically set the error code global (first error wins).
@@ -686,7 +714,8 @@ extern "C" __global__ void
         trace()
         assert self.mlir_funcOp is not None
 
-        self._ensure_error_global()
+        if self._mlir_gpu_module is not None:
+            self._ensure_error_global()
 
         # Create a one-on-one mapping from numba block to mlir block
         for offset in self.blocks:
@@ -943,7 +972,7 @@ extern "C" __global__ void
         trace(static_raise_inst)
 
         exc_class = static_raise_inst.exc_class
-        error_code = KERNEL_ERROR_CODES.get(exc_class, 4)  # Default to RuntimeError
+        error_code = KERNEL_ERROR_CODES.get(exc_class, ErrorCode.RUNTIME)
         self.set_error_code(error_code)
 
         # Return here rather than branch to a Return block: that block can hold
@@ -1211,6 +1240,9 @@ extern "C" __global__ void
             self._store_complex_constant(target, glob.value)
         elif isinstance(glob.value, (bool, int, float, np.number, np.bool_)):
             mlir_type = self.get_mlir_type(target_type)
+            if isinstance(target_type, types.Integer):
+                self.lower_const_assign(target, numba_ir.Const(glob.value, glob.loc))
+                return
             # Check if the MLIR type supports constants
             if not isinstance(
                 mlir_type,
@@ -1280,8 +1312,9 @@ extern "C" __global__ void
                         self.store_var(target, var_value)
                 else:
                     value_op = self.lower_cast(source_type, target_type, var_value)
-                    self.incref(target_type, value_op)
-                    self.store_var(target, value_op)
+                    with self.scalar_conversion_context():
+                        self.incref(target_type, value_op)
+                        self.store_var(target, value_op)
 
     def lower_array_literal(self, value: np.ndarray, numba_type) -> ir.Value:
         global constant_array_id
@@ -1530,7 +1563,7 @@ extern "C" __global__ void
             ro = self.load_var(value)
             if not isinstance(ro, RangeObject):
                 raise InternalCompilerError(f"Range object not found for value {value.name}")
-            self.store_var(target, ro)
+            self.store_var(target, ro.get_iterator(self))
         elif isinstance(value_type, (types.NumpyNdIterType, numba_types.NumpyFlatType)):
             iter_obj = self.load_var(value)
             if not isinstance(iter_obj, NdIterIterObject):
@@ -1624,8 +1657,9 @@ extern "C" __global__ void
         mlir_value = self.load_var(value)
         if target_type != value_type:
             mlir_value = self.lower_cast(value_type, target_type, mlir_value)
-        self.incref(target_type, mlir_value)
-        self.store_var(target, mlir_value)
+        with self.scalar_conversion_context():
+            self.incref(target_type, mlir_value)
+            self.store_var(target, mlir_value)
 
     def lower_getitem_expr_assign(self, target, value, index):
         """
@@ -3666,13 +3700,13 @@ extern "C" __global__ void
 
     def incref(self, typ, value):
         """Emit NRT_incref for *value* if its type carries a MemInfo."""
-        if not isinstance(value, ir.Value):
+        if not isinstance(value, ir.Value) or not self.nrt.type_has_nrt_meminfo(typ):
             return
         self.nrt.incref(self.mlir_gpu_module, typ, value)
 
     def decref(self, typ, value):
         """Emit NRT_decref for *value* if its type carries a MemInfo."""
-        if not isinstance(value, ir.Value):
+        if not isinstance(value, ir.Value) or not self.nrt.type_has_nrt_meminfo(typ):
             return
         self.nrt.decref(self.mlir_gpu_module, typ, value)
 

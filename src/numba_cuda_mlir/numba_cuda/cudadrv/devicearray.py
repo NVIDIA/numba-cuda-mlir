@@ -187,7 +187,10 @@ class DeviceNDArrayBase:
             layout = "A"
 
         dtype = numpy_support.from_dtype(self.dtype)
-        return types.Array(dtype, self.ndim, layout)
+        from numba_cuda_mlir.array_storage import array_is_aligned
+
+        aligned = array_is_aligned(self.dtype, self.device_ctypes_pointer.value or 0, self.strides)
+        return types.Array(dtype, self.ndim, layout, aligned=aligned)
 
     @property
     def device_ctypes_pointer(self):

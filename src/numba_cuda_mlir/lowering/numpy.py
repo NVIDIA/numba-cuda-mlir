@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import functools
 import operator
 from numba_cuda_mlir import lowering_utilities
+from numba_cuda_mlir.array_storage import ArrayStorageLayout
 from numba_cuda_mlir.descriptor import MLIRTargetContext
 from numba_cuda_mlir.extending import overload, overload_method, typing_registry
 from numba_cuda_mlir.errors import InternalCompilerError, ensure_verifies
@@ -23,6 +24,7 @@ from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 from numba_cuda_mlir.type_defs.vector_types import VectorType
+from numba_cuda_mlir.numba_cuda.np import numpy_support
 from numba_cuda_mlir.numba_cuda.np.npyimpl import _make_dtype_object
 from numba_cuda_mlir.numba_cuda.np.arraymath import _np_round_float
 
@@ -113,14 +115,25 @@ def lower_zero_fill_array_method(builder: MLIRLower, target, args, kwargs):
     array_var = args[0]
     array = builder.load_var(array_var)
     array_type = builder.get_numba_type(array_var.name)
-    dst_ptr = lowering_utilities.memref_data_pointer(array)
+    if array_type.layout in ("C", "F"):
+        dst_ptr = lowering_utilities.memref_data_pointer(array)
+        nbytes = constant(storage_itemsize_bytes(array_type.dtype), T.i64())
+        for dim in range(array.type.rank):
+            extent = convert(memref_dialect.dim(array, index_of(dim)), T.i64())
+            nbytes = arith.muli(nbytes, extent)
+        llvm.MemsetOp(dst_ptr, constant(0, T.i8()), nbytes, False)
+    else:
 
-    nbytes = constant(storage_itemsize_bytes(array_type.dtype), T.i64())
-    for dim in range(array.type.rank):
-        extent = convert(memref_dialect.dim(array, index_of(dim)), T.i64())
-        nbytes = arith.muli(nbytes, extent)
+        def clear_element(indices):
+            ptr = lowering_utilities.memref_to_llvm_ptr(array, indices)
+            llvm.MemsetOp(
+                ptr,
+                constant(0, T.i8()),
+                constant(storage_itemsize_bytes(array_type.dtype), T.i64()),
+                False,
+            )
 
-    llvm.MemsetOp(dst_ptr, constant(0, T.i8()), nbytes, False)
+        lowering_utilities.for_each_array_index(array, clear_element)
     if target is not None:
         builder.store_var(target, ir.NoneType.get())
 
@@ -139,6 +152,41 @@ def lower_get_size(
     builder.store_var(target, size)
 
 
+@lower_getattr(types.Array, "ndim")
+def lower_get_ndim(
+    _: MLIRTargetContext,
+    builder: MLIRLower,
+    target: numba_ir.Var,
+    array: numba_ir.Var,
+):
+    builder.store_var(target, index_of(builder.get_numba_type(array).ndim))
+
+
+@lower_getattr(types.Array, "itemsize")
+def lower_get_itemsize(
+    _: MLIRTargetContext,
+    builder: MLIRLower,
+    target: numba_ir.Var,
+    array: numba_ir.Var,
+):
+    itemsize = storage_itemsize_bytes(builder.get_numba_type(array))
+    builder.store_var(target, index_of(itemsize))
+
+
+@lower_getattr(types.Array, "nbytes")
+def lower_get_nbytes(
+    _: MLIRTargetContext,
+    builder: MLIRLower,
+    target: numba_ir.Var,
+    array: numba_ir.Var,
+):
+    itemsize = storage_itemsize_bytes(builder.get_numba_type(array))
+    array = builder.load_var(array)
+    rank = array.type.rank
+    dims = [memref.dim(array, index_of(i)) for i in range(rank)]
+    builder.store_var(target, functools.reduce(operator.mul, dims, index_of(itemsize)))
+
+
 def _lower_array_complex_real_imag(builder, target, array_var, attr):
     """Lower array.real / array.imag for complex arrays.
 
@@ -151,7 +199,9 @@ def _lower_array_complex_real_imag(builder, target, array_var, attr):
     array_type = complex_array.type
     rank = array_type.rank
     array_numba_type = builder.get_numba_type(array_var.name)
-    float_type = builder.get_storage_type(array_numba_type.dtype.underlying_float)
+    source_layout = ArrayStorageLayout(array_numba_type)
+    target_layout = ArrayStorageLayout(builder.get_numba_type(target.name))
+    float_type = target_layout.element_type
 
     dyn = ir.ShapedType.get_dynamic_size()
     dyn_s = ir.ShapedType.get_dynamic_stride_or_offset()
@@ -171,11 +221,13 @@ def _lower_array_complex_real_imag(builder, target, array_var, attr):
     strides = list(md[2 + rank : 2 + 2 * rank])
 
     # Each complex element spans 2 floats in memory.
-    two = index_of(2)
-    new_offset = arith.muli(src_offset, two)
+    scale = index_of(source_layout.unit_bytes // target_layout.unit_bytes)
+    new_offset = arith.muli(src_offset, scale)
     if attr == "imag":
-        new_offset = arith.addi(new_offset, index_of(1))
-    new_strides = [arith.muli(s, two) for s in strides]
+        new_offset = arith.addi(
+            new_offset, index_of(source_layout.itemsize // 2 // target_layout.unit_bytes)
+        )
+    new_strides = [arith.muli(s, scale) for s in strides]
 
     result = memref_dialect.reinterpret_cast(
         target_mr_type,
@@ -343,8 +395,9 @@ def _bool_storage_literal(builder, target_type, value):
 def _store_first_output_value(builder, output_arg, output_memref, value):
     output_array_type = builder.get_numba_type(output_arg.name)
     value = lowering_utilities.convert(value, builder.get_value_type(output_array_type.dtype))
-    value = lowering_utilities.value_to_storage(output_array_type.dtype, value)
-    memref.store(value, output_memref, [index_of(0)])
+    lowering_utilities.array_element_value_store(
+        output_array_type, output_memref, [index_of(0)], value
+    )
 
 
 def _bool_to_value_type(result, value_type):
@@ -544,8 +597,7 @@ def len_cg(builder, target, args, kwargs):
     builder.store_var(target, product)
 
 
-@lower(len, types.UniTuple)
-@lower(len, types.Tuple)
+@lower(len, types.BaseTuple)
 def tuple_len_cg(builder, target, args, kwargs):
     tup = builder.load_var(args[0])
     builder.store_var(target, arith.constant(result=T.index(), value=len(tup)))
@@ -584,10 +636,116 @@ def np_mean_cg(builder, target, args, kwargs):
     builder.store_var(target, mean)
 
 
+def _reshape_byte_array(builder, target, array, shape):
+    """Reshape logical extents without resetting the byte stride to one."""
+    target_type = builder.get_numba_type(target)
+    result_type = builder.get_mlir_type(target_type)
+    result_type = ir.MemRefType.get(
+        result_type.shape,
+        result_type.element_type,
+        layout=result_type.layout,
+        memory_space=array.type.memory_space,
+    )
+    sizes = [index_of(extent) for extent in shape]
+    metadata = memref_dialect.extract_strided_metadata(array)
+    source_rank = array.type.rank
+    source_sizes = list(metadata[2 : 2 + source_rank])
+    source_strides = list(metadata[2 + source_rank : 2 + 2 * source_rank])
+    zero, one, minus_one = index_of(0), index_of(1), index_of(-1)
+    count = one
+    for extent in source_sizes:
+        count = arith.muli(count, extent)
+
+    inferred_count, known_count = zero, one
+    valid = arith.cmpi(arith.CmpIPredicate.eq, one, one)
+    for extent in sizes:
+        inferred = arith.cmpi(arith.CmpIPredicate.eq, extent, minus_one)
+        inferred_count = arith.addi(inferred_count, arith.select(inferred, one, zero))
+        valid = arith.andi(valid, arith.cmpi(arith.CmpIPredicate.sge, extent, minus_one))
+        known_count = arith.muli(known_count, arith.select(inferred, one, extent))
+    infer = arith.cmpi(arith.CmpIPredicate.eq, inferred_count, one)
+    positive = arith.cmpi(arith.CmpIPredicate.sgt, known_count, zero)
+    divisor = arith.select(positive, known_count, one)
+    inferred_size = arith.divsi(count, divisor)
+    divisible = arith.cmpi(arith.CmpIPredicate.eq, arith.remsi(count, divisor), zero)
+    exact = arith.cmpi(arith.CmpIPredicate.eq, known_count, count)
+    valid = arith.andi(
+        valid,
+        arith.select(
+            infer,
+            arith.andi(positive, divisible),
+            arith.andi(arith.cmpi(arith.CmpIPredicate.eq, inferred_count, zero), exact),
+        ),
+    )
+    sizes = [
+        arith.select(arith.cmpi(arith.CmpIPredicate.eq, extent, minus_one), inferred_size, extent)
+        for extent in sizes
+    ]
+    same_shape = arith.cmpi(arith.CmpIPredicate.eq, zero, one)
+    if len(sizes) == source_rank:
+        same_shape = arith.cmpi(arith.CmpIPredicate.eq, one, one)
+        for extent, source_extent in zip(sizes, source_sizes):
+            same_shape = arith.andi(
+                same_shape, arith.cmpi(arith.CmpIPredicate.eq, extent, source_extent)
+            )
+
+    # A descriptor-only reshape must preserve the source's C-order sequence.
+    stride = index_of(ArrayStorageLayout(target_type).itemsize)
+    for extent, source_stride in zip(source_sizes, source_strides):
+        nonsingleton = arith.cmpi(arith.CmpIPredicate.sgt, extent, one)
+        stride = arith.select(nonsingleton, source_stride, stride)
+    expected_stride = stride
+    compatible = arith.cmpi(arith.CmpIPredicate.eq, one, one)
+    for extent, source_stride in zip(reversed(source_sizes), reversed(source_strides)):
+        singleton = arith.cmpi(arith.CmpIPredicate.sle, extent, one)
+        matches = arith.cmpi(arith.CmpIPredicate.eq, source_stride, expected_stride)
+        compatible = arith.andi(compatible, arith.ori(singleton, matches))
+        expected_stride = arith.select(
+            singleton, expected_stride, arith.muli(expected_stride, extent)
+        )
+    empty = arith.cmpi(arith.CmpIPredicate.eq, count, zero)
+    valid = arith.andi(valid, arith.ori(same_shape, arith.ori(empty, compatible)))
+    error_memref = builder._get_or_create_error_global()
+    with scf.if_ctx_manager(arith.xori(valid, arith.cmpi(arith.CmpIPredicate.eq, one, one))):
+        set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+        scf.yield_([])
+
+    # Keep failed descriptors bounded until the launcher reports ValueError.
+    sizes = [arith.select(valid, extent, zero) for extent in sizes]
+    stride = arith.select(valid, stride, zero)
+    strides = []
+    for extent in reversed(sizes):
+        strides.insert(0, stride)
+        stride = arith.muli(stride, extent)
+    if len(sizes) == source_rank:
+        strides = [
+            arith.select(same_shape, source_stride, result_stride)
+            for source_stride, result_stride in zip(source_strides, strides)
+        ]
+    return memref_dialect.reinterpret_cast(
+        result_type,
+        array,
+        offsets=[metadata[1]],
+        sizes=sizes,
+        strides=strides,
+        static_offsets=[ir.ShapedType.get_dynamic_stride_or_offset()],
+        static_sizes=[ir.ShapedType.get_dynamic_size()] * len(sizes),
+        static_strides=[ir.ShapedType.get_dynamic_stride_or_offset()] * len(strides),
+    )
+
+
 def np_dynamic_reshape_cg(builder, target, args, kwargs):
     to_type = builder.get_mlir_type(builder.get_numba_type(target))
     array = builder.load_var(args[0])
     shape = builder.load_var(args[1])
+    if ArrayStorageLayout(builder.get_numba_type(args[0])).byte_addressed:
+        shape_type = builder.get_numba_type(args[1])
+        sizes = [
+            lowering_utilities.array_element_value_load(shape_type, shape, [index_of(i)])
+            for i in range(to_type.rank)
+        ]
+        builder.store_var(target, _reshape_byte_array(builder, target, array, sizes))
+        return
     shty = T.memref(to_type.rank, shape.type.element_type)
     shape = memref.cast(shty, shape)
     reshaped = memref.reshape(
@@ -605,6 +763,10 @@ def np_reshape_cg(builder, target, args, kwargs):
 
     # Handle tuple shapes (e.g., out.shape which is a Python tuple of MLIR values)
     if isinstance(shape, (list, tuple)):
+        array = builder.load_var(args[0])
+        if ArrayStorageLayout(builder.get_numba_type(args[0])).byte_addressed:
+            builder.store_var(target, _reshape_byte_array(builder, target, array, shape))
+            return
         # Convert tuple of shape values to a memref for memref.reshape
         shape_numba_ty = builder.get_numba_type(args[1].name)
         ndim = len(shape)
@@ -673,10 +835,20 @@ def _array_item_cg(builder, target, args, kwargs):
             f"array.item() with positional indices is not implemented; got {len(args) - 1} indices"
         )
     array_var = args[0]
-    array = builder.load_var(array_var)
-    rank = array.type.rank
-    indices = [index_of(0)] * rank
-    value = memref.load(array, indices)
+    array_numba_type = builder.get_numba_type(array_var.name)
+    from numba_cuda_mlir.types import Record
+
+    if isinstance(array_numba_type.dtype, Record):
+        array = builder.load_var(array_var)
+        # Record arrays lower to a pointer to element storage; the
+        # offset/stride-aware element pointer at index 0 is the record value.
+        value = lowering_utilities.memref_to_llvm_ptr(array, [index_of(0)] * array.type.rank)
+        value = llvm.addrspacecast(builder.get_mlir_type(array_numba_type.dtype), value)
+    else:
+        array = builder.load_var(array_var)
+        value = lowering_utilities.array_element_value_load(
+            array_numba_type, array, [index_of(0)] * array.type.rank
+        )
     builder.store_var(target, value)
 
 
@@ -730,6 +902,7 @@ def _array_ravel_cg(builder, target, args, kwargs):
         for s in src_sizes[1:]:
             total_size = arith.muli(total_size, s)
 
+    layout = ArrayStorageLayout(array_ty)
     result_type = builder.get_mlir_type(builder.get_numba_type(target))
     dyn = ir.ShapedType.get_dynamic_size()
     dyn_s = ir.ShapedType.get_dynamic_stride_or_offset()
@@ -738,7 +911,7 @@ def _array_ravel_cg(builder, target, args, kwargs):
         src,
         offsets=[src_offset],
         sizes=[total_size],
-        strides=[index_of(1)],
+        strides=[index_of(layout.itemsize // layout.unit_bytes)],
         static_offsets=[dyn_s],
         static_sizes=[dyn],
         static_strides=[dyn_s],
@@ -861,13 +1034,11 @@ class Slice:
         stop: ir.Value | None = None,
         step: ir.Value | None = None,
     ):
-        # Handle None for start (e.g., x[:5] has start=None meaning 0)
+        # Keep omitted bounds until the step and dimension extent are known.
         if isinstance(start, ir.NoneType):
             start = None
-        self.start: ir.Value = (
-            lowering_utilities.convert(start, T.index())
-            if start is not None
-            else arith.index_cast(arith.constant(result=T.i64(), value=0), to=T.index())
+        self.start: ir.Value | None = (
+            lowering_utilities.convert(start, T.index()) if start is not None else None
         )
         # Handle None for stop (e.g., x[2:] has stop=None meaning end of array)
         if isinstance(stop, ir.NoneType):
@@ -907,33 +1078,34 @@ def _lower_record_array_getitem(builder, target, args, kwargs):
     """
     Handle array[index] where array.dtype is Record.
 
-    For record arrays, we compute a byte offset and return an llvm.ptr
-    to the record's storage within the array.
+    Returns an llvm.ptr to the record's storage within the array, computed
+    from the memref descriptor's offset and strides (in record units).
     """
     array_var = args[0]
     index_var = args[1]
 
     array_numba_type = builder.get_numba_type(array_var.name)
     record_type = array_numba_type.dtype
-    record_size = record_type.size
 
-    trace("Record array getitem: record_size=%s", record_size)
+    trace("Record array getitem: record_size=%s", record_type.size)
 
-    # Load the array (memref<?xi8>) and index
     array = builder.load_var(array_var)
     # Handle both variable and constant indices
     if isinstance(index_var, int):
-        # Static/constant index - create constant directly
         index = arith_dialect.constant(T.i64(), index_var)
     else:
         index = builder.load_var(index_var)
 
-    # For Record arrays, the memref is memref<?xi8> with byte strides:
-    # element pointer = data_ptr + index * record_size (assumes contiguous layout).
-    byte_offset = arith.muli(convert(index, T.i64()), arith_dialect.constant(T.i64(), record_size))
-    result_ptr = lowering_utilities.llvm_ptr_add_bytes(
-        lowering_utilities.memref_data_pointer(array), byte_offset
+    index = _normalize_negative_index(array, index, 0)
+
+    # Compute the byte pointer using the descriptor's offset and strides
+    # and the exact record size.
+    result_ptr = lowering_utilities.memref_to_llvm_ptr(
+        array,
+        [convert(index, T.index())],
     )
+    # Record values use generic pointers, including across device calls.
+    result_ptr = llvm.addrspacecast(builder.get_mlir_type(record_type), result_ptr)
 
     builder.store_var(target, result_ptr)
     trace("Record array getitem: stored ptr to %s", target.name)
@@ -1190,6 +1362,55 @@ def slice_memref(mr: ir.Value, mrs: MemRefSlices) -> ir.Value:
     return value
 
 
+def _slice_bounds(builder, array, slice_value, dim=0):
+    start, stop, step = slice_value.start, slice_value.stop, slice_value.step
+    step = index_of(1) if step is None else index_of(step)
+    zero, one = index_of(0), index_of(1)
+    zero_step = arith.cmpi(arith.CmpIPredicate.eq, step, zero)
+    error_memref = builder._get_or_create_error_global()
+    with scf.if_ctx_manager(zero_step):
+        set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+        scf.yield_([])
+    # Use a safe divisor and empty bounds while the launcher reports the error.
+    step = arith.select(zero_step, one, step)
+    extent = memref.dim(array, index_of(dim))
+    negative = arith.cmpi(arith.CmpIPredicate.slt, step, zero)
+    lower_bound = arith.select(negative, index_of(-1), zero)
+    upper_bound = arith.select(negative, arith.subi(extent, one), extent)
+
+    def normalize(bound):
+        bound = index_of(bound)
+        bound = arith.select(
+            arith.cmpi(arith.CmpIPredicate.slt, bound, zero),
+            arith.addi(bound, extent),
+            bound,
+        )
+        return arith.minsi(arith.maxsi(bound, lower_bound), upper_bound)
+
+    if start is None:
+        start = arith.select(negative, arith.subi(extent, one), zero)
+    else:
+        start = normalize(start)
+    if stop is None:
+        stop = arith.select(negative, index_of(-1), extent)
+    else:
+        stop = normalize(stop)
+    distance = arith.select(negative, arith.subi(start, stop), arith.subi(stop, start))
+    distance = arith.maxsi(distance, zero)
+    # Unsigned magnitude represents abs(INT64_MIN) without signed overflow.
+    magnitude = arith.select(negative, arith.subi(zero, step), step)
+    nonempty = arith.cmpi(arith.CmpIPredicate.sgt, distance, zero)
+    numerator = arith.select(nonempty, arith.subi(distance, one), zero)
+    rounded_size = arith.addi(arith.divui(numerator, magnitude), one)
+    size = arith.select(nonempty, rounded_size, zero)
+    return (
+        arith.select(zero_step, zero, start),
+        arith.select(zero_step, zero, stop),
+        step,
+        arith.select(zero_step, zero, size),
+    )
+
+
 @lower(operator.getitem, types.Array, types.SliceType)
 def lower_array_slice_getitem(builder, target, args, kwargs):
     trace()
@@ -1198,13 +1419,7 @@ def lower_array_slice_getitem(builder, target, args, kwargs):
     dtype = mr_type.element_type
     rank = mr_type.rank
     slice = builder.load_var(args[1])
-    start, stop, step = slice.start, slice.stop, slice.step
-    if start is None:
-        start = arith.index_cast(arith.constant(result=T.i64(), value=0), to=T.index())
-    if stop is None:
-        stop = memref.dim(mr, index_of(0))
-    if step is None:
-        step = index_of(1)
+    start, stop, step, first_size = _slice_bounds(builder, mr, slice)
     starts, stops, steps = [start], [stop], [step]
     for i in range(1, rank):
         starts.append(index_of(0))
@@ -1227,7 +1442,7 @@ def lower_array_slice_getitem(builder, target, args, kwargs):
         layout=layout,
         memory_space=mr_type.memory_space,
     )
-    sizes = [(stop - start) // step for start, stop, step in zip(starts, stops, steps)]
+    sizes = [first_size] + [memref.dim(mr, index_of(i)) for i in range(1, rank)]
     mr = memref.subview(mr, offsets=starts, sizes=sizes, strides=steps, result_type=mrt)
     builder.store_var(target, mr)
 
@@ -1242,6 +1457,8 @@ def _view_transform_axis(
     axis: int,
     old_size: int,
     new_size: int,
+    source_unit_bytes: int,
+    target_unit_bytes: int,
 ) -> tuple[list[ir.Value], list[ir.Value]]:
     new_sizes = list(sizes)
     new_strides = list(strides)
@@ -1253,10 +1470,10 @@ def _view_transform_axis(
         new_sizes[axis] = arith.divsi(bytelen, _idx_c(new_size))
     for j in range(len(strides)):
         if j == axis:
-            new_strides[j] = _idx_c(1)
+            new_strides[j] = _idx_c(new_size // target_unit_bytes)
         else:
-            byte_stride = arith.muli(strides[j], _idx_c(old_size))
-            new_strides[j] = arith.divsi(byte_stride, _idx_c(new_size))
+            byte_stride = arith.muli(strides[j], _idx_c(source_unit_bytes))
+            new_strides[j] = arith.divsi(byte_stride, _idx_c(target_unit_bytes))
     return new_sizes, new_strides
 
 
@@ -1265,21 +1482,22 @@ def lower_array_view_cg(builder, target, args, kwargs):
     mr_ty: ir.MemRefType = _self.type
     assert mr_ty.has_rank, "NYI: unranked memrefs"
 
-    new_dtype = lowering_utilities.to_mlir_type(dtype)
-    old_dtype = mr_ty.element_type
+    source_ty = builder.get_numba_type(args[0].name)
+    target_ty = builder.get_numba_type(target.name)
+    source_layout = ArrayStorageLayout(source_ty)
+    target_layout = ArrayStorageLayout(target_ty)
 
-    if old_dtype == new_dtype:
+    if source_ty.dtype == target_ty.dtype:
         builder.store_var(target, _self)
         return
 
-    new_dtype_bytes = lowering_utilities.get_type_width(new_dtype) // 8
-    old_dtype_bytes = lowering_utilities.get_type_width(old_dtype) // 8
+    new_dtype_bytes = target_layout.itemsize
+    old_dtype_bytes = source_layout.itemsize
 
     rank = mr_ty.rank
     if rank == 0:
         raise ValueError(f"Cannot .view() a 0-d array (target {target.name!r})")
 
-    target_ty = builder.get_numba_type(target.name)
     target_mr = builder.get_mlir_type(target_ty)
     layout = target_ty.layout
 
@@ -1293,7 +1511,8 @@ def lower_array_view_cg(builder, target, args, kwargs):
     retyped = builtin.unrealized_conversion_cast([target_mr], [_self])
 
     if old_dtype_bytes == new_dtype_bytes:
-        builder.store_var(target, retyped)
+        result = lowering_utilities.convert_array_storage(_self, target_mr)
+        builder.store_var(target, result)
         return
 
     md = memref_dialect.extract_strided_metadata(_self)
@@ -1302,8 +1521,8 @@ def lower_array_view_cg(builder, target, args, kwargs):
     strides = list(md[2 + rank : 2 + 2 * rank])
 
     new_offset = arith.divsi(
-        arith.muli(offset_e, _idx_c(old_dtype_bytes)),
-        _idx_c(new_dtype_bytes),
+        arith.muli(offset_e, _idx_c(source_layout.unit_bytes)),
+        _idx_c(target_layout.unit_bytes),
     )
 
     def _reinterpret(axis: int) -> ir.Value:
@@ -1313,6 +1532,8 @@ def lower_array_view_cg(builder, target, args, kwargs):
             axis,
             old_dtype_bytes,
             new_dtype_bytes,
+            source_layout.unit_bytes,
+            target_layout.unit_bytes,
         )
 
         dyn = ir.ShapedType.get_dynamic_size()
@@ -1332,24 +1553,33 @@ def lower_array_view_cg(builder, target, args, kwargs):
     # "C", "F" and "A" with rank 1 layouts
     # ====================
 
-    if layout in ("C", "F") or rank == 1:
-        axis = (rank - 1) if (layout == "C" or rank == 1) else 0
+    if layout in ("C", "F"):
+        axis = (rank - 1) if layout == "C" else 0
         builder.store_var(target, _reinterpret(axis))
         return
 
     # ====================
-    # "A" layout with rank >= 2
+    # "A" layout, including noncontiguous rank-one fields
     # ====================
 
     error_memref = builder._get_or_create_error_global()
-    one_idx = _idx_c(1)
+    contiguous_stride = _idx_c(old_dtype_bytes // source_layout.unit_bytes)
 
     def _dispatch(axis_idx: int) -> ir.Value:
         if axis_idx < 0:
             if error_memref is not None:
                 set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
-            return retyped
-        is_contig = arith.cmpi(arith.CmpIPredicate.eq, strides[axis_idx], one_idx)
+            return memref_dialect.reinterpret_cast(
+                target_mr,
+                retyped,
+                offsets=[new_offset],
+                sizes=[index_of(0)] * rank,
+                strides=[index_of(0)] * rank,
+                static_offsets=[ir.ShapedType.get_dynamic_stride_or_offset()],
+                static_sizes=[ir.ShapedType.get_dynamic_size()] * rank,
+                static_strides=[ir.ShapedType.get_dynamic_stride_or_offset()] * rank,
+            )
+        is_contig = arith.cmpi(arith.CmpIPredicate.eq, strides[axis_idx], contiguous_stride)
         if_op = scf.IfOp(is_contig, results_=[target_mr], has_else=True)
         with ir.InsertionPoint(if_op.then_block):
             scf.yield_([_reinterpret(axis_idx)])
@@ -1490,11 +1720,13 @@ def _lower_record_array_setitem(builder, target, args, kwargs):
     index = builder.load_var(index_var)
     src_ptr = builder.load_var(value_var)
 
-    # Destination pointer = data_ptr + index * record_size (assumes contiguous layout)
-    index_i64 = lowering_utilities.convert(index, T.i64())
-    byte_offset = arith.muli(index_i64, arith_dialect.constant(T.i64(), record_size))
-    dest_ptr = lowering_utilities.llvm_ptr_add_bytes(
-        lowering_utilities.memref_data_pointer(array), byte_offset
+    index = _normalize_negative_index(array, index, 0)
+
+    # Compute the byte pointer using the descriptor's offset and strides
+    # and the exact record size.
+    dest_ptr = lowering_utilities.memref_to_llvm_ptr(
+        array,
+        [lowering_utilities.convert(index, T.index())],
     )
 
     # Copy record_size bytes from src to dest using llvm.memcpy
@@ -1521,7 +1753,7 @@ def lower_charseq_array_setitem_string(builder: MLIRLower, target, args, kwargs)
 
     array = builder.load_var(args[0])
     index = builder.load_var(args[1])
-    index_i64 = convert(index, T.i64())
+    index = _normalize_negative_index(array, index, 0)
 
     if isinstance(element_type, types.CharSeq):
         element_size = element_type.count
@@ -1538,10 +1770,7 @@ def lower_charseq_array_setitem_string(builder: MLIRLower, target, args, kwargs)
             f"String literal assignment not supported for array dtype {element_type}"
         )
 
-    byte_offset = arith.muli(index_i64, constant(element_size, T.i64()))
-    dst_ptr = lowering_utilities.llvm_ptr_add_bytes(
-        lowering_utilities.memref_data_pointer(array), byte_offset
-    )
+    dst_ptr = lowering_utilities.memref_to_llvm_ptr(array, [index])
 
     zero = constant(0, T.i8())
     size_val = constant(element_size, T.i64())
@@ -1563,6 +1792,7 @@ def lower_charseq_array_setitem_string(builder: MLIRLower, target, args, kwargs)
         llvm.store(byte_const, byte_ptr)
 
 
+@lower(operator.setitem, types.Array, types.Integer, types.EnumMember)
 @lower(operator.setitem, types.Array, types.Integer, types.Boolean)
 @lower(operator.setitem, types.Array, types.Integer, types.Number)
 @lower(operator.setitem, types.Array, types.Integer, types.NPDatetime)
@@ -1694,28 +1924,16 @@ def lower_array_slice_setitem(builder, target, args, kwargs):
     mr_type = array.type
     rank = mr_type.rank
 
-    # Parse slice bounds for dimension 0
-    start, stop, step = slice_val.start, slice_val.stop, slice_val.step
-    if start is None:
-        start = index_of(0)
-    else:
-        start = index_of(start)
-    if stop is None:
-        stop = memref.dim(array, index_of(0))
-    else:
-        stop = index_of(stop)
-    if step is None:
-        step = index_of(1)
-    else:
-        step = index_of(step)
+    start, stop, step, size = _slice_bounds(builder, array, slice_val)
 
-    # Build bounds for all dimensions - first dim uses slice, rest use full range
-    starts = [start] + [index_of(0)] * (rank - 1)
-    stops = [stop] + [memref.dim(array, index_of(i + 1)) for i in range(rank - 1)]
-    steps = [step] + [index_of(1)] * (rank - 1)
+    # Iterate logical positions with a positive loop step, even for reverse slices.
+    starts = [index_of(0)] * rank
+    stops = [size] + [memref.dim(array, index_of(i + 1)) for i in range(rank - 1)]
+    steps = [index_of(1)] * rank
 
     @scf.forall_(starts, stops, steps)
     def fill_all(*indices):
+        indices = [arith.addi(start, arith.muli(indices[0], step))] + list(indices[1:])
         lowering_utilities.array_element_value_store(
             array_numba_type,
             array,
@@ -1776,6 +1994,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
                     raise TypeError(
                         f"Target type {target_type} is not an array, but a slice was used to index it"
                     )
+                start = index_of(0) if start is None else start
                 offsets.append(start)
                 end = stop or dims[dim]
                 sizes.append(end - start)
@@ -1814,7 +2033,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
                 array, full_offsets, full_sizes, full_strides, full_is_scalar
             )
             builder.store_var(target, value)
-        case types.Number() | types.Boolean():
+        case types.Number() | types.Boolean() | types.NPDatetime() | types.NPTimedelta():
             value = lowering_utilities.array_element_value_load(
                 array_numba_type,
                 array,
@@ -2288,19 +2507,19 @@ def create_elementwise_op(builder, target, args, kwargs, math_fn, op_name):
     array = lowering_utilities.memref_to_value_tensor(input_array_type, array_memref)
     input_tensor_type = array.type
 
-    # Extract dynamic dimensions for tensor.empty (use target type for output)
+    # Sizes for tensor.empty: static dimensions as ints, dynamic ones from the memref
     rank = input_tensor_type.rank
-    dynamic_sizes = []
+    sizes = []
     for i in range(rank):
         if input_tensor_type.shape[i] == ir.ShapedType.get_dynamic_size():
-            # Extract dynamic dimension from the original memref
-            dim_size = memref.dim(
-                source=array_memref, index=arith.constant(result=T.index(), value=i)
+            sizes.append(
+                memref.dim(source=array_memref, index=arith.constant(result=T.index(), value=i))
             )
-            dynamic_sizes.append(dim_size)
+        else:
+            sizes.append(input_tensor_type.shape[i])
 
     # Create empty output tensor with target element type
-    init = tensor.EmptyOp(dynamic_sizes, element_type=target_mlir_type).result
+    init = tensor.EmptyOp(sizes, element_type=target_mlir_type).result
 
     # Use linalg.GenericOp for element-wise operation
     affine_map = ir.AffineMap.get_identity(rank)
@@ -2582,35 +2801,54 @@ def operator_itruediv_array_lower(builder, target, args, kwargs):
     lower_np_binop(builder, target, target_type, args, linalg.div)
 
 
+def _negate(value):
+    """-value. Floats flip their sign bit: 0.0 - x would give +0.0 for x = 0.0."""
+    if isinstance(value.type, ir.IntegerType):
+        return arith.subi(arith.constant(result=value.type, value=0), value)
+    if isinstance(value.type, ir.ComplexType):
+        return complex_dialect.neg(value)
+    return arith.negf(value)
+
+
 @lower(operator.neg, types.Array)
 def operator_neg_array_lower(builder, target, args, kwargs):
-    """Lower operator.neg for arrays by using linalg.sub(0.0, array)"""
-    assert len(args) == 1, "operator.neg expects 1 argument"
+    """Lower operator.neg for arrays element-wise"""
 
-    # Get the array argument
-    array_arg = args[0]
-    array_type = builder.get_numba_type(array_arg.name)
-    target_type = builder.get_numba_type(target.name)
+    def neg_fn(
+        input_element_type,
+        target_element_type,
+        input_mlir_type,
+        target_mlir_type,
+        in_elem,
+    ):
+        value = lowering_utilities.convert(
+            in_elem,
+            target_mlir_type,
+            signed=get_conversion_signedness(input_element_type, target_element_type),
+        )
+        return _negate(value)
 
-    # Create a scalar 0.0 value
-    from numba_cuda_mlir.mlir.dialect_exts import arith
+    create_elementwise_op(builder, target, args, kwargs, neg_fn, "operator.neg")
 
-    element_type = builder.get_value_type(array_type.dtype)
-    zero_scalar = arith.constant(
-        result=element_type, value=_zero_literal_for_numba_type(array_type.dtype)
-    )
 
-    # Store the zero scalar in a temporary variable for lower_np_binop
-    import numba_cuda_mlir.numba_cuda.core.ir as numba_ir
+@lower(operator.pos, types.Array)
+def operator_pos_array_lower(builder, target, args, kwargs):
+    """Lower operator.pos for arrays: an element-wise copy, as +x returns a new array"""
 
-    zero_var = numba_ir.Var(
-        scope=array_arg.scope, name=f"$const_zero_{array_arg.name}", loc=array_arg.loc
-    )
-    builder.store_var(zero_var, zero_scalar)
-    builder.typemap[zero_var.name] = array_type.dtype
+    def pos_fn(
+        input_element_type,
+        target_element_type,
+        input_mlir_type,
+        target_mlir_type,
+        in_elem,
+    ):
+        return lowering_utilities.convert(
+            in_elem,
+            target_mlir_type,
+            signed=get_conversion_signedness(input_element_type, target_element_type),
+        )
 
-    # Call lower_np_binop with 0.0 - array
-    lower_np_binop(builder, target, target_type, [zero_var, array_arg], linalg.sub)
+    create_elementwise_op(builder, target, args, kwargs, pos_fn, "operator.pos")
 
 
 @lower(abs, types.Array)
@@ -2657,25 +2895,7 @@ def _allocate_array(builder, target, args):
     # Convert shape values to index type
     shape_vals = [builder.mlir_convert(s, T.index()) for s in shape_vals]
 
-    # Get the storage element type from target
-    element_type = builder.get_storage_type(target_type.dtype)
-
-    # Create a simple contiguous memref type for allocation (no strided layout)
-    # This produces a row-major/C-contiguous array
-    dyn = ir.MemRefType.get_dynamic_size()
-    alloca_memref_type = ir.MemRefType.get([dyn] * ndim, element_type)
-
-    # For dynamic allocations, create alloca at current point (not entry block)
-    # because the size values may not be defined at entry block yet
-    # Static allocations could use alloca_insertion_point() but for simplicity
-    # we always create at current point since MLIR handles this fine
-    alloca_op = memref_dialect.AllocaOp(
-        memref=alloca_memref_type,
-        dynamicSizes=shape_vals,
-        symbolOperands=[],
-    )
-
-    return alloca_op.memref
+    return lowering_utilities.array_alloca(target_type, shape_vals)
 
 
 @lower(np.empty, types.UniTuple, types.DTypeSpec)
@@ -2688,6 +2908,18 @@ def np_empty_lower(builder, target, args, kwargs):
     """Lower np.empty to memref.alloc"""
     result_memref = _allocate_array(builder, target, args)
     builder.store_var(target, result_memref)
+
+
+def _fill_array_storage(array_type, array, storage_value):
+    if not ArrayStorageLayout(array_type).byte_addressed:
+        linalg.fill(storage_value, outs=[array])
+        return
+    value = lowering_utilities.storage_to_value(array_type.dtype, storage_value)
+
+    def fill(indices):
+        lowering_utilities.array_element_value_store(array_type, array, indices, value)
+
+    lowering_utilities.for_each_array_index(array, fill)
 
 
 @lower(np.zeros, types.UniTuple, types.DTypeSpec)
@@ -2708,11 +2940,8 @@ def np_zeros_lower(builder, target, args, kwargs):
         )
         zero = builder.as_storage(target_type.dtype, zero)
 
-    array_tensor = memref_to_tensor(array_memref)
-    filled_tensor = linalg.fill(zero, outs=[array_tensor])
-    result_memref = tensor_to_memref(filled_tensor)
-
-    builder.store_var(target, result_memref)
+    _fill_array_storage(target_type, array_memref, zero)
+    builder.store_var(target, array_memref)
 
 
 @lower(np.ones, types.UniTuple, types.DTypeSpec)
@@ -2733,11 +2962,8 @@ def np_ones_lower(builder, target, args, kwargs):
         )
         one = builder.as_storage(target_type.dtype, one)
 
-    array_tensor = memref_to_tensor(array_memref)
-    filled_tensor = linalg.fill(one, outs=[array_tensor])
-    result_memref = tensor_to_memref(filled_tensor)
-
-    builder.store_var(target, result_memref)
+    _fill_array_storage(target_type, array_memref, one)
+    builder.store_var(target, array_memref)
 
 
 @lower(np.full, types.UniTuple, types.Number, types.DTypeSpec)
@@ -2764,11 +2990,8 @@ def np_full_lower(builder, target, args, kwargs):
     fill_value = builder.as_storage(target_type.dtype, fill_value)
 
     # Fill the array
-    array_tensor = memref_to_tensor(array_memref)
-    filled_tensor = linalg.fill(fill_value, outs=[array_tensor])
-    result_memref = tensor_to_memref(filled_tensor)
-
-    builder.store_var(target, result_memref)
+    _fill_array_storage(target_type, array_memref, fill_value)
+    builder.store_var(target, array_memref)
 
 
 @lower(np.add, types.Number, types.Number)
@@ -3056,6 +3279,73 @@ def np_transpose_lower(builder, target, args, kwargs):
     lower_transpose(builder, target, args[0])
 
 
+def _array_transpose_cg(builder, target, args, kwargs):
+    array = builder.load_var(args[0])
+    rank = array.type.rank
+    axes = builder.load_vars(args[1:])
+    if not axes or (len(axes) == 1 and isinstance(axes[0], ir.NoneType)):
+        axes = list(reversed(range(rank)))
+    elif len(axes) == 1 and isinstance(axes[0], (tuple, list)):
+        axes = list(axes[0])
+    if len(axes) != rank:
+        raise errors.TypingError("transpose axes must match the array rank")
+
+    metadata = memref_dialect.extract_strided_metadata(array)
+    source_sizes = list(metadata[2 : 2 + rank])
+    source_strides = list(metadata[2 + rank : 2 + 2 * rank])
+    zero = index_of(0)
+    valid = arith.cmpi(arith.CmpIPredicate.eq, zero, zero)
+    normalized_axes = []
+    sizes, strides = [], []
+    for axis in axes:
+        axis = index_of(axis)
+        axis = arith.select(
+            arith.cmpi(arith.CmpIPredicate.slt, axis, zero), axis + index_of(rank), axis
+        )
+        valid = arith.andi(
+            valid,
+            arith.andi(
+                arith.cmpi(arith.CmpIPredicate.sge, axis, zero),
+                arith.cmpi(arith.CmpIPredicate.slt, axis, index_of(rank)),
+            ),
+        )
+        for previous in normalized_axes:
+            valid = arith.andi(valid, arith.cmpi(arith.CmpIPredicate.ne, axis, previous))
+        normalized_axes.append(axis)
+        size, stride = zero, zero
+        for i in range(rank):
+            selected = arith.cmpi(arith.CmpIPredicate.eq, axis, index_of(i))
+            size = arith.select(selected, source_sizes[i], size)
+            stride = arith.select(selected, source_strides[i], stride)
+        sizes.append(size)
+        strides.append(stride)
+
+    error_memref = builder._get_or_create_error_global()
+    with scf.if_ctx_manager(arith.xori(valid, arith.cmpi(arith.CmpIPredicate.eq, zero, zero))):
+        set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+        scf.yield_([])
+    result_type = builder.get_mlir_type(builder.get_numba_type(target))
+    result_type = ir.MemRefType.get(
+        result_type.shape, result_type.element_type, result_type.layout, array.type.memory_space
+    )
+    result = memref_dialect.reinterpret_cast(
+        result_type,
+        array,
+        offsets=[metadata[1]],
+        sizes=[arith.select(valid, size, zero) for size in sizes],
+        strides=[arith.select(valid, stride, zero) for stride in strides],
+        static_offsets=[ir.ShapedType.get_dynamic_stride_or_offset()],
+        static_sizes=[ir.ShapedType.get_dynamic_size()] * rank,
+        static_strides=[ir.ShapedType.get_dynamic_stride_or_offset()] * rank,
+    )
+    builder.store_var(target, result)
+
+
+@lower_getattr(types.Array, "transpose")
+def lower_array_transpose_getattr(_, builder, target, array):
+    builder.store_var(target, DeferredMethodCall(array, _array_transpose_cg))
+
+
 def create_elementwise_op_with_output(builder, target, args, math_fn):
     """
     Helper for element-wise operations that write to an output array.
@@ -3075,7 +3365,13 @@ def create_elementwise_op_with_output(builder, target, args, math_fn):
     output_memref = builder.load_var(output_arg)
 
     input_tensor = lowering_utilities.memref_to_value_tensor(input_array_type, input_memref)
-    output_tensor = memref_to_tensor(output_memref)
+    if ArrayStorageLayout(output_array_type).byte_addressed:
+        output_tensor = tensor.empty(
+            [memref.dim(output_memref, index_of(i)) for i in range(output_memref.type.rank)],
+            builder.get_storage_type(output_array_type.dtype),
+        )
+    else:
+        output_tensor = memref_to_tensor(output_memref)
     output_storage_elem_type = output_tensor.type.element_type
 
     rank = input_tensor.type.rank
@@ -3111,7 +3407,7 @@ def create_elementwise_op_with_output(builder, target, args, math_fn):
     map_result = next(iter(cast(Any, generic_op.operation.results)))
     result_memref = tensor_to_memref(map_result)
     # Copy result back to the original output memref (in-place semantics)
-    memref.copy(result_memref, output_memref)
+    lowering_utilities.copy_array_storage(output_array_type, result_memref, output_memref)
     builder.store_var(target, output_memref)
 
 
@@ -3887,7 +4183,13 @@ def create_binary_elementwise_op_with_output(
 
     in1_tensor = lowering_utilities.memref_to_value_tensor(in1_array_type, in1_memref)
     in2_tensor = lowering_utilities.memref_to_value_tensor(in2_array_type, in2_memref)
-    output_tensor = memref_to_tensor(output_memref)
+    if ArrayStorageLayout(output_array_type).byte_addressed:
+        output_tensor = tensor.empty(
+            [memref.dim(output_memref, index_of(i)) for i in range(output_memref.type.rank)],
+            builder.get_storage_type(output_array_type.dtype),
+        )
+    else:
+        output_tensor = memref_to_tensor(output_memref)
     output_storage_elem_type = output_tensor.type.element_type
 
     rank = in1_tensor.type.rank
@@ -3927,7 +4229,7 @@ def create_binary_elementwise_op_with_output(
     map_result = next(iter(cast(Any, generic_op.operation.results)))
     result_memref = tensor_to_memref(map_result)
     # Copy result back to the original output memref (in-place semantics)
-    memref.copy(result_memref, output_memref)
+    lowering_utilities.copy_array_storage(output_array_type, result_memref, output_memref)
     builder.store_var(target, output_memref)
 
 
@@ -4345,13 +4647,26 @@ def np_logical_not_array_to_array_cg(builder, target, args, kwargs):
 # Min/max ufuncs
 
 
+def _float_min_max(a, b, predicate, nan_operand):
+    """NumPy's float min/max: a if (a <predicate> b or nan_operand is nan) else b.
+
+    maximum and minimum test a, so a nan in either argument wins; fmax and fmin
+    test b, so they return the other argument when one is nan.
+    """
+    keep_a = arith.ori(
+        arith.cmpf(predicate, a, b),
+        arith.cmpf(arith.CmpFPredicate.UNO, nan_operand, nan_operand),
+    )
+    return arith.select(keep_a, a, b)
+
+
 def _maximum_fn(a, b):
     if isinstance(a.type, ir.IntegerType):
         cmp = arith.cmpi(arith.CmpIPredicate.sgt, a, b)
     elif _is_complex_type(a.type):
         cmp = _complex_greater(a, b)
     else:
-        cmp = arith.cmpf(arith.CmpFPredicate.OGT, a, b)
+        return _float_min_max(a, b, arith.CmpFPredicate.OGE, a)
     return arith.select(cmp, a, b)
 
 
@@ -4361,7 +4676,7 @@ def _minimum_fn(a, b):
     elif _is_complex_type(a.type):
         cmp = _complex_less(a, b)
     else:
-        cmp = arith.cmpf(arith.CmpFPredicate.OLT, a, b)
+        return _float_min_max(a, b, arith.CmpFPredicate.OLE, a)
     return arith.select(cmp, a, b)
 
 
@@ -4376,7 +4691,7 @@ def _fmax_fn(a, b):
         cmp = _complex_greater(a, b)
         return arith.select(cmp, a, b)
     else:
-        return arith.maximumf(a, b)
+        return _float_min_max(a, b, arith.CmpFPredicate.OGE, b)
 
 
 def _fmin_fn(a, b):
@@ -4390,7 +4705,7 @@ def _fmin_fn(a, b):
         cmp = _complex_less(a, b)
         return arith.select(cmp, a, b)
     else:
-        return arith.minimumf(a, b)
+        return _float_min_max(a, b, arith.CmpFPredicate.OLE, b)
 
 
 @ufunc_registry.register(np.maximum)
@@ -4477,6 +4792,119 @@ def _bitwise_not_fn(a):
 def np_bitwise_not_array_to_array_cg(builder, target, args, kwargs):
     """bitwise_not(a, out) - element-wise ~a"""
     create_elementwise_op_with_output(builder, target, args, _bitwise_not_fn)
+
+
+# Shift ufuncs
+
+
+def _shift_fn(left, signed):
+    """A shift as NumPy defines it (npy_lshift, npy_rshift).
+
+    Shifting by the bit width or more, or by a negative count, gives 0, or -1 for a
+    right shift of a negative value. MLIR's shifts give poison there, so shift by the
+    count clamped to width - 1 and select 0 for the counts out of range.
+    """
+
+    def shift(a, n):
+        def const(value):
+            return arith.constant(result=a.type, value=value)
+
+        width = a.type.width
+        in_range = arith.cmpi(arith.CmpIPredicate.ult, n, const(width))
+        # Clamp even though the select drops the result: for sm_100+, libNVVM 13.4 folds a
+        # select of the unclamped shift into a PTX shift by the low 32 bits of a 64-bit
+        # count, so 1 << 2**32 gave 1. A clamp written as a select on in_range gets folded
+        # away the same way.
+        count = arith.minui(n, const(width - 1))
+        if signed and not left:
+            # Shifting by width - 1 fills the value with its sign bit, giving 0 or -1
+            return arith.shrsi(a, count)
+        shifted = arith.shli(a, count) if left else arith.shrui(a, count)
+        return arith.select(in_range, shifted, const(0))
+
+    return shift
+
+
+def _shift_op(builder, ufunc, a_type, b_type, out_type):
+    """ufunc for values of scalar types a_type and b_type, giving an out_type value.
+
+    The shift is computed in the type of the ufunc loop that typing selected.
+    """
+    loop = numpy_support.ufunc_find_matching_loop(ufunc, (a_type, b_type))
+    loop_type = loop.outputs[0]
+    value_type = builder.get_value_type(loop_type)
+    out_value_type = builder.get_value_type(out_type)
+    shift = _shift_fn(ufunc is np.left_shift, loop_type.signed)
+
+    def op(a, n):
+        a = convert(a, value_type, signed=get_conversion_signedness(a_type, loop_type))
+        n = convert(n, value_type, signed=get_conversion_signedness(b_type, loop_type))
+        return convert(shift(a, n), out_value_type, signed=loop_type.signed)
+
+    return op
+
+
+def _shift_scalar(builder, target, args, ufunc):
+    assert len(args) == 2
+    a_type, b_type = (builder.get_numba_type(arg.name) for arg in args)
+    shift = _shift_op(builder, ufunc, a_type, b_type, builder.get_numba_type(target.name))
+    builder.store_var(target, shift(builder.load_var(args[0]), builder.load_var(args[1])))
+
+
+def _shift_scalar_to_array(builder, target, args, ufunc):
+    assert len(args) == 3
+    a_type, b_type = (builder.get_numba_type(arg.name) for arg in args[:2])
+    out_type = builder.get_numba_type(args[2].name).dtype
+    shift = _shift_op(builder, ufunc, a_type, b_type, out_type)
+    result = shift(builder.load_var(args[0]), builder.load_var(args[1]))
+    out_arr = builder.load_var(args[2])
+    _store_first_output_value(builder, args[2], out_arr, result)
+    builder.store_var(target, out_arr)
+
+
+def _shift_array_to_array(builder, target, args, ufunc):
+    assert len(args) == 3
+    a_type, b_type, out_type = (builder.get_numba_type(arg.name).dtype for arg in args)
+    shift = _shift_op(builder, ufunc, a_type, b_type, out_type)
+    create_binary_elementwise_op_with_output(
+        builder, target, args, shift, f"np.{ufunc.__name__}", convert_inputs=False
+    )
+
+
+@lower(np.left_shift, types.Integer, types.Integer)
+def np_left_shift_scalar_cg(builder, target, args, kwargs):
+    """left_shift(a, b) - scalar a << b"""
+    _shift_scalar(builder, target, args, np.left_shift)
+
+
+@lower(np.left_shift, types.Integer, types.Integer, types.Array)
+def np_left_shift_scalar_to_array_cg(builder, target, args, kwargs):
+    """left_shift(a, b, out) - scalar a << b to output array"""
+    _shift_scalar_to_array(builder, target, args, np.left_shift)
+
+
+@lower(np.left_shift, types.Array, types.Array, types.Array)
+def np_left_shift_array_to_array_cg(builder, target, args, kwargs):
+    """left_shift(a, b, out) - element-wise a << b"""
+    _shift_array_to_array(builder, target, args, np.left_shift)
+
+
+@lower(np.right_shift, types.Integer, types.Integer)
+def np_right_shift_scalar_cg(builder, target, args, kwargs):
+    """right_shift(a, b) - scalar a >> b"""
+    _shift_scalar(builder, target, args, np.right_shift)
+
+
+@lower(np.right_shift, types.Integer, types.Integer, types.Array)
+def np_right_shift_scalar_to_array_cg(builder, target, args, kwargs):
+    """right_shift(a, b, out) - scalar a >> b to output array"""
+    _shift_scalar_to_array(builder, target, args, np.right_shift)
+
+
+@lower(np.right_shift, types.Array, types.Array, types.Array)
+def np_right_shift_array_to_array_cg(builder, target, args, kwargs):
+    """right_shift(a, b, out) - element-wise a >> b"""
+    _shift_array_to_array(builder, target, args, np.right_shift)
 
 
 # Log ufuncs with output array
@@ -4935,7 +5363,13 @@ def create_complex_elementwise_op_with_output(builder, target, args, math_fn):
     output_memref = builder.load_var(output_arg)
 
     input_tensor = lowering_utilities.memref_to_value_tensor(input_array_type, input_memref)
-    output_tensor = memref_to_tensor(output_memref)
+    if ArrayStorageLayout(output_array_type).byte_addressed:
+        output_tensor = tensor.empty(
+            [memref.dim(output_memref, index_of(i)) for i in range(output_memref.type.rank)],
+            builder.get_storage_type(output_array_type.dtype),
+        )
+    else:
+        output_tensor = memref_to_tensor(output_memref)
     output_storage_elem_type = output_tensor.type.element_type
 
     rank = input_tensor.type.rank
@@ -4967,7 +5401,7 @@ def create_complex_elementwise_op_with_output(builder, target, args, math_fn):
 
     map_result = next(iter(cast(Any, generic_op.operation.results)))
     result_memref = tensor_to_memref(map_result)
-    memref.copy(result_memref, output_memref)
+    lowering_utilities.copy_array_storage(output_array_type, result_memref, output_memref)
     builder.store_var(target, output_memref)
 
 
@@ -5076,10 +5510,18 @@ def np_log10_complex_scalar_to_array_cg(builder, target, args, kwargs):
     create_complex_scalar_to_output_array(builder, target, args, _complex_log10, "np.log10")
 
 
+@lower(np.empty_like, types.Array)
+@lower(np.empty_like, types.Array, types.Any)
+def np_empty_like_lower(builder, target, args, kwargs):
+    # Allocate in the caller: returning an alloca from the overload's device
+    # function would restore its stack before the result can be consumed.
+    numpy_empty_like_nd_lower(builder, target, args, kwargs)
+
+
 @lower(numpy_empty_like_nd, types.Array, types.DTypeSpec, types.TypeRef)
 @lower(numpy_empty_like_nd, types.Array, types.NoneType, types.TypeRef)
 def numpy_empty_like_nd_lower(builder, target, args, kwargs):
-    """Allocate an array with the prototype's shape and the typed result layout."""
+    """Allocate caller-local storage with the prototype's logical shape."""
     prototype_arg = args[0]
     target_type = builder.get_numba_type(target.name)
 
@@ -5096,13 +5538,14 @@ def numpy_empty_like_nd_lower(builder, target, args, kwargs):
         )
 
     # Extract shape from prototype
-    shape_vals = []
-    for i in range(ndim):
-        dim = memref.dim(prototype, index_of(i))
-        shape_vals.append(dim)
-
-    result = _intrinsic_alloc(builder, target, shape_vals)
-    builder.store_var(target, memref.cast(builder.get_mlir_type(target_type), result))
+    shape_vals = [
+        (tensor.dim if isinstance(prototype_type, ir.RankedTensorType) else memref.dim)(
+            prototype, index_of(i)
+        )
+        for i in range(ndim)
+    ]
+    array = lowering_utilities.array_alloca(target_type, shape_vals)
+    builder.store_var(target, array)
 
 
 @lower(_make_dtype_object, types.StringLiteral)

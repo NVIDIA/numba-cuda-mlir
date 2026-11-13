@@ -253,6 +253,11 @@ static void adapt_inline_asm_intrinsics(llvm::Module &mod,
         "nanosleep.u32 $0;", "r", true);
 
     replace_intrinsic_with_asm(
+        mod, ctx, "llvm.nvvm.read.ptx.sreg.dynamic_smem_size",
+        llvm::FunctionType::get(i32_ty, {}, false),
+        "mov.u32 $0, %dynamic_smem_size;", "=r", false);
+
+    replace_intrinsic_with_asm(
         mod, ctx, "llvm.stacksave.p0",
         llvm::FunctionType::get(ptr_ty, {}, false), "stacksave.u64 $0;",
         "=l", true);

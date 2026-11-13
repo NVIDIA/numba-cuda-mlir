@@ -7,6 +7,7 @@ import operator
 import sys
 import sysconfig
 import os
+import shutil
 import threading
 from functools import cached_property
 
@@ -20,9 +21,11 @@ from numba_cuda_mlir.errors import UserFacingInternalCompilerError
 from numba_cuda_mlir.logging import trace
 import inspect
 
+from cuda import pathfinder
 from numba_cuda_mlir import codegen
 from numba_cuda_mlir.decorators import mlir_jit
 from numba_cuda_mlir.numba_cuda.errors import normalize_kernel_dimensions
+from numba_cuda_mlir.numba_cuda.api_util import resolve_cuda_array_interface_dtype
 from numba_cuda_mlir.numba_cuda.core.errors import NumbaPerformanceWarning
 from numba_cuda_mlir.numba_cuda.core import config as cuda_config
 from numba_cuda_mlir.numba_cuda.cudadrv import driver as numba_cuda_driver
@@ -214,13 +217,16 @@ def _array_shape(arg):
 
 
 def _array_dtype(arg, ty=None):
+    cai = _cuda_array_interface(arg)
     dtype = getattr(arg, "dtype", None)
+    if cai is not None:
+        return resolve_cuda_array_interface_dtype(cai["typestr"], dtype)
+
+    if isinstance(dtype, np.dtype):
+        return dtype
+
     if dtype is not None:
         return np.dtype(dtype)
-
-    cai = _cuda_array_interface(arg)
-    if cai is not None:
-        return np.dtype(cai["typestr"])
 
     if isinstance(ty, types.Array):
         return numpy_support.as_dtype(ty.dtype)
@@ -301,8 +307,20 @@ def _array_readonly(arg, ty=None):
     return False
 
 
-def _array_cache_key(arg, ty):
+def _array_cache_key(arg, ty, *, runtime_type=None):
     """Return metadata that determines whether a cached array type is reusable."""
+    if _cuda_array_interface(arg) is None and hasattr(arg, "__dlpack__"):
+        # DLPack strides are element counts on the owner (e.g. torch), not
+        # necessarily bytes. Re-read the capsule's effective pointer too.
+        if runtime_type is None:
+            runtime_type = typeof(arg)
+        return (
+            runtime_type.dtype,
+            runtime_type.ndim,
+            runtime_type.layout,
+            not runtime_type.mutable,
+            runtime_type.aligned,
+        )
     dtype = _array_dtype(arg, ty)
     ndim = getattr(arg, "ndim", None)
     if ndim is None:
@@ -313,7 +331,16 @@ def _array_cache_key(arg, ty):
             ndim = len(shape)
     layout = _array_layout(arg, ty)
     readonly = _array_readonly(arg, ty)
-    return (dtype, ndim, layout, readonly)
+    from numba_cuda_mlir.array_storage import array_is_aligned
+
+    cai = _cuda_array_interface(arg)
+    interface = cai if cai is not None else getattr(arg, "__array_interface__", None)
+    aligned = (
+        array_is_aligned(dtype, interface["data"][0], _array_strides(arg))
+        if interface is not None
+        else ty.aligned
+    )
+    return (dtype, ndim, layout, readonly, aligned)
 
 
 def _raise_as_cuda_error(e):
@@ -881,7 +908,10 @@ class _ArgMarshaller:
                     array_checks = []
                     for i, ct in enumerate(coerced_types):
                         if isinstance(ct, types.Array):
-                            array_checks.append((i, _array_cache_key(args[i], ct)))
+                            array_checks.append(
+                                (i, _array_cache_key(args[i], ct, runtime_type=argtypes[i]))
+                            )
+
                     array_checks = tuple(array_checks)
                     entries = self._array_sig_cache.setdefault(type_key, [])
                     if not any(checks == array_checks for _, checks in entries):
@@ -1514,14 +1544,18 @@ class MLIRTarget(TargetDescriptor):
     @property
     def typing_context(self):
         if self._typingctx is None:
-            self._typingctx = MLIRTypingContext()
+            with self._initialization_lock:
+                if self._typingctx is None:
+                    self._typingctx = MLIRTypingContext()
         return self._typingctx
 
     @property
     def target_context(self):
         if self._targetctx is None:
-            # Ensure typing context is initialized before target context.
-            self._targetctx = MLIRTargetContext(self.typing_context)
+            with self._initialization_lock:
+                if self._targetctx is None:
+                    # Keep the target bound to the canonical typing context.
+                    self._targetctx = MLIRTargetContext(self.typing_context)
         return self._targetctx
 
     def ensure_initialized(self):
@@ -1622,6 +1656,15 @@ class MLIRDispatcherType(types.Dispatcher):
         signatures. So, just return an empty list here.
         """
         return []
+
+
+class _CompiledKernelResult(tuple):
+    """Keep the compiler's three-value result, with native array ABI metadata."""
+
+    def __new__(cls, cubin, name, cooperative, array_abi):
+        result = super().__new__(cls, (cubin, name, cooperative))
+        result.array_abi = array_abi
+        return result
 
 
 class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
@@ -2581,7 +2624,11 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             return True
         # Allow array type compatibility (matching dtype and ndim)
         if isinstance(sig_arg, types.Array) and isinstance(runtime_type, types.Array):
-            return sig_arg.dtype == runtime_type.dtype and sig_arg.ndim == runtime_type.ndim
+            return (
+                sig_arg.dtype == runtime_type.dtype
+                and sig_arg.ndim == runtime_type.ndim
+                and sig_arg.aligned == runtime_type.aligned
+            )
         # Recursively check Tuple element compatibility
         if isinstance(sig_arg, types.BaseTuple) and isinstance(runtime_type, types.BaseTuple):
             if len(sig_arg) == len(runtime_type):
@@ -2613,6 +2660,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             if sig_arg.ndim != runtime_type.ndim:
                 return None
             if sig_arg.dtype != runtime_type.dtype:
+                return None
+            if sig_arg.aligned and not runtime_type.aligned:
                 return None
             return (0, 0, 0)
         if isinstance(sig_arg, types.CPointer) and isinstance(runtime_type, types.Integer):
@@ -2935,10 +2984,15 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
 
     def _compile(self, args):
         with global_compiler_lock:
-            cubin, func_name, cooperative = self._compile_impl(args)
-            if self._module_setup_callbacks or self._module_teardown_callbacks:
-                return (cubin, func_name, cooperative, self._make_post_load_hook())
-            return (cubin, func_name, cooperative)
+            result = self._compile_impl(args)
+            cubin, func_name, cooperative = result
+            array_abi = getattr(result, "array_abi", ())
+            post_load = (
+                self._make_post_load_hook()
+                if (self._module_setup_callbacks or self._module_teardown_callbacks)
+                else None
+            )
+            return (cubin, func_name, cooperative, post_load, array_abi)
 
     def _compile_impl(
         self,
@@ -3000,10 +3054,25 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 active_launch_config_generation = self._launch_config_generation
 
         def _result(cres):
-            return (
+            from numba_cuda_mlir.array_storage import ArrayStorageLayout
+
+            def arrays(ty):
+                if isinstance(ty, types.Array):
+                    yield ArrayStorageLayout(ty)
+                elif isinstance(ty, types.BaseTuple):
+                    for elem in ty:
+                        yield from arrays(elem)
+
+            array_abi = tuple(
+                (layout.unit_bytes, layout.alignment)
+                for ty in getattr(getattr(cres, "signature", None), "args", argtypes)
+                for layout in arrays(ty)
+            )
+            return _CompiledKernelResult(
                 cres.metadata["cubin"],
                 cres.metadata["func_name"],
                 cres.metadata.get("use_cooperative", False),
+                array_abi,
             )
 
         if active_launch_config_key is not None:
@@ -3510,23 +3579,28 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         if cubin is None:
             raise RuntimeError("No cubin available for disassembly")
 
+        nvdisasm_path = pathfinder.find_nvidia_binary_utility("nvdisasm") or shutil.which(
+            "nvdisasm"
+        )
+        if nvdisasm_path is None:
+            raise RuntimeError(
+                "nvdisasm has not been found. It is included with the CUDA "
+                "toolkit: install the toolkit on your system or, for CUDA 13 "
+                "and newer, install a Python-packaged toolkit in this environment "
+                "(for example cuda-toolkit with the nvdisasm extra). "
+                "The Python-packaged nvdisasm is not available for CUDA 12.\n"
+            )
+
         with tempfile.TemporaryDirectory() as tmpdir:
             cubin_path = os.path.join(tmpdir, "module.cubin")
             # Close the file before nvdisasm opens it, including on Windows.
             with open(cubin_path, "wb") as f:
                 f.write(cubin)
-            try:
-                cp = subprocess.run(
-                    ["nvdisasm", "-gi", cubin_path],
-                    check=True,
-                    capture_output=True,
-                )
-            except FileNotFoundError as e:
-                raise RuntimeError(
-                    "nvdisasm has not been found. You may need "
-                    "to install the CUDA toolkit and ensure that "
-                    "it is available on your PATH.\n"
-                ) from e
+            cp = subprocess.run(
+                [nvdisasm_path, "-gi", cubin_path],
+                check=True,
+                capture_output=True,
+            )
             return cp.stdout.decode("utf-8")
 
     def compile_device(self, sig):

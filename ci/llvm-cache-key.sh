@@ -51,14 +51,24 @@ case "${kind}" in
         py_tag="${3:-}"
         [[ -n "${host_platform}" && -n "${py_tag}" ]] || usage
         version_short="$(cache_version "${LLVM_MODERN_COMMIT}")"
+        # cext/mlir-python is built inside the modern LLVM build.
+        mlir_python_inputs=(
+            "${SCRIPT_DIR}/../cext/mlir-python/CMakeLists.txt"
+            "${SCRIPT_DIR}/../cext/mlir-python/Registration.cpp"
+            "${SCRIPT_DIR}/../cext/mlir-python/Registration.h"
+            "${SCRIPT_DIR}/../cext/mlir-python/SiteInitialize.cpp"
+        )
         case "${host_platform}" in
             linux-*)
-                build_hash="$(hash_file "${SCRIPT_DIR}/build-llvm-modern.sh")"
+                build_hash="$(hash_inputs \
+                    "${SCRIPT_DIR}/build-llvm-modern.sh" \
+                    "${mlir_python_inputs[@]}")"
                 echo "llvm-modern-linux-$(cache_arch "${host_platform}")-${py_tag}-${version_short}-${build_hash}"
                 ;;
             win-64)
                 build_hash="$(hash_inputs \
                     "${SCRIPT_DIR}/build-windows.sh" \
+                    "${mlir_python_inputs[@]}" \
                     "${SCRIPT_DIR}/../cext/mlir-modern/CMakeLists.txt" \
                     "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridge.cpp" \
                     "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridgeSmoke.cpp" \
@@ -70,6 +80,7 @@ case "${kind}" in
             win-arm64)
                 build_hash="$(hash_inputs \
                     "${SCRIPT_DIR}/build-windows.sh" \
+                    "${mlir_python_inputs[@]}" \
                     "${SCRIPT_DIR}/../cext/mlir-modern/CMakeLists.txt" \
                     "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridge.cpp" \
                     "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridgeSmoke.cpp" \

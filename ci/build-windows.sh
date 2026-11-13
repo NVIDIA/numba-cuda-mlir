@@ -279,44 +279,54 @@ build_modern_llvm() {
   local python_root
   python_executable="$("${PYTHON}" -c 'import sys; print(sys.executable)')"
   python_root="$(dirname "${python_executable}")"
-  cmake -G Ninja \
-    -S "$(cmake_path "${LLVM_MODERN_SRC}/llvm")" \
-    -B "$(cmake_path "${LLVM_MODERN_BUILD}")" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX="$(cmake_path "${LLVM_MODERN_INSTALL}")" \
-    -DCMAKE_C_COMPILER=cl \
-    -DCMAKE_CXX_COMPILER=cl \
-    -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded \
-    -DLLVM_USE_CRT_RELEASE=MT \
-    -DLLVM_ENABLE_PROJECTS=mlir \
-    -DLLVM_PARALLEL_LINK_JOBS="${LLVM_PARALLEL_LINK_JOBS:-${PARALLEL}}" \
-    -DLLVM_TARGETS_TO_BUILD=NVPTX \
-    -DBUILD_SHARED_LIBS=OFF \
-    -DLLVM_ENABLE_PIC=ON \
-    -DLLVM_BUILD_TOOLS=OFF \
-    -DLLVM_BUILD_EXAMPLES=OFF \
-    -DLLVM_INCLUDE_TESTS=OFF \
-    -DLLVM_INCLUDE_BENCHMARKS=OFF \
-    -DLLVM_INCLUDE_DOCS=OFF \
-    -DLLVM_ENABLE_ZLIB=OFF \
-    -DLLVM_ENABLE_ZSTD=OFF \
-    -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
-    -DMLIR_PYTHON_PACKAGE_PREFIX="numba_cuda_mlir._mlir" \
-    -DCMAKE_CXX_FLAGS="-DMLIR_PYTHON_PACKAGE_PREFIX=numba_cuda_mlir._mlir. -DMLIR_USE_FALLBACK_TYPE_IDS=1" \
-    -DMLIR_BINDINGS_PYTHON_INSTALL_PREFIX="python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir" \
-    -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=numba_cuda_mlir \
-    -DMLIR_PYTHON_STUBGEN_ENABLED=OFF \
-    -DPython_ROOT_DIR="${python_root}" \
-    -DPython_EXECUTABLE="${python_executable}" \
-    -DPython_FIND_REGISTRY=NEVER \
-    -DPython3_ROOT_DIR="${python_root}" \
-    -DPython3_EXECUTABLE="${python_executable}" \
+  local cmake_args=(
+    -G Ninja
+    -S "$(cmake_path "${LLVM_MODERN_SRC}/llvm")"
+    -B "$(cmake_path "${LLVM_MODERN_BUILD}")"
+    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_INSTALL_PREFIX="$(cmake_path "${LLVM_MODERN_INSTALL}")"
+    -DCMAKE_C_COMPILER=cl
+    -DCMAKE_CXX_COMPILER=cl
+    -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+    -DLLVM_USE_CRT_RELEASE=MT
+    -DLLVM_ENABLE_PROJECTS=mlir
+    -DLLVM_PARALLEL_LINK_JOBS="${LLVM_PARALLEL_LINK_JOBS:-${PARALLEL}}"
+    -DLLVM_TARGETS_TO_BUILD=NVPTX
+    -DBUILD_SHARED_LIBS=OFF
+    -DLLVM_ENABLE_PIC=ON
+    -DLLVM_BUILD_TOOLS=OFF
+    -DLLVM_BUILD_EXAMPLES=OFF
+    -DLLVM_INCLUDE_TESTS=OFF
+    -DLLVM_INCLUDE_BENCHMARKS=OFF
+    -DLLVM_INCLUDE_DOCS=OFF
+    -DLLVM_ENABLE_ZLIB=OFF
+    -DLLVM_ENABLE_ZSTD=OFF
+    -DMLIR_ENABLE_BINDINGS_PYTHON=ON
+    -DMLIR_PYTHON_PACKAGE_PREFIX="numba_cuda_mlir._mlir"
+    -DCMAKE_CXX_FLAGS="-DMLIR_PYTHON_PACKAGE_PREFIX=numba_cuda_mlir._mlir. -DMLIR_USE_FALLBACK_TYPE_IDS=1"
+    -DMLIR_BINDINGS_PYTHON_INSTALL_PREFIX="python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir"
+    -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=numba_cuda_mlir
+    -DMLIR_PYTHON_STUBGEN_ENABLED=OFF
+    -DPython_ROOT_DIR="${python_root}"
+    -DPython_EXECUTABLE="${python_executable}"
+    -DPython_FIND_REGISTRY=NEVER
+    -DPython3_ROOT_DIR="${python_root}"
+    -DPython3_EXECUTABLE="${python_executable}"
     -DPython3_FIND_REGISTRY=NEVER
-  cmake --build "$(cmake_path "${LLVM_MODERN_BUILD}")" -j "${PARALLEL}"
-  cmake --install "$(cmake_path "${LLVM_MODERN_BUILD}")"
+    # Our MLIR Python package, with only the dialects numba-cuda-mlir uses.
+    -DLLVM_EXTERNAL_PROJECTS=numba_cuda_mlir_python
+    -DLLVM_EXTERNAL_NUMBA_CUDA_MLIR_PYTHON_SOURCE_DIR="$(cmake_path "${REPO_ROOT}/cext/mlir-python")"
+  )
+  # Same two-step configure as ci/build-llvm-modern.sh: the first writes the
+  # distribution components, the second restricts the build to them.
+  cmake "${cmake_args[@]}" -DLLVM_DISTRIBUTION_COMPONENTS=
+  local distribution_components
+  distribution_components="$(cat "${LLVM_MODERN_BUILD}/numba_cuda_mlir_distribution_components.txt")"
+  cmake "${cmake_args[@]}" -DLLVM_DISTRIBUTION_COMPONENTS="${distribution_components}"
+  cmake --build "$(cmake_path "${LLVM_MODERN_BUILD}")" --target install-distribution -j "${PARALLEL}"
 
   local mlir_pkg_rel="python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir"
-  local build_mlir_pkg="${LLVM_MODERN_BUILD}/tools/mlir/${mlir_pkg_rel}"
+  local build_mlir_pkg="${LLVM_MODERN_BUILD}/tools/numba_cuda_mlir_python/${mlir_pkg_rel}"
   local install_mlir_pkg="${LLVM_MODERN_INSTALL}/${mlir_pkg_rel}"
   local install_mlir_libs="${install_mlir_pkg}/_mlir_libs"
   if [[ -d "${build_mlir_pkg}" ]]; then

@@ -39,6 +39,38 @@ def test_float_specializations_repeated_both_orders(scalar_only, reverse):
 
 
 @pytest.mark.parametrize("scalar_only", [False, True], ids=["array-output", "native-fast"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_tuple_specializations_preserve_element_types(scalar_only, reverse):
+    output = cuda.device_array(1, dtype=np.float64)
+    if scalar_only:
+
+        @cuda.jit
+        def kernel(values):
+            output[0] = values[0] + values[1]
+
+    else:
+
+        @cuda.jit
+        def kernel(output, values):
+            output[0] = values[0] + values[1]
+
+    cases = [
+        (np.float32(1), np.float32(2**-25)),
+        (np.float64(1), np.float64(2**-25)),
+        (np.float32(1), np.float64(2**-25)),
+        (np.float64(1), np.float32(2**-25)),
+    ]
+    if reverse:
+        cases.reverse()
+    launch = kernel[1, 1]
+    for values in cases + cases[::-1]:
+        args = (values,) if scalar_only else (output, values)
+        launch(*args)
+        assert output.copy_to_host()[0] == float(values[0] + values[1])
+    assert len(kernel.signatures) == len(cases)
+
+
+@pytest.mark.parametrize("scalar_only", [False, True], ids=["array-output", "native-fast"])
 def test_python_integer_signed_unsigned_boundaries(scalar_only):
     output = cuda.device_array(2, dtype=np.int64)
     if scalar_only:

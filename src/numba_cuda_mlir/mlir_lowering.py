@@ -2522,7 +2522,7 @@ extern "C" __global__ void
             operand = self._new_call_temp(source, signature.recvr)
             self.store_var(operand, self._cast_call_value(source_type, signature.recvr, value))
             positional.insert(0, operand)
-        builder(self, target, positional, keywords)
+        builder(self, target if store else None, positional, keywords)
 
     def lower_call_expr_assign(self, target, fn, args, kws, expr=None):
         trace("target: %s, fn: %s, args: %s, kws: %s", target, fn, args, kws)

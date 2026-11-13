@@ -1431,7 +1431,6 @@ def _lower_intrinsic(stub, op, arity):
 
     @lower(stub, *args, api="values")
     def cg(builder, signature, args):
-        args = args
         mlir_type = T.f16()
         args = [convert(arg, mlir_type) for arg in args]
         res = op(*args)
@@ -1441,7 +1440,6 @@ def _lower_intrinsic(stub, op, arity):
 def _lower_fp16_cmp(stub, predicate):
     @lower(stub, types.f16, types.f16, api="values")
     def cg(builder, signature, args):
-        args = args
         mlir_type = T.f16()
         lhs = convert(args[0], mlir_type)
         rhs = convert(args[1], mlir_type)

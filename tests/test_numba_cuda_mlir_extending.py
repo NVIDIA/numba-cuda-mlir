@@ -1170,3 +1170,46 @@ def test_legacy_intrinsic_preserves_literal_metadata():
     out = np.zeros(1, dtype=np.int64)
     kernel[1, 1](np.int32(-7), out)
     assert out[0] == 4
+
+
+def test_legacy_setitem_statement_and_expression_targets():
+    import operator
+    from enum import IntEnum
+    from numba_cuda_mlir._mlir.dialects import memref
+    from numba_cuda_mlir.lowering_utilities import index_of
+
+    class StoredValue(IntEnum):
+        seven = 7
+
+    # A test-local enum confines the operator registration to this consumer.
+    selected_args = (types.Array(types.int64, 1, "C"), types.int64, typeof(StoredValue.seven))
+
+    def set_value(array, index, value):
+        raise NotImplementedError
+
+    class SetValueTemplate(ConcreteTemplate):
+        key = set_value
+        cases = [types.none(*selected_args)]
+
+    extending.typing_registry.register_global(set_value, types.Function(SetValueTemplate))
+
+    @extending.lowering_registry.lower(operator.setitem, *selected_args)
+    @extending.lowering_registry.lower(set_value, *selected_args)
+    def legacy_setitem(builder, target, args, kws):
+        array, index, value = builder.load_vars(args)
+        memref.store(value, array, [index_of(index)])
+        if target is not None:
+            builder.store_var(target, None)
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(array, value):
+        array[0] = value
+        result = set_value(array, 1, value)
+        if result is None:
+            array[2] = array[0] + array[1]
+
+    array = np.zeros(3, dtype=np.int64)
+    kernel[1, 1](array, StoredValue.seven)
+    np.testing.assert_array_equal(array, [7, 7, 14])

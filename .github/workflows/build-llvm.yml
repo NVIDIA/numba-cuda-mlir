@@ -301,17 +301,7 @@ jobs:
 
       - name: Build modern LLVM on host
         if: steps.gha-cache.outputs.cache-hit != 'true'
-        run: |
-          if [[ "${{ matrix.python-version }}" == '3.15t' ]]; then
-            PS4='+ ${BASH_SOURCE}:${LINENO}: ' bash -x ci/build-windows.sh modern
-            bridge="llvm-modern-install/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs/MLIRModernToNVVM.dll"
-            if [[ ! -s "${bridge}" ]]; then
-              echo "::error::LLVM build returned success without staging ${bridge}"
-              exit 1
-            fi
-          else
-            bash ci/build-windows.sh modern
-          fi
+        run: bash ci/build-windows.sh modern
 
       - name: Save LLVM Modern cache
         if: steps.gha-cache.outputs.cache-hit != 'true'

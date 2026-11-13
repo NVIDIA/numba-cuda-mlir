@@ -109,6 +109,22 @@ class NumbaCudaMlirInlineInlinables(InlineInlinables):
                 return False
         except Exception:
             pass
+        # The inline worker otherwise uses the constant-only CUDA pipeline.
+        from numba_cuda_mlir.numba_cuda.core.untyped_passes import MakeFunctionToJitFunction
+        from numba_cuda_mlir.runtime_closures import ConvertRuntimeClosures
+        from numba_cuda_mlir.numba_cuda.compiler import DefaultPassBuilder
+
+        def closure_pipeline(callee_state):
+            pm = DefaultPassBuilder.define_untyped_pipeline(callee_state)
+            passes = []
+            for implementation, description in pm.passes:
+                if implementation is MakeFunctionToJitFunction:
+                    passes.append((ConvertRuntimeClosures, "convert runtime closure environments"))
+                passes.append((implementation, description))
+            pm.passes = passes
+            return pm
+
+        inline_worker._compiler_pipeline = closure_pipeline
         return super()._do_work(state, work_list, block, i, expr, inline_worker)
 
     @staticmethod

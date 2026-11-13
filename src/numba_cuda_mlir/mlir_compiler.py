@@ -47,6 +47,8 @@ from numba_cuda_mlir.numba_cuda.core.untyped_passes import (
     LiteralUnroll,
     InlineInlinables,
 )
+from numba_cuda_mlir.numba_cuda.core.untyped_passes import MakeFunctionToJitFunction
+from numba_cuda_mlir.runtime_closures import ConvertRuntimeClosures
 from numba_cuda_mlir.numbair_transforms import (
     NumbaCudaMlirLiteralUnroll,
     NumbaCudaMlirInlineInlinables,
@@ -229,6 +231,10 @@ def get_compiler_class(
             # - InlineInlinables -> NumbaCudaMlirInlineInlinables (skips self-recursive functions)
             modified_passes = []
             for impl, desc in untyped_passes.passes:
+                if impl is MakeFunctionToJitFunction:
+                    modified_passes.append(
+                        (ConvertRuntimeClosures, "convert runtime closure environments")
+                    )
                 if impl is LiteralUnroll:
                     modified_passes.append((NumbaCudaMlirLiteralUnroll, desc))
                 elif impl is InlineInlinables:

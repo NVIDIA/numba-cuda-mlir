@@ -636,7 +636,7 @@ inline void fast_extract_py_float(PyObject* obj, CudaArg* out) {
 }
 
 inline void fast_extract_py_long(PyObject* obj, CudaArg* out) {
-    out->i64 = PyLong_AsLongLong(obj);
+    out->i64 = pylong_as<int64_t>(obj);
 }
 
 inline void fast_extract_np_integer(PyObject* obj, CudaArg* out) {
@@ -1188,6 +1188,9 @@ inline Status extract_py_long(PyObject* pyobj, bool is_constant, LaunchHelper& h
         else
             helper.constants.push_back(ConstantArg(value));
     }
+    // Python int selects int64 or uint64 by value, not by Python type.
+    if (!is_constant)
+        helper.constants.push_back(ConstantArg(is_unsigned));
 
     return OK;
 }
@@ -1638,9 +1641,9 @@ public:
 
 struct KernelDispatcher {
     using FamilyMap = std::unordered_map<
-            std::vector<ParameterKind>,
+            std::vector<PyTypeObject*>,
             RefPtr<KernelFamily>,
-            HashVector<ParameterKind>>;
+            HashVector<PyTypeObject*>>;
 
     PyPtr compile_func;
     PyPtr ensure_context_func;
@@ -1975,13 +1978,15 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
 
         std::vector<PythonArgKind> arg_kinds;
         arg_kinds.reserve(num_pyargs);
-        std::vector<ParameterKind> param_kinds;
+        std::vector<PyTypeObject*> param_kinds;
         param_kinds.reserve(num_pyargs);
         for (Py_ssize_t i = 0; i < num_pyargs; ++i) {
             Result<std::pair<PythonArgKind, ParameterKind>> c = classify_arg(pyargs[i]);
             if (!c.is_ok()) return ErrorRaised;
             arg_kinds.push_back(c->first);
-            param_kinds.push_back(c->second);
+            // Share array families; keep concrete scalar types distinct.
+            param_kinds.push_back(c->second == ParameterKind::Array
+                    ? nullptr : Py_TYPE(pyargs[i]));
         }
 
         // Find or create kernel family for this parameter pattern
@@ -2025,6 +2030,7 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
         }
         helper->record_copies.clear();
 
+        helper->constants.clear();
         size_t n = static_cast<size_t>(num_pyargs);
         helper->cuargs.resize(n);
         helper->cuarg_pointers.resize(n);
@@ -2035,8 +2041,13 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
             // Fast extractors return void; propagate any exception they raised
             if (PyErr_Occurred()) return ErrorRaised;
             helper->cuarg_pointers[i] = &base[i];
+            if (profile->arg_kinds[i] == PythonArgKind::PyLong) {
+                int overflow = 0;
+                PyLong_AsLongLongAndOverflow(pyargs[i], &overflow);
+                if (PyErr_Occurred()) return ErrorRaised;
+                helper->constants.push_back(ConstantArg(overflow > 0));
+            }
         }
-        helper->constants.clear();
         helper->cuda_context = nullptr;
 
         if (!ensure_numba_context(dispatcher.ensure_context_func.get()))

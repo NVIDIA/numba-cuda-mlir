@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import numpy as np
+import pytest
 
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir import types
@@ -58,3 +59,37 @@ def test_storage_itemsize_uses_byte_addressable_storage():
             np.dtype([("x", np.int32), ("y", np.float16)], align=True)
         )
         assert storage_itemsize_bytes(record_type) == record_type.size
+
+
+@pytest.mark.parametrize(
+    "dtype,expected",
+    [
+        (bfloat16, 2),
+        (types.bf16, 2),
+        (types.f4E2M1FN, 1),
+        (types.f6E2M3FN, 1),
+        (types.f8E4M3FN, 1),
+        (types.tf32, 4),
+    ],
+)
+def test_exotic_array_abi_sizes_without_compiler_context(dtype, expected):
+    from numba_cuda_mlir.array_storage import ArrayStorageLayout
+    from numba_cuda_mlir.lowering_utilities import storage_itemsize_bytes
+
+    layout = ArrayStorageLayout(types.Array(dtype, 1, "C"))
+    assert layout.itemsize == expected
+    assert layout.unit_bytes == expected
+    assert storage_itemsize_bytes(dtype) == expected
+
+
+def test_tf32_local_array_reports_storage_byte_stride():
+    from numba_cuda_mlir import cuda
+
+    @cuda.jit
+    def metadata(out):
+        array = cuda.local.array(2, types.tf32)
+        out[0] = array.strides[0]
+
+    out = cuda.device_array(1, np.int64)
+    metadata[1, 1](out)
+    np.testing.assert_array_equal(out.copy_to_host(), [4])

@@ -193,7 +193,9 @@ class MLIRBackend(LoweringPass):
                 lower.verify_mlir_module()
         except UserFacingInternalCompilerError:
             raise
-        except (NotImplementedError, InternalCompilerError) as exc:
+        except (NotImplementedError, errors.UnsupportedError):
+            handle_lowering_error(lower, func_ir)
+        except InternalCompilerError as exc:
             if os.environ.get("NUMBA_CUDA_MLIR_ICE_FULL_TB", "0").strip() == "1":
                 raise exc
             handle_lowering_error(lower, func_ir)

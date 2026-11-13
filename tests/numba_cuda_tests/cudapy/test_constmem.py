@@ -174,3 +174,24 @@ class TestCudaConstantMemory(NumbaCUDATestCase):
         np.testing.assert_allclose(C, CONST_RECORD_ALIGN["x"])
         np.testing.assert_allclose(D, CONST_RECORD_ALIGN["y"])
         np.testing.assert_allclose(E, CONST_RECORD_ALIGN["z"])
+
+
+@pytest.mark.parametrize("dtype", [np.float64, np.complex128])
+def test_unaligned_const_array_payload(dtype):
+    itemsize = np.dtype(dtype).itemsize
+    raw = np.full(1 + 3 * itemsize, 0xA5, np.uint8)
+    values = np.ndarray((3,), dtype=dtype, buffer=raw, offset=1)
+    values[:] = [1.5, 2.5, -3.5]
+    if dtype == np.complex128:
+        values[:] += [2j, -3j, 4j]
+    values.flags.writeable = False
+
+    @cuda.jit
+    def kernel(out):
+        constants = cuda.const.array_like(values)
+        for i in range(constants.size):
+            out[i] = constants[i]
+
+    out = cuda.device_array(values.shape, dtype)
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(out.copy_to_host(), values)

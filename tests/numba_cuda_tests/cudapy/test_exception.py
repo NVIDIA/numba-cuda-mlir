@@ -115,7 +115,6 @@ class TestException(NumbaCUDATestCase):
         self.assertTrue(np.isinf(r[0]), "Expected inf from div by zero")
         self.assertEqual(r[1], y[0], "Expected execution to continue")
 
-    @pytest.mark.xfail(True, reason="Expected exception not raised")
     def test_zero_division_error_in_debug(self):
         # When debug is True:
         # - Zero by division raises an exception

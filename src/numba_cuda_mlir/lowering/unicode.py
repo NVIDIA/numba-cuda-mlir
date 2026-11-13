@@ -43,8 +43,8 @@ registry = LoweringRegistry()
 lower = registry.lower
 
 
-@lower(len, types.StringLiteral)
-def _lower_string_literal_len(builder, target, args, kwargs):
+@lower(len, types.StringLiteral, api="values")
+def _lower_string_literal_len(builder, signature, args):
     """``len()`` of a string literal, in code points, as a compile-time constant.
 
     The generic ``@overload(len)`` for ``UnicodeType`` reads ``s._length`` out of
@@ -52,12 +52,12 @@ def _lower_string_literal_len(builder, target, args, kwargs):
     ``StringLiteralModel`` is a bare pointer -- so the count has to come from the
     type, the way ``==`` on literals already does.
     """
-    literal = builder.get_numba_type(args[0].name).literal_value
-    target_type = builder.get_mlir_type(builder.get_numba_type(target.name))
-    builder.store_var(target, arith.constant(result=target_type, value=len(literal)))
+    literal = signature.args[0].literal_value
+    target_type = builder.get_mlir_type(signature.return_type)
+    return arith.constant(result=target_type, value=len(literal))
 
 
-def _unicode_eq_lower(builder, target, args, kwargs):
+def _unicode_eq_lower(builder, signature, args):
     """Lower unicode_type == unicode_type / StringLiteral.
 
     Constant-folds when both values are known Python strings at compile time.
@@ -68,13 +68,12 @@ def _unicode_eq_lower(builder, target, args, kwargs):
         materialize_string_constant_if_needed,
     )
 
-    lhs_raw = builder.load_var(args[0])
-    rhs_raw = builder.load_var(args[1])
+    lhs_raw = args[0]
+    rhs_raw = args[1]
 
     if isinstance(lhs_raw, str) and isinstance(rhs_raw, str):
         result = arith.constant(result=T.bool(), value=(lhs_raw == rhs_raw))
-        builder.store_var(target, result)
-        return
+        return result
 
     lhs_val = materialize_string_constant_if_needed(builder.mlir_gpu_module, lhs_raw)
     rhs_val = materialize_string_constant_if_needed(builder.mlir_gpu_module, rhs_raw)
@@ -117,25 +116,24 @@ def _unicode_eq_lower(builder, target, args, kwargs):
     # Result: lengths equal AND no mismatches
     no_mismatches = arith.cmpi(arith.CmpIPredicate.eq, loop.results[0], zero_i64)
     result = arith.andi(len_eq, no_mismatches)
-    builder.store_var(target, result)
+    return result
 
 
 # Register for all combinations of UnicodeType and StringLiteral
-@lower(operator.eq, types.UnicodeType, types.UnicodeType)
-@lower(operator.eq, types.UnicodeType, types.StringLiteral)
-@lower(operator.eq, types.StringLiteral, types.UnicodeType)
-def _lower_eq(builder, target, args, kwargs):
-    _unicode_eq_lower(builder, target, args, kwargs)
+@lower(operator.eq, types.UnicodeType, types.UnicodeType, api="values")
+@lower(operator.eq, types.UnicodeType, types.StringLiteral, api="values")
+@lower(operator.eq, types.StringLiteral, types.UnicodeType, api="values")
+def _lower_eq(builder, signature, args):
+    return _unicode_eq_lower(builder, signature, args)
 
 
-@lower(operator.ne, types.UnicodeType, types.UnicodeType)
-@lower(operator.ne, types.UnicodeType, types.StringLiteral)
-@lower(operator.ne, types.StringLiteral, types.UnicodeType)
-def _lower_ne(builder, target, args, kwargs):
-    _unicode_eq_lower(builder, target, args, kwargs)
-    eq_result = builder.load_var(target)
+@lower(operator.ne, types.UnicodeType, types.UnicodeType, api="values")
+@lower(operator.ne, types.UnicodeType, types.StringLiteral, api="values")
+@lower(operator.ne, types.StringLiteral, types.UnicodeType, api="values")
+def _lower_ne(builder, signature, args):
+    eq_result = _unicode_eq_lower(builder, signature, args)
     ne_result = arith.xori(eq_result, true())
-    builder.store_var(target, ne_result)
+    return ne_result
 
 
 @register_jitable(typing_registry=extending_typing_registry)

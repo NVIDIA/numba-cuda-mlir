@@ -66,9 +66,9 @@ def nrt_decref(module, meminfo):
     func.call(result=[], callee=callee.name.value, operands_=[meminfo])
 
 
-def _lower_malloc_string(builder, target, args, kwargs):
+def _lower_malloc_string(builder, signature, args):
     """MLIR equivalent of numba-cuda's _malloc_string intrinsic."""
-    kind_val, char_bytes_val, length_val, is_ascii_val = builder.load_vars(args)
+    kind_val, char_bytes_val, length_val, is_ascii_val = args
     module = builder.mlir_gpu_module
 
     kind_val = convert(kind_val, T.i32())
@@ -94,21 +94,21 @@ def _lower_malloc_string(builder, target, args, kwargs):
     ):
         desc = llvm.insertvalue(desc, value, i)
 
-    builder.store_var(target, desc)
+    return desc
 
 
 def _make_deref_lowering(bitsize):
     """MLIR lowering for deref_uint{8,16,32}: read a character from string data."""
 
-    def _lower_deref(builder, target, args, kwargs):
-        data, idx = builder.load_vars(args)
+    def _lower_deref(builder, signature, args):
+        data, idx = args
         data = convert(data, llvm.ptr())
         idx = convert(idx, T.i64())
         int_type = ir.IntegerType.get_signless(bitsize)
         addr = llvm.getelementptr(llvm.ptr(), data, [idx], [GEP_DYNAMIC_INDEX], int_type, None)
         loaded = llvm.load(int_type, addr)
         result = convert(loaded, T.i32())
-        builder.store_var(target, result)
+        return result
 
     return _lower_deref
 
@@ -116,8 +116,8 @@ def _make_deref_lowering(bitsize):
 def _make_set_lowering(bitsize):
     """MLIR lowering for set_uint{8,16,32}: write a character to string data."""
 
-    def _lower_set(builder, target, args, kwargs):
-        data, idx, ch = builder.load_vars(args)
+    def _lower_set(builder, signature, args):
+        data, idx, ch = args
         data = convert(data, llvm.ptr())
         idx = convert(idx, T.i64())
         ch = convert(ch, T.i32())
@@ -129,12 +129,14 @@ def _make_set_lowering(bitsize):
     return _lower_set
 
 
-lower(_malloc_string, types.Any, types.Any, types.Any, types.Any)(_lower_malloc_string)
+lower(_malloc_string, types.Any, types.Any, types.Any, types.Any, api="values")(
+    _lower_malloc_string
+)
 
-lower(deref_uint8, types.Any, types.Any)(_make_deref_lowering(8))
-lower(deref_uint16, types.Any, types.Any)(_make_deref_lowering(16))
-lower(deref_uint32, types.Any, types.Any)(_make_deref_lowering(32))
+lower(deref_uint8, types.Any, types.Any, api="values")(_make_deref_lowering(8))
+lower(deref_uint16, types.Any, types.Any, api="values")(_make_deref_lowering(16))
+lower(deref_uint32, types.Any, types.Any, api="values")(_make_deref_lowering(32))
 
-lower(set_uint8, types.Any, types.Any, types.Any)(_make_set_lowering(8))
-lower(set_uint16, types.Any, types.Any, types.Any)(_make_set_lowering(16))
-lower(set_uint32, types.Any, types.Any, types.Any)(_make_set_lowering(32))
+lower(set_uint8, types.Any, types.Any, types.Any, api="values")(_make_set_lowering(8))
+lower(set_uint16, types.Any, types.Any, types.Any, api="values")(_make_set_lowering(16))
+lower(set_uint32, types.Any, types.Any, types.Any, api="values")(_make_set_lowering(32))

@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import sys
+from numba_cuda_mlir.numba_cuda.types import StarArgTuple, StarArgUniTuple
 
 if sys.version_info >= (3, 12):
     from itertools import batched
@@ -36,7 +37,6 @@ from numba_cuda_mlir.lowering_utilities import (
 )
 from numba_cuda_mlir.lowering_utilities.type_conversions import (
     to_mlir_type,
-    to_numba_type,
     inline_ptx_type_constraint_to_numba_type,
     inline_ptx_type_constraint_to_mlir_type,
 )
@@ -72,13 +72,10 @@ from numba_cuda_mlir.numba_cuda.typing.templates import ConcreteTemplate
 from numba_cuda_mlir.numba_cuda import stubs as cuda_stubs
 
 
-def _lower_cfarray(builder: MLIRLower, target, args, kwargs, name, layout):
-    if kwargs and [name for name, _ in kwargs] != ["dtype"]:
-        raise TypeError(f"{name} only supports dtype as a keyword argument")
-
-    ptr = builder.load_var(args[0])
-    shape = builder.load_var(args[1])
-    result_type = builder.get_numba_type(target)
+def _lower_cfarray(builder: MLIRLower, signature, args, name, layout):
+    ptr = args[0]
+    shape = args[1]
+    result_type = signature.return_type
     rank = result_type.ndim
 
     if isinstance(shape, tuple):
@@ -115,45 +112,45 @@ def _lower_cfarray(builder: MLIRLower, target, args, kwargs, name, layout):
     for i, stride in enumerate(strides_i64):
         desc = ins(desc, stride, 4, i)
 
-    builder.store_var(target, builtin.unrealized_conversion_cast([result_mlir_type], [desc]))
+    return builtin.unrealized_conversion_cast([result_mlir_type], [desc])
 
 
-@lower(cuda.carray, types.CPointer, types.Integer)
-@lower(cuda.carray, types.CPointer, types.BaseTuple)
-@lower(cuda.carray, types.CPointer, types.Integer, types.Any)
-@lower(cuda.carray, types.CPointer, types.BaseTuple, types.Any)
-@lower(cuda.carray, types.voidptr, types.Integer, types.Any)
-@lower(cuda.carray, types.voidptr, types.BaseTuple, types.Any)
-def lower_carray(builder: MLIRLower, target, args, kwargs):
-    _lower_cfarray(builder, target, args, kwargs, "carray", "C")
+@lower(cuda.carray, types.CPointer, types.Integer, api="values")
+@lower(cuda.carray, types.CPointer, types.BaseTuple, api="values")
+@lower(cuda.carray, types.CPointer, types.Integer, types.Any, api="values")
+@lower(cuda.carray, types.CPointer, types.BaseTuple, types.Any, api="values")
+@lower(cuda.carray, types.voidptr, types.Integer, types.Any, api="values")
+@lower(cuda.carray, types.voidptr, types.BaseTuple, types.Any, api="values")
+def lower_carray(builder: MLIRLower, signature, args):
+    return _lower_cfarray(builder, signature, args, "carray", "C")
 
 
-@lower(cuda.farray, types.CPointer, types.Integer)
-@lower(cuda.farray, types.CPointer, types.BaseTuple)
-@lower(cuda.farray, types.CPointer, types.Integer, types.Any)
-@lower(cuda.farray, types.CPointer, types.BaseTuple, types.Any)
-@lower(cuda.farray, types.voidptr, types.Integer, types.Any)
-@lower(cuda.farray, types.voidptr, types.BaseTuple, types.Any)
-def lower_farray(builder: MLIRLower, target, args, kwargs):
-    _lower_cfarray(builder, target, args, kwargs, "farray", "F")
+@lower(cuda.farray, types.CPointer, types.Integer, api="values")
+@lower(cuda.farray, types.CPointer, types.BaseTuple, api="values")
+@lower(cuda.farray, types.CPointer, types.Integer, types.Any, api="values")
+@lower(cuda.farray, types.CPointer, types.BaseTuple, types.Any, api="values")
+@lower(cuda.farray, types.voidptr, types.Integer, types.Any, api="values")
+@lower(cuda.farray, types.voidptr, types.BaseTuple, types.Any, api="values")
+def lower_farray(builder: MLIRLower, signature, args):
+    return _lower_cfarray(builder, signature, args, "farray", "F")
 
 
-@lower(cuda_stubs.nanosleep, types.Number)
-def cuda_nanosleep(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
-    ticks = lower.load_var(args[0])
+@lower(cuda_stubs.nanosleep, types.Number, api="values")
+def cuda_nanosleep(lower: MLIRLower, signature, args: list[Any]):
+    ticks = args[0]
     ticks = convert(ticks, T.i32())
     nvvm.nanosleep(ticks)
-    lower.store_var(target, None)
+    return None
 
 
-@lower(numba_cuda_mlir.cuda.selp, types.Integer, types.Integer, types.Integer)
-@lower(numba_cuda_mlir.cuda.selp, types.Boolean, types.Integer, types.Integer)
-@lower(numba_cuda_mlir.cuda.selp, types.Integer, types.Float, types.Float)
-@lower(numba_cuda_mlir.cuda.selp, types.Boolean, types.Float, types.Float)
-def cuda_selp(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
-    cond = lower.load_var(args[0])
-    true_val = lower.load_var(args[1])
-    false_val = lower.load_var(args[2])
+@lower(numba_cuda_mlir.cuda.selp, types.Integer, types.Integer, types.Integer, api="values")
+@lower(numba_cuda_mlir.cuda.selp, types.Boolean, types.Integer, types.Integer, api="values")
+@lower(numba_cuda_mlir.cuda.selp, types.Integer, types.Float, types.Float, api="values")
+@lower(numba_cuda_mlir.cuda.selp, types.Boolean, types.Float, types.Float, api="values")
+def cuda_selp(lower: MLIRLower, signature, args: list[Any]):
+    cond = args[0]
+    true_val = args[1]
+    false_val = args[2]
     # Convert condition to i1 (bool) if needed
     if cond.type != T.bool():
         zero = arith.constant(result=cond.type, value=0)
@@ -163,7 +160,7 @@ def cuda_selp(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str,
         target_type = true_val.type
         false_val = convert(false_val, target_type)
     result = arith.select(cond, true_val, false_val)
-    lower.store_var(target, result)
+    return result
 
 
 def _lower_warpsize(context, lower: MLIRLower, target, cuda_mod):
@@ -191,24 +188,24 @@ def lower_cuda_laneid(context, lower, target, cuda_mod):
     return _lower_laneid(context, lower, target, cuda_mod)
 
 
-@lower(numba_cuda_mlir.cuda.brev, types.Integer)
-def cuda_brev(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
-    value = lower.load_var(args[0])
+@lower(numba_cuda_mlir.cuda.brev, types.Integer, api="values")
+def cuda_brev(lower: MLIRLower, signature, args: list[Any]):
+    value = args[0]
     # Use the Numba type's bitwidth to determine 32 vs 64-bit operation
-    numba_type = lower.get_numba_type(args[0])
+    numba_type = signature.args[0]
     if numba_type.bitwidth > 32:
         value = convert(value, T.i64())
     else:
         value = convert(value, T.i32())
     result = llvm.intr_bitreverse(value)
-    lower.store_var(target, result)
+    return result
 
 
-@lower(numba_cuda_mlir.cuda.clz, types.Integer)
-def cuda_clz(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
-    value = lower.load_var(args[0])
+@lower(numba_cuda_mlir.cuda.clz, types.Integer, api="values")
+def cuda_clz(lower: MLIRLower, signature, args: list[Any]):
+    value = args[0]
     # Use the Numba type's bitwidth to determine 32 vs 64-bit operation
-    numba_type = lower.get_numba_type(args[0])
+    numba_type = signature.args[0]
     if numba_type.bitwidth > 32:
         value = convert(value, T.i64())
     else:
@@ -216,28 +213,28 @@ def cuda_clz(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, 
     # is_zero_poison=False means clz(0) returns bit width
     result = llvm.intr_ctlz(value, False)
     result = convert(result, T.i32())
-    lower.store_var(target, result)
+    return result
 
 
-@lower(numba_cuda_mlir.cuda.popc, types.Integer)
-def cuda_popc(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
-    value = lower.load_var(args[0])
+@lower(numba_cuda_mlir.cuda.popc, types.Integer, api="values")
+def cuda_popc(lower: MLIRLower, signature, args: list[Any]):
+    value = args[0]
     # Use the Numba type's bitwidth to determine 32 vs 64-bit operation
-    numba_type = lower.get_numba_type(args[0])
+    numba_type = signature.args[0]
     if numba_type.bitwidth > 32:
         value = convert(value, T.i64())
     else:
         value = convert(value, T.i32())
     result = llvm.intr_ctpop(value)
     result = convert(result, T.i32())
-    lower.store_var(target, result)
+    return result
 
 
-@lower(numba_cuda_mlir.cuda.ffs, types.Integer)
-def cuda_ffs(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
-    value = lower.load_var(args[0])
+@lower(numba_cuda_mlir.cuda.ffs, types.Integer, api="values")
+def cuda_ffs(lower: MLIRLower, signature, args: list[Any]):
+    value = args[0]
     # Use the Numba type's bitwidth to determine 32 vs 64-bit operation
-    numba_type = lower.get_numba_type(args[0])
+    numba_type = signature.args[0]
     if numba_type.bitwidth > 32:
         int_type = T.i64()
     else:
@@ -253,13 +250,13 @@ def cuda_ffs(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, 
     is_zero = arith.cmpi(arith.CmpIPredicate.eq, value, zero)
     result = arith.select(is_zero, zero, ffs_nonzero)
     result = convert(result, T.i32())
-    lower.store_var(target, result)
+    return result
 
 
-@lower(numba_cuda_mlir.cuda.syncthreads)
-def cuda_syncthreads(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
+@lower(numba_cuda_mlir.cuda.syncthreads, api="values")
+def cuda_syncthreads(lower: MLIRLower, signature, args: list[Any]):
     gpu.barrier()
-    lower.store_var(target, None)
+    return None
 
 
 def _ensure_cudadevrt_linked(lower: MLIRLower):
@@ -270,8 +267,8 @@ def _ensure_cudadevrt_linked(lower: MLIRLower):
         lower.metadata["_cudadevrt_linked"] = True
 
 
-@lower(this_grid)
-def lower_cg_this_grid(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
+@lower(this_grid, api="values")
+def lower_cg_this_grid(lower: MLIRLower, signature, args: list[Any]):
     from numba_cuda_mlir.lowering_utilities import get_or_insert_function
 
     fn_type = ir.FunctionType.get(results=[T.i64()], inputs=[T.i32()])
@@ -280,27 +277,34 @@ def lower_cg_this_grid(lower: MLIRLower, target, args: list[Any], kwargs: list[t
     result = func.call(result=[T.i64()], callee=callee.name.value, operands_=[one])
     lower.metadata["use_cooperative"] = True
     _ensure_cudadevrt_linked(lower)
-    lower.store_var(target, result)
+    return result
 
 
-def _grid_group_sync_cg(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
+def _grid_group_sync_cg(lower: MLIRLower, signature, args: list[Any]):
     from numba_cuda_mlir.lowering_utilities import get_or_insert_function
 
-    group = lower.load_var(args[0])
+    group = args[0]
     fn_type = ir.FunctionType.get(results=[T.i32()], inputs=[T.i64(), T.i32()])
     callee = get_or_insert_function("cudaCGSynchronize", fn_type, lower.mlir_gpu_module)
     zero = arith.constant(result=T.i32(), value=0)
     result = func.call(result=[T.i32()], callee=callee.name.value, operands_=[group, zero])
     lower.metadata["use_cooperative"] = True
     _ensure_cudadevrt_linked(lower)
-    lower.store_var(target, result)
+    return result
 
 
 @lower_getattr(GridGroupClass, "sync")
 def lower_grid_group_sync_getattr(context, lower, target, grid_group_var):
     from numba_cuda_mlir.lowering_utilities import DeferredMethodCall
 
-    lower.store_var(target, DeferredMethodCall(grid_group_var, _grid_group_sync_cg))
+    lower.store_var(
+        target,
+        DeferredMethodCall(
+            lower.load_var(grid_group_var),
+            lower.get_numba_type(grid_group_var),
+            _grid_group_sync_cg,
+        ),
+    )
 
 
 def _validate_alignment(alignment: int):
@@ -323,48 +327,32 @@ def _validate_alignment(alignment: int):
         raise ValueError(f"Alignment must be a multiple of {pointer_size}")
 
 
-def _extract_shape_and_dtype(shape, dtype, alignment=None, alignas=None, **kwargs):
-    assert not kwargs, f"got unexpected keyword arguments: {kwargs}"
-    # Support both 'alignment' (numba-cuda) and 'alignas' (numba_cuda_mlir) keywords
-    align_val = alignment if alignment is not None else alignas
-    if align_val is None:
-        align_val = 8
-    return shape, dtype, align_val
-
-
-def _resolve_dtype(lower, dtype_var):
-    """Resolve dtype from a Var, handling StringLiteral (e.g. dtype="int32")."""
-    if isinstance(dtype_var, numba_ir.Var):
-        dtype_numba = lower.get_numba_type(dtype_var.name)
-        if isinstance(dtype_numba, types.StringLiteral):
-            return np.dtype(dtype_numba.literal_value)
-        if isinstance(dtype_numba, types.DTypeSpec):
-            return dtype_numba
-        return lower.load_var(dtype_var)
-    return dtype_var
-
-
-def _resolve_numba_dtype(lower, dtype_var):
-    dtype = _resolve_dtype(lower, dtype_var)
-    if isinstance(dtype, np.dtype):
-        return to_numba_type(dtype)
-    if isinstance(dtype, type) and getattr(dtype, "__module__", None) == "numpy":
-        return to_numba_type(np.dtype(dtype))
-    if isinstance(dtype, types.DTypeSpec) and hasattr(dtype, "dtype"):
-        return dtype.dtype
-    return dtype
+def _array_alignment(signature):
+    for alignment_type in signature.args[2:4]:
+        if isinstance(alignment_type, types.NoneType):
+            continue
+        if isinstance(alignment_type, types.Omitted):
+            alignment = alignment_type.value
+        elif isinstance(alignment_type, types.Literal):
+            alignment = alignment_type.literal_value
+        else:
+            raise ValueError("Alignment must be a compile-time integer")
+        if alignment is not None:
+            _validate_alignment(alignment)
+            return alignment
+    return 8
 
 
 shmem_id = 0
 
 
-def cuda_static_shared_memory(lower: MLIRLower, target, static_shape, dtype, alignas):
+def cuda_static_shared_memory(lower: MLIRLower, signature, static_shape, alignas):
     global shmem_id
     from numba_cuda_mlir.array_storage import ArrayStorageLayout
     from numba_cuda_mlir.lowering_utilities import byte_array_view
 
     shape = tuple(static_shape)
-    target_type = lower.get_numba_type(target.name)
+    target_type = signature.return_type
     layout = ArrayStorageLayout(target_type)
     dtype = layout.element_type
     logical_shape = shape
@@ -386,53 +374,40 @@ def cuda_static_shared_memory(lower: MLIRLower, target, static_shape, dtype, ali
     mr = memref.get_global(ty, static_shared_memory_name)
     if layout.byte_addressed:
         mr = byte_array_view(target_type, mr, [index_of(d) for d in logical_shape])
-    lower.store_var(target, mr)
+    return mr
 
 
-@lower(cuda.shared.array, types.Number)
-@lower(cuda.shared.array, types.Number, types.DTypeSpec)
-@lower(cuda.shared.array, types.Number, types.StringLiteral)
-@lower(cuda.shared.array, types.Number, types.DTypeSpec, types.Number)
-@lower(cuda.shared.array, types.Number, types.StringLiteral, types.Number)
-@lower(cuda.shared.array, types.Number, types.DTypeSpec, types.IntegerLiteral)
-@lower(cuda.shared.array, types.Number, types.StringLiteral, types.IntegerLiteral)
-@lower(cuda.shared.array, types.Number, types.DTypeSpec, types.NoneType)
-@lower(cuda.shared.array, types.Number, types.StringLiteral, types.NoneType)
-@lower(cuda.shared.array, types.UniTuple)
-@lower(cuda.shared.array, types.UniTuple, types.DTypeSpec)
-@lower(cuda.shared.array, types.UniTuple, types.StringLiteral)
-@lower(cuda.shared.array, types.UniTuple, types.DTypeSpec, types.Number)
-@lower(cuda.shared.array, types.UniTuple, types.StringLiteral, types.Number)
-@lower(cuda.shared.array, types.UniTuple, types.DTypeSpec, types.IntegerLiteral)
-@lower(cuda.shared.array, types.UniTuple, types.StringLiteral, types.IntegerLiteral)
-@lower(cuda.shared.array, types.UniTuple, types.DTypeSpec, types.NoneType)
-@lower(cuda.shared.array, types.UniTuple, types.StringLiteral, types.NoneType)
-@lower(cuda.shared.array, types.Tuple)
-@lower(cuda.shared.array, types.Tuple, types.DTypeSpec)
-@lower(cuda.shared.array, types.Tuple, types.StringLiteral)
-@lower(cuda.shared.array, types.Tuple, types.DTypeSpec, types.Number)
-@lower(cuda.shared.array, types.Tuple, types.StringLiteral, types.Number)
-@lower(cuda.shared.array, types.Tuple, types.DTypeSpec, types.IntegerLiteral)
-@lower(cuda.shared.array, types.Tuple, types.StringLiteral, types.IntegerLiteral)
-@lower(cuda.shared.array, types.Tuple, types.DTypeSpec, types.NoneType)
-@lower(cuda.shared.array, types.Tuple, types.StringLiteral, types.NoneType)
-def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
-    shape, dtype, alignas = _extract_shape_and_dtype(*args, **dict(kwargs))
-    if isinstance(alignas, numba_ir.Var):
-        # Check if the variable has NoneType - if so, use default alignment
-        alignas_type = lower.get_numba_type(alignas.name)
-        if isinstance(alignas_type, types.NoneType):
-            alignas = None  # will be set to default after validation
-        else:
-            alignas = lower.load_var(alignas)
-            alignas = try_extract_constant(alignas)
-    else:
-        alignas = try_extract_constant(alignas)
-    # Validate alignment (raises ValueError for invalid values)
-    _validate_alignment(alignas)
-    if alignas is None:
-        alignas = 8  # default alignment when None
-    shape_op: tuple[ir.Value | int, ...] | ir.Value | int = lower.load_var(shape)
+@lower(cuda.shared.array, types.Number, api="values")
+@lower(cuda.shared.array, types.Number, types.DTypeSpec, api="values")
+@lower(cuda.shared.array, types.Number, types.StringLiteral, api="values")
+@lower(cuda.shared.array, types.Number, types.DTypeSpec, types.Number, api="values")
+@lower(cuda.shared.array, types.Number, types.StringLiteral, types.Number, api="values")
+@lower(cuda.shared.array, types.Number, types.DTypeSpec, types.IntegerLiteral, api="values")
+@lower(cuda.shared.array, types.Number, types.StringLiteral, types.IntegerLiteral, api="values")
+@lower(cuda.shared.array, types.Number, types.DTypeSpec, types.NoneType, api="values")
+@lower(cuda.shared.array, types.Number, types.StringLiteral, types.NoneType, api="values")
+@lower(cuda.shared.array, types.UniTuple, api="values")
+@lower(cuda.shared.array, types.UniTuple, types.DTypeSpec, api="values")
+@lower(cuda.shared.array, types.UniTuple, types.StringLiteral, api="values")
+@lower(cuda.shared.array, types.UniTuple, types.DTypeSpec, types.Number, api="values")
+@lower(cuda.shared.array, types.UniTuple, types.StringLiteral, types.Number, api="values")
+@lower(cuda.shared.array, types.UniTuple, types.DTypeSpec, types.IntegerLiteral, api="values")
+@lower(cuda.shared.array, types.UniTuple, types.StringLiteral, types.IntegerLiteral, api="values")
+@lower(cuda.shared.array, types.UniTuple, types.DTypeSpec, types.NoneType, api="values")
+@lower(cuda.shared.array, types.UniTuple, types.StringLiteral, types.NoneType, api="values")
+@lower(cuda.shared.array, types.Tuple, api="values")
+@lower(cuda.shared.array, types.Tuple, types.DTypeSpec, api="values")
+@lower(cuda.shared.array, types.Tuple, types.StringLiteral, api="values")
+@lower(cuda.shared.array, types.Tuple, types.DTypeSpec, types.Number, api="values")
+@lower(cuda.shared.array, types.Tuple, types.StringLiteral, types.Number, api="values")
+@lower(cuda.shared.array, types.Tuple, types.DTypeSpec, types.IntegerLiteral, api="values")
+@lower(cuda.shared.array, types.Tuple, types.StringLiteral, types.IntegerLiteral, api="values")
+@lower(cuda.shared.array, types.Tuple, types.DTypeSpec, types.NoneType, api="values")
+@lower(cuda.shared.array, types.Tuple, types.StringLiteral, types.NoneType, api="values")
+@lower(cuda.shared.array, types.Any, types.Any, types.Any, types.Any, api="values")
+def cuda_shared_memory(lower: MLIRLower, signature, args: list[Any]):
+    shape_op = args[0]
+    alignas = _array_alignment(signature)
 
     # Wrap single values (int or ir.Value) in a tuple for 1D arrays
     if isinstance(shape_op, (ir.Value, int)):
@@ -455,14 +430,14 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
 
     is_dynamic_shared_shape = len(static_shape) == 1 and static_shape[0] == 0
     if all([x is not None for x in static_shape]) and not is_dynamic_shared_shape:
-        return cuda_static_shared_memory(lower, target, static_shape, dtype, alignas)
+        return cuda_static_shared_memory(lower, signature, static_shape, alignas)
 
     shape = coerce_to_shape_tuple(shape_op)
 
     from numba_cuda_mlir.array_storage import ArrayStorageLayout
     from numba_cuda_mlir.lowering_utilities import byte_array_view
 
-    target_type = lower.get_numba_type(target.name)
+    target_type = signature.return_type
     layout = ArrayStorageLayout(target_type)
     mspace = lower._get_shared_address_space()
     if layout.byte_addressed:
@@ -491,47 +466,34 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
         )
     if alignas != 8:
         array = memref.assume_alignment(array, alignas)
-    lower.store_var(target, array)
+    return array
 
 
-@lower(cuda.local_array, types.Tuple, types.DTypeSpec, types.Number)
-@lower(cuda.local_array, types.Number, types.DTypeSpec, types.Number)
-@lower(cuda.local_array, types.Tuple, types.DTypeSpec)
-@lower(cuda.local_array, types.Number, types.DTypeSpec)
-@lower(cuda.local_array, types.Tuple, types.StringLiteral)
-@lower(cuda.local_array, types.Number, types.StringLiteral)
-@lower(cuda.local_array, types.Tuple, types.DTypeSpec, types.NoneType)
-@lower(cuda.local_array, types.Number, types.DTypeSpec, types.NoneType)
-@lower(cuda.local_array, types.Tuple, types.StringLiteral, types.NoneType)
-@lower(cuda.local_array, types.Number, types.StringLiteral, types.NoneType)
-@lower(cuda.local_array, types.UniTuple, types.DTypeSpec)
-@lower(cuda.local_array, types.UniTuple, types.StringLiteral)
-@lower(cuda.local_array, types.UniTuple, types.DTypeSpec, types.Number)
-@lower(cuda.local_array, types.UniTuple, types.DTypeSpec, types.NoneType)
-@lower(cuda.local_array, types.UniTuple, types.StringLiteral, types.NoneType)
-@lower(cuda.local_array, types.Tuple, types.DTypeSpec, types.IntegerLiteral)
-@lower(cuda.local_array, types.Number, types.DTypeSpec, types.IntegerLiteral)
-@lower(cuda.local_array, types.Tuple, types.StringLiteral, types.IntegerLiteral)
-@lower(cuda.local_array, types.Number, types.StringLiteral, types.IntegerLiteral)
-@lower(cuda.local_array, types.UniTuple, types.DTypeSpec, types.IntegerLiteral)
-@lower(cuda.local_array, types.UniTuple, types.StringLiteral, types.IntegerLiteral)
-def cuda_local_array(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
-    shape, dtype, alignas = _extract_shape_and_dtype(*args, **dict(kwargs))
-    shape_op: tuple[ir.Value | int, ...] | ir.Value | int = lower.load_var(shape)
-    if isinstance(alignas, numba_ir.Var):
-        # Check if the variable has NoneType - if so, use default alignment
-        alignas_type = lower.get_numba_type(alignas.name)
-        if isinstance(alignas_type, types.NoneType):
-            alignas = None  # will be set to default after validation
-        else:
-            alignas = lower.load_var(alignas)
-            alignas = try_extract_constant(alignas)
-    else:
-        alignas = try_extract_constant(alignas)
-    # Validate alignment (raises ValueError for invalid values)
-    _validate_alignment(alignas)
-    if alignas is None:
-        alignas = 8  # default alignment
+@lower(cuda.local_array, types.Tuple, types.DTypeSpec, types.Number, api="values")
+@lower(cuda.local_array, types.Number, types.DTypeSpec, types.Number, api="values")
+@lower(cuda.local_array, types.Tuple, types.DTypeSpec, api="values")
+@lower(cuda.local_array, types.Number, types.DTypeSpec, api="values")
+@lower(cuda.local_array, types.Tuple, types.StringLiteral, api="values")
+@lower(cuda.local_array, types.Number, types.StringLiteral, api="values")
+@lower(cuda.local_array, types.Tuple, types.DTypeSpec, types.NoneType, api="values")
+@lower(cuda.local_array, types.Number, types.DTypeSpec, types.NoneType, api="values")
+@lower(cuda.local_array, types.Tuple, types.StringLiteral, types.NoneType, api="values")
+@lower(cuda.local_array, types.Number, types.StringLiteral, types.NoneType, api="values")
+@lower(cuda.local_array, types.UniTuple, types.DTypeSpec, api="values")
+@lower(cuda.local_array, types.UniTuple, types.StringLiteral, api="values")
+@lower(cuda.local_array, types.UniTuple, types.DTypeSpec, types.Number, api="values")
+@lower(cuda.local_array, types.UniTuple, types.DTypeSpec, types.NoneType, api="values")
+@lower(cuda.local_array, types.UniTuple, types.StringLiteral, types.NoneType, api="values")
+@lower(cuda.local_array, types.Tuple, types.DTypeSpec, types.IntegerLiteral, api="values")
+@lower(cuda.local_array, types.Number, types.DTypeSpec, types.IntegerLiteral, api="values")
+@lower(cuda.local_array, types.Tuple, types.StringLiteral, types.IntegerLiteral, api="values")
+@lower(cuda.local_array, types.Number, types.StringLiteral, types.IntegerLiteral, api="values")
+@lower(cuda.local_array, types.UniTuple, types.DTypeSpec, types.IntegerLiteral, api="values")
+@lower(cuda.local_array, types.UniTuple, types.StringLiteral, types.IntegerLiteral, api="values")
+@lower(cuda.local_array, types.Any, types.Any, types.Any, types.Any, api="values")
+def cuda_local_array(lower: MLIRLower, signature, args: list[Any]):
+    shape_op = args[0]
+    alignas = _array_alignment(signature)
 
     # Wrap single values (int or ir.Value) in a tuple for 1D arrays
     if isinstance(shape_op, (ir.Value, int)):
@@ -550,14 +512,13 @@ def cuda_local_array(lower: MLIRLower, target, args: list[Any], kwargs: list[tup
     from numba_cuda_mlir.array_storage import ArrayStorageLayout
     from numba_cuda_mlir.lowering_utilities import array_alloca
 
-    target_type = lower.get_numba_type(target.name)
+    target_type = signature.return_type
     if ArrayStorageLayout(target_type).byte_addressed:
         shape = coerce_to_shape_tuple(shape_op)
         array = array_alloca(target_type, list(shape), alignment=alignas)
-        lower.store_var(target, array)
-        return
+        return array
 
-    np_dtype = _resolve_numba_dtype(lower, dtype)
+    np_dtype = signature.return_type.dtype
     mlir_dtype = lower.get_storage_type(np_dtype)
 
     if static_shape is not None:
@@ -594,16 +555,16 @@ def cuda_local_array(lower: MLIRLower, target, args: list[Any], kwargs: list[tup
                     dynamic_sizes=shape,
                     symbol_operands=[],
                 )
-    lower.store_var(target, mr)
+    return mr
 
 
-@lower(cuda.const.array_like, types.Array)
-def cuda_const_array_like(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
+@lower(cuda.const.array_like, types.Array, api="values")
+def cuda_const_array_like(lower: MLIRLower, signature, args: list[Any]):
     # const.array_like is essentially a no-op at lowering time - the array
     # already exists and will be passed as a kernel argument. The constant
     # memory placement is handled by the CUDA driver when the data is copied.
     arr = args[0]
-    lower.store_var(target, lower.load_var(arr))
+    return arr
 
 
 @lower_getattr(types.Array, "dtype")
@@ -765,17 +726,16 @@ def _compute_global_tid(dimension, to_type: ir.Type):
     return res
 
 
-@lower(cuda.grid, types.Number)
+@lower(cuda.grid, types.Number, api="values")
 def lower_cuda_grid(
     lower: MLIRLower,
-    target: numba_ir.Var,
+    signature,
     args: list[Any],
-    kwargs: list[tuple[str, Any]],
 ):
-    target_type = lower.get_numba_type(target.name)
+    target_type = signature.return_type
 
     # Check if dimension value is constant
-    arg_type = lower.get_numba_type(args[0].name)
+    arg_type = signature.args[0]
     if not isinstance(arg_type, (types.IntegerLiteral, types.Literal)):
         # Runtime dimension value - not typically used, but we could support it
         raise NotImplementedError("cuda.grid() with runtime dimension value is not supported")
@@ -786,28 +746,27 @@ def lower_cuda_grid(
         # Return single value for grid(1)
         result_type = lower.get_mlir_type(target_type)
         result = _compute_global_tid(gpu.Dimension.x, result_type)
-        lower.store_var(target, result)
+        return result
     elif dim_literal == 2:
         element_type = lower.get_mlir_type(target_type.dtype)
         result_x = _compute_global_tid(gpu.Dimension.x, element_type)
         result_y = _compute_global_tid(gpu.Dimension.y, element_type)
-        lower.store_var(target, (result_x, result_y))
+        return (result_x, result_y)
     elif dim_literal == 3:
         element_type = lower.get_mlir_type(target_type.dtype)
         result_x = _compute_global_tid(gpu.Dimension.x, element_type)
         result_y = _compute_global_tid(gpu.Dimension.y, element_type)
         result_z = _compute_global_tid(gpu.Dimension.z, element_type)
-        lower.store_var(target, (result_x, result_y, result_z))
+        return (result_x, result_y, result_z)
     else:
         raise ValueError(f"cuda.grid() only supports dimensions 1, 2, or 3, got {dim_literal}")
 
 
-@lower(cuda.gridsize, types.Number)
+@lower(cuda.gridsize, types.Number, api="values")
 def lower_cuda_gridsize(
     lower: MLIRLower,
-    target: numba_ir.Var,
+    signature,
     args: list[Any],
-    kwargs: list[tuple[str, Any]],
 ):
     assert len(args) == 1, "cuda.gridsize expects one positional argument"
 
@@ -820,30 +779,30 @@ def lower_cuda_gridsize(
         return convert(res, to_type)
 
     # Check if dimension value is constant
-    arg_type = lower.get_numba_type(args[0].name)
+    arg_type = signature.args[0]
     if not isinstance(arg_type, (types.IntegerLiteral, types.Literal)):
         # Runtime dimension value - not typically used, but we could support it
         raise NotImplementedError("cuda.gridsize() with runtime dimension value is not supported")
 
-    target_type = lower.get_numba_type(target.name)
+    target_type = signature.return_type
 
     # Constant dimension - compile-time branch
     dim_literal = arg_type.literal_value
     if dim_literal == 1:
         mlir_type = lower.get_mlir_type(target_type)
         result = _compute_gridsize(gpu.Dimension.x, mlir_type)
-        lower.store_var(target, result)
+        return result
     elif dim_literal == 2:
         element_type = lower.get_mlir_type(target_type.dtype)
         result_x = _compute_gridsize(gpu.Dimension.x, element_type)
         result_y = _compute_gridsize(gpu.Dimension.y, element_type)
-        lower.store_var(target, (result_x, result_y))
+        return (result_x, result_y)
     elif dim_literal == 3:
         element_type = lower.get_mlir_type(target_type.dtype)
         result_x = _compute_gridsize(gpu.Dimension.x, element_type)
         result_y = _compute_gridsize(gpu.Dimension.y, element_type)
         result_z = _compute_gridsize(gpu.Dimension.z, element_type)
-        lower.store_var(target, (result_x, result_y, result_z))
+        return (result_x, result_y, result_z)
     else:
         raise ValueError(f"cuda.gridsize() only supports dimensions 1, 2, or 3, got {dim_literal}")
 
@@ -861,8 +820,8 @@ def _tuple_size_from_dimension(dim: types.Type):
 
 
 def get_syncthreads_variant(reduction_op: nvvm.BarrierReduction):
-    def cg_syncthreads_variant(builder, target, args, kwargs):
-        pred = builder.load_var(args[0]) if len(args) else None
+    def cg_syncthreads_variant(builder, signature, args):
+        pred = args[0] if len(args) else None
         pred = convert(pred, T.i32())
         res = nvvm.barrier(
             barrier_id=None,
@@ -870,26 +829,26 @@ def get_syncthreads_variant(reduction_op: nvvm.BarrierReduction):
             reduction_op=reduction_op,
             reduction_predicate=pred,
         )
-        builder.store_var(target, res)
+        return res
 
     return cg_syncthreads_variant
 
 
-@lower(numba_cuda_mlir.cuda.syncwarp)
-@lower(numba_cuda_mlir.cuda.syncwarp, types.Number)
-def cuda_syncwarp_cg(builder, target, args, kwargs):
+@lower(numba_cuda_mlir.cuda.syncwarp, api="values")
+@lower(numba_cuda_mlir.cuda.syncwarp, types.Number, api="values")
+def cuda_syncwarp_cg(builder, signature, args):
     mask = 0xFFFFFFFF
     if args:
-        mask = builder.load_var(args[0])
+        mask = args[0]
     mask = int_of(mask, T.i32())
     res = nvvm.bar_warp_sync(mask)
-    builder.store_var(target, res)
+    return res
 
 
-def _shfl_sync_lowering(builder: MLIRLower, target, args, kwargs, shfl_kind):
-    mask = builder.load_var(args[0])
-    value = builder.load_var(args[1])
-    offset = builder.load_var(args[2])
+def _shfl_sync_lowering(builder: MLIRLower, signature, args, shfl_kind):
+    mask = args[0]
+    value = args[1]
+    offset = args[2]
 
     # nvvm.shfl.sync only supports i32 or f32
     mask = int_of(mask, T.i32())
@@ -913,28 +872,28 @@ def _shfl_sync_lowering(builder: MLIRLower, target, args, kwargs, shfl_kind):
         value = f32_of(value) if is_float else i32_of(value)
         result = nvvm.shfl_sync(mask, value, offset, mask_and_clamp, shfl_kind)
 
-    builder.store_var(target, result)
+    return result
 
 
 def register_shfl_sync_lowerings():
     from numba_cuda_mlir import cuda
 
     def make_shfl_lowering(shfl_kind):
-        def lowering(builder, target, args, kwargs):
-            _shfl_sync_lowering(builder, target, args, kwargs, shfl_kind)
+        def lowering(builder, signature, args):
+            return _shfl_sync_lowering(builder, signature, args, shfl_kind)
 
         return lowering
 
-    lower(cuda.shfl_sync, types.Integer, types.Number, types.Integer)(
+    lower(cuda.shfl_sync, types.Integer, types.Number, types.Integer, api="values")(
         make_shfl_lowering(nvvm.ShflKind.idx)
     )
-    lower(cuda.shfl_up_sync, types.Integer, types.Number, types.Integer)(
+    lower(cuda.shfl_up_sync, types.Integer, types.Number, types.Integer, api="values")(
         make_shfl_lowering(nvvm.ShflKind.up)
     )
-    lower(cuda.shfl_down_sync, types.Integer, types.Number, types.Integer)(
+    lower(cuda.shfl_down_sync, types.Integer, types.Number, types.Integer, api="values")(
         make_shfl_lowering(nvvm.ShflKind.down)
     )
-    lower(cuda.shfl_xor_sync, types.Integer, types.Number, types.Integer)(
+    lower(cuda.shfl_xor_sync, types.Integer, types.Number, types.Integer, api="values")(
         make_shfl_lowering(nvvm.ShflKind.bfly)
     )
 
@@ -951,7 +910,7 @@ def register_syncthreads_variants():
         (cuda.syncthreads_or, nvvm.BarrierReduction.OR),
         (cuda.syncthreads_count, nvvm.BarrierReduction.POPC),
     ]:
-        lower(intrin, types.Integer)(get_syncthreads_variant(reduction_op))
+        lower(intrin, types.Integer, api="values")(get_syncthreads_variant(reduction_op))
 
 
 register_syncthreads_variants()
@@ -962,10 +921,9 @@ def register_vote_sync_lowerings():
     from numba_cuda_mlir._mlir.dialects import nvvm, arith
     from numba_cuda_mlir._mlir.ir import IntegerType
 
-    def _prepare_vote_sync_args(builder: MLIRLower, args):
+    def _prepare_vote_sync_args(builder: MLIRLower, signature, args):
         """Prepare mask and predicate for vote_sync operations."""
-        mask = builder.load_var(args[0])
-        pred = builder.load_var(args[1])
+        mask, pred = args
 
         i32_type = IntegerType.get_signless(32)
 
@@ -974,7 +932,7 @@ def register_vote_sync_lowerings():
             mask = arith.trunci(i32_type, mask)
 
         # Convert predicate to i1 if needed
-        pred_type = builder.get_numba_type(args[1])
+        pred_type = signature.args[1]
         if not isinstance(pred_type, types.Boolean):
             zero = arith.constant(result=pred.type, value=0)
             pred = arith.cmpi(arith.CmpIPredicate.ne, pred, zero)
@@ -984,18 +942,18 @@ def register_vote_sync_lowerings():
     def make_vote_sync_predicate_lowering(vote_kind):
         """For any_sync, all_sync, eq_sync - returns i1 predicate."""
 
-        def lowering(builder: MLIRLower, target, args, kwargs):
-            mask, pred = _prepare_vote_sync_args(builder, args)
+        def lowering(builder: MLIRLower, signature, args):
+            mask, pred = _prepare_vote_sync_args(builder, signature, args)
             result = nvvm.vote_sync(mask, pred, vote_kind)
-            builder.store_var(target, result)
+            return result
 
         return lowering
 
-    def ballot_sync_lowering(builder: MLIRLower, target, args, kwargs):
+    def ballot_sync_lowering(builder: MLIRLower, signature, args):
         """For ballot_sync - returns i32 ballot mask."""
-        mask, pred = _prepare_vote_sync_args(builder, args)
+        mask, pred = _prepare_vote_sync_args(builder, signature, args)
         result = nvvm.vote_sync(mask, pred, nvvm.VoteSyncKind.ballot)
-        builder.store_var(target, result)
+        return result
 
     # Register vote_sync variants
     for intrin, kind in [
@@ -1003,9 +961,11 @@ def register_vote_sync_lowerings():
         (cuda.any_sync, nvvm.VoteSyncKind.any),
         (cuda.eq_sync, nvvm.VoteSyncKind.uni),
     ]:
-        lower(intrin, types.Integer, types.Any)(make_vote_sync_predicate_lowering(kind))
+        lower(intrin, types.Integer, types.Any, api="values")(
+            make_vote_sync_predicate_lowering(kind)
+        )
 
-    lower(cuda.ballot_sync, types.Integer, types.Any)(ballot_sync_lowering)
+    lower(cuda.ballot_sync, types.Integer, types.Any, api="values")(ballot_sync_lowering)
 
 
 register_vote_sync_lowerings()
@@ -1016,9 +976,9 @@ def register_match_sync_lowerings():
     from numba_cuda_mlir._mlir.dialects import nvvm, arith
     from numba_cuda_mlir._mlir.ir import IntegerType
 
-    def match_any_sync_lowering(builder: MLIRLower, target, args, kwargs):
-        mask = builder.load_var(args[0])
-        value = builder.load_var(args[1])
+    def match_any_sync_lowering(builder: MLIRLower, signature, args):
+        mask = args[0]
+        value = args[1]
 
         i32_type = IntegerType.get_signless(32)
 
@@ -1028,11 +988,11 @@ def register_match_sync_lowerings():
 
         # match_any_sync returns i32 directly (the matching mask)
         result = nvvm.match_sync(mask, value, nvvm.MatchSyncKind.any)
-        builder.store_var(target, result)
+        return result
 
-    def match_all_sync_lowering(builder: MLIRLower, target, args, kwargs):
-        mask = builder.load_var(args[0])
-        value = builder.load_var(args[1])
+    def match_all_sync_lowering(builder: MLIRLower, signature, args):
+        mask = args[0]
+        value = args[1]
 
         i32_type = IntegerType.get_signless(32)
         i1_type = IntegerType.get_signless(1)
@@ -1049,11 +1009,11 @@ def register_match_sync_lowerings():
         pred = llvm.extractvalue(i1_type, result, [1])
 
         # Return as Python tuple of MLIR values (numba_cuda_mlir stores tuples this way)
-        builder.store_var(target, (match_mask, pred))
+        return (match_mask, pred)
 
     for val_type in [types.Integer, types.Float]:
-        lower(cuda.match_any_sync, types.Integer, val_type)(match_any_sync_lowering)
-        lower(cuda.match_all_sync, types.Integer, val_type)(match_all_sync_lowering)
+        lower(cuda.match_any_sync, types.Integer, val_type, api="values")(match_any_sync_lowering)
+        lower(cuda.match_all_sync, types.Integer, val_type, api="values")(match_all_sync_lowering)
 
 
 register_match_sync_lowerings()
@@ -1064,8 +1024,8 @@ def register_activemask_lowering():
     from numba_cuda_mlir._mlir.dialects import llvm as llvm_dialect
     from numba_cuda_mlir._mlir.ir import IntegerType
 
-    @lower(cuda.activemask)
-    def activemask_lowering(builder: MLIRLower, target, args, kwargs):
+    @lower(cuda.activemask, api="values")
+    def activemask_lowering(builder: MLIRLower, signature, args):
         # Use inline asm to call activemask.b32
         # The asm returns the active thread mask
         asm_str = "activemask.b32 $0;"
@@ -1073,7 +1033,7 @@ def register_activemask_lowering():
 
         i32_type = IntegerType.get_signless(32)
         result = llvm_dialect.inline_asm(i32_type, [], asm_str, constraints, has_side_effects=True)
-        builder.store_var(target, result)
+        return result
 
 
 register_activemask_lowering()
@@ -1089,24 +1049,33 @@ def _get_string_value(value: ir.StringAttr | str) -> str:
             raise ValueError(f"Expected string-like value, got: {value} of type {type(value)}")
 
 
-@lower(numba_cuda_mlir.cuda.inline_ptx, types.VarArg(types.Any))
-def _cg_inline_ptx(builder, target, args, kwargs):
-    def _resolve_string_arg(var):
-        """Get the Python string from a StringLiteral-typed variable."""
-        ty = builder.get_numba_type(var.name)
+@lower(numba_cuda_mlir.cuda.inline_ptx, types.VarArg(types.Any), api="values")
+def _cg_inline_ptx(builder, signature, args):
+    operand_values, operand_types = [], []
+    for value, arg_type in zip(args, signature.args):
+        if isinstance(arg_type, (StarArgTuple, StarArgUniTuple)):
+            operand_values.extend(value)
+            operand_types.extend(arg_type.types)
+        else:
+            operand_values.append(value)
+            operand_types.append(arg_type)
+    args = operand_values
+
+    def _resolve_string_arg(index):
+        ty = operand_types[index]
         if isinstance(ty, types.StringLiteral):
             return ty.literal_value
-        return _get_string_value(builder.load_var(var))
+        return _get_string_value(args[index])
 
-    ptx_str = _resolve_string_arg(args[0])
+    ptx_str = _resolve_string_arg(0)
 
     read_only_types, write_only_types, read_write_types = [], [], []
     if len(args) > 1:
         pairs = list(batched(args[1:], 2))
         format_replacements = []
-        for i, (constraint_var, arg_var) in enumerate(pairs):
-            constraint = _resolve_string_arg(constraint_var)
-            arg = builder.load_var(arg_var)
+        for i, (_constraint_var, arg_var) in enumerate(pairs):
+            constraint = _resolve_string_arg(1 + 2 * i)
+            arg = arg_var
             if len(constraint) not in (1, 2):
                 raise ValueError(f"Invalid inline ptx access constraint: {constraint}")
             mlir_type = inline_ptx_type_constraint_to_mlir_type(constraint[-1])
@@ -1132,11 +1101,11 @@ def _cg_inline_ptx(builder, target, args, kwargs):
     )
     match results:
         case ir.OpResultList() as orl:
-            builder.store_var(target, tuple(orl))
+            return tuple(orl)
         case ir.OpResult() | ir.Value():
-            builder.store_var(target, results)
+            return results
         case _:
-            builder.store_var(target, None)
+            return None
 
 
 def inline_ptx_intrinsic(typingctx, ptx_code, *args, **kwargs):
@@ -1173,7 +1142,7 @@ def inline_ptx_intrinsic(typingctx, ptx_code, *args, **kwargs):
             return types.Tuple(result_types)(ptx_code, *args), _cg_inline_ptx
 
 
-def atomic_binop_for_operator(oper, element_type: ir.Type):
+def atomic_binop_for_operator(oper, element_type: ir.Type, signed):
     match oper:
         case cuda.atomic.add | cuda.atomic.sub:
             match element_type:
@@ -1196,25 +1165,25 @@ def atomic_binop_for_operator(oper, element_type: ir.Type):
         case cuda.atomic.min:
             match element_type:
                 case ir.IntegerType():
-                    return llvm.AtomicBinOp.min
+                    return llvm.AtomicBinOp.min if signed else llvm.AtomicBinOp.umin
                 case ir.FloatType():
                     return llvm.AtomicBinOp.fminimum
         case cuda.atomic.max:
             match element_type:
                 case ir.IntegerType():
-                    return llvm.AtomicBinOp.max
+                    return llvm.AtomicBinOp.max if signed else llvm.AtomicBinOp.umax
                 case ir.FloatType():
                     return llvm.AtomicBinOp.fmaximum
         case cuda.atomic.nanmin:
             match element_type:
                 case ir.IntegerType():
-                    return llvm.AtomicBinOp.min
+                    return llvm.AtomicBinOp.min if signed else llvm.AtomicBinOp.umin
                 case ir.FloatType():
                     return llvm.AtomicBinOp.fmin
         case cuda.atomic.nanmax:
             match element_type:
                 case ir.IntegerType():
-                    return llvm.AtomicBinOp.max
+                    return llvm.AtomicBinOp.max if signed else llvm.AtomicBinOp.umax
                 case ir.FloatType():
                     return llvm.AtomicBinOp.fmax
     raise NotImplementedError(f"AtomicRMW {oper=} not implemented for {element_type}")
@@ -1251,14 +1220,14 @@ def cuda_atomic_dec_body_builder(value_at_index, argument_value):
     return result
 
 
-def _require_aligned_array(builder, array_var):
-    if not builder.get_numba_type(array_var.name).aligned:
+def _require_aligned_array(array_type):
+    if not array_type.aligned:
         from numba_cuda_mlir.numba_cuda.core.errors import TypingError
 
         raise TypingError("Atomic operations require an aligned array")
 
 
-def cuda_generic_atomic_cg(builder, target, mr, indices, value, body_builder):
+def cuda_generic_atomic_cg(builder, mr, indices, value, body_builder):
     value_type = mr.type.element_type
     value = convert(value, value_type)
     indices = list(map(index_of, indices))
@@ -1267,34 +1236,35 @@ def cuda_generic_atomic_cg(builder, target, mr, indices, value, body_builder):
     def rmw(value_at_index: value_type):
         return body_builder(value_at_index, value)
 
-    builder.store_var(target, ir.Value(rmw))
+    return ir.Value(rmw)
 
 
-def cuda_atomic_cg(oper, builder, target, mr, indices, value):
+def cuda_atomic_cg(oper, builder, signature, mr, indices, value):
     value_type = mr.type.element_type
-    binop = atomic_binop_for_operator(oper, value_type)
-    value = convert(value, value_type)
+    signed = getattr(signature.args[0].dtype, "signed", None)
+    binop = atomic_binop_for_operator(oper, value_type, signed)
+    value = convert(value, value_type, signed=getattr(signature.args[2], "signed", None))
     if oper == cuda.atomic.sub:
         value = 0 - value
     indices = list(map(index_of, indices))
     ptr = memref_to_llvm_ptr(mr, indices)
     result = llvm.atomicrmw(binop, ptr, value, llvm.AtomicOrdering.monotonic)
-    builder.store_var(target, result)
+    return result
 
 
 def _register_cuda_atomic_lowerings(intrin):
-    @lower(intrin, types.Array, types.Number, types.Number)
-    def _atomic_1d(builder, target, args, kwargs, intrin=intrin):
-        _require_aligned_array(builder, args[0])
-        mr, index, value = builder.load_vars(args)
-        cuda_atomic_cg(intrin, builder, target, mr, [index], value)
+    @lower(intrin, types.Array, types.Number, types.Number, api="values")
+    def _atomic_1d(builder, signature, args):
+        _require_aligned_array(signature.args[0])
+        mr, index, value = args
+        return cuda_atomic_cg(intrin, builder, signature, mr, [index], value)
 
-    @lower(intrin, types.Array, types.UniTuple, types.Number)
-    @lower(intrin, types.Array, types.Tuple, types.Number)
-    def _atomic_nd(builder, target, args, kwargs, intrin=intrin):
-        _require_aligned_array(builder, args[0])
-        mr, indices, value = builder.load_vars(args)
-        cuda_atomic_cg(intrin, builder, target, mr, tuple(indices), value)
+    @lower(intrin, types.Array, types.UniTuple, types.Number, api="values")
+    @lower(intrin, types.Array, types.Tuple, types.Number, api="values")
+    def _atomic_nd(builder, signature, args):
+        _require_aligned_array(signature.args[0])
+        mr, indices, value = args
+        return cuda_atomic_cg(intrin, builder, signature, mr, tuple(indices), value)
 
 
 for intrin in (
@@ -1311,7 +1281,7 @@ for intrin in (
     _register_cuda_atomic_lowerings(intrin)
 
 
-def cuda_atomic_exch_cg(builder, target, mr, indices, value_to_store):
+def cuda_atomic_exch_cg(builder, mr, indices, value_to_store):
     """
     Conditionally assign val to the element idx of an array ary if the
     current value of ary[idx] matches old.
@@ -1321,25 +1291,25 @@ def cuda_atomic_exch_cg(builder, target, mr, indices, value_to_store):
     indices = list(map(index_of, indices))
     ptr = memref_to_llvm_ptr(mr, indices)
     rmw = llvm.atomicrmw(llvm.AtomicBinOp.xchg, ptr, value_to_store, llvm.AtomicOrdering.monotonic)
-    builder.store_var(target, rmw)
+    return rmw
 
 
-@lower(cuda.atomic.exch, types.Array, types.Number, types.Number)
-def exch1d(builder, target, args, kwargs):
-    _require_aligned_array(builder, args[0])
-    mr, index, value = builder.load_vars(args)
-    cuda_atomic_exch_cg(builder, target, mr, [index], value)
+@lower(cuda.atomic.exch, types.Array, types.Number, types.Number, api="values")
+def exch1d(builder, signature, args):
+    _require_aligned_array(signature.args[0])
+    mr, index, value = args
+    return cuda_atomic_exch_cg(builder, mr, [index], value)
 
 
-@lower(cuda.atomic.exch, types.Array, types.UniTuple, types.Number)
-@lower(cuda.atomic.exch, types.Array, types.Tuple, types.Number)
-def exchnd(builder, target, args, kwargs):
-    _require_aligned_array(builder, args[0])
-    mr, indices, value = builder.load_vars(args)
-    cuda_atomic_exch_cg(builder, target, mr, tuple(indices), value)
+@lower(cuda.atomic.exch, types.Array, types.UniTuple, types.Number, api="values")
+@lower(cuda.atomic.exch, types.Array, types.Tuple, types.Number, api="values")
+def exchnd(builder, signature, args):
+    _require_aligned_array(signature.args[0])
+    mr, indices, value = args
+    return cuda_atomic_exch_cg(builder, mr, tuple(indices), value)
 
 
-def cuda_atomic_cas_cg(builder, target, mr, indices, old, value):
+def cuda_atomic_cas_cg(builder, mr, indices, old, value):
     """
     Perform if array[idx] == old: array[idx] = value.
     """
@@ -1355,47 +1325,46 @@ def cuda_atomic_cas_cg(builder, target, mr, indices, old, value):
             value_at_index,
         )
 
-    builder.store_var(target, cas)
+    return cas
 
 
-@lower(cuda.atomic.cas, types.Array, types.Number, types.Number, types.Number)
-def cas1d(builder, target, args, kwargs):
-    _require_aligned_array(builder, args[0])
-    mr, index, old, value = builder.load_vars(args)
-    cuda_atomic_cas_cg(builder, target, mr, [index], old, value)
+@lower(cuda.atomic.cas, types.Array, types.Number, types.Number, types.Number, api="values")
+def cas1d(builder, signature, args):
+    _require_aligned_array(signature.args[0])
+    mr, index, old, value = args
+    return cuda_atomic_cas_cg(builder, mr, [index], old, value)
 
 
-@lower(cuda.atomic.cas, types.Array, types.UniTuple, types.Number, types.Number)
-@lower(cuda.atomic.cas, types.Array, types.Tuple, types.Number, types.Number)
-def casnd(builder, target, args, kwargs):
-    _require_aligned_array(builder, args[0])
-    mr, indices, old, value = builder.load_vars(args)
-    cuda_atomic_cas_cg(builder, target, mr, tuple(indices), old, value)
+@lower(cuda.atomic.cas, types.Array, types.UniTuple, types.Number, types.Number, api="values")
+@lower(cuda.atomic.cas, types.Array, types.Tuple, types.Number, types.Number, api="values")
+def casnd(builder, signature, args):
+    _require_aligned_array(signature.args[0])
+    mr, indices, old, value = args
+    return cuda_atomic_cas_cg(builder, mr, tuple(indices), old, value)
 
 
-@lower(cuda.atomic.compare_and_swap, types.Array, types.Number, types.Number)
-def compare_and_swapnd(builder, target, args, kwargs):
-    _require_aligned_array(builder, args[0])
-    mr, value, compare_value = builder.load_vars(args)
+@lower(cuda.atomic.compare_and_swap, types.Array, types.Number, types.Number, api="values")
+def compare_and_swapnd(builder, signature, args):
+    _require_aligned_array(signature.args[0])
+    mr, value, compare_value = args
     indices = (index_of(0) for _ in range(mr.type.rank))
-    cuda_atomic_cas_cg(builder, target, mr, indices, value, compare_value)
+    return cuda_atomic_cas_cg(builder, mr, indices, value, compare_value)
 
 
-@lower(cuda.atomic.inc, types.Array, types.Number, types.Number)
-def inc1d(builder, target, args, kwargs):
-    _require_aligned_array(builder, args[0])
-    mr, index, value = builder.load_vars(args)
-    cuda_generic_atomic_cg(builder, target, mr, [index], value, cuda_atomic_inc_body_builder)
+@lower(cuda.atomic.inc, types.Array, types.Number, types.Number, api="values")
+def inc1d(builder, signature, args):
+    _require_aligned_array(signature.args[0])
+    mr, index, value = args
+    return cuda_generic_atomic_cg(builder, mr, [index], value, cuda_atomic_inc_body_builder)
 
 
-@lower(cuda.atomic.inc, types.Array, types.UniTuple, types.Number)
-@lower(cuda.atomic.inc, types.Array, types.Tuple, types.Number)
-def incnd(builder, target, args, kwargs):
-    _require_aligned_array(builder, args[0])
-    mr, indices, value = builder.load_vars(args)
-    cuda_generic_atomic_cg(
+@lower(cuda.atomic.inc, types.Array, types.UniTuple, types.Number, api="values")
+@lower(cuda.atomic.inc, types.Array, types.Tuple, types.Number, api="values")
+def incnd(builder, signature, args):
+    _require_aligned_array(signature.args[0])
+    mr, indices, value = args
+    return cuda_generic_atomic_cg(
         builder,
-        target,
         mr,
         tuple(indices),
         value,
@@ -1403,21 +1372,20 @@ def incnd(builder, target, args, kwargs):
     )
 
 
-@lower(cuda.atomic.dec, types.Array, types.Number, types.Number)
-def dec1d(builder, target, args, kwargs):
-    _require_aligned_array(builder, args[0])
-    mr, index, value = builder.load_vars(args)
-    cuda_generic_atomic_cg(builder, target, mr, [index], value, cuda_atomic_dec_body_builder)
+@lower(cuda.atomic.dec, types.Array, types.Number, types.Number, api="values")
+def dec1d(builder, signature, args):
+    _require_aligned_array(signature.args[0])
+    mr, index, value = args
+    return cuda_generic_atomic_cg(builder, mr, [index], value, cuda_atomic_dec_body_builder)
 
 
-@lower(cuda.atomic.dec, types.Array, types.UniTuple, types.Number)
-@lower(cuda.atomic.dec, types.Array, types.Tuple, types.Number)
-def decnd(builder, target, args, kwargs):
-    _require_aligned_array(builder, args[0])
-    mr, indices, value = builder.load_vars(args)
-    cuda_generic_atomic_cg(
+@lower(cuda.atomic.dec, types.Array, types.UniTuple, types.Number, api="values")
+@lower(cuda.atomic.dec, types.Array, types.Tuple, types.Number, api="values")
+def decnd(builder, signature, args):
+    _require_aligned_array(signature.args[0])
+    mr, indices, value = args
+    return cuda_generic_atomic_cg(
         builder,
-        target,
         mr,
         tuple(indices),
         value,
@@ -1425,29 +1393,29 @@ def decnd(builder, target, args, kwargs):
     )
 
 
-@lower(cuda.cbrt, types.Number)
-def cbrt(builder, target, args, kwargs):
+@lower(cuda.cbrt, types.Number, api="values")
+def cbrt(builder, signature, args):
     from numba_cuda_mlir._mlir.dialects import math
 
-    value = builder.load_var(args[0])
+    value = args[0]
     res = math.cbrt(value)
-    builder.store_var(target, res)
+    return res
 
 
-@lower(cuda.fma, types.Number, types.Number, types.Number)
-def fma(builder, target, args, kwargs):
+@lower(cuda.fma, types.Number, types.Number, types.Number, api="values")
+def fma(builder, signature, args):
     from numba_cuda_mlir._mlir.dialects import math
 
-    x, y, z = builder.load_vars(args)
+    x, y, z = args
     res = math.fma(x, y, z)
-    builder.store_var(target, res)
+    return res
 
 
-@lower(cuda.ffs, types.Number)
-def ffs(builder: MLIRLower, target, args, kwargs):
+@lower(cuda.ffs, types.Number, api="values")
+def ffs(builder: MLIRLower, signature, args):
     from numba_cuda_mlir.runtime import libdevice
 
-    ty = builder.get_numba_type(args[0])
+    ty = signature.args[0]
     match ty:
         case types.int32:
             fn = libdevice.ffs
@@ -1455,30 +1423,28 @@ def ffs(builder: MLIRLower, target, args, kwargs):
             fn = libdevice.ffsll
         case _:
             raise NotImplementedError(f"Unsupported type for ffs: {ty}")
-    builder.lower_call_external_mlir_library_function(target, fn, args, kwargs)
+    return builder.lower_call_external_mlir_library_function_values(fn, signature, args)
 
 
 def _lower_intrinsic(stub, op, arity):
     args = [types.f16 for _ in range(arity)]
 
-    @lower(stub, *args)
-    def cg(builder, target, args, kwargs):
-        args = builder.load_vars(args)
+    @lower(stub, *args, api="values")
+    def cg(builder, signature, args):
         mlir_type = T.f16()
         args = [convert(arg, mlir_type) for arg in args]
         res = op(*args)
-        builder.store_var(target, res)
+        return res
 
 
 def _lower_fp16_cmp(stub, predicate):
-    @lower(stub, types.f16, types.f16)
-    def cg(builder, target, args, kwargs):
-        args = builder.load_vars(args)
+    @lower(stub, types.f16, types.f16, api="values")
+    def cg(builder, signature, args):
         mlir_type = T.f16()
         lhs = convert(args[0], mlir_type)
         rhs = convert(args[1], mlir_type)
         result = arith.cmpf(predicate, lhs, rhs)
-        builder.store_var(target, result)
+        return result
 
 
 def _lower_fp16_intrinsics():
@@ -1518,22 +1484,22 @@ def _lower_fp16_intrinsics():
 _lower_fp16_intrinsics()
 
 
-@lower(literally, types.Any)
-def literally_cg(builder, target, args, kwargs):
-    value = builder.load_var(args[0])
-    builder.store_var(target, value)
+@lower(literally, types.Any, api="values")
+def literally_cg(builder, signature, args):
+    value = args[0]
+    return value
 
 
-@lower(literal_unroll, types.Any)
-def literal_unroll_cg(builder, target, args, kwargs):
-    value = builder.load_var(args[0])
-    builder.store_var(target, value)
+@lower(literal_unroll, types.Any, api="values")
+def literal_unroll_cg(builder, signature, args):
+    value = args[0]
+    return value
 
 
-@lower(cuda_literal_unroll, types.Any)
-def cuda_literal_unroll_cg(builder, target, args, kwargs):
-    value = builder.load_var(args[0])
-    builder.store_var(target, value)
+@lower(cuda_literal_unroll, types.Any, api="values")
+def cuda_literal_unroll_cg(builder, signature, args):
+    value = args[0]
+    return value
 
 
 # Cache hint constraint map for PTX inline assembly
@@ -1567,13 +1533,13 @@ def _get_element_pointer_for_cache_hint(builder, array, index, array_type):
     return element_ptr, ele_ty, bitwidth, dtype
 
 
-def _cache_hint_load_lowering(operator_name, builder, target, args, kwargs):
+def _cache_hint_load_lowering(operator_name, builder, signature, args):
     """Generic lowering for cache hint load operations."""
     from numba_cuda_mlir._mlir.dialects import llvm as llvm_dialect
 
-    array = builder.load_var(args[0])
-    index = builder.load_var(args[1])
-    array_type = builder.get_numba_type(args[0])
+    array = args[0]
+    index = args[1]
+    array_type = signature.args[0]
 
     element_ptr, ele_ty, bitwidth, dtype = _get_element_pointer_for_cache_hint(
         builder, array, index, array_type
@@ -1586,17 +1552,17 @@ def _cache_hint_load_lowering(operator_name, builder, target, args, kwargs):
     stored = llvm_dialect.inline_asm(
         ele_ty, [element_ptr], ptx_str, constraints, has_side_effects=False
     )
-    builder.store_var(target, builder.from_storage(dtype, stored))
+    return builder.from_storage(dtype, stored)
 
 
-def _cache_hint_store_lowering(operator_name, builder, target, args, kwargs):
+def _cache_hint_store_lowering(operator_name, builder, signature, args):
     """Generic lowering for cache hint store operations."""
     from numba_cuda_mlir._mlir.dialects import llvm as llvm_dialect
 
-    array = builder.load_var(args[0])
-    index = builder.load_var(args[1])
-    value = builder.load_var(args[2])
-    array_type = builder.get_numba_type(args[0])
+    array = args[0]
+    index = args[1]
+    value = args[2]
+    array_type = signature.args[0]
 
     element_ptr, ele_ty, bitwidth, dtype = _get_element_pointer_for_cache_hint(
         builder, array, index, array_type
@@ -1614,33 +1580,27 @@ def _cache_hint_store_lowering(operator_name, builder, target, args, kwargs):
 def register_cache_hint_lowerings():
     """Register lowerings for all cache hint operations."""
 
-    # Load operations
+    def make_lowering(operator_name, helper):
+        def lowering(builder, signature, args):
+            return helper(operator_name, builder, signature, args)
+
+        return lowering
+
     for operator_name in ("ca", "cg", "cs", "lu", "cv"):
         intrin = getattr(cuda, f"ld{operator_name}")
+        lowering = make_lowering(operator_name, _cache_hint_load_lowering)
+        lower(intrin, types.Array, types.Integer, api="values")(lowering)
+        lower(intrin, types.CPointer, types.Integer, api="values")(lowering)
+        lower(intrin, types.Array, types.UniTuple, api="values")(lowering)
+        lower(intrin, types.Array, types.Tuple, api="values")(lowering)
 
-        @lower(intrin, types.Array, types.Integer)
-        @lower(intrin, types.CPointer, types.Integer)
-        def load_1d(builder, target, args, kwargs, op=operator_name):
-            _cache_hint_load_lowering(op, builder, target, args, kwargs)
-
-        @lower(intrin, types.Array, types.UniTuple)
-        @lower(intrin, types.Array, types.Tuple)
-        def load_nd(builder, target, args, kwargs, op=operator_name):
-            _cache_hint_load_lowering(op, builder, target, args, kwargs)
-
-    # Store operations
     for operator_name in ("cg", "cs", "wb", "wt"):
         intrin = getattr(cuda, f"st{operator_name}")
-
-        @lower(intrin, types.Array, types.Integer, types.Number)
-        @lower(intrin, types.CPointer, types.Integer, types.Number)
-        def store_1d(builder, target, args, kwargs, op=operator_name):
-            _cache_hint_store_lowering(op, builder, target, args, kwargs)
-
-        @lower(intrin, types.Array, types.UniTuple, types.Number)
-        @lower(intrin, types.Array, types.Tuple, types.Number)
-        def store_nd(builder, target, args, kwargs, op=operator_name):
-            _cache_hint_store_lowering(op, builder, target, args, kwargs)
+        lowering = make_lowering(operator_name, _cache_hint_store_lowering)
+        lower(intrin, types.Array, types.Integer, types.Number, api="values")(lowering)
+        lower(intrin, types.CPointer, types.Integer, types.Number, api="values")(lowering)
+        lower(intrin, types.Array, types.UniTuple, types.Number, api="values")(lowering)
+        lower(intrin, types.Array, types.Tuple, types.Number, api="values")(lowering)
 
 
 register_cache_hint_lowerings()

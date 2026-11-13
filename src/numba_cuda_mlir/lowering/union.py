@@ -17,28 +17,15 @@ from numba_cuda_mlir.numba_cuda.core import ir as numba_ir
 from numba_cuda_mlir.numba_cuda import types as numba_types
 
 
-def _lower_union_construction_impl(
-    context,  # Unused, kept for compatibility
-    builder: "MLIRLower",
-    target: numba_ir.Var,
-    args: list[numba_ir.Var],
-    kwargs: dict,
-):
+def _lower_union_construction_impl(builder: "MLIRLower", signature, args):
     """
     Lower union construction: MyUnion() creates a zero-initialized union value.
 
     A union is stored as an integer of the appropriate size (matching the largest variant).
     Access to variants is done via bitcasting.
     """
-    trace(
-        "Lowering union construction: target=%s, args=%s, kwargs=%s",
-        target,
-        args,
-        kwargs,
-    )
-
     # Get the union type being constructed
-    target_type = builder.get_numba_type(target.name)
+    target_type = signature.return_type
     trace("Target type: %s, type class: %s", target_type, type(target_type))
 
     # Get the MLIR type for the union storage
@@ -47,19 +34,13 @@ def _lower_union_construction_impl(
     # Create a zero-initialized union value
     zero_union = llvm.mlir_zero(res=mlir_union_type)
 
-    builder.store_var(target, zero_union)
-    trace("Created zero-initialized union of type %s in %s", target_type, target.name)
+    return zero_union
 
 
-@registry.lower(UnionType)
-def lower_cunion_type_call(
-    builder: "MLIRLower",
-    target: numba_ir.Var,
-    args: list[numba_ir.Var],
-    kwargs: dict,
-):
+@registry.lower(UnionType, api="values")
+def lower_cunion_type_call(builder: "MLIRLower", signature, args):
     """Lower union construction when UnionType is called directly."""
-    return _lower_union_construction_impl(None, builder, target, args, kwargs)
+    return _lower_union_construction_impl(builder, signature, args)
 
 
 @registry.lower_getattr_generic(UnionType)

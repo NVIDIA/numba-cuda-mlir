@@ -84,17 +84,17 @@ ufunc_registry = UFuncRegistry("numpy")
 from numba_cuda_mlir.numba_cuda.np.unsafe.ndarray import to_fixed_tuple
 
 
-@lower(to_fixed_tuple, types.Array, types.IntegerLiteral)
-def lower_to_fixed_tuple(builder, target, args, kwargs):
+@lower(to_fixed_tuple, types.Array, types.IntegerLiteral, api="values")
+def lower_to_fixed_tuple(builder, signature, args):
     """
     Convert a 1D array to a fixed-length tuple.
     to_fixed_tuple(array, length) -> UniTuple(array.dtype, length)
     """
     array_var, length_var = args
-    array = builder.load_var(array_var)
-    array_type = builder.get_numba_type(array_var.name)
+    array = array_var
+    array_type = signature.args[0]
 
-    length_type = builder.get_numba_type(length_var)
+    length_type = signature.args[1]
     tuple_size = int(length_type.literal_value)
     elements = []
     for i in range(tuple_size):
@@ -107,14 +107,14 @@ def lower_to_fixed_tuple(builder, target, args, kwargs):
         )
         elements.append(elem)
 
-    builder.store_var(target, tuple(elements))
+    return tuple(elements)
 
 
-@lower(_zero_fill_array_method, types.Array)
-def lower_zero_fill_array_method(builder: MLIRLower, target, args, kwargs):
+@lower(_zero_fill_array_method, types.Array, api="values")
+def lower_zero_fill_array_method(builder: MLIRLower, signature, args):
     array_var = args[0]
-    array = builder.load_var(array_var)
-    array_type = builder.get_numba_type(array_var.name)
+    array = array_var
+    array_type = signature.args[0]
     if array_type.layout in ("C", "F"):
         dst_ptr = lowering_utilities.memref_data_pointer(array)
         nbytes = constant(storage_itemsize_bytes(array_type.dtype), T.i64())
@@ -134,8 +134,7 @@ def lower_zero_fill_array_method(builder: MLIRLower, target, args, kwargs):
             )
 
         lowering_utilities.for_each_array_index(array, clear_element)
-    if target is not None:
-        builder.store_var(target, ir.NoneType.get())
+    return None
 
 
 @lower_getattr(types.Array, "size")
@@ -306,23 +305,23 @@ def lower_numpy_dtype_getattr(
     mlir_lower.store_var(target, dtype_dummy_const)
 
 
-@lower(np.sum, types.Array)
-def np_sum_cg(builder, target, args, kwargs):
+@lower(np.sum, types.Array, api="values")
+def np_sum_cg(builder, signature, args):
     """
     Sum over all dimensions of the array using linalg.reduce.
     """
-    assert len(args) == 1 and len(kwargs) == 0, "np.sum takes exactly one argument"
+    assert len(args) == 1, "np.sum takes exactly one argument"
     arg = args[0]
 
     # Extract element types from input array and target
-    input_array_type = builder.get_numba_type(arg.name)
+    input_array_type = signature.args[0]
     input_element_type = input_array_type.dtype
     input_dtype = builder.get_value_type(input_element_type)
 
-    target_numba_type = builder.get_numba_type(target.name)
+    target_numba_type = signature.return_type
     target_dtype = builder.get_value_type(target_numba_type)
 
-    array = builder.load_var(arg)
+    array = arg
     array = lowering_utilities.memref_to_value_tensor(input_array_type, array)
     loc = ir.Location.unknown()
 
@@ -355,7 +354,7 @@ def np_sum_cg(builder, target, args, kwargs):
     # Convert to target type if needed
     result_scalar = lowering_utilities.convert(result_scalar, target_dtype)
 
-    builder.store_var(target, result_scalar)
+    return result_scalar
 
 
 def _get_output_shape_from_reduction(
@@ -392,8 +391,7 @@ def _bool_storage_literal(builder, target_type, value):
     return None
 
 
-def _store_first_output_value(builder, output_arg, output_memref, value):
-    output_array_type = builder.get_numba_type(output_arg.name)
+def _store_first_output_value(builder, output_array_type, output_memref, value):
     value = lowering_utilities.convert(value, builder.get_value_type(output_array_type.dtype))
     lowering_utilities.array_element_value_store(
         output_array_type, output_memref, [index_of(0)], value
@@ -437,20 +435,20 @@ def _value_is_nonzero(value):
     return arith.cmpf(arith.CmpFPredicate.UNE, value, zero)
 
 
-@lower(np.any, types.Array)
-def np_any_cg(builder, target, args, kwargs):
+@lower(np.any, types.Array, api="values")
+def np_any_cg(builder, signature, args):
     """
     Sum over all dimensions of the array using linalg.reduce.
     """
-    assert len(args) == 1 and len(kwargs) == 0, "np.sum takes exactly one argument"
+    assert len(args) == 1, "np.sum takes exactly one argument"
     from numba_cuda_mlir.lowering_utilities import constant, false
 
     arg = args[0]
-    element_type = builder.get_numba_type(target.name)
+    element_type = signature.return_type
     dtype = builder.get_value_type(element_type)
     trace("dtype=%s", dtype)
-    input_array_type = builder.get_numba_type(arg.name)
-    array = lowering_utilities.memref_to_value_tensor(input_array_type, builder.load_var(arg))
+    input_array_type = signature.args[0]
+    array = lowering_utilities.memref_to_value_tensor(input_array_type, arg)
     input_dtype = builder.get_value_type(input_array_type.dtype)
     loc = ir.Location.unknown()
 
@@ -481,18 +479,18 @@ def np_any_cg(builder, target, args, kwargs):
     reduce_result_tensor = reduce_op.results[0]
     result_scalar = tensor.extract(reduce_result_tensor, [])
 
-    builder.store_var(target, result_scalar)
+    return result_scalar
 
 
-@lower(np.var, types.Array)
-def np_var_cg(builder, target, args, kwargs):
-    assert len(args) == 1 and len(kwargs) == 0, "np.var takes exactly one argument"
+@lower(np.var, types.Array, api="values")
+def np_var_cg(builder, signature, args):
+    assert len(args) == 1, "np.var takes exactly one argument"
     arg = args[0]
-    element_type = builder.get_numba_type(target.name)
+    element_type = signature.return_type
     dtype = builder.get_value_type(element_type)
     trace("dtype=%s", dtype)
-    input_array_type = builder.get_numba_type(arg.name)
-    array = lowering_utilities.memref_to_value_tensor(input_array_type, builder.load_var(arg))
+    input_array_type = signature.args[0]
+    array = lowering_utilities.memref_to_value_tensor(input_array_type, arg)
     input_dtype = builder.get_value_type(input_array_type.dtype)
     single_result_type = ir.RankedTensorType.get((), dtype)
     dims = [tensor.dim(array, index_of(i)) for i in range(array.type.rank)]
@@ -533,23 +531,23 @@ def np_var_cg(builder, target, args, kwargs):
 
     summed_squares = tensor.extract(summed_squares_t, [])
     variance = summed_squares / num_elements
-    builder.store_var(target, variance)
+    return variance
 
 
-@lower(np.all, types.Array)
-def np_all_cg(builder, target, args, kwargs):
+@lower(np.all, types.Array, api="values")
+def np_all_cg(builder, signature, args):
     """
     Sum over all dimensions of the array using linalg.reduce.
     """
-    assert len(args) == 1 and len(kwargs) == 0, "np.all takes exactly one argument"
+    assert len(args) == 1, "np.all takes exactly one argument"
     from numba_cuda_mlir.lowering_utilities import true
 
     arg = args[0]
-    element_type = builder.get_numba_type(target.name)
+    element_type = signature.return_type
     dtype = builder.get_value_type(element_type)
     trace("dtype=%s", dtype)
-    input_array_type = builder.get_numba_type(arg.name)
-    array = lowering_utilities.memref_to_value_tensor(input_array_type, builder.load_var(arg))
+    input_array_type = signature.args[0]
+    array = lowering_utilities.memref_to_value_tensor(input_array_type, arg)
     input_dtype = builder.get_value_type(input_array_type.dtype)
     loc = ir.Location.unknown()
 
@@ -577,16 +575,16 @@ def np_all_cg(builder, target, args, kwargs):
     reduce_result_tensor = reduce_op.results[0]
     result_scalar = tensor.extract(reduce_result_tensor, [])
 
-    builder.store_var(target, result_scalar)
+    return result_scalar
 
 
-@lower(len, types.Array)
-def len_cg(builder, target, args, kwargs):
-    assert len(args) == 1 and len(kwargs) == 0, "len takes exactly one argument"
+@lower(len, types.Array, api="values")
+def len_cg(builder, signature, args):
+    assert len(args) == 1, "len takes exactly one argument"
     arg = args[0]
-    element_type = builder.get_numba_type(target.name)
+    element_type = signature.return_type
     dtype = builder.get_mlir_type(element_type)
-    array = ir.Value(builder.load_var(arg))
+    array = ir.Value(arg)
     ty = ir.MemRefType(array.type)
     rank = ty.rank
     product = arith.constant(result=T.index(), value=1)
@@ -594,24 +592,24 @@ def len_cg(builder, target, args, kwargs):
         dim_size = memref.dim(source=array, index=arith.constant(result=T.index(), value=i))
         product = lowering_utilities.mul(product, dim_size)
     product = lowering_utilities.convert(product, dtype)
-    builder.store_var(target, product)
+    return product
 
 
-@lower(len, types.BaseTuple)
-def tuple_len_cg(builder, target, args, kwargs):
-    tup = builder.load_var(args[0])
-    builder.store_var(target, arith.constant(result=T.index(), value=len(tup)))
+@lower(len, types.BaseTuple, api="values")
+def tuple_len_cg(builder, signature, args):
+    tup = args[0]
+    return arith.constant(result=T.index(), value=len(tup))
 
 
-@lower(np.mean, types.Array)
-def np_mean_cg(builder, target, args, kwargs):
-    assert len(args) == 1 and len(kwargs) == 0, "np.mean takes exactly one argument"
+@lower(np.mean, types.Array, api="values")
+def np_mean_cg(builder, signature, args):
+    assert len(args) == 1, "np.mean takes exactly one argument"
     arg = args[0]
-    element_type = builder.get_numba_type(target.name)
+    element_type = signature.return_type
     dtype = builder.get_value_type(element_type)
     trace("dtype=%s", dtype)
-    input_array_type = builder.get_numba_type(arg.name)
-    array = lowering_utilities.memref_to_value_tensor(input_array_type, builder.load_var(arg))
+    input_array_type = signature.args[0]
+    array = lowering_utilities.memref_to_value_tensor(input_array_type, arg)
     input_elem_type = builder.get_value_type(input_array_type.dtype)
 
     @ensure_verifies
@@ -633,12 +631,12 @@ def np_mean_cg(builder, target, args, kwargs):
         dtype,
     )
     mean = summed / num_elements
-    builder.store_var(target, mean)
+    return mean
 
 
-def _reshape_byte_array(builder, target, array, shape):
+def _reshape_byte_array(builder, signature, array, shape):
     """Reshape logical extents without resetting the byte stride to one."""
-    target_type = builder.get_numba_type(target)
+    target_type = signature.return_type
     result_type = builder.get_mlir_type(target_type)
     result_type = ir.MemRefType.get(
         result_type.shape,
@@ -734,18 +732,17 @@ def _reshape_byte_array(builder, target, array, shape):
     )
 
 
-def np_dynamic_reshape_cg(builder, target, args, kwargs):
-    to_type = builder.get_mlir_type(builder.get_numba_type(target))
-    array = builder.load_var(args[0])
-    shape = builder.load_var(args[1])
-    if ArrayStorageLayout(builder.get_numba_type(args[0])).byte_addressed:
-        shape_type = builder.get_numba_type(args[1])
+def np_dynamic_reshape_cg(builder, signature, args):
+    to_type = builder.get_mlir_type(signature.return_type)
+    array = args[0]
+    shape = args[1]
+    if ArrayStorageLayout(signature.args[0]).byte_addressed:
+        shape_type = signature.args[1]
         sizes = [
             lowering_utilities.array_element_value_load(shape_type, shape, [index_of(i)])
             for i in range(to_type.rank)
         ]
-        builder.store_var(target, _reshape_byte_array(builder, target, array, sizes))
-        return
+        return _reshape_byte_array(builder, signature, array, sizes)
     shty = T.memref(to_type.rank, shape.type.element_type)
     shape = memref.cast(shty, shape)
     reshaped = memref.reshape(
@@ -753,22 +750,21 @@ def np_dynamic_reshape_cg(builder, target, args, kwargs):
         source=array,
         shape=shape,
     )
-    builder.store_var(target, reshaped)
+    return reshaped
 
 
-@lower(np.reshape, types.Array)
-def np_reshape_cg(builder, target, args, kwargs):
-    assert len(args) == 2 and len(kwargs) == 0, "np.reshape takes exactly two arguments"
-    shape = builder.load_var(args[1])
+@lower(np.reshape, types.Array, api="values")
+def np_reshape_cg(builder, signature, args):
+    assert len(args) == 2, "np.reshape takes exactly two arguments"
+    shape = args[1]
 
     # Handle tuple shapes (e.g., out.shape which is a Python tuple of MLIR values)
     if isinstance(shape, (list, tuple)):
-        array = builder.load_var(args[0])
-        if ArrayStorageLayout(builder.get_numba_type(args[0])).byte_addressed:
-            builder.store_var(target, _reshape_byte_array(builder, target, array, shape))
-            return
+        array = args[0]
+        if ArrayStorageLayout(signature.args[0]).byte_addressed:
+            return _reshape_byte_array(builder, signature, array, shape)
         # Convert tuple of shape values to a memref for memref.reshape
-        shape_numba_ty = builder.get_numba_type(args[1].name)
+        shape_numba_ty = signature.args[1]
         ndim = len(shape)
 
         # Create a memref to hold the shape values
@@ -787,21 +783,20 @@ def np_reshape_cg(builder, target, args, kwargs):
             memref.store(dim_idx, shape_memref, [index_of(i)])
 
         # Now use the memref for reshape
-        to_type = builder.get_mlir_type(builder.get_numba_type(target))
-        array = builder.load_var(args[0])
+        to_type = builder.get_mlir_type(signature.return_type)
+        array = args[0]
         reshaped = memref.reshape(
             result=to_type,
             source=array,
             shape=shape_memref,
         )
-        builder.store_var(target, reshaped)
-        return
+        return reshaped
 
     # Handle memref shape (e.g., from np.array or similar)
     shape_ty = shape.type
     match shape_ty:
         case ir.MemRefType():
-            return np_dynamic_reshape_cg(builder, target, args, kwargs)
+            return np_dynamic_reshape_cg(builder, signature, args)
         case _:
             raise NotImplementedError(f"reshape with: {shape_ty=}")
 
@@ -813,7 +808,12 @@ def lower_array_reshape_getattr(
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
-    mlir_lower.store_var(target, DeferredMethodCall(array, np_reshape_cg))
+    mlir_lower.store_var(
+        target,
+        DeferredMethodCall(
+            mlir_lower.load_var(array), mlir_lower.get_numba_type(array), np_reshape_cg
+        ),
+    )
 
 
 @lower_getattr(types.Array, "sum")
@@ -823,33 +823,35 @@ def lower_array_sum_getattr(
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
-    mlir_lower.store_var(target, DeferredMethodCall(array, np_sum_cg))
+    mlir_lower.store_var(
+        target,
+        DeferredMethodCall(mlir_lower.load_var(array), mlir_lower.get_numba_type(array), np_sum_cg),
+    )
 
 
-def _array_item_cg(builder, target, args, kwargs):
+def _array_item_cg(builder, signature, args):
     """Lower ``arr.item()``. Implemented for size-1 arrays only."""
-    assert not kwargs, "array.item() takes no keyword arguments"
 
     if len(args) != 1:
         raise NotImplementedError(
             f"array.item() with positional indices is not implemented; got {len(args) - 1} indices"
         )
     array_var = args[0]
-    array_numba_type = builder.get_numba_type(array_var.name)
+    array_numba_type = signature.args[0]
     from numba_cuda_mlir.types import Record
 
     if isinstance(array_numba_type.dtype, Record):
-        array = builder.load_var(array_var)
+        array = array_var
         # Record arrays lower to a pointer to element storage; the
         # offset/stride-aware element pointer at index 0 is the record value.
         value = lowering_utilities.memref_to_llvm_ptr(array, [index_of(0)] * array.type.rank)
         value = llvm.addrspacecast(builder.get_mlir_type(array_numba_type.dtype), value)
     else:
-        array = builder.load_var(array_var)
+        array = array_var
         value = lowering_utilities.array_element_value_load(
             array_numba_type, array, [index_of(0)] * array.type.rank
         )
-    builder.store_var(target, value)
+    return value
 
 
 @lower_getattr(types.Array, "item")
@@ -859,10 +861,15 @@ def lower_array_item_getattr(
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
-    mlir_lower.store_var(target, DeferredMethodCall(array, _array_item_cg))
+    mlir_lower.store_var(
+        target,
+        DeferredMethodCall(
+            mlir_lower.load_var(array), mlir_lower.get_numba_type(array), _array_item_cg
+        ),
+    )
 
 
-def _array_ravel_cg(builder, target, args, kwargs):
+def _array_ravel_cg(builder, signature, args):
     """Lower ``arr.ravel()`` as a 1-D view over ``arr``'s existing storage -
     implements the non-copying case of ravel only.
 
@@ -875,19 +882,18 @@ def _array_ravel_cg(builder, target, args, kwargs):
     # ``memref.reinterpret_cast`` to produce a 1-D view of length
     # ``prod(shape)`` with unit stride.
 
-    assert not kwargs, "array.ravel() takes no keyword arguments"
     if len(args) != 1:
         raise NotImplementedError(
             f"array.ravel() with positional arguments is not implemented; got {len(args) - 1}"
         )
     array_var = args[0]
-    array_ty = builder.get_numba_type(array_var)
+    array_ty = signature.args[0]
     if array_ty.layout != "C":
         raise errors.TypingError(
             f"array.ravel() requires a C-contiguous array, got layout {array_ty.layout!r}"
         )
 
-    src = builder.load_var(array_var)
+    src = array_var
     src_type: ir.MemRefType = src.type
     ndim = src_type.rank
 
@@ -903,7 +909,7 @@ def _array_ravel_cg(builder, target, args, kwargs):
             total_size = arith.muli(total_size, s)
 
     layout = ArrayStorageLayout(array_ty)
-    result_type = builder.get_mlir_type(builder.get_numba_type(target))
+    result_type = builder.get_mlir_type(signature.return_type)
     dyn = ir.ShapedType.get_dynamic_size()
     dyn_s = ir.ShapedType.get_dynamic_stride_or_offset()
     reshaped = memref_dialect.reinterpret_cast(
@@ -916,7 +922,7 @@ def _array_ravel_cg(builder, target, args, kwargs):
         static_sizes=[dyn],
         static_strides=[dyn_s],
     )
-    builder.store_var(target, reshaped)
+    return reshaped
 
 
 @lower_getattr(types.Array, "ravel")
@@ -926,7 +932,12 @@ def lower_array_ravel_getattr(
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
-    mlir_lower.store_var(target, DeferredMethodCall(array, _array_ravel_cg))
+    mlir_lower.store_var(
+        target,
+        DeferredMethodCall(
+            mlir_lower.load_var(array), mlir_lower.get_numba_type(array), _array_ravel_cg
+        ),
+    )
 
 
 @overload(np.take, typing_registry=typing_registry)
@@ -1065,16 +1076,15 @@ class Slice:
         yield self.step
 
 
-@lower(slice, types.VarArg(types.Any))
-def lower_array_slice(builder, target, args, kwargs):
-    args = map(builder.load_var, args)
-    builder.store_var(target, Slice(*args))
+@lower(slice, types.VarArg(types.Any), api="values")
+def lower_array_slice(builder, signature, args):
+    return Slice(*args)
 
 
 from numba_cuda_mlir.types import Record
 
 
-def _lower_record_array_getitem(builder, target, args, kwargs):
+def _lower_record_array_getitem(builder, signature, args):
     """
     Handle array[index] where array.dtype is Record.
 
@@ -1084,17 +1094,17 @@ def _lower_record_array_getitem(builder, target, args, kwargs):
     array_var = args[0]
     index_var = args[1]
 
-    array_numba_type = builder.get_numba_type(array_var.name)
+    array_numba_type = signature.args[0]
     record_type = array_numba_type.dtype
 
     trace("Record array getitem: record_size=%s", record_type.size)
 
-    array = builder.load_var(array_var)
+    array = array_var
     # Handle both variable and constant indices
     if isinstance(index_var, int):
         index = arith_dialect.constant(T.i64(), index_var)
     else:
-        index = builder.load_var(index_var)
+        index = index_var
 
     index = _normalize_negative_index(array, index, 0)
 
@@ -1107,8 +1117,7 @@ def _lower_record_array_getitem(builder, target, args, kwargs):
     # Record values use generic pointers, including across device calls.
     result_ptr = llvm.addrspacecast(builder.get_mlir_type(record_type), result_ptr)
 
-    builder.store_var(target, result_ptr)
-    trace("Record array getitem: stored ptr to %s", target.name)
+    return result_ptr
 
 
 def _get_memref_strides(memref_type: ir.MemRefType) -> list[int]:
@@ -1208,30 +1217,30 @@ def _normalize_negative_index(
     return arith.select(is_negative, arith.addi(index, extent), index)
 
 
-@lower(operator.getitem, types.Array, types.Number)
-@lower(operator.getitem, types.Array, types.Integer)
-@lower(operator.getitem, types.Buffer, types.Integer)
-def lower_array_getitem(builder, target, args, kwargs):
+@lower(operator.getitem, types.Array, types.Number, api="values")
+@lower(operator.getitem, types.Array, types.Integer, api="values")
+@lower(operator.getitem, types.Buffer, types.Integer, api="values")
+def lower_array_getitem(builder, signature, args):
     trace()
 
     # Check if this is a record array
-    array_numba_type = builder.get_numba_type(args[0].name)
+    array_numba_type = signature.args[0]
     from numba_cuda_mlir.types import NestedArray
 
     if isinstance(array_numba_type, NestedArray):
         from numba_cuda_mlir.lowering.record import lower_nested_array_getitem_int
 
-        return lower_nested_array_getitem_int(builder, target, args, kwargs)
+        return lower_nested_array_getitem_int(builder, signature, args)
 
     if isinstance(array_numba_type.dtype, Record):
-        return _lower_record_array_getitem(builder, target, args, kwargs)
+        return _lower_record_array_getitem(builder, signature, args)
 
-    array = builder.load_var(args[0])
+    array = args[0]
     # Handle both variable and constant indices
     if isinstance(args[1], int):
         index = args[1]
     else:
-        index = builder.load_var(args[1])
+        index = args[1]
     array_type = array.type
 
     if not array_type.has_rank:
@@ -1241,7 +1250,7 @@ def lower_array_getitem(builder, target, args, kwargs):
         array,
         index,
         0,
-        None if isinstance(args[1], int) else builder.get_numba_type(args[1].name),
+        None if isinstance(args[1], int) else signature.args[1],
     )
     if array_type.rank == 1:
         value = lowering_utilities.array_element_value_load(
@@ -1258,7 +1267,7 @@ def lower_array_getitem(builder, target, args, kwargs):
         dims_to_drop = [True] + [False] * (rank - 1)
         value = _rank_reducing_subview(array, sv_offsets, sv_sizes, sv_strides, dims_to_drop)
 
-    builder.store_var(target, value)
+    return value
 
 
 @dataclass
@@ -1411,14 +1420,14 @@ def _slice_bounds(builder, array, slice_value, dim=0):
     )
 
 
-@lower(operator.getitem, types.Array, types.SliceType)
-def lower_array_slice_getitem(builder, target, args, kwargs):
+@lower(operator.getitem, types.Array, types.SliceType, api="values")
+def lower_array_slice_getitem(builder, signature, args):
     trace()
-    mr = builder.load_var(args[0])
+    mr = args[0]
     mr_type = mr.type
     dtype = mr_type.element_type
     rank = mr_type.rank
-    slice = builder.load_var(args[1])
+    slice = args[1]
     start, stop, step, first_size = _slice_bounds(builder, mr, slice)
     starts, stops, steps = [start], [stop], [step]
     for i in range(1, rank):
@@ -1444,7 +1453,7 @@ def lower_array_slice_getitem(builder, target, args, kwargs):
     )
     sizes = [first_size] + [memref.dim(mr, index_of(i)) for i in range(1, rank)]
     mr = memref.subview(mr, offsets=starts, sizes=sizes, strides=steps, result_type=mrt)
-    builder.store_var(target, mr)
+    return mr
 
 
 def _idx_c(value: int) -> ir.Value:
@@ -1477,26 +1486,25 @@ def _view_transform_axis(
     return new_sizes, new_strides
 
 
-def lower_array_view_cg(builder, target, args, kwargs):
-    _self, dtype = [builder.load_var(arg) for arg in args]
+def lower_array_view_cg(builder, signature, args):
+    _self, dtype = [arg for arg in args]
     mr_ty: ir.MemRefType = _self.type
     assert mr_ty.has_rank, "NYI: unranked memrefs"
 
-    source_ty = builder.get_numba_type(args[0].name)
-    target_ty = builder.get_numba_type(target.name)
+    source_ty = signature.args[0]
+    target_ty = signature.return_type
     source_layout = ArrayStorageLayout(source_ty)
     target_layout = ArrayStorageLayout(target_ty)
 
     if source_ty.dtype == target_ty.dtype:
-        builder.store_var(target, _self)
-        return
+        return _self
 
     new_dtype_bytes = target_layout.itemsize
     old_dtype_bytes = source_layout.itemsize
 
     rank = mr_ty.rank
     if rank == 0:
-        raise ValueError(f"Cannot .view() a 0-d array (target {target.name!r})")
+        raise ValueError("Cannot .view() a 0-d array")
 
     target_mr = builder.get_mlir_type(target_ty)
     layout = target_ty.layout
@@ -1512,8 +1520,7 @@ def lower_array_view_cg(builder, target, args, kwargs):
 
     if old_dtype_bytes == new_dtype_bytes:
         result = lowering_utilities.convert_array_storage(_self, target_mr)
-        builder.store_var(target, result)
-        return
+        return result
 
     md = memref_dialect.extract_strided_metadata(_self)
     offset_e = md[1]
@@ -1555,8 +1562,7 @@ def lower_array_view_cg(builder, target, args, kwargs):
 
     if layout in ("C", "F"):
         axis = (rank - 1) if layout == "C" else 0
-        builder.store_var(target, _reinterpret(axis))
-        return
+        return _reinterpret(axis)
 
     # ====================
     # "A" layout, including noncontiguous rank-one fields
@@ -1587,7 +1593,7 @@ def lower_array_view_cg(builder, target, args, kwargs):
             scf.yield_([_dispatch(axis_idx - 1)])
         return if_op.results[0]
 
-    builder.store_var(target, _dispatch(rank - 1))
+    return _dispatch(rank - 1)
 
 
 @lower_getattr(types.Array, "view")
@@ -1597,31 +1603,44 @@ def lower_array_view_getattr(
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
-    mlir_lower.store_var(target, DeferredMethodCall(array, lower_array_view_cg))
+    mlir_lower.store_var(
+        target,
+        DeferredMethodCall(
+            mlir_lower.load_var(array), mlir_lower.get_numba_type(array), lower_array_view_cg
+        ),
+    )
 
 
-@lower(operator.getitem, types.UniTuple, types.Number)
-@lower(operator.getitem, types.Tuple, types.Number)
-def lower_uni_tuple_getitem(builder, target, args, kwargs):
+@lower(operator.getitem, types.UniTuple, types.Number, api="values")
+@lower(operator.getitem, types.Tuple, types.Number, api="values")
+def lower_uni_tuple_getitem(builder, signature, args):
     """
-    Tuples are always Python tuples in the varmap. Static integer indices
-    resolve at compile time; dynamic indices emit an scf.index_switch.
+    Tuples arrive as canonical Python tuples of lowered values. Literal index
+    metadata selects at compile time; dynamic indices emit an scf.index_switch.
 
-    scf.index_switch results must be scalar MLIR types, so when the selected
-    element is itself a tuple (e.g. indexing a tuple of coefficient rows with
-    a loop variable), the selection is decomposed into one switch per leaf
-    position and the result is stored as a Python tuple of switch results.
+    Each runtime leaf is selected separately when an element is itself a tuple
+    (e.g. indexing coefficient rows with a loop variable). None leaves have no
+    runtime operand, and the nested result retains its Python tuple structure.
     """
     trace("args=%s", args)
     from numba_cuda_mlir.lowering_utilities import convert
 
-    target_type = builder.get_numba_type(target.name)
-    tup = builder.load_var(args[0])
-    index = builder.load_var(args[1]) if isinstance(args[1], numba_ir.Var) else args[1]
+    target_type = signature.return_type
+    tup = args[0]
+    index = args[1]
+    if isinstance(signature.args[1], types.IntegerLiteral):
+        index = signature.args[1].literal_value
+
+    def incref_result(element_type, value):
+        if isinstance(element_type, types.BaseTuple):
+            for sub_type, sub_value in zip(element_type.types, value):
+                incref_result(sub_type, sub_value)
+        else:
+            builder.incref(element_type, value)
+
     assert isinstance(tup, tuple), f"Expected Python tuple, got {type(tup)}"
     match tup, index:
         case tuple(), ir.Value():
-            tup = builder.lower_literal_if_needed(tup)
             index = index_of(index)
             error_memref = builder._get_or_create_error_global()
             cases = ir.DenseI64ArrayAttr.get(range(len(tup)))
@@ -1660,6 +1679,10 @@ def lower_uni_tuple_getitem(builder, target, args, kwargs):
                         for i, sub_type in enumerate(sub_types)
                     )
 
+                if isinstance(element_type, types.NoneType):
+                    # None leaves have no runtime representation to select.
+                    return candidates[0]
+
                 result_type = builder.get_mlir_type(element_type)
 
                 def default(op):
@@ -1677,29 +1700,27 @@ def lower_uni_tuple_getitem(builder, target, args, kwargs):
                 )
 
             result = select(list(tup), target_type)
-            builder.store_var(target, result)
-            if isinstance(result, ir.Value):
-                builder.incref(target_type, result)
+            incref_result(target_type, result)
+            return result
         case tuple(), int() as index:
             val = tup[index]
-            builder.store_var(target, val)
-            if isinstance(val, ir.Value):
-                builder.incref(target_type, val)
+            incref_result(target_type, val)
+            return val
         case _:
             raise InternalCompilerError(f"Tuple index must be an integer, got {type(args[1])}")
 
 
-@lower("static_getitem", types.UniTuple, types.SliceLiteral)
-@lower("static_getitem", types.Tuple, types.SliceLiteral)
-def lower_static_tuple_slice(builder, target, args, kwargs):
-    tup = builder.load_var(args[0])
+@lower("static_getitem", types.UniTuple, types.SliceLiteral, api="values")
+@lower("static_getitem", types.Tuple, types.SliceLiteral, api="values")
+def lower_static_tuple_slice(builder, signature, args):
+    tup = args[0]
     index = args[1]
     assert isinstance(tup, tuple), f"Expected Python tuple, got {type(tup)}"
     assert isinstance(index, slice), f"Expected slice, got {type(index)}"
-    builder.store_var(target, tup[index])
+    return tup[index]
 
 
-def _lower_record_array_setitem(builder, target, args, kwargs):
+def _lower_record_array_setitem(builder, signature, args):
     """
     Handle array[index] = record where array.dtype is Record.
 
@@ -1709,16 +1730,16 @@ def _lower_record_array_setitem(builder, target, args, kwargs):
     index_var = args[1]
     value_var = args[2]
 
-    array_numba_type = builder.get_numba_type(array_var.name)
+    array_numba_type = signature.args[0]
     record_type = array_numba_type.dtype
     record_size = record_type.size
 
     trace("Record array setitem: record_size=%s", record_size)
 
     # Load the array (memref), index, and source record pointer
-    array = builder.load_var(array_var)
-    index = builder.load_var(index_var)
-    src_ptr = builder.load_var(value_var)
+    array = array_var
+    index = index_var
+    src_ptr = value_var
 
     index = _normalize_negative_index(array, index, 0)
 
@@ -1736,23 +1757,21 @@ def _lower_record_array_setitem(builder, target, args, kwargs):
     trace("Record array setitem: copied %s bytes", record_size)
 
 
-@lower(operator.setitem, types.Array, types.Integer, types.StringLiteral)
-def lower_charseq_array_setitem_string(builder: MLIRLower, target, args, kwargs):
+@lower(operator.setitem, types.Array, types.Integer, types.StringLiteral, api="values")
+def lower_charseq_array_setitem_string(builder: MLIRLower, signature, args):
     """arr[i] = "XYZ" for arrays with CharSeq or UnicodeCharSeq dtype."""
     from numba_cuda_mlir.lowering_utilities import GEP_DYNAMIC_INDEX
 
-    array_numba_type = builder.get_numba_type(args[0].name)
+    array_numba_type = signature.args[0]
     element_type = array_numba_type.dtype
-    string_type = builder.get_numba_type(args[2].name)
+    string_type = signature.args[2]
     string_val = (
-        string_type.literal_value
-        if isinstance(string_type, types.StringLiteral)
-        else builder.load_var(args[2])
+        string_type.literal_value if isinstance(string_type, types.StringLiteral) else args[2]
     )
     assert isinstance(string_val, str)
 
-    array = builder.load_var(args[0])
-    index = builder.load_var(args[1])
+    array = args[0]
+    index = args[1]
     index = _normalize_negative_index(array, index, 0)
 
     if isinstance(element_type, types.CharSeq):
@@ -1792,39 +1811,39 @@ def lower_charseq_array_setitem_string(builder: MLIRLower, target, args, kwargs)
         llvm.store(byte_const, byte_ptr)
 
 
-@lower(operator.setitem, types.Array, types.Integer, types.EnumMember)
-@lower(operator.setitem, types.Array, types.Integer, types.Boolean)
-@lower(operator.setitem, types.Array, types.Integer, types.Number)
-@lower(operator.setitem, types.Array, types.Integer, types.NPDatetime)
-@lower(operator.setitem, types.Array, types.Integer, types.NPTimedelta)
-@lower(operator.setitem, types.Array, types.Integer, Record)
-@lower(operator.setitem, types.Array, types.Integer, VectorType)
-def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
+@lower(operator.setitem, types.Array, types.Integer, types.EnumMember, api="values")
+@lower(operator.setitem, types.Array, types.Integer, types.Boolean, api="values")
+@lower(operator.setitem, types.Array, types.Integer, types.Number, api="values")
+@lower(operator.setitem, types.Array, types.Integer, types.NPDatetime, api="values")
+@lower(operator.setitem, types.Array, types.Integer, types.NPTimedelta, api="values")
+@lower(operator.setitem, types.Array, types.Integer, Record, api="values")
+@lower(operator.setitem, types.Array, types.Integer, VectorType, api="values")
+def lower_array_setitem(builder: MLIRLower, signature, args):
     trace()
 
     # Check if this is a record array
-    array_numba_type = builder.get_numba_type(args[0].name)
+    array_numba_type = signature.args[0]
     from numba_cuda_mlir.types import NestedArray
 
     if isinstance(array_numba_type, NestedArray):
         from numba_cuda_mlir.lowering.record import lower_nested_array_setitem_int
 
-        return lower_nested_array_setitem_int(builder, target, args, kwargs)
+        return lower_nested_array_setitem_int(builder, signature, args)
 
     if isinstance(array_numba_type.dtype, Record):
-        return _lower_record_array_setitem(builder, target, args, kwargs)
+        return _lower_record_array_setitem(builder, signature, args)
 
-    array = builder.load_var(args[0])
+    array = args[0]
     index_arg = args[1]
-    index = index_arg if isinstance(index_arg, int) else builder.load_var(index_arg)
+    index = index_arg if isinstance(index_arg, int) else index_arg
     index = _normalize_negative_index(
         array,
         index,
         0,
-        None if isinstance(index_arg, int) else builder.get_numba_type(index_arg.name),
+        None if isinstance(index_arg, int) else signature.args[1],
     )
-    value = builder.load_var(args[2])
-    value_numba_type = builder.get_numba_type(args[2].name)
+    value = args[2]
+    value_numba_type = signature.args[2]
     signed = get_conversion_signedness(value_numba_type, array_numba_type.dtype)
     mrt = array.type
     if mrt.rank == 1:
@@ -1886,23 +1905,22 @@ def _setitem_indices_to_memref_indices(
     )
 
 
-@lower(operator.setitem, types.Array, types.Tuple, types.Any)
-@lower(operator.setitem, types.Array, types.UniTuple, types.Any)
-def lower_array_setitem_tuple(builder, target, args, kwargs):
+@lower(operator.setitem, types.Array, types.Tuple, types.Any, api="values")
+@lower(operator.setitem, types.Array, types.UniTuple, types.Any, api="values")
+def lower_array_setitem_tuple(builder, signature, args):
     # Check if this is a nested array (embedded in a record)
     from numba_cuda_mlir.types import NestedArray
 
-    array_numba_type = builder.get_numba_type(args[0].name)
+    array_numba_type = signature.args[0]
     if isinstance(array_numba_type, NestedArray):
         from numba_cuda_mlir.lowering.record import lower_nested_array_setitem_tuple
 
-        return lower_nested_array_setitem_tuple(builder, target, args, kwargs)
+        return lower_nested_array_setitem_tuple(builder, signature, args)
 
-    array = builder.load_var(args[0])
+    array = args[0]
     tup = args[1]
-    tup = builder.load_var(tup) if isinstance(tup, numba_ir.Var) else tup
-    indices = _setitem_indices_to_memref_indices(array, tup, builder.get_numba_type(args[1].name))
-    value = builder.load_var(args[2])
+    indices = _setitem_indices_to_memref_indices(array, tup, signature.args[1])
+    value = args[2]
     lowering_utilities.array_element_value_store(
         array_numba_type,
         array,
@@ -1912,15 +1930,15 @@ def lower_array_setitem_tuple(builder, target, args, kwargs):
     )
 
 
-@lower(operator.setitem, types.Array, types.SliceType, types.Any)
-def lower_array_slice_setitem(builder, target, args, kwargs):
+@lower(operator.setitem, types.Array, types.SliceType, types.Any, api="values")
+def lower_array_slice_setitem(builder, signature, args):
     """Lower arr[slice] = value - fill sliced region with scalar value."""
     trace()
-    array = builder.load_var(args[0])
-    slice_val = builder.load_var(args[1])
-    value = builder.load_var(args[2])
+    array = args[0]
+    slice_val = args[1]
+    value = args[2]
 
-    array_numba_type = builder.get_numba_type(args[0].name)
+    array_numba_type = signature.args[0]
     mr_type = array.type
     rank = mr_type.rank
 
@@ -1943,23 +1961,23 @@ def lower_array_slice_setitem(builder, target, args, kwargs):
         )
 
 
-@lower(operator.getitem, types.Array, types.UniTuple)
-@lower(operator.getitem, types.Array, types.Tuple)
-def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
+@lower(operator.getitem, types.Array, types.UniTuple, api="values")
+@lower(operator.getitem, types.Array, types.Tuple, api="values")
+def lower_array_tuple_getitem(builder: MLIRLower, signature, args):
     if len(args) != 2:
         raise InternalCompilerError(f"Tuple getitem takes exactly two arguments, got {len(args)}")
 
     # Check if this is a nested array (embedded in a record)
     from numba_cuda_mlir.types import NestedArray
 
-    array_numba_type = builder.get_numba_type(args[0].name)
+    array_numba_type = signature.args[0]
     if isinstance(array_numba_type, NestedArray):
         from numba_cuda_mlir.lowering.record import lower_nested_array_getitem_tuple
 
-        return lower_nested_array_getitem_tuple(builder, target, args, kwargs)
+        return lower_nested_array_getitem_tuple(builder, signature, args)
 
-    array = builder.load_var(args[0])
-    tuple_indices = builder.load_var(args[1])
+    array = args[0]
+    tuple_indices = args[1]
 
     array_type = array.type
     if not isinstance(array_type, (ir.MemRefType, ir.RankedTensorType)) or not array_type.has_rank:
@@ -1970,7 +1988,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
     if not isinstance(tuple_indices, tuple):
         raise InternalCompilerError(f"Tuple indices must be a tuple, got {type(tuple_indices)}")
 
-    target_type = builder.get_numba_type(target.name)
+    target_type = signature.return_type
     source_rank = array_type.rank
     n_indexed = len(tuple_indices)
     n_trailing = source_rank - n_indexed
@@ -1979,7 +1997,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
     zero = arith.constant(result=T.index(), value=0)
     dims = [memref.dim(array, index_of(i)) for i in range(source_rank)]
 
-    tuple_numba_type = builder.get_numba_type(args[1].name)
+    tuple_numba_type = signature.args[1]
     offsets, sizes, strides, is_scalar = [], [], [], []
     for dim, index in enumerate(tuple_indices):
         if isinstance(index, slice) and index == slice(None, None, -1):
@@ -2032,7 +2050,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
             value = _rank_reducing_subview(
                 array, full_offsets, full_sizes, full_strides, full_is_scalar
             )
-            builder.store_var(target, value)
+            return value
         case types.Number() | types.Boolean() | types.NPDatetime() | types.NPTimedelta():
             value = lowering_utilities.array_element_value_load(
                 array_numba_type,
@@ -2040,7 +2058,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
                 full_offsets,
                 dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
             )
-            builder.store_var(target, value)
+            return value
         case _:
             raise InternalCompilerError(
                 f"Target type {target_type} is not an array or number, but a tuple was used to index it"
@@ -2052,7 +2070,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
 # ============================================================================
 
 
-def create_reduction_op(builder, target, args, kwargs, init_value_fn, combiner_fn, op_name):
+def create_reduction_op(builder, signature, args, init_value_fn, combiner_fn, op_name):
     """
     Public helper for implementing reduction operations using linalg.ReduceOp.
 
@@ -2062,9 +2080,8 @@ def create_reduction_op(builder, target, args, kwargs, init_value_fn, combiner_f
 
     Args:
         builder: MLIR builder instance
-        target: Target variable for the result
-        args: Function arguments (should be single array)
-        kwargs: Keyword arguments (should be empty)
+        signature: Selected Numba signature
+        args: Lowered arguments (should be a single array)
         init_value_fn: Function(element_type) -> init_value for the reduction
         combiner_fn: Function(element_type, out_arg, in_arg) -> combined_value
         op_name: Name of the operation for error messages
@@ -2072,18 +2089,18 @@ def create_reduction_op(builder, target, args, kwargs, init_value_fn, combiner_f
     Examples:
         See np_min_cg, np_max_cg, np_prod_cg for complete usage examples.
     """
-    assert len(args) == 1 and len(kwargs) == 0, f"{op_name} takes exactly one argument"
+    assert len(args) == 1, f"{op_name} takes exactly one argument"
     arg = args[0]
 
     # Extract element types from input array and target
-    input_array_type = builder.get_numba_type(arg.name)
+    input_array_type = signature.args[0]
     input_element_type = input_array_type.dtype
     input_dtype = builder.get_value_type(input_element_type)
 
-    target_numba_type = builder.get_numba_type(target.name)
+    target_numba_type = signature.return_type
     target_dtype = builder.get_value_type(target_numba_type)
 
-    array = builder.load_var(arg)
+    array = arg
     array = lowering_utilities.memref_to_value_tensor(input_array_type, array)
     loc = ir.Location.unknown()
 
@@ -2120,12 +2137,12 @@ def create_reduction_op(builder, target, args, kwargs, init_value_fn, combiner_f
     # Convert to target type if needed
     result_scalar = lowering_utilities.convert(result_scalar, target_dtype)
 
-    builder.store_var(target, result_scalar)
+    return result_scalar
 
 
 @ufunc_registry.register(np.min)
-@lower(np.min, types.Array)
-def np_min_cg(builder, target, args, kwargs):
+@lower(np.min, types.Array, api="values")
+def np_min_cg(builder, signature, args):
     """
     Find minimum over all dimensions of the array using linalg.reduce.
     """
@@ -2157,7 +2174,7 @@ def np_min_cg(builder, target, args, kwargs):
         else:
             raise ValueError(f"Unsupported type for np.min: {element_type}")
 
-    create_reduction_op(builder, target, args, kwargs, min_init_value, min_combiner, "np.min")
+    return create_reduction_op(builder, signature, args, min_init_value, min_combiner, "np.min")
 
 
 @lower_getattr(types.Array, "min")
@@ -2167,11 +2184,14 @@ def lower_array_min_getattr(
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
-    mlir_lower.store_var(target, DeferredMethodCall(array, np_min_cg))
+    mlir_lower.store_var(
+        target,
+        DeferredMethodCall(mlir_lower.load_var(array), mlir_lower.get_numba_type(array), np_min_cg),
+    )
 
 
-@lower(np.max, types.Array)
-def np_max_cg(builder, target, args, kwargs):
+@lower(np.max, types.Array, api="values")
+def np_max_cg(builder, signature, args):
     """
     Find maximum over all dimensions of the array using linalg.reduce.
     """
@@ -2200,7 +2220,7 @@ def np_max_cg(builder, target, args, kwargs):
         else:
             raise ValueError(f"Unsupported type for np.max: {element_type}")
 
-    create_reduction_op(builder, target, args, kwargs, max_init_value, max_combiner, "np.max")
+    return create_reduction_op(builder, signature, args, max_init_value, max_combiner, "np.max")
 
 
 @lower_getattr(types.Array, "max")
@@ -2210,11 +2230,14 @@ def lower_array_max_getattr(
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
-    mlir_lower.store_var(target, DeferredMethodCall(array, np_max_cg))
+    mlir_lower.store_var(
+        target,
+        DeferredMethodCall(mlir_lower.load_var(array), mlir_lower.get_numba_type(array), np_max_cg),
+    )
 
 
-@lower(np.prod, types.Array)
-def np_prod_cg(builder, target, args, kwargs):
+@lower(np.prod, types.Array, api="values")
+def np_prod_cg(builder, signature, args):
     """
     Product over all dimensions of the array using linalg.reduce.
     """
@@ -2227,7 +2250,7 @@ def np_prod_cg(builder, target, args, kwargs):
         """Multiply values - no type coercion needed as operands are same type"""
         return lowering_utilities.mul(out_arg, in_arg)
 
-    create_reduction_op(builder, target, args, kwargs, prod_init_value, prod_combiner, "np.prod")
+    return create_reduction_op(builder, signature, args, prod_init_value, prod_combiner, "np.prod")
 
 
 @lower_getattr(types.Array, "prod")
@@ -2237,7 +2260,12 @@ def lower_array_prod_getattr(
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
-    mlir_lower.store_var(target, DeferredMethodCall(array, np_prod_cg))
+    mlir_lower.store_var(
+        target,
+        DeferredMethodCall(
+            mlir_lower.load_var(array), mlir_lower.get_numba_type(array), np_prod_cg
+        ),
+    )
 
 
 # ============================================================================
@@ -2245,8 +2273,8 @@ def lower_array_prod_getattr(
 # ============================================================================
 
 
-@lower(np.nanmin, types.Array)
-def np_nanmin_cg(builder, target, args, kwargs):
+@lower(np.nanmin, types.Array, api="values")
+def np_nanmin_cg(builder, signature, args):
     """
     Find minimum over all dimensions, ignoring NaN values.
     Uses fminimum which propagates non-NaN values over NaN.
@@ -2275,13 +2303,13 @@ def np_nanmin_cg(builder, target, args, kwargs):
         else:
             raise ValueError(f"Unsupported type for np.nanmin: {element_type}")
 
-    create_reduction_op(
-        builder, target, args, kwargs, nanmin_init_value, nanmin_combiner, "np.nanmin"
+    return create_reduction_op(
+        builder, signature, args, nanmin_init_value, nanmin_combiner, "np.nanmin"
     )
 
 
-@lower(np.nanmax, types.Array)
-def np_nanmax_cg(builder, target, args, kwargs):
+@lower(np.nanmax, types.Array, api="values")
+def np_nanmax_cg(builder, signature, args):
     """
     Find maximum over all dimensions, ignoring NaN values.
     Uses fmaximum which propagates non-NaN values over NaN.
@@ -2310,13 +2338,13 @@ def np_nanmax_cg(builder, target, args, kwargs):
         else:
             raise ValueError(f"Unsupported type for np.nanmax: {element_type}")
 
-    create_reduction_op(
-        builder, target, args, kwargs, nanmax_init_value, nanmax_combiner, "np.nanmax"
+    return create_reduction_op(
+        builder, signature, args, nanmax_init_value, nanmax_combiner, "np.nanmax"
     )
 
 
-@lower(np.nansum, types.Array)
-def np_nansum_cg(builder, target, args, kwargs):
+@lower(np.nansum, types.Array, api="values")
+def np_nansum_cg(builder, signature, args):
     """
     Sum over all dimensions, treating NaN as zero.
     """
@@ -2335,13 +2363,13 @@ def np_nansum_cg(builder, target, args, kwargs):
         else:
             return add(out_arg, in_arg)
 
-    create_reduction_op(
-        builder, target, args, kwargs, nansum_init_value, nansum_combiner, "np.nansum"
+    return create_reduction_op(
+        builder, signature, args, nansum_init_value, nansum_combiner, "np.nansum"
     )
 
 
-@lower(np.nanprod, types.Array)
-def np_nanprod_cg(builder, target, args, kwargs):
+@lower(np.nanprod, types.Array, api="values")
+def np_nanprod_cg(builder, signature, args):
     """
     Product over all dimensions, treating NaN as one.
     """
@@ -2360,19 +2388,13 @@ def np_nanprod_cg(builder, target, args, kwargs):
         else:
             return mul(out_arg, in_arg)
 
-    create_reduction_op(
-        builder,
-        target,
-        args,
-        kwargs,
-        nanprod_init_value,
-        nanprod_combiner,
-        "np.nanprod",
+    return create_reduction_op(
+        builder, signature, args, nanprod_init_value, nanprod_combiner, "np.nanprod"
     )
 
 
-@lower(np.nanmean, types.Array)
-def np_nanmean_cg(builder, target, args, kwargs):
+@lower(np.nanmean, types.Array, api="values")
+def np_nanmean_cg(builder, signature, args):
     """
     Mean over all dimensions, ignoring NaN values.
     Computes sum of non-NaN values divided by count of non-NaN values.
@@ -2380,8 +2402,8 @@ def np_nanmean_cg(builder, target, args, kwargs):
     from numba_cuda_mlir.lowering_utilities import add
     from numba_cuda_mlir.lowering_utilities.type_conversions import to_mlir_type
 
-    arr = builder.load_var(args[0])
-    arr_type = builder.get_numba_type(args[0])
+    arr = args[0]
+    arr_type = signature.args[0]
     element_type = arr_type.dtype
     mlir_element_type = builder.get_value_type(element_type)
 
@@ -2460,7 +2482,7 @@ def np_nanmean_cg(builder, target, args, kwargs):
         mean_f64 = arith.divf(sum_f64, total_count)
         mean = arith.fptosi(mlir_element_type, mean_f64)
 
-    builder.store_var(target, mean)
+    return mean
 
 
 # ============================================================================
@@ -2472,7 +2494,7 @@ def np_nanmean_cg(builder, target, args, kwargs):
 # which looks them up in numba_cuda_mlir.ufunc_db and delegates to these lowering functions.
 
 
-def create_elementwise_op(builder, target, args, kwargs, math_fn, op_name):
+def create_elementwise_op(builder, signature, args, math_fn, op_name):
     """
     Public helper for implementing element-wise operations using linalg.GenericOp.
 
@@ -2482,28 +2504,27 @@ def create_elementwise_op(builder, target, args, kwargs, math_fn, op_name):
 
     Args:
         builder: MLIR builder instance
-        target: Target variable for the result
-        args: Function arguments (should be single array)
-        kwargs: Keyword arguments (should be empty)
+        signature: Selected Numba signature
+        args: Lowered arguments (should be a single array)
         math_fn: Function(input_element_type, target_element_type, input_mlir_type, target_mlir_type, in_elem) -> result
         op_name: Name of the operation for error messages
 
     Examples:
         See np_abs_cg, np_sqrt_cg, np_exp_cg, np_log_cg for complete usage examples.
     """
-    assert len(args) == 1 and len(kwargs) == 0, f"{op_name} takes exactly one argument"
+    assert len(args) == 1, f"{op_name} takes exactly one argument"
     arg = args[0]
 
     # Extract types from input array and target
-    input_array_type = builder.get_numba_type(arg.name)
+    input_array_type = signature.args[0]
     input_element_type = input_array_type.dtype
     input_mlir_type = builder.get_value_type(input_element_type)
 
-    target_array_type = builder.get_numba_type(target.name)
+    target_array_type = signature.return_type
     target_element_type = target_array_type.dtype
     target_mlir_type = builder.get_value_type(target_element_type)
 
-    array_memref = builder.load_var(arg)
+    array_memref = arg
     array = lowering_utilities.memref_to_value_tensor(input_array_type, array_memref)
     input_tensor_type = array.type
 
@@ -2557,13 +2578,13 @@ def create_elementwise_op(builder, target, args, kwargs, math_fn, op_name):
     # Get the result and convert back to memref
     map_result = next(iter(cast(Any, generic_op.operation.results)))
     result_memref = lowering_utilities.value_tensor_to_storage_memref(target_array_type, map_result)
-    builder.store_var(target, result_memref)
+    return result_memref
 
 
 @ufunc_registry.register(np.abs)
 @ufunc_registry.register(np.absolute)
-@lower(np.abs, types.Array)
-def np_abs_cg(builder, target, args, kwargs):
+@lower(np.abs, types.Array, api="values")
+def np_abs_cg(builder, signature, args):
     """
     Element-wise absolute value using linalg.GenericOp.
     """
@@ -2585,12 +2606,12 @@ def np_abs_cg(builder, target, args, kwargs):
         # Convert to target type if needed
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, abs_fn, "np.abs")
+    return create_elementwise_op(builder, signature, args, abs_fn, "np.abs")
 
 
 @ufunc_registry.register(np.sqrt)
-@lower(np.sqrt, types.Array)
-def np_sqrt_cg(builder, target, args, kwargs):
+@lower(np.sqrt, types.Array, api="values")
+def np_sqrt_cg(builder, signature, args):
     """
     Element-wise square root using linalg.GenericOp.
     """
@@ -2606,12 +2627,12 @@ def np_sqrt_cg(builder, target, args, kwargs):
         result = math_dialect.sqrt(in_elem)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, sqrt_fn, "np.sqrt")
+    return create_elementwise_op(builder, signature, args, sqrt_fn, "np.sqrt")
 
 
 @ufunc_registry.register(np.exp)
-@lower(np.exp, types.Array)
-def np_exp_cg(builder, target, args, kwargs):
+@lower(np.exp, types.Array, api="values")
+def np_exp_cg(builder, signature, args):
     """
     Element-wise exponential using linalg.GenericOp.
     """
@@ -2627,12 +2648,12 @@ def np_exp_cg(builder, target, args, kwargs):
         result = math_dialect.exp(in_elem)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, exp_fn, "np.exp")
+    return create_elementwise_op(builder, signature, args, exp_fn, "np.exp")
 
 
 @ufunc_registry.register(np.log)
-@lower(np.log, types.Array)
-def np_log_cg(builder, target, args, kwargs):
+@lower(np.log, types.Array, api="values")
+def np_log_cg(builder, signature, args):
     """
     Element-wise natural logarithm using linalg.GenericOp.
     """
@@ -2648,7 +2669,7 @@ def np_log_cg(builder, target, args, kwargs):
         result = math_dialect.log(in_elem)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, log_fn, "np.log")
+    return create_elementwise_op(builder, signature, args, log_fn, "np.log")
 
 
 # Angle conversion constants
@@ -2656,70 +2677,70 @@ _RAD_TO_DEG = 180.0 / np.pi
 _DEG_TO_RAD = np.pi / 180.0
 
 
-@lower(np.rad2deg, types.Float)
-@lower(np.degrees, types.Float)
-def np_rad2deg_scalar_cg(builder, target, args, kwargs):
+@lower(np.rad2deg, types.Float, api="values")
+@lower(np.degrees, types.Float, api="values")
+def np_rad2deg_scalar_cg(builder, signature, args):
     """Scalar radians to degrees: x * (180 / pi)"""
-    assert len(args) == 1 and len(kwargs) == 0
-    in_val = builder.load_var(args[0])
-    target_mlir_type = builder.get_mlir_type(target)
+    assert len(args) == 1
+    in_val = args[0]
+    target_mlir_type = builder.get_mlir_type(signature.return_type)
     in_val = convert(in_val, target_mlir_type)
     factor = float_of(_RAD_TO_DEG, target_mlir_type)
     result = arith.mulf(in_val, factor)
-    builder.store_var(target, result)
+    return result
 
 
-@lower(np.rad2deg, types.Float, types.Array)
-@lower(np.degrees, types.Float, types.Array)
-def np_rad2deg_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.rad2deg, types.Float, types.Array, api="values")
+@lower(np.degrees, types.Float, types.Array, api="values")
+def np_rad2deg_scalar_to_array_cg(builder, signature, args):
     """rad2deg(scalar, out_array) - broadcast scalar to output array"""
-    assert len(args) == 2 and len(kwargs) == 0
-    in_val = builder.load_var(args[0])
-    out_arr = builder.load_var(args[1])
-    output_array_type = builder.get_numba_type(args[1].name)
+    assert len(args) == 2
+    in_val = args[0]
+    out_arr = args[1]
+    output_array_type = signature.args[1]
     elem_type = builder.get_value_type(output_array_type.dtype)
     in_val = convert(in_val, elem_type)
     factor = float_of(_RAD_TO_DEG, elem_type)
     result_val = arith.mulf(in_val, factor)
     # Fill all elements of output array with the result
-    _store_first_output_value(builder, args[1], out_arr, result_val)
-    builder.store_var(target, out_arr)
+    _store_first_output_value(builder, signature.args[1], out_arr, result_val)
+    return out_arr
 
 
-@lower(np.deg2rad, types.Float)
-@lower(np.radians, types.Float)
-def np_deg2rad_scalar_cg(builder, target, args, kwargs):
+@lower(np.deg2rad, types.Float, api="values")
+@lower(np.radians, types.Float, api="values")
+def np_deg2rad_scalar_cg(builder, signature, args):
     """Scalar degrees to radians: x * (pi / 180)"""
-    assert len(args) == 1 and len(kwargs) == 0
-    in_val = builder.load_var(args[0])
-    target_mlir_type = builder.get_mlir_type(target)
+    assert len(args) == 1
+    in_val = args[0]
+    target_mlir_type = builder.get_mlir_type(signature.return_type)
     in_val = convert(in_val, target_mlir_type)
     factor = float_of(_DEG_TO_RAD, target_mlir_type)
     result = arith.mulf(in_val, factor)
-    builder.store_var(target, result)
+    return result
 
 
-@lower(np.deg2rad, types.Float, types.Array)
-@lower(np.radians, types.Float, types.Array)
-def np_deg2rad_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.deg2rad, types.Float, types.Array, api="values")
+@lower(np.radians, types.Float, types.Array, api="values")
+def np_deg2rad_scalar_to_array_cg(builder, signature, args):
     """deg2rad(scalar, out_array) - broadcast scalar to output array"""
-    assert len(args) == 2 and len(kwargs) == 0
-    in_val = builder.load_var(args[0])
-    out_arr = builder.load_var(args[1])
-    output_array_type = builder.get_numba_type(args[1].name)
+    assert len(args) == 2
+    in_val = args[0]
+    out_arr = args[1]
+    output_array_type = signature.args[1]
     elem_type = builder.get_value_type(output_array_type.dtype)
     in_val = convert(in_val, elem_type)
     factor = float_of(_DEG_TO_RAD, elem_type)
     result_val = arith.mulf(in_val, factor)
-    _store_first_output_value(builder, args[1], out_arr, result_val)
-    builder.store_var(target, out_arr)
+    _store_first_output_value(builder, signature.args[1], out_arr, result_val)
+    return out_arr
 
 
 @ufunc_registry.register(np.rad2deg)
 @ufunc_registry.register(np.degrees)
-@lower(np.rad2deg, types.Array)
-@lower(np.degrees, types.Array)
-def np_rad2deg_cg(builder, target, args, kwargs):
+@lower(np.rad2deg, types.Array, api="values")
+@lower(np.degrees, types.Array, api="values")
+def np_rad2deg_cg(builder, signature, args):
     """Element-wise radians to degrees: x * (180 / pi)"""
 
     def rad2deg_fn(
@@ -2733,14 +2754,14 @@ def np_rad2deg_cg(builder, target, args, kwargs):
         result = arith.mulf(in_elem, factor)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, rad2deg_fn, "np.rad2deg")
+    return create_elementwise_op(builder, signature, args, rad2deg_fn, "np.rad2deg")
 
 
 @ufunc_registry.register(np.deg2rad)
 @ufunc_registry.register(np.radians)
-@lower(np.deg2rad, types.Array)
-@lower(np.radians, types.Array)
-def np_deg2rad_cg(builder, target, args, kwargs):
+@lower(np.deg2rad, types.Array, api="values")
+@lower(np.radians, types.Array, api="values")
+def np_deg2rad_cg(builder, signature, args):
     """Element-wise degrees to radians: x * (pi / 180)"""
 
     def deg2rad_fn(
@@ -2754,7 +2775,7 @@ def np_deg2rad_cg(builder, target, args, kwargs):
         result = arith.mulf(in_elem, factor)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, deg2rad_fn, "np.deg2rad")
+    return create_elementwise_op(builder, signature, args, deg2rad_fn, "np.deg2rad")
 
 
 def _deg2rad_elem(in_elem):
@@ -2769,36 +2790,34 @@ def _rad2deg_elem(in_elem):
     return arith.mulf(in_elem, factor)
 
 
-@lower(np.deg2rad, types.Array, types.Array)
-@lower(np.radians, types.Array, types.Array)
-def np_deg2rad_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.deg2rad, types.Array, types.Array, api="values")
+@lower(np.radians, types.Array, types.Array, api="values")
+def np_deg2rad_array_to_array_cg(builder, signature, args):
     """deg2rad(array, out_array) - element-wise degrees to radians"""
-    create_elementwise_op_with_output(builder, target, args, _deg2rad_elem)
+    return create_elementwise_op_with_output(builder, signature, args, _deg2rad_elem)
 
 
-@lower(np.rad2deg, types.Array, types.Array)
-@lower(np.degrees, types.Array, types.Array)
-def np_rad2deg_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.rad2deg, types.Array, types.Array, api="values")
+@lower(np.degrees, types.Array, types.Array, api="values")
+def np_rad2deg_array_to_array_cg(builder, signature, args):
     """rad2deg(array, out_array) - element-wise radians to degrees"""
-    create_elementwise_op_with_output(builder, target, args, _rad2deg_elem)
+    return create_elementwise_op_with_output(builder, signature, args, _rad2deg_elem)
 
 
-@lower(operator.truediv, types.Array, types.Array)
-@lower(operator.truediv, types.Array, types.Number)
-@lower(operator.truediv, types.Number, types.Array)
-def operator_truediv_array_lower(builder, target, args, kwargs):
+@lower(operator.truediv, types.Array, types.Array, api="values")
+@lower(operator.truediv, types.Array, types.Number, api="values")
+@lower(operator.truediv, types.Number, types.Array, api="values")
+def operator_truediv_array_lower(builder, signature, args):
     """Lower operator.truediv for arrays by using linalg.div"""
-    target_type = builder.get_numba_type(target.name)
-    lower_np_binop(builder, target, target_type, args, linalg.div)
+    return lower_np_binop(builder, signature, args, linalg.div)
 
 
-@lower(operator.itruediv, types.Array, types.Array)
-@lower(operator.itruediv, types.Array, types.Number)
-@lower(operator.itruediv, types.Number, types.Array)
-def operator_itruediv_array_lower(builder, target, args, kwargs):
+@lower(operator.itruediv, types.Array, types.Array, api="values")
+@lower(operator.itruediv, types.Array, types.Number, api="values")
+@lower(operator.itruediv, types.Number, types.Array, api="values")
+def operator_itruediv_array_lower(builder, signature, args):
     """Lower operator.itruediv for arrays by using linalg.div"""
-    target_type = builder.get_numba_type(target.name)
-    lower_np_binop(builder, target, target_type, args, linalg.div)
+    return lower_np_binop(builder, signature, args, linalg.div)
 
 
 def _negate(value):
@@ -2810,8 +2829,8 @@ def _negate(value):
     return arith.negf(value)
 
 
-@lower(operator.neg, types.Array)
-def operator_neg_array_lower(builder, target, args, kwargs):
+@lower(operator.neg, types.Array, api="values")
+def operator_neg_array_lower(builder, signature, args):
     """Lower operator.neg for arrays element-wise"""
 
     def neg_fn(
@@ -2828,11 +2847,11 @@ def operator_neg_array_lower(builder, target, args, kwargs):
         )
         return _negate(value)
 
-    create_elementwise_op(builder, target, args, kwargs, neg_fn, "operator.neg")
+    return create_elementwise_op(builder, signature, args, neg_fn, "operator.neg")
 
 
-@lower(operator.pos, types.Array)
-def operator_pos_array_lower(builder, target, args, kwargs):
+@lower(operator.pos, types.Array, api="values")
+def operator_pos_array_lower(builder, signature, args):
     """Lower operator.pos for arrays: an element-wise copy, as +x returns a new array"""
 
     def pos_fn(
@@ -2848,23 +2867,22 @@ def operator_pos_array_lower(builder, target, args, kwargs):
             signed=get_conversion_signedness(input_element_type, target_element_type),
         )
 
-    create_elementwise_op(builder, target, args, kwargs, pos_fn, "operator.pos")
+    return create_elementwise_op(builder, signature, args, pos_fn, "operator.pos")
 
 
-@lower(abs, types.Array)
-def abs_array_lower(builder, target, args, kwargs):
+@lower(abs, types.Array, api="values")
+def abs_array_lower(builder, signature, args):
     """Lower abs() for arrays"""
-    np_abs_cg(builder, target, args, kwargs)
+    return np_abs_cg(builder, signature, args)
 
 
-@lower(operator.matmul, types.Array, types.Array)
-def operator_matmul_array_lower(builder, target, args, kwargs):
+@lower(operator.matmul, types.Array, types.Array, api="values")
+def operator_matmul_array_lower(builder, signature, args):
     """Lower operator.matmul (@) for arrays"""
-    target_type = builder.get_numba_type(target.name)
-    lower_matmul(builder, target, target_type, args)
+    return lower_matmul(builder, signature, args)
 
 
-def _allocate_array(builder, target, args):
+def _allocate_array(builder, signature, args):
     """Helper to allocate array memory without storing to variable.
 
     Returns the allocated memref value.
@@ -2873,17 +2891,17 @@ def _allocate_array(builder, target, args):
 
     shape_arg = args[0]
 
-    shape_type = builder.get_numba_type(shape_arg.name)
-    target_type = builder.get_numba_type(target.name)
+    shape_type = signature.args[0]
+    target_type = signature.return_type
 
     # Determine ndim from shape
     if isinstance(shape_type, types.Integer):
         ndim = 1
-        shape_vals = [builder.load_var(shape_arg)]
+        shape_vals = [shape_arg]
     elif isinstance(shape_type, (types.UniTuple, types.Tuple)):
         ndim = shape_type.count if isinstance(shape_type, types.UniTuple) else len(shape_type.types)
         # Extract tuple elements
-        shape_loaded = builder.load_var(shape_arg)
+        shape_loaded = shape_arg
 
         assert isinstance(shape_loaded, (list, tuple)), (
             f"Expected Python tuple for shape, got {type(shape_loaded)}"
@@ -2898,16 +2916,16 @@ def _allocate_array(builder, target, args):
     return lowering_utilities.array_alloca(target_type, shape_vals)
 
 
-@lower(np.empty, types.UniTuple, types.DTypeSpec)
-@lower(np.empty, types.Tuple, types.DTypeSpec)
-@lower(np.empty, types.Integer, types.DTypeSpec)
-@lower(np.empty, types.UniTuple)
-@lower(np.empty, types.Tuple)
-@lower(np.empty, types.Integer)
-def np_empty_lower(builder, target, args, kwargs):
+@lower(np.empty, types.UniTuple, types.DTypeSpec, api="values")
+@lower(np.empty, types.Tuple, types.DTypeSpec, api="values")
+@lower(np.empty, types.Integer, types.DTypeSpec, api="values")
+@lower(np.empty, types.UniTuple, api="values")
+@lower(np.empty, types.Tuple, api="values")
+@lower(np.empty, types.Integer, api="values")
+def np_empty_lower(builder, signature, args):
     """Lower np.empty to memref.alloc"""
-    result_memref = _allocate_array(builder, target, args)
-    builder.store_var(target, result_memref)
+    result_memref = _allocate_array(builder, signature, args)
+    return result_memref
 
 
 def _fill_array_storage(array_type, array, storage_value):
@@ -2922,16 +2940,16 @@ def _fill_array_storage(array_type, array, storage_value):
     lowering_utilities.for_each_array_index(array, fill)
 
 
-@lower(np.zeros, types.UniTuple, types.DTypeSpec)
-@lower(np.zeros, types.Tuple, types.DTypeSpec)
-@lower(np.zeros, types.Integer, types.DTypeSpec)
-def np_zeros_lower(builder, target, args, kwargs):
+@lower(np.zeros, types.UniTuple, types.DTypeSpec, api="values")
+@lower(np.zeros, types.Tuple, types.DTypeSpec, api="values")
+@lower(np.zeros, types.Integer, types.DTypeSpec, api="values")
+def np_zeros_lower(builder, signature, args):
     """Lower np.zeros to memref.alloc + linalg.fill"""
     # Allocate the array
-    array_memref = _allocate_array(builder, target, args)
+    array_memref = _allocate_array(builder, signature, args)
 
     # Fill with zeros
-    target_type = builder.get_numba_type(target.name)
+    target_type = signature.return_type
     zero = _bool_storage_literal(builder, target_type, 0)
     if zero is None:
         element_type = builder.get_value_type(target_type.dtype)
@@ -2941,19 +2959,19 @@ def np_zeros_lower(builder, target, args, kwargs):
         zero = builder.as_storage(target_type.dtype, zero)
 
     _fill_array_storage(target_type, array_memref, zero)
-    builder.store_var(target, array_memref)
+    return array_memref
 
 
-@lower(np.ones, types.UniTuple, types.DTypeSpec)
-@lower(np.ones, types.Tuple, types.DTypeSpec)
-@lower(np.ones, types.Integer, types.DTypeSpec)
-def np_ones_lower(builder, target, args, kwargs):
+@lower(np.ones, types.UniTuple, types.DTypeSpec, api="values")
+@lower(np.ones, types.Tuple, types.DTypeSpec, api="values")
+@lower(np.ones, types.Integer, types.DTypeSpec, api="values")
+def np_ones_lower(builder, signature, args):
     """Lower np.ones to memref.alloc + linalg.fill"""
     # Allocate the array
-    array_memref = _allocate_array(builder, target, args)
+    array_memref = _allocate_array(builder, signature, args)
 
     # Fill with ones
-    target_type = builder.get_numba_type(target.name)
+    target_type = signature.return_type
     one = _bool_storage_literal(builder, target_type, 1)
     if one is None:
         element_type = builder.get_value_type(target_type.dtype)
@@ -2963,13 +2981,13 @@ def np_ones_lower(builder, target, args, kwargs):
         one = builder.as_storage(target_type.dtype, one)
 
     _fill_array_storage(target_type, array_memref, one)
-    builder.store_var(target, array_memref)
+    return array_memref
 
 
-@lower(np.full, types.UniTuple, types.Number, types.DTypeSpec)
-@lower(np.full, types.Tuple, types.Number, types.DTypeSpec)
-@lower(np.full, types.Integer, types.Number, types.DTypeSpec)
-def np_full_lower(builder, target, args, kwargs):
+@lower(np.full, types.UniTuple, types.Number, types.DTypeSpec, api="values")
+@lower(np.full, types.Tuple, types.Number, types.DTypeSpec, api="values")
+@lower(np.full, types.Integer, types.Number, types.DTypeSpec, api="values")
+def np_full_lower(builder, signature, args):
     """Lower np.full to memref.alloc + linalg.fill"""
     assert len(args) in [2, 3], "np.full expects 2 or 3 arguments"
 
@@ -2977,12 +2995,12 @@ def np_full_lower(builder, target, args, kwargs):
     shape_dtype_args = [args[0]]
     if len(args) > 2:
         shape_dtype_args.append(args[2])
-    array_memref = _allocate_array(builder, target, shape_dtype_args)
+    array_memref = _allocate_array(builder, signature, shape_dtype_args)
 
     # Get the fill value
-    target_type = builder.get_numba_type(target.name)
+    target_type = signature.return_type
     value_arg = args[1]
-    fill_value = builder.load_var(value_arg)
+    fill_value = value_arg
 
     # Convert fill value to target element type if needed
     element_type = builder.get_value_type(target_type.dtype)
@@ -2991,85 +3009,82 @@ def np_full_lower(builder, target, args, kwargs):
 
     # Fill the array
     _fill_array_storage(target_type, array_memref, fill_value)
-    builder.store_var(target, array_memref)
+    return array_memref
 
 
-@lower(np.add, types.Number, types.Number)
-def np_add_scalar_lower(builder, target, args, kwargs):
+@lower(np.add, types.Number, types.Number, api="values")
+def np_add_scalar_lower(builder, signature, args):
     """Lower np.add for scalars"""
     assert len(args) == 2, "np.add expects 2 arguments"
-    lhs = builder.load_var(args[0])
-    rhs = builder.load_var(args[1])
+    lhs = args[0]
+    rhs = args[1]
     result = (
         arith.addf(lhs, rhs)
-        if isinstance(builder.get_numba_type(target.name), types.Float)
+        if isinstance(signature.return_type, types.Float)
         else arith.addi(lhs, rhs)
     )
-    builder.store_var(target, result)
+    return result
 
 
-@lower(np.add, types.Array, types.Array)
-@lower(np.add, types.Array, types.Number)
-@lower(np.add, types.Number, types.Array)
-def np_add_array_lower(builder, target, args, kwargs):
+@lower(np.add, types.Array, types.Array, api="values")
+@lower(np.add, types.Array, types.Number, api="values")
+@lower(np.add, types.Number, types.Array, api="values")
+def np_add_array_lower(builder, signature, args):
     """Lower np.add for arrays"""
-    target_type = builder.get_numba_type(target.name)
-    lower_np_binop(builder, target, target_type, args, linalg.add)
+    return lower_np_binop(builder, signature, args, linalg.add)
 
 
-@lower(np.subtract, types.Number, types.Number)
-def np_subtract_scalar_lower(builder, target, args, kwargs):
+@lower(np.subtract, types.Number, types.Number, api="values")
+def np_subtract_scalar_lower(builder, signature, args):
     """Lower np.subtract for scalars"""
     assert len(args) == 2, "np.subtract expects 2 arguments"
-    lhs = builder.load_var(args[0])
-    rhs = builder.load_var(args[1])
+    lhs = args[0]
+    rhs = args[1]
     result = (
         arith.subf(lhs, rhs)
-        if isinstance(builder.get_numba_type(target.name), types.Float)
+        if isinstance(signature.return_type, types.Float)
         else arith.subi(lhs, rhs)
     )
-    builder.store_var(target, result)
+    return result
 
 
-@lower(np.subtract, types.Array, types.Array)
-@lower(np.subtract, types.Array, types.Number)
-@lower(np.subtract, types.Number, types.Array)
-def np_subtract_array_lower(builder, target, args, kwargs):
+@lower(np.subtract, types.Array, types.Array, api="values")
+@lower(np.subtract, types.Array, types.Number, api="values")
+@lower(np.subtract, types.Number, types.Array, api="values")
+def np_subtract_array_lower(builder, signature, args):
     """Lower np.subtract for arrays"""
-    target_type = builder.get_numba_type(target.name)
-    lower_np_binop(builder, target, target_type, args, linalg.sub)
+    return lower_np_binop(builder, signature, args, linalg.sub)
 
 
-@lower(np.multiply, types.Number, types.Number)
-def np_multiply_scalar_lower(builder, target, args, kwargs):
+@lower(np.multiply, types.Number, types.Number, api="values")
+def np_multiply_scalar_lower(builder, signature, args):
     """Lower np.multiply for scalars"""
     assert len(args) == 2, "np.multiply expects 2 arguments"
-    lhs = builder.load_var(args[0])
-    rhs = builder.load_var(args[1])
+    lhs = args[0]
+    rhs = args[1]
     result = (
         arith.mulf(lhs, rhs)
-        if isinstance(builder.get_numba_type(target.name), types.Float)
+        if isinstance(signature.return_type, types.Float)
         else arith.muli(lhs, rhs)
     )
-    builder.store_var(target, result)
+    return result
 
 
-@lower(np.multiply, types.Array, types.Array)
-@lower(np.multiply, types.Array, types.Number)
-@lower(np.multiply, types.Number, types.Array)
-def np_multiply_array_lower(builder, target, args, kwargs):
+@lower(np.multiply, types.Array, types.Array, api="values")
+@lower(np.multiply, types.Array, types.Number, api="values")
+@lower(np.multiply, types.Number, types.Array, api="values")
+def np_multiply_array_lower(builder, signature, args):
     """Lower np.multiply for arrays"""
-    target_type = builder.get_numba_type(target.name)
-    lower_np_binop(builder, target, target_type, args, linalg.mul)
+    return lower_np_binop(builder, signature, args, linalg.mul)
 
 
-@lower(np.divide, types.Number, types.Number)
-def np_divide_scalar_lower(builder, target, args, kwargs):
+@lower(np.divide, types.Number, types.Number, api="values")
+def np_divide_scalar_lower(builder, signature, args):
     """Lower np.divide for scalars."""
 
-    lhs = builder.load_var(args[0])
-    rhs = builder.load_var(args[1])
-    target_type = builder.get_numba_type(target.name)
+    lhs = args[0]
+    rhs = args[1]
+    target_type = signature.return_type
 
     if isinstance(target_type, types.Float):
         # Convert operands to the target type so mixed-type calls like
@@ -3082,56 +3097,55 @@ def np_divide_scalar_lower(builder, target, args, kwargs):
     else:
         result = arith.divsi(lhs, rhs)
 
-    builder.store_var(target, result)
+    return result
 
 
-@lower(np.divide, types.Array, types.Array)
-@lower(np.divide, types.Array, types.Number)
-@lower(np.divide, types.Number, types.Array)
-def np_divide_array_lower(builder, target, args, kwargs):
+@lower(np.divide, types.Array, types.Array, api="values")
+@lower(np.divide, types.Array, types.Number, api="values")
+@lower(np.divide, types.Number, types.Array, api="values")
+def np_divide_array_lower(builder, signature, args):
     """Lower np.divide for arrays"""
-    target_type = builder.get_numba_type(target.name)
-    lower_np_binop(builder, target, target_type, args, linalg.div)
+    return lower_np_binop(builder, signature, args, linalg.div)
 
 
-@lower(np.negative, types.Array)
-def np_negative_array_lower(builder, target, args, kwargs):
+@lower(np.negative, types.Array, api="values")
+def np_negative_array_lower(builder, signature, args):
     """Lower np.negative for arrays"""
     # Same as operator.neg implementation
-    operator_neg_array_lower(builder, target, args, kwargs)
+    return operator_neg_array_lower(builder, signature, args)
 
 
-@lower(np.absolute, types.Number)
-def np_absolute_scalar_lower(builder, target, args, kwargs):
+@lower(np.absolute, types.Number, api="values")
+def np_absolute_scalar_lower(builder, signature, args):
     """Lower np.absolute for scalars"""
     assert len(args) == 1, "np.absolute expects 1 argument"
-    value = builder.load_var(args[0])
+    value = args[0]
     result = (
         math_dialect.absf(value)
-        if isinstance(builder.get_numba_type(args[0].name), types.Float)
+        if isinstance(signature.args[0], types.Float)
         else math_dialect.absi(value)
     )
-    builder.store_var(target, result)
+    return result
 
 
-@lower(np.absolute, types.Array)
-def np_absolute_array_lower(builder, target, args, kwargs):
+@lower(np.absolute, types.Array, api="values")
+def np_absolute_array_lower(builder, signature, args):
     """Lower np.absolute for arrays"""
     # Use the existing np.abs lowering
-    np_abs_cg(builder, target, args, kwargs)
+    return np_abs_cg(builder, signature, args)
 
 
-@lower(np.ceil, types.Number)
-def np_ceil_scalar_lower(builder, target, args, kwargs):
+@lower(np.ceil, types.Number, api="values")
+def np_ceil_scalar_lower(builder, signature, args):
     """Lower np.ceil for scalars"""
     assert len(args) == 1, "np.ceil expects 1 argument"
-    value = builder.load_var(args[0])
+    value = args[0]
     result = math_dialect.ceil(value)
-    builder.store_var(target, result)
+    return result
 
 
-@lower(np.ceil, types.Array)
-def np_ceil_array_lower(builder, target, args, kwargs):
+@lower(np.ceil, types.Array, api="values")
+def np_ceil_array_lower(builder, signature, args):
     """Lower np.ceil for arrays"""
 
     def ceil_fn(
@@ -3144,11 +3158,11 @@ def np_ceil_array_lower(builder, target, args, kwargs):
         result = math_dialect.ceil(in_elem)
         return convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, ceil_fn, "np.ceil")
+    return create_elementwise_op(builder, signature, args, ceil_fn, "np.ceil")
 
 
-@lower(np.isnan, types.Number)
-def np_isnan_scalar_lower(builder, target, args, kwargs):
+@lower(np.isnan, types.Number, api="values")
+def np_isnan_scalar_lower(builder, signature, args):
     """Lower np.isnan for scalars.
 
     Integers are never NaN; floats use ``math.isnan``. ``arith.cmpf`` with the
@@ -3156,18 +3170,18 @@ def np_isnan_scalar_lower(builder, target, args, kwargs):
     but using the math dialect mirrors the existing ``math.isnan`` lowering.
     """
     assert len(args) == 1, "np.isnan expects 1 argument"
-    assert not kwargs, "np.isnan does not accept keyword arguments"
-    value = builder.load_var(args[0])
-    arg_ty = builder.get_numba_type(args[0].name)
+
+    value = args[0]
+    arg_ty = signature.args[0]
     if isinstance(arg_ty, (types.Integer, types.Boolean)):
         result = arith.constant(T.bool(), False)
     else:
         result = math_dialect.isnan(value)
-    builder.store_var(target, result)
+    return result
 
 
-@lower(np.isnan, types.Array)
-def np_isnan_array_lower(builder, target, args, kwargs):
+@lower(np.isnan, types.Array, api="values")
+def np_isnan_array_lower(builder, signature, args):
     """Lower np.isnan element-wise over an array."""
 
     def isnan_fn(
@@ -3181,20 +3195,20 @@ def np_isnan_array_lower(builder, target, args, kwargs):
             return arith.constant(T.bool(), False)
         return math_dialect.isnan(in_elem)
 
-    create_elementwise_op(builder, target, args, kwargs, isnan_fn, "np.isnan")
+    return create_elementwise_op(builder, signature, args, isnan_fn, "np.isnan")
 
 
-@lower(np.floor, types.Number)
-def np_floor_scalar_lower(builder, target, args, kwargs):
+@lower(np.floor, types.Number, api="values")
+def np_floor_scalar_lower(builder, signature, args):
     """Lower np.floor for scalars"""
     assert len(args) == 1, "np.floor expects 1 argument"
-    value = builder.load_var(args[0])
+    value = args[0]
     result = math_dialect.floor(value)
-    builder.store_var(target, result)
+    return result
 
 
-@lower(np.floor, types.Array)
-def np_floor_array_lower(builder, target, args, kwargs):
+@lower(np.floor, types.Array, api="values")
+def np_floor_array_lower(builder, signature, args):
     """Lower np.floor for arrays"""
 
     def floor_fn(
@@ -3207,86 +3221,83 @@ def np_floor_array_lower(builder, target, args, kwargs):
         result = math_dialect.floor(in_elem)
         return convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, floor_fn, "np.floor")
+    return create_elementwise_op(builder, signature, args, floor_fn, "np.floor")
 
 
-@lower(np.log, types.Number)
-def np_log_scalar_lower(builder, target, args, kwargs):
+@lower(np.log, types.Number, api="values")
+def np_log_scalar_lower(builder, signature, args):
     """Lower np.log for scalars"""
     assert len(args) == 1, "np.log expects 1 argument"
-    value = builder.load_var(args[0])
+    value = args[0]
     result = math_dialect.log(value)
-    builder.store_var(target, result)
+    return result
 
 
-@lower(np.exp, types.Number)
-def np_exp_scalar_lower(builder, target, args, kwargs):
+@lower(np.exp, types.Number, api="values")
+def np_exp_scalar_lower(builder, signature, args):
     """Lower np.exp for scalars"""
     assert len(args) == 1, "np.exp expects 1 argument"
-    value = builder.load_var(args[0])
+    value = args[0]
     result = math_dialect.exp(value)
-    builder.store_var(target, result)
+    return result
 
 
-@lower(np.matmul, types.Array, types.Array)
-def np_matmul_lower(builder, target, args, kwargs):
+@lower(np.matmul, types.Array, types.Array, api="values")
+def np_matmul_lower(builder, signature, args):
     """Lower np.matmul for 2D arrays"""
-    target_type = builder.get_numba_type(target.name)
-    lower_matmul(builder, target, target_type, args)
+    return lower_matmul(builder, signature, args)
 
 
-@lower(np.dot, types.Number, types.Number)
-def np_dot_scalar_lower(builder, target, args, kwargs):
+@lower(np.dot, types.Number, types.Number, api="values")
+def np_dot_scalar_lower(builder, signature, args):
     """Lower np.dot for scalars (multiplication)"""
     assert len(args) == 2, "np.dot expects 2 arguments"
-    lhs = builder.load_var(args[0])
-    rhs = builder.load_var(args[1])
+    lhs = args[0]
+    rhs = args[1]
     result = (
         arith.mulf(lhs, rhs)
-        if isinstance(builder.get_numba_type(target.name), types.Float)
+        if isinstance(signature.return_type, types.Float)
         else arith.muli(lhs, rhs)
     )
-    builder.store_var(target, result)
+    return result
 
 
-@lower(np.dot, types.Number, types.Array)
-@lower(np.dot, types.Array, types.Number)
-def np_dot_scalar_array_lower(builder, target, args, kwargs):
+@lower(np.dot, types.Number, types.Array, api="values")
+@lower(np.dot, types.Array, types.Number, api="values")
+def np_dot_scalar_array_lower(builder, signature, args):
     """Lower np.dot for scalar * array"""
-    target_type = builder.get_numba_type(target.name)
-    lower_np_binop(builder, target, target_type, args, linalg.mul)
+    return lower_np_binop(builder, signature, args, linalg.mul)
 
 
-@lower(np.dot, types.Array, types.Array)
-def np_dot_array_lower(builder, target, args, kwargs):
+@lower(np.dot, types.Array, types.Array, api="values")
+def np_dot_array_lower(builder, signature, args):
     """Lower np.dot for arrays"""
-    lhs_type = builder.get_numba_type(args[0].name)
-    rhs_type = builder.get_numba_type(args[1].name)
-    target_type = builder.get_numba_type(target.name)
+    lhs_type = signature.args[0]
+    rhs_type = signature.args[1]
 
     # If both are 2D, use matmul
     if lhs_type.ndim == 2 and rhs_type.ndim == 2:
-        lower_matmul(builder, target, target_type, args)
+        return lower_matmul(builder, signature, args)
     else:
         # Use the general dot lowering
-        lower_linalg_dot(builder, target, target_type, args)
+        return lower_linalg_dot(builder, signature, args)
 
 
-@lower(np.transpose, types.Array)
-def np_transpose_lower(builder, target, args, kwargs):
+@lower(np.transpose, types.Array, api="values")
+def np_transpose_lower(builder, signature, args):
     """Lower np.transpose for arrays"""
     assert len(args) == 1, "np.transpose expects 1 argument"
-    lower_transpose(builder, target, args[0])
+    return lower_transpose(builder, signature, args)
 
 
-def _array_transpose_cg(builder, target, args, kwargs):
-    array = builder.load_var(args[0])
+def _array_transpose_cg(builder, signature, args):
+    array = args[0]
     rank = array.type.rank
-    axes = builder.load_vars(args[1:])
+    axes = args[1:]
+    if len(axes) == 1 and isinstance(axes[0], (tuple, list)):
+        axes = list(axes[0])
     if not axes or (len(axes) == 1 and isinstance(axes[0], ir.NoneType)):
         axes = list(reversed(range(rank)))
-    elif len(axes) == 1 and isinstance(axes[0], (tuple, list)):
-        axes = list(axes[0])
     if len(axes) != rank:
         raise errors.TypingError("transpose axes must match the array rank")
 
@@ -3324,7 +3335,7 @@ def _array_transpose_cg(builder, target, args, kwargs):
     with scf.if_ctx_manager(arith.xori(valid, arith.cmpi(arith.CmpIPredicate.eq, zero, zero))):
         set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
         scf.yield_([])
-    result_type = builder.get_mlir_type(builder.get_numba_type(target))
+    result_type = builder.get_mlir_type(signature.return_type)
     result_type = ir.MemRefType.get(
         result_type.shape, result_type.element_type, result_type.layout, array.type.memory_space
     )
@@ -3338,15 +3349,20 @@ def _array_transpose_cg(builder, target, args, kwargs):
         static_sizes=[ir.ShapedType.get_dynamic_size()] * rank,
         static_strides=[ir.ShapedType.get_dynamic_stride_or_offset()] * rank,
     )
-    builder.store_var(target, result)
+    return result
 
 
 @lower_getattr(types.Array, "transpose")
 def lower_array_transpose_getattr(_, builder, target, array):
-    builder.store_var(target, DeferredMethodCall(array, _array_transpose_cg))
+    builder.store_var(
+        target,
+        DeferredMethodCall(
+            builder.load_var(array), builder.get_numba_type(array), _array_transpose_cg
+        ),
+    )
 
 
-def create_elementwise_op_with_output(builder, target, args, math_fn):
+def create_elementwise_op_with_output(builder, signature, args, math_fn):
     """
     Helper for element-wise operations that write to an output array.
 
@@ -3356,13 +3372,13 @@ def create_elementwise_op_with_output(builder, target, args, math_fn):
     assert len(args) == 2
     input_arg, output_arg = args
 
-    input_array_type = builder.get_numba_type(input_arg.name)
-    output_array_type = builder.get_numba_type(output_arg.name)
+    input_array_type = signature.args[0]
+    output_array_type = signature.args[1]
     input_mlir_elem_type = builder.get_value_type(input_array_type.dtype)
     output_mlir_elem_type = builder.get_value_type(output_array_type.dtype)
 
-    input_memref = builder.load_var(input_arg)
-    output_memref = builder.load_var(output_arg)
+    input_memref = input_arg
+    output_memref = output_arg
 
     input_tensor = lowering_utilities.memref_to_value_tensor(input_array_type, input_memref)
     if ArrayStorageLayout(output_array_type).byte_addressed:
@@ -3408,10 +3424,10 @@ def create_elementwise_op_with_output(builder, target, args, math_fn):
     result_memref = tensor_to_memref(map_result)
     # Copy result back to the original output memref (in-place semantics)
     lowering_utilities.copy_array_storage(output_array_type, result_memref, output_memref)
-    builder.store_var(target, output_memref)
+    return output_memref
 
 
-def create_scalar_to_output_array(builder, target, args, math_fn, op_name):
+def create_scalar_to_output_array(builder, signature, args, math_fn, op_name):
     """
     Helper for element-wise operations with scalar input and output array.
 
@@ -3421,36 +3437,36 @@ def create_scalar_to_output_array(builder, target, args, math_fn, op_name):
     assert len(args) == 2, f"{op_name} expects 2 arguments (scalar, output)"
     scalar_arg, output_arg = args
 
-    in_val = builder.load_var(scalar_arg)
-    out_arr = builder.load_var(output_arg)
-    output_array_type = builder.get_numba_type(output_arg.name)
+    in_val = scalar_arg
+    out_arr = output_arg
+    output_array_type = signature.args[1]
     elem_type = builder.get_value_type(output_array_type.dtype)
     in_val = convert(in_val, elem_type)
     result_val = math_fn(in_val)
     result_val = convert(result_val, elem_type)
-    _store_first_output_value(builder, output_arg, out_arr, result_val)
-    builder.store_var(target, out_arr)
+    _store_first_output_value(builder, signature.args[1], out_arr, result_val)
+    return out_arr
 
 
-@lower(np.arccos, types.Float)
-def np_arccos_scalar_cg(builder, target, args, kwargs):
+@lower(np.arccos, types.Float, api="values")
+def np_arccos_scalar_cg(builder, signature, args):
     """Scalar arccos using MLIR math dialect"""
-    assert len(args) == 1 and len(kwargs) == 0
-    value = builder.load_var(args[0])
+    assert len(args) == 1
+    value = args[0]
     result = math_dialect.acos(value)
-    result = convert(result, builder.get_mlir_type(target))
-    builder.store_var(target, result)
+    result = convert(result, builder.get_mlir_type(signature.return_type))
+    return result
 
 
-@lower(np.arccos, types.Float, types.Array)
-def np_arccos_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.arccos, types.Float, types.Array, api="values")
+def np_arccos_scalar_to_array_cg(builder, signature, args):
     """arccos(scalar, out_array) - compute arccos and store in output array"""
-    create_scalar_to_output_array(builder, target, args, math_dialect.acos, "np.arccos")
+    return create_scalar_to_output_array(builder, signature, args, math_dialect.acos, "np.arccos")
 
 
 @ufunc_registry.register(np.arccos)
-@lower(np.arccos, types.Array)
-def np_arccos_array_cg(builder, target, args, kwargs):
+@lower(np.arccos, types.Array, api="values")
+def np_arccos_array_cg(builder, signature, args):
     """Element-wise arccos using linalg.GenericOp."""
 
     def arccos_fn(
@@ -3466,38 +3482,38 @@ def np_arccos_array_cg(builder, target, args, kwargs):
             result = math_dialect.acos(in_elem)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, arccos_fn, "np.arccos")
+    return create_elementwise_op(builder, signature, args, arccos_fn, "np.arccos")
 
 
-@lower(np.arccos, types.Array, types.Array)
-def np_arccos_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.arccos, types.Array, types.Array, api="values")
+def np_arccos_array_to_array_cg(builder, signature, args):
     """arccos(array, out_array) - element-wise arccos to output array"""
-    input_array_type = builder.get_numba_type(args[0].name)
+    input_array_type = signature.args[0]
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(builder, target, args, _complex_acos)
+        return create_complex_elementwise_op_with_output(builder, signature, args, _complex_acos)
     else:
-        create_elementwise_op_with_output(builder, target, args, math_dialect.acos)
+        return create_elementwise_op_with_output(builder, signature, args, math_dialect.acos)
 
 
-@lower(np.arcsin, types.Float)
-def np_arcsin_scalar_cg(builder, target, args, kwargs):
+@lower(np.arcsin, types.Float, api="values")
+def np_arcsin_scalar_cg(builder, signature, args):
     """Scalar arcsin using MLIR math dialect"""
-    assert len(args) == 1 and len(kwargs) == 0
-    value = builder.load_var(args[0])
+    assert len(args) == 1
+    value = args[0]
     result = math_dialect.asin(value)
-    result = convert(result, builder.get_mlir_type(target))
-    builder.store_var(target, result)
+    result = convert(result, builder.get_mlir_type(signature.return_type))
+    return result
 
 
-@lower(np.arcsin, types.Float, types.Array)
-def np_arcsin_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.arcsin, types.Float, types.Array, api="values")
+def np_arcsin_scalar_to_array_cg(builder, signature, args):
     """arcsin(scalar, out_array) - compute arcsin and store in output array"""
-    create_scalar_to_output_array(builder, target, args, math_dialect.asin, "np.arcsin")
+    return create_scalar_to_output_array(builder, signature, args, math_dialect.asin, "np.arcsin")
 
 
 @ufunc_registry.register(np.arcsin)
-@lower(np.arcsin, types.Array)
-def np_arcsin_array_cg(builder, target, args, kwargs):
+@lower(np.arcsin, types.Array, api="values")
+def np_arcsin_array_cg(builder, signature, args):
     """Element-wise arcsin using linalg.GenericOp."""
 
     def arcsin_fn(
@@ -3513,38 +3529,38 @@ def np_arcsin_array_cg(builder, target, args, kwargs):
             result = math_dialect.asin(in_elem)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, arcsin_fn, "np.arcsin")
+    return create_elementwise_op(builder, signature, args, arcsin_fn, "np.arcsin")
 
 
-@lower(np.arcsin, types.Array, types.Array)
-def np_arcsin_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.arcsin, types.Array, types.Array, api="values")
+def np_arcsin_array_to_array_cg(builder, signature, args):
     """arcsin(array, out_array) - element-wise arcsin to output array"""
-    input_array_type = builder.get_numba_type(args[0].name)
+    input_array_type = signature.args[0]
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(builder, target, args, _complex_asin)
+        return create_complex_elementwise_op_with_output(builder, signature, args, _complex_asin)
     else:
-        create_elementwise_op_with_output(builder, target, args, math_dialect.asin)
+        return create_elementwise_op_with_output(builder, signature, args, math_dialect.asin)
 
 
-@lower(np.arctan, types.Float)
-def np_arctan_scalar_cg(builder, target, args, kwargs):
+@lower(np.arctan, types.Float, api="values")
+def np_arctan_scalar_cg(builder, signature, args):
     """Scalar arctan using MLIR math dialect"""
-    assert len(args) == 1 and len(kwargs) == 0
-    value = builder.load_var(args[0])
+    assert len(args) == 1
+    value = args[0]
     result = math_dialect.atan(value)
-    result = convert(result, builder.get_mlir_type(target))
-    builder.store_var(target, result)
+    result = convert(result, builder.get_mlir_type(signature.return_type))
+    return result
 
 
-@lower(np.arctan, types.Float, types.Array)
-def np_arctan_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.arctan, types.Float, types.Array, api="values")
+def np_arctan_scalar_to_array_cg(builder, signature, args):
     """arctan(scalar, out_array) - compute arctan and store in output array"""
-    create_scalar_to_output_array(builder, target, args, math_dialect.atan, "np.arctan")
+    return create_scalar_to_output_array(builder, signature, args, math_dialect.atan, "np.arctan")
 
 
 @ufunc_registry.register(np.arctan)
-@lower(np.arctan, types.Array)
-def np_arctan_array_cg(builder, target, args, kwargs):
+@lower(np.arctan, types.Array, api="values")
+def np_arctan_array_cg(builder, signature, args):
     """Element-wise arctan using linalg.GenericOp."""
 
     def arctan_fn(
@@ -3560,38 +3576,38 @@ def np_arctan_array_cg(builder, target, args, kwargs):
             result = math_dialect.atan(in_elem)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, arctan_fn, "np.arctan")
+    return create_elementwise_op(builder, signature, args, arctan_fn, "np.arctan")
 
 
-@lower(np.arctan, types.Array, types.Array)
-def np_arctan_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.arctan, types.Array, types.Array, api="values")
+def np_arctan_array_to_array_cg(builder, signature, args):
     """arctan(array, out_array) - element-wise arctan to output array"""
-    input_array_type = builder.get_numba_type(args[0].name)
+    input_array_type = signature.args[0]
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(builder, target, args, _complex_atan)
+        return create_complex_elementwise_op_with_output(builder, signature, args, _complex_atan)
     else:
-        create_elementwise_op_with_output(builder, target, args, math_dialect.atan)
+        return create_elementwise_op_with_output(builder, signature, args, math_dialect.atan)
 
 
-@lower(np.sin, types.Float)
-def np_sin_scalar_cg(builder, target, args, kwargs):
+@lower(np.sin, types.Float, api="values")
+def np_sin_scalar_cg(builder, signature, args):
     """Scalar sin using MLIR math dialect"""
-    assert len(args) == 1 and len(kwargs) == 0
-    value = builder.load_var(args[0])
+    assert len(args) == 1
+    value = args[0]
     result = math_dialect.sin(value)
-    result = convert(result, builder.get_mlir_type(target))
-    builder.store_var(target, result)
+    result = convert(result, builder.get_mlir_type(signature.return_type))
+    return result
 
 
-@lower(np.sin, types.Float, types.Array)
-def np_sin_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.sin, types.Float, types.Array, api="values")
+def np_sin_scalar_to_array_cg(builder, signature, args):
     """sin(scalar, out_array) - compute sin and store in output array"""
-    create_scalar_to_output_array(builder, target, args, math_dialect.sin, "np.sin")
+    return create_scalar_to_output_array(builder, signature, args, math_dialect.sin, "np.sin")
 
 
 @ufunc_registry.register(np.sin)
-@lower(np.sin, types.Array)
-def np_sin_array_cg(builder, target, args, kwargs):
+@lower(np.sin, types.Array, api="values")
+def np_sin_array_cg(builder, signature, args):
     """Element-wise sin using linalg.GenericOp."""
 
     def sin_fn(
@@ -3607,38 +3623,40 @@ def np_sin_array_cg(builder, target, args, kwargs):
             result = math_dialect.sin(in_elem)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, sin_fn, "np.sin")
+    return create_elementwise_op(builder, signature, args, sin_fn, "np.sin")
 
 
-@lower(np.sin, types.Array, types.Array)
-def np_sin_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.sin, types.Array, types.Array, api="values")
+def np_sin_array_to_array_cg(builder, signature, args):
     """sin(array, out_array) - element-wise sin to output array"""
-    input_array_type = builder.get_numba_type(args[0].name)
+    input_array_type = signature.args[0]
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(builder, target, args, complex_dialect.sin)
+        return create_complex_elementwise_op_with_output(
+            builder, signature, args, complex_dialect.sin
+        )
     else:
-        create_elementwise_op_with_output(builder, target, args, math_dialect.sin)
+        return create_elementwise_op_with_output(builder, signature, args, math_dialect.sin)
 
 
-@lower(np.cos, types.Float)
-def np_cos_scalar_cg(builder, target, args, kwargs):
+@lower(np.cos, types.Float, api="values")
+def np_cos_scalar_cg(builder, signature, args):
     """Scalar cos using MLIR math dialect"""
-    assert len(args) == 1 and len(kwargs) == 0
-    value = builder.load_var(args[0])
+    assert len(args) == 1
+    value = args[0]
     result = math_dialect.cos(value)
-    result = convert(result, builder.get_mlir_type(target))
-    builder.store_var(target, result)
+    result = convert(result, builder.get_mlir_type(signature.return_type))
+    return result
 
 
-@lower(np.cos, types.Float, types.Array)
-def np_cos_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.cos, types.Float, types.Array, api="values")
+def np_cos_scalar_to_array_cg(builder, signature, args):
     """cos(scalar, out_array) - compute cos and store in output array"""
-    create_scalar_to_output_array(builder, target, args, math_dialect.cos, "np.cos")
+    return create_scalar_to_output_array(builder, signature, args, math_dialect.cos, "np.cos")
 
 
 @ufunc_registry.register(np.cos)
-@lower(np.cos, types.Array)
-def np_cos_array_cg(builder, target, args, kwargs):
+@lower(np.cos, types.Array, api="values")
+def np_cos_array_cg(builder, signature, args):
     """Element-wise cos using linalg.GenericOp."""
 
     def cos_fn(
@@ -3654,38 +3672,40 @@ def np_cos_array_cg(builder, target, args, kwargs):
             result = math_dialect.cos(in_elem)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, cos_fn, "np.cos")
+    return create_elementwise_op(builder, signature, args, cos_fn, "np.cos")
 
 
-@lower(np.cos, types.Array, types.Array)
-def np_cos_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.cos, types.Array, types.Array, api="values")
+def np_cos_array_to_array_cg(builder, signature, args):
     """cos(array, out_array) - element-wise cos to output array"""
-    input_array_type = builder.get_numba_type(args[0].name)
+    input_array_type = signature.args[0]
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(builder, target, args, complex_dialect.cos)
+        return create_complex_elementwise_op_with_output(
+            builder, signature, args, complex_dialect.cos
+        )
     else:
-        create_elementwise_op_with_output(builder, target, args, math_dialect.cos)
+        return create_elementwise_op_with_output(builder, signature, args, math_dialect.cos)
 
 
-@lower(np.tan, types.Float)
-def np_tan_scalar_cg(builder, target, args, kwargs):
+@lower(np.tan, types.Float, api="values")
+def np_tan_scalar_cg(builder, signature, args):
     """Scalar tan using MLIR math dialect"""
-    assert len(args) == 1 and len(kwargs) == 0
-    value = builder.load_var(args[0])
+    assert len(args) == 1
+    value = args[0]
     result = math_dialect.tan(value)
-    result = convert(result, builder.get_mlir_type(target))
-    builder.store_var(target, result)
+    result = convert(result, builder.get_mlir_type(signature.return_type))
+    return result
 
 
-@lower(np.tan, types.Float, types.Array)
-def np_tan_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.tan, types.Float, types.Array, api="values")
+def np_tan_scalar_to_array_cg(builder, signature, args):
     """tan(scalar, out_array) - compute tan and store in output array"""
-    create_scalar_to_output_array(builder, target, args, math_dialect.tan, "np.tan")
+    return create_scalar_to_output_array(builder, signature, args, math_dialect.tan, "np.tan")
 
 
 @ufunc_registry.register(np.tan)
-@lower(np.tan, types.Array)
-def np_tan_array_cg(builder, target, args, kwargs):
+@lower(np.tan, types.Array, api="values")
+def np_tan_array_cg(builder, signature, args):
     """Element-wise tan using linalg.GenericOp."""
 
     def tan_fn(
@@ -3701,38 +3721,40 @@ def np_tan_array_cg(builder, target, args, kwargs):
             result = math_dialect.tan(in_elem)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, tan_fn, "np.tan")
+    return create_elementwise_op(builder, signature, args, tan_fn, "np.tan")
 
 
-@lower(np.tan, types.Array, types.Array)
-def np_tan_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.tan, types.Array, types.Array, api="values")
+def np_tan_array_to_array_cg(builder, signature, args):
     """tan(array, out_array) - element-wise tan to output array"""
-    input_array_type = builder.get_numba_type(args[0].name)
+    input_array_type = signature.args[0]
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(builder, target, args, complex_dialect.tan)
+        return create_complex_elementwise_op_with_output(
+            builder, signature, args, complex_dialect.tan
+        )
     else:
-        create_elementwise_op_with_output(builder, target, args, math_dialect.tan)
+        return create_elementwise_op_with_output(builder, signature, args, math_dialect.tan)
 
 
-@lower(np.sinh, types.Float)
-def np_sinh_scalar_cg(builder, target, args, kwargs):
+@lower(np.sinh, types.Float, api="values")
+def np_sinh_scalar_cg(builder, signature, args):
     """Scalar sinh using MLIR math dialect"""
-    assert len(args) == 1 and len(kwargs) == 0
-    value = builder.load_var(args[0])
+    assert len(args) == 1
+    value = args[0]
     result = math_dialect.sinh(value)
-    result = convert(result, builder.get_mlir_type(target))
-    builder.store_var(target, result)
+    result = convert(result, builder.get_mlir_type(signature.return_type))
+    return result
 
 
-@lower(np.sinh, types.Float, types.Array)
-def np_sinh_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.sinh, types.Float, types.Array, api="values")
+def np_sinh_scalar_to_array_cg(builder, signature, args):
     """sinh(scalar, out_array) - compute sinh and store in output array"""
-    create_scalar_to_output_array(builder, target, args, math_dialect.sinh, "np.sinh")
+    return create_scalar_to_output_array(builder, signature, args, math_dialect.sinh, "np.sinh")
 
 
 @ufunc_registry.register(np.sinh)
-@lower(np.sinh, types.Array)
-def np_sinh_array_cg(builder, target, args, kwargs):
+@lower(np.sinh, types.Array, api="values")
+def np_sinh_array_cg(builder, signature, args):
     """Element-wise sinh using linalg.GenericOp."""
 
     def sinh_fn(
@@ -3748,38 +3770,38 @@ def np_sinh_array_cg(builder, target, args, kwargs):
             result = math_dialect.sinh(in_elem)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, sinh_fn, "np.sinh")
+    return create_elementwise_op(builder, signature, args, sinh_fn, "np.sinh")
 
 
-@lower(np.sinh, types.Array, types.Array)
-def np_sinh_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.sinh, types.Array, types.Array, api="values")
+def np_sinh_array_to_array_cg(builder, signature, args):
     """sinh(array, out_array) - element-wise sinh to output array"""
-    input_array_type = builder.get_numba_type(args[0].name)
+    input_array_type = signature.args[0]
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(builder, target, args, _complex_sinh)
+        return create_complex_elementwise_op_with_output(builder, signature, args, _complex_sinh)
     else:
-        create_elementwise_op_with_output(builder, target, args, math_dialect.sinh)
+        return create_elementwise_op_with_output(builder, signature, args, math_dialect.sinh)
 
 
-@lower(np.cosh, types.Float)
-def np_cosh_scalar_cg(builder, target, args, kwargs):
+@lower(np.cosh, types.Float, api="values")
+def np_cosh_scalar_cg(builder, signature, args):
     """Scalar cosh using MLIR math dialect"""
-    assert len(args) == 1 and len(kwargs) == 0
-    value = builder.load_var(args[0])
+    assert len(args) == 1
+    value = args[0]
     result = math_dialect.cosh(value)
-    result = convert(result, builder.get_mlir_type(target))
-    builder.store_var(target, result)
+    result = convert(result, builder.get_mlir_type(signature.return_type))
+    return result
 
 
-@lower(np.cosh, types.Float, types.Array)
-def np_cosh_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.cosh, types.Float, types.Array, api="values")
+def np_cosh_scalar_to_array_cg(builder, signature, args):
     """cosh(scalar, out_array) - compute cosh and store in output array"""
-    create_scalar_to_output_array(builder, target, args, math_dialect.cosh, "np.cosh")
+    return create_scalar_to_output_array(builder, signature, args, math_dialect.cosh, "np.cosh")
 
 
 @ufunc_registry.register(np.cosh)
-@lower(np.cosh, types.Array)
-def np_cosh_array_cg(builder, target, args, kwargs):
+@lower(np.cosh, types.Array, api="values")
+def np_cosh_array_cg(builder, signature, args):
     """Element-wise cosh using linalg.GenericOp."""
 
     def cosh_fn(
@@ -3795,38 +3817,38 @@ def np_cosh_array_cg(builder, target, args, kwargs):
             result = math_dialect.cosh(in_elem)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, cosh_fn, "np.cosh")
+    return create_elementwise_op(builder, signature, args, cosh_fn, "np.cosh")
 
 
-@lower(np.cosh, types.Array, types.Array)
-def np_cosh_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.cosh, types.Array, types.Array, api="values")
+def np_cosh_array_to_array_cg(builder, signature, args):
     """cosh(array, out_array) - element-wise cosh to output array"""
-    input_array_type = builder.get_numba_type(args[0].name)
+    input_array_type = signature.args[0]
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(builder, target, args, _complex_cosh)
+        return create_complex_elementwise_op_with_output(builder, signature, args, _complex_cosh)
     else:
-        create_elementwise_op_with_output(builder, target, args, math_dialect.cosh)
+        return create_elementwise_op_with_output(builder, signature, args, math_dialect.cosh)
 
 
-@lower(np.tanh, types.Float)
-def np_tanh_scalar_cg(builder, target, args, kwargs):
+@lower(np.tanh, types.Float, api="values")
+def np_tanh_scalar_cg(builder, signature, args):
     """Scalar tanh using MLIR math dialect"""
-    assert len(args) == 1 and len(kwargs) == 0
-    value = builder.load_var(args[0])
+    assert len(args) == 1
+    value = args[0]
     result = math_dialect.tanh(value)
-    result = convert(result, builder.get_mlir_type(target))
-    builder.store_var(target, result)
+    result = convert(result, builder.get_mlir_type(signature.return_type))
+    return result
 
 
-@lower(np.tanh, types.Float, types.Array)
-def np_tanh_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.tanh, types.Float, types.Array, api="values")
+def np_tanh_scalar_to_array_cg(builder, signature, args):
     """tanh(scalar, out_array) - compute tanh and store in output array"""
-    create_scalar_to_output_array(builder, target, args, math_dialect.tanh, "np.tanh")
+    return create_scalar_to_output_array(builder, signature, args, math_dialect.tanh, "np.tanh")
 
 
 @ufunc_registry.register(np.tanh)
-@lower(np.tanh, types.Array)
-def np_tanh_array_cg(builder, target, args, kwargs):
+@lower(np.tanh, types.Array, api="values")
+def np_tanh_array_cg(builder, signature, args):
     """Element-wise tanh using linalg.GenericOp."""
 
     def tanh_fn(
@@ -3842,38 +3864,40 @@ def np_tanh_array_cg(builder, target, args, kwargs):
             result = math_dialect.tanh(in_elem)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, tanh_fn, "np.tanh")
+    return create_elementwise_op(builder, signature, args, tanh_fn, "np.tanh")
 
 
-@lower(np.tanh, types.Array, types.Array)
-def np_tanh_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.tanh, types.Array, types.Array, api="values")
+def np_tanh_array_to_array_cg(builder, signature, args):
     """tanh(array, out_array) - element-wise tanh to output array"""
-    input_array_type = builder.get_numba_type(args[0].name)
+    input_array_type = signature.args[0]
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(builder, target, args, complex_dialect.tanh)
+        return create_complex_elementwise_op_with_output(
+            builder, signature, args, complex_dialect.tanh
+        )
     else:
-        create_elementwise_op_with_output(builder, target, args, math_dialect.tanh)
+        return create_elementwise_op_with_output(builder, signature, args, math_dialect.tanh)
 
 
-@lower(np.arcsinh, types.Float)
-def np_arcsinh_scalar_cg(builder, target, args, kwargs):
+@lower(np.arcsinh, types.Float, api="values")
+def np_arcsinh_scalar_cg(builder, signature, args):
     """Scalar arcsinh using MLIR math dialect"""
-    assert len(args) == 1 and len(kwargs) == 0
-    value = builder.load_var(args[0])
+    assert len(args) == 1
+    value = args[0]
     result = math_dialect.asinh(value)
-    result = convert(result, builder.get_mlir_type(target))
-    builder.store_var(target, result)
+    result = convert(result, builder.get_mlir_type(signature.return_type))
+    return result
 
 
-@lower(np.arcsinh, types.Float, types.Array)
-def np_arcsinh_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.arcsinh, types.Float, types.Array, api="values")
+def np_arcsinh_scalar_to_array_cg(builder, signature, args):
     """arcsinh(scalar, out_array) - compute arcsinh and store in output array"""
-    create_scalar_to_output_array(builder, target, args, math_dialect.asinh, "np.arcsinh")
+    return create_scalar_to_output_array(builder, signature, args, math_dialect.asinh, "np.arcsinh")
 
 
 @ufunc_registry.register(np.arcsinh)
-@lower(np.arcsinh, types.Array)
-def np_arcsinh_array_cg(builder, target, args, kwargs):
+@lower(np.arcsinh, types.Array, api="values")
+def np_arcsinh_array_cg(builder, signature, args):
     """Element-wise arcsinh using linalg.GenericOp."""
 
     def arcsinh_fn(
@@ -3889,38 +3913,38 @@ def np_arcsinh_array_cg(builder, target, args, kwargs):
             result = math_dialect.asinh(in_elem)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, arcsinh_fn, "np.arcsinh")
+    return create_elementwise_op(builder, signature, args, arcsinh_fn, "np.arcsinh")
 
 
-@lower(np.arcsinh, types.Array, types.Array)
-def np_arcsinh_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.arcsinh, types.Array, types.Array, api="values")
+def np_arcsinh_array_to_array_cg(builder, signature, args):
     """arcsinh(array, out_array) - element-wise arcsinh to output array"""
-    input_array_type = builder.get_numba_type(args[0].name)
+    input_array_type = signature.args[0]
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(builder, target, args, _complex_asinh)
+        return create_complex_elementwise_op_with_output(builder, signature, args, _complex_asinh)
     else:
-        create_elementwise_op_with_output(builder, target, args, math_dialect.asinh)
+        return create_elementwise_op_with_output(builder, signature, args, math_dialect.asinh)
 
 
-@lower(np.arccosh, types.Float)
-def np_arccosh_scalar_cg(builder, target, args, kwargs):
+@lower(np.arccosh, types.Float, api="values")
+def np_arccosh_scalar_cg(builder, signature, args):
     """Scalar arccosh using MLIR math dialect"""
-    assert len(args) == 1 and len(kwargs) == 0
-    value = builder.load_var(args[0])
+    assert len(args) == 1
+    value = args[0]
     result = math_dialect.acosh(value)
-    result = convert(result, builder.get_mlir_type(target))
-    builder.store_var(target, result)
+    result = convert(result, builder.get_mlir_type(signature.return_type))
+    return result
 
 
-@lower(np.arccosh, types.Float, types.Array)
-def np_arccosh_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.arccosh, types.Float, types.Array, api="values")
+def np_arccosh_scalar_to_array_cg(builder, signature, args):
     """arccosh(scalar, out_array) - compute arccosh and store in output array"""
-    create_scalar_to_output_array(builder, target, args, math_dialect.acosh, "np.arccosh")
+    return create_scalar_to_output_array(builder, signature, args, math_dialect.acosh, "np.arccosh")
 
 
 @ufunc_registry.register(np.arccosh)
-@lower(np.arccosh, types.Array)
-def np_arccosh_array_cg(builder, target, args, kwargs):
+@lower(np.arccosh, types.Array, api="values")
+def np_arccosh_array_cg(builder, signature, args):
     """Element-wise arccosh using linalg.GenericOp."""
 
     def arccosh_fn(
@@ -3936,38 +3960,38 @@ def np_arccosh_array_cg(builder, target, args, kwargs):
             result = math_dialect.acosh(in_elem)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, arccosh_fn, "np.arccosh")
+    return create_elementwise_op(builder, signature, args, arccosh_fn, "np.arccosh")
 
 
-@lower(np.arccosh, types.Array, types.Array)
-def np_arccosh_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.arccosh, types.Array, types.Array, api="values")
+def np_arccosh_array_to_array_cg(builder, signature, args):
     """arccosh(array, out_array) - element-wise arccosh to output array"""
-    input_array_type = builder.get_numba_type(args[0].name)
+    input_array_type = signature.args[0]
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(builder, target, args, _complex_acosh)
+        return create_complex_elementwise_op_with_output(builder, signature, args, _complex_acosh)
     else:
-        create_elementwise_op_with_output(builder, target, args, math_dialect.acosh)
+        return create_elementwise_op_with_output(builder, signature, args, math_dialect.acosh)
 
 
-@lower(np.arctanh, types.Float)
-def np_arctanh_scalar_cg(builder, target, args, kwargs):
+@lower(np.arctanh, types.Float, api="values")
+def np_arctanh_scalar_cg(builder, signature, args):
     """Scalar arctanh using MLIR math dialect"""
-    assert len(args) == 1 and len(kwargs) == 0
-    value = builder.load_var(args[0])
+    assert len(args) == 1
+    value = args[0]
     result = math_dialect.atanh(value)
-    result = convert(result, builder.get_mlir_type(target))
-    builder.store_var(target, result)
+    result = convert(result, builder.get_mlir_type(signature.return_type))
+    return result
 
 
-@lower(np.arctanh, types.Float, types.Array)
-def np_arctanh_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.arctanh, types.Float, types.Array, api="values")
+def np_arctanh_scalar_to_array_cg(builder, signature, args):
     """arctanh(scalar, out_array) - compute arctanh and store in output array"""
-    create_scalar_to_output_array(builder, target, args, math_dialect.atanh, "np.arctanh")
+    return create_scalar_to_output_array(builder, signature, args, math_dialect.atanh, "np.arctanh")
 
 
 @ufunc_registry.register(np.arctanh)
-@lower(np.arctanh, types.Array)
-def np_arctanh_array_cg(builder, target, args, kwargs):
+@lower(np.arctanh, types.Array, api="values")
+def np_arctanh_array_cg(builder, signature, args):
     """Element-wise arctanh using linalg.GenericOp."""
 
     def arctanh_fn(
@@ -3983,71 +4007,77 @@ def np_arctanh_array_cg(builder, target, args, kwargs):
             result = math_dialect.atanh(in_elem)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, arctanh_fn, "np.arctanh")
+    return create_elementwise_op(builder, signature, args, arctanh_fn, "np.arctanh")
 
 
-@lower(np.arctanh, types.Array, types.Array)
-def np_arctanh_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.arctanh, types.Array, types.Array, api="values")
+def np_arctanh_array_to_array_cg(builder, signature, args):
     """arctanh(array, out_array) - element-wise arctanh to output array"""
-    input_array_type = builder.get_numba_type(args[0].name)
+    input_array_type = signature.args[0]
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(builder, target, args, _complex_atanh)
+        return create_complex_elementwise_op_with_output(builder, signature, args, _complex_atanh)
     else:
-        create_elementwise_op_with_output(builder, target, args, math_dialect.atanh)
+        return create_elementwise_op_with_output(builder, signature, args, math_dialect.atanh)
 
 
-@lower(np.sqrt, types.Float, types.Array)
-def np_sqrt_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.sqrt, types.Float, types.Array, api="values")
+def np_sqrt_scalar_to_array_cg(builder, signature, args):
     """sqrt(scalar, out_array) - compute sqrt and store in output array"""
-    create_scalar_to_output_array(builder, target, args, math_dialect.sqrt, "np.sqrt")
+    return create_scalar_to_output_array(builder, signature, args, math_dialect.sqrt, "np.sqrt")
 
 
-@lower(np.sqrt, types.Array, types.Array)
-def np_sqrt_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.sqrt, types.Array, types.Array, api="values")
+def np_sqrt_array_to_array_cg(builder, signature, args):
     """sqrt(array, out_array) - element-wise sqrt to output array"""
-    input_array_type = builder.get_numba_type(args[0].name)
+    input_array_type = signature.args[0]
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(builder, target, args, complex_dialect.sqrt)
+        return create_complex_elementwise_op_with_output(
+            builder, signature, args, complex_dialect.sqrt
+        )
     else:
-        create_elementwise_op_with_output(builder, target, args, math_dialect.sqrt)
+        return create_elementwise_op_with_output(builder, signature, args, math_dialect.sqrt)
 
 
-@lower(np.exp, types.Float, types.Array)
-def np_exp_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.exp, types.Float, types.Array, api="values")
+def np_exp_scalar_to_array_cg(builder, signature, args):
     """exp(scalar, out_array) - compute exp and store in output array"""
-    create_scalar_to_output_array(builder, target, args, math_dialect.exp, "np.exp")
+    return create_scalar_to_output_array(builder, signature, args, math_dialect.exp, "np.exp")
 
 
-@lower(np.exp, types.Array, types.Array)
-def np_exp_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.exp, types.Array, types.Array, api="values")
+def np_exp_array_to_array_cg(builder, signature, args):
     """exp(array, out_array) - element-wise exp to output array"""
-    input_array_type = builder.get_numba_type(args[0].name)
+    input_array_type = signature.args[0]
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(builder, target, args, complex_dialect.exp)
+        return create_complex_elementwise_op_with_output(
+            builder, signature, args, complex_dialect.exp
+        )
     else:
-        create_elementwise_op_with_output(builder, target, args, math_dialect.exp)
+        return create_elementwise_op_with_output(builder, signature, args, math_dialect.exp)
 
 
-@lower(np.log, types.Float, types.Array)
-def np_log_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.log, types.Float, types.Array, api="values")
+def np_log_scalar_to_array_cg(builder, signature, args):
     """log(scalar, out_array) - compute log and store in output array"""
-    create_scalar_to_output_array(builder, target, args, math_dialect.log, "np.log")
+    return create_scalar_to_output_array(builder, signature, args, math_dialect.log, "np.log")
 
 
-@lower(np.log, types.Array, types.Array)
-def np_log_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.log, types.Array, types.Array, api="values")
+def np_log_array_to_array_cg(builder, signature, args):
     """log(array, out_array) - element-wise log to output array"""
-    input_array_type = builder.get_numba_type(args[0].name)
+    input_array_type = signature.args[0]
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(builder, target, args, complex_dialect.log)
+        return create_complex_elementwise_op_with_output(
+            builder, signature, args, complex_dialect.log
+        )
     else:
-        create_elementwise_op_with_output(builder, target, args, math_dialect.log)
+        return create_elementwise_op_with_output(builder, signature, args, math_dialect.log)
 
 
 # Binary ufunc helpers
 
 
-def create_binary_elementwise_op(builder, target, args, kwargs, math_fn, op_name):
+def create_binary_elementwise_op(builder, signature, args, math_fn, op_name):
     """
     Helper for implementing binary element-wise operations using linalg.GenericOp.
 
@@ -4058,27 +4088,26 @@ def create_binary_elementwise_op(builder, target, args, kwargs, math_fn, op_name
         builder: MLIR builder instance
         target: Target variable for the result
         args: Function arguments (should be two arrays)
-        kwargs: Keyword arguments (should be empty)
         math_fn: Function(in1_elem, in2_elem) -> result
         op_name: Name of the operation for error messages
     """
-    assert len(args) == 2 and len(kwargs) == 0, f"{op_name} takes exactly two arguments"
+    assert len(args) == 2, f"{op_name} takes exactly two arguments"
     in1_arg, in2_arg = args
 
     # Extract types from input arrays and target
-    in1_array_type = builder.get_numba_type(in1_arg.name)
-    in2_array_type = builder.get_numba_type(in2_arg.name)
+    in1_array_type = signature.args[0]
+    in2_array_type = signature.args[1]
     in1_element_type = in1_array_type.dtype
     in2_element_type = in2_array_type.dtype
     in1_mlir_type = builder.get_value_type(in1_element_type)
     in2_mlir_type = builder.get_value_type(in2_element_type)
 
-    target_array_type = builder.get_numba_type(target.name)
+    target_array_type = signature.return_type
     target_element_type = target_array_type.dtype
     target_mlir_type = builder.get_value_type(target_element_type)
 
-    in1_memref = builder.load_var(in1_arg)
-    in2_memref = builder.load_var(in2_arg)
+    in1_memref = in1_arg
+    in2_memref = in2_arg
     in1_tensor = lowering_utilities.memref_to_value_tensor(in1_array_type, in1_memref)
     in2_tensor = lowering_utilities.memref_to_value_tensor(in2_array_type, in2_memref)
     input_tensor_type = in1_tensor.type
@@ -4131,10 +4160,10 @@ def create_binary_elementwise_op(builder, target, args, kwargs, math_fn, op_name
     # Get the result and convert back to memref
     map_result = next(iter(cast(Any, generic_op.operation.results)))
     result_memref = lowering_utilities.value_tensor_to_storage_memref(target_array_type, map_result)
-    builder.store_var(target, result_memref)
+    return result_memref
 
 
-def create_binary_scalar_to_output_array(builder, target, args, math_fn, op_name):
+def create_binary_scalar_to_output_array(builder, signature, args, math_fn, op_name):
     """
     Helper for binary operations with two scalar inputs and output array.
     Handles signatures like: np.arctan2(y, x, output_array)
@@ -4143,21 +4172,21 @@ def create_binary_scalar_to_output_array(builder, target, args, math_fn, op_name
     assert len(args) == 3, f"{op_name} expects 3 arguments (in1, in2, output)"
     in1_arg, in2_arg, output_arg = args
 
-    in1_val = builder.load_var(in1_arg)
-    in2_val = builder.load_var(in2_arg)
-    out_arr = builder.load_var(output_arg)
-    output_array_type = builder.get_numba_type(output_arg.name)
+    in1_val = in1_arg
+    in2_val = in2_arg
+    out_arr = output_arg
+    output_array_type = signature.args[2]
     elem_type = builder.get_value_type(output_array_type.dtype)
     in1_val = convert(in1_val, elem_type)
     in2_val = convert(in2_val, elem_type)
     result_val = math_fn(in1_val, in2_val)
     result_val = convert(result_val, elem_type)
-    _store_first_output_value(builder, output_arg, out_arr, result_val)
-    builder.store_var(target, out_arr)
+    _store_first_output_value(builder, signature.args[2], out_arr, result_val)
+    return out_arr
 
 
 def create_binary_elementwise_op_with_output(
-    builder, target, args, math_fn, op_name, convert_inputs=True
+    builder, signature, args, math_fn, op_name, convert_inputs=True
 ):
     """
     Helper for binary element-wise operations with output array.
@@ -4170,16 +4199,16 @@ def create_binary_elementwise_op_with_output(
     assert len(args) == 3, f"{op_name} expects 3 arguments (in1, in2, output)"
     in1_arg, in2_arg, output_arg = args
 
-    in1_array_type = builder.get_numba_type(in1_arg.name)
-    in2_array_type = builder.get_numba_type(in2_arg.name)
-    output_array_type = builder.get_numba_type(output_arg.name)
+    in1_array_type = signature.args[0]
+    in2_array_type = signature.args[1]
+    output_array_type = signature.args[2]
     in1_mlir_elem_type = builder.get_value_type(in1_array_type.dtype)
     in2_mlir_elem_type = builder.get_value_type(in2_array_type.dtype)
     output_mlir_elem_type = builder.get_value_type(output_array_type.dtype)
 
-    in1_memref = builder.load_var(in1_arg)
-    in2_memref = builder.load_var(in2_arg)
-    output_memref = builder.load_var(output_arg)
+    in1_memref = in1_arg
+    in2_memref = in2_arg
+    output_memref = output_arg
 
     in1_tensor = lowering_utilities.memref_to_value_tensor(in1_array_type, in1_memref)
     in2_tensor = lowering_utilities.memref_to_value_tensor(in2_array_type, in2_memref)
@@ -4230,41 +4259,43 @@ def create_binary_elementwise_op_with_output(
     result_memref = tensor_to_memref(map_result)
     # Copy result back to the original output memref (in-place semantics)
     lowering_utilities.copy_array_storage(output_array_type, result_memref, output_memref)
-    builder.store_var(target, output_memref)
+    return output_memref
 
 
 # arctan2 lowerings
 
 
-@lower(np.arctan2, types.Float, types.Float)
-def np_arctan2_scalar_cg(builder, target, args, kwargs):
+@lower(np.arctan2, types.Float, types.Float, api="values")
+def np_arctan2_scalar_cg(builder, signature, args):
     """Scalar arctan2 using MLIR math dialect"""
-    assert len(args) == 2 and len(kwargs) == 0
-    y = builder.load_var(args[0])
-    x = builder.load_var(args[1])
+    assert len(args) == 2
+    y = args[0]
+    x = args[1]
     result = math_dialect.atan2(y, x)
-    result = convert(result, builder.get_mlir_type(target))
-    builder.store_var(target, result)
+    result = convert(result, builder.get_mlir_type(signature.return_type))
+    return result
 
 
-@lower(np.arctan2, types.Float, types.Float, types.Array)
-def np_arctan2_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.arctan2, types.Float, types.Float, types.Array, api="values")
+def np_arctan2_scalar_to_array_cg(builder, signature, args):
     """arctan2(y, x, out_array) - compute arctan2 and store in output array"""
-    create_binary_scalar_to_output_array(builder, target, args, math_dialect.atan2, "np.arctan2")
+    return create_binary_scalar_to_output_array(
+        builder, signature, args, math_dialect.atan2, "np.arctan2"
+    )
 
 
 @ufunc_registry.register(np.arctan2)
-@lower(np.arctan2, types.Array, types.Array)
-def np_arctan2_array_cg(builder, target, args, kwargs):
+@lower(np.arctan2, types.Array, types.Array, api="values")
+def np_arctan2_array_cg(builder, signature, args):
     """Element-wise arctan2 using linalg.GenericOp."""
-    create_binary_elementwise_op(builder, target, args, kwargs, math_dialect.atan2, "np.arctan2")
+    return create_binary_elementwise_op(builder, signature, args, math_dialect.atan2, "np.arctan2")
 
 
-@lower(np.arctan2, types.Array, types.Array, types.Array)
-def np_arctan2_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.arctan2, types.Array, types.Array, types.Array, api="values")
+def np_arctan2_array_to_array_cg(builder, signature, args):
     """arctan2(y_array, x_array, out_array) - element-wise arctan2"""
-    create_binary_elementwise_op_with_output(
-        builder, target, args, math_dialect.atan2, "np.arctan2"
+    return create_binary_elementwise_op_with_output(
+        builder, signature, args, math_dialect.atan2, "np.arctan2"
     )
 
 
@@ -4294,34 +4325,34 @@ def _hypot_fn(x, y):
     return arith.select(is_inf, float_of(float("inf"), x.type), result)
 
 
-@lower(np.hypot, types.Float, types.Float)
-def np_hypot_scalar_cg(builder, target, args, kwargs):
+@lower(np.hypot, types.Float, types.Float, api="values")
+def np_hypot_scalar_cg(builder, signature, args):
     """Scalar hypot using MLIR math dialect"""
-    assert len(args) == 2 and len(kwargs) == 0
-    x = builder.load_var(args[0])
-    y = builder.load_var(args[1])
+    assert len(args) == 2
+    x = args[0]
+    y = args[1]
     result = _hypot_fn(x, y)
-    result = convert(result, builder.get_mlir_type(target))
-    builder.store_var(target, result)
+    result = convert(result, builder.get_mlir_type(signature.return_type))
+    return result
 
 
-@lower(np.hypot, types.Float, types.Float, types.Array)
-def np_hypot_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.hypot, types.Float, types.Float, types.Array, api="values")
+def np_hypot_scalar_to_array_cg(builder, signature, args):
     """hypot(x, y, out_array) - compute hypot and store in output array"""
-    create_binary_scalar_to_output_array(builder, target, args, _hypot_fn, "np.hypot")
+    return create_binary_scalar_to_output_array(builder, signature, args, _hypot_fn, "np.hypot")
 
 
 @ufunc_registry.register(np.hypot)
-@lower(np.hypot, types.Array, types.Array)
-def np_hypot_array_cg(builder, target, args, kwargs):
+@lower(np.hypot, types.Array, types.Array, api="values")
+def np_hypot_array_cg(builder, signature, args):
     """Element-wise hypot using linalg.GenericOp."""
-    create_binary_elementwise_op(builder, target, args, kwargs, _hypot_fn, "np.hypot")
+    return create_binary_elementwise_op(builder, signature, args, _hypot_fn, "np.hypot")
 
 
-@lower(np.hypot, types.Array, types.Array, types.Array)
-def np_hypot_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.hypot, types.Array, types.Array, types.Array, api="values")
+def np_hypot_array_to_array_cg(builder, signature, args):
     """hypot(x_array, y_array, out_array) - element-wise hypot"""
-    create_binary_elementwise_op_with_output(builder, target, args, _hypot_fn, "np.hypot")
+    return create_binary_elementwise_op_with_output(builder, signature, args, _hypot_fn, "np.hypot")
 
 
 # Comparison ufuncs
@@ -4426,107 +4457,104 @@ _not_equal_fn = _create_comparison_fn(
 def _create_comparison_scalar_lowering(cmp_fn, op_name):
     """Create a scalar comparison lowering that stores result in output array."""
 
-    def lowering(builder, target, args, kwargs):
-        assert len(args) == 3 and len(kwargs) == 0
-        a = builder.load_var(args[0])
-        b = builder.load_var(args[1])
-        out_arr = builder.load_var(args[2])
+    def lowering(builder, signature, args):
+        assert len(args) == 3
+        a = args[0]
+        b = args[1]
+        out_arr = args[2]
         result = cmp_fn(a, b)
         # Convert i1 result to output value type, then to storage.
-        output_array_type = builder.get_numba_type(args[2].name)
+        output_array_type = signature.args[2]
         elem_type = builder.get_value_type(output_array_type.dtype)
         result = _bool_to_value_type(result, elem_type)
-        _store_first_output_value(builder, args[2], out_arr, result)
-        builder.store_var(target, out_arr)
+        _store_first_output_value(builder, signature.args[2], out_arr, result)
+        return out_arr
 
     return lowering
 
 
-@lower(np.greater, types.Number, types.Number, types.Array)
-def np_greater_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.greater, types.Number, types.Number, types.Array, api="values")
+def np_greater_scalar_to_array_cg(builder, signature, args):
     """greater(a, b, out) - scalar a > b to output array"""
-    _create_comparison_scalar_lowering(_greater_fn, "np.greater")(builder, target, args, kwargs)
+    return _create_comparison_scalar_lowering(_greater_fn, "np.greater")(builder, signature, args)
 
 
-@lower(np.greater, types.Array, types.Array, types.Array)
-def np_greater_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.greater, types.Array, types.Array, types.Array, api="values")
+def np_greater_array_to_array_cg(builder, signature, args):
     """greater(a, b, out) - element-wise a > b"""
-    create_binary_elementwise_op_with_output(
-        builder, target, args, _greater_fn, "np.greater", convert_inputs=False
+    return create_binary_elementwise_op_with_output(
+        builder, signature, args, _greater_fn, "np.greater", convert_inputs=False
     )
 
 
-@lower(np.greater_equal, types.Number, types.Number, types.Array)
-def np_greater_equal_scalar_to_array_cg(builder, target, args, kwargs):
-    _create_comparison_scalar_lowering(_greater_equal_fn, "np.greater_equal")(
-        builder, target, args, kwargs
+@lower(np.greater_equal, types.Number, types.Number, types.Array, api="values")
+def np_greater_equal_scalar_to_array_cg(builder, signature, args):
+    return _create_comparison_scalar_lowering(_greater_equal_fn, "np.greater_equal")(
+        builder, signature, args
     )
 
 
-@lower(np.greater_equal, types.Array, types.Array, types.Array)
-def np_greater_equal_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.greater_equal, types.Array, types.Array, types.Array, api="values")
+def np_greater_equal_array_to_array_cg(builder, signature, args):
     """greater_equal(a, b, out) - element-wise a >= b"""
-    create_binary_elementwise_op_with_output(
-        builder,
-        target,
-        args,
-        _greater_equal_fn,
-        "np.greater_equal",
-        convert_inputs=False,
+    return create_binary_elementwise_op_with_output(
+        builder, signature, args, _greater_equal_fn, "np.greater_equal", convert_inputs=False
     )
 
 
-@lower(np.less, types.Number, types.Number, types.Array)
-def np_less_scalar_to_array_cg(builder, target, args, kwargs):
-    _create_comparison_scalar_lowering(_less_fn, "np.less")(builder, target, args, kwargs)
+@lower(np.less, types.Number, types.Number, types.Array, api="values")
+def np_less_scalar_to_array_cg(builder, signature, args):
+    return _create_comparison_scalar_lowering(_less_fn, "np.less")(builder, signature, args)
 
 
-@lower(np.less, types.Array, types.Array, types.Array)
-def np_less_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.less, types.Array, types.Array, types.Array, api="values")
+def np_less_array_to_array_cg(builder, signature, args):
     """less(a, b, out) - element-wise a < b"""
-    create_binary_elementwise_op_with_output(
-        builder, target, args, _less_fn, "np.less", convert_inputs=False
+    return create_binary_elementwise_op_with_output(
+        builder, signature, args, _less_fn, "np.less", convert_inputs=False
     )
 
 
-@lower(np.less_equal, types.Number, types.Number, types.Array)
-def np_less_equal_scalar_to_array_cg(builder, target, args, kwargs):
-    _create_comparison_scalar_lowering(_less_equal_fn, "np.less_equal")(
-        builder, target, args, kwargs
+@lower(np.less_equal, types.Number, types.Number, types.Array, api="values")
+def np_less_equal_scalar_to_array_cg(builder, signature, args):
+    return _create_comparison_scalar_lowering(_less_equal_fn, "np.less_equal")(
+        builder, signature, args
     )
 
 
-@lower(np.less_equal, types.Array, types.Array, types.Array)
-def np_less_equal_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.less_equal, types.Array, types.Array, types.Array, api="values")
+def np_less_equal_array_to_array_cg(builder, signature, args):
     """less_equal(a, b, out) - element-wise a <= b"""
-    create_binary_elementwise_op_with_output(
-        builder, target, args, _less_equal_fn, "np.less_equal", convert_inputs=False
+    return create_binary_elementwise_op_with_output(
+        builder, signature, args, _less_equal_fn, "np.less_equal", convert_inputs=False
     )
 
 
-@lower(np.equal, types.Number, types.Number, types.Array)
-def np_equal_scalar_to_array_cg(builder, target, args, kwargs):
-    _create_comparison_scalar_lowering(_equal_fn, "np.equal")(builder, target, args, kwargs)
+@lower(np.equal, types.Number, types.Number, types.Array, api="values")
+def np_equal_scalar_to_array_cg(builder, signature, args):
+    return _create_comparison_scalar_lowering(_equal_fn, "np.equal")(builder, signature, args)
 
 
-@lower(np.equal, types.Array, types.Array, types.Array)
-def np_equal_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.equal, types.Array, types.Array, types.Array, api="values")
+def np_equal_array_to_array_cg(builder, signature, args):
     """equal(a, b, out) - element-wise a == b"""
-    create_binary_elementwise_op_with_output(
-        builder, target, args, _equal_fn, "np.equal", convert_inputs=False
+    return create_binary_elementwise_op_with_output(
+        builder, signature, args, _equal_fn, "np.equal", convert_inputs=False
     )
 
 
-@lower(np.not_equal, types.Number, types.Number, types.Array)
-def np_not_equal_scalar_to_array_cg(builder, target, args, kwargs):
-    _create_comparison_scalar_lowering(_not_equal_fn, "np.not_equal")(builder, target, args, kwargs)
+@lower(np.not_equal, types.Number, types.Number, types.Array, api="values")
+def np_not_equal_scalar_to_array_cg(builder, signature, args):
+    return _create_comparison_scalar_lowering(_not_equal_fn, "np.not_equal")(
+        builder, signature, args
+    )
 
 
-@lower(np.not_equal, types.Array, types.Array, types.Array)
-def np_not_equal_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.not_equal, types.Array, types.Array, types.Array, api="values")
+def np_not_equal_array_to_array_cg(builder, signature, args):
     """not_equal(a, b, out) - element-wise a != b"""
-    create_binary_elementwise_op_with_output(
-        builder, target, args, _not_equal_fn, "np.not_equal", convert_inputs=False
+    return create_binary_elementwise_op_with_output(
+        builder, signature, args, _not_equal_fn, "np.not_equal", convert_inputs=False
     )
 
 
@@ -4571,45 +4599,47 @@ def _logical_xor_fn(a, b):
 
 
 @ufunc_registry.register(np.logical_and)
-@lower(np.logical_and, types.Array, types.Array)
-def np_logical_and_array_cg(builder, target, args, kwargs):
+@lower(np.logical_and, types.Array, types.Array, api="values")
+def np_logical_and_array_cg(builder, signature, args):
     """Element-wise logical_and using linalg.GenericOp."""
-    create_binary_elementwise_op(builder, target, args, kwargs, _logical_and_fn, "np.logical_and")
+    return create_binary_elementwise_op(builder, signature, args, _logical_and_fn, "np.logical_and")
 
 
-@lower(np.logical_and, types.Array, types.Array, types.Array)
-def np_logical_and_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.logical_and, types.Array, types.Array, types.Array, api="values")
+def np_logical_and_array_to_array_cg(builder, signature, args):
     """logical_and(a, b, out) - element-wise a and b"""
-    create_binary_elementwise_op_with_output(
-        builder, target, args, _logical_and_fn, "np.logical_and"
+    return create_binary_elementwise_op_with_output(
+        builder, signature, args, _logical_and_fn, "np.logical_and"
     )
 
 
 @ufunc_registry.register(np.logical_or)
-@lower(np.logical_or, types.Array, types.Array)
-def np_logical_or_array_cg(builder, target, args, kwargs):
+@lower(np.logical_or, types.Array, types.Array, api="values")
+def np_logical_or_array_cg(builder, signature, args):
     """Element-wise logical_or using linalg.GenericOp."""
-    create_binary_elementwise_op(builder, target, args, kwargs, _logical_or_fn, "np.logical_or")
+    return create_binary_elementwise_op(builder, signature, args, _logical_or_fn, "np.logical_or")
 
 
-@lower(np.logical_or, types.Array, types.Array, types.Array)
-def np_logical_or_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.logical_or, types.Array, types.Array, types.Array, api="values")
+def np_logical_or_array_to_array_cg(builder, signature, args):
     """logical_or(a, b, out) - element-wise a or b"""
-    create_binary_elementwise_op_with_output(builder, target, args, _logical_or_fn, "np.logical_or")
+    return create_binary_elementwise_op_with_output(
+        builder, signature, args, _logical_or_fn, "np.logical_or"
+    )
 
 
 @ufunc_registry.register(np.logical_xor)
-@lower(np.logical_xor, types.Array, types.Array)
-def np_logical_xor_array_cg(builder, target, args, kwargs):
+@lower(np.logical_xor, types.Array, types.Array, api="values")
+def np_logical_xor_array_cg(builder, signature, args):
     """Element-wise logical_xor using linalg.GenericOp."""
-    create_binary_elementwise_op(builder, target, args, kwargs, _logical_xor_fn, "np.logical_xor")
+    return create_binary_elementwise_op(builder, signature, args, _logical_xor_fn, "np.logical_xor")
 
 
-@lower(np.logical_xor, types.Array, types.Array, types.Array)
-def np_logical_xor_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.logical_xor, types.Array, types.Array, types.Array, api="values")
+def np_logical_xor_array_to_array_cg(builder, signature, args):
     """logical_xor(a, b, out) - element-wise a xor b"""
-    create_binary_elementwise_op_with_output(
-        builder, target, args, _logical_xor_fn, "np.logical_xor"
+    return create_binary_elementwise_op_with_output(
+        builder, signature, args, _logical_xor_fn, "np.logical_xor"
     )
 
 
@@ -4621,8 +4651,8 @@ def _logical_not_fn(a):
 
 
 @ufunc_registry.register(np.logical_not)
-@lower(np.logical_not, types.Array)
-def np_logical_not_array_cg(builder, target, args, kwargs):
+@lower(np.logical_not, types.Array, api="values")
+def np_logical_not_array_cg(builder, signature, args):
     """Element-wise logical_not using linalg.GenericOp."""
 
     def logical_not_fn(
@@ -4635,13 +4665,13 @@ def np_logical_not_array_cg(builder, target, args, kwargs):
         result = _logical_not_fn(in_elem)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, logical_not_fn, "np.logical_not")
+    return create_elementwise_op(builder, signature, args, logical_not_fn, "np.logical_not")
 
 
-@lower(np.logical_not, types.Array, types.Array)
-def np_logical_not_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.logical_not, types.Array, types.Array, api="values")
+def np_logical_not_array_to_array_cg(builder, signature, args):
     """logical_not(a, out) - element-wise not a"""
-    create_elementwise_op_with_output(builder, target, args, _logical_not_fn)
+    return create_elementwise_op_with_output(builder, signature, args, _logical_not_fn)
 
 
 # Min/max ufuncs
@@ -4709,76 +4739,86 @@ def _fmin_fn(a, b):
 
 
 @ufunc_registry.register(np.maximum)
-@lower(np.maximum, types.Array, types.Array)
-def np_maximum_array_cg(builder, target, args, kwargs):
+@lower(np.maximum, types.Array, types.Array, api="values")
+def np_maximum_array_cg(builder, signature, args):
     """Element-wise maximum using linalg.GenericOp."""
-    create_binary_elementwise_op(builder, target, args, kwargs, _maximum_fn, "np.maximum")
+    return create_binary_elementwise_op(builder, signature, args, _maximum_fn, "np.maximum")
 
 
-@lower(np.maximum, types.Array, types.Array, types.Array)
-def np_maximum_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.maximum, types.Array, types.Array, types.Array, api="values")
+def np_maximum_array_to_array_cg(builder, signature, args):
     """maximum(a, b, out) - element-wise max(a, b)"""
-    create_binary_elementwise_op_with_output(builder, target, args, _maximum_fn, "np.maximum")
+    return create_binary_elementwise_op_with_output(
+        builder, signature, args, _maximum_fn, "np.maximum"
+    )
 
 
 @ufunc_registry.register(np.minimum)
-@lower(np.minimum, types.Array, types.Array)
-def np_minimum_array_cg(builder, target, args, kwargs):
+@lower(np.minimum, types.Array, types.Array, api="values")
+def np_minimum_array_cg(builder, signature, args):
     """Element-wise minimum using linalg.GenericOp."""
-    create_binary_elementwise_op(builder, target, args, kwargs, _minimum_fn, "np.minimum")
+    return create_binary_elementwise_op(builder, signature, args, _minimum_fn, "np.minimum")
 
 
-@lower(np.minimum, types.Array, types.Array, types.Array)
-def np_minimum_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.minimum, types.Array, types.Array, types.Array, api="values")
+def np_minimum_array_to_array_cg(builder, signature, args):
     """minimum(a, b, out) - element-wise min(a, b)"""
-    create_binary_elementwise_op_with_output(builder, target, args, _minimum_fn, "np.minimum")
+    return create_binary_elementwise_op_with_output(
+        builder, signature, args, _minimum_fn, "np.minimum"
+    )
 
 
 @ufunc_registry.register(np.fmax)
-@lower(np.fmax, types.Array, types.Array)
-def np_fmax_array_cg(builder, target, args, kwargs):
+@lower(np.fmax, types.Array, types.Array, api="values")
+def np_fmax_array_cg(builder, signature, args):
     """Element-wise fmax using linalg.GenericOp."""
-    create_binary_elementwise_op(builder, target, args, kwargs, _fmax_fn, "np.fmax")
+    return create_binary_elementwise_op(builder, signature, args, _fmax_fn, "np.fmax")
 
 
-@lower(np.fmax, types.Array, types.Array, types.Array)
-def np_fmax_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.fmax, types.Array, types.Array, types.Array, api="values")
+def np_fmax_array_to_array_cg(builder, signature, args):
     """fmax(a, b, out) - element-wise fmax (NaN-ignoring max)"""
-    create_binary_elementwise_op_with_output(builder, target, args, _fmax_fn, "np.fmax")
+    return create_binary_elementwise_op_with_output(builder, signature, args, _fmax_fn, "np.fmax")
 
 
 @ufunc_registry.register(np.fmin)
-@lower(np.fmin, types.Array, types.Array)
-def np_fmin_array_cg(builder, target, args, kwargs):
+@lower(np.fmin, types.Array, types.Array, api="values")
+def np_fmin_array_cg(builder, signature, args):
     """Element-wise fmin using linalg.GenericOp."""
-    create_binary_elementwise_op(builder, target, args, kwargs, _fmin_fn, "np.fmin")
+    return create_binary_elementwise_op(builder, signature, args, _fmin_fn, "np.fmin")
 
 
-@lower(np.fmin, types.Array, types.Array, types.Array)
-def np_fmin_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.fmin, types.Array, types.Array, types.Array, api="values")
+def np_fmin_array_to_array_cg(builder, signature, args):
     """fmin(a, b, out) - element-wise fmin (NaN-ignoring min)"""
-    create_binary_elementwise_op_with_output(builder, target, args, _fmin_fn, "np.fmin")
+    return create_binary_elementwise_op_with_output(builder, signature, args, _fmin_fn, "np.fmin")
 
 
 # Bitwise ufuncs
 
 
-@lower(np.bitwise_and, types.Array, types.Array, types.Array)
-def np_bitwise_and_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.bitwise_and, types.Array, types.Array, types.Array, api="values")
+def np_bitwise_and_array_to_array_cg(builder, signature, args):
     """bitwise_and(a, b, out) - element-wise a & b"""
-    create_binary_elementwise_op_with_output(builder, target, args, arith.andi, "np.bitwise_and")
+    return create_binary_elementwise_op_with_output(
+        builder, signature, args, arith.andi, "np.bitwise_and"
+    )
 
 
-@lower(np.bitwise_or, types.Array, types.Array, types.Array)
-def np_bitwise_or_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.bitwise_or, types.Array, types.Array, types.Array, api="values")
+def np_bitwise_or_array_to_array_cg(builder, signature, args):
     """bitwise_or(a, b, out) - element-wise a | b"""
-    create_binary_elementwise_op_with_output(builder, target, args, arith.ori, "np.bitwise_or")
+    return create_binary_elementwise_op_with_output(
+        builder, signature, args, arith.ori, "np.bitwise_or"
+    )
 
 
-@lower(np.bitwise_xor, types.Array, types.Array, types.Array)
-def np_bitwise_xor_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.bitwise_xor, types.Array, types.Array, types.Array, api="values")
+def np_bitwise_xor_array_to_array_cg(builder, signature, args):
     """bitwise_xor(a, b, out) - element-wise a ^ b"""
-    create_binary_elementwise_op_with_output(builder, target, args, arith.xori, "np.bitwise_xor")
+    return create_binary_elementwise_op_with_output(
+        builder, signature, args, arith.xori, "np.bitwise_xor"
+    )
 
 
 def _bitwise_not_fn(a):
@@ -4787,11 +4827,11 @@ def _bitwise_not_fn(a):
     return arith.xori(a, all_ones)
 
 
-@lower(np.invert, types.Array, types.Array)
-@lower(np.bitwise_not, types.Array, types.Array)
-def np_bitwise_not_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.invert, types.Array, types.Array, api="values")
+@lower(np.bitwise_not, types.Array, types.Array, api="values")
+def np_bitwise_not_array_to_array_cg(builder, signature, args):
     """bitwise_not(a, out) - element-wise ~a"""
-    create_elementwise_op_with_output(builder, target, args, _bitwise_not_fn)
+    return create_elementwise_op_with_output(builder, signature, args, _bitwise_not_fn)
 
 
 # Shift ufuncs
@@ -4844,91 +4884,91 @@ def _shift_op(builder, ufunc, a_type, b_type, out_type):
     return op
 
 
-def _shift_scalar(builder, target, args, ufunc):
+def _shift_scalar(builder, signature, args, ufunc):
     assert len(args) == 2
-    a_type, b_type = (builder.get_numba_type(arg.name) for arg in args)
-    shift = _shift_op(builder, ufunc, a_type, b_type, builder.get_numba_type(target.name))
-    builder.store_var(target, shift(builder.load_var(args[0]), builder.load_var(args[1])))
+    a_type, b_type = signature.args
+    shift = _shift_op(builder, ufunc, a_type, b_type, signature.return_type)
+    return shift(args[0], args[1])
 
 
-def _shift_scalar_to_array(builder, target, args, ufunc):
+def _shift_scalar_to_array(builder, signature, args, ufunc):
     assert len(args) == 3
-    a_type, b_type = (builder.get_numba_type(arg.name) for arg in args[:2])
-    out_type = builder.get_numba_type(args[2].name).dtype
+    a_type, b_type = signature.args[:2]
+    out_type = signature.args[2].dtype
     shift = _shift_op(builder, ufunc, a_type, b_type, out_type)
-    result = shift(builder.load_var(args[0]), builder.load_var(args[1]))
-    out_arr = builder.load_var(args[2])
-    _store_first_output_value(builder, args[2], out_arr, result)
-    builder.store_var(target, out_arr)
+    result = shift(args[0], args[1])
+    out_arr = args[2]
+    _store_first_output_value(builder, signature.args[2], out_arr, result)
+    return out_arr
 
 
-def _shift_array_to_array(builder, target, args, ufunc):
+def _shift_array_to_array(builder, signature, args, ufunc):
     assert len(args) == 3
-    a_type, b_type, out_type = (builder.get_numba_type(arg.name).dtype for arg in args)
+    a_type, b_type, out_type = (arg.dtype for arg in signature.args)
     shift = _shift_op(builder, ufunc, a_type, b_type, out_type)
-    create_binary_elementwise_op_with_output(
-        builder, target, args, shift, f"np.{ufunc.__name__}", convert_inputs=False
+    return create_binary_elementwise_op_with_output(
+        builder, signature, args, shift, f"np.{ufunc.__name__}", convert_inputs=False
     )
 
 
-@lower(np.left_shift, types.Integer, types.Integer)
-def np_left_shift_scalar_cg(builder, target, args, kwargs):
+@lower(np.left_shift, types.Integer, types.Integer, api="values")
+def np_left_shift_scalar_cg(builder, signature, args):
     """left_shift(a, b) - scalar a << b"""
-    _shift_scalar(builder, target, args, np.left_shift)
+    return _shift_scalar(builder, signature, args, np.left_shift)
 
 
-@lower(np.left_shift, types.Integer, types.Integer, types.Array)
-def np_left_shift_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.left_shift, types.Integer, types.Integer, types.Array, api="values")
+def np_left_shift_scalar_to_array_cg(builder, signature, args):
     """left_shift(a, b, out) - scalar a << b to output array"""
-    _shift_scalar_to_array(builder, target, args, np.left_shift)
+    return _shift_scalar_to_array(builder, signature, args, np.left_shift)
 
 
-@lower(np.left_shift, types.Array, types.Array, types.Array)
-def np_left_shift_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.left_shift, types.Array, types.Array, types.Array, api="values")
+def np_left_shift_array_to_array_cg(builder, signature, args):
     """left_shift(a, b, out) - element-wise a << b"""
-    _shift_array_to_array(builder, target, args, np.left_shift)
+    return _shift_array_to_array(builder, signature, args, np.left_shift)
 
 
-@lower(np.right_shift, types.Integer, types.Integer)
-def np_right_shift_scalar_cg(builder, target, args, kwargs):
+@lower(np.right_shift, types.Integer, types.Integer, api="values")
+def np_right_shift_scalar_cg(builder, signature, args):
     """right_shift(a, b) - scalar a >> b"""
-    _shift_scalar(builder, target, args, np.right_shift)
+    return _shift_scalar(builder, signature, args, np.right_shift)
 
 
-@lower(np.right_shift, types.Integer, types.Integer, types.Array)
-def np_right_shift_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.right_shift, types.Integer, types.Integer, types.Array, api="values")
+def np_right_shift_scalar_to_array_cg(builder, signature, args):
     """right_shift(a, b, out) - scalar a >> b to output array"""
-    _shift_scalar_to_array(builder, target, args, np.right_shift)
+    return _shift_scalar_to_array(builder, signature, args, np.right_shift)
 
 
-@lower(np.right_shift, types.Array, types.Array, types.Array)
-def np_right_shift_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.right_shift, types.Array, types.Array, types.Array, api="values")
+def np_right_shift_array_to_array_cg(builder, signature, args):
     """right_shift(a, b, out) - element-wise a >> b"""
-    _shift_array_to_array(builder, target, args, np.right_shift)
+    return _shift_array_to_array(builder, signature, args, np.right_shift)
 
 
 # Log ufuncs with output array
 
 
-@lower(np.log2, types.Float)
-def np_log2_scalar_cg(builder, target, args, kwargs):
+@lower(np.log2, types.Float, api="values")
+def np_log2_scalar_cg(builder, signature, args):
     """Scalar log2 using MLIR math dialect"""
-    assert len(args) == 1 and len(kwargs) == 0
-    value = builder.load_var(args[0])
+    assert len(args) == 1
+    value = args[0]
     result = math_dialect.log2(value)
-    result = convert(result, builder.get_mlir_type(target))
-    builder.store_var(target, result)
+    result = convert(result, builder.get_mlir_type(signature.return_type))
+    return result
 
 
-@lower(np.log2, types.Float, types.Array)
-def np_log2_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.log2, types.Float, types.Array, api="values")
+def np_log2_scalar_to_array_cg(builder, signature, args):
     """log2(scalar, out_array) - compute log2 and store in output array"""
-    create_scalar_to_output_array(builder, target, args, math_dialect.log2, "np.log2")
+    return create_scalar_to_output_array(builder, signature, args, math_dialect.log2, "np.log2")
 
 
 @ufunc_registry.register(np.log2)
-@lower(np.log2, types.Array)
-def np_log2_array_cg(builder, target, args, kwargs):
+@lower(np.log2, types.Array, api="values")
+def np_log2_array_cg(builder, signature, args):
     """Element-wise log2 using linalg.GenericOp."""
 
     def log2_fn(
@@ -4944,38 +4984,38 @@ def np_log2_array_cg(builder, target, args, kwargs):
             result = math_dialect.log2(in_elem)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, log2_fn, "np.log2")
+    return create_elementwise_op(builder, signature, args, log2_fn, "np.log2")
 
 
-@lower(np.log2, types.Array, types.Array)
-def np_log2_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.log2, types.Array, types.Array, api="values")
+def np_log2_array_to_array_cg(builder, signature, args):
     """log2(array, out_array) - element-wise log2 to output array"""
-    input_array_type = builder.get_numba_type(args[0].name)
+    input_array_type = signature.args[0]
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(builder, target, args, _complex_log2)
+        return create_complex_elementwise_op_with_output(builder, signature, args, _complex_log2)
     else:
-        create_elementwise_op_with_output(builder, target, args, math_dialect.log2)
+        return create_elementwise_op_with_output(builder, signature, args, math_dialect.log2)
 
 
-@lower(np.log10, types.Float)
-def np_log10_scalar_cg(builder, target, args, kwargs):
+@lower(np.log10, types.Float, api="values")
+def np_log10_scalar_cg(builder, signature, args):
     """Scalar log10 using MLIR math dialect"""
-    assert len(args) == 1 and len(kwargs) == 0
-    value = builder.load_var(args[0])
+    assert len(args) == 1
+    value = args[0]
     result = math_dialect.log10(value)
-    result = convert(result, builder.get_mlir_type(target))
-    builder.store_var(target, result)
+    result = convert(result, builder.get_mlir_type(signature.return_type))
+    return result
 
 
-@lower(np.log10, types.Float, types.Array)
-def np_log10_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.log10, types.Float, types.Array, api="values")
+def np_log10_scalar_to_array_cg(builder, signature, args):
     """log10(scalar, out_array) - compute log10 and store in output array"""
-    create_scalar_to_output_array(builder, target, args, math_dialect.log10, "np.log10")
+    return create_scalar_to_output_array(builder, signature, args, math_dialect.log10, "np.log10")
 
 
 @ufunc_registry.register(np.log10)
-@lower(np.log10, types.Array)
-def np_log10_array_cg(builder, target, args, kwargs):
+@lower(np.log10, types.Array, api="values")
+def np_log10_array_cg(builder, signature, args):
     """Element-wise log10 using linalg.GenericOp."""
 
     def log10_fn(
@@ -4991,17 +5031,17 @@ def np_log10_array_cg(builder, target, args, kwargs):
             result = math_dialect.log10(in_elem)
         return lowering_utilities.convert(result, target_mlir_type)
 
-    create_elementwise_op(builder, target, args, kwargs, log10_fn, "np.log10")
+    return create_elementwise_op(builder, signature, args, log10_fn, "np.log10")
 
 
-@lower(np.log10, types.Array, types.Array)
-def np_log10_array_to_array_cg(builder, target, args, kwargs):
+@lower(np.log10, types.Array, types.Array, api="values")
+def np_log10_array_to_array_cg(builder, signature, args):
     """log10(array, out_array) - element-wise log10 to output array"""
-    input_array_type = builder.get_numba_type(args[0].name)
+    input_array_type = signature.args[0]
     if isinstance(input_array_type.dtype, types.Complex):
-        create_complex_elementwise_op_with_output(builder, target, args, _complex_log10)
+        return create_complex_elementwise_op_with_output(builder, signature, args, _complex_log10)
     else:
-        create_elementwise_op_with_output(builder, target, args, math_dialect.log10)
+        return create_elementwise_op_with_output(builder, signature, args, math_dialect.log10)
 
 
 # =============================================================================
@@ -5012,17 +5052,17 @@ def np_log10_array_to_array_cg(builder, target, args, kwargs):
 def _create_logical_binary_scalar_lowering(logic_fn, op_name):
     """Create a scalar logical lowering that stores result in output array."""
 
-    def lowering(builder, target, args, kwargs):
-        assert len(args) == 3 and len(kwargs) == 0
-        a = builder.load_var(args[0])
-        b = builder.load_var(args[1])
-        out_arr = builder.load_var(args[2])
+    def lowering(builder, signature, args):
+        assert len(args) == 3
+        a = args[0]
+        b = args[1]
+        out_arr = args[2]
         result = logic_fn(a, b)  # Returns i1
-        output_array_type = builder.get_numba_type(args[2].name)
+        output_array_type = signature.args[2]
         elem_type = builder.get_value_type(output_array_type.dtype)
         result = _bool_to_value_type(result, elem_type)
-        _store_first_output_value(builder, args[2], out_arr, result)
-        builder.store_var(target, out_arr)
+        _store_first_output_value(builder, signature.args[2], out_arr, result)
+        return out_arr
 
     return lowering
 
@@ -5030,124 +5070,134 @@ def _create_logical_binary_scalar_lowering(logic_fn, op_name):
 def _create_logical_unary_scalar_lowering(logic_fn, op_name):
     """Create a scalar logical NOT lowering that stores result in output array."""
 
-    def lowering(builder, target, args, kwargs):
-        assert len(args) == 2 and len(kwargs) == 0
-        a = builder.load_var(args[0])
-        out_arr = builder.load_var(args[1])
+    def lowering(builder, signature, args):
+        assert len(args) == 2
+        a = args[0]
+        out_arr = args[1]
         result = logic_fn(a)  # Returns i1
-        output_array_type = builder.get_numba_type(args[1].name)
+        output_array_type = signature.args[1]
         elem_type = builder.get_value_type(output_array_type.dtype)
         result = _bool_to_value_type(result, elem_type)
-        _store_first_output_value(builder, args[1], out_arr, result)
-        builder.store_var(target, out_arr)
+        _store_first_output_value(builder, signature.args[1], out_arr, result)
+        return out_arr
 
     return lowering
 
 
-@lower(np.logical_and, types.Number, types.Number, types.Array)
-def np_logical_and_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.logical_and, types.Number, types.Number, types.Array, api="values")
+def np_logical_and_scalar_to_array_cg(builder, signature, args):
     """logical_and(a, b, out) - scalar a and b to output array"""
-    _create_logical_binary_scalar_lowering(_logical_and_fn, "np.logical_and")(
-        builder, target, args, kwargs
+    return _create_logical_binary_scalar_lowering(_logical_and_fn, "np.logical_and")(
+        builder, signature, args
     )
 
 
-@lower(np.logical_or, types.Number, types.Number, types.Array)
-def np_logical_or_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.logical_or, types.Number, types.Number, types.Array, api="values")
+def np_logical_or_scalar_to_array_cg(builder, signature, args):
     """logical_or(a, b, out) - scalar a or b to output array"""
-    _create_logical_binary_scalar_lowering(_logical_or_fn, "np.logical_or")(
-        builder, target, args, kwargs
+    return _create_logical_binary_scalar_lowering(_logical_or_fn, "np.logical_or")(
+        builder, signature, args
     )
 
 
-@lower(np.logical_xor, types.Number, types.Number, types.Array)
-def np_logical_xor_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.logical_xor, types.Number, types.Number, types.Array, api="values")
+def np_logical_xor_scalar_to_array_cg(builder, signature, args):
     """logical_xor(a, b, out) - scalar a xor b to output array"""
-    _create_logical_binary_scalar_lowering(_logical_xor_fn, "np.logical_xor")(
-        builder, target, args, kwargs
+    return _create_logical_binary_scalar_lowering(_logical_xor_fn, "np.logical_xor")(
+        builder, signature, args
     )
 
 
-@lower(np.logical_not, types.Number, types.Array)
-def np_logical_not_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.logical_not, types.Number, types.Array, api="values")
+def np_logical_not_scalar_to_array_cg(builder, signature, args):
     """logical_not(a, out) - scalar not a to output array"""
-    _create_logical_unary_scalar_lowering(_logical_not_fn, "np.logical_not")(
-        builder, target, args, kwargs
+    return _create_logical_unary_scalar_lowering(_logical_not_fn, "np.logical_not")(
+        builder, signature, args
     )
 
 
-def _create_binary_scalar_to_output_array(builder, target, args, math_fn, op_name):
+def _create_binary_scalar_to_output_array(builder, signature, args, math_fn, op_name):
     """Helper for binary scalar operations that write to an output array."""
     assert len(args) == 3
-    a = builder.load_var(args[0])
-    b = builder.load_var(args[1])
-    out_arr = builder.load_var(args[2])
-    output_array_type = builder.get_numba_type(args[2].name)
+    a = args[0]
+    b = args[1]
+    out_arr = args[2]
+    output_array_type = signature.args[2]
     elem_type = builder.get_value_type(output_array_type.dtype)
     a = convert(a, elem_type)
     b = convert(b, elem_type)
     result = math_fn(a, b)
     result = convert(result, elem_type)
-    _store_first_output_value(builder, args[2], out_arr, result)
-    builder.store_var(target, out_arr)
+    _store_first_output_value(builder, signature.args[2], out_arr, result)
+    return out_arr
 
 
-@lower(np.maximum, types.Number, types.Number, types.Array)
-def np_maximum_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.maximum, types.Number, types.Number, types.Array, api="values")
+def np_maximum_scalar_to_array_cg(builder, signature, args):
     """maximum(a, b, out) - scalar max(a, b) to output array"""
-    _create_binary_scalar_to_output_array(builder, target, args, _maximum_fn, "np.maximum")
+    return _create_binary_scalar_to_output_array(
+        builder, signature, args, _maximum_fn, "np.maximum"
+    )
 
 
-@lower(np.minimum, types.Number, types.Number, types.Array)
-def np_minimum_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.minimum, types.Number, types.Number, types.Array, api="values")
+def np_minimum_scalar_to_array_cg(builder, signature, args):
     """minimum(a, b, out) - scalar min(a, b) to output array"""
-    _create_binary_scalar_to_output_array(builder, target, args, _minimum_fn, "np.minimum")
+    return _create_binary_scalar_to_output_array(
+        builder, signature, args, _minimum_fn, "np.minimum"
+    )
 
 
-@lower(np.fmax, types.Number, types.Number, types.Array)
-def np_fmax_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.fmax, types.Number, types.Number, types.Array, api="values")
+def np_fmax_scalar_to_array_cg(builder, signature, args):
     """fmax(a, b, out) - scalar fmax(a, b) to output array"""
-    _create_binary_scalar_to_output_array(builder, target, args, _fmax_fn, "np.fmax")
+    return _create_binary_scalar_to_output_array(builder, signature, args, _fmax_fn, "np.fmax")
 
 
-@lower(np.fmin, types.Number, types.Number, types.Array)
-def np_fmin_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.fmin, types.Number, types.Number, types.Array, api="values")
+def np_fmin_scalar_to_array_cg(builder, signature, args):
     """fmin(a, b, out) - scalar fmin(a, b) to output array"""
-    _create_binary_scalar_to_output_array(builder, target, args, _fmin_fn, "np.fmin")
+    return _create_binary_scalar_to_output_array(builder, signature, args, _fmin_fn, "np.fmin")
 
 
-@lower(np.bitwise_and, types.Integer, types.Integer, types.Array)
-def np_bitwise_and_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.bitwise_and, types.Integer, types.Integer, types.Array, api="values")
+def np_bitwise_and_scalar_to_array_cg(builder, signature, args):
     """bitwise_and(a, b, out) - scalar a & b to output array"""
-    _create_binary_scalar_to_output_array(builder, target, args, arith.andi, "np.bitwise_and")
+    return _create_binary_scalar_to_output_array(
+        builder, signature, args, arith.andi, "np.bitwise_and"
+    )
 
 
-@lower(np.bitwise_or, types.Integer, types.Integer, types.Array)
-def np_bitwise_or_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.bitwise_or, types.Integer, types.Integer, types.Array, api="values")
+def np_bitwise_or_scalar_to_array_cg(builder, signature, args):
     """bitwise_or(a, b, out) - scalar a | b to output array"""
-    _create_binary_scalar_to_output_array(builder, target, args, arith.ori, "np.bitwise_or")
+    return _create_binary_scalar_to_output_array(
+        builder, signature, args, arith.ori, "np.bitwise_or"
+    )
 
 
-@lower(np.bitwise_xor, types.Integer, types.Integer, types.Array)
-def np_bitwise_xor_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.bitwise_xor, types.Integer, types.Integer, types.Array, api="values")
+def np_bitwise_xor_scalar_to_array_cg(builder, signature, args):
     """bitwise_xor(a, b, out) - scalar a ^ b to output array"""
-    _create_binary_scalar_to_output_array(builder, target, args, arith.xori, "np.bitwise_xor")
+    return _create_binary_scalar_to_output_array(
+        builder, signature, args, arith.xori, "np.bitwise_xor"
+    )
 
 
-@lower(np.invert, types.Integer, types.Array)
-@lower(np.bitwise_not, types.Integer, types.Array)
-def np_bitwise_not_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.invert, types.Integer, types.Array, api="values")
+@lower(np.bitwise_not, types.Integer, types.Array, api="values")
+def np_bitwise_not_scalar_to_array_cg(builder, signature, args):
     """bitwise_not(a, out) - scalar ~a to output array"""
-    assert len(args) == 2 and len(kwargs) == 0
-    a = builder.load_var(args[0])
-    out_arr = builder.load_var(args[1])
-    output_array_type = builder.get_numba_type(args[1].name)
+    assert len(args) == 2
+    a = args[0]
+    out_arr = args[1]
+    output_array_type = signature.args[1]
     elem_type = builder.get_value_type(output_array_type.dtype)
     a = convert(a, elem_type)
     result = _bitwise_not_fn(a)
     result = convert(result, elem_type)
-    _store_first_output_value(builder, args[1], out_arr, result)
-    builder.store_var(target, out_arr)
+    _store_first_output_value(builder, signature.args[1], out_arr, result)
+    return out_arr
 
 
 # =============================================================================
@@ -5335,32 +5385,32 @@ def _complex_log10(z):
     return arith.select(is_zero, zero_result, result)
 
 
-def create_complex_scalar_to_output_array(builder, target, args, math_fn, op_name):
+def create_complex_scalar_to_output_array(builder, signature, args, math_fn, op_name):
     """Helper for complex scalar operations that write to an output array."""
     assert len(args) == 2
-    scalar_arg = builder.load_var(args[0])
-    out_arr = builder.load_var(args[1])
-    output_array_type = builder.get_numba_type(args[1].name)
+    scalar_arg = args[0]
+    out_arr = args[1]
+    output_array_type = signature.args[1]
     elem_type = builder.get_value_type(output_array_type.dtype)
     scalar_val = convert(scalar_arg, elem_type)
     result = math_fn(scalar_val)
     result = convert(result, elem_type)
-    _store_first_output_value(builder, args[1], out_arr, result)
-    builder.store_var(target, out_arr)
+    _store_first_output_value(builder, signature.args[1], out_arr, result)
+    return out_arr
 
 
-def create_complex_elementwise_op_with_output(builder, target, args, math_fn):
+def create_complex_elementwise_op_with_output(builder, signature, args, math_fn):
     """Helper for complex element-wise operations that write to an output array."""
     assert len(args) == 2
     input_arg, output_arg = args
 
-    input_array_type = builder.get_numba_type(input_arg.name)
-    output_array_type = builder.get_numba_type(output_arg.name)
+    input_array_type = signature.args[0]
+    output_array_type = signature.args[1]
     input_mlir_elem_type = builder.get_value_type(input_array_type.dtype)
     output_mlir_elem_type = builder.get_value_type(output_array_type.dtype)
 
-    input_memref = builder.load_var(input_arg)
-    output_memref = builder.load_var(output_arg)
+    input_memref = input_arg
+    output_memref = output_arg
 
     input_tensor = lowering_utilities.memref_to_value_tensor(input_array_type, input_memref)
     if ArrayStorageLayout(output_array_type).byte_addressed:
@@ -5402,130 +5452,158 @@ def create_complex_elementwise_op_with_output(builder, target, args, math_fn):
     map_result = next(iter(cast(Any, generic_op.operation.results)))
     result_memref = tensor_to_memref(map_result)
     lowering_utilities.copy_array_storage(output_array_type, result_memref, output_memref)
-    builder.store_var(target, output_memref)
+    return output_memref
 
 
 # Complex trig ufuncs with direct dialect support
-@lower(np.sin, types.Complex, types.Array)
-def np_sin_complex_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.sin, types.Complex, types.Array, api="values")
+def np_sin_complex_scalar_to_array_cg(builder, signature, args):
     """sin(complex, out_array) - compute complex sin and store in output array"""
-    create_complex_scalar_to_output_array(builder, target, args, complex_dialect.sin, "np.sin")
+    return create_complex_scalar_to_output_array(
+        builder, signature, args, complex_dialect.sin, "np.sin"
+    )
 
 
-@lower(np.cos, types.Complex, types.Array)
-def np_cos_complex_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.cos, types.Complex, types.Array, api="values")
+def np_cos_complex_scalar_to_array_cg(builder, signature, args):
     """cos(complex, out_array) - compute complex cos and store in output array"""
-    create_complex_scalar_to_output_array(builder, target, args, complex_dialect.cos, "np.cos")
+    return create_complex_scalar_to_output_array(
+        builder, signature, args, complex_dialect.cos, "np.cos"
+    )
 
 
-@lower(np.tan, types.Complex, types.Array)
-def np_tan_complex_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.tan, types.Complex, types.Array, api="values")
+def np_tan_complex_scalar_to_array_cg(builder, signature, args):
     """tan(complex, out_array) - compute complex tan and store in output array"""
-    create_complex_scalar_to_output_array(builder, target, args, complex_dialect.tan, "np.tan")
+    return create_complex_scalar_to_output_array(
+        builder, signature, args, complex_dialect.tan, "np.tan"
+    )
 
 
-@lower(np.sqrt, types.Complex, types.Array)
-def np_sqrt_complex_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.sqrt, types.Complex, types.Array, api="values")
+def np_sqrt_complex_scalar_to_array_cg(builder, signature, args):
     """sqrt(complex, out_array) - compute complex sqrt and store in output array"""
-    create_complex_scalar_to_output_array(builder, target, args, complex_dialect.sqrt, "np.sqrt")
+    return create_complex_scalar_to_output_array(
+        builder, signature, args, complex_dialect.sqrt, "np.sqrt"
+    )
 
 
-@lower(np.exp, types.Complex, types.Array)
-def np_exp_complex_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.exp, types.Complex, types.Array, api="values")
+def np_exp_complex_scalar_to_array_cg(builder, signature, args):
     """exp(complex, out_array) - compute complex exp and store in output array"""
-    create_complex_scalar_to_output_array(builder, target, args, complex_dialect.exp, "np.exp")
+    return create_complex_scalar_to_output_array(
+        builder, signature, args, complex_dialect.exp, "np.exp"
+    )
 
 
-@lower(np.log, types.Complex, types.Array)
-def np_log_complex_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.log, types.Complex, types.Array, api="values")
+def np_log_complex_scalar_to_array_cg(builder, signature, args):
     """log(complex, out_array) - compute complex log and store in output array"""
-    create_complex_scalar_to_output_array(builder, target, args, complex_dialect.log, "np.log")
+    return create_complex_scalar_to_output_array(
+        builder, signature, args, complex_dialect.log, "np.log"
+    )
 
 
-@lower(np.tanh, types.Complex, types.Array)
-def np_tanh_complex_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.tanh, types.Complex, types.Array, api="values")
+def np_tanh_complex_scalar_to_array_cg(builder, signature, args):
     """tanh(complex, out_array) - compute complex tanh and store in output array"""
-    create_complex_scalar_to_output_array(builder, target, args, complex_dialect.tanh, "np.tanh")
+    return create_complex_scalar_to_output_array(
+        builder, signature, args, complex_dialect.tanh, "np.tanh"
+    )
 
 
 # Complex inverse trig ufuncs (using formula implementations)
-@lower(np.arccos, types.Complex, types.Array)
-def np_arccos_complex_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.arccos, types.Complex, types.Array, api="values")
+def np_arccos_complex_scalar_to_array_cg(builder, signature, args):
     """arccos(complex, out_array) - compute complex arccos and store in output array"""
-    create_complex_scalar_to_output_array(builder, target, args, _complex_acos, "np.arccos")
+    return create_complex_scalar_to_output_array(
+        builder, signature, args, _complex_acos, "np.arccos"
+    )
 
 
-@lower(np.arcsin, types.Complex, types.Array)
-def np_arcsin_complex_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.arcsin, types.Complex, types.Array, api="values")
+def np_arcsin_complex_scalar_to_array_cg(builder, signature, args):
     """arcsin(complex, out_array) - compute complex arcsin and store in output array"""
-    create_complex_scalar_to_output_array(builder, target, args, _complex_asin, "np.arcsin")
+    return create_complex_scalar_to_output_array(
+        builder, signature, args, _complex_asin, "np.arcsin"
+    )
 
 
-@lower(np.arctan, types.Complex, types.Array)
-def np_arctan_complex_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.arctan, types.Complex, types.Array, api="values")
+def np_arctan_complex_scalar_to_array_cg(builder, signature, args):
     """arctan(complex, out_array) - compute complex arctan and store in output array"""
-    create_complex_scalar_to_output_array(builder, target, args, _complex_atan, "np.arctan")
+    return create_complex_scalar_to_output_array(
+        builder, signature, args, _complex_atan, "np.arctan"
+    )
 
 
 # Complex hyperbolic ufuncs
-@lower(np.sinh, types.Complex, types.Array)
-def np_sinh_complex_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.sinh, types.Complex, types.Array, api="values")
+def np_sinh_complex_scalar_to_array_cg(builder, signature, args):
     """sinh(complex, out_array) - compute complex sinh and store in output array"""
-    create_complex_scalar_to_output_array(builder, target, args, _complex_sinh, "np.sinh")
+    return create_complex_scalar_to_output_array(builder, signature, args, _complex_sinh, "np.sinh")
 
 
-@lower(np.cosh, types.Complex, types.Array)
-def np_cosh_complex_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.cosh, types.Complex, types.Array, api="values")
+def np_cosh_complex_scalar_to_array_cg(builder, signature, args):
     """cosh(complex, out_array) - compute complex cosh and store in output array"""
-    create_complex_scalar_to_output_array(builder, target, args, _complex_cosh, "np.cosh")
+    return create_complex_scalar_to_output_array(builder, signature, args, _complex_cosh, "np.cosh")
 
 
-@lower(np.arcsinh, types.Complex, types.Array)
-def np_arcsinh_complex_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.arcsinh, types.Complex, types.Array, api="values")
+def np_arcsinh_complex_scalar_to_array_cg(builder, signature, args):
     """arcsinh(complex, out_array) - compute complex arcsinh and store in output array"""
-    create_complex_scalar_to_output_array(builder, target, args, _complex_asinh, "np.arcsinh")
+    return create_complex_scalar_to_output_array(
+        builder, signature, args, _complex_asinh, "np.arcsinh"
+    )
 
 
-@lower(np.arccosh, types.Complex, types.Array)
-def np_arccosh_complex_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.arccosh, types.Complex, types.Array, api="values")
+def np_arccosh_complex_scalar_to_array_cg(builder, signature, args):
     """arccosh(complex, out_array) - compute complex arccosh and store in output array"""
-    create_complex_scalar_to_output_array(builder, target, args, _complex_acosh, "np.arccosh")
+    return create_complex_scalar_to_output_array(
+        builder, signature, args, _complex_acosh, "np.arccosh"
+    )
 
 
-@lower(np.arctanh, types.Complex, types.Array)
-def np_arctanh_complex_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.arctanh, types.Complex, types.Array, api="values")
+def np_arctanh_complex_scalar_to_array_cg(builder, signature, args):
     """arctanh(complex, out_array) - compute complex arctanh and store in output array"""
-    create_complex_scalar_to_output_array(builder, target, args, _complex_atanh, "np.arctanh")
+    return create_complex_scalar_to_output_array(
+        builder, signature, args, _complex_atanh, "np.arctanh"
+    )
 
 
-@lower(np.log2, types.Complex, types.Array)
-def np_log2_complex_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.log2, types.Complex, types.Array, api="values")
+def np_log2_complex_scalar_to_array_cg(builder, signature, args):
     """log2(complex, out_array) - compute complex log2 and store in output array"""
-    create_complex_scalar_to_output_array(builder, target, args, _complex_log2, "np.log2")
+    return create_complex_scalar_to_output_array(builder, signature, args, _complex_log2, "np.log2")
 
 
-@lower(np.log10, types.Complex, types.Array)
-def np_log10_complex_scalar_to_array_cg(builder, target, args, kwargs):
+@lower(np.log10, types.Complex, types.Array, api="values")
+def np_log10_complex_scalar_to_array_cg(builder, signature, args):
     """log10(complex, out_array) - compute complex log10 and store in output array"""
-    create_complex_scalar_to_output_array(builder, target, args, _complex_log10, "np.log10")
+    return create_complex_scalar_to_output_array(
+        builder, signature, args, _complex_log10, "np.log10"
+    )
 
 
-@lower(np.empty_like, types.Array)
-@lower(np.empty_like, types.Array, types.Any)
-def np_empty_like_lower(builder, target, args, kwargs):
+@lower(np.empty_like, types.Array, api="values")
+@lower(np.empty_like, types.Array, types.Any, api="values")
+def np_empty_like_lower(builder, signature, args):
     # Allocate in the caller: returning an alloca from the overload's device
     # function would restore its stack before the result can be consumed.
-    numpy_empty_like_nd_lower(builder, target, args, kwargs)
+    return numpy_empty_like_nd_lower(builder, signature, args)
 
 
-@lower(numpy_empty_like_nd, types.Array, types.DTypeSpec, types.TypeRef)
-@lower(numpy_empty_like_nd, types.Array, types.NoneType, types.TypeRef)
-def numpy_empty_like_nd_lower(builder, target, args, kwargs):
+@lower(numpy_empty_like_nd, types.Array, types.DTypeSpec, types.TypeRef, api="values")
+@lower(numpy_empty_like_nd, types.Array, types.NoneType, types.TypeRef, api="values")
+def numpy_empty_like_nd_lower(builder, signature, args):
     """Allocate caller-local storage with the prototype's logical shape."""
     prototype_arg = args[0]
-    target_type = builder.get_numba_type(target.name)
+    target_type = signature.return_type
 
-    prototype = builder.load_var(prototype_arg)
+    prototype = prototype_arg
     prototype_type = prototype.type
 
     if isinstance(prototype_type, ir.MemRefType):
@@ -5545,13 +5623,13 @@ def numpy_empty_like_nd_lower(builder, target, args, kwargs):
         for i in range(ndim)
     ]
     array = lowering_utilities.array_alloca(target_type, shape_vals)
-    builder.store_var(target, array)
+    return array
 
 
-@lower(_make_dtype_object, types.StringLiteral)
-def make_dtype_object_cg(builder, target, args, kws):
-    target_type = builder.get_numba_type(target.name)
-    builder.store_var(target, builder._materialize_type_token(target_type))
+@lower(_make_dtype_object, types.StringLiteral, api="values")
+def make_dtype_object_cg(builder, signature, args):
+    target_type = signature.return_type
+    return builder._materialize_type_token(target_type)
 
 
 @overload(np.dtype, typing_registry=typing_registry)
@@ -5574,14 +5652,14 @@ def make_array_flatiter(context, builder, target, array):
     builder.store_var(target, iterator)
 
 
-@lower(np.nditer, types.Any)
-def make_array_nditer(builder, target, args, kws):
+@lower(np.nditer, types.Any, api="values")
+def make_array_nditer(builder, signature, args):
     if len(args) != 1:
         raise NotImplementedError(
             f"np.nditer expects exactly one positional argument, got {len(args)}"
         )
     operand_var = args[0]
-    operand_ty = builder.get_numba_type(operand_var.name)
+    operand_ty = signature.args[0]
 
     if isinstance(operand_ty, types.BaseTuple):
         member_tys = list(operand_ty)
@@ -5595,7 +5673,7 @@ def make_array_nditer(builder, target, args, kws):
                 "np.nditer with broadcasting across different-rank inputs is not "
                 "yet supported in the MLIR backend"
             )
-        tup = builder.load_var(operand_var)
+        tup = operand_var
         if isinstance(tup, (tuple, list)):
             array_values = list(tup)
         else:
@@ -5604,32 +5682,32 @@ def make_array_nditer(builder, target, args, kws):
             )
         ndim = member_tys[0].ndim
     elif isinstance(operand_ty, types.Array):
-        array_values = [builder.load_var(operand_var)]
+        array_values = [operand_var]
         ndim = operand_ty.ndim
     else:
         raise NotImplementedError(f"np.nditer not implemented for {operand_ty!r}")
 
     iter_obj = NdIterIterObject(builder, array_values, ndim)
-    builder.store_var(target, iter_obj)
+    return iter_obj
 
 
-@lower("number.item", types.Boolean)
-@lower("number.item", types.Number)
-def number_item_impl(builder, target, args, kws):
+@lower("number.item", types.Boolean, api="values")
+@lower("number.item", types.Number, api="values")
+def number_item_impl(builder, signature, args):
     """
     The no-op .item() method on booleans and numbers.
     """
-    builder.store_var(target, builder.load_var(args[0]))
+    return args[0]
 
 
-@lower(_np_round_float, types.Float)
-def lower_np_round_float(builder, target, args, kwargs):
-    builder.store_var(target, math_dialect.roundeven(builder.load_var(args[0])))
+@lower(_np_round_float, types.Float, api="values")
+def lower_np_round_float(builder, signature, args):
+    return math_dialect.roundeven(args[0])
 
 
-@lower(np_expand_dims, types.Array, types.Integer)
-def lower_np_expand_dims(builder, target, args, kwargs):
-    source = builder.load_var(args[0])
+@lower(np_expand_dims, types.Array, types.Integer, api="values")
+def lower_np_expand_dims(builder, signature, args):
+    source = args[0]
     rank = source.type.rank
     axis = _intrinsic_axis(builder, args[1], rank + 1)
 
@@ -5659,7 +5737,7 @@ def lower_np_expand_dims(builder, target, args, kwargs):
         _intrinsic_select_axis(axis, [candidate[i] for candidate in candidate_strides])
         for i in range(rank + 1)
     ]
-    result_type = builder.get_mlir_type(builder.get_numba_type(target.name))
+    result_type = builder.get_mlir_type(signature.return_type)
     result = memref_dialect.reinterpret_cast(
         result_type,
         source,
@@ -5670,23 +5748,23 @@ def lower_np_expand_dims(builder, target, args, kwargs):
         static_sizes=[ir.ShapedType.get_dynamic_size()] * (rank + 1),
         static_strides=[ir.ShapedType.get_dynamic_stride_or_offset()] * (rank + 1),
     )
-    builder.store_var(target, result)
+    return result
 
 
-@lower(_build_flip_slice_tuple, types.IntegerLiteral)
-def lower_flip_slice_tuple(builder, target, args, kwargs):
-    ndim = builder.get_numba_type(args[0].name).literal_value
-    builder.store_var(target, (slice(None, None, -1),) * ndim)
+@lower(_build_flip_slice_tuple, types.IntegerLiteral, api="values")
+def lower_flip_slice_tuple(builder, signature, args):
+    ndim = signature.args[0].literal_value
+    return (slice(None, None, -1),) * ndim
 
 
 def _intrinsic_arrays(builder, arg):
-    arrays = builder.load_var(arg)
+    arrays = arg
     assert isinstance(arrays, tuple) and arrays
     return arrays
 
 
 def _intrinsic_axis(builder, arg, rank):
-    axis = index_of(builder.load_var(arg))
+    axis = index_of(arg)
     axis = arith.select(
         arith.cmpi(arith.CmpIPredicate.slt, axis, index_of(0)),
         arith.addi(axis, index_of(rank)),
@@ -5714,8 +5792,8 @@ def _intrinsic_copy_array(builder, source, result, map_index):
     emit(0, ())
 
 
-def _intrinsic_alloc(builder, target, shape):
-    target_type = builder.get_numba_type(target.name)
+def _intrinsic_alloc(builder, signature, shape):
+    target_type = signature.return_type
     element_type = builder.get_storage_type(target_type.dtype)
     if target_type.layout != "F" or len(shape) < 2:
         return memref.alloc(shape, element_type=element_type)
@@ -5733,7 +5811,7 @@ def _intrinsic_alloc(builder, target, shape):
     return memref_dialect.transpose(transposed_type, reversed_alloc, permutation)
 
 
-def _intrinsic_concat(builder, target, arrays, axis):
+def _intrinsic_concat(builder, signature, arrays, axis):
     rank = arrays[0].type.rank
     sizes = [[memref.dim(array, index_of(i)) for i in range(rank)] for array in arrays]
     shape = []
@@ -5754,7 +5832,7 @@ def _intrinsic_concat(builder, target, arrays, axis):
                     set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
                     scf.yield_([])
 
-    result = _intrinsic_alloc(builder, target, shape)
+    result = _intrinsic_alloc(builder, signature, shape)
     offset = index_of(0)
     for array, member in zip(arrays, sizes):
         base = offset
@@ -5776,15 +5854,15 @@ def _intrinsic_concat(builder, target, arrays, axis):
                 arith.addi(offset, member[dim]),
                 offset,
             )
-    target_type = builder.get_mlir_type(builder.get_numba_type(target.name))
-    builder.store_var(target, memref.cast(target_type, result))
+    target_type = builder.get_mlir_type(signature.return_type)
+    return memref.cast(target_type, result)
 
 
-@lower(np_concatenate, types.BaseTuple, types.Integer)
-def lower_np_concatenate(builder, target, args, kwargs):
+@lower(np_concatenate, types.BaseTuple, types.Integer, api="values")
+def lower_np_concatenate(builder, signature, args):
     arrays = _intrinsic_arrays(builder, args[0])
     axis = _intrinsic_axis(builder, args[1], arrays[0].type.rank)
-    _intrinsic_concat(builder, target, arrays, axis)
+    return _intrinsic_concat(builder, signature, arrays, axis)
 
 
 def _intrinsic_select_axis(axis, candidates):
@@ -5798,7 +5876,7 @@ def _intrinsic_select_axis(axis, candidates):
     return selected
 
 
-def _intrinsic_stack(builder, target, arrays, axis, leading_units=0, trailing_units=0):
+def _intrinsic_stack(builder, signature, arrays, axis, leading_units=0, trailing_units=0):
     rank = arrays[0].type.rank
     input_sizes = [[memref.dim(array, index_of(i)) for i in range(rank)] for array in arrays]
     if error_memref := builder._get_or_create_error_global():
@@ -5820,7 +5898,7 @@ def _intrinsic_stack(builder, target, arrays, axis, leading_units=0, trailing_un
         for dim in range(rank + 1)
     ]
     shape += [index_of(1)] * trailing_units
-    result = _intrinsic_alloc(builder, target, shape)
+    result = _intrinsic_alloc(builder, signature, shape)
 
     for array_number, array in enumerate(arrays):
         candidate_indices = []
@@ -5842,55 +5920,55 @@ def _intrinsic_stack(builder, target, arrays, axis, leading_units=0, trailing_un
 
         _intrinsic_copy_array(builder, array, result, map_index)
 
-    target_type = builder.get_mlir_type(builder.get_numba_type(target.name))
-    builder.store_var(target, memref.cast(target_type, result))
+    target_type = builder.get_mlir_type(signature.return_type)
+    return memref.cast(target_type, result)
 
 
-@lower(np_stack_common, types.BaseTuple, types.Integer)
-def lower_np_stack_common(builder, target, args, kwargs):
+@lower(np_stack_common, types.BaseTuple, types.Integer, api="values")
+def lower_np_stack_common(builder, signature, args):
     arrays = _intrinsic_arrays(builder, args[0])
     axis = _intrinsic_axis(builder, args[1], arrays[0].type.rank + 1)
-    _intrinsic_stack(builder, target, arrays, axis)
+    return _intrinsic_stack(builder, signature, arrays, axis)
 
 
-@lower(_np_hstack, types.BaseTuple)
-def lower_np_hstack(builder, target, args, kwargs):
+@lower(_np_hstack, types.BaseTuple, api="values")
+def lower_np_hstack(builder, signature, args):
     arrays = _intrinsic_arrays(builder, args[0])
     rank = arrays[0].type.rank
     if rank == 0:
-        _intrinsic_stack(builder, target, arrays, index_of(0))
+        return _intrinsic_stack(builder, signature, arrays, index_of(0))
     else:
-        _intrinsic_concat(builder, target, arrays, index_of(0 if rank == 1 else 1))
+        return _intrinsic_concat(builder, signature, arrays, index_of(0 if rank == 1 else 1))
 
 
-@lower(_np_vstack, types.BaseTuple)
-def lower_np_vstack(builder, target, args, kwargs):
+@lower(_np_vstack, types.BaseTuple, api="values")
+def lower_np_vstack(builder, signature, args):
     arrays = _intrinsic_arrays(builder, args[0])
     rank = arrays[0].type.rank
     if rank == 0:
-        _intrinsic_stack(builder, target, arrays, index_of(0), trailing_units=1)
+        return _intrinsic_stack(builder, signature, arrays, index_of(0), trailing_units=1)
     elif rank == 1:
-        _intrinsic_stack(builder, target, arrays, index_of(0))
+        return _intrinsic_stack(builder, signature, arrays, index_of(0))
     else:
-        _intrinsic_concat(builder, target, arrays, index_of(0))
+        return _intrinsic_concat(builder, signature, arrays, index_of(0))
 
 
-@lower(_np_dstack, types.BaseTuple)
-def lower_np_dstack(builder, target, args, kwargs):
+@lower(_np_dstack, types.BaseTuple, api="values")
+def lower_np_dstack(builder, signature, args):
     arrays = _intrinsic_arrays(builder, args[0])
     rank = arrays[0].type.rank
     if rank == 0:
-        _intrinsic_stack(builder, target, arrays, index_of(0), leading_units=2)
+        return _intrinsic_stack(builder, signature, arrays, index_of(0), leading_units=2)
     elif rank == 1:
-        _intrinsic_stack(builder, target, arrays, index_of(1), leading_units=1)
+        return _intrinsic_stack(builder, signature, arrays, index_of(1), leading_units=1)
     elif rank == 2:
-        _intrinsic_stack(builder, target, arrays, index_of(2))
+        return _intrinsic_stack(builder, signature, arrays, index_of(2))
     else:
-        _intrinsic_concat(builder, target, arrays, index_of(2))
+        return _intrinsic_concat(builder, signature, arrays, index_of(2))
 
 
-@lower(np_column_stack, types.BaseTuple)
-def lower_np_column_stack(builder, target, args, kwargs):
+@lower(np_column_stack, types.BaseTuple, api="values")
+def lower_np_column_stack(builder, signature, args):
     arrays = _intrinsic_arrays(builder, args[0])
     promoted = []
     for array in arrays:
@@ -5920,27 +5998,26 @@ def lower_np_column_stack(builder, target, args, kwargs):
                 static_strides=[dyn_s, 1],
             )
         )
-    _intrinsic_concat(builder, target, promoted, index_of(1))
+    return _intrinsic_concat(builder, signature, promoted, index_of(1))
 
 
-@lower(_as_layout_array_intrinsic, types.Array, types.StringLiteral)
-def lower_as_layout_array(builder, target, args, kwargs):
-    source = builder.load_var(args[0])
-    source_type = builder.get_numba_type(args[0].name)
-    target_type = builder.get_numba_type(target.name)
+@lower(_as_layout_array_intrinsic, types.Array, types.StringLiteral, api="values")
+def lower_as_layout_array(builder, signature, args):
+    source = args[0]
+    source_type = signature.args[0]
+    target_type = signature.return_type
     if source.type.rank > 0 and (
         source_type.layout == target_type.layout
         or (source.type.rank == 1 and source_type.layout in "CF")
     ):
-        builder.store_var(target, source)
-        return
+        return source
 
     shape = [memref.dim(source, index_of(i)) for i in range(source.type.rank)]
     if not shape:
         shape = [index_of(1)]
-    result = _intrinsic_alloc(builder, target, shape)
+    result = _intrinsic_alloc(builder, signature, shape)
     if source.type.rank == 0:
         memref.store(memref.load(source, []), result, [index_of(0)])
     else:
         _intrinsic_copy_array(builder, source, result, lambda indices: indices)
-    builder.store_var(target, memref.cast(builder.get_mlir_type(target_type), result))
+    return memref.cast(builder.get_mlir_type(target_type), result)

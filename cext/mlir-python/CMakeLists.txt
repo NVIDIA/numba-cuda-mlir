@@ -27,6 +27,13 @@ include_directories(
 )
 add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=${MLIR_PYTHON_PACKAGE_PREFIX}.")
 
+if(WIN32)
+  # Upstream sources are outside this directory, so object paths embed their full
+  # path, and _mlirDialectsTransform reuses _mlir's object names in a longer dir.
+  # Have CMake hash them early enough to stay under MSVC's 260-character limit.
+  set(CMAKE_OBJECT_PATH_MAX 230)
+endif()
+
 ################################################################################
 # Dialect and pass registration (C API, embedded in libMLIRPythonCAPI)
 ################################################################################

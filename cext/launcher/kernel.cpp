@@ -7,7 +7,6 @@
 #include "check.h"
 #include "cuda_loader.h"
 #include "cuda_helper.h"
-#include "ref_ptr.h"
 
 #include <cstdint>
 #include "cuda_shim.h"
@@ -22,7 +21,6 @@
 #include <vector>
 #include <algorithm>
 #include <optional>
-#include <string>
 #include <utility>
 
 #ifdef _WIN32
@@ -39,7 +37,6 @@ PyObject* g_data_pyunicode;
 PyObject* g_strides_pyunicode;
 PyObject* g___dlpack___pyunicode;
 PyObject* g_int64_pyunicode;
-PyObject* g_resolve_cuda_array_interface_dtype;
 
 PyTypeObject* g_torch_Tensor_type;
 PyTypeObject* g_torch_cuda_Stream_type;
@@ -237,78 +234,8 @@ Status check_kernel_error_code(const CudaLibrary& lib) {
     return OK;
 }
 
-enum class ConstantArgType {
-    INT64,
-    UINT64,
-    BOOL,
-    FLOAT64,
-    STRING,
-};
 
-struct ConstantArg {
-    ConstantArgType type;
-    union {
-        int64_t i64;
-        uint64_t u64;
-        double f64;
-    } value;
-    std::string str;
-
-    template <typename T>
-    ConstantArg(T val) :
-        type(std::is_floating_point_v<T> ? ConstantArgType::FLOAT64 : ConstantArgType::INT64),
-        value{}
-    {
-        if constexpr (std::is_floating_point_v<T>) {
-            value.f64 = static_cast<double>(val);
-        } else {
-            value.i64 = static_cast<int64_t>(val);
-        }
-    }
-
-    ConstantArg(uint64_t val) :
-        type(ConstantArgType::UINT64),
-        value{}
-    {
-        value.u64 = val;
-    }
-
-    ConstantArg(bool val) :
-        type(ConstantArgType::BOOL),
-        value{}
-    {
-        value.i64 = static_cast<int64_t>(val);
-    }
-
-    explicit ConstantArg(std::string val) :
-        type(ConstantArgType::STRING),
-        value{},
-        str(std::move(val))
-    {}
-
-    bool operator==(const ConstantArg& other) const {
-        if (type != other.type) return false;
-        switch (type) {
-        case ConstantArgType::INT64:
-        case ConstantArgType::BOOL:
-            return value.i64 == other.value.i64;
-        case ConstantArgType::UINT64:
-            return value.u64 == other.value.u64;
-        case ConstantArgType::FLOAT64:
-            // compare bits of two floats directly
-            uint64_t this_float_bits, other_float_bits;
-            std::memcpy(&this_float_bits, &value.f64, sizeof(value.f64));
-            std::memcpy(&other_float_bits, &other.value.f64, sizeof(other.value.f64));
-            return this_float_bits == other_float_bits;
-        case ConstantArgType::STRING:
-            return str == other.str;
-        default:
-            return false;
-        }
-    }
-};
-
-[[maybe_unused]]
+// Hash extraction profiles by Python representation, never by executable identity.
 inline void hash_combine(size_t& h, size_t other) {
     h ^= other + 0x9e3779b9 + (h << 6) + (h >> 2);
 }
@@ -324,34 +251,15 @@ struct HashVector {
     }
 };
 
-struct CudaKernelHandle {
-    CudaKernel cukernel;
-    PyPtr post_load_callback;
+struct KernelSpecialization {
+    // Keep callback owners and compiled artifacts alive until after unloading.
+    PyPtr compile_result;
     bool cooperative = false;
     // Descriptor units and required pointer alignment, in bytes, per array.
     std::vector<std::pair<int64_t, int64_t>> array_abi;
+    std::optional<CudaKernel> kernel;
 };
 
-// This should compile to a no-op
-inline uint32_t dtype_as_uint(DLDataType dtype) {
-    return static_cast<uint32_t>(dtype.code)
-        | (static_cast<uint32_t>(dtype.bits) << 8)
-        | (static_cast<uint32_t>(dtype.lanes) << 16);
-}
-
-// Pack data type and array rank in a single int64_t so it could be used
-// as a single constant for looking up the kernel in a family
-int64_t pack_dtype_and_ndim(DLDataType dtype, size_t ndim) {
-    uint64_t dtype_u = static_cast<uint64_t>(dtype_as_uint(dtype));
-    return static_cast<int64_t>(dtype_u | (static_cast<uint64_t>(ndim) << 32));
-}
-
-struct KernelFamily : SimpleRefcount<KernelFamily> {
-    using KernelMap = std::unordered_map<
-            std::vector<ConstantArg>, CudaKernelHandle, HashVector<ConstantArg>>;
-
-    KernelMap kernels_by_constants;
-};
 
 union CudaArg {
     void* device_ptr;
@@ -419,7 +327,6 @@ struct LaunchHelper {
     std::vector<ArgMetadata> arg_metadata;  // Metadata for each argument
     std::vector<CudaArg> cuargs;  // Flat storage: all ptrs, offsets, shapes, strides, scalars
     std::vector<void*> cuarg_pointers;  // Built just before launch
-    std::vector<ConstantArg> constants;
     CUcontext cuda_context;
     LaunchHelper* next_free;
     std::vector<void*> aligned_tma_descriptors; // 128-byte aligned storage for TMA descriptors
@@ -505,20 +412,12 @@ enum class PythonArgKind {
     NpInteger,
 };
 
-enum class ParameterKind {
-    Array,
-    Integer,
-    Float,
-    Complex,
-    Record
-};
-
-Result<std::pair<PythonArgKind, ParameterKind>> classify_arg(PyObject* arg) {
+Result<PythonArgKind> classify_arg(PyObject* arg) {
     if (PyLong_Check(arg))
-        return {{PythonArgKind::PyLong, ParameterKind::Integer}};
+        return PythonArgKind::PyLong;
 
     if (PyFloat_Check(arg))
-        return {{PythonArgKind::PyFloat, ParameterKind::Float}};
+        return PythonArgKind::PyFloat;
 
     // Check for Python Enum types. IntEnum members pass PyLong_Check above,
     // but regular Enum members need special handling to extract their value.
@@ -535,9 +434,9 @@ Result<std::pair<PythonArgKind, ParameterKind>> classify_arg(PyObject* arg) {
             const char* val_type_name = Py_TYPE(value)->tp_name;
             Py_DECREF(value);
             if (is_int)
-                return {{PythonArgKind::PyEnum, ParameterKind::Integer}};
+                return PythonArgKind::PyEnum;
             if (is_float)
-                return {{PythonArgKind::PyEnum, ParameterKind::Float}};
+                return PythonArgKind::PyEnum;
             // Enum with unsupported value type (tuple, str, etc.)
             return raise(PyExc_TypeError,
                 "Enum members with %s values are not supported. "
@@ -551,16 +450,16 @@ Result<std::pair<PythonArgKind, ParameterKind>> classify_arg(PyObject* arg) {
 
     // numpy.float16 (half precision float)
     if (type_name && strcmp(type_name, "numpy.float16") == 0)
-        return {{PythonArgKind::NpFloat16, ParameterKind::Float}};
+        return PythonArgKind::NpFloat16;
 
     // numpy.float32 (single precision float)
     if (type_name && strcmp(type_name, "numpy.float32") == 0)
-        return {{PythonArgKind::NpFloat32, ParameterKind::Float}};
+        return PythonArgKind::NpFloat32;
 
     // numpy.datetime64 and numpy.timedelta64 scalars (stored as int64)
     if (type_name && (strcmp(type_name, "numpy.datetime64") == 0
                    || strcmp(type_name, "numpy.timedelta64") == 0))
-        return {{PythonArgKind::NpDatetime, ParameterKind::Integer}};
+        return PythonArgKind::NpDatetime;
 
     // numpy signed/unsigned integer scalars. These must be marshalled with
     // their native width preserved, so the launcher classifies them directly
@@ -570,55 +469,55 @@ Result<std::pair<PythonArgKind, ParameterKind>> classify_arg(PyObject* arg) {
         if (is_np_int < 0)
             return ErrorRaised;
         if (is_np_int)
-            return {{PythonArgKind::NpInteger, ParameterKind::Integer}};
+            return PythonArgKind::NpInteger;
     }
 
     // Check for numpy.complex64 before PyComplex_Check
     // numpy.complex64 is NOT a subclass of Python complex, but numpy.complex128 IS
     if (type_name && strcmp(type_name, "numpy.complex64") == 0)
-        return {{PythonArgKind::NpComplex64, ParameterKind::Complex}};
+        return PythonArgKind::NpComplex64;
 
     if (PyComplex_Check(arg))
-        return {{PythonArgKind::PyComplex, ParameterKind::Complex}};
+        return PythonArgKind::PyComplex;
 
     if (g_torch_Tensor_type && PyObject_TypeCheck(arg, g_torch_Tensor_type)) {
         // Calling torch._C._to_dlpack(arg) is much faster than calling arg.__dlpack__()
         // because it goes straight into C++ code, with no Python in between.
         if (g_torch_to_dlpack_func)
-            return {{PythonArgKind::TorchTensorDlpack, ParameterKind::Array}};
+            return PythonArgKind::TorchTensorDlpack;
     }
 
     // Recognize TMA descriptors
     // Custom TMA descriptor wrappers have __tma_descriptor_c_api__()
     if (PyObject_HasAttrString(arg, "__tma_descriptor_c_api__"))
-        return {{PythonArgKind::TMADescriptor, ParameterKind::Integer}};
+        return PythonArgKind::TMADescriptor;
 
     // cuda.bindings.driver.CUtensorMap from cuda-python
     if (type_name && strcmp(type_name, "cuda.bindings.driver.CUtensorMap") == 0) {
         if (PyObject_HasAttrString(arg, "getPtr") && PyObject_HasAttrString(arg, "opaque"))
-            return {{PythonArgKind::TMADescriptor, ParameterKind::Integer}};
+            return PythonArgKind::TMADescriptor;
     }
 
     // Check for numpy.void or record (scalar record/structured dtype) before __cuda_array_interface__
     // numpy.void has __array_interface__ but not __cuda_array_interface__
     // Numba wraps numpy.void scalars in a type called "record"
     if (type_name && (strcmp(type_name, "numpy.void") == 0 || strcmp(type_name, "record") == 0))
-        return {{PythonArgKind::NumpyVoid, ParameterKind::Record}};
+        return PythonArgKind::NumpyVoid;
 
     // DeviceRecord: a scalar record already resident in device memory.
     // It has __cuda_array_interface__ (inherited) but must be passed as a single pointer,
     // not as a memref descriptor — check before the generic __cuda_array_interface__ path.
     if (PyObject_HasAttrString(arg, "__device_record__"))
-        return {{PythonArgKind::DeviceRecord, ParameterKind::Record}};
+        return PythonArgKind::DeviceRecord;
 
     // Check __cuda_array_interface__ first - CUDA arrays (including managed arrays)
     // may also have __dlpack__ from numpy inheritance, but we should use the CUDA
     // interface for better compatibility
     if (PyObject_HasAttr(arg, g___cuda_array_interface___pyunicode))
-        return {{PythonArgKind::CudaArray, ParameterKind::Array}};
+        return PythonArgKind::CudaArray;
 
     if (PyObject_HasAttr(arg, g___dlpack___pyunicode))
-        return {{PythonArgKind::DlpackArray, ParameterKind::Array}};
+        return PythonArgKind::DlpackArray;
 
     PyErr_Format(PyExc_TypeError, "Unsupported argument type %s", Py_TYPE(arg)->tp_name);
     return ErrorRaised;
@@ -659,32 +558,10 @@ ScalarExtractor get_scalar_extractor(PythonArgKind kind) {
     }
 }
 
-std::vector<bool> effective_constant_arg_flags(
-        const std::vector<bool>& constant_arg_flags,
-        const std::vector<bool>& literal_arg_flags,
-        const std::vector<PyTypeObject*>& arg_types) {
-    assert(constant_arg_flags.size() == literal_arg_flags.size());
-
-    // Tuple/list arguments are flattened before the native launch, while the
-    // flags describe top-level Python parameters. Literal retry rejects that
-    // ABI today, but every profile still needs one safe flag per native arg.
-    std::vector<bool> effective_flags(arg_types.size(), false);
-    const size_t represented_arg_count = std::min(arg_types.size(), constant_arg_flags.size());
-    for (size_t i = 0; i < represented_arg_count; ++i) {
-        // Numba literal typing accepts exact built-in int/bool values, not
-        // int subclasses, IntEnum members, or NumPy integer scalars.
-        bool literal_eligible = arg_types[i] == &PyLong_Type || arg_types[i] == &PyBool_Type;
-        effective_flags[i] = constant_arg_flags[i] || (literal_arg_flags[i] && literal_eligible);
-    }
-    return effective_flags;
-}
-
 struct PythonArgProfile {
-    RefPtr<KernelFamily> family;
     std::vector<PythonArgKind> arg_kinds;
-    std::vector<bool> constant_arg_flags;
 
-    // Populated on first use: per-arg fast extractors for all-scalar, no-constant profiles.
+    // Populated on first use: per-arg fast extractors for all-scalar profiles.
     // Empty if the profile contains arrays, TMA descriptors, or unsupported scalar types.
     std::vector<ScalarExtractor> fast_extractors;
     bool fast_path_checked = false;
@@ -693,12 +570,10 @@ struct PythonArgProfile {
         if (fast_path_checked) return;
         fast_path_checked = true;
 
-        // Only enable if no arg is constant and all args have a fast extractor
+        // Only enable if all args have a fast extractor.
         std::vector<ScalarExtractor> extractors;
         extractors.reserve(arg_kinds.size());
         for (size_t i = 0; i < arg_kinds.size(); ++i) {
-            if (constant_arg_flags[i])
-                return;  // constant args need the full path
             ScalarExtractor ex = get_scalar_extractor(arg_kinds[i]);
             if (!ex) return;  // unsupported type (array, complex, etc.)
             extractors.push_back(ex);
@@ -715,13 +590,6 @@ struct PythonArgProfile {
     )
 
 
-// First character of the type code in a DLPack/CAI typestr ("|V16" -> 'V').
-char str_first_char(PyObject* typestr) {
-    Py_ssize_t len;
-    const char* str = PyUnicode_AsUTF8AndSize(typestr, &len);
-    if (!str || len < 2) return '\0';
-    return str[1];
-}
 
 
 Result<DLDataType> parse_typestr(PyObject* typestr) {
@@ -820,59 +688,6 @@ Result<DLDataType> parse_typestr(PyObject* typestr) {
 }
 
 
-Result<PyPtr> resolve_cuda_array_dtype(PyObject* pyobj, PyObject* typestr) {
-    if (!g_resolve_cuda_array_interface_dtype) {
-        PyPtr module = steal(PyImport_ImportModule("numba_cuda_mlir.numba_cuda.api_util"));
-        if (!module) return ErrorRaised;
-        PyPtr resolver = steal(PyObject_GetAttrString(module.get(), "resolve_cuda_array_interface_dtype"));
-        if (!resolver) return ErrorRaised;
-        g_resolve_cuda_array_interface_dtype = resolver.release();
-    }
-    PyPtr owner_dtype = steal(PyObject_GetAttrString(pyobj, "dtype"));
-    if (!owner_dtype) {
-        if (!PyErr_ExceptionMatches(PyExc_AttributeError)) return ErrorRaised;
-        PyErr_Clear();
-    }
-    PyPtr dtype = steal(PyObject_CallFunctionObjArgs(
-        g_resolve_cuda_array_interface_dtype, typestr,
-        owner_dtype ? owner_dtype.get() : Py_None, nullptr));
-    if (!dtype) return ErrorRaised;
-    return std::move(dtype);
-}
-
-
-Result<std::string> array_dtype_identity_constant(PyObject* dtype, PyObject* typestr) {
-    Py_ssize_t len;
-    const char* str = PyUnicode_AsUTF8AndSize(typestr, &len);
-    if (!str) return ErrorRaised;
-
-    if (len < 2) return std::string();
-
-    // DLDataType loses schema/unit information for opaque records and
-    // datetime-like arrays, so include the Python dtype in the kernel key.
-    switch (str[1]) {
-    case 'V':
-    case 'S':
-    case 'U':
-    case 'M':
-    case 'm':
-        break;
-    default:
-        return std::string();
-    }
-
-    if (dtype) {
-        PyPtr repr = steal(PyObject_Repr(dtype));
-        if (!repr) return ErrorRaised;
-
-        Py_ssize_t repr_len;
-        const char* repr_str = PyUnicode_AsUTF8AndSize(repr.get(), &repr_len);
-        if (!repr_str) return ErrorRaised;
-        return std::string(repr_str, repr_len);
-    }
-
-    return std::string(str, len);
-}
 
 
 Status compute_compact_row_major_strides(const std::vector<int64_t>& shapes,
@@ -925,16 +740,6 @@ Status extract_cuda_array(PyObject* pyobj, LaunchHelper& helper) {
     // Parse the dtype
     Result<DLDataType> dtype = parse_typestr(typestr);
     if (!dtype.is_ok()) return ErrorRaised;
-    // Opaque and unit-bearing types need the same normalized dtype used by
-    // Python typing, including its unsupported-owner fallback.
-    PyPtr resolved_dtype;
-    const char type_code = str_first_char(typestr);
-    if (type_code == 'V' || type_code == 'S' || type_code == 'U'
-            || type_code == 'M' || type_code == 'm') {
-        Result<PyPtr> resolved = resolve_cuda_array_dtype(pyobj, typestr);
-        if (!resolved.is_ok()) return ErrorRaised;
-        resolved_dtype = std::move(*resolved);
-    }
 
     // Parse the data pointer
     if (!PyTuple_Check(data) || PyTuple_GET_SIZE(data) != 2) {
@@ -994,25 +799,6 @@ Status extract_cuda_array(PyObject* pyobj, LaunchHelper& helper) {
     } else {
         return raise(PyExc_TypeError, "Array strides must be absent, None, or a tuple matching rank");
     }
-    int64_t alignment = dtype->code == kDLComplex ? itemsize / 2 : itemsize;
-    bool aligned = itemsize != 0;
-    if (dtype->code == kDLOpaqueHandle) {
-        alignment = str_first_char(typestr) == 'U' ? 4 : 1;
-        if (str_first_char(typestr) == 'V') {
-            PyPtr py_alignment = steal(PyObject_GetAttrString(resolved_dtype.get(), "alignment"));
-            PyPtr py_fields = steal(PyObject_GetAttrString(resolved_dtype.get(), "fields"));
-            PyPtr py_aligned = steal(PyObject_GetAttrString(resolved_dtype.get(), "isalignedstruct"));
-            if (!py_alignment || !py_fields || !py_aligned) return ErrorRaised;
-            alignment = pylong_as<int64_t>(py_alignment.get());
-            if (PyErr_Occurred()) return ErrorRaised;
-            int has_fields = PyObject_IsTrue(py_fields.get());
-            int aligned_struct = PyObject_IsTrue(py_aligned.get());
-            if (has_fields < 0 || aligned_struct < 0) return ErrorRaised;
-            aligned = aligned && (!has_fields || aligned_struct);
-        }
-    }
-    aligned = aligned && data_ptr_int % std::max<int64_t>(alignment, 1) == 0;
-    for (int64_t stride : strides_vec) aligned = aligned && stride % itemsize == 0;
 
     // Store in flat cuargs vector: ptr, ptr, offset, shapes..., strides...
     size_t start_idx = helper.cuargs.size();
@@ -1027,12 +813,6 @@ Status extract_cuda_array(PyObject* pyobj, LaunchHelper& helper) {
     }
 
     helper.arg_metadata.push_back({ArgMetadata::Kind::Array, start_idx, static_cast<size_t>(ndim)});
-    helper.constants.push_back(ConstantArg(pack_dtype_and_ndim(*dtype, ndim)));
-    helper.constants.push_back(ConstantArg(aligned));
-    Result<std::string> dtype_identity = array_dtype_identity_constant(resolved_dtype.get(), typestr);
-    if (!dtype_identity.is_ok()) return ErrorRaised;
-    if (!dtype_identity->empty())
-        helper.constants.push_back(ConstantArg(std::move(*dtype_identity)));
     return OK;
 }
 
@@ -1076,8 +856,6 @@ Status extract_dlpack_common(PyObject* dlpack_capsule, LaunchHelper& helper) {
     int64_t itemsize = std::max<int64_t>(1,
         (static_cast<int64_t>(tensor->dl_tensor.dtype.bits) * tensor->dl_tensor.dtype.lanes + 7)
         / BYTE_BITWIDTH);
-    int64_t alignment = tensor->dl_tensor.dtype.code == kDLComplex ? itemsize / 2 : itemsize;
-    bool aligned = reinterpret_cast<uintptr_t>(data_ptr) % std::max<int64_t>(alignment, 1) == 0;
     for (auto& stride : strides_vec) stride *= itemsize;
 
     // Store in flat cuargs vector: ptr, ptr, offset, shapes..., strides...
@@ -1093,8 +871,6 @@ Status extract_dlpack_common(PyObject* dlpack_capsule, LaunchHelper& helper) {
     }
 
     helper.arg_metadata.push_back({ArgMetadata::Kind::Array, start_idx, static_cast<size_t>(ndim)});
-    helper.constants.push_back(ConstantArg(pack_dtype_and_ndim(tensor->dl_tensor.dtype, ndim)));
-    helper.constants.push_back(ConstantArg(aligned));
 
     PyCapsule_SetName(dlpack_capsule, "used_dltensor");
 
@@ -1140,7 +916,7 @@ Status extract_dlpack(PyObject* pyobj, LaunchHelper& helper) {
     return extract_dlpack_common(dlpack_capsule.get(), helper);
 }
 
-inline Status extract_np_datetime(PyObject* pyobj, bool is_constant, LaunchHelper& helper) {
+inline Status extract_np_datetime(PyObject* pyobj, LaunchHelper& helper) {
     // numpy.datetime64/timedelta64 are stored as int64 internally.
     // Call view() with the cached "int64" PyUnicode to get the numpy.int64
     // scalar, then extract.
@@ -1153,46 +929,22 @@ inline Status extract_np_datetime(PyObject* pyobj, bool is_constant, LaunchHelpe
     helper.cuargs.push_back(cuda_arg_i64(value));
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 0});
 
-    if (is_constant)
-        helper.constants.push_back(ConstantArg(value));
-
     return OK;
 }
 
-inline Status extract_py_long(PyObject* pyobj, bool is_constant, LaunchHelper& helper) {
-    int64_t value;
-    uint64_t unsigned_value = 0;
-    bool is_unsigned = false;
-    long long signed_value = PyLong_AsLongLong(pyobj);
-    if (PyErr_Occurred()) {
-        if (!PyErr_ExceptionMatches(PyExc_OverflowError)) return ErrorRaised;
-        PyErr_Clear();
-        unsigned long long raw_unsigned_value = PyLong_AsUnsignedLongLong(pyobj);
-        if (PyErr_Occurred()) return ErrorRaised;
-        unsigned_value = static_cast<uint64_t>(raw_unsigned_value);
-        value = static_cast<int64_t>(unsigned_value);
-        is_unsigned = true;
-    } else {
-        value = static_cast<int64_t>(signed_value);
-    }
+inline Status extract_py_long(PyObject* pyobj, LaunchHelper& helper) {
+    int64_t value = pylong_as<int64_t>(pyobj);
+    if (PyErr_Occurred()) return ErrorRaised;
 
     size_t start_idx = helper.cuargs.size();
     helper.cuargs.push_back(cuda_arg_i64(value));
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 0});
 
-    if (is_constant) {
-        if (PyBool_Check(pyobj))
-            helper.constants.push_back(ConstantArg(value != 0));
-        else if (is_unsigned)
-            helper.constants.push_back(ConstantArg(unsigned_value));
-        else
-            helper.constants.push_back(ConstantArg(value));
-    }
 
     return OK;
 }
 
-inline Status extract_np_integer(PyObject* pyobj, bool is_constant, LaunchHelper& helper) {
+inline Status extract_np_integer(PyObject* pyobj, LaunchHelper& helper) {
     // Promote numpy integer scalar to PyLong, required for pylong_as's unsigned retry;
     // pylong_as keeps the exact 64-bit pattern, so uint64 > INT64_MAX round-trips.
     PyPtr as_int = steal(PyNumber_Index(pyobj));
@@ -1205,35 +957,25 @@ inline Status extract_np_integer(PyObject* pyobj, bool is_constant, LaunchHelper
     helper.cuargs.push_back(cuda_arg_i64(value));
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 0});
 
-    if (is_constant)
-        helper.constants.push_back(ConstantArg(value));
-
     return OK;
 }
 
-inline Status extract_py_enum(PyObject* pyobj, bool is_constant, LaunchHelper& helper) {
+inline Status extract_py_enum(PyObject* pyobj, LaunchHelper& helper) {
     PyObject* value_attr = PyObject_GetAttrString(pyobj, "value");
     if (!value_attr) return ErrorRaised;
 
     size_t start_idx = helper.cuargs.size();
-    PyObject* enum_type = (PyObject*)Py_TYPE(pyobj);
-    if (is_constant)
-        helper.constants.push_back(ConstantArg(reinterpret_cast<int64_t>(enum_type)));
 
     if (PyLong_Check(value_attr)) {
         int64_t value = pylong_as<int64_t>(value_attr);
         Py_DECREF(value_attr);
         if (PyErr_Occurred()) return ErrorRaised;
         helper.cuargs.push_back(cuda_arg_i64(value));
-        if (is_constant)
-            helper.constants.push_back(ConstantArg(value));
     } else {
         double value = PyFloat_AsDouble(value_attr);
         Py_DECREF(value_attr);
         if (PyErr_Occurred()) return ErrorRaised;
         helper.cuargs.push_back(cuda_arg_f64(value));
-        if (is_constant)
-            helper.constants.push_back(ConstantArg(value));
     }
 
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 0});
@@ -1289,15 +1031,13 @@ Status extract_tma_descriptor(PyObject* pyobj, LaunchHelper& helper) {
   return OK;
 }
 
-void extract_py_float(PyObject* pyobj, bool is_constant, LaunchHelper& helper) {
+void extract_py_float(PyObject* pyobj, LaunchHelper& helper) {
     double value = PyFloat_AS_DOUBLE(pyobj);
 
     size_t start_idx = helper.cuargs.size();
     helper.cuargs.push_back(cuda_arg_f64(value));
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 0});
 
-    if (is_constant)
-        helper.constants.push_back(ConstantArg(value));
 }
 
 static uint16_t double_to_f16_bits(double d) {
@@ -1322,7 +1062,7 @@ static uint16_t double_to_f16_bits(double d) {
     return sign;
 }
 
-Status extract_np_float16(PyObject* pyobj, bool is_constant, LaunchHelper& helper) {
+Status extract_np_float16(PyObject* pyobj, LaunchHelper& helper) {
     PyPtr py_float = steal(PyNumber_Float(pyobj));
     if (!py_float) return ErrorRaised;
     double value = PyFloat_AS_DOUBLE(py_float.get());
@@ -1331,12 +1071,10 @@ Status extract_np_float16(PyObject* pyobj, bool is_constant, LaunchHelper& helpe
     helper.cuargs.push_back(cuda_arg_u16(double_to_f16_bits(value)));
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 0});
 
-    if (is_constant)
-        helper.constants.push_back(ConstantArg(value));
     return OK;
 }
 
-void extract_np_float32(PyObject* pyobj, bool is_constant, LaunchHelper& helper) {
+void extract_np_float32(PyObject* pyobj, LaunchHelper& helper) {
     // numpy.float32 scalar - extract as 32-bit float
     // Use PyFloat_AsDouble to convert numpy scalar to C double, then cast to float
     float value = (float)PyFloat_AsDouble(pyobj);
@@ -1346,11 +1084,9 @@ void extract_np_float32(PyObject* pyobj, bool is_constant, LaunchHelper& helper)
     // Use ndim=3 to indicate this is a 32-bit float (distinguish from 64-bit which uses ndim=0)
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 3});
 
-    if (is_constant)
-        helper.constants.push_back(ConstantArg((double)value));
 }
 
-void extract_py_complex(PyObject* pyobj, bool is_constant, LaunchHelper& helper) {
+void extract_py_complex(PyObject* pyobj, LaunchHelper& helper) {
     // Python complex uses two doubles internally (complex128)
     // Push real and imaginary parts as consecutive f64 values
     double real = PyComplex_RealAsDouble(pyobj);
@@ -1362,11 +1098,9 @@ void extract_py_complex(PyObject* pyobj, bool is_constant, LaunchHelper& helper)
     // Complex128 is 2 f64 scalars, use ndim=2 to indicate complex128 (2 doubles)
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 2});
 
-    // Note: constants for complex not yet supported
-    (void)is_constant;
 }
 
-void extract_np_complex64(PyObject* pyobj, bool is_constant, LaunchHelper& helper) {
+void extract_np_complex64(PyObject* pyobj, LaunchHelper& helper) {
     // numpy.complex64 stores two float32 values packed into 8 bytes
     // Extract via Python's __complex__ protocol, then convert to float
     float real, imag;
@@ -1396,7 +1130,6 @@ void extract_np_complex64(PyObject* pyobj, bool is_constant, LaunchHelper& helpe
     // ndim=1 indicates complex64 (one 8-byte entry containing two f32)
     helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 1});
 
-    (void)is_constant;
 }
 
 Status extract_numpy_void(PyObject* pyobj, LaunchHelper& helper) {
@@ -1519,12 +1252,10 @@ Status extract_device_record(PyObject* pyobj, LaunchHelper& helper) {
 
 Status extract_cuda_args(PyObject* const* pyargs, size_t num_pyargs,
                          const std::vector<PythonArgKind>& arg_kinds,
-                         const std::vector<bool>& constant_arg_flags,
                          LaunchHelper& helper) {
     assert(num_pyargs == arg_kinds.size());
     helper.cuargs.clear();
     helper.arg_metadata.clear();
-    helper.constants.clear();
 
     // Free old TMA descriptor allocations from previous launch
     for (void* ptr : helper.aligned_tma_descriptors) {
@@ -1541,13 +1272,6 @@ Status extract_cuda_args(PyObject* const* pyargs, size_t num_pyargs,
     helper.cuda_context = nullptr;
     for (size_t i = 0; i < num_pyargs; ++i) {
         PyObject* pyobj = pyargs[i];
-        // constant_arg_flags is sized to the number of Python-level kernel
-        // parameters, but pyargs may contain more entries because tuple/list
-        // arguments are flattened before reaching the C++ launcher (see
-        // _flatten_arg in descriptor.py).  Flags beyond the original parameter
-        // count default to false (non-constant), matching the behaviour of
-        // PythonArgProfile::maybe_init_fast_path above.
-        bool is_constant = i < constant_arg_flags.size() && constant_arg_flags[i];
 
         switch (arg_kinds[i]) {
         case PythonArgKind::TorchTensorDlpack:
@@ -1563,28 +1287,28 @@ Status extract_cuda_args(PyObject* const* pyargs, size_t num_pyargs,
             if (!extract_tma_descriptor(pyobj, helper)) return ErrorRaised;
             break;
         case PythonArgKind::PyLong:
-            if (!extract_py_long(pyobj, is_constant, helper)) return ErrorRaised;
+            if (!extract_py_long(pyobj, helper)) return ErrorRaised;
             break;
         case PythonArgKind::NpInteger:
-            if (!extract_np_integer(pyobj, is_constant, helper)) return ErrorRaised;
+            if (!extract_np_integer(pyobj, helper)) return ErrorRaised;
             break;
         case PythonArgKind::PyEnum:
-            if (!extract_py_enum(pyobj, is_constant, helper)) return ErrorRaised;
+            if (!extract_py_enum(pyobj, helper)) return ErrorRaised;
             break;
         case PythonArgKind::PyFloat:
-            extract_py_float(pyobj, is_constant, helper);
+            extract_py_float(pyobj, helper);
             break;
         case PythonArgKind::NpFloat16:
-            if (!extract_np_float16(pyobj, is_constant, helper)) return ErrorRaised;
+            if (!extract_np_float16(pyobj, helper)) return ErrorRaised;
             break;
         case PythonArgKind::NpFloat32:
-            extract_np_float32(pyobj, is_constant, helper);
+            extract_np_float32(pyobj, helper);
             break;
         case PythonArgKind::PyComplex:
-            extract_py_complex(pyobj, is_constant, helper);
+            extract_py_complex(pyobj, helper);
             break;
         case PythonArgKind::NpComplex64:
-            extract_np_complex64(pyobj, is_constant, helper);
+            extract_np_complex64(pyobj, helper);
             break;
         case PythonArgKind::NumpyVoid:
             if (!extract_numpy_void(pyobj, helper)) return ErrorRaised;
@@ -1593,7 +1317,7 @@ Status extract_cuda_args(PyObject* const* pyargs, size_t num_pyargs,
             if (!extract_device_record(pyobj, helper)) return ErrorRaised;
             break;
         case PythonArgKind::NpDatetime:
-            if (!extract_np_datetime(pyobj, is_constant, helper)) return ErrorRaised;
+            if (!extract_np_datetime(pyobj, helper)) return ErrorRaised;
             break;
         }
     }
@@ -1637,17 +1361,8 @@ public:
 };
 
 struct KernelDispatcher {
-    using FamilyMap = std::unordered_map<
-            std::vector<ParameterKind>,
-            RefPtr<KernelFamily>,
-            HashVector<ParameterKind>>;
-
-    PyPtr compile_func;
     PyPtr ensure_context_func;
-    std::vector<bool> constant_arg_flags;
-    std::vector<bool> literal_arg_flags;
     ProfileMap arg_profiles;
-    FamilyMap kernel_families;
     // When false, launches stay asynchronous: the post-launch device-side error
     // readback (cuCtxSynchronize + cuMemcpyDtoH of __numba_cuda_mlir_error_code)
     // is skipped. Mirrors numba-cuda, which only surfaces kernel exceptions
@@ -1662,68 +1377,120 @@ void get_pyarg_types(PyObject* const* pyargs, Py_ssize_t num_pyargs,
         pyarg_types.push_back(Py_TYPE(pyargs[i]));
 }
 
-Result<CudaKernelHandle> compile(PyObject* compile_func,
-                           PyObject* const* pyargs, Py_ssize_t num_pyargs) {
-    PyPtr pyargs_tuple = steal(PyTuple_New(num_pyargs));
-    if (!pyargs_tuple) return ErrorRaised;
+int KernelSpecialization_init(PyObject* self, PyObject* args, PyObject* kwargs) {
+    const char* keywords[] = {"compile_result", nullptr};
+    PyObject* compile_result = nullptr;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O", const_cast<char**>(keywords),
+                                     &compile_result))
+        return -1;
 
-    for (Py_ssize_t i = 0; i < num_pyargs; ++i)
-        PyTuple_SET_ITEM(pyargs_tuple.get(), i, Py_NewRef(pyargs[i]));
-
-    PyPtr compile_result = steal(
-            PyObject_CallFunctionObjArgs(compile_func, pyargs_tuple.get(), nullptr));
-    if (!compile_result) return ErrorRaised;
-
-    if (!PyTuple_Check(compile_result.get()))
-        return raise(PyExc_TypeError, "Expected compile() to return a tuple, got %s",
-                     Py_TYPE(compile_result.get())->tp_name);
-
-    Py_ssize_t tuple_size = PyTuple_GET_SIZE(compile_result.get());
-    if (tuple_size < 3 || tuple_size > 5)
-        return raise(PyExc_TypeError, "Expected compile() to return a 3-, 4-, or 5-tuple, got length %zd",
-                     tuple_size);
-
-    PyObject* py_cubin = PyTuple_GET_ITEM(compile_result.get(), 0);
-    PyObject* py_cufunc_name = PyTuple_GET_ITEM(compile_result.get(), 1);
-    PyObject* py_cooperative = PyTuple_GET_ITEM(compile_result.get(), 2);
-
-    if (!PyBytes_Check(py_cubin) || !PyUnicode_Check(py_cufunc_name))
-        return raise(PyExc_TypeError,
-                     "Expected compile() to return (bytes, str, ...) for (cubin, func_name, ...),"
-                     " got %s, %s",
-                     Py_TYPE(py_cubin)->tp_name,
-                     Py_TYPE(py_cufunc_name)->tp_name);
-
-    const void* cubin = PyBytes_AsString(py_cubin);
-    if (!cubin) return ErrorRaised;
-
-    const char* cufunc_name = PyUnicode_AsUTF8(py_cufunc_name);
-    if (!cufunc_name) return ErrorRaised;
-
-    bool cooperative = (py_cooperative == Py_True);
-
-    Result<CudaKernel> cukernel = load_cuda_kernel(cubin, cufunc_name);
-    if (!cukernel.is_ok()) return ErrorRaised;
-
-    CudaKernelHandle handle{std::move(*cukernel), {}, cooperative};
-    if (tuple_size >= 4) {
-        PyObject* post_load_cb = PyTuple_GET_ITEM(compile_result.get(), 3);
-        if (post_load_cb != Py_None && PyCallable_Check(post_load_cb))
-            handle.post_load_callback = newref(post_load_cb);
+    KernelSpecialization& specialization = py_unwrap<KernelSpecialization>(self);
+    if (specialization.compile_result) {
+        PyErr_SetString(PyExc_RuntimeError, "KernelSpecialization is already initialized");
+        return -1;
     }
+    if (!PyTuple_Check(compile_result)) {
+        PyErr_SetString(PyExc_TypeError, "compile_result must be a tuple");
+        return -1;
+    }
+    Py_ssize_t tuple_size = PyTuple_GET_SIZE(compile_result);
+    if (tuple_size < 3 || tuple_size > 5) {
+        PyErr_SetString(PyExc_TypeError, "compile_result must be a 3-, 4-, or 5-tuple");
+        return -1;
+    }
+    if (!PyBytes_Check(PyTuple_GET_ITEM(compile_result, 0))
+            || !PyUnicode_Check(PyTuple_GET_ITEM(compile_result, 1))) {
+        PyErr_SetString(PyExc_TypeError, "compile_result must contain (bytes, str, ...)");
+        return -1;
+    }
+    std::vector<std::pair<int64_t, int64_t>> array_abi;
     if (tuple_size == 5) {
-        PyObject* abi = PyTuple_GET_ITEM(compile_result.get(), 4);
-        if (!PyTuple_Check(abi)) return raise(PyExc_TypeError, "Expected array ABI tuple");
+        PyObject* abi = PyTuple_GET_ITEM(compile_result, 4);
+        if (!PyTuple_Check(abi)) {
+            PyErr_SetString(PyExc_TypeError, "Expected array ABI tuple");
+            return -1;
+        }
+        array_abi.reserve(PyTuple_GET_SIZE(abi));
         for (Py_ssize_t i = 0; i < PyTuple_GET_SIZE(abi); ++i) {
             long long unit, alignment;
             if (!PyArg_ParseTuple(PyTuple_GET_ITEM(abi, i), "LL", &unit, &alignment))
-                return ErrorRaised;
-            if (unit <= 0 || alignment <= 0) return raise(PyExc_ValueError, "Invalid array ABI units");
-            handle.array_abi.emplace_back(unit, alignment);
+                return -1;
+            if (unit <= 0 || alignment <= 0) {
+                PyErr_SetString(PyExc_ValueError, "Invalid array ABI units");
+                return -1;
+            }
+            array_abi.emplace_back(unit, alignment);
         }
     }
-    return handle;
+    specialization.cooperative = PyTuple_GET_ITEM(compile_result, 2) == Py_True;
+    specialization.array_abi = std::move(array_abi);
+    specialization.compile_result = newref(compile_result);
+    return 0;
 }
+
+Status load_specialization(KernelSpecialization& specialization) {
+    if (specialization.kernel)
+        return OK;
+    if (!specialization.compile_result)
+        return raise(PyExc_RuntimeError, "KernelSpecialization is not initialized");
+
+    PyObject* result = specialization.compile_result.get();
+    const void* cubin = PyBytes_AsString(PyTuple_GET_ITEM(result, 0));
+    if (!cubin) return ErrorRaised;
+    const char* name = PyUnicode_AsUTF8(PyTuple_GET_ITEM(result, 1));
+    if (!name) return ErrorRaised;
+    Result<CudaKernel> kernel = load_cuda_kernel(cubin, name);
+    if (!kernel.is_ok()) return ErrorRaised;
+
+    // Publish before calling Python: recursive launches must reuse this module,
+    // and a callback failure must not load or initialize it a second time.
+    specialization.kernel.emplace(std::move(*kernel));
+    if (PyTuple_GET_SIZE(result) >= 4) {
+        PyObject* callback = PyTuple_GET_ITEM(result, 3);
+        if (callback != Py_None && PyCallable_Check(callback)) {
+            PyPtr handle = steal(PyLong_FromVoidPtr(
+                static_cast<void*>(specialization.kernel->lib.get())));
+            if (!handle) return ErrorRaised;
+            PyPtr callback_result = steal(PyObject_CallOneArg(callback, handle.get()));
+            if (!callback_result) return ErrorRaised;
+        }
+    }
+    return OK;
+}
+
+Status ensure_specialization_loaded(PyObject* self) {
+    Status status = OK;
+#ifdef Py_GIL_DISABLED
+    Py_BEGIN_CRITICAL_SECTION(self);
+#endif
+    status = load_specialization(py_unwrap<KernelSpecialization>(self));
+#ifdef Py_GIL_DISABLED
+    Py_END_CRITICAL_SECTION();
+#endif
+    return status;
+}
+
+int KernelSpecialization_traverse(PyObject* self, visitproc visit, void* arg) {
+    Py_VISIT(py_unwrap<KernelSpecialization>(self).compile_result.get());
+    return 0;
+}
+
+int KernelSpecialization_clear(PyObject* self) {
+    KernelSpecialization& specialization = py_unwrap<KernelSpecialization>(self);
+    specialization.kernel.reset();
+    Py_XDECREF(specialization.compile_result.release());
+    return 0;
+}
+
+void KernelSpecialization_dealloc(PyObject* self) {
+    PyObject_GC_UnTrack(self);
+    KernelSpecialization_clear(self);
+    pywrapper_dealloc<KernelSpecialization>(self);
+}
+
+PyTypeObject KernelSpecialization_type = {
+    PyVarObject_HEAD_INIT(nullptr, 0)
+};
 
 Status ensure_numba_context(PyObject* ensure_context_func) {
     if (!ensure_context_func || ensure_context_func == Py_None)
@@ -1954,7 +1721,8 @@ bool try_clarify_launch_out_of_resources_error(CUkernel kernel, const Grid& bloc
     return true;
 }
 
-Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional<Grid> cluster,
+Status launch(KernelDispatcher& dispatcher, PyObject* specialization_object,
+              Grid grid, Grid block, std::optional<Grid> cluster,
               std::optional<CUstream> stream, int sharedmem,
               PyObject* const* pyargs, Py_ssize_t num_pyargs) {
     LaunchHelperPtr helper = launch_helper_get();
@@ -1971,48 +1739,29 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
 
     PythonArgProfile* profile = dispatcher.arg_profiles.find(helper->pyarg_types);
     if (!profile) {
-        // Slower path: classify args and find/create kernel family
+        // Classify representations only; Python already selected executable code.
 
         std::vector<PythonArgKind> arg_kinds;
         arg_kinds.reserve(num_pyargs);
-        std::vector<ParameterKind> param_kinds;
-        param_kinds.reserve(num_pyargs);
         for (Py_ssize_t i = 0; i < num_pyargs; ++i) {
-            Result<std::pair<PythonArgKind, ParameterKind>> c = classify_arg(pyargs[i]);
-            if (!c.is_ok()) return ErrorRaised;
-            arg_kinds.push_back(c->first);
-            param_kinds.push_back(c->second);
+            Result<PythonArgKind> kind = classify_arg(pyargs[i]);
+            if (!kind.is_ok()) return ErrorRaised;
+            arg_kinds.push_back(*kind);
         }
 
-        // Find or create kernel family for this parameter pattern
-        KernelDispatcher::FamilyMap::iterator family_iter
-                = dispatcher.kernel_families.find(param_kinds);
-        if (family_iter == dispatcher.kernel_families.end()) {
-            RefPtr<KernelFamily> new_family = steal(new KernelFamily());
-            family_iter = dispatcher.kernel_families.emplace(
-                    std::make_pair(std::move(param_kinds), std::move(new_family))).first;
-        }
-
-        std::vector<bool> profile_constant_arg_flags = effective_constant_arg_flags(
-                dispatcher.constant_arg_flags,
-                dispatcher.literal_arg_flags,
-                helper->pyarg_types);
         profile = dispatcher.arg_profiles.insert(
                     std::move(helper->pyarg_types),
-                    PythonArgProfile{
-                        family_iter->second,
-                        std::move(arg_kinds),
-                        std::move(profile_constant_arg_flags)});
+                    PythonArgProfile{std::move(arg_kinds)});
     }
 
     // Try fast scalar extraction path
     profile->maybe_init_fast_path();
 
-    KernelFamily::KernelMap::iterator kernel_iter;
     ContextGuard ctx_guard;
+    const bool fast_path = !profile->fast_extractors.empty();
 
-    if (!profile->fast_extractors.empty()) {
-        // Fast path: all args are simple scalars with no constants.
+    if (fast_path) {
+        // Fast path: all args are simple scalars.
         // Single loop: extract values + build pointers simultaneously.
         // Clean up any leftover state from previous (non-scalar) launches
         // since LaunchHelper is reused from a freelist.
@@ -2036,76 +1785,32 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
             if (PyErr_Occurred()) return ErrorRaised;
             helper->cuarg_pointers[i] = &base[i];
         }
-        helper->constants.clear();
         helper->cuda_context = nullptr;
-
-        if (!ensure_numba_context(dispatcher.ensure_context_func.get()))
-            return ErrorRaised;
-
-        KernelFamily::KernelMap& kernel_map = profile->family->kernels_by_constants;
-        kernel_iter = kernel_map.find(helper->constants);
-        if (kernel_iter == kernel_map.end()) {
-            // Slowest path: need to compile a new kernel
-            Result<CudaKernelHandle> kernel = compile(dispatcher.compile_func.get(), pyargs, num_pyargs);
-            if (!kernel.is_ok()) return ErrorRaised;
-            // Defer the post-load callback until after emplace so that racing
-            // threads that compile the same kernel don't fire duplicate callbacks.
-            PyPtr post_load_cb = std::move(kernel->post_load_callback);
-            auto [it, inserted] = kernel_map.emplace(helper->constants, std::move(*kernel));
-            kernel_iter = it;
-            if (inserted && post_load_cb) {
-                PyPtr py_handle = steal(PyLong_FromVoidPtr(
-                        static_cast<void*>(kernel_iter->second.cukernel.lib.get())));
-                if (!py_handle) return ErrorRaised;
-                PyPtr cb_result = steal(
-                        PyObject_CallOneArg(post_load_cb.get(), py_handle.get()));
-                if (!cb_result) return ErrorRaised;
-            }
-        }
-
-        if (!maybe_switch_context(kernel_iter->second.cukernel.lib.context(), ctx_guard))
-            return ErrorRaised;
     } else {
         // Standard path: full extraction with per-type switch
-        if (!extract_cuda_args(pyargs, num_pyargs, profile->arg_kinds,
-                               profile->constant_arg_flags, *helper)) {
+        if (!extract_cuda_args(pyargs, num_pyargs, profile->arg_kinds, *helper)) {
             return ErrorRaised;
         }
 
-        if (helper->cuda_context) {
-            if (!maybe_switch_context(helper->cuda_context, ctx_guard))
-                return ErrorRaised;
-        } else {
-            if (!ensure_numba_context(dispatcher.ensure_context_func.get()))
-                return ErrorRaised;
-        }
+    }
 
-        KernelFamily::KernelMap& kernel_map = profile->family->kernels_by_constants;
-        kernel_iter = kernel_map.find(helper->constants);
-        if (kernel_iter == kernel_map.end()) {
-            // Slowest path: need to compile a new kernel
-            Result<CudaKernelHandle> kernel = compile(dispatcher.compile_func.get(), pyargs, num_pyargs);
-            if (!kernel.is_ok()) return ErrorRaised;
-
-            // Defer the post-load callback until after emplace so that racing
-            // threads that compile the same kernel don't fire duplicate callbacks.
-            PyPtr post_load_cb = std::move(kernel->post_load_callback);
-            auto [it, inserted] = kernel_map.emplace(helper->constants, std::move(*kernel));
-            kernel_iter = it;
-            if (inserted && post_load_cb) {
-                PyPtr py_handle = steal(PyLong_FromVoidPtr(
-                        static_cast<void*>(kernel_iter->second.cukernel.lib.get())));
-                if (!py_handle) return ErrorRaised;
-                PyPtr cb_result = steal(
-                        PyObject_CallOneArg(post_load_cb.get(), py_handle.get()));
-                if (!cb_result) return ErrorRaised;
-            }
-        }
-
-        if (!helper->cuda_context
-                && !maybe_switch_context(kernel_iter->second.cukernel.lib.context(), ctx_guard))
+    // Extraction establishes the input's CUDA context before a specialization
+    // can load its module or invoke its once-per-module callback.
+    if (helper->cuda_context) {
+        if (!maybe_switch_context(helper->cuda_context, ctx_guard))
             return ErrorRaised;
+    } else if (!ensure_numba_context(dispatcher.ensure_context_func.get())) {
+        return ErrorRaised;
+    }
+    if (!ensure_specialization_loaded(specialization_object))
+        return ErrorRaised;
+    KernelSpecialization& specialization = py_unwrap<KernelSpecialization>(specialization_object);
+    CudaKernel& kernel = *specialization.kernel;
+    if (!helper->cuda_context
+            && !maybe_switch_context(kernel.lib.context(), ctx_guard))
+        return ErrorRaised;
 
+    if (!fast_path) {
         helper->cuarg_pointers.clear();
 
         // Build kernel arguments in MLIR memref calling convention order.
@@ -2117,7 +1822,7 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
         size_t array_index = 0;
         for (const ArgMetadata& meta : helper->arg_metadata) {
             if (meta.is_array()) {
-                const auto& abi = kernel_iter->second.array_abi;
+                const auto& abi = specialization.array_abi;
                 if (array_index >= abi.size())
                     return raise(PyExc_TypeError, "Missing compiled array storage ABI");
                 auto [unit, alignment] = abi[array_index++];
@@ -2167,7 +1872,7 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
     {
         // Convert CUkernel to CUfunction for attribute configuration
         CUfunction cu_function = nullptr;
-        CUkernel cu_kernel = kernel_iter->second.cukernel.kernel;
+        CUkernel cu_kernel = kernel.kernel;
         CUresult func_res = g_cuKernelGetFunction(&cu_function, cu_kernel);
         if (func_res != CUDA_SUCCESS) {
             return raise(PyExc_RuntimeError,
@@ -2247,8 +1952,8 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
     }
 
     CUresult res;
-    CUfunction cu_function = reinterpret_cast<CUfunction>(kernel_iter->second.cukernel.kernel);
-    bool cooperative = kernel_iter->second.cooperative;
+    CUfunction cu_function = reinterpret_cast<CUfunction>(kernel.kernel);
+    bool cooperative = specialization.cooperative;
 
     if (cluster.has_value() || cooperative) {
         // Use cuLaunchKernelEx for cluster and/or cooperative launch
@@ -2304,7 +2009,7 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
             return ErrorRaised;
         if (res == CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES
                 && try_clarify_launch_out_of_resources_error(
-                    kernel_iter->second.cukernel.kernel, block))
+                    kernel.kernel, block))
             return ErrorRaised;
 
         const char* error_name = nullptr;
@@ -2321,7 +2026,7 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
     // synchronizes the context, so track whether that already happened.
     bool context_synchronized = false;
     if (dispatcher.debug) {
-        if (!check_kernel_error_code(kernel_iter->second.cukernel.lib))
+        if (!check_kernel_error_code(kernel.lib))
             return ErrorRaised;
         context_synchronized = true;
     }
@@ -2350,57 +2055,17 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
     return OK;
 }
 
-Result<std::vector<bool>> parse_constant_arg_flags(PyObject* tuple) {
-    if (!PyTuple_Check(tuple))
-        return raise(PyExc_TypeError, "constant_arg_flags must be a tuple");
-
-    std::vector<bool> constant_arg_flags;
-    Py_ssize_t tuple_size = PyTuple_GET_SIZE(tuple);
-    constant_arg_flags.reserve(tuple_size);
-    for (Py_ssize_t i = 0; i < tuple_size; ++i) {
-        PyObject* item = PyTuple_GET_ITEM(tuple, i);
-        if (!PyBool_Check(item))
-            return raise(PyExc_TypeError, "constant_arg_flags must be a tuple of booleans");
-
-        int is_constant = PyObject_IsTrue(item);
-        if (is_constant < 0) return ErrorRaised;
-        constant_arg_flags.push_back(static_cast<bool>(is_constant));
-    }
-    return constant_arg_flags;
-}
-
 int KernelDispatcher_init(PyObject* self, PyObject* args, PyObject* kwargs) {
-    const char* keywords[] = {"", "", "", "debug", "literal_arg_flags", nullptr};
-    PyObject* compile_func = nullptr;
-    PyObject* py_constant_arg_flags = nullptr;
+    const char* keywords[] = {"ensure_context_func", "debug", nullptr};
     PyObject* ensure_context_func = Py_None;
-    PyObject* py_literal_arg_flags = Py_None;
     int debug = 0;
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|OpO", const_cast<char**>(keywords),
-                                     &compile_func, &py_constant_arg_flags,
-                                     &ensure_context_func, &debug, &py_literal_arg_flags))
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|Op", const_cast<char**>(keywords),
+                                     &ensure_context_func, &debug))
         return -1;
 
-    Result<std::vector<bool>> constant_arg_flags = parse_constant_arg_flags(py_constant_arg_flags);
-    if (!constant_arg_flags.is_ok()) return -1;
-    std::vector<bool> literal_arg_flags(constant_arg_flags->size(), false);
-    if (py_literal_arg_flags != Py_None) {
-        Result<std::vector<bool>> parsed = parse_constant_arg_flags(py_literal_arg_flags);
-        if (!parsed.is_ok()) return -1;
-        if (parsed->size() != constant_arg_flags->size()) {
-            PyErr_SetString(
-                PyExc_TypeError,
-                "literal_arg_flags must have the same length as constant_arg_flags");
-            return -1;
-        }
-        literal_arg_flags = std::move(*parsed);
-    }
 
     KernelDispatcher& dispatcher = py_unwrap<KernelDispatcher>(self);
-    dispatcher.compile_func = newref(compile_func);
     dispatcher.ensure_context_func = newref(ensure_context_func);
-    dispatcher.constant_arg_flags = std::move(*constant_arg_flags);
-    dispatcher.literal_arg_flags = std::move(literal_arg_flags);
     dispatcher.debug = (debug != 0);
     return 0;
 }
@@ -2446,29 +2111,50 @@ struct LaunchConfiguration {
     int sharedmem;
 };
 
+Status validate_launch_specialization(PyObject* specialization) {
+    if (!specialization)
+        return raise(PyExc_TypeError, "Launch requires keyword-only argument '_specialization'");
+    if (!PyObject_TypeCheck(specialization, &KernelSpecialization_type))
+        return raise(PyExc_TypeError, "_specialization must be a KernelSpecialization");
+    return OK;
+}
+
 PyObject* LaunchConfiguration_vectorcall(PyObject* self, PyObject *const *args,
                                              size_t nargsf, PyObject* kwnames) {
-    if (kwnames) {
-        PyErr_SetString(PyExc_TypeError, "Keyword arguments are not supported");
+    if (!kwnames || PyTuple_GET_SIZE(kwnames) == 0) {
+        PyErr_SetString(PyExc_TypeError, "Launch requires keyword-only argument '_specialization'");
+        return nullptr;
+    }
+    if (PyTuple_GET_SIZE(kwnames) != 1
+            || PyUnicode_CompareWithASCIIString(PyTuple_GET_ITEM(kwnames, 0), "_specialization") != 0) {
+        PyErr_SetString(PyExc_TypeError, "Launch accepts only the '_specialization' keyword");
         return nullptr;
     }
 
     LaunchConfiguration& config = py_unwrap<LaunchConfiguration>(self);
 
     Py_ssize_t num_args = PyVectorcall_NARGS(nargsf);
+    PyPtr specialization = newref(args[num_args]);
+    if (!validate_launch_specialization(specialization.get()))
+        return nullptr;
 
     KernelDispatcher& dispatcher = py_unwrap<KernelDispatcher>(config.dispatcher.get());
-    if (!launch(dispatcher, config.grid, config.block, config.cluster, config.stream, config.sharedmem, args, num_args))
+    if (!launch(dispatcher, specialization.get(), config.grid, config.block, config.cluster,
+                config.stream, config.sharedmem, args, num_args))
         return nullptr;
 
     return Py_NewRef(Py_None);
 }
 
 PyObject* LaunchConfiguration_call(PyObject* self, PyObject* args, PyObject* kwargs) {
-    if (kwargs) {
-        PyErr_SetString(PyExc_TypeError, "Keyword arguments are not supported");
+    PyObject* selected = kwargs ? PyDict_GetItemString(kwargs, "_specialization") : nullptr;
+    if (!validate_launch_specialization(selected))
+        return nullptr;
+    if (PyDict_Size(kwargs) != 1) {
+        PyErr_SetString(PyExc_TypeError, "Launch accepts only the '_specialization' keyword");
         return nullptr;
     }
+    PyPtr specialization = newref(selected);
 
     LaunchConfiguration& config = py_unwrap<LaunchConfiguration>(self);
 
@@ -2477,7 +2163,8 @@ PyObject* LaunchConfiguration_call(PyObject* self, PyObject* args, PyObject* kwa
     PyObject** pyargs = &_PyTuple_CAST(args)->ob_item[0];
     Py_ssize_t num_pyargs = PyTuple_GET_SIZE(args);
 
-    if (!launch(dispatcher, config.grid, config.block, config.cluster, config.stream, config.sharedmem, pyargs, num_pyargs))
+    if (!launch(dispatcher, specialization.get(), config.grid, config.block, config.cluster,
+                config.stream, config.sharedmem, pyargs, num_pyargs))
         return nullptr;
 
     return Py_NewRef(Py_None);
@@ -2646,35 +2333,6 @@ void try_get_numpy_globals() {
 } // anonymous namespace
 
 
-namespace std {
-template<>
-struct hash<ConstantArg> {
-    size_t operator()(const ConstantArg& arg) const {
-        switch (arg.type) {
-        case ConstantArgType::INT64:
-            return std::hash<int64_t>{}(arg.value.i64);
-        case ConstantArgType::UINT64:
-            return std::hash<uint64_t>{}(arg.value.u64)
-                 ^ (static_cast<size_t>(ConstantArgType::UINT64) << 1);
-        case ConstantArgType::BOOL:
-            // Shift the BOOL tag past the 0/1 payload bit before mixing it into
-            // the integer hash, so BOOL values do not just swap INT64 0/1 hashes.
-            return std::hash<int64_t>{}(arg.value.i64)
-                 ^ (static_cast<size_t>(ConstantArgType::BOOL) << 1);
-        case ConstantArgType::FLOAT64:
-            // hash float bits directly
-            uint64_t float_bits;
-            std::memcpy(&float_bits, &arg.value.f64, sizeof(arg.value.f64));
-            return std::hash<uint64_t>{}(float_bits);
-        case ConstantArgType::STRING:
-            return std::hash<std::string>{}(arg.str);
-        }
-        // unreachable code
-        assert(false && "Unsupported constant arg type");
-        return 0;
-    }
-};
-} // std namespace
 
 
 #define INIT_STRING_CONSTANT(ident) \
@@ -2697,6 +2355,15 @@ Status kernel_init(PyObject* m) {
     try_get_enum_globals();
     try_get_numpy_globals();
 
+    KernelSpecialization_type.tp_name = "numba_cuda_mlir._cext.KernelSpecialization";
+    KernelSpecialization_type.tp_basicsize = sizeof(PythonWrapper<KernelSpecialization>);
+    KernelSpecialization_type.tp_dealloc = KernelSpecialization_dealloc;
+    KernelSpecialization_type.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC;
+    KernelSpecialization_type.tp_traverse = KernelSpecialization_traverse;
+    KernelSpecialization_type.tp_clear = KernelSpecialization_clear;
+    KernelSpecialization_type.tp_init = KernelSpecialization_init;
+    KernelSpecialization_type.tp_new = pywrapper_new<KernelSpecialization>;
+
     KernelDispatcher_type.tp_name = "numba_cuda_mlir._cext.KernelDispatcher";
     KernelDispatcher_type.tp_basicsize = sizeof(PythonWrapper<KernelDispatcher>);
     KernelDispatcher_type.tp_dealloc = pywrapper_dealloc<KernelDispatcher>;
@@ -2714,6 +2381,13 @@ Status kernel_init(PyObject* m) {
     LaunchConfiguration_type.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_VECTORCALL;
     LaunchConfiguration_type.tp_init = LaunchConfiguration_init;
     LaunchConfiguration_type.tp_new = pywrapper_new<LaunchConfiguration>;
+
+    if (PyType_Ready(&KernelSpecialization_type) < 0)
+        return ErrorRaised;
+
+    if (PyModule_AddObjectRef(m, "KernelSpecialization",
+                reinterpret_cast<PyObject*>(&KernelSpecialization_type)) < 0)
+        return ErrorRaised;
 
     if (PyType_Ready(&KernelDispatcher_type) < 0)
         return ErrorRaised;

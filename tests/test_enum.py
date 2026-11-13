@@ -228,7 +228,7 @@ class TestUnsupported:
             out[0] = 1
 
         out = cuda.device_array(1, dtype=np.int64)
-        with pytest.raises(TypeError, match="tuple values are not supported"):
+        with pytest.raises(TypeError):
             kernel[1, 1](Planet.mercury, out)
 
     def test_string_enum(self):

@@ -6,7 +6,9 @@ param(
     [string]$PythonVersion,
     [Parameter(Mandatory = $true)]
     [ValidateSet('modern', 'llvm7')]
-    [string]$Mode
+    [string]$Mode,
+    [Parameter(Mandatory = $true)]
+    [string]$UvPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -26,29 +28,34 @@ if (Test-Path $targetDir) {
 }
 New-Item -ItemType Directory -Path $targetDir | Out-Null
 
-$pythonExe = Install-PythonViaNuGet -Spec $spec -TargetDir $targetDir
+$pythonExe = Install-HardenedPython -Spec $spec -TargetDir $targetDir -UvPath $UvPath
 Write-Host "Using Python: $pythonExe"
 & $pythonExe --version
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-& $pythonExe -m ensurepip --upgrade
-& $pythonExe -m pip install --upgrade pip
+& $pythonExe -m pip install --disable-pip-version-check --upgrade pip
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 if ($Mode -eq 'modern') {
     # MLIR asks for nanobind 2.9 and nanobind's CMake config only accepts a
     # matching major version, so 3.x fails the configure step outright.
     $pkgs = @('pybind11', 'nanobind~=2.9', 'numpy', 'ninja', 'cmake', 'awscli')
     & $pythonExe -m pip install @pkgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     if ([version]($spec.TrimEnd('t').Trim()) -lt [version]'3.12') {
         & $pythonExe -m pip install 'typing-extensions'
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 }
 else {
     & $pythonExe -m pip install @('ninja', 'cmake', 'awscli')
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
 $bash = Resolve-Bash
 $repoRootUnix = Convert-ToUnixPath -WinPath $repoRoot
 & git config --global --add safe.directory $repoRootUnix
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $parallel = if ($env:PARALLEL) { $env:PARALLEL } else { '16' }
 $pythonForBash = ($pythonExe -replace '\\', '/')

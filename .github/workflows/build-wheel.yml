@@ -41,11 +41,25 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python
+      # Both platforms pass an explicit host interpreter to cibuildwheel.
+      # Windows uses the hardened PBS interpreter for the matrix Python.
+      - name: Set up Linux host Python
+        if: ${{ startsWith(inputs.host-platform, 'linux') }}
         id: setup-python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
-          python-version: "3.12"
+          python-version: "~3.14.10"
+
+      - name: Update pip
+        if: ${{ startsWith(inputs.host-platform, 'linux') }}
+        uses: ./.github/actions/update-pip
+
+      - name: Set up Windows host Python
+        if: ${{ startsWith(inputs.host-platform, 'win') }}
+        id: windows-python
+        uses: ./.github/actions/setup-hardened-python
+        with:
+          python-version: ${{ matrix.python-version }}
 
       - name: Install latest rapidsai/sccache
         if: ${{ startsWith(inputs.host-platform, 'linux') }}
@@ -119,18 +133,17 @@ jobs:
           toolset: ${{ steps.wheel-tags.outputs.msvc-toolset }}
 
       - name: Build numba-cuda-mlir wheel
-        # Bumped for cp315: v4.1.0 hides 3.15 behind `enable = cpython-prerelease`
-        # and only carries 3.15.0b2 for Windows. v4.2.0+ builds 3.15 by default
-        # against an rc that upstream guarantees is ABI-compatible with the final
-        # release, so no prerelease opt-in is needed here.
-        uses: pypa/cibuildwheel@e090b81e30c4d855ea63bf4b6e59204c09a101ae  # v4.2.1
+        uses: pypa/cibuildwheel@b9e566a2b284570af229f6c2a33673410d0389a3  # v4.3.4
         with:
           package-dir: .
           output-dir: dist
+          python-path: ${{ steps.windows-python.outputs.python-path || steps.setup-python.outputs.python-path }}
         env:
           CIBW_BUILD: ${{ steps.wheel-tags.outputs.cibw-build }}
-          CIBW_MANYLINUX_X86_64_IMAGE: quay.io/pypa/manylinux_2_28_x86_64
-          CIBW_MANYLINUX_AARCH64_IMAGE: quay.io/pypa/manylinux_2_28_aarch64
+          # Let cibuildwheel use its own bundled SHA-pinned manylinux_2_28
+          # images, which track the eMudhra-fixed CA bundle and pip 26.2.2+.
+          # The previous CIBW_MANYLINUX_*_IMAGE overrides pointed at the
+          # unpinned quay.io/pypa/manylinux_2_28_* tags and defeated that.
           CIBW_ENVIRONMENT_LINUX: >
             MLIR_DIR=/host/${{ github.workspace }}/llvm-modern-install/lib/cmake/mlir
             LIBLLVM7=/host/${{ github.workspace }}/llvm7-install/lib/libLLVM-7.so
@@ -142,9 +155,6 @@ jobs:
             ACTIONS_RESULTS_URL=${{ env.ACTIONS_RESULTS_URL }}
             ACTIONS_CACHE_URL=${{ env.ACTIONS_CACHE_URL }}
             ACTIONS_CACHE_SERVICE_V2=${{ env.ACTIONS_CACHE_SERVICE_V2 }}
-          CIBW_ENVIRONMENT_WINDOWS: >
-            MLIR_DIR="$(cygpath -w ${{ env.LLVM_MODERN_INSTALL_DIR }}/lib/cmake/mlir)"
-            ${{ inputs.host-platform != 'win-arm64' && format('LIBLLVM7="$(cygpath -w {0}/bin/LLVM-C.dll)"', env.LLVM7_INSTALL_DIR) || '' }}
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             auditwheel -v repair {wheel} --wheel-dir {dest_dir}
             --exclude libMLIRPythonCAPI.so
@@ -152,10 +162,10 @@ jobs:
             --exclude libLLVM-7.so &&
             "/host/${{ env.SCCACHE_PATH }}" --show-adv-stats &&
             "/host/${{ env.SCCACHE_PATH }}" --show-stats --stats-format=json > /host/${{ github.workspace }}/sccache_NUMBA_CUDA_MLIR.json
-          # Windows wheels are built with /MT (static CRT) per PR #127, so the
-          # wheel is self-contained and needs no DLL bundling. cibuildwheel v4
-          # made `delvewheel repair` the Windows default; opt out explicitly
-          # to restore the v3.x no-op behavior we rely on.
+          CIBW_ENVIRONMENT_WINDOWS: >
+            MLIR_DIR="$(cygpath -w ${{ env.LLVM_MODERN_INSTALL_DIR }}/lib/cmake/mlir)"
+            ${{ inputs.host-platform != 'win-arm64' && format('LIBLLVM7="$(cygpath -w {0}/bin/LLVM-C.dll)"', env.LLVM7_INSTALL_DIR) || '' }}
+          # Windows wheels use the static CRT and need no DLL repair.
           CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: ""
 
       - name: Report sccache stats (numba-cuda-mlir)
@@ -164,7 +174,7 @@ jobs:
         with:
           json-file: sccache_NUMBA_CUDA_MLIR.json
           label: "numba-cuda-mlir"
-          build-step: "Build numba-cuda-mlir wheel (Linux)"
+          build-step: "Build numba-cuda-mlir wheel"
 
       - name: List the numba-cuda-mlir artifacts directory
         run: |

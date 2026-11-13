@@ -132,6 +132,150 @@ def test_consteval_kernel_param_resolves_to_type():
     assert "arr[i] = 64.0" in source64
 
 
+def test_consteval_param_compared_with_value_raises_343():
+    """#343: ``consteval(x == 0)`` compared the type int32 with 0 and silently took the else branch."""
+
+    @numba_cuda_mlir.cuda.jit
+    def kernel(out, x):
+        if consteval(x == 0):
+            out[0] = 111
+        else:
+            out[0] = 222
+
+    with pytest.raises(
+        ConstevalError,
+        match=r"'x' is the Numba type int32, not a runtime value, so 'x == 0' compares a type "
+        r"with 0 and is always False",
+    ):
+        kernel.compile("void(int32[:], int32)")
+
+
+def _kernel_from_source(tmp_path, test_lines):
+    """A ``kernel(arr, x)`` whose body is ``test_lines`` then ``arr[0] = 1.0``.
+
+    The AST transforms read the kernel's source, so it is written to a module file.
+    """
+    import importlib.util
+
+    path = tmp_path / "consteval_kernel.py"
+    path.write_text(
+        "import numpy as np\n"
+        "import numba_cuda_mlir\n"
+        "from numba_cuda_mlir.cuda.experimental import consteval\n\n\n"
+        "@numba_cuda_mlir.cuda.jit\n"
+        "def kernel(arr, x):\n" + test_lines + "        arr[0] = 1.0\n"
+    )
+    spec = importlib.util.spec_from_file_location("consteval_kernel", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.kernel
+
+
+@pytest.mark.parametrize(
+    "expr",
+    [
+        "x != 0",
+        "x < 3",
+        "0 <= x",
+        "x in (0, 1)",
+        "x is None",
+        "x is not None",
+        "t == 0",
+        "arr.dtype == np.float32",
+    ],
+)
+def test_consteval_type_compared_with_value_raises_343(tmp_path, expr):
+    """Every comparison of a Numba type with a non-type value raises, whatever the operator."""
+    kernel = _kernel_from_source(tmp_path, f"    t = consteval(x)\n    if consteval({expr}):\n")
+    with pytest.raises(ConstevalError, match="is the Numba type .*, not a runtime value"):
+        kernel.compile("void(float32[:], int32)")
+
+
+@pytest.mark.parametrize("expr", ["x", "not x", "bool(x)", "x and True", "1 if x else 0"])
+def test_consteval_type_as_truth_value_raises_343(tmp_path, expr):
+    """A type's truth value says nothing about the runtime value, so it raises."""
+    kernel = _kernel_from_source(tmp_path, f"    if consteval({expr}):\n")
+    with pytest.raises(
+        ConstevalError, match="its truth value says nothing about the runtime value"
+    ):
+        kernel.compile("void(float32[:], int32)")
+
+
+@pytest.mark.parametrize(
+    "test_lines",
+    [
+        "    if not consteval(x):\n",
+        "    if consteval(x) and x > 0:\n",
+        "    if x > 0 or consteval(x):\n",
+        "    if (1 if consteval(x) else 0):\n",
+        "    while not consteval(x):\n",
+        "    y = 1 if consteval(x) else 0\n    if y:\n",
+        "    y = not consteval(x)\n    if y:\n",
+        "    y = consteval(x) or 1\n    if y:\n",
+    ],
+)
+def test_consteval_type_truth_tested_outside_the_call_raises_343(tmp_path, test_lines):
+    """``not``, ``and``/``or`` and a conditional expression around ``consteval(x)`` truth-test it."""
+    kernel = _kernel_from_source(tmp_path, test_lines)
+    with pytest.raises(
+        ConstevalError, match="its truth value says nothing about the runtime value"
+    ):
+        kernel.compile("void(float32[:], int32)")
+
+
+@pytest.mark.parametrize(
+    "test_lines",
+    [
+        "    if not consteval(arr.ndim == 2):\n",
+        "    if consteval(arr.ndim == 1) and x > 0:\n",
+        "    if (1 if consteval(arr.ndim == 1) else 0):\n",
+        "    y = 0 or consteval(x == numba_cuda_mlir.types.int32)\n    if y:\n",
+    ],
+)
+def test_consteval_value_truth_tested_outside_the_call_folds_343(tmp_path, test_lines):
+    """A consteval value that is not a type keeps folding in those positions."""
+    kernel = _kernel_from_source(tmp_path, test_lines)
+    source = kernel.compile("void(float32[:], int32)").metadata["transformed_source"]
+    assert "consteval" not in source.split("def kernel", 1)[1]
+
+
+def test_consteval_type_checks_still_fold_343():
+    """Type comparisons, type attributes and shadowing names keep working."""
+    from numba_cuda_mlir import types
+
+    @numba_cuda_mlir.cuda.jit
+    def kernel(arr, x):
+        t = consteval(x)
+        if consteval(x == types.int32):
+            arr[0] = 1.0
+        if consteval(t in (types.int32, types.int64)):
+            arr[1] = 1.0
+        if consteval(x != types.float32 and arr.ndim == 1):
+            arr[2] = 1.0
+        # ``x`` here is the comprehension variable, not the parameter.
+        if consteval(any(x == 2 for x in range(3))):
+            arr[3] = 1.0
+
+    source = kernel.compile("void(float32[:], int32)").metadata["transformed_source"]
+    for i in range(4):
+        assert f"arr[{i}] = 1.0" in source
+
+
+def test_consteval_param_value_branch_runs_343():
+    """The suggested rewrite, a regular ``if``, takes the branch of the runtime value."""
+
+    @numba_cuda_mlir.cuda.jit
+    def kernel(out, x):
+        if x == 0:
+            out[0] = 111
+        else:
+            out[0] = 222
+
+    out = cuda.to_device(np.zeros(1, dtype=np.int32))
+    kernel[1, 1](out, np.int32(0))
+    np.testing.assert_array_equal(out.copy_to_host(), [111])
+
+
 # Chained consteval tests
 
 

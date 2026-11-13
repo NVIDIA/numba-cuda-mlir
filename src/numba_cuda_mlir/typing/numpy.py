@@ -12,6 +12,7 @@ from numba_cuda_mlir import types
 from numba_cuda_mlir.numba_cuda.typing import npydecl
 from numba_cuda_mlir.numba_cuda.typing.npydecl import parse_dtype
 from numba_cuda_mlir.lowering_utilities import type_conversions
+from numba_cuda_mlir.array_storage import ArrayStorageLayout
 from numba_cuda_mlir.numba_cuda.np.unsafe.ndarray import to_fixed_tuple
 
 registry = npydecl.registry
@@ -563,7 +564,11 @@ class NumpyTransposeTemplate(AbstractTemplate):
         x = args[0]
 
         if isinstance(x, types.Array):
-            restype = types.Array(dtype=x.dtype, ndim=x.ndim, layout=x.layout)
+            if ArrayStorageLayout(x).byte_addressed:
+                layout = {"C": "F", "F": "C"}.get(x.layout, "A") if x.ndim > 1 else x.layout
+                restype = x.copy(layout=layout)
+            else:
+                restype = types.Array(dtype=x.dtype, ndim=x.ndim, layout=x.layout)
             return signature(restype, x)
 
         return None
@@ -888,13 +893,9 @@ class ArrayAttributeTemplate(AttributeTemplate):
         if isinstance(arr.dtype, types.Record):
             record_type = arr.dtype
             if attr in record_type.fields:
-                field_info = record_type.fields[attr]
-                field_dtype = field_info.type
-                return types.Array(
-                    dtype=field_dtype,
-                    ndim=arr.ndim,
-                    layout="A",
-                )
+                from numba_cuda_mlir.array_storage import record_field_array_type
+
+                return record_field_array_type(arr, record_type.fields[attr])
         return None
 
 
@@ -983,7 +984,20 @@ class NumpyArrayViewMethodTemplate(AbstractTemplate):
             arr = self.this
             dtype = args[0]
             element_type = dtype.dtype if isinstance(dtype, types.DTypeSpec) else dtype
-            ret = types.Array(element_type, arr.ndim, arr.layout)
+            source_layout = ArrayStorageLayout(arr)
+            target_layout = ArrayStorageLayout(arr.copy(dtype=element_type))
+            aligned = (
+                arr.aligned
+                and source_layout.itemsize % target_layout.itemsize == 0
+                and source_layout.alignment >= target_layout.alignment
+            )
+            ret = types.Array(
+                element_type,
+                arr.ndim,
+                arr.layout,
+                readonly=not arr.mutable,
+                aligned=aligned,
+            )
             return signature(ret, dtype, recvr=self.this)
         return None
 

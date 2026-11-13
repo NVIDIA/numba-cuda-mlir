@@ -192,8 +192,38 @@ def _resolve_shared_bit_storage_float_accesses(module: ir.Module):
         op.operation.erase()
 
 
+def _declare_dynamic_shared_globals(module: ir.Module):
+    """Keep launch-provided shared storage external on every translation path."""
+
+    def visit(operation):
+        if operation.name == "llvm.mlir.global":
+            op = operation.opview
+            global_type = op.global_type.value
+            if (
+                op.addr_space.value == 3
+                and isinstance(global_type, llvm.ArrayType)
+                and global_type.num_elements == 0
+            ):
+                attrs = {name: operation.attributes[name] for name in operation.attributes}
+                attrs["linkage"] = ir.Attribute.parse("#llvm.linkage<external>")
+                attrs.pop("value", None)
+                with ir.InsertionPoint(operation):
+                    ir.Operation.create(
+                        "llvm.mlir.global", attributes=attrs, regions=1, loc=operation.location
+                    )
+                operation.erase()
+                return
+        for region in operation.regions:
+            for block in region.blocks:
+                for child in list(block):
+                    visit(child.operation)
+
+    visit(module.operation)
+
+
 def run_pre_codegen_patterns(module: ir.Module):
     fixup_nvvm_arg_attrs(module.operation)
+    _declare_dynamic_shared_globals(module)
     _resolve_exotic_float_casts(module)
     _resolve_shared_bit_storage_float_accesses(module)
     # TODO(ajm): why does this not trigger?

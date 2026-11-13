@@ -6,7 +6,9 @@ param(
     [string]$PythonVersion,
     [Parameter(Mandatory = $true)]
     [ValidateSet('modern', 'llvm7')]
-    [string]$Mode
+    [string]$Mode,
+    [Parameter(Mandatory = $true)]
+    [string]$UvPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -26,22 +28,11 @@ if (Test-Path $targetDir) {
 }
 New-Item -ItemType Directory -Path $targetDir | Out-Null
 
-$pythonExe = Install-PythonViaNuGet -Spec $spec -TargetDir $targetDir
+$pythonExe = Install-HardenedPython -Spec $spec -TargetDir $targetDir -UvPath $UvPath
 Write-Host "Using Python: $pythonExe"
 & $pythonExe --version
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-& $pythonExe -m ensurepip --upgrade
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-# Bootstrap pip 26.2.2 from a hash-pinned URL before any other use of pip:
-# older pip releases still trust the compromised eMudhra/emSign intermediate
-# CAs via their vendored certifi and cannot upgrade themselves safely.
-# See https://discuss.python.org/t/109576.
-# $ErrorActionPreference = 'Stop' does not trap native-command exit codes
-# in Windows PowerShell 5.1, so these two installs need an explicit check:
-# a silent failure on either would let the hardening be bypassed by a
-# subsequent command that resets $LASTEXITCODE.
-& $pythonExe -m pip install --disable-pip-version-check "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $pythonExe -m pip install --disable-pip-version-check --upgrade pip
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -50,17 +41,21 @@ if ($Mode -eq 'modern') {
     # matching major version, so 3.x fails the configure step outright.
     $pkgs = @('pybind11', 'nanobind~=2.9', 'numpy', 'ninja', 'cmake', 'awscli')
     & $pythonExe -m pip install @pkgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     if ([version]($spec.TrimEnd('t').Trim()) -lt [version]'3.12') {
         & $pythonExe -m pip install 'typing-extensions'
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 }
 else {
     & $pythonExe -m pip install @('ninja', 'cmake', 'awscli')
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
 $bash = Resolve-Bash
 $repoRootUnix = Convert-ToUnixPath -WinPath $repoRoot
 & git config --global --add safe.directory $repoRootUnix
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $parallel = if ($env:PARALLEL) { $env:PARALLEL } else { '16' }
 $pythonForBash = ($pythonExe -replace '\\', '/')

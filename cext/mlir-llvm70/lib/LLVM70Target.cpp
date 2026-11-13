@@ -1367,6 +1367,8 @@ llvm::Error MLIRToLLVM70::translateLoadOp(Operation *op) {
   ptr = b.buildBitCast(ptr, b.ptrTy(elemTy, as), "");
 
   LLVMValueRef val = b.buildLoad(ptr, "");
+  if (auto alignment = loadOp.getAlignment())
+    b.setGlobalAlignment(val, *alignment);
   mapValue(loadOp.getResult(), val);
   return llvm::Error::success();
 }
@@ -1389,6 +1391,8 @@ llvm::Error MLIRToLLVM70::translateStoreOp(Operation *op) {
     val = b.buildBitCast(val, elemTy, "");
 
   LLVMValueRef storeInst = b.buildStore(val, ptr);
+  if (auto alignment = storeOp.getAlignment())
+    b.setGlobalAlignment(storeInst, *alignment);
   if (storeOp.getVolatile_())
     b.setVolatile(storeInst, true);
   return llvm::Error::success();
@@ -2360,6 +2364,8 @@ llvm::Error MLIRToLLVM70::translateSregOp(Operation *op) {
        "mov.u32 $0, %smid;"},
       {[](Operation *o) { return isa<NVVM::WarpDimOp>(o); },
        "mov.u32 $0, %nwarpid;"},
+      {[](Operation *o) { return isa<NVVM::DynamicSmemSize>(o); },
+       "mov.u32 $0, %dynamic_smem_size;"},
       {[](Operation *o) { return isa<NVVM::ClusterIdXOp>(o); },
        "mov.u32 $0, %clusterid.x;"},
       {[](Operation *o) { return isa<NVVM::ClusterIdYOp>(o); },
@@ -2663,7 +2669,7 @@ llvm::Error MLIRToLLVM70::translateNVVMOp(Operation *op) {
             NVVM::BlockIdXOp, NVVM::BlockIdYOp, NVVM::BlockIdZOp,
             NVVM::GridDimXOp, NVVM::GridDimYOp, NVVM::GridDimZOp,
             NVVM::WarpIdOp, NVVM::WarpDimOp, NVVM::LaneIdOp, NVVM::WarpSizeOp,
-            NVVM::SmIdOp,
+            NVVM::SmIdOp, NVVM::DynamicSmemSize,
             NVVM::ClusterIdXOp, NVVM::ClusterIdYOp, NVVM::ClusterIdZOp,
             NVVM::ClusterDimXOp, NVVM::ClusterDimYOp, NVVM::ClusterDimZOp,
             NVVM::ClusterDimBlocksXOp, NVVM::ClusterDimBlocksYOp,

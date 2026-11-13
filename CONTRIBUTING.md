@@ -68,8 +68,12 @@ gh workflow run ecosystem-compatibility.yml \
 
 The selected branch supplies the integration workflows and test scripts.
 The Numba-CUDA-MLIR wheels and LLVM artifacts come from the latest successful
-`main` CI run, regardless of the selected branch. Use manual runs to check
-integration-test changes, not to validate compiler changes on that branch.
+`main` CI run by default, regardless of the selected branch. To test a specific
+successful `ci.yaml` push run on `main`, set the **run-id** input in the UI or
+add `-f run-id=<run-id>` to the command above. The selected run supplies both
+the wheels and their commit SHA, which helps bisect library regressions.
+Use manual runs to check integration-test changes, not to validate compiler
+changes on that branch.
 
 
 ## Pre-commit hooks

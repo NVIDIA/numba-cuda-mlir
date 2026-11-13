@@ -7,6 +7,11 @@ on:
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
+    inputs:
+      run-id:
+        description: 'Successful main CI run to test (default: latest successful main run)'
+        required: false
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -24,21 +29,25 @@ jobs:
       RUN_ID: ${{ steps.find.outputs.run_id }}
       HEAD_SHA: ${{ steps.find.outputs.head_sha }}
     steps:
-      - name: Find latest successful main CI wheels
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Find main CI wheels
         id: find
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          INPUT_RUN_ID: ${{ inputs.run-id }}
         run: |
-          RUN=$(gh run list --repo "$GH_REPO" --workflow ci.yaml \
-            --branch main --status success --event push --limit 1 \
-            --json databaseId,headSha)
-          RUN_ID=$(jq -r '.[0].databaseId // empty' <<< "$RUN")
-          HEAD_SHA=$(jq -r '.[0].headSha // empty' <<< "$RUN")
-          if [[ -z "$RUN_ID" || -z "$HEAD_SHA" ]]; then
-            echo "::error::No successful push run of ci.yaml on main is available for ecosystem wheels"
-            exit 1
+          ARGS=(--branch main --event push --head-sha)
+          if [[ -n "$INPUT_RUN_ID" ]]; then
+            ARGS+=(--run-id "$INPUT_RUN_ID")
           fi
+          RUN=$(./ci/tools/lookup-run-id "${ARGS[@]}" "$GH_REPO" ci.yaml)
+          RUN_ID=$(sed -n '1p' <<< "$RUN")
+          HEAD_SHA=$(sed -n '2p' <<< "$RUN")
 
           RUN_URL="${{ github.server_url }}/$GH_REPO/actions/runs/$RUN_ID"
           echo "Selected wheel producer: $RUN_URL"

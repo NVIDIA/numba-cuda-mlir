@@ -457,6 +457,13 @@ def _is_bool_numba_type(numba_type: types.Type) -> bool:
     return isinstance(numba_type, (types.Boolean, types.BooleanLiteral))
 
 
+def get_operand_signedness(operand_type: types.Type, target_type: types.Type) -> bool | None:
+    """get_conversion_signedness for the elements of array or scalar operands."""
+    return get_conversion_signedness(
+        getattr(operand_type, "dtype", operand_type), getattr(target_type, "dtype", target_type)
+    )
+
+
 def get_conversion_signedness(source_type: types.Type, target_type: types.Type) -> bool | None:
     """Return integer signedness required to convert between semantic types.
 
@@ -2066,35 +2073,42 @@ def broadcast_shapes_for_binary_op(
             raise NotImplementedError(f"types {a.type} and {b.type}")
 
 
-def _simple_scalar_conversion_op(src: ir.Type, dst: ir.Type):
+def _simple_scalar_conversion_op(src: ir.Type, dst: ir.Type, signed: bool | None = True):
+    # MLIR integers are signless, so `signed` has to come from the Numba types; see
+    # get_conversion_signedness. An i1 always holds a bool, which extends as 0 or 1.
+    signed = signed is not False
     match src, dst:
         case x, y if x == y:
             return lambda dst, x: x
         case ir.FloatType(), ir.FloatType():
             return arith.truncf if src.width > dst.width else arith.extf
         case ir.IntegerType(), ir.IntegerType():
-            return arith.trunci if src.width > dst.width else arith.extsi
+            if src.width > dst.width:
+                return arith.trunci
+            return arith.extsi if signed and src.width > 1 else arith.extui
         case ir.FloatType(), ir.IntegerType():
-            return arith.fptosi
+            return arith.fptosi if signed else arith.fptoui
         case ir.IntegerType(), ir.FloatType():
-            return arith.sitofp if src.width > 1 else arith.uitofp
+            return arith.sitofp if signed and src.width > 1 else arith.uitofp
         case _:
             raise NotImplementedError(f"Not implemented for types {src} and {dst}")
 
 
-def simple_scalar_conversion_op(src: ir.Type, dst: ir.Type):
-    op = _simple_scalar_conversion_op(src, dst)
+def simple_scalar_conversion_op(src: ir.Type, dst: ir.Type, signed: bool | None = True):
+    op = _simple_scalar_conversion_op(src, dst, signed)
     return functools.partial(op, dst)
 
 
-def expensive_coerce_tensor_type(a: ir.Value, target_element_type: ir.Type) -> ir.Value:
+def expensive_coerce_tensor_type(
+    a: ir.Value, target_element_type: ir.Type, *, signed: bool | None = True
+) -> ir.Value:
     from numba_cuda_mlir._mlir.dialects import linalg, tensor
 
     if a.type.element_type == target_element_type:
         return a
     output_type = T.tensor(*a.type.shape, target_element_type)
     src, dst = a.type.element_type, target_element_type
-    op = simple_scalar_conversion_op(src, dst)
+    op = simple_scalar_conversion_op(src, dst, signed)
     init = tensor.empty(sizes=dims_of_tensor_shape(a), element_type=target_element_type)
     result = linalg.MapOp(
         result=[output_type],

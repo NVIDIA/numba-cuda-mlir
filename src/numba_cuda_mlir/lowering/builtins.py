@@ -18,6 +18,7 @@ from numba_cuda_mlir.lowering_utilities import (
     tensor_to_memref,
     simple_scalar_conversion_op,
     expensive_coerce_tensor_type,
+    get_operand_signedness,
     get_conversion_signedness,
     try_extract_constant,
 )
@@ -399,8 +400,12 @@ def lower_broadcasted_floor_division(builder, target, args, kwargs):
         rhs = memref_to_value_tensor(rhs_type, rhs)
 
     lhs, rhs = broadcast_shapes_for_binary_op(lhs, rhs, builder)
-    lhs = expensive_coerce_tensor_type(lhs, compute_type)
-    rhs = expensive_coerce_tensor_type(rhs, compute_type)
+    lhs = expensive_coerce_tensor_type(
+        lhs, compute_type, signed=get_operand_signedness(lhs_type, target_type)
+    )
+    rhs = expensive_coerce_tensor_type(
+        rhs, compute_type, signed=get_operand_signedness(rhs_type, target_type)
+    )
     sh = shape.shape_of(lhs)
     dims = [shape.get_extent(sh, index_of(i)) for i in range(lhs.type.rank)]
     result_type = T.tensor(*lhs.type.shape, result_value_type)
@@ -448,8 +453,12 @@ def lower_broadcasted_div(builder, target, args, kwargs):
         rhs = memref_to_value_tensor(rhs_type, rhs)
 
     lhs, rhs = broadcast_shapes_for_binary_op(lhs, rhs, builder)
-    lhs = expensive_coerce_tensor_type(lhs, result_value_type)
-    rhs = expensive_coerce_tensor_type(rhs, result_value_type)
+    lhs = expensive_coerce_tensor_type(
+        lhs, result_value_type, signed=get_operand_signedness(lhs_type, target_type)
+    )
+    rhs = expensive_coerce_tensor_type(
+        rhs, result_value_type, signed=get_operand_signedness(rhs_type, target_type)
+    )
     sh = shape.shape_of(lhs)
     dims = [shape.get_extent(sh, index_of(i)) for i in range(lhs.type.rank)]
     result_type = T.tensor(*lhs.type.shape, result_value_type)

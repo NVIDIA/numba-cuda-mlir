@@ -59,6 +59,11 @@ def consteval(value=None):
         with consteval():
             config = load_config()
             N = config["block_size"]
+
+    An inlined device function (``inline=True``) takes the calling kernel's
+    options, not its own: the kernel decides whether it is transformed, and
+    ``current_target_options()`` inside it returns the kernel's options. Its
+    parameter names resolve to the types of the arguments at the call site.
     """
     if value is None:
         return _ConstevalContextManager()

@@ -36,6 +36,11 @@ jobs:
       - name: Run PR preview cleanup script
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The script commits the removals to gh-pages, and the runner has no git identity
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
         run: |
           # Determine if we should run in dry-run mode
           if [[ "${{ inputs.dry-run }}" == "true" ]]; then

@@ -1,0 +1,185 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Ecosystem compatibility
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      run-id:
+        description: 'Successful main CI run to test (default: latest successful main run)'
+        required: false
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  find-wheels:
+    if: ${{ github.repository_owner == 'nvidia' }}
+    runs-on: ubuntu-latest
+    outputs:
+      RUN_ID: ${{ steps.find.outputs.run_id }}
+      HEAD_SHA: ${{ steps.find.outputs.head_sha }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Find main CI wheels
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          INPUT_RUN_ID: ${{ inputs.run-id }}
+        run: |
+          ARGS=(--branch main --event push --head-sha)
+          if [[ -n "$INPUT_RUN_ID" ]]; then
+            ARGS+=(--run-id "$INPUT_RUN_ID")
+          fi
+          RUN=$(./ci/tools/lookup-run-id "${ARGS[@]}" "$GH_REPO" ci.yaml)
+          RUN_ID=$(sed -n '1p' <<< "$RUN")
+          HEAD_SHA=$(sed -n '2p' <<< "$RUN")
+
+          RUN_URL="${{ github.server_url }}/$GH_REPO/actions/runs/$RUN_ID"
+          echo "Selected wheel producer: $RUN_URL"
+          echo "Producer SHA: $HEAD_SHA"
+          printf '### Ecosystem wheel producer\n\n- Run: %s\n- SHA: `%s`\n' \
+            "$RUN_URL" "$HEAD_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+  test-cudf-source-linux-64:
+    name: cudf source Test linux-64
+    permissions:
+      contents: read
+      actions: read
+    needs:
+      - find-wheels
+    uses: ./.github/workflows/test-cudf-source-linux.yml
+    with:
+      host-platform: linux-64
+      run-id: ${{ needs.find-wheels.outputs.RUN_ID }}
+      sha: ${{ needs.find-wheels.outputs.HEAD_SHA }}
+
+  test-cudf-source-linux-aarch64:
+    name: cudf source Test linux-aarch64
+    permissions:
+      contents: read
+      actions: read
+    needs:
+      - find-wheels
+    uses: ./.github/workflows/test-cudf-source-linux.yml
+    with:
+      host-platform: linux-aarch64
+      run-id: ${{ needs.find-wheels.outputs.RUN_ID }}
+      sha: ${{ needs.find-wheels.outputs.HEAD_SHA }}
+
+  test-numbast-mlir-linux-64:
+    name: Numbast MLIR Test linux-64
+    permissions:
+      contents: read
+      actions: read
+    needs:
+      - find-wheels
+    uses: ./.github/workflows/test-numbast-mlir-linux.yml
+    with:
+      host-platform: linux-64
+      run-id: ${{ needs.find-wheels.outputs.RUN_ID }}
+      sha: ${{ needs.find-wheels.outputs.HEAD_SHA }}
+
+  test-numbast-mlir-linux-aarch64:
+    name: Numbast MLIR Test linux-aarch64
+    permissions:
+      contents: read
+      actions: read
+    needs:
+      - find-wheels
+    uses: ./.github/workflows/test-numbast-mlir-linux.yml
+    with:
+      host-platform: linux-aarch64
+      run-id: ${{ needs.find-wheels.outputs.RUN_ID }}
+      sha: ${{ needs.find-wheels.outputs.HEAD_SHA }}
+
+  test-nvmath-python-mlir-linux-64:
+    name: nvmath-python MLIR Test linux-64
+    permissions:
+      contents: read
+      actions: read
+    needs:
+      - find-wheels
+    uses: ./.github/workflows/test-nvmath-python-mlir-linux.yml
+    with:
+      host-platform: linux-64
+      run-id: ${{ needs.find-wheels.outputs.RUN_ID }}
+      sha: ${{ needs.find-wheels.outputs.HEAD_SHA }}
+
+  test-nvmath-python-mlir-linux-aarch64:
+    name: nvmath-python MLIR Test linux-aarch64
+    permissions:
+      contents: read
+      actions: read
+    needs:
+      - find-wheels
+    uses: ./.github/workflows/test-nvmath-python-mlir-linux.yml
+    with:
+      host-platform: linux-aarch64
+      run-id: ${{ needs.find-wheels.outputs.RUN_ID }}
+      sha: ${{ needs.find-wheels.outputs.HEAD_SHA }}
+
+  test-cccl-compute-mlir-linux-64:
+    name: CCCL cuda.compute MLIR Test linux-64
+    permissions:
+      contents: read
+      actions: read
+    needs:
+      - find-wheels
+    uses: ./.github/workflows/test-cccl-compute-mlir-linux.yml
+    with:
+      host-platform: linux-64
+      run-id: ${{ needs.find-wheels.outputs.RUN_ID }}
+      sha: ${{ needs.find-wheels.outputs.HEAD_SHA }}
+
+  test-cccl-compute-mlir-linux-aarch64:
+    name: CCCL cuda.compute MLIR Test linux-aarch64
+    permissions:
+      contents: read
+      actions: read
+    needs:
+      - find-wheels
+    uses: ./.github/workflows/test-cccl-compute-mlir-linux.yml
+    with:
+      host-platform: linux-aarch64
+      run-id: ${{ needs.find-wheels.outputs.RUN_ID }}
+      sha: ${{ needs.find-wheels.outputs.HEAD_SHA }}
+
+  checks:
+    name: Ecosystem job status
+    if: ${{ always() && github.repository_owner == 'nvidia' }}
+    runs-on: ubuntu-latest
+    needs:
+      - find-wheels
+      - test-cudf-source-linux-64
+      - test-cudf-source-linux-aarch64
+      - test-numbast-mlir-linux-64
+      - test-numbast-mlir-linux-aarch64
+      - test-nvmath-python-mlir-linux-64
+      - test-nvmath-python-mlir-linux-aarch64
+      - test-cccl-compute-mlir-linux-64
+      - test-cccl-compute-mlir-linux-aarch64
+    steps:
+      - name: Check wheel producer and library test results
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$JOB_RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          # Skipped tests after an unavailable wheel producer must not pass this gate.
+          echo "$JOB_RESULTS" | jq -e 'all(.[]; .result == "success")'

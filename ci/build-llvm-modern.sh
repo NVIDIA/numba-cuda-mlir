@@ -76,16 +76,24 @@ cmake_args=(
     -DPython3_ROOT_DIR="${python_root}"
     -DPython3_EXECUTABLE="${python_executable}"
     -DPython3_FIND_REGISTRY=NEVER
+    # Our MLIR Python package, with only the dialects numba-cuda-mlir uses.
+    -DLLVM_EXTERNAL_PROJECTS=numba_cuda_mlir_python
+    -DLLVM_EXTERNAL_NUMBA_CUDA_MLIR_PYTHON_SOURCE_DIR="${SCRIPT_DIR}/../cext/mlir-python"
 )
 
-cmake "${cmake_args[@]}"
+# Build and install only the distribution components: our Python package
+# plus the libraries cext/ links. The first configure, unrestricted, writes
+# that list; the second restricts the build and the exported CMake package
+# to it.
+cmake "${cmake_args[@]}" -DLLVM_DISTRIBUTION_COMPONENTS=
+distribution_components="$(cat "${LLVM_BUILD}/numba_cuda_mlir_distribution_components.txt")"
+cmake "${cmake_args[@]}" -DLLVM_DISTRIBUTION_COMPONENTS="${distribution_components}"
 
-# Build & install. --strip removes the static symbol table (.symtab +
-# .strtab); LLVM is built without -g so there's no DWARF to strip, but
-# the symbol table itself accounts for ~70 MB on libMLIRPythonCAPI.so
-# alone -- ~25 MB compressed in the wheel.
-cmake --build "${LLVM_BUILD}" -j "${PARALLEL}"
-cmake --install "${LLVM_BUILD}" --strip
+# Stripping removes the static symbol table (.symtab + .strtab); LLVM is
+# built without -g so there's no DWARF to strip, but the symbol table
+# itself accounts for ~70 MB on libMLIRPythonCAPI.so alone -- ~25 MB
+# compressed in the wheel.
+cmake --build "${LLVM_BUILD}" --target install-distribution-stripped -j "${PARALLEL}"
 
 echo "=== Modern LLVM installed to ${LLVM_INSTALL} ==="
 echo "  MLIR_DIR=${LLVM_INSTALL}/lib/cmake/mlir"

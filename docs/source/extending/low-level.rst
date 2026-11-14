@@ -433,6 +433,53 @@ calling individual dialect ops and should be preferred where applicable:
        GPU module — needed when calling libdevice or any other externally
        defined function from a lowering.
 
+.. _struct-proxy:
+
+Accessing struct fields by name
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For a type whose data model is a :py:class:`numba_cuda_mlir.models.StructModel`,
+:py:class:`~numba_cuda_mlir.extending.StructProxy` reads and sets fields by
+name instead of by ``llvm.extractvalue`` / ``llvm.insertvalue`` position. It is
+the counterpart of numba-cuda's ``cgutils.create_struct_proxy``.
+
+.. code-block:: python
+
+   from numba_cuda_mlir import extending, types
+   from numba_cuda_mlir.extending import StructProxy
+   from numba_cuda_mlir.models import StructModel, register_model
+
+   @register_model(PairType)
+   class PairModel(StructModel):
+       def __init__(self, dmm, fe_type):
+           super().__init__(dmm, fe_type, [("x", types.int32), ("y", types.float32)])
+
+   @extending.intrinsic
+   def make_pair(typingctx, x, y):
+       def codegen(builder, target, args, kwargs):
+           x, y = builder.load_vars(args)
+           p = StructProxy(pair_type).replace(x=x, y=y)
+           builder.store_var(target, p.value)
+
+       return pair_type(x, y), codegen
+
+   @extending.intrinsic
+   def pair_x(typingctx, pair):
+       def codegen(builder, target, args, kwargs):
+           p = StructProxy(pair_type, builder.load_var(args[0]))
+           builder.store_var(target, p.x)
+
+       return types.int32(pair), codegen
+
+* ``StructProxy(fe_type)`` starts a new struct from ``llvm.mlir.zero``. Pass
+  ``init="undef"`` to start from ``llvm.mlir.undef`` when every field will be
+  set. ``StructProxy(fe_type, value)`` wraps an existing struct value.
+* ``p.name`` emits an ``llvm.extractvalue`` for that field.
+* ``p.replace(name=value, ...)`` emits ``llvm.insertvalue`` operations and
+  returns a new proxy. The proxy is immutable, like the SSA value it wraps, so
+  ``p.name = value`` raises ``AttributeError``.
+* ``p.value`` is the current struct value.
+
 .. _lowering-getattr-setattr:
 
 Lowering attribute access

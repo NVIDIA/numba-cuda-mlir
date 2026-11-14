@@ -579,6 +579,15 @@ class NumpyTransposeTemplate(AbstractTemplate):
 # ============================================================================
 
 
+def _sum_or_prod_dtype(dtype):
+    """NumPy's result dtype for sum and prod: bools and small integers widen to the platform int."""
+    if isinstance(dtype, (types.Boolean, types.BooleanLiteral)):
+        return types.intp
+    if isinstance(dtype, types.Integer) and dtype.bitwidth < types.intp.bitwidth:
+        return types.intp if dtype.signed else types.uintp
+    return dtype
+
+
 @registry.register_global(np.sum)
 class NumpySumTemplate(AbstractTemplate):
     """Typing template for np.sum"""
@@ -590,8 +599,7 @@ class NumpySumTemplate(AbstractTemplate):
         arr = args[0]
 
         if isinstance(arr, types.Array):
-            # Sum returns scalar of same dtype
-            return signature(arr.dtype, arr)
+            return signature(_sum_or_prod_dtype(arr.dtype), arr)
 
         return None
 
@@ -703,7 +711,7 @@ class NumpyProdTemplate(AbstractTemplate):
         arr = args[0]
 
         if isinstance(arr, types.Array):
-            return signature(arr.dtype, arr)
+            return signature(_sum_or_prod_dtype(arr.dtype), arr)
 
         return None
 
@@ -743,7 +751,7 @@ class NumpyNanSumTemplate(AbstractTemplate):
             return None
         arr = args[0]
         if isinstance(arr, types.Array):
-            return signature(arr.dtype, arr)
+            return signature(_sum_or_prod_dtype(arr.dtype), arr)
         return None
 
 
@@ -756,7 +764,7 @@ class NumpyNanProdTemplate(AbstractTemplate):
             return None
         arr = args[0]
         if isinstance(arr, types.Array):
-            return signature(arr.dtype, arr)
+            return signature(_sum_or_prod_dtype(arr.dtype), arr)
         return None
 
 
@@ -861,11 +869,11 @@ class ArrayAttributeTemplate(AttributeTemplate):
         return types.intp
 
     def resolve_sum(self, arr):
-        """Type arr.sum() -> scalar of same dtype"""
+        """Type arr.sum() -> scalar of the widened dtype"""
         return types.BoundFunction(NumpyArraySumMethodTemplate, arr)
 
     def resolve_prod(self, arr):
-        """Type arr.prod() -> scalar of same dtype"""
+        """Type arr.prod() -> scalar of the widened dtype"""
         return types.BoundFunction(NumpyArrayProdMethodTemplate, arr)
 
     def resolve_min(self, arr):
@@ -920,7 +928,7 @@ class NumpyArraySumMethodTemplate(AbstractTemplate):
         if len(args) == 0:
             # Get the this (array) from the bound function
             arr = self.this
-            return signature(arr.dtype, recvr=self.this)
+            return signature(_sum_or_prod_dtype(arr.dtype), recvr=self.this)
         return None
 
 
@@ -932,7 +940,7 @@ class NumpyArrayProdMethodTemplate(AbstractTemplate):
     def generic(self, args, kws):
         if len(args) == 0:
             arr = self.this
-            return signature(arr.dtype, recvr=self.this)
+            return signature(_sum_or_prod_dtype(arr.dtype), recvr=self.this)
         return None
 
 

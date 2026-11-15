@@ -58,7 +58,7 @@ case "${kind}" in
                 ;;
             win-*)
                 build_hash="$(hash_inputs \
-                    "${SCRIPT_DIR}/build-windows.sh" \
+                    "${SCRIPT_DIR}/build-llvm-modern.sh" \
                     "${SCRIPT_DIR}/../cext/mlir-modern/CMakeLists.txt" \
                     "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridge.cpp" \
                     "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridgeSmoke.cpp" \
@@ -81,7 +81,7 @@ case "${kind}" in
                 ;;
             win-64)
                 build_hash="$(hash_inputs \
-                    "${SCRIPT_DIR}/build-windows.sh" \
+                    "${SCRIPT_DIR}/build-llvm7.sh" \
                     "${SCRIPT_DIR}/tools/gen-llvm-c-exports.py")"
                 echo "llvm7-windows-$(cache_arch "${host_platform}")-${version_short}-msvc${LLVM_WINDOWS_MSVC_TOOLSET}-${build_hash}"
                 ;;

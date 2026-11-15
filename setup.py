@@ -138,7 +138,7 @@ class BuildExtWithCmake(build_ext):
             # import lib and call C functions only. The per-binary
             # constraint that does apply is that every .obj and statically-
             # linked .lib feeding *this* cmake build must also use /MT;
-            # ci/build-windows.sh sets the same flag for the LLVM static
+            # ci/build-llvm-modern.sh sets the same flag for the LLVM static
             # libs and MLIRPythonCAPI, so MLIRToLLVM70 here can link them.
             cmake_cmd.append("-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded")
         python_root = Path(sys.executable).resolve().parent

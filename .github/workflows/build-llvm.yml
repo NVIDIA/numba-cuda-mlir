@@ -151,14 +151,17 @@ jobs:
           source ci/llvm-version.env
           if [[ '${{ matrix.mode }}' == 'modern' ]]; then
             INSTALL_DIR=llvm-modern-install
+            BUILD_SCRIPT=ci/build-llvm-modern.sh
             KEY="$(bash ci/llvm-cache-key.sh modern "${{ inputs.host-platform }}" "$PY_TAG")"
             ARTIFACT_NAME="llvm-modern-install-$PY_TAG-${{ inputs.host-platform }}"
           else
             INSTALL_DIR=llvm7-install
+            BUILD_SCRIPT=ci/build-llvm7.sh
             KEY="$(bash ci/llvm-cache-key.sh llvm7 "${{ inputs.host-platform }}")"
             ARTIFACT_NAME="llvm7-install-${{ inputs.host-platform }}"
           fi
           echo "INSTALL_DIR=$INSTALL_DIR" >> "$GITHUB_ENV"
+          echo "BUILD_SCRIPT=$BUILD_SCRIPT" >> "$GITHUB_ENV"
           echo "key=$KEY" >> "$GITHUB_OUTPUT"
           echo "artifact-name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
           echo "msvc-toolset=${LLVM_WINDOWS_MSVC_TOOLSET}" >> "$GITHUB_OUTPUT"
@@ -212,7 +215,7 @@ jobs:
           if source ci/llvm-cache.sh && cache_download "$CACHE_KEY" "$INSTALL_DIR"; then
             echo "Using cached LLVM"
           else
-            bash ci/build-windows.sh '${{ matrix.mode }}'
+            bash "$BUILD_SCRIPT"
             source ci/llvm-cache.sh && cache_upload "$CACHE_KEY" "$INSTALL_DIR"
           fi
 

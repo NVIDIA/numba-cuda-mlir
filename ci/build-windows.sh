@@ -136,7 +136,11 @@ check_prereqs() {
   require_tool ninja
   require_tool git
   require_tool cl
+  require_tool sccache
   "${PYTHON}" -c "import sys; print(sys.executable)"
+  CMAKE_C_COMPILER_LAUNCHER="$(cmake_path "$(command -v sccache)")"
+  CMAKE_CXX_COMPILER_LAUNCHER="${CMAKE_C_COMPILER_LAUNCHER}"
+  export CMAKE_C_COMPILER_LAUNCHER CMAKE_CXX_COMPILER_LAUNCHER
 }
 
 clone_llvm7() {
@@ -484,3 +488,6 @@ if [[ "${MODE}" == "all" || "${MODE}" == "modern" ]]; then
 fi
 
 echo "[$(timestamp)] === Build complete ==="
+
+echo "=== sccache stats ==="
+sccache --show-stats

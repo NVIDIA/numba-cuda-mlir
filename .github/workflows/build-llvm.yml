@@ -87,10 +87,7 @@ jobs:
 
       - name: Install sccache
         if: steps.gha-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -fsSL "https://github.com/rapidsai/sccache/releases/latest/download/sccache-$(uname -m)-unknown-linux-musl.tar.gz" \
-            | tar -C /usr/local/bin -xz --strip-components=1 --wildcards '*/sccache'
-          sccache --version
+        uses: ./.github/actions/install-sccache
 
       - name: Set up sccache S3 credentials
         if: steps.gha-cache.outputs.cache-hit != 'true'
@@ -127,52 +124,44 @@ jobs:
 
   build-llvm-windows:
     name: LLVM ${{ matrix.mode == 'modern' && format('Modern Windows ({0})', matrix.python-version) || '7 Windows' }}
-    if: ${{ inputs.host-platform == 'win-64' }}
+    if: ${{ startsWith(inputs.host-platform, 'win') }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ${{ fromJSON(inputs.python-versions) }}
         mode: [modern]
-        # The LLVM 7 toolchain is built once at a fixed Python; the Modern
-        # rows span python.supported above.
-        include:
-          - python-version: "3.12"
-            mode: llvm7
-    runs-on: windows-amd64-cpu16
-    timeout-minutes: 120
+        # LLVM 7 is built once at a fixed Python, and only for win-64 (WoA
+        # has no LLVM 7 bridge).
+        include: ${{ fromJSON(inputs.host-platform == 'win-64' && '[{"python-version":"3.12","mode":"llvm7"}]' || '[]') }}
+    runs-on: ${{ (inputs.host-platform == 'win-64' && 'windows-2022') ||
+                 (inputs.host-platform == 'win-arm64' && 'windows-11-arm') }}
+    timeout-minutes: 360
     env:
-      PARALLEL: "16"
+      PARALLEL: "4"
+      LLVM_PARALLEL_LINK_JOBS: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-
-      - uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          role-duration-seconds: 43200
 
       - name: Compute LLVM params
         id: params
         run: |
           PY_VER='${{ matrix.python-version }}'
           PY_TAG="cp${PY_VER//./}"
+          source ci/llvm-version.env
           if [[ '${{ matrix.mode }}' == 'modern' ]]; then
             INSTALL_DIR=llvm-modern-install
-            CONTAINER_NAME="llvm-modern-$PY_TAG"
             KEY="$(bash ci/llvm-cache-key.sh modern "${{ inputs.host-platform }}" "$PY_TAG")"
             ARTIFACT_NAME="llvm-modern-install-$PY_TAG-${{ inputs.host-platform }}"
           else
             INSTALL_DIR=llvm7-install
-            CONTAINER_NAME=llvm7-build
             KEY="$(bash ci/llvm-cache-key.sh llvm7 "${{ inputs.host-platform }}")"
             ARTIFACT_NAME="llvm7-install-${{ inputs.host-platform }}"
           fi
-          echo "PY_TAG=$PY_TAG" >> "$GITHUB_ENV"
           echo "INSTALL_DIR=$INSTALL_DIR" >> "$GITHUB_ENV"
-          echo "CONTAINER_NAME=$CONTAINER_NAME" >> "$GITHUB_ENV"
           echo "key=$KEY" >> "$GITHUB_OUTPUT"
           echo "artifact-name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+          echo "msvc-toolset=${LLVM_WINDOWS_MSVC_TOOLSET}" >> "$GITHUB_OUTPUT"
 
       - name: Restore or check LLVM GHA cache
         id: gha-cache
@@ -181,57 +170,51 @@ jobs:
           path: ${{ env.INSTALL_DIR }}/
           key: ${{ steps.params.outputs.key }}
 
-      - name: Install verified uv
+      - name: Set up Python
         if: steps.gha-cache.outputs.cache-hit != 'true'
-        id: uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        uses: ./.github/actions/setup-hardened-python
         with:
-          version: "latest-known"
-          enable-cache: false
+          python-version: ${{ matrix.python-version }}
 
-      - name: Pull devcontainer image
+      - name: Set up MSVC
         if: steps.gha-cache.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          . ./ci/windows-common.ps1
-          Import-EnvFile ci/windows-devcontainer.env
-          docker pull $env:WINDOWS_DEVCONTAINER_IMAGE
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756  # v1
+        with:
+          arch: ${{ inputs.host-platform == 'win-arm64' && 'arm64' || 'x64' }}
+          toolset: ${{ steps.params.outputs.msvc-toolset }}
 
-      - name: Build LLVM in devcontainer
+      # The runner images ship AWS CLI v2, which ci/llvm-cache.sh uses.
+      - name: Install build dependencies
         if: steps.gha-cache.outputs.cache-hit != 'true'
-        shell: pwsh
-        env:
-          BUILD_MODE: ${{ matrix.mode }}
-          PYTHON_VERSION: ${{ matrix.python-version }}
-          UV_PATH: ${{ steps.uv.outputs.uv-path }}
         run: |
-          . ./ci/windows-common.ps1
-          Import-EnvFile ci/windows-devcontainer.env
-          $src = (Resolve-Path "${{ github.workspace }}").Path
-          $img = $env:WINDOWS_DEVCONTAINER_IMAGE
-          $py = $env:PYTHON_VERSION
-          $mode = $env:BUILD_MODE
-          $cname = $env:CONTAINER_NAME
-          $uvDir = Split-Path -Parent $env:UV_PATH
-          docker run --rm --name $cname --isolation=process `
-            --mount "type=bind,source=$src,target=C:\workspace" `
-            --mount "type=bind,source=$uvDir,target=C:\verified-uv,readonly" `
-            --workdir C:\workspace `
-            --env "PARALLEL=${{ env.PARALLEL }}" `
-            $img `
-            powershell -NoProfile -ExecutionPolicy Bypass -File C:\workspace\ci\windows-llvm-container-build.ps1 -PythonVersion $py -Mode $mode -UvPath C:\verified-uv\uv.exe
-          if ($LASTEXITCODE -ne 0) {
-            throw "$mode LLVM build container failed with exit code $LASTEXITCODE"
-          }
+          python -m pip install pybind11 "nanobind~=2.9" numpy ninja cmake "typing-extensions; python_version < '3.12'"
 
-      - name: Verify LLVM install
+      - name: Install sccache
         if: steps.gha-cache.outputs.cache-hit != 'true'
-        shell: pwsh
+        uses: ./.github/actions/install-sccache
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        if: steps.gha-cache.outputs.cache-hit != 'true'
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-duration-seconds: 43200
+
+      - name: Set up sccache S3 credentials
+        if: steps.gha-cache.outputs.cache-hit != 'true'
+        run: bash ci/setup-sccache.sh
+
+      - name: Build or restore LLVM from cache
+        if: steps.gha-cache.outputs.cache-hit != 'true'
         run: |
-          $install = "${{ github.workspace }}\$env:INSTALL_DIR"
-          if (-not (Test-Path $install)) {
-            throw "LLVM install not found at $install"
-          }
+          CACHE_KEY="${{ steps.params.outputs.key }}"
+          echo "Cache key: ${CACHE_KEY}"
+          if source ci/llvm-cache.sh && cache_download "$CACHE_KEY" "$INSTALL_DIR"; then
+            echo "Using cached LLVM"
+          else
+            bash ci/build-windows.sh '${{ matrix.mode }}'
+            source ci/llvm-cache.sh && cache_upload "$CACHE_KEY" "$INSTALL_DIR"
+          fi
 
       - name: Save LLVM to GHA cache
         if: steps.gha-cache.outputs.cache-hit != 'true'
@@ -245,76 +228,6 @@ jobs:
         with:
           name: ${{ steps.params.outputs.artifact-name }}
           path: ${{ env.INSTALL_DIR }}/
-
-  build-llvm-windows-arm64:
-    name: LLVM Modern Windows Arm64 (Python ${{ matrix.python-version }})
-    if: ${{ inputs.host-platform == 'win-arm64' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ${{ fromJSON(inputs.python-versions) }}
-    runs-on: windows-11-arm
-    timeout-minutes: 360
-    permissions:
-      contents: read
-    env:
-      PARALLEL: "4"
-      LLVM_PARALLEL_LINK_JOBS: "1"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-
-      - name: Compute cache key
-        id: cache-key
-        run: |
-          PY_TAG="cp$(echo "${{ matrix.python-version }}" | tr -d '.')"
-          source ci/llvm-version.env
-          echo "msvc-toolset=${LLVM_WINDOWS_ARM64_MSVC_TOOLSET}" >> "$GITHUB_OUTPUT"
-          KEY="$(bash ci/llvm-cache-key.sh modern "${{ inputs.host-platform }}" "$PY_TAG")"
-          echo "key=${KEY}" >> "$GITHUB_OUTPUT"
-          echo "py-tag=${PY_TAG}" >> "$GITHUB_OUTPUT"
-
-      - name: Restore LLVM Modern cache
-        id: gha-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: llvm-modern-install/
-          key: ${{ steps.cache-key.outputs.key }}
-
-      - name: Set up native Arm Python
-        if: steps.gha-cache.outputs.cache-hit != 'true'
-        uses: ./.github/actions/setup-hardened-python
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Set up ARM64 MSVC
-        if: steps.gha-cache.outputs.cache-hit != 'true'
-        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756  # v1
-        with:
-          arch: arm64
-          toolset: ${{ steps.cache-key.outputs.msvc-toolset }}
-
-      - name: Install build dependencies
-        if: steps.gha-cache.outputs.cache-hit != 'true'
-        run: |
-          python -m pip install pybind11 "nanobind~=2.9" numpy ninja cmake "typing-extensions; python_version < '3.12'"
-
-      - name: Build modern LLVM on host
-        if: steps.gha-cache.outputs.cache-hit != 'true'
-        run: bash ci/build-windows.sh modern
-
-      - name: Save LLVM Modern cache
-        if: steps.gha-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: llvm-modern-install/
-          key: ${{ steps.cache-key.outputs.key }}
-
-      - name: Upload LLVM Modern artifacts
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
-        with:
-          name: llvm-modern-install-${{ steps.cache-key.outputs.py-tag }}-${{ inputs.host-platform }}
-          path: llvm-modern-install/
           if-no-files-found: error
 
   build-llvm7:
@@ -368,10 +281,7 @@ jobs:
 
       - name: Install sccache
         if: steps.gha-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -fsSL "https://github.com/rapidsai/sccache/releases/latest/download/sccache-$(uname -m)-unknown-linux-musl.tar.gz" \
-            | tar -C /usr/local/bin -xz --strip-components=1 --wildcards '*/sccache'
-          sccache --version
+        uses: ./.github/actions/install-sccache
 
       - name: Set up sccache S3 credentials
         if: steps.gha-cache.outputs.cache-hit != 'true'

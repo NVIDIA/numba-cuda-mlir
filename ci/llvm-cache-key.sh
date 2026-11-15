@@ -56,25 +56,14 @@ case "${kind}" in
                 build_hash="$(hash_file "${SCRIPT_DIR}/build-llvm-modern.sh")"
                 echo "llvm-modern-linux-$(cache_arch "${host_platform}")-${py_tag}-${version_short}-${build_hash}"
                 ;;
-            win-64)
-                build_hash="$(hash_inputs \
-                    "${SCRIPT_DIR}/build-windows.sh" \
-                    "${SCRIPT_DIR}/../cext/mlir-modern/CMakeLists.txt" \
-                    "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridge.cpp" \
-                    "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridgeSmoke.cpp" \
-                    "${SCRIPT_DIR}/../cext/mlir-modern/include/ModernBridge.h" \
-                    "${SCRIPT_DIR}/windows-llvm-container-build.ps1" \
-                    "${SCRIPT_DIR}/windows-devcontainer.env")"
-                echo "llvm-modern-windows-$(cache_arch "${host_platform}")-${py_tag}-${version_short}-${build_hash}"
-                ;;
-            win-arm64)
+            win-*)
                 build_hash="$(hash_inputs \
                     "${SCRIPT_DIR}/build-windows.sh" \
                     "${SCRIPT_DIR}/../cext/mlir-modern/CMakeLists.txt" \
                     "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridge.cpp" \
                     "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridgeSmoke.cpp" \
                     "${SCRIPT_DIR}/../cext/mlir-modern/include/ModernBridge.h")"
-                echo "llvm-modern-windows-$(cache_arch "${host_platform}")-${py_tag}-${version_short}-msvc${LLVM_WINDOWS_ARM64_MSVC_TOOLSET}-${build_hash}"
+                echo "llvm-modern-windows-$(cache_arch "${host_platform}")-${py_tag}-${version_short}-msvc${LLVM_WINDOWS_MSVC_TOOLSET}-${build_hash}"
                 ;;
             *)
                 echo "Unsupported host platform for modern LLVM: ${host_platform}" >&2
@@ -93,10 +82,8 @@ case "${kind}" in
             win-64)
                 build_hash="$(hash_inputs \
                     "${SCRIPT_DIR}/build-windows.sh" \
-                    "${SCRIPT_DIR}/tools/gen-llvm-c-exports.py" \
-                    "${SCRIPT_DIR}/windows-llvm-container-build.ps1" \
-                    "${SCRIPT_DIR}/windows-devcontainer.env")"
-                echo "llvm7-windows-$(cache_arch "${host_platform}")-${version_short}-${build_hash}"
+                    "${SCRIPT_DIR}/tools/gen-llvm-c-exports.py")"
+                echo "llvm7-windows-$(cache_arch "${host_platform}")-${version_short}-msvc${LLVM_WINDOWS_MSVC_TOOLSET}-${build_hash}"
                 ;;
             *)
                 echo "Unsupported host platform for LLVM 7: ${host_platform}" >&2

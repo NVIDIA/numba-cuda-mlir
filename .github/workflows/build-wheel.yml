@@ -61,13 +61,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install latest rapidsai/sccache
+      - name: Install rapidsai/sccache
         if: ${{ startsWith(inputs.host-platform, 'linux') }}
-        run: |
-          curl -fsSL "https://github.com/rapidsai/sccache/releases/latest/download/sccache-$(uname -m)-unknown-linux-musl.tar.gz" \
-            | sudo tar -C /usr/local/bin -xz --strip-components=1 --wildcards '*/sccache'
-          sccache --version
-          echo "SCCACHE_PATH=/usr/local/bin/sccache" >> "$GITHUB_ENV"
+        uses: ./.github/actions/install-sccache
 
       # xref: https://github.com/orgs/community/discussions/42856#discussioncomment-7678867
       - name: Adding addtional GHA cache-related env vars
@@ -92,9 +88,11 @@ jobs:
         run: |
           PY_VER_FMT=$(echo "${{ matrix.python-version }}" | tr -d '.')
           echo "llvm-py-tag=cp${PY_VER_FMT}" >> "$GITHUB_OUTPUT"
-          if [[ "${{ inputs.host-platform }}" == 'win-arm64' ]]; then
+          if [[ "${{ inputs.host-platform }}" == win* ]]; then
             source ci/llvm-version.env
-            echo "msvc-toolset=${LLVM_WINDOWS_ARM64_MSVC_TOOLSET}" >> "$GITHUB_OUTPUT"
+            echo "msvc-toolset=${LLVM_WINDOWS_MSVC_TOOLSET}" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "${{ inputs.host-platform }}" == 'win-arm64' ]]; then
             echo "cibw-build=cp${PY_VER_FMT}-win_arm64" >> "$GITHUB_OUTPUT"
           elif [[ "${{ inputs.host-platform }}" == win* ]]; then
             echo "cibw-build=cp${PY_VER_FMT}-win_amd64" >> "$GITHUB_OUTPUT"

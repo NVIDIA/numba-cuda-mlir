@@ -25,10 +25,9 @@ def _preload_mlir_libs_with_deepbind():
     # CAPI first: it has no sibling DT_NEEDED so DEEPBIND applies at
     # first load; the other libs DT_NEEDED it and reuse the handle.
     for name in (
-        "libMLIRPythonCAPI.so",
+        "libMLIRPythonCAPI-numba_cuda_mlir.so",
         "libMLIRPythonSupport-numba_cuda_mlir.so",
         "libMLIRToLLVM70.so",
-        "libMLIRModernToNVVM.so",
     ):
         lib = libs_dir / name
         if lib.exists():

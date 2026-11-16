@@ -11,6 +11,7 @@
 #endif
 #include <cstring>
 #include <mutex>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -28,7 +29,7 @@ static std::mutex g_nvvm_ir_version_mutex;
 
 // ---------------------------------------------------------------------------
 // LLVM C API types and constants (obtained from llvm-c/Core.h).
-// Redeclared here because we dlopen libMLIRPythonCAPI.so at runtime rather
+// Redeclared here because we dlopen the MLIR Python CAPI library at runtime rather
 // than linking against LLVM headers.
 // ---------------------------------------------------------------------------
 
@@ -71,7 +72,7 @@ enum LLVMTypeKind_ {
 // Function pointer types
 // ---------------------------------------------------------------------------
 
-// Required symbols from libMLIRPythonCAPI.so.
+// Required symbols from the MLIR Python CAPI library.
 #define LLVM_CAPI_REQUIRED(X) \
     X(void, LLVMContextDispose, (LLVMContextRef)) \
     X(void, LLVMDisposeModule, (LLVMModuleRef)) \
@@ -166,7 +167,7 @@ enum LLVMTypeKind_ {
     X(void, LLVMDeleteFunction, (LLVMValueRef))
 
 // Optional symbols -- bitcode output.
-// Requires LLVMBitWriter linked into libMLIRPythonCAPI.so (TODO: upstream change).
+// Requires LLVMBitWriter linked into the MLIR Python CAPI library (TODO: upstream change).
 // When unavailable, we fall back to LLVMPrintModuleToString to produce text IR instead.
 #define LLVM_CAPI_OPTIONAL(X) \
     X(LLVMMemoryBufferRef, LLVMWriteBitcodeToMemoryBuffer, (LLVMModuleRef)) \
@@ -200,6 +201,19 @@ static std::unique_lock<std::mutex> lock_from_python(std::mutex& mutex) {
     return guard;
 }
 
+#ifdef _WIN32
+// lib_path is UTF-8 (from a Python str); LoadLibraryA would read it in the ANSI
+// code page and fail on non-ASCII install paths.
+static HMODULE load_library_utf8(const char* path) {
+    int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, nullptr, 0);
+    if (n <= 0)
+        return nullptr;
+    std::wstring wpath(n, L'\0');
+    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, &wpath[0], n);
+    return LoadLibraryW(wpath.c_str());
+}
+#endif
+
 static void* load_symbol(void* handle, const char* name) {
 #ifdef _WIN32
     return reinterpret_cast<void*>(
@@ -226,7 +240,7 @@ Status load_mlir_capi(const char* lib_path) {
 
     void* handle = nullptr;
 #ifdef _WIN32
-    handle = LoadLibraryA(lib_path);
+    handle = load_library_utf8(lib_path);
     if (!handle)
         return raise(PyExc_RuntimeError, "Failed to load %s: error %lu",
                      lib_path, GetLastError());

@@ -573,14 +573,14 @@ def ufunc_find_matching_loop(ufunc, arg_types):
                 if outer.char != inner:
                     found = False
                     break
-            elif not ufunc_can_cast(outer.char, inner, has_mixed_inputs, "safe"):
+            elif not ufunc_can_cast(outer, inner, has_mixed_inputs, "safe"):
                 found = False
                 break
         if found:
             # Can we cast the inner result to the outer result type?
             for outer, inner in zip(np_output_types, ufunc_outputs):
                 if outer.char not in "mM" and not ufunc_can_cast(
-                    inner, outer.char, has_mixed_inputs, "same_kind"
+                    inner, outer, has_mixed_inputs, "same_kind"
                 ):
                     found = False
                     break

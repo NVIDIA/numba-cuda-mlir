@@ -35,7 +35,7 @@ if(WIN32)
 endif()
 
 ################################################################################
-# Dialect and pass registration (C API, embedded in libMLIRPythonCAPI)
+# Dialect and pass registration (C API, embedded in the MLIR Python CAPI library)
 ################################################################################
 
 add_mlir_public_c_api_library(NumbaCudaMlirCAPIRegistration
@@ -185,8 +185,11 @@ add_mlir_python_common_capi_library(NumbaCudaMlirPythonCAPI
   DECLARED_SOURCES
     ${_ncm_declared_sources}
 )
-# numba_cuda_mlir and cext/ load and link this library by the upstream name.
-set_target_properties(NumbaCudaMlirPythonCAPI PROPERTIES OUTPUT_NAME MLIRPythonCAPI)
+# Loaders reuse an already-loaded library of the same name (glibc by soname,
+# Windows by module name), and every MLIR Python embedder gets upstream's
+# default name, so make ours unique like the nanobind and support libraries.
+set_target_properties(NumbaCudaMlirPythonCAPI PROPERTIES
+  OUTPUT_NAME MLIRPythonCAPI-${MLIR_BINDINGS_PYTHON_NB_DOMAIN})
 
 add_mlir_python_modules(NumbaCudaMlirPythonModules
   ROOT_PREFIX "${_ncm_package_root}"
@@ -197,6 +200,105 @@ add_mlir_python_modules(NumbaCudaMlirPythonModules
     NumbaCudaMlirPythonCAPI
 )
 
+if(WIN32)
+  # A DLL exports only what is compiled into it, not the LLVM static libs it
+  # links. Export the LLVM C API that cext/launcher/llvm_downgrade.cpp and
+  # lowering_utilities/llvm_utils.py load from this library, as the Linux .so
+  # already does. LLVMWriteBitcodeToMemoryBuffer is left out on both: the
+  # bit writer is not linked in, and llvm_downgrade.cpp falls back to text IR.
+  set(_llvm_c_api
+    LLVMContextCreate
+    LLVMContextDispose
+    LLVMDisposeModule
+    LLVMPrintModuleToString
+    LLVMDisposeMessage
+    LLVMGetFirstFunction
+    LLVMGetNextFunction
+    LLVMGetFirstBasicBlock
+    LLVMGetNextBasicBlock
+    LLVMGetFirstInstruction
+    LLVMGetNextInstruction
+    LLVMGetNamedFunction
+    LLVMAddFunction
+    LLVMCountParams
+    LLVMGetFunctionCallConv
+    LLVMSetLinkage
+    LLVMGetCalledValue
+    LLVMGetAttributeCountAtIndex
+    LLVMGetAttributesAtIndex
+    LLVMIsEnumAttribute
+    LLVMIsStringAttribute
+    LLVMGetEnumAttributeKind
+    LLVMGetStringAttributeKind
+    LLVMRemoveEnumAttributeAtIndex
+    LLVMGetEnumAttributeKindForName
+    LLVMVoidTypeInContext
+    LLVMInt1TypeInContext
+    LLVMInt32TypeInContext
+    LLVMFloatTypeInContext
+    LLVMDoubleTypeInContext
+    LLVMHalfTypeInContext
+    LLVMBFloatTypeInContext
+    LLVMFunctionType
+    LLVMPointerTypeInContext
+    LLVMTypeOf
+    LLVMGetTypeKind
+    LLVMArrayType2
+    LLVMGetReturnType
+    LLVMReplaceAllUsesWith
+    LLVMGetOperand
+    LLVMGetNumOperands
+    LLVMConstInt
+    LLVMInstructionEraseFromParent
+    LLVMGetAtomicRMWBinOp
+    LLVMSetAtomicRMWBinOp
+    LLVMCreateBuilderInContext
+    LLVMPositionBuilderBefore
+    LLVMDisposeBuilder
+    LLVMBuildCall2
+    LLVMBuildZExt
+    LLVMBuildTrunc
+    LLVMBuildFPExt
+    LLVMBuildFPTrunc
+    LLVMGetInlineAsm
+    LLVMGetFirstUse
+    LLVMGetNextUse
+    LLVMGetUser
+    LLVMMDStringInContext2
+    LLVMMDNodeInContext2
+    LLVMValueAsMetadata
+    LLVMMetadataAsValue
+    LLVMAddNamedMetadataOperand
+    LLVMGetNamedMetadataNumOperands
+    LLVMGetNamedMetadataOperands
+    LLVMAddGlobal
+    LLVMSetInitializer
+    LLVMSetSection
+    LLVMConstArray2
+    LLVMGetMDNodeNumOperands
+    LLVMGetMDNodeOperands
+    LLVMReplaceMDNodeOperandWith
+    LLVMGetMDString
+    LLVMConstIntGetZExtValue
+    LLVMIsACallInst
+    LLVMIsAAtomicRMWInst
+    LLVMIsAConstantInt
+    LLVMGetPointerAddressSpace
+    LLVMDeleteFunction
+    LLVMGetBufferStart
+    LLVMGetBufferSize
+    LLVMDisposeMemoryBuffer
+  )
+  list(TRANSFORM _llvm_c_api PREPEND "/EXPORT:")
+  target_link_options(NumbaCudaMlirPythonCAPI PRIVATE ${_llvm_c_api})
+
+  # The import library cext/mlir-llvm70 links against is not installed with the
+  # DLL; put it in this package's component so the distribution includes it.
+  install(FILES "$<TARGET_LINKER_FILE:NumbaCudaMlirPythonCAPI>"
+    DESTINATION "${MLIR_BINDINGS_PYTHON_INSTALL_PREFIX}/_mlir_libs"
+    COMPONENT NumbaCudaMlirPythonModules)
+endif()
+
 ################################################################################
 # Distribution components
 ################################################################################
@@ -204,9 +306,8 @@ add_mlir_python_modules(NumbaCudaMlirPythonModules
 # ci/build-llvm-modern.sh builds and installs only LLVM_DISTRIBUTION_COMPONENTS.
 # Besides this package, that is what the C++ code in cext/ links against
 # through find_package(MLIR). Keep this list in sync with the link libraries in
-# cext/mlir-llvm70/{lib,tools}/CMakeLists.txt and cext/mlir-modern/CMakeLists.txt.
+# cext/mlir-llvm70/{lib,tools}/CMakeLists.txt.
 set(NUMBA_CUDA_MLIR_CXX_LINK_LIBS
-  # cext/mlir-llvm70
   LLVMSupport
   MLIRGPUDialect
   MLIRGPUTransforms
@@ -218,13 +319,6 @@ set(NUMBA_CUDA_MLIR_CXX_LINK_LIBS
   MLIRSupport
   MLIRTargetLLVMIRExport
   MLIRToLLVMIRTranslationRegistration
-  # cext/mlir-modern
-  LLVMBitWriter
-  LLVMCore
-  MLIRBuiltinToLLVMIRTranslation
-  MLIRGPUToLLVMIRTranslation
-  MLIRLLVMToLLVMIRTranslation
-  MLIRNVVMToLLVMIRTranslation
 )
 
 # Installed libraries reachable from the given ones through link dependencies.

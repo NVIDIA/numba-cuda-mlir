@@ -103,6 +103,10 @@ cmake_args=(
     -DPython3_ROOT_DIR="${python_root}"
     -DPython3_EXECUTABLE="${python_executable}"
     -DPython3_FIND_REGISTRY=NEVER
+    -DLLVM_PARALLEL_LINK_JOBS="${LLVM_PARALLEL_LINK_JOBS:-${PARALLEL}}"
+    # Adjusts the MLIR Python CAPI library; see cext/mlir-python/CMakeLists.txt.
+    -DLLVM_EXTERNAL_PROJECTS=numba_cuda_mlir_python
+    -DLLVM_EXTERNAL_NUMBA_CUDA_MLIR_PYTHON_SOURCE_DIR="$(cmake_path "${REPO_ROOT}/cext/mlir-python")"
 )
 if [[ "${IS_WINDOWS}" == 1 ]]; then
     # Static CRT (/MT), so the wheel needs no MSVC runtime DLLs.
@@ -110,7 +114,6 @@ if [[ "${IS_WINDOWS}" == 1 ]]; then
         -DCMAKE_C_COMPILER=cl
         -DCMAKE_CXX_COMPILER=cl
         -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
-        -DLLVM_PARALLEL_LINK_JOBS="${LLVM_PARALLEL_LINK_JOBS:-${PARALLEL}}"
         -DLLVM_ENABLE_ZLIB=OFF
         -DLLVM_ENABLE_ZSTD=OFF
     )
@@ -120,179 +123,16 @@ fi
 
 cmake "${cmake_args[@]}"
 
-# Windows-only: stage the MLIR Python runtime DLLs/.pyd that `cmake --install`
-# leaves in the build tree, then build the modern-to-NVVM bridge and smoke-import
-# the result.
-stage_windows_mlir_python() {
-    local mlir_pkg_rel="python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir"
-    local build_mlir_pkg="${LLVM_BUILD}/tools/mlir/${mlir_pkg_rel}"
-    local install_mlir_pkg="${LLVM_INSTALL}/${mlir_pkg_rel}"
-    local install_mlir_libs="${install_mlir_pkg}/_mlir_libs"
-    if [[ -d "${build_mlir_pkg}" ]]; then
-        mkdir -p "${install_mlir_pkg}"
-        cp -a "${build_mlir_pkg}/." "${install_mlir_pkg}/"
-    else
-        echo "ERROR: MLIR Python build package not found at ${build_mlir_pkg}" >&2
-        exit 1
-    fi
-
-    mkdir -p "${install_mlir_libs}"
-    while IFS= read -r -d '' mlir_runtime; do
-        cp "${mlir_runtime}" "${install_mlir_libs}/"
-    done < <(
-        find "${LLVM_BUILD}" -type f \( \
-            -name '_mlir*.pyd' -o \
-            -name 'MLIRPython*.dll' -o \
-            -name 'nanobind*.dll' \
-        \) -print0
-    )
-
-    local python_ext_suffix
-    python_ext_suffix="$(
-        "${PYTHON}" - <<'PY'
-import sysconfig
-
-print(sysconfig.get_config_var("EXT_SUFFIX") or ".pyd")
-PY
-    )"
-    local core_mlir_extension="${install_mlir_libs}/_mlir${python_ext_suffix}"
-
-    if [[ ! -f "${core_mlir_extension}" ]]; then
-        echo "ERROR: MLIR Python native extension for ${python_ext_suffix} was not staged" >&2
-        echo "Expected: ${core_mlir_extension}" >&2
-        echo "Contents of ${install_mlir_libs}:" >&2
-        ls -la "${install_mlir_libs}" >&2 || true
-        echo "MLIR native artifacts found under ${LLVM_BUILD}:" >&2
-        find "${LLVM_BUILD}" -type f \( \
-            -name '_mlir*.pyd' -o \
-            -name 'MLIRPython*.dll' -o \
-            -name 'nanobind*.dll' \
-        \) -print >&2 || true
-        exit 1
-    fi
-
-    local capi_import_lib="${build_mlir_pkg}/_mlir_libs/MLIRPythonCAPI.lib"
-    if [[ -f "${capi_import_lib}" ]]; then
-        cp "${capi_import_lib}" "${LLVM_INSTALL}/lib/MLIRPythonCAPI.lib"
-    fi
-
-    build_modern_to_nvvm_bridge "${install_mlir_libs}"
-
-    "${PYTHON}" - "$(cmake_path "${LLVM_INSTALL}")" <<'PY'
-import ctypes
-import os
-import pathlib
-import sys
-import traceback
-
-debug = os.environ.get("NUMBA_CUDA_MLIR_CI_DEBUG") == "1"
-
-
-def log(message):
-    if debug:
-        print(message)
-
-
-def describe_failure():
-    print(f"  python={sys.executable}", file=sys.stderr)
-    print(f"  install_root={install_root}", file=sys.stderr)
-    print(f"  mlir_libs={mlir_libs} exists={mlir_libs.is_dir()}", file=sys.stderr)
-    if mlir_libs.is_dir():
-        for path in sorted(mlir_libs.iterdir()):
-            if path.is_file() and path.suffix.lower() in {".dll", ".pyd", ".lib", ".exp"}:
-                print(f"    {path.name} size={path.stat().st_size}", file=sys.stderr)
-
-
-install_root = pathlib.Path(sys.argv[1])
-pkg_root = install_root / "python_packages" / "numba_cuda_mlir_mlir"
-mlir_pkg = pkg_root / "numba_cuda_mlir" / "_mlir"
-mlir_libs = mlir_pkg / "_mlir_libs"
-
-handles = []
-if os.name == "nt" and hasattr(os, "add_dll_directory"):
-    for directory in (
-        mlir_libs,
-        install_root / "lib",
-        install_root / "bin",
-    ):
-        if directory.is_dir():
-            log(f"  add_dll_directory={directory}")
-            handles.append(os.add_dll_directory(str(directory)))
-
-for name in (
-    "nanobind-numba_cuda_mlir.dll",
-    "MLIRPythonSupport-numba_cuda_mlir.dll",
-    "MLIRModernToNVVM.dll",
-    "MLIRPythonCAPI.dll",
-):
-    path = mlir_libs / name
-    if path.exists():
-        log(f"  loading {path}")
-        ctypes.WinDLL(str(path))
-
-sys.path.insert(0, str(pkg_root))
-try:
-    from numba_cuda_mlir._mlir import ir  # noqa: F401
-except BaseException:
-    print("Modern MLIR Python artifact smoke import failed:", file=sys.stderr)
-    describe_failure()
-    traceback.print_exc()
-    raise
-
-log("Modern MLIR Python artifact smoke import passed")
-PY
-}
-
-build_modern_to_nvvm_bridge() {
-    local install_mlir_libs="$1"
-    local bridge_build="${LLVM_BUILD}/mlir-modern-to-nvvm-build"
-    local bridge_source="${REPO_ROOT}/cext/mlir-modern"
-
-    cmake -G Ninja \
-        -S "$(cmake_path "${bridge_source}")" \
-        -B "$(cmake_path "${bridge_build}")" \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_PREFIX_PATH="$(cmake_path "${LLVM_INSTALL}")" \
-        -DMLIR_DIR="$(cmake_path "${LLVM_INSTALL}/lib/cmake/mlir")" \
-        -DLLVM_DIR="$(cmake_path "${LLVM_INSTALL}/lib/cmake/llvm")" \
-        -DCMAKE_C_COMPILER=cl \
-        -DCMAKE_CXX_COMPILER=cl \
-        -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
-    cmake --build "$(cmake_path "${bridge_build}")" \
-        --target MLIRModernToNVVM MLIRModernToNVVMSmoke -j "${PARALLEL}"
-    ctest --test-dir "$(cmake_path "${bridge_build}")" --output-on-failure
-
-    local bridge_dll
-    bridge_dll="$(find "${bridge_build}" -type f -name 'MLIRModernToNVVM.dll' -print -quit)"
-    if [[ -z "${bridge_dll}" || ! -f "${bridge_dll}" ]]; then
-        echo "ERROR: failed to produce MLIRModernToNVVM.dll under ${bridge_build}" >&2
-        exit 1
-    fi
-
-    cp "${bridge_dll}" "${install_mlir_libs}/"
-
-    local bridge_import_lib
-    bridge_import_lib="$(find "${bridge_build}" -type f -name 'MLIRModernToNVVM.lib' -print -quit)"
-    if [[ -n "${bridge_import_lib}" && -f "${bridge_import_lib}" ]]; then
-        cp "${bridge_import_lib}" "${install_mlir_libs}/"
-    fi
-}
-
 # Build & install. --strip removes the static symbol table (.symtab +
 # .strtab); LLVM is built without -g so there's no DWARF to strip, but
-# the symbol table itself accounts for ~70 MB on libMLIRPythonCAPI.so
-# alone -- ~25 MB compressed in the wheel.
+# the symbol table itself accounts for ~70 MB on the Linux CAPI library
+# alone -- ~25 MB compressed in the wheel. MSVC builds have nothing to strip.
 cmake --build "$(cmake_path "${LLVM_BUILD}")" -j "${PARALLEL}"
-if [[ "${IS_WINDOWS}" == 1 ]]; then
-    cmake --install "$(cmake_path "${LLVM_BUILD}")"
-    stage_windows_mlir_python
-else
-    cmake --install "${LLVM_BUILD}" --strip
-fi
+cmake --install "$(cmake_path "${LLVM_BUILD}")" --strip
 
 echo "=== Modern LLVM installed to ${LLVM_INSTALL} ==="
 echo "  MLIR_DIR=${LLVM_INSTALL}/lib/cmake/mlir"
-ls -lh "${LLVM_INSTALL}/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs/libMLIRPythonCAPI.so" 2>/dev/null || true
+ls -lh "${LLVM_INSTALL}/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs/"*MLIRPythonCAPI*
 
 echo "=== sccache stats ==="
 sccache --show-stats

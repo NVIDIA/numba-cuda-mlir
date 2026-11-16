@@ -55,21 +55,18 @@ def _shared_lib_name(name: str) -> str:
 
 
 def _find_mlir_python_capi() -> str | None:
-    """Find the MLIRPythonCAPI link library, preferring the MLIR_DIR install.
+    """Find the MLIR Python CAPI link library, preferring the MLIR_DIR install.
 
     When MLIR_DIR is set (pointing to <install>/lib/cmake/mlir), look for
     the library under <install>/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs/
-    (our custom install prefix). This ensures libMLIRToLLVM70.so links against
-    the same libMLIRPythonCAPI.so that will be loaded at runtime.
+    (our custom install prefix). This ensures MLIRToLLVM70 links against the
+    same CAPI library that will be loaded at runtime.
     """
-    capi_names = ["MLIRPythonCAPI.lib"] if IS_WINDOWS else ["libMLIRPythonCAPI.so"]
+    capi_name = "MLIRPythonCAPI-numba_cuda_mlir"
+    capi_names = [f"{capi_name}.lib"] if IS_WINDOWS else [f"lib{capi_name}.so"]
     mlir_dir = os.environ.get("MLIR_DIR")
     if mlir_dir:
         install_root = Path(mlir_dir).resolve().parent.parent.parent
-        if IS_WINDOWS:
-            capi = install_root / "lib" / "MLIRPythonCAPI.lib"
-            if capi.exists():
-                return str(capi)
         mlir_libs = (
             install_root
             / "python_packages"

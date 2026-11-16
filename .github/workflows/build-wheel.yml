@@ -155,14 +155,14 @@ jobs:
             ACTIONS_CACHE_SERVICE_V2=${{ env.ACTIONS_CACHE_SERVICE_V2 }}
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             auditwheel -v repair {wheel} --wheel-dir {dest_dir}
-            --exclude libMLIRPythonCAPI.so
+            --exclude libMLIRPythonCAPI-numba_cuda_mlir.so
             --exclude libMLIRPythonSupport-numba_cuda_mlir.so
             --exclude libLLVM-7.so &&
             "/host/${{ env.SCCACHE_PATH }}" --show-adv-stats &&
             "/host/${{ env.SCCACHE_PATH }}" --show-stats --stats-format=json > /host/${{ github.workspace }}/sccache_NUMBA_CUDA_MLIR.json
           CIBW_ENVIRONMENT_WINDOWS: >
             MLIR_DIR="$(cygpath -w ${{ env.LLVM_MODERN_INSTALL_DIR }}/lib/cmake/mlir)"
-            ${{ inputs.host-platform != 'win-arm64' && format('LIBLLVM7="$(cygpath -w {0}/bin/LLVM-C.dll)"', env.LLVM7_INSTALL_DIR) || '' }}
+            ${{ inputs.host-platform != 'win-arm64' && format('LIBLLVM7="$(cygpath -w {0}/lib/LLVM-C.dll)"', env.LLVM7_INSTALL_DIR) || '' }}
           # Windows wheels use the static CRT and need no DLL repair.
           CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: ""
 
@@ -180,11 +180,11 @@ jobs:
 
       # Ships next to the wheel via the same artifact. See
       # tests/test_symbol_isolation.py (#170).
-      - name: Build isolation-test shim
+      - name: Build isolation-test libraries
         if: ${{ startsWith(inputs.host-platform, 'linux') }}
         run: |
-          make -C tests/data fake_mlir_shim.so
-          cp tests/data/fake_mlir_shim.so dist/
+          make -C tests/data fake_mlir_shim.so fake_mlir_capi.so
+          cp tests/data/fake_mlir_shim.so tests/data/fake_mlir_capi.so dist/
 
       - name: Upload numba-cuda-mlir build artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
@@ -193,4 +193,5 @@ jobs:
           path: |
             dist/*.whl
             dist/fake_mlir_shim.so
+            dist/fake_mlir_capi.so
           if-no-files-found: error

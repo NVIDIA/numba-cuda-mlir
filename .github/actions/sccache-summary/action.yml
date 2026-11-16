@@ -34,7 +34,9 @@ runs:
           exit 0
         fi
 
-        python3 - <<'PYEOF'
+        # Windows venvs have no python3.exe.
+        py="$(command -v python || command -v python3)"
+        "${py}" - <<'PYEOF'
         import json, os, urllib.parse
 
         json_file = os.environ["SCCACHE_JSON"]

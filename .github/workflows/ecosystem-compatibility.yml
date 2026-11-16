@@ -19,7 +19,7 @@ on:
         default: main
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.run-id || 'default' }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.run-id || inputs.producer-branch || 'main' }}
   cancel-in-progress: false
 
 permissions:

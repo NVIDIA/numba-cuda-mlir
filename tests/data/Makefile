@@ -8,6 +8,8 @@ CC ?= cc
 CFLAGS ?= -O0 -fPIC
 OUT ?= fake_mlir_shim.so
 
+all: $(OUT) fake_mlir_capi.so
+
 $(OUT): fake_mlir_shim.c
 	$(CC) $(CFLAGS) -shared -o $@ $<
 
@@ -17,4 +19,4 @@ fake_mlir_capi.so: fake_mlir_capi.c
 clean:
 	rm -f $(OUT) fake_mlir_capi.so
 
-.PHONY: clean
+.PHONY: all clean

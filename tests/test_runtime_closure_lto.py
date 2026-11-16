@@ -196,3 +196,106 @@ def test_composed_environment_through_cpp_lto_bridge():
         kernel[1, 32](device_values, bias, enabled, output)
         expected = (values + bias if enabled else -values) * 2
         np.testing.assert_array_equal(output.copy_to_host(), expected)
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_inferred_specialized_body_static_captures_through_declared_lto_call(nested):
+    from numba_cuda_mlir import compiler
+
+    @cuda.jit(device=True)
+    def transform(value):
+        return value * 3
+
+    def consume(fn, value):
+        raise RuntimeError("device-only specialized callable consumer")
+
+    @extending.overload(consume, typing_registry=extending.typing_registry)
+    def overload_consume(fn, value):
+        specialization = extending.get_callable_specialization(fn, (value,))
+        if specialization is None:
+            return
+        symbol = "static_capture_body_" + str(nested)
+        native, _ = compiler.compile(
+            specialization.body_function,
+            specialization.body_signature,
+            device=True,
+            abi="c",
+            output="ltoir",
+            abi_info={"abi_name": symbol},
+        )
+        external = cuda.declare_device(
+            symbol, specialization.body_signature, abi="c", link=cuda.LTOIR(native)
+        )
+
+        def captures(fn):
+            raise RuntimeError("device-only capture extraction")
+
+        @extending.type_callable(captures)
+        def type_captures(context):
+            return lambda fn: types.Tuple(specialization.capture_types)
+
+        @lowering_registry.lower(captures, fn)
+        def lower_captures(ctx, target, args, kwargs):
+            model = ctx.context.data_model_manager.lookup(fn)
+            ctx.store_var(target, model.unpack_captures(ctx, ctx.load_var(args[0])))
+
+        extending.refresh_registries(typing=False, target=True)
+
+        if nested:
+
+            def impl(fn, value):
+                environment = captures(fn)
+                return external(environment[0], value)
+        else:
+
+            def impl(fn, value):
+                environment = captures(fn)
+                return external(environment[0], environment[1], value)
+
+        return impl
+
+    @cuda.jit
+    def kernel(bias, value, output):
+        if nested:
+            environment = (bias, transform, None)
+            fn = lambda value: environment[1](value) + environment[0]
+            output[0] = consume(fn, value)
+        else:
+            helper = transform
+            fn = lambda value: helper(value) + bias
+            output[0] = consume(fn, value)
+
+    output = np.zeros(1, dtype=np.int64)
+    for bias, value in ((7, 4), (-3, -2)):
+        kernel[1, 1](bias, value, output)
+        assert output[0] == value * 3 + bias
+
+
+def test_external_numba_aggregate_return_captured_by_closure():
+    pair_type = types.Tuple((types.int64, types.boolean))
+    source = cuda.CUSource("""
+struct Pair { long long value; signed char positive; };
+extern "C" __device__ int closure_external_pair(Pair* out, long long value) {
+    out->value = value * 3;
+    out->positive = value >= 0;
+    return 0;
+}
+""")
+    pair = cuda.declare_device(
+        "closure_external_pair", pair_type(types.int64), abi="numba", link=source
+    )
+
+    @cuda.jit(device=True, inline="never")
+    def forward(fn, adjustment):
+        return fn(adjustment)
+
+    @cuda.jit
+    def kernel(value, adjustment, output):
+        environment = pair(value)
+        fn = lambda delta: (environment[0] if environment[1] else -environment[0]) + delta
+        output[0] = forward(fn, adjustment)
+
+    output = np.zeros(1, dtype=np.int64)
+    for value, adjustment in ((7, 2), (-3, -1)):
+        kernel[1, 1](value, adjustment, output)
+        assert output[0] == abs(value * 3) + adjustment

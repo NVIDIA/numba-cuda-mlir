@@ -33,6 +33,30 @@ def overload_extension_consume(fn, value):
     return impl
 
 
+def test_repeated_closure_conversion_does_not_grow_registries():
+    from types import SimpleNamespace
+
+    from numba_cuda_mlir.numba_cuda.compiler import run_frontend
+    from numba_cuda_mlir.runtime_closures import ConvertRuntimeClosures
+
+    def factory(bias):
+        return lambda value: value + bias
+
+    registries = (
+        extending.typing_registry.functions,
+        extending.typing_registry.globals,
+        extending.lowering_registry.functions,
+    )
+    previous = None
+    for _ in range(3):
+        state = SimpleNamespace(func_ir=run_frontend(factory))
+        ConvertRuntimeClosures().run_pass(state)
+        sizes = tuple(len(registry) for registry in registries)
+        if previous is not None:
+            assert sizes == previous
+        previous = sizes
+
+
 def test_runtime_capture_passed_to_device_function_and_globals():
     @cuda.jit
     def kernel(bias, output):
@@ -72,6 +96,30 @@ def test_array_and_boolean_captures():
     for enabled in (True, False):
         kernel[1, 1](values, enabled, output)
         assert output[0] == (13 if enabled else -13)
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_shared_memory_array_capture_across_device_call(nested):
+    @cuda.jit(device=True, inline="never")
+    def forward(fn, index):
+        return fn(index)
+
+    @cuda.jit
+    def kernel(bias, output):
+        values = cuda.shared.array(2, types.int64)
+        values[0] = bias
+        values[1] = bias + 1
+        if nested:
+            environment = ((values, None), bias)
+            fn = lambda index: environment[0][0][index] + environment[1]
+        else:
+            fn = lambda index: values[index]
+        output[0] = forward(fn, 1)
+
+    output = np.zeros(1, dtype=np.int64)
+    for bias in (7, -3):
+        kernel[1, 1](bias, output)
+        assert output[0] == (2 * bias + 1 if nested else bias + 1)
 
 
 @pytest.mark.parametrize("dtype", [np.complex64, np.complex128])
@@ -313,6 +361,43 @@ def test_unsupported_dispatcher_specialization_declines():
     assert specialization is None
 
 
+@pytest.mark.parametrize("runtime_capture", [False, True])
+def test_unspecializable_callable_allows_overload_fallback(runtime_capture):
+    def invoke_or_negate(fn, value):
+        raise RuntimeError("device-only")
+
+    @extending.overload(invoke_or_negate, typing_registry=extending.typing_registry)
+    def overload_invoke_or_negate(fn, value):
+        if extending.get_callable_specialization(fn, (value,)) is None:
+
+            def fallback(fn, value):
+                return -value
+
+            return fallback
+
+        def invoke(fn, value):
+            return fn(value)
+
+        return invoke
+
+    @cuda.jit(device=True)
+    def array_only(value):
+        return value[0]
+
+    @cuda.jit
+    def kernel(bias, output):
+        if runtime_capture:
+            fn = lambda value: value[0] + bias
+            output[0] = invoke_or_negate(fn, bias)
+        else:
+            output[0] = invoke_or_negate(array_only, bias)
+
+    output = np.zeros(1, dtype=np.int64)
+    for bias in (7, -3):
+        kernel[1, 1](bias, output)
+        assert output[0] == -bias
+
+
 def test_loop_carried_shared_cell_rejected():
     @cuda.jit
     def kernel(output):
@@ -451,3 +536,121 @@ def test_immutable_capture_constructed_in_loop():
     output = np.zeros(3, dtype=np.int64)
     kernel[1, 1](7, output)
     np.testing.assert_array_equal(output, [7, 8, 9])
+
+
+@pytest.mark.parametrize("inline", ["never", "always"])
+def test_repeated_calls_through_same_runtime_closure(inline):
+    @cuda.jit(device=True, inline=inline)
+    def twice(fn, value):
+        return fn(value) + fn(value + 1)
+
+    @cuda.jit
+    def kernel(bias, output):
+        fn = lambda value: value + bias
+        output[0] = twice(fn, 4)
+
+    output = np.zeros(1, dtype=np.int64)
+    for bias in (7, -3):
+        kernel[1, 1](bias, output)
+        assert output[0] == 9 + 2 * bias
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_static_dispatcher_through_noninlined_device_call(nested):
+    @cuda.jit(device=True)
+    def transform(value):
+        return value * 3 - 2
+
+    if nested:
+
+        @cuda.jit(device=True, inline="never")
+        def forward(environment, value):
+            return environment[0][0](value) + environment[1]
+
+        @cuda.jit
+        def kernel(value, bias, output):
+            output[0] = forward(((transform, None), bias), value)
+    else:
+
+        @cuda.jit(device=True, inline="never")
+        def forward(fn, value, bias):
+            return fn(value) + bias
+
+        @cuda.jit
+        def kernel(value, bias, output):
+            output[0] = forward(transform, value=value, bias=bias)
+
+    output = np.zeros(1, dtype=np.int64)
+    for value, bias in ((7, 5), (-4, -9)):
+        kernel[1, 1](value, bias, output)
+        assert output[0] == value * 3 - 2 + bias
+
+
+def test_captured_module_constant_through_device_call():
+    import math
+
+    @cuda.jit(device=True, inline="never")
+    def forward(fn, value):
+        return fn(value)
+
+    @cuda.jit
+    def kernel(bias, output):
+        alias = math
+        fn = lambda value: value + bias + alias.pi
+        output[0] = forward(fn, 4)
+
+    output = np.zeros(1, dtype=np.float64)
+    for bias in (7, -3):
+        kernel[1, 1](bias, output)
+        assert output[0] == 4 + bias + math.pi
+
+
+def test_variadic_runtime_closure_across_device_call():
+    @cuda.jit(device=True, inline="never")
+    def forward(fn, left, right):
+        return fn(left, right)
+
+    @cuda.jit
+    def kernel(bias, left, right, output):
+        def fn(*values):
+            return values[0] * 100 + values[1] + bias
+
+        output[0] = forward(fn, left, right)
+
+    output = np.zeros(1, dtype=np.int64)
+    for bias, left, right in ((7, 2, 3), (-3, 5, -2)):
+        kernel[1, 1](bias, left, right, output)
+        assert output[0] == left * 100 + right + bias
+
+
+@pytest.mark.parametrize("with_value", [False, True])
+def test_static_callable_tuple_return_with_zero_or_one_runtime_leaf(with_value):
+    @cuda.jit(device=True)
+    def transform(value):
+        return value * 3
+
+    if with_value:
+
+        @cuda.jit(device=True, inline="never")
+        def package(fn, value):
+            return ((fn, None), value)
+
+        @cuda.jit
+        def kernel(value, output):
+            environment = package(transform, value)
+            output[0] = environment[0][0](environment[1])
+    else:
+
+        @cuda.jit(device=True, inline="never")
+        def package(fn):
+            return ((fn,), None)
+
+        @cuda.jit
+        def kernel(value, output):
+            environment = package(transform)
+            output[0] = environment[0][0](value) if environment[1] is None else -1
+
+    output = np.zeros(1, dtype=np.int64)
+    for value in (7, -3):
+        kernel[1, 1](value, output)
+        assert output[0] == value * 3

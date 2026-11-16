@@ -8,11 +8,11 @@ import types as pytypes
 from dataclasses import dataclass
 from functools import partial
 
-from numba_cuda_mlir._mlir import ir as mlir_ir
-from numba_cuda_mlir._mlir.dialects import builtin, llvm
-from numba_cuda_mlir.models import StructModel, register_model
+from numba_cuda_mlir.data_packer import DataPacker
+from numba_cuda_mlir.models import PrimitiveModel, register_model
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core import errors, ir, postproc
+from numba_cuda_mlir.numba_cuda.core.compiler_lock import global_compiler_lock
 from numba_cuda_mlir.numba_cuda.core.compiler_machinery import FunctionPass, register_pass
 from numba_cuda_mlir.numba_cuda.core.ir_utils import build_definitions
 
@@ -179,162 +179,51 @@ def get_callable_specialization(callable_type, argument_types, typing_context=No
     if typing_context is None:
         from numba_cuda_mlir.descriptor import mlir_target
 
+        mlir_target.ensure_initialized()
         typing_context = mlir_target.typing_context
-    if isinstance(callable_type, RuntimeClosure):
-        return callable_type.specialize(typing_context, argument_types)
-    if isinstance(callable_type, types.Dispatcher):
-        sig = callable_type.get_call_type(typing_context, tuple(argument_types), {})
-        if sig is None:
-            return None
-        function = callable_type.dispatcher.py_func
-        return CallableSpecialization(
-            sig, sig, function, (), (), (function.__code__, id(function.__globals__))
-        )
+    try:
+        if isinstance(callable_type, RuntimeClosure):
+            return callable_type.specialize(typing_context, argument_types)
+        if isinstance(callable_type, types.Dispatcher):
+            sig = callable_type.get_call_type(typing_context, tuple(argument_types), {})
+            if sig is None:
+                return None
+            function = callable_type.dispatcher.py_func
+            return CallableSpecialization(
+                sig, sig, function, (), (), (function.__code__, id(function.__globals__))
+            )
+    except errors.TypingError:
+        return None
     raise errors.TypingError(
         "Expected a runtime closure or device function, got %s" % callable_type
     )
 
 
-class _CaptureLayout:
-    """Encode model data representations without changing their conversions.
-
-    Python tuples and complex scalars become LLVM aggregates, memrefs become
-    descriptors, and static placeholders occupy no field. LLVM model storage
-    remains opaque, including previously packed closures.
-    """
-
-    def __init__(self, storage_type):
-        self.storage_type = storage_type
-        self.children = None
-        if storage_type is None or isinstance(storage_type, mlir_ir.NoneType):
-            self.data_type = None
-        elif isinstance(storage_type, tuple):
-            children = []
-            data_types = []
-            for typ in storage_type:
-                child = _CaptureLayout(typ)
-                field = None
-                if child.data_type is not None:
-                    field = len(data_types)
-                    data_types.append(child.data_type)
-                children.append((child, field))
-            self.children = tuple(children)
-            self.data_type = llvm.StructType.get_literal(data_types) if data_types else None
-        elif isinstance(storage_type, mlir_ir.ComplexType):
-            from numba_cuda_mlir.lowering_utilities import get_llvm_struct_for_complex
-
-            self.data_type = get_llvm_struct_for_complex(storage_type)
-        elif isinstance(storage_type, mlir_ir.MemRefType):
-            from numba_cuda_mlir.lowering_utilities import memref_descriptor_type
-
-            self.data_type = memref_descriptor_type(storage_type.rank)
-        else:
-            self.data_type = storage_type
-
-    def pack(self, value):
-        if self.children is not None:
-            if len(value) != len(self.children):
-                raise ValueError("Closure environment does not match its data layout")
-            if self.data_type is None:
-                return None
-            result = llvm.UndefOp(self.data_type).result
-            for (child, field), member in zip(self.children, value):
-                if field is not None:
-                    result = llvm.insertvalue(result, child.pack(member), [field])
-            return result
-        if self.data_type is None:
-            return None
-        if isinstance(self.storage_type, mlir_ir.ComplexType):
-            from numba_cuda_mlir.lowering_utilities import complex_to_llvm_struct
-
-            return complex_to_llvm_struct(value)
-        if isinstance(self.storage_type, mlir_ir.MemRefType):
-            return builtin.unrealized_conversion_cast([self.data_type], [value])
-        return value
-
-    def unpack(self, value):
-        if self.children is not None:
-            return tuple(
-                child.unpack(
-                    llvm.extractvalue(child.data_type, value, [field])
-                    if field is not None
-                    else None
-                )
-                for child, field in self.children
-            )
-        if self.data_type is None:
-            return self.storage_type
-        if isinstance(self.storage_type, mlir_ir.ComplexType):
-            from numba_cuda_mlir.lowering_utilities import llvm_struct_to_complex
-
-            return llvm_struct_to_complex(value, self.storage_type)
-        if isinstance(self.storage_type, mlir_ir.MemRefType):
-            return builtin.unrealized_conversion_cast([self.storage_type], [value])
-        return value
-
-
-class _CaptureCodec:
-    """Preserve each model's value/data boundary around environment encoding."""
-
-    def __init__(self, dmm, typ):
-        self.model = dmm.lookup(typ)
-        self.value_type = self.model.get_value_type()
-        self.is_static = isinstance(self.value_type, mlir_ir.NoneType)
-        self.layout = _CaptureLayout(
-            self.value_type if self.is_static else self.model.get_data_type()
-        )
-        self.data_type = self.layout.data_type
-
-    def pack(self, builder, value):
-        if self.is_static:
-            return None
-        return self.layout.pack(self.model.as_data(builder, value))
-
-    def unpack(self, builder, value):
-        if self.is_static:
-            return self.value_type
-        return self.model.from_data(builder, self.layout.unpack(value))
-
-
 @register_model(RuntimeClosure)
-class RuntimeClosureModel(StructModel):
+class RuntimeClosureModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
-        self.codecs = tuple(_CaptureCodec(dmm, t) for t in fe_type.capture_types)
-        self.layout = _CaptureLayout(tuple(codec.data_type for codec in self.codecs))
-        super().__init__(dmm, fe_type, list(zip(fe_type.capture_names, fe_type.capture_types)))
-
-    def get_value_type(self):
-        return self.get_data_type()
-
-    def get_data_type(self):
-        if self._data_type is None:
-            self._data_type = self.layout.data_type
-            if self._data_type is None:
-                self._data_type = llvm.StructType.get_literal([])
-        return self._data_type
-
-    def as_data(self, builder, value):
-        return value
-
-    def from_data(self, builder, value):
-        return value
+        self.packer = DataPacker(dmm, fe_type.capture_types)
+        super().__init__(dmm, fe_type, self.packer.data_type)
 
     def pack_captures(self, builder, values):
-        if len(values) != len(self.codecs):
-            raise ValueError("Closure captures do not match their environment layout")
-        packed = self.layout.pack(
-            tuple(codec.pack(builder, value) for codec, value in zip(self.codecs, values))
-        )
-        return llvm.UndefOp(self.get_data_type()).result if packed is None else packed
+        return self.packer.as_data(builder, values)
 
     def unpack_captures(self, builder, value):
-        return tuple(
-            codec.unpack(builder, member)
-            for codec, member in zip(self.codecs, self.layout.unpack(value))
-        )
+        return self.packer.from_data(builder, value)
 
 
-def _closure_constructor(body_function, original_code):
+_closure_constructors = {}
+
+
+@global_compiler_lock
+def _closure_constructor(original_code, globals_dict):
+    # Registries retain constructors and their code/globals, so these identities
+    # cannot be recycled while cached. Register once, not once per compilation.
+    key = (id(original_code), id(globals_dict))
+    if key in _closure_constructors:
+        return _closure_constructors[key]
+
+    body_function = _make_closure_body(original_code, globals_dict)
     from numba_cuda_mlir.extending import lower_builtin, refresh_registries, type_callable
 
     def construct(*captures):
@@ -355,6 +244,7 @@ def _closure_constructor(body_function, original_code):
         builder.store_var(target, model.pack_captures(builder, values))
 
     refresh_registries(typing=False, target=True)
+    _closure_constructors[key] = construct
     return construct
 
 
@@ -483,8 +373,7 @@ class ConvertRuntimeClosures(FunctionPass):
                 capture_error = node._kws["_runtime_capture_error"]
                 if capture_error is not None:
                     raise errors.UnsupportedError(capture_error, loc=stmt.loc)
-                function = _make_closure_body(node.code, func_ir.func_id.func.__globals__)
-                constructor = _closure_constructor(function, node.code)
+                constructor = _closure_constructor(node.code, func_ir.func_id.func.__globals__)
                 from numba_cuda_mlir.numba_cuda.core.ir_utils import mk_unique_var
 
                 var = ir.Var(block.scope, mk_unique_var("$runtime_closure_ctor"), stmt.loc)

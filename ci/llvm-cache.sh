@@ -40,11 +40,17 @@ _s3_download() {
     local out
     if out=$(aws s3 ls "$s3_path" 2>&1); then
         echo ">>> [S3] Cache HIT: ${key}"
-        aws s3 cp "$s3_path" "${key}.tar.gz"
-        mkdir -p "$dest_dir"
-        tar xzf "${key}.tar.gz" -C "$dest_dir" --strip-components=1
-        rm -f "${key}.tar.gz"
-        return 0
+        if aws s3 cp "$s3_path" "${key}.tar.gz" \
+            && mkdir -p "$dest_dir" \
+            && tar xzf "${key}.tar.gz" -C "$dest_dir" --strip-components=1; then
+            rm -f "${key}.tar.gz"
+            return 0
+        fi
+        # Callers run this in an if, so set -e does not catch a failed restore;
+        # drop the partial result and build instead.
+        echo "::warning::S3 restore failed for ${key}; building instead"
+        rm -rf "${key}.tar.gz" "$dest_dir"
+        return 1
     fi
     # A missing object exits 1 with no output; anything else is a real error.
     [ -z "$out" ] || echo "::warning::S3 lookup failed for ${key}: ${out//$'\n'/ }"

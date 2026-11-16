@@ -2414,9 +2414,6 @@ extern "C" __global__ void
             func_name = self.mlir_funcOp.operation.attributes["sym_name"].value
             name = f"__numba_cuda_mlir_dynamic_shared_{func_name}"
             with ir.InsertionPoint.at_block_begin(self.mlir_gpu_module.bodyRegion.blocks[0]):
-                # An external declaration denotes the launch's dynamic region.
-                # gpu.dynamic_shared_memory currently lowers to an internal
-                # zero-length global, which can overlap static shared globals.
                 self._shared_memory_global = llvm.GlobalOp(
                     ir.Type.parse("!llvm.array<0 x i8>"),
                     name,

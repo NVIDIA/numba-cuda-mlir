@@ -11,6 +11,7 @@
 #endif
 #include <cstring>
 #include <mutex>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -200,6 +201,19 @@ static std::unique_lock<std::mutex> lock_from_python(std::mutex& mutex) {
     return guard;
 }
 
+#ifdef _WIN32
+// lib_path is UTF-8 (from a Python str); LoadLibraryA would read it in the ANSI
+// code page and fail on non-ASCII install paths.
+static HMODULE load_library_utf8(const char* path) {
+    int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, nullptr, 0);
+    if (n <= 0)
+        return nullptr;
+    std::wstring wpath(n, L'\0');
+    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, &wpath[0], n);
+    return LoadLibraryW(wpath.c_str());
+}
+#endif
+
 static void* load_symbol(void* handle, const char* name) {
 #ifdef _WIN32
     return reinterpret_cast<void*>(
@@ -226,7 +240,7 @@ Status load_mlir_capi(const char* lib_path) {
 
     void* handle = nullptr;
 #ifdef _WIN32
-    handle = LoadLibraryA(lib_path);
+    handle = load_library_utf8(lib_path);
     if (!handle)
         return raise(PyExc_RuntimeError, "Failed to load %s: error %lu",
                      lib_path, GetLastError());

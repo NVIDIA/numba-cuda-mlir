@@ -97,6 +97,9 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
           role-duration-seconds: 43200
+          # Re-fetch until the secret has no / or +: Git Bash rewrites a leading /
+          # into a Windows path (aws-actions/configure-aws-credentials#528).
+          special-characters-workaround: true
 
       - name: Set up sccache S3 credentials
         if: steps.gha-cache.outputs.cache-hit != 'true'
@@ -209,6 +212,9 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
           role-duration-seconds: 43200
+          # Re-fetch until the secret has no / or +: Git Bash rewrites a leading /
+          # into a Windows path (aws-actions/configure-aws-credentials#528).
+          special-characters-workaround: true
 
       - name: Set up sccache S3 credentials
         if: steps.gha-cache.outputs.cache-hit != 'true'

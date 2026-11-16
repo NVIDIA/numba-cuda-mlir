@@ -37,7 +37,8 @@ _s3_download() {
     command -v aws &>/dev/null || return 1
     [ -n "${AWS_ACCESS_KEY_ID:-}" ] || return 1
     local s3_path=$(_s3_path "$key")
-    if aws s3 ls "$s3_path" &>/dev/null; then
+    local out
+    if out=$(aws s3 ls "$s3_path" 2>&1); then
         echo ">>> [S3] Cache HIT: ${key}"
         aws s3 cp "$s3_path" "${key}.tar.gz"
         mkdir -p "$dest_dir"
@@ -45,6 +46,8 @@ _s3_download() {
         rm -f "${key}.tar.gz"
         return 0
     fi
+    # A missing object exits 1 with no output; anything else is a real error.
+    [ -z "$out" ] || echo "::warning::S3 lookup failed for ${key}: ${out//$'\n'/ }"
     return 1
 }
 

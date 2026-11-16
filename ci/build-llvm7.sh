@@ -46,11 +46,14 @@ echo "  Build:  ${LLVM7_BUILD}"
 
 mkdir -p "${BUILD_ROOT}" "${LLVM7_INSTALL}/lib"
 
-# Download source if not present
+# Download source if not present: only the tagged commit, and only llvm/.
 if [ ! -d "${LLVM7_SRC}/llvm" ]; then
-    echo ">>> Cloning LLVM 7 (${LLVM_TAG})"
-    git clone --depth 1 --branch "${LLVM_TAG}" \
-        https://github.com/llvm/llvm-project.git "${LLVM7_SRC}"
+    echo ">>> Fetching LLVM 7 (${LLVM_TAG})"
+    git init -q "${LLVM7_SRC}"
+    git -C "${LLVM7_SRC}" remote add origin https://github.com/llvm/llvm-project.git
+    git -C "${LLVM7_SRC}" sparse-checkout set llvm
+    git -C "${LLVM7_SRC}" fetch --depth 1 --filter=blob:none origin "refs/tags/${LLVM_TAG}"
+    git -C "${LLVM7_SRC}" checkout -q FETCH_HEAD
 fi
 
 # Patch CMP0051 OLD → NEW for modern CMake compatibility

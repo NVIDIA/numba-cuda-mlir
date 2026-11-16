@@ -45,14 +45,15 @@ echo "  Install: ${LLVM_INSTALL}"
 
 mkdir -p "${BUILD_ROOT}"
 
-# Download source if not present
+# Download source if not present: only the pinned commit, and only the
+# directories the build reads.
 if [ ! -d "${LLVM_SRC}/llvm" ]; then
-    echo ">>> Cloning LLVM (commit ${LLVM_COMMIT})"
-    git clone --depth 1 https://github.com/llvm/llvm-project.git "${LLVM_SRC}"
-    cd "${LLVM_SRC}"
-    git fetch --depth 1 origin "${LLVM_COMMIT}"
-    git checkout "${LLVM_COMMIT}"
-    cd -
+    echo ">>> Fetching LLVM (commit ${LLVM_COMMIT})"
+    git init -q "${LLVM_SRC}"
+    git -C "${LLVM_SRC}" remote add origin https://github.com/llvm/llvm-project.git
+    git -C "${LLVM_SRC}" sparse-checkout set llvm mlir cmake third-party
+    git -C "${LLVM_SRC}" fetch --depth 1 --filter=blob:none origin "${LLVM_COMMIT}"
+    git -C "${LLVM_SRC}" checkout -q FETCH_HEAD
 fi
 
 # Require sccache for compiler caching

@@ -131,12 +131,12 @@ link_llvm_c_dll() {
         printf '/NOLOGO\n'
         printf '/DLL\n'
         printf '/MACHINE:X64\n'
-        printf '/OUT:%s\n' "$(cmake_path "${LLVM7_INSTALL}/bin/LLVM-C.dll")"
-        printf '/IMPLIB:%s\n' "$(cmake_path "${LLVM7_BUILD}/LLVM-C.lib")"
-        printf '/DEF:%s\n' "$(cmake_path "${def_file}")"
-        printf '%s\n' "$(cmake_path "${LLVM7_BUILD}/llvm-c-stub.obj")"
+        printf '/OUT:"%s"\n' "$(cmake_path "${LLVM7_INSTALL}/bin/LLVM-C.dll")"
+        printf '/IMPLIB:"%s"\n' "$(cmake_path "${LLVM7_BUILD}/LLVM-C.lib")"
+        printf '/DEF:"%s"\n' "$(cmake_path "${def_file}")"
+        printf '"%s"\n' "$(cmake_path "${LLVM7_BUILD}/llvm-c-stub.obj")"
         for lib_path in "${lib_args[@]}"; do
-            printf '/WHOLEARCHIVE:%s\n' "${lib_path}"
+            printf '/WHOLEARCHIVE:"%s"\n' "${lib_path}"
         done
     } > "${link_rsp}"
     mkdir -p "${LLVM7_INSTALL}/bin"

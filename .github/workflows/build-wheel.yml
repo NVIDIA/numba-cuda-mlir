@@ -162,7 +162,7 @@ jobs:
             "/host/${{ env.SCCACHE_PATH }}" --show-stats --stats-format=json > /host/${{ github.workspace }}/sccache_NUMBA_CUDA_MLIR.json
           CIBW_ENVIRONMENT_WINDOWS: >
             MLIR_DIR="$(cygpath -w ${{ env.LLVM_MODERN_INSTALL_DIR }}/lib/cmake/mlir)"
-            ${{ inputs.host-platform != 'win-arm64' && format('LIBLLVM7="$(cygpath -w {0}/lib/LLVM-C.dll)"', env.LLVM7_INSTALL_DIR) || '' }}
+            ${{ inputs.host-platform != 'win-arm64' && format('LIBLLVM7="$(cygpath -w {0}/bin/LLVM-C.dll)"', env.LLVM7_INSTALL_DIR) || '' }}
           # Windows wheels use the static CRT and need no DLL repair.
           CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: ""
 

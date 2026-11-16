@@ -4,8 +4,8 @@
 # Build LLVM 7 for the LLVM70 path: shared libLLVM-7.so on Linux, LLVM-C.dll on
 # Windows (Git Bash with MSVC on PATH).
 #
-# Note: does NOT cmake --install; the shared library is copied (Linux) or
-# linked (Windows) into $LLVM7_INSTALL/lib from the build dir.
+# Note: does NOT cmake --install; the shared library is copied (Linux, lib/) or
+# linked (Windows, bin/) into $LLVM7_INSTALL from the build dir.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -128,7 +128,7 @@ link_llvm_c_dll() {
         printf '/NOLOGO\n'
         printf '/DLL\n'
         printf '/MACHINE:X64\n'
-        printf '/OUT:%s\n' "$(cmake_path "${LLVM7_INSTALL}/lib/LLVM-C.dll")"
+        printf '/OUT:%s\n' "$(cmake_path "${LLVM7_INSTALL}/bin/LLVM-C.dll")"
         printf '/IMPLIB:%s\n' "$(cmake_path "${LLVM7_BUILD}/LLVM-C.lib")"
         printf '/DEF:%s\n' "$(cmake_path "${def_file}")"
         printf '%s\n' "$(cmake_path "${LLVM7_BUILD}/llvm-c-stub.obj")"
@@ -136,6 +136,7 @@ link_llvm_c_dll() {
             printf '/WHOLEARCHIVE:%s\n' "${lib_path}"
         done
     } > "${link_rsp}"
+    mkdir -p "${LLVM7_INSTALL}/bin"
     "$(cygpath -u "${link_tool}")" @"$(cmake_path "${link_rsp}")"
 }
 
@@ -145,7 +146,7 @@ if [[ "${IS_WINDOWS}" == 1 ]]; then
     link_llvm_c_dll
 
     echo "=== LLVM 7 built ==="
-    ls -lh "${LLVM7_INSTALL}/lib/LLVM-C.dll"
+    ls -lh "${LLVM7_INSTALL}/bin/LLVM-C.dll"
 else
     # Build only the LLVM shared lib (not install).
     cmake --build "${LLVM7_BUILD}" -j "${PARALLEL}" --target LLVM

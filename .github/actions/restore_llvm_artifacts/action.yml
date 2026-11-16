@@ -74,7 +74,7 @@ runs:
       shell: bash
       run: |
         if [[ "${{ inputs.host-platform }}" == win* ]]; then
-          expected="llvm7-install/lib/LLVM-C.dll"
+          expected="llvm7-install/bin/LLVM-C.dll"
         else
           expected="llvm7-install/lib/libLLVM-7.so"
         fi

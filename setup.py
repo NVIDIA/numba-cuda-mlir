@@ -239,7 +239,8 @@ class BuildExtWithCmake(build_ext):
             if dest.exists():
                 shutil.rmtree(dest)
             print(f"Staging MLIR Python bindings: {mlir_pkg} -> {dest}")
-            shutil.copytree(str(mlir_pkg), str(dest))
+            # Import libraries (.lib) are only needed to link cext at build time.
+            shutil.copytree(str(mlir_pkg), str(dest), ignore=shutil.ignore_patterns("*.lib"))
         _patch_mlir_windows_dll_search(dest)
 
     def _stage_libllvm7(self):

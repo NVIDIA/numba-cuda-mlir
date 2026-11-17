@@ -34,6 +34,12 @@ class CArrayTyping(AbstractTemplate):
 
     key = carray
     layout = "C"
+    pysig = inspect.Signature(
+        [
+            inspect.Parameter(name, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+            for name in ("ptr", "shape", "dtype")
+        ]
+    )
 
     def generic(self, args, kws):
         if kws:
@@ -67,7 +73,8 @@ class CArrayTyping(AbstractTemplate):
         if ndim is None:
             return None
 
-        return signature(types.Array(dtype, ndim, self.layout), *args)
+        sig = signature(types.Array(dtype, ndim, self.layout), *args)
+        return sig.replace(pysig=self.pysig) if kws else sig
 
 
 registry.register_global(CArrayTyping.key, types.Function(CArrayTyping))
@@ -152,7 +159,7 @@ class InlinePTXFunctionTemplate(AbstractTemplate):
             raise TypeError(f"Invalid arguments to inline_ptx: {args=}")
 
         result_types = []
-        arg_types = [types.string]
+        arg_types = [format]
 
         for i, (fmt, _arg) in enumerate(zip(rest[::2], rest[1::2])):
             if not isinstance(fmt, types.Literal):

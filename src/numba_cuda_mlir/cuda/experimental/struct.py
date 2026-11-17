@@ -228,8 +228,8 @@ def _register_struct_constructor(wrapper: StructTypeWrapper, struct_type: Aggreg
     # Register it in the typing context
     typingctx.insert_user_function(wrapper, struct_constructor_template)
 
-    def lower_struct_wrapper_call(builder, target, args, kwargs):
+    def lower_struct_wrapper_call(builder, signature, args):
         """Lower calls to this specific struct constructor."""
-        return _lower_struct_construction_impl(None, builder, target, args, kwargs)
+        return _lower_struct_construction_impl(builder, signature, args)
 
     targetctx.insert_func_defn([(lower_struct_wrapper_call, wrapper, ())])

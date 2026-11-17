@@ -1,5 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+import inspect
+
 from numba_cuda_mlir.numba_cuda.typing.templates import (
     AbstractTemplate,
     AttributeTemplate,
@@ -34,8 +36,13 @@ class VectorLoadTemplate(AbstractTemplate):
     from numba_cuda_mlir.cuda import vector
 
     key = vector.load
+    pysig = inspect.signature(vector.load)
 
     def generic(self, args, kws):
+        if kws:
+            if set(kws) != {"alignment"} or len(args) != 3:
+                return None
+            args = (*args, kws["alignment"])
         # Handle both 3 args (no alignment) and 4 args (with alignment)
         if len(args) not in (3, 4):
             return None
@@ -66,7 +73,9 @@ class VectorLoadTemplate(AbstractTemplate):
                 pass
             elif isinstance(alignment, types.IntegerLiteral):
                 # Aligned path - alignment must be a compile-time constant
-                return signature(VectorType(array.dtype, vec_shape), array, index, shape, alignment)
+                return signature(
+                    VectorType(array.dtype, vec_shape), array, index, shape, alignment
+                ).replace(pysig=self.pysig)
             elif isinstance(alignment, types.Integer):
                 # Force user to provide a literal for alignment
                 raise ForceLiteralArg({3})
@@ -80,7 +89,8 @@ class VectorLoadTemplate(AbstractTemplate):
                 "vector.load with CPointer requires an explicit alignment argument. "
                 "Use vector.load(ptr, index, shape, alignment=N)."
             )
-        return signature(VectorType(array.dtype, vec_shape), array, index, shape)
+        sig = signature(VectorType(array.dtype, vec_shape), *args)
+        return sig.replace(pysig=self.pysig) if len(args) == 4 else sig
 
 
 @registry.register
@@ -88,8 +98,13 @@ class VectorStoreTemplate(AbstractTemplate):
     from numba_cuda_mlir.cuda import vector
 
     key = vector.store
+    pysig = inspect.signature(vector.store)
 
     def generic(self, args, kws):
+        if kws:
+            if set(kws) != {"alignment"} or len(args) != 3:
+                return None
+            args = (*args, kws["alignment"])
         # Handle both 3 args (no alignment) and 4 args (with alignment)
         if len(args) not in (3, 4):
             return None
@@ -116,7 +131,7 @@ class VectorStoreTemplate(AbstractTemplate):
                 pass
             elif isinstance(alignment, types.IntegerLiteral):
                 # Aligned path - alignment must be a compile-time constant
-                return signature(types.none, array, index, vec, alignment)
+                return signature(types.none, array, index, vec, alignment).replace(pysig=self.pysig)
             elif isinstance(alignment, types.Integer):
                 # Force user to provide a literal for alignment
                 raise ForceLiteralArg({3})
@@ -130,7 +145,8 @@ class VectorStoreTemplate(AbstractTemplate):
                 "vector.store with CPointer requires an explicit alignment argument. "
                 "Use vector.store(ptr, index, vec, alignment=N)."
             )
-        return signature(types.none, array, index, vec)
+        sig = signature(types.none, *args)
+        return sig.replace(pysig=self.pysig) if len(args) == 4 else sig
 
 
 @registry.register_attr

@@ -1674,17 +1674,6 @@ extern "C" __global__ void
 
         raise NotImplementedError(f"lowering getitem {target} = {value}[{index}]")
 
-    def build_user_defined_function_call(
-        self,
-        target: numba_ir.Var,
-        fn: dispatcher._DispatcherBase,
-        args: list[numba_ir.Var],
-        kws: list[tuple[str, numba_ir.Var]] | None = None,
-    ):
-        signature = self.get_numba_type(target)(*(self.get_numba_type(arg) for arg in args))
-        selected, values = self._fold_overload_call_values(fn, signature, args, kws or ())
-        return self.build_user_defined_function_call_values(fn, selected, values)
-
     def build_user_defined_function_call_values(self, fn, signature, args):
         """Emit a device call from formal lowered values and selected types."""
 
@@ -2142,11 +2131,6 @@ extern "C" __global__ void
             return
         self._seen_mlir_libraries.add(other)
         link.link_inplace(self.mlir_module, other.source)
-
-    def lower_call_external_mlir_library_function(self, target, fn, args, kws):
-        values = self.fold_call_args(fn.sig, args, kws)
-        result = self.lower_call_external_mlir_library_function_values(fn, fn.sig, values)
-        self.store_var(target, result)
 
     def lower_call_external_mlir_library_function_values(self, fn, signature, args):
         trace("lowering call to external MLIR library function %s", fn.name)

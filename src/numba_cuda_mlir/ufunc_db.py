@@ -46,12 +46,12 @@ def get_ufunc_lowering(ufunc) -> Optional[Callable]:
     Returns:
         The MLIR code generation function if the ufunc is supported, None otherwise.
         The returned function has the signature:
-        (builder, target, args, kwargs) -> None
+        (builder, signature, lowered_args) -> lowered_result
 
     Example:
         >>> lowering = get_ufunc_lowering(np.abs)
         >>> if lowering:
-        >>>     lowering(builder, target, args, {})
+        >>>     result = lowering(builder, signature, lowered_args)
     """
     _lazy_init_db()
     assert _ufunc_db is not None

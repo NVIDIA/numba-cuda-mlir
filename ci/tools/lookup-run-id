@@ -6,7 +6,7 @@
 
 # Look up a successful branch CI run or the run that validated a release tag.
 #
-# cuSIMT's CI workflow does not run on tag pushes; it runs on pushes to main
+# numba-cuda-mlir's CI workflow does not run on tag pushes; it runs on pushes to main
 # (and PR branches). A release tag points at a commit that already exists on
 # main with a successful CI run. This script resolves the tag to its commit
 # SHA and returns the latest successful main-branch CI run for that commit.

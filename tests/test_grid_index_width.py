@@ -16,33 +16,11 @@ from numba_cuda_mlir.compiler import compile_mlir, compile_ptx
 
 pytestmark = pytest.mark.skipif(not cuda.is_available(), reason="CUDA GPU required")
 
-# A launch that is 32768 threads wider than 2**31.
+# A launch that is 32768 threads wider than 2**31. Every compute capability
+# allows 2**31 - 1 blocks of 1024 threads, so no device needs to skip this.
 BIG_LAUNCH_BLOCKS = 67109888
 BIG_LAUNCH_THREADS = 32
 BIG_LAUNCH_TOTAL = BIG_LAUNCH_BLOCKS * BIG_LAUNCH_THREADS
-
-
-def _big_launch_skip_reason():
-    """Return why this device cannot run the >2**31 thread launch, or None."""
-    if not cuda.is_available():
-        return "CUDA GPU required"
-    device = cuda.get_current_device()
-    max_blocks = device.MAX_GRID_DIM_X
-    max_threads = device.MAX_THREADS_PER_BLOCK
-    if max_blocks < BIG_LAUNCH_BLOCKS or max_threads < BIG_LAUNCH_THREADS:
-        return (
-            f"device supports at most {max_blocks} blocks of {max_threads} threads, "
-            f"which cannot express a {BIG_LAUNCH_TOTAL} thread launch"
-        )
-    return None
-
-
-_BIG_LAUNCH_SKIP_REASON = _big_launch_skip_reason()
-
-requires_big_launch = pytest.mark.skipif(
-    _BIG_LAUNCH_SKIP_REASON is not None,
-    reason=_BIG_LAUNCH_SKIP_REASON or "",
-)
 
 
 def grid_1d():
@@ -104,7 +82,6 @@ def test_gridsize_is_not_truncated_in_mlir():
     assert "index to i32" not in mlir
 
 
-@requires_big_launch
 def test_large_launch_grid_is_never_negative():
     @cuda.jit("void(int64[::1])")
     def count_negative_indices(counter):
@@ -118,7 +95,6 @@ def test_large_launch_grid_is_never_negative():
     assert counter.copy_to_host()[0] == 0
 
 
-@requires_big_launch
 def test_large_launch_gridsize_is_the_true_thread_count():
     @cuda.jit("void(int64[::1])")
     def report_gridsize(out):

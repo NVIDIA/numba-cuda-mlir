@@ -325,7 +325,10 @@ class NumpyNdIterType(IteratorType):
         """
         The views yielded by the iterator.
         """
-        return [Array(dtype, 0, "C") for dtype in self.dtypes]
+        return [
+            Array(dtype, 0, "C", aligned=getattr(array, "aligned", True))
+            for array, dtype in zip(self.arrays, self.dtypes)
+        ]
 
     @property
     def yield_type(self):

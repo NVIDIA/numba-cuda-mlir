@@ -998,6 +998,16 @@ def guard_zero_division(builder, divisor: ir.Value):
             # OEQ also matches -0.0, and is false for a NaN divisor, which
             # propagates rather than raising.
             is_zero = arith.cmpf(arith.CmpFPredicate.OEQ, divisor, constant(0.0, divisor.type))
+        case ir.ComplexType():
+            if builder.targetoptions.get("fastmath", False):
+                return
+            # Only 0+0j divides by zero: CPython leaves (1+2j)/1j alone, so
+            # both components must be zero before this counts.
+            zero = constant(0.0, ir.ComplexType(divisor.type).element_type)
+            is_zero = arith.andi(
+                arith.cmpf(arith.CmpFPredicate.OEQ, complex_dialect.re(divisor), zero),
+                arith.cmpf(arith.CmpFPredicate.OEQ, complex_dialect.im(divisor), zero),
+            )
         case _:
             return
 

@@ -22,6 +22,8 @@ from numba_cuda_mlir import cuda
 SCALAR_DTYPES = [np.int32, np.int64, np.uint32, np.uint64, np.float32, np.float64]
 INT_DTYPES = [np.int32, np.int64, np.uint32, np.uint64]
 FLOAT_DTYPES = [np.float32, np.float64]
+# Complex supports ``/`` only; CPython rejects ``//`` and ``%`` on complex.
+COMPLEX_DTYPES = [np.complex64, np.complex128]
 
 
 def _floordiv(out, a, b):
@@ -85,6 +87,26 @@ def test_float_div_by_zero_raises_with_debug(dtype, op):
     # all ZeroDivisionError. Only the NumPy error model returns inf/nan.
     with pytest.raises(ZeroDivisionError):
         _launch(OPS[op], dtype, 1.0, 0.0, debug=True)
+
+
+@pytest.mark.parametrize("dtype", COMPLEX_DTYPES)
+def test_complex_truediv_by_zero_raises_with_debug(dtype):
+    # CPython raises for (1+2j) / 0j; without the guard this yields inf+infj.
+    with pytest.raises(ZeroDivisionError):
+        _launch(_truediv, dtype, 1 + 2j, 0 + 0j, debug=True)
+
+
+@pytest.mark.parametrize("dtype", COMPLEX_DTYPES)
+@pytest.mark.parametrize("rhs", [0 + 1j, 1 + 0j, -0.0 + 0j])
+def test_complex_partial_zero_divisor_follows_cpython(dtype, rhs):
+    # Only 0+0j divides by zero. A divisor with either component nonzero is an
+    # ordinary division, and -0.0+0j is still zero because -0.0 == 0.0.
+    if rhs == 0:
+        with pytest.raises(ZeroDivisionError):
+            _launch(_truediv, dtype, 1 + 2j, rhs, debug=True)
+    else:
+        got = _launch(_truediv, dtype, 1 + 2j, rhs, debug=True)
+        np.testing.assert_allclose(got, dtype(1 + 2j) / dtype(rhs), rtol=1e-6)
 
 
 @pytest.mark.parametrize("lhs", [-3, 3])
@@ -158,6 +180,12 @@ def test_float_truediv_by_zero_gives_inf_without_debug(dtype):
     assert np.isneginf(_launch(_truediv, dtype, -1.0, 0.0, debug=False))
 
 
+@pytest.mark.parametrize("dtype", COMPLEX_DTYPES)
+def test_complex_truediv_by_zero_does_not_raise_without_debug(dtype):
+    got = _launch(_truediv, dtype, 1 + 2j, 0 + 0j, debug=False)
+    assert np.isinf(got.real) or np.isnan(got.real)
+
+
 def test_execution_continues_past_zero_division_without_debug():
     """``debug=False`` must not halt the kernel at the division."""
 
@@ -193,6 +221,12 @@ def test_lineinfo_alone_does_not_raise():
 def test_fastmath_suppresses_float_zero_division():
     got = _launch(_truediv, np.float32, 10.0, 0.0, debug=True, fastmath=True)
     assert np.isinf(got)
+
+
+def test_fastmath_suppresses_complex_zero_division():
+    # fastmath promises finite operands for complex as it does for float.
+    got = _launch(_truediv, np.complex128, 10 + 0j, 0 + 0j, debug=True, fastmath=True)
+    assert np.isinf(got.real) or np.isnan(got.real)
 
 
 def test_fastmath_keeps_integer_zero_division():

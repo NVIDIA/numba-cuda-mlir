@@ -22,6 +22,47 @@ runs:
         dependencies=(${{ inputs.dependencies }})
         dependent_exes=(${{ inputs.dependent_exes }})
 
+        if ! (command -v sudo 2>&1 >/dev/null); then
+          if [[ $EUID == 0 ]]; then
+            alias SUDO=""
+          else
+            echo "The following operations require root access."
+            exit 1
+          fi
+        else
+          alias SUDO="sudo"
+        fi
+        shopt -s expand_aliases
+
+        # Always refresh the system trust store before anything else: pip 24.2+
+        # trusts certifi plus the OpenSSL default store additively, so a stale
+        # ca-certificates package can keep the compromised eMudhra/emSign
+        # intermediates trusted even when every requested exe below is already
+        # present (which short-circuits the rest of this step).
+        # See https://discuss.python.org/t/109576.
+        SUDO apt update
+        SUDO apt install -y ca-certificates
+
+        # Fail closed if the compromised emSign ECC Root CA - G3 is still in
+        # the system bundle. On Ubuntu it is the only trusted anchor for the
+        # compromised eMudhra intermediates (TLS CA G3 and CS CA G3 chain to
+        # it; Comodo cross-signs are rejected by CPython's patched ssl module).
+        # See https://discuss.python.org/t/109576.
+        EMSIGN_G3_FP="86:A1:EC:BA:08:9C:4A:8D:3B:BE:27:34:C6:12:BA:34:1D:81:3E:04:3C:F9:E8:A8:62:CD:5C:57:A3:6B:BE:6B"
+        CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt"
+        fps="$(awk '/-----BEGIN CERTIFICATE-----/{cert=""} {cert=cert $0 "\n"}
+                    /-----END CERTIFICATE-----/{print cert | "openssl x509 -noout -fingerprint -sha256"; close("openssl x509 -noout -fingerprint -sha256")}' \
+               "${CA_BUNDLE}")"
+        if [[ -z "${fps}" ]]; then
+          echo "::error::No certificates parsed from ${CA_BUNDLE}"
+          exit 1
+        fi
+        if grep -qiF "${EMSIGN_G3_FP}" <<< "${fps}"; then
+          echo "::error::emSign ECC Root CA - G3 is still trusted (ca-certificates $(dpkg-query -W -f='${Version}' ca-certificates))"
+          exit 1
+        fi
+        echo "emSign ECC Root CA - G3 absent from ${CA_BUNDLE} ($(grep -c . <<< "${fps}") certs checked)."
+
         not_found=0
         for dep in ${dependent_exes[@]}; do
           if ! (command -v $dep 2>&1 >/dev/null); then
@@ -30,19 +71,7 @@ runs:
           fi
         done
         if [[ $not_found == 0 ]]; then
-          echo "All dependencies are found. Do nothing."
+          echo "All other dependencies are found. Done."
           exit 0
         fi
-        if ! (command -v sudo 2>&1 >/dev/null); then
-          if [[ $EUID == 0 ]]; then
-            alias SUDO=""
-          else
-            echo "The following oprations require root access."
-            exit 1
-          fi
-        else
-          alias SUDO="sudo"
-        fi
-        shopt -s expand_aliases
-        SUDO apt update
         SUDO apt install -y ${dependencies[@]}

@@ -44,25 +44,15 @@ runs:
       run: |
         mlir_libs="llvm-modern-install/python_packages/numba_cuda_mlir_mlir/numba_cuda_mlir/_mlir/_mlir_libs"
         if [[ "${{ inputs.host-platform }}" == win* ]]; then
-          arch=amd64
-          if [[ "${{ inputs.host-platform }}" == 'win-arm64' ]]; then arch=arm64; fi
-          expected=(
-            "${mlir_libs}/_mlir.${{ inputs.llvm-py-tag }}-win_${arch}.pyd"
-            "${mlir_libs}/MLIRPythonCAPI.dll"
-            "${mlir_libs}/MLIRModernToNVVM.dll"
-          )
+          expected="${mlir_libs}/MLIRPythonCAPI-numba_cuda_mlir.dll"
         else
-          expected=(
-            "${mlir_libs}/libMLIRPythonCAPI.so"
-          )
+          expected="${mlir_libs}/libMLIRPythonCAPI-numba_cuda_mlir.so"
         fi
-        for path in "${expected[@]}"; do
-          if [[ ! -f "${path}" ]]; then
-            echo "Expected LLVM Modern artifact not found: ${path}" >&2
-            find llvm-modern-install -maxdepth 8 -type f | sort >&2 || true
-            exit 1
-          fi
-        done
+        if [[ ! -f "${expected}" ]]; then
+          echo "Expected LLVM Modern artifact not found: ${expected}" >&2
+          find llvm-modern-install -maxdepth 8 -type f | sort >&2 || true
+          exit 1
+        fi
 
     - name: Restore LLVM 7 from cache
       if: ${{ inputs.host-platform != 'win-arm64' && github.ref_name != 'main' }}

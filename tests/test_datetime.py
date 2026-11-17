@@ -230,3 +230,24 @@ def test_scalar_datetime_args():
     where = matches.nonzero()
     assert list(where) == [5]
     np.testing.assert_array_equal(outdelta, arr1 - delta)
+
+
+@pytest.mark.parametrize("kind", ["datetime64", "timedelta64"])
+@pytest.mark.parametrize("unit", ["D", "ns"])
+@pytest.mark.parametrize("transpose", [False, True])
+def test_tuple_indexed_datetime_scalar(kind, unit, transpose):
+    @cuda.jit
+    def kernel(values, rows, columns, out):
+        i = cuda.grid(1)
+        if i < out.size:
+            out[i] = values[rows[i], columns[i]]
+
+    values = np.array([0, -7, 42, 100, -1, 23], dtype=np.int64)
+    values = values.astype(f"{kind}[{unit}]").reshape(2, 3)
+    if transpose:
+        values = values.T.copy()
+    rows = np.array([0, values.shape[0] - 1, -1, 0], dtype=np.int64)
+    columns = np.array([1, 0, -1, -1], dtype=np.int64)
+    out = np.empty(rows.size, dtype=values.dtype)
+    kernel[1, 32](values, rows, columns, out)
+    np.testing.assert_array_equal(out, values[rows, columns])

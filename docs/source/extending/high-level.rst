@@ -164,6 +164,42 @@ implementation serves any bundle.
    :py:func:`~numba_cuda_mlir.cuda.experimental.consteval` is experimental.
 
 
+Variadic keyword implementations
+--------------------------------
+
+An implementation function and the implementation it returns may also declare
+a ``**kwargs`` parameter, by the same name in both. It collects the keywords no
+other parameter claims. The implementation function receives them as a
+``dict`` mapping each name to its Numba type. The implementation receives them
+as a single named tuple: its fields are the keyword names in the order the call
+site wrote them, so ``kwargs.name`` reads one value, and ``len``, indexing and
+``consteval`` treat it as a tuple.
+
+.. code-block:: python
+
+   def my_axpy(x, **kwargs):
+       pass
+
+   @extending.overload(my_axpy)
+   def my_axpy_overload(x, **kwargs):
+       # ``kwargs`` maps each keyword name to its Numba type.
+       if "a" not in kwargs:
+           return None
+
+       def impl(x, **kwargs):
+           acc = kwargs.a * x
+           for v in consteval(kwargs):   # every value, ``a`` included
+               acc += v
+           return acc - kwargs.a
+
+       return impl
+
+Each distinct set of keyword names, in call order, is compiled as a separate
+overload, as with each arity of ``*args``. ``**kwargs`` is supported by
+:py:func:`~numba_cuda_mlir.extending.overload_method` and by a
+:py:func:`~numba_cuda_mlir.extending.register_jitable` function as well.
+
+
 Implementing methods
 --------------------
 

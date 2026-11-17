@@ -204,6 +204,13 @@ In the above code the kernel launch is configured with 4 parameters:
 
    kernel_func[grid_dim, block_dim, stream, dyn_shared_mem_size]
 
+A size-zero declaration views the remaining launch-provided dynamic shared region;
+it does not reserve or consume that region. Repeated declarations made after the
+same runtime-sized allocations alias the same bytes, even when their dtypes differ.
+Their shapes count complete dtype elements in the remaining byte extent. Explicitly
+sized runtime shared allocations reserve a prefix and advance the allocation cursor;
+static shared arrays do not advance that cursor.
+
 **Note:** all dynamic shared memory arrays *alias*, so if you want to have
 multiple dynamic shared arrays, you need to take *disjoint* views of the arrays.
 For example, consider:

@@ -59,3 +59,56 @@ def test_builtin_minmax_promotes_operands(dtype_left, dtype_right, reverse):
     integer_minmax[1, a.size](a, b, minimum, maximum)
     np.testing.assert_array_equal(minimum, np.minimum(a, b))
     np.testing.assert_array_equal(maximum, np.maximum(a, b))
+
+
+@cuda.jit
+def variadic_minmax(a, b, c, minimum, maximum):
+    i = cuda.grid(1)
+    if i < a.size:
+        minimum[i] = min(a[i], b[i], c[i])
+        maximum[i] = max(a[i], b[i], c[i])
+
+
+@pytest.mark.parametrize("dtype", [np.int32, np.uint32, np.float32, np.float64])
+def test_variadic_minmax_preserves_values_nan_and_ties(dtype):
+    if np.issubdtype(dtype, np.floating):
+        a = np.array([np.nan, 1, 1, -0.0, 0.0, -2], dtype=dtype)
+        b = np.array([1, np.nan, 2, 0.0, -0.0, -1], dtype=dtype)
+        c = np.array([2, 2, np.nan, 0.0, -0.0, np.inf], dtype=dtype)
+    else:
+        info = np.iinfo(dtype)
+        a = np.array([info.min, info.max, 0], dtype=dtype)
+        b = np.array([1, 2, info.max], dtype=dtype)
+        c = np.array([2, info.min, 1], dtype=dtype)
+    minimum, maximum = np.empty_like(a), np.empty_like(a)
+    variadic_minmax[1, a.size](a, b, c, minimum, maximum)
+    for actual, reference in ((minimum, min), (maximum, max)):
+        expected = np.array([reference(x, y, z) for x, y, z in zip(a, b, c)], dtype=dtype)
+        np.testing.assert_array_equal(actual, expected)
+        if np.issubdtype(dtype, np.floating):
+            np.testing.assert_array_equal(np.signbit(actual[3:5]), np.signbit(expected[3:5]))
+
+
+def test_variadic_minmax_promotes_mixed_integer_operands():
+    a = np.array([-1, -128, 127], dtype=np.int8)
+    b = np.array([2**63, 2**64 - 1, 0], dtype=np.uint64)
+    c = np.array([2**32 - 1, 0, 5], dtype=np.uint32)
+    minimum, maximum = np.empty(3, dtype=np.float64), np.empty(3, dtype=np.float64)
+    variadic_minmax[1, 3](a, b, c, minimum, maximum)
+    promoted = np.stack((a, b, c))
+    np.testing.assert_array_equal(minimum, promoted.min(axis=0))
+    np.testing.assert_array_equal(maximum, promoted.max(axis=0))
+
+
+def test_minmax_accepts_grid_indices():
+    @cuda.jit
+    def kernel(minimum, maximum):
+        i = cuda.grid(1)
+        if i < minimum.size:
+            minimum[i] = min(i, 2)
+            maximum[i] = max(i, 2)
+
+    minimum, maximum = np.empty(5, dtype=np.int64), np.empty(5, dtype=np.int64)
+    kernel[1, 5](minimum, maximum)
+    np.testing.assert_array_equal(minimum, [0, 1, 2, 2, 2])
+    np.testing.assert_array_equal(maximum, [2, 2, 2, 3, 4])

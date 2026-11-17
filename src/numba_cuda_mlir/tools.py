@@ -303,16 +303,9 @@ def argtype_normalization(argtype):
     """
     Normalize the Numba data type
     """
-    if isinstance(argtype, types.BooleanLiteral):
-        return types.boolean
-    elif isinstance(argtype, types.IntegerLiteral):
-        return types.int64
-    elif isinstance(argtype, types.UniTuple):
-        if isinstance(argtype.dtype, types.IntegerLiteral):
-            return types.UniTuple(dtype=argtype_normalization(argtype.dtype), count=argtype.count)
-        else:
-            return argtype
-    elif isinstance(argtype, types.NumberClass):
+    # Literal values distinguish specializations, including device functions
+    # linked into the same module. Preserve them in the mangled name.
+    if isinstance(argtype, types.NumberClass):
         return argtype.dtype
     else:
         return argtype

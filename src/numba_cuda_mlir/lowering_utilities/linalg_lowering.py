@@ -9,12 +9,15 @@ from numba_cuda_mlir.lowering_utilities import (
     tensor_to_memref,
     memref_to_value_tensor,
     value_tensor_to_storage_memref,
+    array_alloca,
+    array_element_value_store,
     set_error_code_if_zero,
     convert,
     mul,
     add,
     expensive_coerce_tensor_type,
 )
+from numba_cuda_mlir.array_storage import ArrayStorageLayout
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.mlir_lowering import KERNEL_ERROR_CODES
 
@@ -303,6 +306,19 @@ def lower_np_binop(mlir_lower, target, target_type, args, linalg_op):
 def lower_transpose(mlir_lower, target, array):
     input_array = mlir_lower.load_var(array)
     input_type = mlir_lower.get_numba_type(array.name)
+    if ArrayStorageLayout(input_type).byte_addressed:
+        source_type = input_array.type
+        target_type = mlir_lower.get_mlir_type(mlir_lower.get_numba_type(target))
+        target_type = ir.MemRefType.get(
+            target_type.shape,
+            source_type.element_type,
+            layout=target_type.layout,
+            memory_space=source_type.memory_space,
+        )
+        permutation = ir.AffineMap.get_permutation(list(reversed(range(source_type.rank))))
+        result = memref.transpose(target_type, input_array, permutation)
+        mlir_lower.store_var(target, result)
+        return
 
     input_tensor = memref_to_tensor(input_array)
 
@@ -429,11 +445,14 @@ def lower_linalg_nd_1d_dot(mlir_lower, target, target_type, args):
 
     # Create result memref
     element_type = mlir_lower.get_value_type(target_type.dtype)
-    result_memref = memref.alloc(
-        memref=mlir_lower.get_mlir_type(target_type),
-        dynamic_sizes=result_dims,
-        symbol_operands=[],
-    )
+    if ArrayStorageLayout(target_type).byte_addressed:
+        result_memref = array_alloca(target_type, result_dims)
+    else:
+        result_memref = memref.alloc(
+            memref=mlir_lower.get_mlir_type(target_type),
+            dynamic_sizes=result_dims,
+            symbol_operands=[],
+        )
 
     # Convert inputs to source-level value tensors
     lhs_tensor = memref_to_value_tensor(lhs_type, mlir_lower.load_var(args[0]))
@@ -486,8 +505,7 @@ def lower_linalg_nd_1d_dot(mlir_lower, target, target_type, args):
 
             # Store the result from the parallel operation
             final_sum = parallel_op.results[0]
-            stored_sum = mlir_lower.as_storage(target_type.dtype, final_sum)
-            memref.store(value=stored_sum, memref=result_memref, indices=indices_so_far)
+            array_element_value_store(target_type, result_memref, indices_so_far, final_sum)
             return
 
         # Create loop for current dimension
@@ -543,11 +561,14 @@ def lower_linalg_nd_md_dot(mlir_lower, target, target_type, args):
 
     # Create result memref
     element_type = mlir_lower.get_value_type(target_type.dtype)
-    result_memref = memref.alloc(
-        memref=mlir_lower.get_mlir_type(target_type),
-        dynamic_sizes=result_dims,
-        symbol_operands=[],
-    )
+    if ArrayStorageLayout(target_type).byte_addressed:
+        result_memref = array_alloca(target_type, result_dims)
+    else:
+        result_memref = memref.alloc(
+            memref=mlir_lower.get_mlir_type(target_type),
+            dynamic_sizes=result_dims,
+            symbol_operands=[],
+        )
 
     # Convert inputs to source-level value tensors
     lhs_tensor = memref_to_value_tensor(lhs_type, mlir_lower.load_var(args[0]))
@@ -601,8 +622,7 @@ def lower_linalg_nd_md_dot(mlir_lower, target, target_type, args):
 
             # Store the result from the parallel operation
             final_sum = parallel_op.results[0]
-            stored_sum = mlir_lower.as_storage(target_type.dtype, final_sum)
-            memref.store(value=stored_sum, memref=result_memref, indices=indices_so_far)
+            array_element_value_store(target_type, result_memref, indices_so_far, final_sum)
             return
 
         # Create loop for current dimension

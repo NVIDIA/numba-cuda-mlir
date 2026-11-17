@@ -610,6 +610,12 @@ size 0:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">kernel_func</span><span class="p">[</span><span class="n">grid_dim</span><span class="p">,</span> <span class="n">block_dim</span><span class="p">,</span> <span class="n">stream</span><span class="p">,</span> <span class="n">dyn_shared_mem_size</span><span class="p">]</span>
 </pre></div>
 </div>
+<p>A size-zero declaration views the remaining launch-provided dynamic shared region;
+it does not reserve or consume that region. Repeated declarations made after the
+same runtime-sized allocations alias the same bytes, even when their dtypes differ.
+Their shapes count complete dtype elements in the remaining byte extent. Explicitly
+sized runtime shared allocations reserve a prefix and advance the allocation cursor;
+static shared arrays do not advance that cursor.</p>
 <p><strong>Note:</strong> all dynamic shared memory arrays <em>alias</em>, so if you want to have
 multiple dynamic shared arrays, you need to take <em>disjoint</em> views of the arrays.
 For example, consider:</p>

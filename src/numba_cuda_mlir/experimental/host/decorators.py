@@ -59,10 +59,15 @@ def host_jit(func_or_sig=None, **options):
 
     def decorate(function):
         dispatcher = Dispatcher(function, dict(targetoptions))
-        _compile_eagerly(dispatcher, signatures)
+        if signatures is not None:
+            _compile_requested_signatures(dispatcher, signatures)
+        else:
+            _compile_annotated_signature(dispatcher)
         return dispatcher
 
-    if callable(func_or_sig) and signatures is None:
+    # Signature interpretation takes precedence over callable interpretation.
+    received_the_function = callable(func_or_sig) and signatures is None
+    if received_the_function:
         return decorate(func_or_sig)
     return decorate
 
@@ -99,25 +104,28 @@ def _requested_signatures(func_or_sig):
     raise TypeError("host_jit expects a function or a Numba signature")
 
 
-def _compile_eagerly(dispatcher, signatures):
+def _compile_requested_signatures(dispatcher, signatures):
+    if dispatcher._signature.return_annotation is not inspect.Signature.empty:
+        raise TypeError("Cannot combine an explicit signature with a return annotation")
+    for signature in signatures:
+        argtypes, _ = sigutils.normalize_signature(signature)
+        if any(
+            parameter is not inspect.Signature.empty and parameter != argtype
+            for parameter, argtype in zip(dispatcher._arg_annotations, argtypes, strict=True)
+        ):
+            raise TypeError("Explicit signature conflicts with parameter annotations")
+        dispatcher.compile(signature)
+    dispatcher.disable_compile()
+
+
+def _compile_annotated_signature(dispatcher):
     annotation = dispatcher._signature.return_annotation
-    if signatures is not None:
-        if annotation is not inspect.Signature.empty:
-            raise TypeError("Cannot combine an explicit signature with a return annotation")
-        for signature in signatures:
-            argtypes, _ = sigutils.normalize_signature(signature)
-            if any(
-                parameter is not inspect.Signature.empty and parameter != argtype
-                for parameter, argtype in zip(dispatcher._arg_annotations, argtypes, strict=True)
-            ):
-                raise TypeError("Explicit signature conflicts with parameter annotations")
-            dispatcher.compile(signature)
-        dispatcher.disable_compile()
-    elif annotation is not inspect.Signature.empty:
-        return_type = types.none if annotation is None else annotation
-        if not isinstance(return_type, types.Type):
-            raise TypeError("host_jit annotations must be Numba scalar types or None")
-        arguments = dispatcher._arg_annotations
-        if any(argument is inspect.Signature.empty for argument in arguments):
-            raise TypeError("A return annotation requires Numba scalar parameter annotations")
-        dispatcher.compile(typing.signature(return_type, *arguments))
+    if annotation is inspect.Signature.empty:
+        return
+    return_type = types.none if annotation is None else annotation
+    if not isinstance(return_type, types.Type):
+        raise TypeError("host_jit annotations must be Numba scalar types or None")
+    arguments = dispatcher._arg_annotations
+    if any(argument is inspect.Signature.empty for argument in arguments):
+        raise TypeError("A return annotation requires Numba scalar parameter annotations")
+    dispatcher.compile(typing.signature(return_type, *arguments))

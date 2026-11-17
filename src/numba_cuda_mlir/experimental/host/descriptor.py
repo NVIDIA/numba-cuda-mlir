@@ -41,6 +41,10 @@ class Dispatcher:
         self._arg_annotations = tuple(
             parameter.annotation for parameter in self._signature.parameters.values()
         )
+        self._validate_parameters()
+        update_wrapper(self, py_func)
+
+    def _validate_parameters(self):
         for parameter in self._signature.parameters.values():
             if parameter.kind not in (
                 inspect.Parameter.POSITIONAL_ONLY,
@@ -52,7 +56,6 @@ class Dispatcher:
                 if not isinstance(annotation, types.Type):
                     raise TypeError("host_jit annotations must be Numba scalar types")
                 scalar_ctype(annotation)
-        update_wrapper(self, py_func)
 
     @global_compiler_lock
     def compile(self, sig):

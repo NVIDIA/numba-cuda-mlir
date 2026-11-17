@@ -3,7 +3,7 @@
 
 import inspect
 
-from numba_cuda_mlir.experimental.host.descriptor import Dispatcher
+from numba_cuda_mlir.experimental.host.dispatcher import Dispatcher
 from numba_cuda_mlir.numba_cuda import types, typing
 from numba_cuda_mlir.numba_cuda.core import sigutils
 

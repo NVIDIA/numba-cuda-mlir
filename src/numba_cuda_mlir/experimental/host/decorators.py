@@ -9,7 +9,12 @@ from numba_cuda_mlir.numba_cuda.core import sigutils
 
 
 def host_jit(func_or_sig=None, **options):
-    """Compile a scalar function for native host execution.
+    """Compile a scalar Python function for native host execution.
+
+    Uses the same Numba frontend and shared MLIR lowering infrastructure as the
+    CUDA path, with three substitutions: a host target context, a host lowering
+    subclass, and an in-process native JIT instead of the NVVM/cubin/launcher
+    pipeline.
 
     Each argument-type tuple has one compiled return type. Explicit signatures
     requesting a different return type for an existing overload raise TypeError.

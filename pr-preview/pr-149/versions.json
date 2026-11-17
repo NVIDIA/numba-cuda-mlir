@@ -1,5 +1,0 @@
-[
-  {"version": "latest", "url": "https://nvidia.github.io/numba-cuda-mlir/latest/"},
-  {"version": "0.4.0", "url": "https://nvidia.github.io/numba-cuda-mlir/0.4.0/"},
-  {"version": "0.3.0", "url": "https://nvidia.github.io/numba-cuda-mlir/0.3.0/"}
-]

@@ -1288,8 +1288,8 @@ class MLIRTargetContext(BaseContext):
             return
         self.load_additional_registries()
 
-    def get_overload_builder(self, fn, sig, call_arg_types=None, call_kw_types=None):
-        """Return an MLIR builder for an overloaded function, or None.
+    def get_overload_dispatcher(self, fn, sig, call_arg_types=None, call_kw_types=None):
+        """Return the selected overload dispatcher, or None.
 
         Searches the typing templates for an overload Dispatcher that
         can be compiled through numba_cuda_mlir's MLIR pipeline. For BoundFunction
@@ -1353,14 +1353,7 @@ class MLIRTargetContext(BaseContext):
             # arrived collected or spread.
             return canonical_call_key(py_func, tuple(entry_args), entry_kws) in wanted(py_func)
 
-        disp = _select_overload_dispatcher(templates, entry_matches, cur_flags)
-        if disp is None:
-            return None
-
-        def builder(mlir_lower, target, args, kws, _disp=disp):
-            mlir_lower.lower_overload_call(target, _disp, args, kws)
-
-        return builder
+        return _select_overload_dispatcher(templates, entry_matches, cur_flags)
 
     def get_value_type(self, *args):
         return super().get_value_type(*args)

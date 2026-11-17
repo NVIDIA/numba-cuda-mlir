@@ -452,10 +452,10 @@ class CudaGridTemplate(AbstractTemplate):
         # A one-dimensional launch may hold up to (2**31 - 1) * 1024 threads, so
         # the global thread index and the grid size do not fit in 32 bits.
         if value == 1:
-            return signature(types.int64, types.int32)
+            return signature(types.int64, args[0])
         ret_types = [types.int64 for i in range(value)]
         ret_ty = types.Tuple(ret_types)
-        return signature(ret_ty, types.int32)
+        return signature(ret_ty, args[0])
 
 
 @registry.register

@@ -18,6 +18,8 @@ import numpy as np
 import pytest
 
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir.compiler import compile_ptx
+from numba_cuda_mlir.numba_cuda import types
 
 SCALAR_DTYPES = [np.int32, np.int64, np.uint32, np.uint64, np.float32, np.float64]
 INT_DTYPES = [np.int32, np.int64, np.uint32, np.uint64]
@@ -276,9 +278,6 @@ def test_nonzero_divisor_unaffected(dtype, debug):
 
 
 def _ptx(debug, fastmath=False):
-    from numba_cuda_mlir.compiler import compile_ptx
-    from numba_cuda_mlir.numba_cuda import types
-
     def body(out, a, b):
         out[0] = a[0] // b[0]
 
@@ -300,9 +299,6 @@ def test_guard_is_present_in_debug_ptx():
 
 
 def test_guard_is_absent_from_fastmath_float_ptx():
-    from numba_cuda_mlir.compiler import compile_ptx
-    from numba_cuda_mlir.numba_cuda import types
-
     def body(out, a, b):
         out[0] = a[0] / b[0]
 

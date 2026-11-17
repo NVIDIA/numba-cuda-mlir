@@ -25,10 +25,10 @@ runs:
         git-config-name: cuda-python-bot
         git-config-email: cuda-python-bot@users.noreply.github.com
         folder: ${{ inputs.source-folder }}
-        target-folder: docs/pr-preview/pr-${{ inputs.pr-number }}/
+        target-folder: pr-preview/pr-${{ inputs.pr-number }}/
         commit-message: "Deploy doc preview for PR ${{ inputs.pr-number }} (${{ github.sha }})"
-        # Every PR preview, the main docs deploy, and the coverage deploy commit to
-        # the shared gh-pages branch. Rebase onto a deployment that landed in the
+        # Every PR preview and the main docs deploy commit to the shared
+        # gh-pages branch. Rebase onto a deployment that landed in the
         # meantime instead of force-pushing over it, which the branch ruleset
         # rejects (and which used to discard the other deployment).
         force: false
@@ -43,8 +43,5 @@ runs:
         message: |
           Doc Preview CI
           :---:
-          | <p></p> :rocket: View preview at <br> https://nvidia.github.io/cuda-python/pr-preview/pr-${{ inputs.pr-number }}/ <br>
-          | <br> https://nvidia.github.io/cuda-python/pr-preview/pr-${{ inputs.pr-number }}/cuda-core/ <br>
-          | <br> https://nvidia.github.io/cuda-python/pr-preview/pr-${{ inputs.pr-number }}/cuda-bindings/ <br>
-          | <br> https://nvidia.github.io/cuda-python/pr-preview/pr-${{ inputs.pr-number }}/cuda-pathfinder/ <br><br>
+          | <p></p> :rocket: View preview at <br> https://nvidia.github.io/numba-cuda-mlir/pr-preview/pr-${{ inputs.pr-number }}/ <br><br>
           | <h6><br> Preview will be ready when the GitHub Pages deployment is complete. <br><br></h6>

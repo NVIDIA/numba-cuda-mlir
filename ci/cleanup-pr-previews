@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # A utility script to clean up PR preview documentation folders for closed/merged PRs.
-# This script checks all pr-XXXXX folders in the gh-pages branch docs/pr-preview/ directory,
+# This script checks all pr-XXXXX folders in the gh-pages branch pr-preview/ directory,
 # verifies if the corresponding PR XXXXX is still open, and removes preview folders
 # for PRs that have been closed or merged.
 
@@ -22,7 +22,7 @@ usage() {
     cat << EOF
 PR Preview Cleanup Script - Clean up stale PR preview documentation folders
 
-This script fetches all pr-XXXXX folders from docs/pr-preview/ in the gh-pages branch,
+This script fetches all pr-XXXXX folders from pr-preview/ in the gh-pages branch,
 checks PR status via GitHub API, and removes folders for closed/merged/deleted PRs.
 
 USAGE: $0 [OPTIONS]
@@ -50,13 +50,13 @@ Remote updates are owned by the scheduled or manually dispatched "Cleanup: PR
 Preview Documentation" workflow so they share its deployment lock. Other push
 contexts are rejected.
 
-This script is specifically designed for the NVIDIA/cuda-python repository structure.
+This script is specifically designed for the NVIDIA/numba-cuda-mlir repository structure.
 EOF
     exit 1
 }
 
 # Configuration - hardcoded for this specific repository
-REPOSITORY="NVIDIA/cuda-python"
+REPOSITORY="NVIDIA/numba-cuda-mlir"
 DRY_RUN="false"
 PUSH_CHANGES="false"
 
@@ -88,7 +88,7 @@ if [[ "$PUSH_CHANGES" == "true" && "$DRY_RUN" != "true" ]] &&
    [[ "${GITHUB_ACTIONS:-}" != "true" ||
       ("${GITHUB_EVENT_NAME:-}" != "schedule" &&
        "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch") ||
-      "${GH_PAGES_PUBLISH_LOCK:-}" != "cuda-python-gh-pages-publish" ]]; then
+      "${GH_PAGES_PUBLISH_LOCK:-}" != "numba-cuda-mlir-gh-pages-publish" ]]; then
     echo -e "${RED}[ERROR]${NC} --push is reserved for the scheduled or manually dispatched PR preview cleanup workflow" >&2
     exit 1
 fi
@@ -142,7 +142,7 @@ update_preview_comment() {
 echo -e "${YELLOW}[INFO]${NC} Fetching PR preview folders from gh-pages branch..."
 
 # Get the list of pr-XXXXX folders from gh-pages branch
-PR_FOLDERS=$(gh api repos/"${REPOSITORY}"/contents/docs/pr-preview?ref=gh-pages \
+PR_FOLDERS=$(gh api repos/"${REPOSITORY}"/contents/pr-preview?ref=gh-pages \
     --header "Accept: application/vnd.github+json" \
     --jq '.[] | select(.type == "dir" and (.name | test("^pr-[0-9]+$"))) | .name' \
     2>/dev/null || true)
@@ -283,7 +283,7 @@ else
     REMOVED_COUNT=0
     for folder in "${FOLDERS_TO_REMOVE[@]}"; do
         pr_num="${folder#pr-}"
-        folder_path="docs/pr-preview/$folder"
+        folder_path="pr-preview/$folder"
 
         if [[ -d "$folder_path" ]]; then
             echo -e "${YELLOW}[REMOVE]${NC} Removing $folder_path"

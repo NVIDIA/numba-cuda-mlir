@@ -27,14 +27,14 @@ jobs:
     runs-on: ubuntu-latest
     # Must match every job that writes to gh-pages.
     concurrency:
-      group: cuda-python-gh-pages-publish
+      group: numba-cuda-mlir-gh-pages-publish
       queue: max
       cancel-in-progress: false
     # Only run for NVIDIA org to prevent forks from running this
     if: github.repository_owner == 'NVIDIA'
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # The cleanup script fetches gh-pages explicitly; source history
           # and unrelated branches aren't needed for the script checkout.
@@ -50,7 +50,7 @@ jobs:
         id: cleanup
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_PAGES_PUBLISH_LOCK: cuda-python-gh-pages-publish
+          GH_PAGES_PUBLISH_LOCK: numba-cuda-mlir-gh-pages-publish
         run: |
           if [[ "${{ inputs.dry-run }}" == "true" ]]; then
             echo "Running in dry-run mode (preview only)"

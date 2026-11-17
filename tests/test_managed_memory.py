@@ -27,6 +27,11 @@ def skip_if_managed_memory_unsupported():
 class TestManagedMemory:
     """Tests for managed memory arrays."""
 
+    @pytest.fixture(autouse=True)
+    def _synchronize_before_test(self):
+        # Windows requires an idle GPU before managed allocations and CPU access.
+        cuda.synchronize()
+
     def test_managed_array_kernel_write(self):
         """Test that a kernel can write to a managed array."""
         skip_if_managed_memory_unsupported()

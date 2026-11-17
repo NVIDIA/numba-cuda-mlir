@@ -93,7 +93,7 @@ Managed Memory
 
 
 Streams
-=======
+========
 
 Streams can be passed to functions that accept them (e.g. copies between the
 host and device) and into kernel launch configurations so that the operations
@@ -206,7 +206,10 @@ In the above code the kernel launch is configured with 4 parameters:
 
 Static shared arrays occupy a separate region and do not reduce the dynamic
 byte count supplied at launch. A zero-sized declaration exposes the remaining
-dynamic bytes as elements of its dtype; its ``size`` is determined at runtime.
+dynamic bytes as complete elements of its dtype; its ``size`` is determined
+at runtime. It does not reserve or consume the region. Repeated declarations
+made after the same runtime-sized allocations alias the same bytes, even when
+their dtypes differ.
 
 Runtime-sized allocations consume the dynamic region in execution order.
 Each allocation starts at an offset aligned for its dtype and its

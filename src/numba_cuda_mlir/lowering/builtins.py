@@ -586,34 +586,52 @@ def _minmax_operands(builder, target, args):
     )
 
 
+@lower(max, types.VarArg(types.Any))
 @lower(max, types.Number, types.Number)
 def lower_max(builder, target, args, kwargs):
-    """Lower built-in max(a, b) for numeric types."""
-    a, b = _minmax_operands(builder, target, args)
-
-    # Use appropriate max operation based on type
-    if isinstance(a.type, ir.FloatType):
-        result = arith.maxnumf(a, b)
-    elif isinstance(a.type, ir.IntegerType):
-        result = arith.maxsi(a, b) if builder.get_numba_type(target).signed else arith.maxui(a, b)
-    else:
-        raise NotImplementedError(f"max not implemented for type {a.type}")
+    """Lower built-in max(a, b, ...) using the inferred common numeric type."""
+    values = _minmax_operands(builder, target, args)
+    result = values[0]
+    for value in values[1:]:
+        if isinstance(result.type, ir.FloatType):
+            if len(args) == 2:
+                result = arith.maxnumf(result, value)
+            else:
+                greater = arith.cmpf(arith.CmpFPredicate.OGT, value, result)
+                result = arith.select(greater, value, result)
+        elif isinstance(result.type, ir.IntegerType | ir.IndexType):
+            result = (
+                arith.maxsi(result, value)
+                if builder.get_numba_type(target).signed
+                else arith.maxui(result, value)
+            )
+        else:
+            raise NotImplementedError(f"max not implemented for type {result.type}")
 
     builder.store_var(target, result)
 
 
+@lower(min, types.VarArg(types.Any))
 @lower(min, types.Number, types.Number)
 def lower_min(builder, target, args, kwargs):
-    """Lower built-in min(a, b) for numeric types."""
-    a, b = _minmax_operands(builder, target, args)
-
-    # Use appropriate min operation based on type
-    if isinstance(a.type, ir.FloatType):
-        result = arith.minnumf(a, b)
-    elif isinstance(a.type, ir.IntegerType):
-        result = arith.minsi(a, b) if builder.get_numba_type(target).signed else arith.minui(a, b)
-    else:
-        raise NotImplementedError(f"min not implemented for type {a.type}")
+    """Lower built-in min(a, b, ...) using the inferred common numeric type."""
+    values = _minmax_operands(builder, target, args)
+    result = values[0]
+    for value in values[1:]:
+        if isinstance(result.type, ir.FloatType):
+            if len(args) == 2:
+                result = arith.minnumf(result, value)
+            else:
+                less = arith.cmpf(arith.CmpFPredicate.OLT, value, result)
+                result = arith.select(less, value, result)
+        elif isinstance(result.type, ir.IntegerType | ir.IndexType):
+            result = (
+                arith.minsi(result, value)
+                if builder.get_numba_type(target).signed
+                else arith.minui(result, value)
+            )
+        else:
+            raise NotImplementedError(f"min not implemented for type {result.type}")
 
     builder.store_var(target, result)
 

@@ -27,6 +27,7 @@ from numba_cuda_mlir.lowering_utilities import (
     int_of,
     index_of,
     convert,
+    get_conversion_signedness,
     f32_of,
     i32_of,
     memref_descriptor_type,
@@ -360,8 +361,17 @@ shmem_id = 0
 
 def cuda_static_shared_memory(lower: MLIRLower, target, static_shape, dtype, alignas):
     global shmem_id
+    from numba_cuda_mlir.array_storage import ArrayStorageLayout
+    from numba_cuda_mlir.lowering_utilities import byte_array_view
+
     shape = tuple(static_shape)
-    dtype = lower.get_storage_type(_resolve_numba_dtype(lower, dtype))
+    target_type = lower.get_numba_type(target.name)
+    layout = ArrayStorageLayout(target_type)
+    dtype = layout.element_type
+    logical_shape = shape
+    if layout.byte_addressed:
+        shape = (int(np.prod(shape)) * layout.itemsize,)
+
     mspace = ir.Attribute.parse("#gpu.address_space<workgroup>")
     ty = T.memref(*shape, element_type=dtype, memory_space=mspace)
     gpu_module = lower.mlir_gpu_module
@@ -375,6 +385,8 @@ def cuda_static_shared_memory(lower: MLIRLower, target, static_shape, dtype, ali
         )
         shmem_id += 1
     mr = memref.get_global(ty, static_shared_memory_name)
+    if layout.byte_addressed:
+        mr = byte_array_view(target_type, mr, [index_of(d) for d in logical_shape])
     lower.store_var(target, mr)
 
 
@@ -448,17 +460,37 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
 
     shape = coerce_to_shape_tuple(shape_op)
 
-    np_dtype = _resolve_numba_dtype(lower, dtype)
-    dtype = lower.get_storage_type(np_dtype)
-    mr_type = ir.MemRefType.get(
-        shape=[ir.MemRefType.get_dynamic_size() for _ in shape],
-        element_type=dtype,
-        memory_space=lower._get_shared_address_space(),
-    )
-    if is_dynamic_shared_shape:
-        array = lower._request_dynamic_shared_memory(mr_type, alignas)
+    from numba_cuda_mlir.array_storage import ArrayStorageLayout
+    from numba_cuda_mlir.lowering_utilities import byte_array_view
+
+    target_type = lower.get_numba_type(target.name)
+    layout = ArrayStorageLayout(target_type)
+    alignas = max(alignas, layout.alignment)
+    mspace = lower._get_shared_address_space()
+    if layout.byte_addressed:
+        backing_type = ir.MemRefType.get(
+            [ir.ShapedType.get_dynamic_size()], T.i8(), memory_space=mspace
+        )
+        if is_dynamic_shared_shape:
+            backing = lower._request_dynamic_shared_memory(backing_type, alignas)
+            shape = (memref.dim(backing, index_of(0)) // index_of(layout.itemsize),)
+        else:
+            count = index_of(layout.itemsize)
+            for dim in shape:
+                count = count * dim
+            backing = lower._request_runtime_sized_shared_memory((count,), backing_type, alignas)
+        array = byte_array_view(target_type, backing, list(shape))
     else:
-        array = lower._request_runtime_sized_shared_memory(shape, mr_type, alignas)
+        mr_type = ir.MemRefType.get(
+            [ir.ShapedType.get_dynamic_size()] * len(shape),
+            layout.element_type,
+            memory_space=mspace,
+        )
+        array = (
+            lower._request_dynamic_shared_memory(mr_type, alignas)
+            if is_dynamic_shared_shape
+            else lower._request_runtime_sized_shared_memory(shape, mr_type, alignas)
+        )
     if alignas != 8:
         # assume_alignment yields a new SSA value; an unused result leaves a
         # dead op that canonicalization erases, silently dropping the
@@ -522,6 +554,16 @@ def cuda_local_array(lower: MLIRLower, target, args: list[Any], kwargs: list[tup
         else:
             static_shape = None
             break
+
+    from numba_cuda_mlir.array_storage import ArrayStorageLayout
+    from numba_cuda_mlir.lowering_utilities import array_alloca
+
+    target_type = lower.get_numba_type(target.name)
+    if ArrayStorageLayout(target_type).byte_addressed:
+        shape = coerce_to_shape_tuple(shape_op)
+        array = array_alloca(target_type, list(shape), alignment=alignas)
+        lower.store_var(target, array)
+        return
 
     np_dtype = _resolve_numba_dtype(lower, dtype)
     mlir_dtype = lower.get_storage_type(np_dtype)
@@ -607,15 +649,15 @@ def lower_strides(
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
-    from numba_cuda_mlir.lowering_utilities import index_of
+    from numba_cuda_mlir.array_storage import ArrayStorageLayout
 
     array_numba_type = mlir_lower.get_numba_type(array)
     array = mlir_lower.load_var(array)
     if not isinstance(array.type, ir.MemRefType):
         raise NotImplementedError(f"strides not implemented for {array.type}")
 
-    # Descriptor strides count elements, numpy counts bytes.
-    element_size = index_of(storage_itemsize_bytes(array_numba_type))
+    # Descriptor strides count storage units; NumPy exposes byte strides.
+    element_size = index_of(ArrayStorageLayout(array_numba_type).unit_bytes)
 
     rank = array.type.rank
     md = memref.extract_strided_metadata(array)
@@ -680,10 +722,7 @@ def _dim3_attr_to_dimension(attr: str):
             raise ValueError(f"Invalid attribute for Dim3: {attr}")
 
 
-def _get_dim3_attribute(
-    which_one,
-    dimension: gpu.Dimension,
-) -> ir.Value:
+def _get_dim3_attribute(which_one, dimension: gpu.Dimension) -> ir.Value:
     match which_one:
         case cuda.threadIdx:
             return gpu.thread_id(dimension)
@@ -1220,6 +1259,13 @@ def cuda_atomic_dec_body_builder(value_at_index, argument_value):
     return result
 
 
+def _require_aligned_array(builder, array_var):
+    if not builder.get_numba_type(array_var.name).aligned:
+        from numba_cuda_mlir.numba_cuda.core.errors import TypingError
+
+        raise TypingError("Atomic operations require an aligned array")
+
+
 def cuda_generic_atomic_cg(builder, target, mr, indices, value, body_builder):
     value_type = mr.type.element_type
     value = convert(value, value_type)
@@ -1239,7 +1285,7 @@ def cuda_atomic_cg(oper, builder, target, mr, indices, value):
     if oper == cuda.atomic.sub:
         value = 0 - value
     indices = list(map(index_of, indices))
-    ptr = memref_to_llvm_ptr(mr, indices, value_type)
+    ptr = memref_to_llvm_ptr(mr, indices)
     result = llvm.atomicrmw(binop, ptr, value, llvm.AtomicOrdering.monotonic)
     builder.store_var(target, result)
 
@@ -1247,12 +1293,14 @@ def cuda_atomic_cg(oper, builder, target, mr, indices, value):
 def _register_cuda_atomic_lowerings(intrin):
     @lower(intrin, types.Array, types.Number, types.Number)
     def _atomic_1d(builder, target, args, kwargs, intrin=intrin):
+        _require_aligned_array(builder, args[0])
         mr, index, value = builder.load_vars(args)
         cuda_atomic_cg(intrin, builder, target, mr, [index], value)
 
     @lower(intrin, types.Array, types.UniTuple, types.Number)
     @lower(intrin, types.Array, types.Tuple, types.Number)
     def _atomic_nd(builder, target, args, kwargs, intrin=intrin):
+        _require_aligned_array(builder, args[0])
         mr, indices, value = builder.load_vars(args)
         cuda_atomic_cg(intrin, builder, target, mr, tuple(indices), value)
 
@@ -1279,13 +1327,14 @@ def cuda_atomic_exch_cg(builder, target, mr, indices, value_to_store):
     value_type = mr.type.element_type
     value_to_store = convert(value_to_store, value_type)
     indices = list(map(index_of, indices))
-    ptr = memref_to_llvm_ptr(mr, indices, value_type)
+    ptr = memref_to_llvm_ptr(mr, indices)
     rmw = llvm.atomicrmw(llvm.AtomicBinOp.xchg, ptr, value_to_store, llvm.AtomicOrdering.monotonic)
     builder.store_var(target, rmw)
 
 
 @lower(cuda.atomic.exch, types.Array, types.Number, types.Number)
 def exch1d(builder, target, args, kwargs):
+    _require_aligned_array(builder, args[0])
     mr, index, value = builder.load_vars(args)
     cuda_atomic_exch_cg(builder, target, mr, [index], value)
 
@@ -1293,6 +1342,7 @@ def exch1d(builder, target, args, kwargs):
 @lower(cuda.atomic.exch, types.Array, types.UniTuple, types.Number)
 @lower(cuda.atomic.exch, types.Array, types.Tuple, types.Number)
 def exchnd(builder, target, args, kwargs):
+    _require_aligned_array(builder, args[0])
     mr, indices, value = builder.load_vars(args)
     cuda_atomic_exch_cg(builder, target, mr, tuple(indices), value)
 
@@ -1302,7 +1352,17 @@ def cuda_atomic_cas_cg(builder, target, mr, indices, old, value):
     Perform if array[idx] == old: array[idx] = value.
     """
     value_type = mr.type.element_type
-    old = convert(old, value_type)
+    result_type = builder.get_numba_type(target.name)
+
+    def convert_operand(var):
+        return convert(
+            builder.load_var(var),
+            value_type,
+            signed=get_conversion_signedness(builder.get_numba_type(var.name), result_type),
+        )
+
+    old = convert_operand(old)
+    value = convert_operand(value)
     indices = list(map(index_of, indices))
 
     @generic_rmw(value_type, mr, indices)
@@ -1318,26 +1378,33 @@ def cuda_atomic_cas_cg(builder, target, mr, indices, old, value):
 
 @lower(cuda.atomic.cas, types.Array, types.Number, types.Number, types.Number)
 def cas1d(builder, target, args, kwargs):
-    mr, index, old, value = builder.load_vars(args)
+    _require_aligned_array(builder, args[0])
+    mr, index = builder.load_vars(args[:2])
+    old, value = args[2:]
     cuda_atomic_cas_cg(builder, target, mr, [index], old, value)
 
 
 @lower(cuda.atomic.cas, types.Array, types.UniTuple, types.Number, types.Number)
 @lower(cuda.atomic.cas, types.Array, types.Tuple, types.Number, types.Number)
 def casnd(builder, target, args, kwargs):
-    mr, indices, old, value = builder.load_vars(args)
+    _require_aligned_array(builder, args[0])
+    mr, indices = builder.load_vars(args[:2])
+    old, value = args[2:]
     cuda_atomic_cas_cg(builder, target, mr, tuple(indices), old, value)
 
 
 @lower(cuda.atomic.compare_and_swap, types.Array, types.Number, types.Number)
 def compare_and_swapnd(builder, target, args, kwargs):
-    mr, value, compare_value = builder.load_vars(args)
+    _require_aligned_array(builder, args[0])
+    mr = builder.load_var(args[0])
+    old, value = args[1:]
     indices = (index_of(0) for _ in range(mr.type.rank))
-    cuda_atomic_cas_cg(builder, target, mr, indices, value, compare_value)
+    cuda_atomic_cas_cg(builder, target, mr, indices, old, value)
 
 
 @lower(cuda.atomic.inc, types.Array, types.Number, types.Number)
 def inc1d(builder, target, args, kwargs):
+    _require_aligned_array(builder, args[0])
     mr, index, value = builder.load_vars(args)
     cuda_generic_atomic_cg(builder, target, mr, [index], value, cuda_atomic_inc_body_builder)
 
@@ -1345,6 +1412,7 @@ def inc1d(builder, target, args, kwargs):
 @lower(cuda.atomic.inc, types.Array, types.UniTuple, types.Number)
 @lower(cuda.atomic.inc, types.Array, types.Tuple, types.Number)
 def incnd(builder, target, args, kwargs):
+    _require_aligned_array(builder, args[0])
     mr, indices, value = builder.load_vars(args)
     cuda_generic_atomic_cg(
         builder,
@@ -1358,6 +1426,7 @@ def incnd(builder, target, args, kwargs):
 
 @lower(cuda.atomic.dec, types.Array, types.Number, types.Number)
 def dec1d(builder, target, args, kwargs):
+    _require_aligned_array(builder, args[0])
     mr, index, value = builder.load_vars(args)
     cuda_generic_atomic_cg(builder, target, mr, [index], value, cuda_atomic_dec_body_builder)
 
@@ -1365,6 +1434,7 @@ def dec1d(builder, target, args, kwargs):
 @lower(cuda.atomic.dec, types.Array, types.UniTuple, types.Number)
 @lower(cuda.atomic.dec, types.Array, types.Tuple, types.Number)
 def decnd(builder, target, args, kwargs):
+    _require_aligned_array(builder, args[0])
     mr, indices, value = builder.load_vars(args)
     cuda_generic_atomic_cg(
         builder,
@@ -1504,7 +1574,7 @@ def _get_element_pointer_for_cache_hint(builder, array, index, array_type):
     if isinstance(array_type, types.Array):
         # Convert memref to LLVM pointer using shared helper
         indices = list(index) if isinstance(index, tuple) else [index]
-        element_ptr = memref_to_llvm_ptr(array, indices, ele_ty)
+        element_ptr = memref_to_llvm_ptr(array, indices)
     elif isinstance(array_type, types.CPointer):
         # For pointers, just use getelementptr directly
         llvm_kDynamic = -2147483648

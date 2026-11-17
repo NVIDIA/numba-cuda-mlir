@@ -4,6 +4,7 @@
 import numpy as np
 
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir.numba_cuda.core.errors import UnsupportedError
 import pytest
 
 ARRAY_LIKE_FUNCTIONS = (
@@ -388,7 +389,7 @@ class TestSetitemDiagnostics:
         arr2d = cuda.to_device(np.zeros((2, 3), dtype=np.float64))
         row = cuda.to_device(np.array([1, 2, 3], dtype=np.float64))
 
-        with pytest.raises(NotImplementedError, match="no registered setitem builder"):
+        with pytest.raises(UnsupportedError, match="no registered setitem builder"):
             kernel[1, 1](arr2d, row)
 
 

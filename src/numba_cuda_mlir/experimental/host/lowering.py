@@ -15,11 +15,6 @@ from numba_cuda_mlir.tools import generate_mangled_name
 
 
 class Lower(mlir_lowering.MLIRLower):
-    def _initialize_target_and_linker(self):
-        """Skip GPU initialization and return no link inputs."""
-        self.linker = None
-        return ()
-
     def setup_func_op(self):
         args = [self.get_mlir_type(arg) for arg in self.fndesc.argtypes]
         results = (

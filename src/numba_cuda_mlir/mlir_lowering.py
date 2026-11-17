@@ -231,23 +231,8 @@ class MLIRLower(object):
         self.context = context.subtarget(environment=self.env, fndesc=self.fndesc)
 
     def _initialize_target_and_linker(self):
-        """Resolve the GPU target, configure its deferred linker, and return link inputs."""
-        gpu_target = self.metadata.get("gpu_target") or resolve_gpu_target(self.targetoptions)
-        self.metadata["gpu_target"] = gpu_target
-        self.targetoptions["chip"] = gpu_target["chip"]
-        cc = gpu_target["cc"]
-        assert isinstance(cc, tuple)
-        self._linker_config = dict(
-            cc=gpu_target["linker_cc"],
-            arch=gpu_target["linker_arch"],
-            verbose=self.targetoptions.get("dump", False),
-            optimization_level=int(self.targetoptions.get("opt_level", 3)),
-            debug=self._debug_full,
-            lineinfo=self._line_only,
-            ptxas_options=self.targetoptions.get("ptxas_options", None),
-            max_registers=self.targetoptions.get("max_registers", None),
-        )
-        return list(self.targetoptions.get("link", []))
+        """Default to no target-specific initialization or link inputs."""
+        return ()
 
     def _create_linker(self, link_plan):
         return Linker(
@@ -3892,3 +3877,26 @@ extern "C" __global__ void
         except Exception as e:
             print(self.mlir_module.operation.get_asm())
             raise InternalCompilerError(f"Invalid MLIR module: {e}") from e
+
+
+class GPULower(MLIRLower):
+    """Lower Numba IR with GPU target and linker configuration."""
+
+    def _initialize_target_and_linker(self):
+        """Resolve the GPU target, configure its deferred linker, and return link inputs."""
+        gpu_target = self.metadata.get("gpu_target") or resolve_gpu_target(self.targetoptions)
+        self.metadata["gpu_target"] = gpu_target
+        self.targetoptions["chip"] = gpu_target["chip"]
+        cc = gpu_target["cc"]
+        assert isinstance(cc, tuple)
+        self._linker_config = dict(
+            cc=gpu_target["linker_cc"],
+            arch=gpu_target["linker_arch"],
+            verbose=self.targetoptions.get("dump", False),
+            optimization_level=int(self.targetoptions.get("opt_level", 3)),
+            debug=self._debug_full,
+            lineinfo=self._line_only,
+            ptxas_options=self.targetoptions.get("ptxas_options", None),
+            max_registers=self.targetoptions.get("max_registers", None),
+        )
+        return list(self.targetoptions.get("link", []))

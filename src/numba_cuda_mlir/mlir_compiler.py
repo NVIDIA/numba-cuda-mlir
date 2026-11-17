@@ -148,7 +148,7 @@ class MLIRBackend(LoweringPass):
         LoweringPass.__init__(self)
 
     def create_lowerer(self, state, fndesc):
-        return lowering.MLIRLower(state.targetctx, fndesc, state.func_ir, metadata=state.metadata)
+        return lowering.GPULower(state.targetctx, fndesc, state.func_ir, metadata=state.metadata)
 
     def run_pass(self, state):
         """

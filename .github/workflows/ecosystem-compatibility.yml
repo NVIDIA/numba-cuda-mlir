@@ -43,10 +43,9 @@ jobs:
           RUN=$(./ci/tools/lookup-run-id "${LOOKUP_ARGS[@]}" "$GH_REPO" ci.yaml)
           RUN_ID=$(sed -n '1p' <<< "$RUN")
           HEAD_SHA=$(sed -n '2p' <<< "$RUN")
-          RUN_DATA=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID")
-          PRODUCER_BRANCH=$(jq -r '.head_branch' <<< "$RUN_DATA")
-          PRODUCER_EVENT=$(jq -r '.event' <<< "$RUN_DATA")
-          PRODUCER_CONCLUSION=$(jq -r '.conclusion' <<< "$RUN_DATA")
+          PRODUCER_BRANCH="$GITHUB_REF_NAME"
+          PRODUCER_EVENT=push
+          PRODUCER_CONCLUSION=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID" --jq .conclusion)
           if [[ "$PRODUCER_CONCLUSION" == "failure" ]]; then
             echo "::warning::Producer run $RUN_ID failed; uploaded wheels may be incomplete or untested"
           fi

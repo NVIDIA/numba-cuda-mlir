@@ -147,11 +147,9 @@ if [[ "${MODE}" == "branch" ]]; then
                 -f "head_sha=${commit_sha}" \
                 -F "per_page=100" \
                 | jq -sc --arg event "${EVENT}" --arg branch "${BRANCH}" \
-                    --arg sha "$commit_sha" --argjson workflow "$WORKFLOW_ID" \
                     --argjson allow_failure "$ALLOW_FAILURE" '
                     [.[] | .workflow_runs[]
-                     | select(.workflow_id == $workflow and .head_sha == $sha
-                         and .head_branch == $branch and .status == "completed"
+                     | select(.head_branch == $branch
                          and (.conclusion == "success" or ($allow_failure == 1 and .conclusion == "failure"))
                          and ($event == "" or .event == $event))
                      | {id, head_sha, created_at}]

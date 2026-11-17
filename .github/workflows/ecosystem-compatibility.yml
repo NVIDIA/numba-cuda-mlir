@@ -7,11 +7,6 @@ on:
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
-    inputs:
-      run-id:
-        description: 'Successful main CI run to test (default: latest successful main run)'
-        required: false
-        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -34,26 +29,38 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Find main CI wheels
+      - name: Resolve wheel producer run
         id: find
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          INPUT_RUN_ID: ${{ inputs.run-id }}
         run: |
-          ARGS=(--branch main --event push --head-sha)
-          if [[ -n "$INPUT_RUN_ID" ]]; then
-            ARGS+=(--run-id "$INPUT_RUN_ID")
+          LOOKUP_ARGS=(--branch "$GITHUB_REF_NAME" --event push --head-sha)
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            # Manual evidence must use the dispatched commit, never older wheels.
+            LOOKUP_ARGS+=(--commit "$GITHUB_SHA" --allow-failure)
           fi
-          RUN=$(./ci/tools/lookup-run-id "${ARGS[@]}" "$GH_REPO" ci.yaml)
+          RUN=$(./ci/tools/lookup-run-id "${LOOKUP_ARGS[@]}" "$GH_REPO" ci.yaml)
           RUN_ID=$(sed -n '1p' <<< "$RUN")
           HEAD_SHA=$(sed -n '2p' <<< "$RUN")
+          PRODUCER_BRANCH="$GITHUB_REF_NAME"
+          PRODUCER_EVENT=push
+          PRODUCER_CONCLUSION=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID" --jq .conclusion)
+          if [[ "$PRODUCER_CONCLUSION" == "failure" ]]; then
+            echo "::warning::Producer run $RUN_ID failed; uploaded wheels may be incomplete or untested"
+          fi
 
           RUN_URL="${{ github.server_url }}/$GH_REPO/actions/runs/$RUN_ID"
           echo "Selected wheel producer: $RUN_URL"
           echo "Producer SHA: $HEAD_SHA"
-          printf '### Ecosystem wheel producer\n\n- Run: %s\n- SHA: `%s`\n' \
-            "$RUN_URL" "$HEAD_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Producer branch: $PRODUCER_BRANCH ($PRODUCER_EVENT, $PRODUCER_CONCLUSION)"
+          printf '### Ecosystem wheel producer\n\n- Run: %s\n- SHA: `%s`\n- Branch: `%s` (%s, %s)\n' \
+            "$RUN_URL" "$HEAD_SHA" "$PRODUCER_BRANCH" "$PRODUCER_EVENT" "$PRODUCER_CONCLUSION" \
+            >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            printf '\n> Manual run against the dispatched commit: not nightly compatibility evidence.\n' \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
           echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
 

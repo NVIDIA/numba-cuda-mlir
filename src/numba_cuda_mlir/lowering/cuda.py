@@ -27,6 +27,7 @@ from numba_cuda_mlir.lowering_utilities import (
     int_of,
     index_of,
     convert,
+    get_conversion_signedness,
     f32_of,
     i32_of,
     memref_descriptor_type,
@@ -1344,7 +1345,17 @@ def cuda_atomic_cas_cg(builder, target, mr, indices, old, value):
     Perform if array[idx] == old: array[idx] = value.
     """
     value_type = mr.type.element_type
-    old = convert(old, value_type)
+    result_type = builder.get_numba_type(target.name)
+
+    def convert_operand(var):
+        return convert(
+            builder.load_var(var),
+            value_type,
+            signed=get_conversion_signedness(builder.get_numba_type(var.name), result_type),
+        )
+
+    old = convert_operand(old)
+    value = convert_operand(value)
     indices = list(map(index_of, indices))
 
     @generic_rmw(value_type, mr, indices)
@@ -1361,7 +1372,8 @@ def cuda_atomic_cas_cg(builder, target, mr, indices, old, value):
 @lower(cuda.atomic.cas, types.Array, types.Number, types.Number, types.Number)
 def cas1d(builder, target, args, kwargs):
     _require_aligned_array(builder, args[0])
-    mr, index, old, value = builder.load_vars(args)
+    mr, index = builder.load_vars(args[:2])
+    old, value = args[2:]
     cuda_atomic_cas_cg(builder, target, mr, [index], old, value)
 
 
@@ -1369,16 +1381,18 @@ def cas1d(builder, target, args, kwargs):
 @lower(cuda.atomic.cas, types.Array, types.Tuple, types.Number, types.Number)
 def casnd(builder, target, args, kwargs):
     _require_aligned_array(builder, args[0])
-    mr, indices, old, value = builder.load_vars(args)
+    mr, indices = builder.load_vars(args[:2])
+    old, value = args[2:]
     cuda_atomic_cas_cg(builder, target, mr, tuple(indices), old, value)
 
 
 @lower(cuda.atomic.compare_and_swap, types.Array, types.Number, types.Number)
 def compare_and_swapnd(builder, target, args, kwargs):
     _require_aligned_array(builder, args[0])
-    mr, value, compare_value = builder.load_vars(args)
+    mr = builder.load_var(args[0])
+    old, value = args[1:]
     indices = (index_of(0) for _ in range(mr.type.rank))
-    cuda_atomic_cas_cg(builder, target, mr, indices, value, compare_value)
+    cuda_atomic_cas_cg(builder, target, mr, indices, old, value)
 
 
 @lower(cuda.atomic.inc, types.Array, types.Number, types.Number)

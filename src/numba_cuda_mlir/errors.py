@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from numba_cuda_mlir.numba_cuda.core.errors import ForceLiteralArg, TypingError
+from numba_cuda_mlir.numba_cuda.core.errors import ForceLiteralArg, TypingError, UnsupportedError
 from numba_cuda_mlir._mlir.ir import Operation, Value, Block
 from typing import TypeVar
 import inspect
@@ -37,21 +37,63 @@ class UserFacingInternalCompilerError(RuntimeError):
     pass
 
 
+class UnsupportedLoweringError(UnsupportedError):
+    """An unsupported operation with a concise, source-attributed diagnostic."""
+
+    def __init__(self, msg, loc=None, *, full_traceback=False):
+        super().__init__(msg, loc=loc)
+        # Pass managers mutate args to add compiler context. Keep the original
+        # diagnostic for users, without changing the shared NumbaError policy.
+        self._diagnostic = self.args[0]
+        self._full_traceback = full_traceback
+
+    def __str__(self):
+        if self._full_traceback:
+            return super().__str__()
+        return self._diagnostic
+
+
 ISSUES_URL = "https://github.com/NVIDIA/numba-cuda-mlir/issues"
 
 
 def handle_lowering_error(lower, func_ir):
-    """Catch a lowering exception and re-raise as a UserFacingInternalCompilerError.
+    """Report unsupported lowerings separately from internal compiler failures.
 
     Must be called from inside an except block so traceback.format_exc() works.
     Set NUMBA_CUDA_MLIR_ICE_FULL_TB=1 to see the full traceback instead of a summary.
     """
     import os
+    import sys
     import tempfile
     import traceback
 
-    full_tb = traceback.format_exc()
+    exc = sys.exception()
     full_tb_env = os.environ.get("NUMBA_CUDA_MLIR_ICE_FULL_TB", "0").strip()
+    loc = getattr(lower, "loc", None)
+    if loc is None or loc == -1 or not hasattr(loc, "filename"):
+        loc = getattr(func_ir, "loc", None)
+
+    if isinstance(exc, (NotImplementedError, UnsupportedError)):
+        if isinstance(exc, UnsupportedError):
+            package_dir = Path(__file__).resolve().parent
+            has_location = exc.loc is not None
+            raised_outside_package = has_location and not Path(
+                exc.loc.filename
+            ).resolve().is_relative_to(package_dir)
+            if raised_outside_package:
+                # Preserve the user's device-callee location, not an overload's
+                # package location. Already-normalized errors need no wrapping.
+                if isinstance(exc, UnsupportedLoweringError):
+                    raise exc
+                loc = exc.loc
+            message = exc.msg
+        else:
+            message = f"Unsupported operation: {exc}"
+        error = UnsupportedLoweringError(message, loc=loc, full_traceback=full_tb_env == "1")
+        if full_tb_env == "1":
+            raise error from exc
+        raise error from None
+    full_tb = traceback.format_exc()
 
     log_fd, log_path = tempfile.mkstemp(suffix=".log", prefix="numba_cuda_mlir_error_")
     try:
@@ -59,10 +101,6 @@ def handle_lowering_error(lower, func_ir):
             f.write(full_tb)
     except Exception:
         log_path = "<unavailable>"
-
-    loc = getattr(lower, "loc", None)
-    if loc is None or loc == -1 or not hasattr(loc, "filename"):
-        loc = getattr(func_ir, "loc", None)
 
     location_str = f"\n{loc.strformat()}" if loc is not None else ""
 
@@ -83,7 +121,7 @@ def _excepthook(exc_type, exc_value, exc_tb):
     import os
     import sys
 
-    if issubclass(exc_type, UserFacingInternalCompilerError):
+    if issubclass(exc_type, (UserFacingInternalCompilerError, UnsupportedLoweringError)):
         full_tb_env = os.environ.get("NUMBA_CUDA_MLIR_ICE_FULL_TB", "0").strip()
         if full_tb_env == "1":
             _original_excepthook(exc_type, exc_value, exc_tb)

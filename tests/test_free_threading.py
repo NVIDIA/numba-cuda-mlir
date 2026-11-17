@@ -381,8 +381,6 @@ def test_compile_and_recompile_take_launch_lock(monkeypatch):
 
 def test_nvvm_ir_version_adaptation_is_thread_safe():
     _require_free_threaded_python()
-    if os.name == "nt":
-        pytest.skip("the Windows ModernBridge path has a native smoke test")
 
     from numba_cuda_mlir import _cext
     from numba_cuda_mlir._mlir import ir

@@ -42,7 +42,16 @@ public:
       ownsHandle = false;
       path = "<current module>";
     } else {
-      handle = LoadLibraryA(path.c_str());
+      // path is UTF-8 (from Python); LoadLibraryA would read it in the ANSI
+      // code page and fail on non-ASCII install paths.
+      int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path.c_str(),
+                                  -1, nullptr, 0);
+      if (n > 0) {
+        std::wstring wpath(n, L'\0');
+        MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path.c_str(), -1,
+                            &wpath[0], n);
+        handle = LoadLibraryW(wpath.c_str());
+      }
     }
     if (!handle)
       return llvm::createStringError(

@@ -7,19 +7,9 @@ on:
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
-    inputs:
-      run-id:
-        description: 'ci.yaml run whose wheels to test (default: latest successful main push run)'
-        required: false
-        type: string
-      producer-branch:
-        description: 'Branch for the default lookup, e.g. pull-request/461 (ignored when run-id is set)'
-        required: false
-        type: string
-        default: main
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.run-id || inputs.producer-branch || 'main' }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -44,47 +34,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          INPUT_RUN_ID: ${{ inputs.run-id }}
-          INPUT_BRANCH: ${{ inputs.producer-branch || 'main' }}
         run: |
-          if [[ -n "$INPUT_RUN_ID" ]]; then
-            # Explicit override: accept any completed ci.yaml run in this
-            # repository, including one on a pull-request/<N> branch. The
-            # nightly path stays strict about main + success so the scheduled
-            # signal is unchanged.
-            if [[ ! "$INPUT_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
-              echo "::error::run-id must be a positive integer, got '$INPUT_RUN_ID'"
-              exit 1
-            fi
-            RUN_DATA=$(gh api "repos/$GH_REPO/actions/runs/$INPUT_RUN_ID")
-            jq -e --arg repo "$GH_REPO" '
-              ((.repository.full_name // "") | ascii_downcase) == ($repo | ascii_downcase)
-              and ((.path // "") | endswith("/ci.yaml"))
-            ' <<< "$RUN_DATA" >/dev/null || {
-              echo "::error::Run $INPUT_RUN_ID is not a ci.yaml run of $GH_REPO"
-              exit 1
-            }
-            STATUS=$(jq -r '.status' <<< "$RUN_DATA")
-            if [[ "$STATUS" != "completed" ]]; then
-              echo "::error::Run $INPUT_RUN_ID is '$STATUS'; wait for it to finish so artifacts are fully uploaded"
-              exit 1
-            fi
-            RUN_ID="$INPUT_RUN_ID"
-            HEAD_SHA=$(jq -r '.head_sha' <<< "$RUN_DATA")
-            PRODUCER_BRANCH=$(jq -r '.head_branch' <<< "$RUN_DATA")
-            PRODUCER_EVENT=$(jq -r '.event' <<< "$RUN_DATA")
-            PRODUCER_CONCLUSION=$(jq -r '.conclusion' <<< "$RUN_DATA")
-            if [[ "$PRODUCER_CONCLUSION" != "success" ]]; then
-              echo "::warning::Producer run $RUN_ID concluded '$PRODUCER_CONCLUSION'; its wheels are incomplete or untested"
-            fi
-          else
-            RUN=$(./ci/tools/lookup-run-id --branch "$INPUT_BRANCH" --event push --head-sha \
-              "$GH_REPO" ci.yaml)
-            RUN_ID=$(sed -n '1p' <<< "$RUN")
-            HEAD_SHA=$(sed -n '2p' <<< "$RUN")
-            PRODUCER_BRANCH="$INPUT_BRANCH"
-            PRODUCER_EVENT=push
-            PRODUCER_CONCLUSION=success
+          LOOKUP_ARGS=(--branch "$GITHUB_REF_NAME" --event push --head-sha)
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            # Manual evidence must use the dispatched commit, never older wheels.
+            LOOKUP_ARGS+=(--commit "$GITHUB_SHA" --allow-failure)
+          fi
+          RUN=$(./ci/tools/lookup-run-id "${LOOKUP_ARGS[@]}" "$GH_REPO" ci.yaml)
+          RUN_ID=$(sed -n '1p' <<< "$RUN")
+          HEAD_SHA=$(sed -n '2p' <<< "$RUN")
+          RUN_DATA=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID")
+          PRODUCER_BRANCH=$(jq -r '.head_branch' <<< "$RUN_DATA")
+          PRODUCER_EVENT=$(jq -r '.event' <<< "$RUN_DATA")
+          PRODUCER_CONCLUSION=$(jq -r '.conclusion' <<< "$RUN_DATA")
+          if [[ "$PRODUCER_CONCLUSION" == "failure" ]]; then
+            echo "::warning::Producer run $RUN_ID failed; uploaded wheels may be incomplete or untested"
           fi
 
           RUN_URL="${{ github.server_url }}/$GH_REPO/actions/runs/$RUN_ID"
@@ -94,8 +58,8 @@ jobs:
           printf '### Ecosystem wheel producer\n\n- Run: %s\n- SHA: `%s`\n- Branch: `%s` (%s, %s)\n' \
             "$RUN_URL" "$HEAD_SHA" "$PRODUCER_BRANCH" "$PRODUCER_EVENT" "$PRODUCER_CONCLUSION" \
             >> "$GITHUB_STEP_SUMMARY"
-          if [[ "$PRODUCER_BRANCH" != "main" ]]; then
-            printf '\n> Manual run against a non-main producer: not nightly compatibility evidence.\n' \
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            printf '\n> Manual run against the dispatched commit: not nightly compatibility evidence.\n' \
               >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"

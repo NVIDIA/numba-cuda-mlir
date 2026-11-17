@@ -186,7 +186,6 @@ class TestMakeFunctionToJITFunction(NumbaCUDATestCase):
         a = 5
         self.assertEqual(impl(a), cfunc(a))
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_with_overload(self):
         def foo(func, *args):
             nargs = len(args)

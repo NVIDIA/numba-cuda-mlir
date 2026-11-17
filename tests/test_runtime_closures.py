@@ -57,6 +57,33 @@ def test_repeated_closure_conversion_does_not_grow_registries():
         previous = sizes
 
 
+@pytest.mark.parametrize("nested", [False, True])
+def test_captured_dtype_through_noninlined_device_call(nested):
+    @cuda.jit(device=True, inline="never")
+    def forward(fn, value):
+        return fn(value)
+
+    if nested:
+
+        @cuda.jit
+        def kernel(bias, output):
+            environment = ((np.int64, None), bias)
+            fn = lambda value: environment[0][0](value) + environment[1]
+            output[0] = forward(fn, 3.5)
+    else:
+
+        @cuda.jit
+        def kernel(bias, output):
+            cast = np.int64
+            fn = lambda value: cast(value) + bias
+            output[0] = forward(fn, 3.5)
+
+    output = np.zeros(1, dtype=np.int64)
+    for bias in (7, -3):
+        kernel[1, 1](bias, output)
+        assert output[0] == np.int64(3.5) + bias
+
+
 def test_runtime_capture_passed_to_device_function_and_globals():
     @cuda.jit
     def kernel(bias, output):

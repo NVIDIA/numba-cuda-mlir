@@ -278,6 +278,7 @@ class StoragePrimitiveModel(PrimitiveModel):
 
 @register_model(types.DTypeSpec)
 @register_model(types.NumberClass)
+@register_model(types.VectorTypeClass)
 class DTypeSpecModel(PrimitiveModel):
     """
     Convert from a Numba DTypeSpec type instance
@@ -290,6 +291,11 @@ class DTypeSpecModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
         be_type = dmm.lookup(fe_type.dtype).get_value_type()
         super().__init__(dmm, fe_type, be_type)
+
+    def as_data(self, builder, value):
+        if isinstance(value, (type, types.Type)):
+            return builder._materialize_type_token(self.fe_type)
+        return value
 
     def get_return_type(self):
         return NoneType.get()

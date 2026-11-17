@@ -16,16 +16,43 @@ def host_jit(func_or_sig=None, **options):
     subclass, and an in-process native JIT instead of the NVVM/cubin/launcher
     pipeline.
 
+    Parameters
+    ----------
+    func_or_sig : callable, Numba signature, list of Numba signatures, or None
+        Function to compile, or explicit signature(s) to compile when the
+        decorated function arrives. With no explicit signature, argument types
+        are inferred on first use unless selected by Numba type annotations.
+    opt_level : int, optional
+        Native optimization level from 0 through 3. Defaults to 2.
+    dump : bool, optional
+        Print the host MLIR and LLVM-dialect MLIR. Defaults to False.
+    dump_numba_ir : bool, optional
+        Print the Numba IR. Defaults to False.
+    dump_mlir : bool, optional
+        Print the host MLIR before conversion to LLVM dialect. Defaults to False.
+    dump_llvm_dialect : bool, optional
+        Print the LLVM-dialect MLIR. Defaults to False.
+
+    Returns
+    -------
+    Dispatcher or callable
+        Dispatcher when given a function directly (``@host_jit``); otherwise,
+        a decorator that builds the dispatcher (``@host_jit()`` or
+        ``@host_jit("f8(f8)")``).
+
+    Notes
+    -----
+    Experimental scalar-only API. Functions accept fixed positional parameters;
+    keyword arguments and non-scalar arguments or return values are unsupported.
+    A function may return None.
+
+    Explicit signatures fix the available overloads. Parameter annotations must
+    agree with explicit signatures, and return annotations cannot be combined
+    with them. A return annotation requires all parameters to have Numba scalar
+    type annotations; None is also accepted as a return annotation.
+
     Each argument-type tuple has one compiled return type. Explicit signatures
     requesting a different return type for an existing overload raise TypeError.
-
-    Scalar globals and closure captures are compiled with their scalar types,
-    including the full uint64 range. Floating-point inequality follows Python:
-    NaN compares unequal to every value, including itself.
-
-    A dispatcher and any retained compiled entry point keep their execution
-    engine alive. Releasing both allows the engine and its runtime callbacks
-    to be collected.
     """
     targetoptions = _validated_options(options)
     signatures = _requested_signatures(func_or_sig)

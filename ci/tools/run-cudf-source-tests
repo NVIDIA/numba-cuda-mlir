@@ -91,13 +91,20 @@ git -C "${CUDF_DIR}" log -1 --format='cudf commit: %H %s'
 # --- mlir wheel ---
 # Installed last so it replaces the numba-cuda-mlir that cudf pulled in: the
 # point of this job is to exercise the wheel built by this run.
+#
+# Remove cudf's copy first. pip declines to install a local wheel whose
+# version already matches what is installed -- "already installed with the
+# same version as the provided wheel" -- so without this the wheel is
+# silently skipped whenever the two agree, which is precisely when the
+# version check below cannot tell. Uninstalling an absent package warns and
+# succeeds, so this is safe on the first run.
 echo "Installing numba-cuda-mlir wheel into conda env..."
 EXTRAS="cu${TEST_CUDA_MAJOR}"
+conda run -n "${CONDA_ENV_NAME}" pip uninstall -y numba-cuda-mlir
 conda run -n "${CONDA_ENV_NAME}" pip install "${wheel}[${EXTRAS}]"
 
-# cudf pulls its own numba-cuda-mlir from conda. If that one is still the
-# installed distribution the job silently tests a released build instead of
-# this run's, so check rather than assume the pip install won.
+# Belt and braces: confirm the distribution now on the path is this run's.
+# Catches the wheel failing to land for any other reason.
 WHEEL_VERSION=$(basename "${wheel}" | cut -d- -f2)
 conda run -n "${CONDA_ENV_NAME}" python -c '
 import sys

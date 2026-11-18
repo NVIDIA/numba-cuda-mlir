@@ -22,6 +22,72 @@ class _LaunchConfigExtension:
         return ty, val
 
 
+def test_resolved_cache_refreshes_and_evicts_least_recent_signature(monkeypatch):
+    monkeypatch.setattr(descriptor, "_CONFIGURE_CACHE_SIZE", 2)
+    output = cuda.device_array(1, dtype=np.int64)
+
+    @cuda.jit
+    def kernel(value):
+        output[0] = value
+
+    launch = kernel[1, 1]
+    calls = []
+    compile_impl = kernel._compile_impl
+
+    def count_resolution(args):
+        calls.append(type(args[0]))
+        return compile_impl(args)
+
+    monkeypatch.setattr(kernel, "_compile_impl", count_resolution)
+    # Touch int32 again so inserting float32 evicts int64.
+    for i, scalar in enumerate((np.int32, np.int64, np.int32, np.float32, np.int32, np.int64)):
+        launch(scalar(i))
+        assert output.copy_to_host()[0] == i
+
+    assert calls == [np.int32, np.int64, np.float32, np.int64]
+
+
+@pytest.mark.parametrize("transition", ["reenable-compilation", "compile-exact-overload"])
+@pytest.mark.parametrize("scalar_only", [False, True], ids=["array-output", "native-fast"])
+def test_frozen_compatible_selection_obeys_changed_policy(transition, scalar_only):
+    output = cuda.device_array(1, dtype=np.float64)
+    if scalar_only:
+
+        @cuda.jit
+        def kernel(x, y):
+            output[0] = x + y
+
+    else:
+
+        @cuda.jit
+        def kernel(output, x, y):
+            output[0] = x + y
+
+    launch = kernel[1, 1]
+    prefix = () if scalar_only else (output,)
+    launch(*prefix, np.float32(1), np.float32(2**-25))
+    assert output.copy_to_host()[0] == 1.0
+    kernel.disable_compile()
+
+    # The only overload is float32, so frozen float64 calls must round here.
+    args = (*prefix, np.float64(1), np.float64(2**-25))
+    for _ in range(2):
+        launch(*args)
+        assert output.copy_to_host()[0] == 1.0
+
+    if transition == "reenable-compilation":
+        kernel.disable_compile(False)
+    else:
+        # Explicit compilation is permitted even while automatic compilation is frozen.
+        kernel.compile_for(*args)
+
+    # Neither the retained launcher nor a newly configured one may keep selecting
+    # the previously compatible float32 overload after the policy changes.
+    for launcher in (launch, kernel[1, 1], launch):
+        launcher(*args)
+        assert output.copy_to_host()[0] == 1.0 + 2**-25
+
+
 def test_frozen_active_launch_config_survives_unused_configure_pressure(monkeypatch):
     cache_size = 4
     monkeypatch.setattr(descriptor, "_LAUNCH_CONFIG_CACHE_SIZE", cache_size)

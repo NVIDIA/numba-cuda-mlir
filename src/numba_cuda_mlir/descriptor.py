@@ -83,6 +83,7 @@ _DISPATCHER_STATE_ATTRS = (
     "_launch_config_lock",
     "_launch_lock",
     "_launch_config_overloads",
+    "_resolved_specializations",
     "_launch_config_dispatchers",
     "_launch_config_generation",
     "_requires_launch_config",
@@ -171,6 +172,12 @@ def _flatten_arg(arg, out):
             _flatten_arg(elem, out)
     else:
         out.append(arg)
+
+
+def _flattened_arg_count(arg):
+    if isinstance(arg, (tuple, list)):
+        return sum(_flattened_arg_count(item) for item in arg)
+    return 1
 
 
 def _cuda_array_interface(arg):
@@ -1322,6 +1329,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         # Bound launch-qualified overloads and extractor profiles together.
         # Retained launchers resolve again after eviction or recompile().
         self._launch_config_overloads = {}
+        self._resolved_specializations = {}
         self._launch_config_dispatchers = collections.OrderedDict()
         self._launch_config_generation = 0
         self._requires_launch_config = False
@@ -1377,6 +1385,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     def _mark_requires_launch_config(self):
         with self._launch_config_lock:
             self._requires_launch_config = True
+            self._resolved_specializations.clear()
 
     @staticmethod
     def _normalize_literal_arg_positions(positions):
@@ -1445,6 +1454,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             self._literal_arg_positions = updated
             self.overloads.clear()
             self._launch_config_overloads.clear()
+            self._resolved_specializations.clear()
             self._launch_config_generation += 1
 
             self._configure_cache.clear()
@@ -1499,6 +1509,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 self._launch_lock = _new_dispatcher_rlock() if _PY_GIL_DISABLED else None
             if not hasattr(self, "_launch_config_overloads"):
                 self._launch_config_overloads = {}
+            if not hasattr(self, "_resolved_specializations"):
+                self._resolved_specializations = {}
             if not hasattr(self, "_launch_config_dispatchers"):
                 self._launch_config_dispatchers = collections.OrderedDict()
             if not hasattr(self, "_launch_config_generation"):
@@ -1537,6 +1549,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             for key in list(self._launch_config_overloads):
                 if key[1] == evicted_key:
                     del self._launch_config_overloads[key]
+            for key in list(self._resolved_specializations):
+                if key[1] == evicted_key:
+                    del self._resolved_specializations[key]
         return True
 
     def configure(self, griddim, blockdim, stream=None, sharedmem=None, cluster=None):
@@ -2225,12 +2240,46 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             return _normalize_available_launch_config(available_config)
         return None
 
+    def _get_cached_specialization(self, argtypes, values, config):
+        effective = (
+            self._literalize_argtypes(argtypes, values, abi_arg_count=_flattened_arg_count(values))
+            if self._literal_arg_positions
+            else argtypes
+        )
+        key = (effective, _launch_config_key(config))
+        with self._launch_config_lock:
+            # A plain dict yields its last item without rehashing semantic types.
+            last_key, last = next(reversed(self._resolved_specializations.items()), (None, None))
+            specialization = last if last_key == key else self._resolved_specializations.get(key)
+            if specialization is None:
+                return None
+            if specialization.generation != self._launch_config_generation:
+                return None
+            if config is not None:
+                if self._launch_config_dispatchers.get(key[1]) is not specialization.dispatcher:
+                    return None
+                self._launch_config_dispatchers.move_to_end(key[1])
+            if last_key != key:
+                del self._resolved_specializations[key]
+                self._resolved_specializations[key] = specialization
+            return specialization
+
     def _resolve_specialization(self, argtypes, values, available_config, extensions):
         """Resolve semantic types before native extraction can erase their identity."""
-        self._ensure_dispatcher_state()
+        if "_resolved_specializations" not in self.__dict__:
+            self._ensure_dispatcher_state()
 
+        config = self._specialization_launch_config(available_config, extensions)
+        cached = self._get_cached_specialization(argtypes, values, config)
+        if cached is not None:
+            return cached
+
+        # Only misses enter the compiler lock or allocate a native specialization.
         with global_compiler_lock:
             config = self._specialization_launch_config(available_config, extensions)
+            cached = self._get_cached_specialization(argtypes, values, config)
+            if cached is not None:
+                return cached
             names = ("types", "values", "launch_config", "available_launch_config", "extensions")
             previous = tuple(getattr(_compile_arg_types, name, _MISSING) for name in names)
             current = (
@@ -2283,6 +2332,12 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                         post_load,
                     )
                     cres._resolved_specialization = specialization
+                effective = self._literalize_argtypes(argtypes, values, abi_arg_count=len(args))
+                self._resolved_specializations[(effective, _launch_config_key(config))] = (
+                    specialization
+                )
+                while len(self._resolved_specializations) > _CONFIGURE_CACHE_SIZE:
+                    del self._resolved_specializations[next(iter(self._resolved_specializations))]
             return specialization
 
     def _raise_ambiguous(self, argtypes, tied):
@@ -2659,6 +2714,12 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
 
         return _result(wrapped)
 
+    def disable_compile(self, val=True):
+        self._ensure_dispatcher_state()
+        with global_compiler_lock, self._launch_config_lock:
+            super().disable_compile(val)
+            self._resolved_specializations.clear()
+
     def compile(self, sig, abi_info=None, output=None):
         self._ensure_dispatcher_state()
         launch_lock = self._launch_lock
@@ -2697,6 +2758,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                         wrapped = CompileResult(cres)
                         with self._launch_config_lock:
                             self.overloads[argtypes] = wrapped
+                            self._resolved_specializations.clear()
                         return wrapped
                     disk_cache_miss = True
 
@@ -2743,6 +2805,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         # Store in overloads
         with self._launch_config_lock:
             self.overloads[argtypes] = wrapped
+            self._resolved_specializations.clear()
 
         return wrapped
 
@@ -3034,6 +3097,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         with self._launch_config_lock:
             self._launch_config_generation += 1
             self._launch_config_overloads.clear()
+            self._resolved_specializations.clear()
             self._launch_config_dispatchers.clear()
             self._configure_cache.clear()
             inflight = tuple(self._configure_cache_inflight.values())

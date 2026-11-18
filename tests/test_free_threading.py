@@ -300,7 +300,7 @@ def test_arg_marshaller_recreates_missing_launch_lock(monkeypatch):
                 self._launch_config_lock = threading.RLock()
 
     dispatcher = Dispatcher()
-    marshaller = _ArgMarshaller(lambda: None, dispatcher=dispatcher)
+    marshaller = _ArgMarshaller(dispatcher)
 
     def call_impl(*args):
         with dispatcher._launch_config_lock:

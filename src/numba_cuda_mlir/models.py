@@ -785,6 +785,14 @@ class EnumMemberModel(PrimitiveModel):
         be_type = dmm.lookup(fe_type.dtype).get_value_type()
         super().__init__(dmm, fe_type, be_type)
 
+    def get_argument_type(self):
+        if isinstance(self.fe_type.dtype, types.BaseTuple):
+            raise TypeError(
+                "Enum members with tuple values are not supported. "
+                "Only integer and float valued enums are supported."
+            )
+        return super().get_argument_type()
+
 
 @register_model(types.IntEnumMember)
 class IntEnumMemberModel(PrimitiveModel):

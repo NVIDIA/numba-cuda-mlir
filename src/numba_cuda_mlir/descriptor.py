@@ -2291,7 +2291,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 _compile_arg_types.force_launch_config = previous_force_launch_config
 
         with self._launch_config_lock:
-            rebuilt = self._find_launch_config_overload_locked(argtypes, launch_config_key)
+            rebuilt = self._launch_config_overloads.get((argtypes, launch_config_key))
         if rebuilt is None:
             raise RuntimeError(f"Failed to rebuild launch-config specialization for {argtypes}")
         return rebuilt
@@ -2682,6 +2682,11 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     @classmethod
     def _rate_overload(cls, sig_args, argtypes):
         """Sum per-argument conversion costs. Returns total tuple or None."""
+        # Runtime arguments are unfolded; compiled signatures retain *args.
+        if sig_args and isinstance(sig_args[-1], (types.StarArgTuple, types.StarArgUniTuple)):
+            sig_args = sig_args[:-1] + tuple(sig_args[-1])
+        if argtypes and isinstance(argtypes[-1], (types.StarArgTuple, types.StarArgUniTuple)):
+            argtypes = argtypes[:-1] + tuple(argtypes[-1])
         if len(sig_args) != len(argtypes):
             return None
         total = [0, 0, 0]
@@ -2745,10 +2750,14 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         if launch_config is not None:
             launch_config_key = _launch_config_key(launch_config)
             with self._launch_config_lock:
+                if self._can_compile:
+                    return self._launch_config_overloads.get((argtypes, launch_config_key))
                 return self._find_launch_config_overload_locked(argtypes, launch_config_key)
         exact = self.overloads.get(argtypes)
         if exact is not None:
             return exact
+        if self._can_compile:
+            return None
         for sig_args, cres in self.overloads.items():
             if len(sig_args) == len(argtypes) and all(
                 self._can_reuse_overload(s, r) for s, r in zip(sig_args, argtypes)
@@ -2793,7 +2802,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             if launch_config is None:
                 return None
             launch_config_key = _launch_config_key(launch_config)
-            compile_result = self._find_launch_config_overload_locked(argtypes, launch_config_key)
+            compile_result = self._compile_result_for(argtypes, launch_config)
             if (
                 compile_result is None
                 or configured_launch_config_generation != self._launch_config_generation
@@ -3081,18 +3090,14 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             # stale launch configuration values from a previous same-signature
             # launch.
             with self._launch_config_lock:
-                reusable = self._find_launch_config_overload_locked(
-                    argtypes, active_launch_config_key
-                )
+                reusable = self._launch_config_overloads.get((argtypes, active_launch_config_key))
                 if reusable is not None:
                     self._launch_config_cache_hits[(argtypes, active_launch_config_key)] += 1
                     return _result(reusable)
-        elif self.overloads:
-            for sig_args, cres in tuple(self.overloads.items()):
-                if len(sig_args) == len(argtypes) and all(
-                    self._can_reuse_overload(s, r) for s, r in zip(sig_args, argtypes)
-                ):
-                    return _result(cres)
+        else:
+            exact = self.overloads.get(argtypes)
+            if exact is not None:
+                return _result(exact)
 
         if not self._can_compile:
             if active_launch_config_key is not None:
@@ -3242,12 +3247,12 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 if active_launch_config_generation != self._launch_config_generation:
                     retry_launch_config_compile = True
                 else:
-                    existing = self._find_launch_config_overload_locked(
-                        argtypes, active_launch_config_key
+                    existing = self._launch_config_overloads.get(
+                        (argtypes, active_launch_config_key)
                     )
                     if existing is None and normalized_args != argtypes:
-                        existing = self._find_launch_config_overload_locked(
-                            normalized_args, active_launch_config_key
+                        existing = self._launch_config_overloads.get(
+                            (normalized_args, active_launch_config_key)
                         )
                     if existing is not None:
                         # A duplicate compile can lose a race to another thread that

@@ -1384,31 +1384,46 @@ def test_launch_config_dispatcher_cache_is_bounded(monkeypatch):
     assert first_overload_key not in dispatcher._launch_config_overloads
 
 
-def test_launch_config_compatible_lookup_reuses_without_alias_growth():
-    def kernel(x):
-        pass
+@pytest.mark.parametrize("frozen", [False, True], ids=["automatic", "frozen"])
+def test_precompiled_int32_kernel_receives_int64(frozen):
+    @cuda.jit
+    def store(out, value):
+        out[0] = value
 
-    dispatcher = descriptor_mod.MLIRDispatcher(
-        kernel, targetoptions={"extensions": [_LaunchConfigExtension()]}
-    )
-    launch_config = {
-        "grid": (1, 1, 1),
-        "block": (32, 1, 1),
-        "sharedmem": 0,
-        "cluster": None,
-    }
-    launch_key = descriptor_mod._launch_config_key(launch_config)
-    compile_result = _CompileResult((types.int32,))
-    dispatcher._launch_config_overloads[((types.int32,), launch_key)] = compile_result
+    out = cuda.device_array(1, dtype=np.int64)
+    # Seed the Python overload table before the first native launch.
+    store.compile_for(out, np.int32(0))
+    if frozen:
+        store.disable_compile()
 
-    with dispatcher._launch_config_lock:
-        found = dispatcher._find_launch_config_overload_locked(
-            (types.int64,),
-            launch_key,
-        )
+    value = np.int64(2**40 + 3)
+    store[1, 1](out, value)
+    assert out.copy_to_host()[0] == (3 if frozen else value)
+    expected = {types.int32} if frozen else {types.int32, types.int64}
+    assert {sig[-1] for sig in store.signatures} == expected
 
-    assert found is compile_result
-    assert ((types.int64,), launch_key) not in dispatcher._launch_config_overloads
+
+@pytest.mark.parametrize("frozen", [False, True], ids=["automatic", "frozen"])
+def test_launch_config_reuses_compatible_signature_only_when_frozen(frozen):
+    @cuda.jit(extensions=[_LaunchConfigExtension()])
+    def store(out, value):
+        out[0] = value
+
+    out = cuda.device_array(1, dtype=np.int64)
+    launch = store[1, 1]
+    launch(out, np.int32(1))
+    if frozen:
+        store.disable_compile()
+    launch(out, np.int64(2))
+    assert out.copy_to_host()[0] == 2
+    expected = {types.int32} if frozen else {types.int32, types.int64}
+    assert {sig.argtypes[-1] for sig in store.signatures} == expected
+
+
+def test_rate_overload_unfolds_variadic_arguments():
+    sig = (types.int32, types.StarArgUniTuple(types.float32, 2))
+    args = (types.int32, types.float32, types.float64)
+    assert descriptor_mod.MLIRDispatcher._rate_overload(sig, args) == (1, 0, 0)
 
 
 def test_disabled_compile_rejects_nonmatching_launch_specialization():

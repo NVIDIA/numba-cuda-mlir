@@ -83,6 +83,7 @@ _DISPATCHER_STATE_ATTRS = (
     "_launch_config_lock",
     "_launch_lock",
     "_launch_config_overloads",
+    "_argument_type_cache",
     "_resolved_specializations",
     "_launch_config_dispatchers",
     "_launch_config_generation",
@@ -93,6 +94,14 @@ _DISPATCHER_STATE_ATTRS = (
     "_launch_config_cache_notice_emitted",
     "_configure_cache",
     "_configure_cache_inflight",
+)
+
+_VALUE_INDEPENDENT_SCALAR_TYPES = frozenset(
+    (bool, float, complex)
+    + tuple(
+        np.dtype(code).type
+        for code in ("?", "b", "B", "h", "H", "i", "I", "l", "L", "q", "Q", "e", "f", "d", "F", "D")
+    )
 )
 
 
@@ -302,6 +311,7 @@ class _ArgMarshaller:
         self._extensions = list(extensions) if extensions is not None else []
         self._dispatcher = dispatcher
         self._available_launch_config = available_launch_config
+        self._scalar_type_profile = None
         self._stream_ref = stream_ref
         self._launch_stream = launch_stream
         self._adjusted_launcher_key = None
@@ -388,7 +398,7 @@ class _ArgMarshaller:
             case _:
                 return arg
 
-    def _launch(self, argtypes, launch_values):
+    def _launch(self, argtypes, launch_values, raw_scalars=False):
         """Pack and execute the specialization selected by the dispatcher."""
         try:
             specialization = self._dispatcher._resolve_specialization(
@@ -417,7 +427,7 @@ class _ArgMarshaller:
                 )
                 self._adjusted_launcher_key = launcher_key
             return self._adjusted_launcher(
-                *specialization.pack(launch_values),
+                *specialization.pack(launch_values, argtypes, raw_scalars),
                 _specialization=specialization.native,
             )
         except UserFacingInternalCompilerError as e:
@@ -448,6 +458,27 @@ class _ArgMarshaller:
             return self._call_impl(*args)
 
     def _call_impl(self, *args):
+        if not self._extensions and not self._callbacks:
+            pytypes = tuple(map(type, args))
+            profile = self._scalar_type_profile
+            if profile is None or profile[0] != pytypes:
+                scalar_args = all(
+                    cls is int or cls in _VALUE_INDEPENDENT_SCALAR_TYPES for cls in pytypes
+                )
+                raw_scalars = scalar_args and int not in pytypes and np.bool_ not in pytypes
+                semantic_types = (
+                    tuple(self._dispatcher._typeof_argument(value) for value in args)
+                    if raw_scalars
+                    else None
+                )
+                profile = self._scalar_type_profile = (pytypes, scalar_args, semantic_types)
+            if profile[1]:
+                argtypes = profile[2]
+                if argtypes is None:
+                    # Python ints remain value-dependent; NumPy bools need ABI conversion.
+                    argtypes = tuple(self._dispatcher._typeof_argument(value) for value in args)
+                return self._launch(argtypes, args, raw_scalars=profile[2] is not None)
+
         # Extension hooks and host-array copyback setup are per launch. They
         # cannot be skipped by a cache of Python argument classes.
         callbacks = self._callbacks
@@ -1289,13 +1320,24 @@ class _ResolvedSpecialization:
             )
         )
         self.converters = tuple(_argument_converter(item) for item in expanded_types)
+        self._scalar_argument_types = (
+            expanded_types
+            if all(
+                isinstance(ty, (types.Boolean, types.Integer, types.Float, types.Complex))
+                for ty in expanded_types
+            )
+            else None
+        )
         self.native = _cext.KernelSpecialization((*result, post_load, result.array_abi))
         self.dispatcher = dispatcher
         self.launch_config = launch_config
         self.generation = generation
         self.required_sharedmem = cres.metadata.get(_REQUIRED_DYNAMIC_SHARED_MEMORY_KEY, 0)
 
-    def pack(self, values):
+    def pack(self, values, argtypes, raw_scalars):
+        # Semantic uint64 Python ints still need conversion to a native scalar.
+        if raw_scalars and argtypes == self._scalar_argument_types:
+            return values
         packed = []
         for convert, value in zip(self.converters, values):
             _flatten_arg(convert(value) if convert is not None else value, packed)
@@ -1329,6 +1371,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         # Bound launch-qualified overloads and extractor profiles together.
         # Retained launchers resolve again after eviction or recompile().
         self._launch_config_overloads = {}
+        self._argument_type_cache = {}
         self._resolved_specializations = {}
         self._launch_config_dispatchers = collections.OrderedDict()
         self._launch_config_generation = 0
@@ -1509,6 +1552,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 self._launch_lock = _new_dispatcher_rlock() if _PY_GIL_DISABLED else None
             if not hasattr(self, "_launch_config_overloads"):
                 self._launch_config_overloads = {}
+            if not hasattr(self, "_argument_type_cache"):
+                self._argument_type_cache = {}
             if not hasattr(self, "_resolved_specializations"):
                 self._resolved_specializations = {}
             if not hasattr(self, "_launch_config_dispatchers"):
@@ -2233,7 +2278,19 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         return tuple(literalized)
 
     def _typeof_argument(self, value):
-        return typeof(value)
+        """Cache only exact scalar classes whose semantic type is value-independent."""
+        pytype = type(value)
+        if pytype not in _VALUE_INDEPENDENT_SCALAR_TYPES:
+            return typeof(value)
+        cache = self.__dict__.get("_argument_type_cache")
+        if cache is None:
+            self._ensure_dispatcher_state()
+            cache = self._argument_type_cache
+        ty = cache.get(pytype)
+        if ty is None:
+            ty = typeof(value)
+            cache[pytype] = ty
+        return ty
 
     def _specialization_launch_config(self, available_config, extensions):
         if self._requires_launch_config or _extensions_use_launch_config(extensions):
@@ -3098,6 +3155,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             self._launch_config_generation += 1
             self._launch_config_overloads.clear()
             self._resolved_specializations.clear()
+            self._argument_type_cache.clear()
             self._launch_config_dispatchers.clear()
             self._configure_cache.clear()
             inflight = tuple(self._configure_cache_inflight.values())

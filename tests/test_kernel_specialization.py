@@ -70,6 +70,19 @@ def test_tuple_specializations_preserve_element_types(scalar_only, reverse):
     assert len(kernel.signatures) == len(cases)
 
 
+def test_scalar_only_numpy_bool_uses_native_boolean_representation():
+    output = cuda.device_array(1, dtype=np.int32)
+
+    @cuda.jit
+    def kernel(flag):
+        output[0] = 37 if flag else -41
+
+    launch = kernel[1, 1]
+    for flag in (True, False, True):
+        launch(np.bool_(flag))
+        assert output.copy_to_host()[0] == (37 if flag else -41)
+
+
 @pytest.mark.parametrize("scalar_only", [False, True], ids=["array-output", "native-fast"])
 def test_python_integer_signed_unsigned_boundaries(scalar_only):
     output = cuda.device_array(2, dtype=np.int64)

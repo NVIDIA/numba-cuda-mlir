@@ -2462,6 +2462,7 @@ extern "C" __global__ void
     def _warn_legacy_lowering(self, callback):
         if isinstance(callback, DeferredLowering):
             callback = callback.callback
+        callback = inspect.unwrap(callback)
         callback = inspect.unwrap(getattr(callback, "__func__", callback))
         warned = getattr(self, "_warned_legacy_lowerings", None)
         if warned is None:

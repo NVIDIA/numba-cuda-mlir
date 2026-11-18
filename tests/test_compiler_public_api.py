@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import pytest
+
 from numba_cuda_mlir import compiler, cuda, types
 
 
@@ -49,3 +51,22 @@ def test_compile_cubin_does_not_optimize_dispatcher_result(monkeypatch):
 
     assert compiler.compile_cubin(kernel, sig) == b"\x7fELF cached cubin"
     assert dispatcher.compile_calls == [(sig, None, None)]
+
+
+@pytest.mark.parametrize("cc", [(8, 0), (12, 0)], ids=["sm_80", "sm_120"])
+def test_compile_ptx_is_not_nul_terminated(cc):
+    """PTX comes back as text an assembler will accept.
+
+    nvvmGetCompiledResultSize counts the NUL terminator, so returning the whole
+    buffer leaves one on the end. ptxas 13 reports that as
+    "Unexpected EOF encountered", and the string is what inspect_asm() hands
+    users, so they hit it too.
+    """
+
+    def kernel(out):
+        out[0] = 1.0
+
+    ptx, _ = compiler.compile_ptx(kernel, types.void(types.float64[:]), cc=cc)
+
+    assert "\x00" not in ptx
+    assert ptx.endswith("\n"), repr(ptx[-40:])

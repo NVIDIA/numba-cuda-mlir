@@ -55,7 +55,10 @@ case "${kind}" in
         [[ -n "${py_tag}" ]] || usage
         build_hash="$(hash_inputs \
             "${SCRIPT_DIR}/build-llvm-modern.sh" \
-            "${SCRIPT_DIR}/../cext/mlir-python/CMakeLists.txt")"
+            "${SCRIPT_DIR}/../cext/mlir-python/CMakeLists.txt" \
+            "${SCRIPT_DIR}/../cext/mlir-python/Registration.cpp" \
+            "${SCRIPT_DIR}/../cext/mlir-python/Registration.h" \
+            "${SCRIPT_DIR}/../cext/mlir-python/SiteInitialize.cpp")"
         echo "llvm-modern-${os_tag}-$(cache_arch "${host_platform}")-${py_tag}-$(cache_version "${LLVM_MODERN_COMMIT}")-${build_hash}"
         ;;
     llvm7)

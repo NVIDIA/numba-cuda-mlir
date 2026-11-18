@@ -83,7 +83,7 @@ def test_gridsize_is_not_truncated_in_mlir():
 
 
 def test_large_launch_grid_is_never_negative():
-    @cuda.jit("void(int64[::1])")
+    @cuda.jit
     def count_negative_indices(counter):
         if cuda.grid(1) < 0:
             cuda.atomic.add(counter, 0, 1)
@@ -96,7 +96,7 @@ def test_large_launch_grid_is_never_negative():
 
 
 def test_large_launch_gridsize_is_the_true_thread_count():
-    @cuda.jit("void(int64[::1])")
+    @cuda.jit
     def report_gridsize(out):
         if cuda.grid(1) == 0:
             out[0] = cuda.gridsize(1)
@@ -109,7 +109,7 @@ def test_large_launch_gridsize_is_the_true_thread_count():
 
 
 def test_small_launch_grid_1d():
-    @cuda.jit("void(int64[::1])")
+    @cuda.jit
     def write_grid(out):
         i = cuda.grid(1)
         if i < out.size:
@@ -123,7 +123,7 @@ def test_small_launch_grid_1d():
 
 
 def test_small_launch_grid_2d():
-    @cuda.jit("void(int64[:, ::1], int64[:, ::1])")
+    @cuda.jit
     def write_grid(out_x, out_y):
         i, j = cuda.grid(2)
         out_x[i, j] = i
@@ -141,7 +141,7 @@ def test_small_launch_grid_2d():
 
 
 def test_small_launch_grid_3d():
-    @cuda.jit("void(int64[:, :, ::1])")
+    @cuda.jit
     def write_grid(out):
         i, j, k = cuda.grid(3)
         out[i, j, k] = i * 100 + j * 10 + k
@@ -156,7 +156,7 @@ def test_small_launch_grid_3d():
 
 
 def test_small_launch_gridsize():
-    @cuda.jit("void(int64[::1])")
+    @cuda.jit
     def write_gridsize(out):
         out[0] = cuda.gridsize(1)
         out[1], out[2] = cuda.gridsize(2)

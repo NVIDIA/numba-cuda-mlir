@@ -2,6 +2,8 @@ from pathlib import Path
 import os
 import re
 from functools import lru_cache
+from contextlib import contextmanager
+import threading
 from typing import overload
 from numba_cuda_mlir.numba_cuda import itanium_mangler
 from numba_cuda_mlir.numba_cuda import types
@@ -25,10 +27,30 @@ def format_arch(cc: tuple[int, int]) -> str:
     return f"sm_{cc[0]}{cc[1]}"
 
 
+_compilation_target = threading.local()
+
+
+@contextmanager
+def _gpu_target_scope():
+    """Use one device capability snapshot throughout a compilation, including callees."""
+    if getattr(_compilation_target, "host_cc", None) is not None:
+        yield
+        return
+    _compilation_target.host_cc = get_gpu_compute_capability(tuple)
+    try:
+        yield
+    finally:
+        del _compilation_target.host_cc
+
+
 def resolve_gpu_target(targetoptions: dict | None = None) -> dict[str, object]:
     if targetoptions is None:
         targetoptions = {}
 
+    # Use one device snapshot for both the compiler and linker targets.
+    host_cc = getattr(_compilation_target, "host_cc", None)
+    if host_cc is None:
+        host_cc = get_gpu_compute_capability(tuple)
     chip = targetoptions.get("chip")
     if chip:
         arch = chip
@@ -36,11 +58,10 @@ def resolve_gpu_target(targetoptions: dict | None = None) -> dict[str, object]:
         arch_suffix = arch.removeprefix(f"sm_{cc[0]}{cc[1]}")
         arch_specific_cc = (*cc, arch_suffix) if arch_suffix in ("a", "f") else cc
     else:
-        cc = get_gpu_compute_capability(tuple)
+        cc = host_cc
         arch = format_arch(cc)
         arch_specific_cc = cc
 
-    host_cc = get_gpu_compute_capability(tuple)
     host_arch = format_arch(host_cc)
     if cc < host_cc:
         linker_cc = host_cc
@@ -137,9 +158,6 @@ def get_gpu_compute_capability(as_type: type = str) -> str: ...
 def get_gpu_compute_capability(as_type: type = tuple) -> tuple[int, int]: ...
 
 
-_cached_cc: tuple[int, int] | None = None
-
-
 def get_gpu_compute_capability(as_type: type = str) -> str | tuple[int, int]:
     """
     Query the compute capability of the current CUDA device.
@@ -147,19 +165,12 @@ def get_gpu_compute_capability(as_type: type = str) -> str | tuple[int, int]:
     Uses the numba-cuda driver layer so the primary context is shared with
     ``to_device()`` and other device operations.
     """
-    global _cached_cc
     assert as_type in (str, tuple), "as_type must be str or tuple"
-
-    if _cached_cc is not None:
-        if as_type is tuple:
-            return _cached_cc
-        return f"sm_{_cached_cc[0]}{_cached_cc[1]}"
 
     from numba_cuda_mlir.numba_cuda.cudadrv.devices import get_context
 
     ctx = get_context()
     cc = ctx.device.compute_capability
-    _cached_cc = cc
     if as_type is tuple:
         return cc
     return format_arch(cc)
@@ -267,7 +278,6 @@ def _get_dummy_kernel_function():
     return _check_cuda_result(driver.cuKernelGetFunction(kernels[0]))
 
 
-@lru_cache(maxsize=1)
 def is_using_llvm70() -> bool:
     """Return True if the current environment will use the LLVM70 compilation path."""
     from numba_cuda_mlir.mlir_optimization import _needs_llvm70_path

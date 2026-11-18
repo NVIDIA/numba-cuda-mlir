@@ -6,6 +6,10 @@ import inspect
 from typing import Callable, Any, TypeVar
 from numba_cuda_mlir import types, typing
 from functools import lru_cache
+import threading
+import weakref
+
+from numba_cuda_mlir._context_cache import current_context_token
 from numba_cuda_mlir.numba_cuda.typing.templates import (
     ConcreteTemplate,
     AttributeTemplate,
@@ -114,8 +118,8 @@ class CodeLibrary:
         """
         self._cubin = cubin
         self._func_name = func_name
-        self._module = None
-        self._cufunc_cache = {}
+        self._cufunc_cache = weakref.WeakKeyDictionary()
+        self._cufunc_lock = threading.RLock()
 
     def get_cufunc(self):
         """
@@ -124,37 +128,35 @@ class CodeLibrary:
         Returns:
             CUFunc: A wrapper around the CUfunction handle
         """
+        return self._get_module_and_cufunc()[1]
+
+    @property
+    def _module(self):
+        """Current-context module handle for downstream compatibility."""
+        return self._get_module_and_cufunc()[0]
+
+    def _get_module_and_cufunc(self):
         from cuda.bindings import driver
-        from numba_cuda_mlir.numba_cuda.cudadrv import devices
 
-        # Get current device
-        ctx = devices.get_context()
-        device = ctx.device
-        device_id = device.id
+        token = current_context_token()
+        with self._cufunc_lock:
+            cached = self._cufunc_cache.get(token)
+            if cached is not None:
+                return cached
 
-        # Check cache first
-        if device_id in self._cufunc_cache:
-            return self._cufunc_cache[device_id]
-
-        # Load module from cubin
-        result = driver.cuModuleLoadData(self._cubin)
-        if result[0].value != 0:
-            raise RuntimeError(f"cuModuleLoadData failed with error {result[0]}")
-        self._module = result[1]
-
-        # Get function from module
-        result = driver.cuModuleGetFunction(self._module, self._func_name.encode())
-        if result[0].value != 0:
-            raise RuntimeError(
-                f"cuModuleGetFunction failed for '{self._func_name}' with error {result[0]}"
-            )
-        handle = result[1]
-
-        # Wrap and cache
-        cufunc = CUFunc(handle)
-        self._cufunc_cache[device_id] = cufunc
-
-        return cufunc
+            result = driver.cuModuleLoadData(self._cubin)
+            if result[0].value != 0:
+                raise RuntimeError(f"cuModuleLoadData failed with error {result[0]}")
+            module = result[1]
+            result = driver.cuModuleGetFunction(module, self._func_name.encode())
+            if result[0].value != 0:
+                raise RuntimeError(
+                    f"cuModuleGetFunction failed for '{self._func_name}' with error {result[0]}"
+                )
+            cufunc = CUFunc(result[1])
+            cached = (module, cufunc)
+            self._cufunc_cache[token] = cached
+            return cached
 
     def get_kernel_attributes(self):
         """Query kernel resource usage attributes from the CUDA driver."""

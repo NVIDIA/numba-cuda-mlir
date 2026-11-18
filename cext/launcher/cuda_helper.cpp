@@ -14,6 +14,20 @@ const char* get_cuda_error(CUresult res) {
     return str ? str : "Unknown error";
 }
 
+PyObject* get_current_context(PyObject*, PyObject*) {
+    if (!ensure_cuda_available())
+        return NULL;
+
+    CUcontext context;
+    CUresult res = g_cuCtxGetCurrent(&context);
+    if (res == CUDA_ERROR_NOT_INITIALIZED)
+        return PyLong_FromLong(0);
+    if (res != CUDA_SUCCESS)
+        return PyErr_Format(PyExc_RuntimeError, "cuCtxGetCurrent: %s", get_cuda_error(res));
+
+    return PyLong_FromVoidPtr(context);
+}
+
 PyObject* get_max_grid_size(PyObject*, PyObject *args) {
     if (!ensure_cuda_available())
         return NULL;
@@ -62,6 +76,8 @@ PyObject* get_compute_capability(PyObject*, PyObject*) {
 }
 
 static PyMethodDef functions[] = {
+    {"_get_current_context", get_current_context, METH_NOARGS,
+        "Get the active CUDA context handle without creating a context"},
     {"get_compute_capability", get_compute_capability, METH_NOARGS,
         "Get compute capability of the default CUDA device"},
     {"_get_max_grid_size", get_max_grid_size, METH_VARARGS,

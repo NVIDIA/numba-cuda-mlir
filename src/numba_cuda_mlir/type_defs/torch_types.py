@@ -17,9 +17,7 @@ registry = Registry()
 
 @typeof.typeof_impl.register(torch.Tensor)
 def typeof_torch_tensor(val, c):
-    dtype = to_numba_type(val.dtype)
-    ty = types.Array(dtype=dtype, ndim=len(val.shape), layout="C")
-    return ty
+    return typeof._typeof_dlpack(val.__dlpack__, c)
 
 
 @registry.register_attr

@@ -649,17 +649,9 @@ class StaticGetItemArray(AbstractTemplate):
             and isinstance(ary.dtype, types.Record)
         ):
             if idx in ary.dtype.fields:
-                attr_dtype = ary.dtype.typeof(idx)
-                if isinstance(attr_dtype, types.NestedArray):
-                    ret = ary.copy(
-                        dtype=attr_dtype.dtype,
-                        ndim=ary.ndim + attr_dtype.ndim,
-                        layout="A",
-                    )
-                    return signature(ret, *args)
-                else:
-                    ret = ary.copy(dtype=attr_dtype, layout="A")
-                    return signature(ret, *args)
+                from numba_cuda_mlir.array_storage import record_field_array_type
+
+                return signature(record_field_array_type(ary, ary.dtype.fields[idx]), *args)
 
 
 @infer_getattr

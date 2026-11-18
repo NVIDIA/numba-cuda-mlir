@@ -71,9 +71,9 @@ def test_no_llvm_symbol_leak_to_global_scope(cc):
     )
 
 
-def _find_shim() -> Path | None:
-    # CI ships the shim next to the wheel in NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR;
-    # locally, `make -C tests/data` drops it next to this test file.
+def _find_test_lib(name: str = "fake_mlir_shim.so") -> Path | None:
+    # CI ships the test libs next to the wheel in NUMBA_CUDA_MLIR_CUDA_ARTIFACTS_DIR;
+    # locally, `make -C tests/data` drops them next to this test file.
     # NUMBA_CUDA_MLIR_TEST_BIN_DIR is an explicit override for either.
     for candidate in (
         os.environ.get("NUMBA_CUDA_MLIR_TEST_BIN_DIR"),
@@ -82,14 +82,14 @@ def _find_shim() -> Path | None:
     ):
         if not candidate:
             continue
-        p = Path(candidate) / "fake_mlir_shim.so"
+        p = Path(candidate) / name
         if p.is_file():
             return p
     return None
 
 
 def test_poisoned_global_mlir_symbol_does_not_break_modern_path():
-    shim_so = _find_shim()
+    shim_so = _find_test_lib()
     if shim_so is None:
         pytest.skip(
             "fake_mlir_shim.so not found; build with "
@@ -119,6 +119,43 @@ def test_poisoned_global_mlir_symbol_does_not_break_modern_path():
     result = _run(code, env=env)
 
     # Shim was called => process aborts => returncode == -SIGABRT.
+    assert result.returncode == 0, (
+        f"exit={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+
+
+def test_same_named_capi_library_does_not_hijack_bindings():
+    decoy_so = _find_test_lib("fake_mlir_capi.so")
+    if decoy_so is None:
+        pytest.skip(
+            "fake_mlir_capi.so not found; build with "
+            "`make -C tests/data fake_mlir_capi.so` or set NUMBA_CUDA_MLIR_TEST_BIN_DIR"
+        )
+
+    # Another MLIR-based package imported first may have loaded a library with
+    # upstream's default CAPI soname. The loader reuses an already-loaded
+    # library whose soname matches a dependency, so our bindings must not
+    # depend on that name.
+    code = textwrap.dedent(
+        f"""
+        import ctypes
+        ctypes.CDLL({str(decoy_so)!r}, mode=ctypes.RTLD_LOCAL)
+
+        import numba_cuda_mlir  # noqa: F401
+        from numba_cuda_mlir import cuda
+        from numba_cuda_mlir.numba_cuda import types
+
+        def add(x, y):
+            return x + y
+
+        ptx, resty = cuda.compile_ptx(
+            add, types.int32(types.int32, types.int32),
+            device=True, cc=(10, 0),
+        )
+        assert ptx, "empty PTX returned"
+        """
+    )
+    result = _run(code)
     assert result.returncode == 0, (
         f"exit={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )

@@ -63,19 +63,19 @@ def typeof_impl(val, c):
     if tp is not None:
         return tp
 
-    # Check for dlpack objects
-    dlpack = getattr(val, "__dlpack__", None)
-    if dlpack is not None:
-        tp = _typeof_dlpack(dlpack, c)
-        if tp is not None:
-            return tp
-
     # Check for __cuda_array_interface__ objects (third-party device arrays)
 
     # Numba's own DeviceNDArray is handled above via _numba_type_.
     cai = getattr(val, "__cuda_array_interface__", None)
     if cai is not None:
         tp = _typeof_cuda_array_interface(cai, c, getattr(val, "dtype", None))
+        if tp is not None:
+            return tp
+
+    # Check for dlpack objects
+    dlpack = getattr(val, "__dlpack__", None)
+    if dlpack is not None:
+        tp = _typeof_dlpack(dlpack, c)
         if tp is not None:
             return tp
 
@@ -266,6 +266,9 @@ def _typeof_dtype(val, c):
 
 @typeof_impl.register(np.ndarray)
 def _typeof_ndarray(val, c):
+    cai = getattr(val, "__cuda_array_interface__", None)
+    if cai is not None:
+        return _typeof_cuda_array_interface(cai, c, val.dtype)
     if isinstance(val, np.ma.MaskedArray):
         msg = "Unsupported array type: numpy.ma.MaskedArray."
         raise errors.NumbaTypeError(msg)
@@ -275,7 +278,10 @@ def _typeof_ndarray(val, c):
         raise errors.NumbaValueError(f"Unsupported array dtype: {val.dtype}")
     layout = numpy_support.map_layout(val)
     readonly = not val.flags.writeable
-    return types.Array(dtype, val.ndim, layout, readonly=readonly)
+    from numba_cuda_mlir.array_storage import array_is_aligned
+
+    aligned = array_is_aligned(val.dtype, val.ctypes.data, val.strides)
+    return types.Array(dtype, val.ndim, layout, readonly=readonly, aligned=aligned)
 
 
 @typeof_impl.register(types.NumberClass)
@@ -322,7 +328,7 @@ def typeof_numpy_polynomial(val, c):
 
 
 @functools.lru_cache
-def _typeof_cuda_array_interface_cached(*, dtype, shape, strides, readonly: bool):
+def _typeof_cuda_array_interface_cached(*, dtype, shape, strides, readonly: bool, aligned=True):
     # Determine layout
     ndim = len(shape)
     if not ndim:
@@ -330,7 +336,7 @@ def _typeof_cuda_array_interface_cached(*, dtype, shape, strides, readonly: bool
     elif strides is None:
         layout = "C"
     else:
-        itemsize = dtype.bitwidth
+        itemsize = dtype.itemsize
         # Quick rejection: C-contiguous has strides[-1] == itemsize,
         # F-contiguous has strides[0] == itemsize. If neither, it's "A".
         if strides[-1] == itemsize:
@@ -352,7 +358,9 @@ def _typeof_cuda_array_interface_cached(*, dtype, shape, strides, readonly: bool
         else:
             layout = "A"
 
-    return types.Array(dtype, ndim, layout, readonly=readonly)
+    return types.Array(
+        numpy_support.from_dtype(dtype), ndim, layout, readonly=readonly, aligned=aligned
+    )
 
 
 def _typeof_dlpack(val, c):
@@ -365,11 +373,14 @@ def _typeof_dlpack(val, c):
 
         smv_layout = smv._layout
         layout = "C" if smv_layout.is_contiguous_c else "F" if smv_layout.is_contiguous_f else "A"
+        from numba_cuda_mlir.array_storage import array_is_aligned
+
         return types.Array(
             dtype=numpy_support.from_dtype(smv.dtype),
             ndim=len(smv.shape),
             layout=layout,
             readonly=smv.readonly,
+            aligned=array_is_aligned(smv.dtype, smv.ptr, smv_layout.strides_in_bytes),
         )
 
 
@@ -387,15 +398,19 @@ def _typeof_cuda_array_interface(val, c, owner_dtype=None):
     Array Interface. These are typed as regular Array types, with lowering
     handled in numba.cuda.np.arrayobj.
     """
-    dtype = _numba_dtype_from_str(val["typestr"], owner_dtype)
+    dtype = resolve_cuda_array_interface_dtype(val["typestr"], owner_dtype)
     shape = val["shape"]
     strides = val.get("strides")
     _, readonly = val["data"]
+    from numba_cuda_mlir.array_storage import array_is_aligned
+
+    aligned = array_is_aligned(dtype, val["data"][0], strides)
     return _typeof_cuda_array_interface_cached(
         dtype=dtype,
         shape=shape,
         strides=strides,
         readonly=readonly,
+        aligned=aligned,
     )
 
 

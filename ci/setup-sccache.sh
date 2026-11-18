@@ -18,9 +18,21 @@ if [ -z "${AWS_ACCESS_KEY_ID:-}" ]; then
 fi
 
 # --- Configure sccache (S3 only, no disk cache in CI) ---
+# Write to sccache's default config path so a server auto-started by a later
+# compile picks it up too.
+case "$(uname -s)" in
+    MINGW*|MSYS*)
+        config_dir="$(cygpath -u "${APPDATA}")/Mozilla/sccache/config"
+        error_log="$(cygpath -w /tmp)\\sccache.log"
+        ;;
+    *)
+        config_dir="${HOME}/.config/sccache"
+        error_log=/tmp/sccache.log
+        ;;
+esac
 echo ">>> Configuring sccache"
-mkdir -p ~/.config/sccache
-cat <<EOF > ~/.config/sccache/config
+mkdir -p "${config_dir}"
+cat <<EOF > "${config_dir}/config"
 [cache.s3]
 bucket = "rapids-sccache-devs"
 region = "us-east-2"
@@ -33,7 +45,7 @@ EOF
 
 # --- Start sccache daemon ---
 export SCCACHE_IDLE_TIMEOUT=0
-export SCCACHE_ERROR_LOG=/tmp/sccache.log
+export SCCACHE_ERROR_LOG="${error_log}"
 sccache --start-server
 sccache --show-stats
 

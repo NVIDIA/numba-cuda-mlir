@@ -69,7 +69,6 @@ add_mlir_public_c_api_library(NumbaCudaMlirCAPIRegistration
   MLIRSCFDialect
   MLIRShapeDialect
   MLIRTensorDialect
-  MLIRTransformDialect
   MLIRUBDialect
   MLIRVectorDialect
 
@@ -146,8 +145,6 @@ declare_mlir_python_extension(NumbaCudaMlirPythonSources.SiteInitialize
 )
 
 # The dialects numba-cuda-mlir imports from numba_cuda_mlir._mlir.dialects.
-# transform is only there for transform.structured, which tensor.py imports a
-# helper from.
 set(_ncm_declared_sources
   NumbaCudaMlirPythonSources
   MLIRPythonSources.Core
@@ -166,10 +163,7 @@ set(_ncm_declared_sources
   MLIRPythonSources.Dialects.nvvm
   MLIRPythonSources.Dialects.scf
   MLIRPythonSources.Dialects.shape
-  MLIRPythonSources.Dialects.structured_transform
   MLIRPythonSources.Dialects.tensor
-  MLIRPythonSources.Dialects.transform
-  MLIRPythonSources.Dialects.transform.interpreter
   MLIRPythonSources.Dialects.vector
 )
 

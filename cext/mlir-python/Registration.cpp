@@ -78,7 +78,6 @@
 #include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Tensor/Transforms/RuntimeOpVerification.h"
 #include "mlir/Dialect/Tensor/Transforms/SubsetInsertionOpInterfaceImpl.h"
-#include "mlir/Dialect/Transform/IR/TransformDialect.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Vector/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -116,7 +115,6 @@ void numbaCudaMlirRegisterDialects(MlirDialectRegistry cRegistry) {
                   scf::SCFDialect,
                   shape::ShapeDialect,
                   tensor::TensorDialect,
-                  transform::TransformDialect,
                   ub::UBDialect,
                   vector::VectorDialect>();
   // clang-format on

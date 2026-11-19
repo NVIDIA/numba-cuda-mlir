@@ -287,6 +287,7 @@ def test_active_planners_bypass_persistent_dispatch_cache(
             pytest.fail("active planners must not save persistent cache entries")
 
     class CompilerResult:
+        entry_point = None
         signature = cuda_typing.signature(types.none, types.int32)
         metadata = {"cubin": b"compiled", "func_name": "kernel"}
 
@@ -336,6 +337,7 @@ def test_planner_registered_during_compile_prevents_persistent_cache_save(
             self.save_calls += 1
 
     class CompilerResult:
+        entry_point = None
         signature = cuda_typing.signature(types.none, types.int32)
         metadata = {"cubin": b"compiled", "func_name": "kernel"}
 

@@ -927,23 +927,27 @@ def _float_divmod(mlir_lower, x: ir.Value, y: ir.Value) -> tuple[ir.Value, ir.Va
     return floordiv, mod
 
 
-def _int_divmod(signed: bool, x: ir.Value, y: ir.Value) -> tuple[ir.Value, ir.Value]:
-    """Python's integer floor division and modulo.
+def _int_floordiv(signed: bool, x: ir.Value, y: ir.Value) -> ir.Value:
+    return arith.floordivsi(x, y) if signed else arith.divui(x, y)
+
+
+def _int_mod(signed: bool, x: ir.Value, y: ir.Value) -> ir.Value:
+    """Python's integer modulo.
 
     Unsigned needs no correction, because flooring and truncation agree. Signed
     does: arith.remsi truncates toward zero, so the remainder takes the sign of
     the dividend rather than the divisor. Add the divisor back whenever the
     remainder is nonzero and its sign disagrees with the divisor's
-    ((rem ^ y) < 0); arith.floordivsi already floors the quotient.
+    ((rem ^ y) < 0).
     """
     if not signed:
-        return arith.divui(x, y), arith.remui(x, y)
+        return arith.remui(x, y)
     rem = arith.remsi(x, y)
     zero = lowering_utilities.constant(0, rem.type)
     sign_mismatch = arith.cmpi(arith.CmpIPredicate.slt, arith.xori(rem, y), zero)
     rem_nonzero = arith.cmpi(arith.CmpIPredicate.ne, rem, zero)
     needs_fix = arith.andi(sign_mismatch, rem_nonzero)
-    return arith.floordivsi(x, y), arith.addi(rem, arith.select(needs_fix, y, zero))
+    return arith.addi(rem, arith.select(needs_fix, y, zero))
 
 
 @lower(operator.mod, types.Number, types.Number)
@@ -959,7 +963,7 @@ def mod_cg(builder, target, args, kwargs):
 
     match target_mlir_type:
         case ir.IntegerType():
-            _, result = _int_divmod(target_type.signed, lhs, rhs)
+            result = _int_mod(target_type.signed, lhs, rhs)
         case ir.FloatType():
             _, result = _float_divmod(builder, lhs, rhs)
         case _:
@@ -1099,7 +1103,7 @@ def floordiv_cg(builder, target, args, kwargs):
         case ir.IntegerType():
             # Result type selects signed or unsigned floor division. Operand
             # conversion signedness was handled independently above.
-            result, _ = _int_divmod(target_type.signed, lhs, rhs)
+            result = _int_floordiv(target_type.signed, lhs, rhs)
         case _:
             raise ValueError(f"Unsupported type for floor division: {target_mlir_type}")
 
@@ -1122,7 +1126,8 @@ def divmod_cg(builder, target, args, kwargs):
         case ir.FloatType():
             quotient, remainder = _float_divmod(builder, lhs, rhs)
         case ir.IntegerType():
-            quotient, remainder = _int_divmod(element_type.signed, lhs, rhs)
+            quotient = _int_floordiv(element_type.signed, lhs, rhs)
+            remainder = _int_mod(element_type.signed, lhs, rhs)
         case _:
             raise NotImplementedError(f"divmod not implemented for {element_mlir_type=}")
     builder.store_var(target, (quotient, remainder))

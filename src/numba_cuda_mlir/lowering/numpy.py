@@ -1567,8 +1567,7 @@ def lower_array_view_cg(builder, target, args, kwargs):
 
     def _dispatch(axis_idx: int) -> ir.Value:
         if axis_idx < 0:
-            if error_memref is not None:
-                set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+            set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
             return memref_dialect.reinterpret_cast(
                 target_mr,
                 retyped,
@@ -1626,25 +1625,24 @@ def lower_uni_tuple_getitem(builder, target, args, kwargs):
             error_memref = builder._get_or_create_error_global()
             cases = ir.DenseI64ArrayAttr.get(range(len(tup)))
 
-            if error_memref is not None:
-                # The bounds check lives in its own zero-result switch
-                # so that selections with no leaf switches (empty-tuple
-                # elements) are still checked; the leaf switches below
-                # only select.
-                def oob_default(op):
-                    set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[IndexError])
-                    scf.yield_([])
+            # The bounds check lives in its own zero-result switch
+            # so that selections with no leaf switches (empty-tuple
+            # elements) are still checked; the leaf switches below
+            # only select.
+            def oob_default(op):
+                set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[IndexError])
+                scf.yield_([])
 
-                def oob_case(op, case_index, case_value):
-                    scf.yield_([])
+            def oob_case(op, case_index, case_value):
+                scf.yield_([])
 
-                scf.index_switch(
-                    results=[],
-                    arg=index,
-                    cases=cases,
-                    default_body_builder=oob_default,
-                    case_body_builder=oob_case,
-                )
+            scf.index_switch(
+                results=[],
+                arg=index,
+                cases=cases,
+                default_body_builder=oob_default,
+                case_body_builder=oob_case,
+            )
 
             def select(candidates, element_type):
                 # candidates[i] is the value this selection yields when the
@@ -2000,11 +1998,10 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
                 sizes.append(end - start)
                 strides.append(step or 1)
                 is_scalar.append(False)
-                if error_memref is not None:
-                    is_not_positive = arith.cmpi(arith.CmpIPredicate.sle, strides[-1], zero)
-                    with scf.if_ctx_manager(is_not_positive):
-                        set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
-                        scf.yield_([])
+                is_not_positive = arith.cmpi(arith.CmpIPredicate.sle, strides[-1], zero)
+                with scf.if_ctx_manager(is_not_positive):
+                    set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+                    scf.yield_([])
             case int() | ir.Value() as value:
                 index_type = tuple_numba_type.types[dim]
                 offsets.append(_normalize_negative_index(array, value, dim, index_type))
@@ -5693,10 +5690,10 @@ def _intrinsic_axis(builder, arg, rank):
         axis,
     )
     invalid = arith.cmpi(arith.CmpIPredicate.uge, axis, index_of(rank))
-    if error_memref := builder._get_or_create_error_global():
-        with scf.if_ctx_manager(invalid):
-            set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
-            scf.yield_([])
+    error_memref = builder._get_or_create_error_global()
+    with scf.if_ctx_manager(invalid):
+        set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+        scf.yield_([])
     return axis
 
 
@@ -5743,16 +5740,16 @@ def _intrinsic_concat(builder, target, arrays, axis):
             total = arith.addi(total, member[dim])
         is_axis = arith.cmpi(arith.CmpIPredicate.eq, axis, index_of(dim))
         shape.append(arith.select(is_axis, total, sizes[0][dim]))
-        if error_memref := builder._get_or_create_error_global():
-            for member in sizes[1:]:
-                mismatch = arith.cmpi(arith.CmpIPredicate.ne, member[dim], sizes[0][dim])
-                invalid = arith.andi(
-                    mismatch,
-                    arith.xori(is_axis, arith.constant(result=T.bool(), value=1)),
-                )
-                with scf.if_ctx_manager(invalid):
-                    set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
-                    scf.yield_([])
+        error_memref = builder._get_or_create_error_global()
+        for member in sizes[1:]:
+            mismatch = arith.cmpi(arith.CmpIPredicate.ne, member[dim], sizes[0][dim])
+            invalid = arith.andi(
+                mismatch,
+                arith.xori(is_axis, arith.constant(result=T.bool(), value=1)),
+            )
+            with scf.if_ctx_manager(invalid):
+                set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+                scf.yield_([])
 
     result = _intrinsic_alloc(builder, target, shape)
     offset = index_of(0)
@@ -5801,13 +5798,13 @@ def _intrinsic_select_axis(axis, candidates):
 def _intrinsic_stack(builder, target, arrays, axis, leading_units=0, trailing_units=0):
     rank = arrays[0].type.rank
     input_sizes = [[memref.dim(array, index_of(i)) for i in range(rank)] for array in arrays]
-    if error_memref := builder._get_or_create_error_global():
-        for member in input_sizes[1:]:
-            for left, right in zip(input_sizes[0], member):
-                mismatch = arith.cmpi(arith.CmpIPredicate.ne, left, right)
-                with scf.if_ctx_manager(mismatch):
-                    set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
-                    scf.yield_([])
+    error_memref = builder._get_or_create_error_global()
+    for member in input_sizes[1:]:
+        for left, right in zip(input_sizes[0], member):
+            mismatch = arith.cmpi(arith.CmpIPredicate.ne, left, right)
+            with scf.if_ctx_manager(mismatch):
+                set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+                scf.yield_([])
 
     candidate_shapes = []
     for insertion_axis in range(rank + 1):

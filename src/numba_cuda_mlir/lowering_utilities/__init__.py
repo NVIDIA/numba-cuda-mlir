@@ -25,7 +25,6 @@ from numba_cuda_mlir._mlir.dialects import (
     func,
     gpu,
     llvm,
-    cf,
     builtin,
     complex as complex_dialect,
     vector as vector_dialect,
@@ -971,16 +970,6 @@ def set_error_code_if_zero(error_ptr: ir.Value, error_code: int):
     )
 
 
-def set_error_and_return(
-    condition: ir.Value, error_memref: ir.Value, error_code: int, return_block: ir.Block
-):
-    """If condition is false, set error code and branch to return block."""
-    with scf.if_ctx_manager(arith.cmpi(arith.CmpIPredicate.eq, condition, false())):
-        set_error_code_if_zero(error_memref, error_code)
-        cf.br([], return_block)
-        scf.yield_([])
-
-
 def bool_of(value: ir.Value | bool) -> ir.Value:
     match value:
         case ir.Value():
@@ -1479,13 +1468,12 @@ class RangeObject:
 
         # Step must not be zero - add runtime check if error checking is enabled
         error_memref = lower._get_or_create_error_global()
-        if error_memref is not None:
-            from numba_cuda_mlir.mlir_lowering import KERNEL_ERROR_CODES
+        from numba_cuda_mlir.mlir_lowering import KERNEL_ERROR_CODES
 
-            step_is_zero = arith.cmpi(predicate=arith.CmpIPredicate.eq, lhs=step_val, rhs=zero)
-            with scf.if_ctx_manager(step_is_zero):
-                set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ZeroDivisionError])
-                scf.yield_([])
+        step_is_zero = arith.cmpi(predicate=arith.CmpIPredicate.eq, lhs=step_val, rhs=zero)
+        with scf.if_ctx_manager(step_is_zero):
+            set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ZeroDivisionError])
+            scf.yield_([])
 
         # Compute trip-count in i64 to avoid issues with mixed signed/unsigned
         # semantics on narrow integer types, then truncate back.
@@ -2038,15 +2026,14 @@ def broadcast_shapes_for_binary_op(
             is_broadcastable = shape.is_broadcastable([sa, sb])
             if builder is not None:
                 error_memref = builder._get_or_create_error_global()
-                if error_memref is not None:
-                    from numba_cuda_mlir.mlir_lowering import KERNEL_ERROR_CODES
+                from numba_cuda_mlir.mlir_lowering import KERNEL_ERROR_CODES
 
-                    not_broadcastable = arith.xori(
-                        is_broadcastable, arith.constant(result=T.i(1), value=1)
-                    )
-                    with scf.if_ctx_manager(not_broadcastable):
-                        set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
-                        scf.yield_([])
+                not_broadcastable = arith.xori(
+                    is_broadcastable, arith.constant(result=T.i(1), value=1)
+                )
+                with scf.if_ctx_manager(not_broadcastable):
+                    set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+                    scf.yield_([])
             sh = shape.broadcast(shapes=[sb, sa], result=sa.type)
             a, b = tensor.reshape(a, sh), tensor.reshape(b, sh)
             return a, b

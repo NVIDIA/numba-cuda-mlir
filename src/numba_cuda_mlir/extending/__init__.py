@@ -5,6 +5,11 @@ from types import MappingProxyType
 
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core import targetconfig
+from numba_cuda_mlir.numba_cuda.core.typeinfer import (
+    TypeInferExtension,
+    register_typeinfer_extension,
+    unregister_typeinfer_extension,
+)
 from numba_cuda_mlir.numba_cuda.datamodel.registry import register
 from numba_cuda_mlir.numba_cuda.typing.asnumbatype import as_numba_type
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof_impl
@@ -43,6 +48,7 @@ register_model = functools.partial(register, mlir_data_manager)
 
 __all__ = [
     "ArgumentHandler",
+    "TypeInferExtension",
     "WholeFunctionPlanner",
     "intrinsic",
     "lowering_registry",
@@ -51,6 +57,7 @@ __all__ = [
     "lower_cast",
     "refresh_registries",
     "register_planner",
+    "register_typeinfer_extension",
     "require_launch_config",
     "set_required_dynamic_shared_memory",
     "overload",
@@ -60,6 +67,7 @@ __all__ = [
     "type_callable",
     "typing_registry",
     "typeof_impl",
+    "unregister_typeinfer_extension",
 ]
 
 _overload_default_jit_options = {"no_cpython_wrapper": True, "nopython": True}

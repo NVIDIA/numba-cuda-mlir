@@ -1005,7 +1005,7 @@ extern "C" __global__ void
 
     def _build_memref_descriptor(self, ptr, shape, strides):
         struct_type = memref_descriptor_type(len(shape))
-        i64c = lambda v: arith.constant(T.i64(), v)
+        i64c = lambda v: arith.constant(T.i64(), operator.index(v))
         ins = lambda d, v, *p: llvm.insertvalue(
             container=d, value=v, position=ir.DenseI64ArrayAttr.get(list(p))
         )

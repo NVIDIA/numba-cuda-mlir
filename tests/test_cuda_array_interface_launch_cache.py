@@ -5,7 +5,6 @@ import numpy as np
 import pytest
 
 from numba_cuda_mlir import cuda
-from numba_cuda_mlir.descriptor import _ArgMarshaller
 
 
 class FakeCudaArray:
@@ -24,23 +23,31 @@ class FakeCudaArray:
 
 
 def test_cuda_array_interface_launch_rejects_masked_arrays():
-    configured = _ArgMarshaller(lambda *args: None)
+    @cuda.jit
+    def kernel(ary):
+        ary[0] = 1
+
+    configured = kernel[1, 1]
 
     with pytest.raises(NotImplementedError, match="Masked arrays are not supported"):
         configured(FakeCudaArray(mask=object()))
 
 
-def test_cuda_array_interface_signature_cache_tracks_readonly():
-    configured = _ArgMarshaller(lambda *args: None)
-    mutable = FakeCudaArray(readonly=False)
-    readonly = FakeCudaArray(readonly=True)
+def test_cuda_array_interface_signatures_track_readonly_and_reuse_extents():
+    @cuda.jit
+    def read(ary, out):
+        out[0] = ary[0]
 
-    configured(mutable)
-    type_key = (FakeCudaArray,)
-    assert len(configured._array_sig_cache[type_key]) == 1
-
-    configured(readonly)
-    assert len(configured._array_sig_cache[type_key]) == 2
+    owner = cuda.to_device(np.full(4, 37, dtype=np.float32))
+    out = cuda.device_array(1, dtype=np.float32)
+    launch = read[1, 1]
+    view = FakeCudaArray()
+    for readonly, size in ((False, 4), (True, 4), (False, 2)):
+        view.__cuda_array_interface__["shape"] = (size,)
+        view.__cuda_array_interface__["data"] = (owner.device_ctypes_pointer.value, readonly)
+        launch(view, out)
+        assert out.copy_to_host()[0] == 37
+    assert sorted(sig[0].mutable for sig in read.signatures) == [False, True]
 
 
 def test_cupy_launch_does_not_reconstruct_device_arrays(monkeypatch):
@@ -74,7 +81,7 @@ def test_cupy_launch_does_not_reconstruct_device_arrays(monkeypatch):
     assert calls == []
 
 
-def test_cupy_array_signature_cache_tracks_dtype_and_ndim():
+def test_cupy_launch_preserves_array_dtype_across_repeated_calls():
     cp = pytest.importorskip("cupy")
     import numba_cuda_mlir.type_defs.cupy_types  # noqa: F401
 
@@ -84,29 +91,15 @@ def test_cupy_array_signature_cache_tracks_dtype_and_ndim():
         if i < out.size:
             out[i] = a[i] + b[i]
 
-    configured = add[1, 32]
+    configured = add[1, 64]
 
-    a32 = cp.arange(32, dtype=cp.float32)
-    b32 = cp.ones(32, dtype=cp.float32)
-    out32 = cp.zeros(32, dtype=cp.float32)
-    configured(a32, b32, out32)
-
-    type_key = (type(a32), type(b32), type(out32))
-    assert len(configured._array_sig_cache[type_key]) == 1
-
-    a32_b = cp.arange(64, dtype=cp.float32)
-    b32_b = cp.ones(64, dtype=cp.float32)
-    out32_b = cp.zeros(64, dtype=cp.float32)
-    configured(a32_b, b32_b, out32_b)
-    assert len(configured._array_sig_cache[type_key]) == 1
-
-    a64 = cp.arange(32, dtype=cp.float64)
-    b64 = cp.ones(32, dtype=cp.float64)
-    out64 = cp.zeros(32, dtype=cp.float64)
-    configured(a64, b64, out64)
-
-    assert len(configured._array_sig_cache[type_key]) == 2
-    np.testing.assert_allclose(cp.asnumpy(out64), cp.asnumpy(a64 + b64))
+    for dtype, size in ((cp.float32, 32), (cp.float32, 64), (cp.float64, 32), (cp.float32, 32)):
+        a = cp.arange(size, dtype=dtype)
+        b = cp.ones(size, dtype=dtype)
+        out = cp.zeros(size, dtype=dtype)
+        configured(a, b, out)
+        np.testing.assert_array_equal(cp.asnumpy(out), cp.asnumpy(a + b))
+    assert len(add.signatures) == 2
 
 
 class _StorageView:

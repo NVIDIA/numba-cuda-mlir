@@ -1842,8 +1842,7 @@ class Stream:
             weakref.finalize(self, finalizer)
 
     def __int__(self):
-        # The default stream's handle.value is 0, which gives `None`
-        return int(self.handle) or binding.CUstream_flags.CU_STREAM_DEFAULT
+        return int(self.handle)
 
     def __cuda_stream__(self):
         if not self.handle:

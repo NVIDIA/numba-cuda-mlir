@@ -29,6 +29,7 @@ from numba_cuda_mlir.extending import (
 )
 from numba_cuda_mlir.numba_cuda.compiler import run_frontend
 from numba_cuda_mlir.numba_cuda.core import ir
+from numba_cuda_mlir.numba_cuda.core.errors import NumbaPerformanceWarning
 from numba_cuda_mlir.numba_cuda.core.ir_utils import build_definitions
 
 
@@ -418,12 +419,20 @@ def test_retained_launch_launcher_rebinds_after_recompile(isolated_global_planne
 
     try:
         _RECOMPILE_VALUE = 1
-        retained_launcher(out)
+        with pytest.warns(
+            NumbaPerformanceWarning,
+            match="Persistent disk cache is disabled for launch-config-specialized compiles",
+        ):
+            retained_launcher(out)
         retained_generation = retained_launcher._launch_config_generation
         kernel.extensions.clear()
         _RECOMPILE_VALUE = 2
         kernel.recompile()
-        retained_launcher(out)
+        with pytest.warns(
+            NumbaPerformanceWarning,
+            match="Persistent disk cache is disabled for launch-config-specialized compiles",
+        ):
+            retained_launcher(out)
 
         assert out[0] == 2
         assert retained_launcher._launch_config_generation != retained_generation
@@ -666,7 +675,11 @@ def test_planner_can_request_distinct_launch_config_specializations(
     output32 = np.zeros(1, dtype=np.int32)
     output64 = np.zeros(1, dtype=np.int32)
 
-    launch32(output32)
+    with pytest.warns(
+        NumbaPerformanceWarning,
+        match="Persistent disk cache is disabled for launch-config-specialized compiles",
+    ):
+        launch32(output32)
     launch64(output64)
     launch32(output32)
 
@@ -761,12 +774,16 @@ def test_literal_retry_crosses_launch_config_and_dynamic_shared_memory(
         32: (1, True, 0, False, 3, 7),
         64: (True, 1, False, 0, 3, 7),
     }
-    for block_size, selectors in selector_orders.items():
-        for selector in selectors:
-            output = np.zeros(1, dtype=np.int32)
-            kernel[1, block_size](output, selector)
-            type_bias = 1000 if isinstance(selector, bool) else 0
-            assert output[0] == selector + block_size + type_bias
+    with pytest.warns(
+        NumbaPerformanceWarning,
+        match="Persistent disk cache is disabled for launch-config-specialized compiles",
+    ):
+        for block_size, selectors in selector_orders.items():
+            for selector in selectors:
+                output = np.zeros(1, dtype=np.int32)
+                kernel[1, block_size](output, selector)
+                type_bias = 1000 if isinstance(selector, bool) else 0
+                assert output[0] == selector + block_size + type_bias
 
     assert kernel._requires_launch_config is True
     assert kernel._literal_arg_positions == frozenset({1})

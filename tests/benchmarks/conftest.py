@@ -38,6 +38,10 @@ def pytest_addoption(parser):
 
 def pytest_configure(config):
     config._benchmark_results = []
+    config.addinivalue_line(
+        "filterwarnings",
+        "ignore:The 'generic' unit for NumPy timedelta is deprecated:DeprecationWarning:numba.cuda.np.npdatetime_helpers",
+    )
 
 
 def pytest_sessionfinish(session, exitstatus):

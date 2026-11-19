@@ -113,7 +113,7 @@ class TestCudaDateTime(NumbaCUDATestCase):
 
     def test_timedelta_view_as_int64(self):
         arr = np.arange("2005-02", "2006-02", dtype="datetime64[D]")
-        arr = arr - (arr - 1)
+        arr = arr - (arr - np.timedelta64(1, "D"))
         self.assertEqual(arr.dtype, np.dtype("timedelta64[D]"))
         darr = cuda.to_device(arr)
         viewed = darr.view(np.int64)

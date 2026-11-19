@@ -135,6 +135,9 @@ class TestCudaCooperativeGroups:
         assert blocks1d == blocks2d
         assert blocks1d == blocks3d
 
+    @pytest.mark.filterwarnings(
+        r"ignore:NVRTC log messages.*warning #20054-D.*dynamic initialization is not supported:UserWarning"
+    )
     def test_external_cooperative_func(self):
         cudapy_test_path = os.path.dirname(__file__)
         tests_path = os.path.dirname(cudapy_test_path)

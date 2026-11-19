@@ -5,6 +5,7 @@ import sys
 from typing import List
 from dataclasses import dataclass, field
 import numba_cuda_mlir
+from numba_cuda_mlir import cuda  # noqa: F401  (binds numba_cuda_mlir.cuda)
 from numba_cuda_mlir.numba_cuda.types import float32
 from numba_cuda_mlir.compiler import compile_ptx
 from math import cos, sin, tan, exp, log, log10, log2, pow, tanh, nextafter
@@ -28,7 +29,12 @@ class FastMathCriterion:
         test.assertTrue(all(i not in prec for i in self.prec_unexpected))
 
 
-@pytest.mark.xfail(True, reason="Fastmath tests need new patterns")
+# The PTX pattern assertions below have not been updated for this backend, so
+# they are marked individually. test_divf_exception checks behaviour rather
+# than a pattern and does pass.
+_needs_new_patterns = pytest.mark.xfail(True, reason="Fastmath tests need new patterns")
+
+
 class TestFastMathOption(NumbaCUDATestCase):
     def _test_fast_math_common(self, pyfunc, sig, device, criterion):
         # Test jit code path
@@ -70,6 +76,7 @@ class TestFastMathOption(NumbaCUDATestCase):
         )
         self._test_fast_math_common(device, (float32, float32), device=True, criterion=criterion)
 
+    @_needs_new_patterns
     def test_cosf(self):
         self._test_fast_math_unary(
             cos,
@@ -79,6 +86,7 @@ class TestFastMathOption(NumbaCUDATestCase):
             ),
         )
 
+    @_needs_new_patterns
     def test_sinf(self):
         self._test_fast_math_unary(
             sin,
@@ -88,6 +96,7 @@ class TestFastMathOption(NumbaCUDATestCase):
             ),
         )
 
+    @_needs_new_patterns
     def test_tanf(self):
         self._test_fast_math_unary(
             tan,
@@ -101,6 +110,7 @@ class TestFastMathOption(NumbaCUDATestCase):
             ),
         )
 
+    @_needs_new_patterns
     def test_tanhf(self):
         self._test_fast_math_unary(
             tanh,
@@ -110,6 +120,7 @@ class TestFastMathOption(NumbaCUDATestCase):
             ),
         )
 
+    @_needs_new_patterns
     def test_tanhf_compile_ptx(self):
         def tanh_kernel(r, x):
             r[0] = tanh(x)
@@ -124,6 +135,7 @@ class TestFastMathOption(NumbaCUDATestCase):
 
         criterion.check(self, fastptx, precptx)
 
+    @_needs_new_patterns
     def test_expf(self):
         self._test_fast_math_unary(
             exp,
@@ -131,6 +143,7 @@ class TestFastMathOption(NumbaCUDATestCase):
         )
 
     @pytest.mark.skipif(sys.version_info < (3, 11), reason="Python 3.11+ required")
+    @_needs_new_patterns
     def test_exp2f(self):
         from math import exp2
 
@@ -143,6 +156,7 @@ class TestFastMathOption(NumbaCUDATestCase):
             ),
         )
 
+    @_needs_new_patterns
     def test_logf(self):
         # Look for constant used to convert from log base 2 to log base e
         self._test_fast_math_unary(
@@ -153,6 +167,7 @@ class TestFastMathOption(NumbaCUDATestCase):
             ),
         )
 
+    @_needs_new_patterns
     def test_log10f(self):
         # Look for constant used to convert from log base 2 to log base 10
         self._test_fast_math_unary(
@@ -163,6 +178,7 @@ class TestFastMathOption(NumbaCUDATestCase):
             ),
         )
 
+    @_needs_new_patterns
     def test_log2f(self):
         self._test_fast_math_unary(
             log2,
@@ -172,6 +188,7 @@ class TestFastMathOption(NumbaCUDATestCase):
             ),
         )
 
+    @_needs_new_patterns
     def test_powf(self):
         self._test_fast_math_binary(
             pow,
@@ -181,6 +198,7 @@ class TestFastMathOption(NumbaCUDATestCase):
             ),
         )
 
+    @_needs_new_patterns
     def test_nextafterf(self):
         self._test_fast_math_binary(
             nextafter,
@@ -190,6 +208,7 @@ class TestFastMathOption(NumbaCUDATestCase):
             ),
         )
 
+    @_needs_new_patterns
     def test_divf(self):
         self._test_fast_math_binary(
             truediv,

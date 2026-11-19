@@ -2699,6 +2699,15 @@ llvm::Error MLIRToLLVM70::translateNVVMOp(Operation *op) {
         b.buildCall(asmVal, nullptr, 0, "");
         return llvm::Error::success();
       })
+      .Case<NVVM::Exit>([&](auto) {
+        // Inline PTX rather than llvm.nvvm.exit, which postdates LLVM 7.
+        // Same reason the barrier and breakpoint paths above use asm.
+        LLVMTypeRef fnTy = b.funcTy(b.voidTy(), nullptr, 0, false);
+        LLVMValueRef asmVal =
+            b.constInlineAsm(fnTy, "exit;", "", true, false);
+        b.buildCall(asmVal, nullptr, 0, "");
+        return llvm::Error::success();
+      })
       .Default([&](Operation *o) {
         return llvm::createStringError(
             llvm::inconvertibleErrorCode(), "unsupported NVVM op: %s",

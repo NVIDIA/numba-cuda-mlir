@@ -28,6 +28,7 @@ from numba_cuda_mlir._mlir.dialects import (
     cf,
     builtin,
     complex as complex_dialect,
+    nvvm,
     vector as vector_dialect,
 )
 from numba_cuda_mlir.mlir.dialect_exts import scf
@@ -1016,6 +1017,12 @@ def guard_zero_division(builder, divisor: ir.Value):
     error_ptr = builder._get_or_create_error_global()
     with scf.if_ctx_manager(is_zero):
         set_error_code_if_zero(error_ptr, KERNEL_ERROR_CODES[ZeroDivisionError])
+        # Stop the lane here. Recording the code and falling through would run
+        # the undefined divide and every store after it, so the host raises
+        # only once the kernel has already written results CPython would never
+        # have produced. `exit` ends this thread alone; the others finish and
+        # the host reads the code after synchronising.
+        nvvm.exit()
         scf.yield_([])
 
 

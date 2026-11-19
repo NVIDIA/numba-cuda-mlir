@@ -151,6 +151,11 @@ def test_raise_happens_before_the_store():
 
     This is what the vendored ``test_zero_division_error_in_debug`` asserts
     with ``"Expected result to be left unset"``.
+
+    The output has to be a device array. A host array is staged, and the
+    copy back is skipped once the launch raises, so it reads as untouched
+    whatever the kernel wrote -- the assertions below pass against a kernel
+    that stores ``inf`` and then keeps going.
     """
 
     def body(r, x, y):
@@ -158,11 +163,36 @@ def test_raise_happens_before_the_store():
         r[1] = y[0]
 
     kernel = cuda.jit(debug=True, opt=False)(body)
-    r = np.zeros(2)
+    r = cuda.to_device(np.zeros(2))
     with pytest.raises(ZeroDivisionError):
         kernel[1, 1](r, np.zeros(1), np.ones(1))
-    assert r[0] == 0
-    assert r[1] == 0
+    written = r.copy_to_host()
+    assert written[0] == 0, written
+    assert written[1] == 0, written
+
+
+def test_faulting_lane_does_not_block_a_later_barrier():
+    """Lanes that did not fault still finish.
+
+    The faulting lane leaves via ``exit``, which drops it from barrier
+    participation rather than stranding its block at the next
+    ``syncthreads``.
+    """
+
+    def body(out, denom):
+        i = cuda.grid(1)
+        out[i] = 1.0 / denom[i]
+        cuda.syncthreads()
+        out[i] += 1.0
+
+    kernel = cuda.jit(debug=True, opt=False)(body)
+    out = cuda.to_device(np.zeros(4))
+    with pytest.raises(ZeroDivisionError):
+        kernel[1, 4](out, cuda.to_device(np.array([0.0, 2.0, 4.0, 8.0])))
+
+    written = out.copy_to_host()
+    assert written[0] == 0, written
+    np.testing.assert_allclose(written[1:], [1.5, 1.25, 1.125])
 
 
 # --------------------------------------------------------------------------

@@ -12,10 +12,21 @@ from numba_cuda_mlir.numba_cuda.typing.typeof import Purpose, typeof
 
 
 class Dispatcher:
+    """Stand in for the decorated function and own its compiled overloads.
+
+    Calls select argument types, reuse a matching overload or compile one when
+    compilation is enabled, then invoke its native entry point. Overloads are
+    keyed by argument-type tuples.
+
+    Preserves the original function's metadata and exposes compiled signatures
+    and IR through the inspection methods.
+    """
+
     def __init__(self, py_func, targetoptions):
         self.py_func = py_func
         self.targetoptions = targetoptions
         self.overloads = {}
+        # Allow new overloads until explicit-signature setup disables compilation.
         self._can_compile = True
         self._signature = inspect.signature(py_func)
         self._arg_annotations = tuple(

@@ -20,6 +20,13 @@ from numba_cuda_mlir.numba_cuda.flags import Flags
 
 @dataclass
 class HostCompileResult:
+    """Hold one compiled host specialization.
+
+    Contains its signature, function descriptor, compiler metadata, and host
+    and LLVM-dialect IR snapshots. The entry point is a Python-callable wrapper;
+    the retained execution engine owns the native code and runtime callbacks.
+    """
+
     signature: typing.Signature
     fndesc: Any
     mlir: str

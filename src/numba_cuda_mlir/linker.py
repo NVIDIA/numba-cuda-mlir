@@ -119,6 +119,12 @@ class Linker(_Linker):
         cc = parse_compute_capability(arch)
         suffix = arch.removeprefix(format_arch(cc))
         if suffix in ("a", "f"):
+            minimum_cc = (9, 0) if suffix == "a" else (10, 0)
+            if cc < minimum_cc:
+                raise ValueError(
+                    f"CUDA architecture suffix {suffix!r} requires compute capability "
+                    f"{minimum_cc[0]}.{minimum_cc[1]} or higher; got {arch!r}"
+                )
             cc = (*cc, suffix)
         elif suffix:
             raise ValueError(

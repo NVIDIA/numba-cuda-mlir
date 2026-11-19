@@ -120,6 +120,11 @@ class Linker(_Linker):
         suffix = arch.removeprefix(format_arch(cc))
         if suffix in ("a", "f"):
             cc = (*cc, suffix)
+        elif suffix:
+            raise ValueError(
+                f"Invalid CUDA architecture suffix {suffix!r} in {arch!r}; "
+                "expected no suffix, 'a', or 'f'"
+            )
         super().__init__(
             cc=cc,
             additional_flags=additional_flags,

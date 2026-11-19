@@ -354,6 +354,10 @@ def _prepare_llvm_ir(module, dump=False) -> bytes:
     gpu_mod = _get_single_gpu_module(module)
     gpu_mod.operation.attributes["llvm.data_layout"] = ir.StringAttr.get(NVPTX64_DATALAYOUT)
     gpu_mod.operation.attributes["llvm.target_triple"] = ir.StringAttr.get(NVPTX64_TRIPLE)
+    # Conversion-generated declarations must not inherit a caller's DISubprogram.
+    for op in gpu_mod.regions[0].blocks[0].operations:
+        if isinstance(op, llvm.LLVMFuncOp) and not op.body.blocks:
+            op.location = ir.Location.unknown()
     ctk_major, ctk_minor = get_cuda_runtime_version()
     nvvm_ir_version = _get_nvvm_ir_version()
 

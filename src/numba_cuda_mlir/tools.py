@@ -15,14 +15,15 @@ def parse_compute_capability(compute_cap: str) -> tuple[int, int]:
         raise ValueError(f"Invalid compute capability: {compute_cap}")
 
 
-def format_arch(cc: tuple[int, int]) -> str:
+def format_arch(cc: tuple[int, int] | tuple[int, int, str]) -> str:
     """
     Format a compute capability tuple as an sm_XX[a] string.
 
     Args:
         cc: Compute capability as (major, minor) tuple
     """
-    return f"sm_{cc[0]}{cc[1]}"
+    suffix = cc[2] if len(cc) == 3 else ""
+    return f"sm_{cc[0]}{cc[1]}{suffix}"
 
 
 def resolve_gpu_target(targetoptions: dict | None = None) -> dict[str, object]:
@@ -37,13 +38,13 @@ def resolve_gpu_target(targetoptions: dict | None = None) -> dict[str, object]:
         arch_specific_cc = (*cc, arch_suffix) if arch_suffix in ("a", "f") else cc
     else:
         cc = get_gpu_compute_capability(tuple)
-        arch = format_arch(cc)
-        arch_specific_cc = cc
+        arch = get_gpu_compute_capability(str)
+        arch_specific_cc = (*cc, "a") if cc >= (9, 0) else cc
 
     host_cc = get_gpu_compute_capability(tuple)
-    host_arch = format_arch(host_cc)
+    host_arch = get_gpu_compute_capability(str)
     if cc < host_cc:
-        linker_cc = host_cc
+        linker_cc = (*host_cc, "a") if host_cc >= (9, 0) else host_cc
         linker_arch = host_arch
     else:
         linker_cc = arch_specific_cc
@@ -151,18 +152,16 @@ def get_gpu_compute_capability(as_type: type = str) -> str | tuple[int, int]:
     assert as_type in (str, tuple), "as_type must be str or tuple"
 
     if _cached_cc is not None:
-        if as_type is tuple:
-            return _cached_cc
-        return f"sm_{_cached_cc[0]}{_cached_cc[1]}"
+        cc = _cached_cc
+    else:
+        from numba_cuda_mlir.numba_cuda.cudadrv.devices import get_context
 
-    from numba_cuda_mlir.numba_cuda.cudadrv.devices import get_context
-
-    ctx = get_context()
-    cc = ctx.device.compute_capability
-    _cached_cc = cc
+        ctx = get_context()
+        cc = ctx.device.compute_capability
+        _cached_cc = cc
     if as_type is tuple:
         return cc
-    return format_arch(cc)
+    return format_arch((*cc, "a") if cc >= (9, 0) else cc)
 
 
 def _check_cuda_result(result):

@@ -67,23 +67,35 @@ llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
                  << builder->printModuleToString() << "\n";
   });
 
-  // Serialize to bitcode
-  LLVMMemoryBufferRef buf = builder->writeBitcodeToMemoryBuffer();
-  const char *bcData = builder->getBufferStart(buf);
-  size_t bcSize = builder->getBufferSize(buf);
+  // Serialize to bitcode, except for the modules LLVM 7 bitcode cannot carry
+  // losslessly, which go as text; libnvvm accepts either.
+  LLVMMemoryBufferRef buf = nullptr;
+  std::string moduleText;
+  const char *modData = nullptr;
+  size_t modSize = 0;
+  if (builder->requiresTextualSerialization()) {
+    moduleText = builder->printModuleToString();
+    modData = moduleText.data();
+    modSize = moduleText.size();
+  } else {
+    buf = builder->writeBitcodeToMemoryBuffer();
+    modData = builder->getBufferStart(buf);
+    modSize = builder->getBufferSize(buf);
+  }
   if (nvvmBitcode)
-    nvvmBitcode->assign(bcData, bcSize);
+    nvvmBitcode->assign(modData, modSize);
 
-  // Collect modules: our bitcode + any link libraries
+  // Collect modules: ours + any link libraries
   llvm::SmallVector<std::pair<const char *, size_t>> modules;
-  modules.push_back({bcData, bcSize});
+  modules.push_back({modData, modSize});
 
   // Read link libraries (libdevice, runtime BCs)
   llvm::SmallVector<std::string> libBuffers;
   for (const auto &libPath : opts.linkLibs) {
     std::ifstream file(libPath, std::ios::binary | std::ios::ate);
     if (!file.is_open()) {
-      builder->disposeMemoryBuffer(buf);
+      if (buf)
+        builder->disposeMemoryBuffer(buf);
       return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                      "cannot open link library: %s",
                                      libPath.c_str());
@@ -98,7 +110,8 @@ llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
   // Compile via libnvvm
   auto compilerOrErr = LibNVVMCompiler::create(opts.libnvvmPath);
   if (!compilerOrErr) {
-    builder->disposeMemoryBuffer(buf);
+    if (buf)
+      builder->disposeMemoryBuffer(buf);
     return compilerOrErr.takeError();
   }
 
@@ -107,7 +120,8 @@ llvm::Expected<std::string> llvm70::translateToPTX(gpu::GPUModuleOp gpuMod,
   auto ptxOrErr =
       (*compilerOrErr)->compile(computeArch, modules, opts.optLevel, opts.genLTO);
 
-  builder->disposeMemoryBuffer(buf);
+  if (buf)
+    builder->disposeMemoryBuffer(buf);
   return ptxOrErr;
 }
 
@@ -2740,11 +2754,23 @@ MLIRToLLVM70::convertDIDerivedType(LLVM::DIDerivedTypeAttr attr) {
     return b.createDIPointerType(baseType, size ? size : 64,
                                  attr.getAlignInBits(),
                                  /*addressSpace=*/0, name.data(), name.size());
-  case llvm::dwarf::DW_TAG_member:
-    return b.createDIMemberType(diCompileUnit, name.data(), name.size(),
-                                diFileOf(attr.getFile()), attr.getLine(), size,
-                                attr.getAlignInBits(), attr.getOffsetInBits(),
-                                baseType);
+  case llvm::dwarf::DW_TAG_member: {
+    // An integer extraData on a member is the discriminant value selecting it
+    // within a variant part. A bit-field also carries an integer there, for its
+    // storage offset, but says so in its flags.
+    auto discriminant = dyn_cast_or_null<IntegerAttr>(attr.getExtraData());
+    if (discriminant && b.supportsDIVariantParts() &&
+        !LLVM::bitEnumContainsAny(attr.getFlags(), LLVM::DIFlags::BitField))
+      return b.createDIVariantMemberType(
+          diCompileUnit, name.data(), name.size(), diFileOf(attr.getFile()),
+          attr.getLine(), size, attr.getAlignInBits(), attr.getOffsetInBits(),
+          discriminant.getValue().getZExtValue(),
+          discriminant.getValue().getBitWidth(), baseType);
+    return b.createDIMemberType(
+        diCompileUnit, name.data(), name.size(), diFileOf(attr.getFile()),
+        attr.getLine(), size, attr.getAlignInBits(), attr.getOffsetInBits(),
+        static_cast<LLVMDIFlags>(attr.getFlags()), baseType);
+  }
   default:
     return baseType ? baseType : opaqueDIType(size);
   }
@@ -2786,6 +2812,37 @@ MLIRToLLVM70::convertDICompositeType(LLVM::DICompositeTypeAttr attr) {
                                subscripts.size());
   }
 
+  // Elements are members, except that a composite among them is a nested
+  // DW_TAG_variant_part. Keeping only the members would leave a discriminated
+  // union as a struct holding nothing but its discriminator.
+  auto convertElements = [&]() {
+    llvm::SmallVector<LLVMMetadataRef> converted;
+    for (LLVM::DINodeAttr element : attr.getElements()) {
+      if (!isa<LLVM::DIDerivedTypeAttr, LLVM::DICompositeTypeAttr>(element))
+        continue;
+      if (LLVMMetadataRef elementTy =
+              getOrCreateDIType(cast<LLVM::DITypeAttr>(element)))
+        converted.push_back(elementTy);
+    }
+    return converted;
+  };
+
+  if (tag == llvm::dwarf::DW_TAG_variant_part) {
+    // Nothing in the LLVM 7 C API builds one of these, so a libLLVM that does
+    // not also export the C++ DIBuilder has to go without: the wrapper struct
+    // still describes the storage, just not which member currently holds it.
+    if (!b.supportsDIVariantParts())
+      return nullptr;
+    LLVMMetadataRef discriminator =
+        attr.getDiscriminator() ? getOrCreateDIType(attr.getDiscriminator())
+                                : nullptr;
+    llvm::SmallVector<LLVMMetadataRef> variants = convertElements();
+    return b.createDIVariantPart(diCompileUnit, name.data(), name.size(),
+                                 diFile, attr.getLine(), size, align,
+                                 discriminator, variants.data(),
+                                 variants.size());
+  }
+
   bool isStructLike = tag == llvm::dwarf::DW_TAG_structure_type ||
                       tag == llvm::dwarf::DW_TAG_class_type ||
                       tag == llvm::dwarf::DW_TAG_union_type;
@@ -2803,13 +2860,7 @@ MLIRToLLVM70::convertDICompositeType(LLVM::DICompositeTypeAttr attr) {
     diRecursionStack[recId] = placeholder;
   }
 
-  llvm::SmallVector<LLVMMetadataRef> elements;
-  for (LLVM::DINodeAttr element : attr.getElements()) {
-    if (auto member = dyn_cast<LLVM::DIDerivedTypeAttr>(element)) {
-      if (LLVMMetadataRef converted = getOrCreateDIType(member))
-        elements.push_back(converted);
-    }
-  }
+  llvm::SmallVector<LLVMMetadataRef> elements = convertElements();
 
   LLVMMetadataRef composite =
       tag == llvm::dwarf::DW_TAG_union_type

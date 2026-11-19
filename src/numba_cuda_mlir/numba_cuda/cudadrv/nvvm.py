@@ -383,7 +383,10 @@ class CompilationUnit:
         if self.log:
             warnings.warn(self.log, category=NvvmWarning)
 
-        return output_buffer[:]
+        # nvvmGetCompiledResultSize counts the NUL terminator, so the buffer
+        # ends with one. The PTX reaches users through inspect_asm() and gets
+        # handed to ptxas; ptxas 13 rejects a trailing NUL as "Unexpected EOF".
+        return output_buffer[:].rstrip(b"\x00")
 
     def _try_error(self, err, msg):
         self.driver.check_error(err, "%s\n%s" % (msg, self.get_log()))

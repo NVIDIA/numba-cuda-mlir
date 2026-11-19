@@ -265,8 +265,39 @@ public:
                                      size_t nameLen, LLVMMetadataRef file,
                                      unsigned lineNo, uint64_t sizeInBits,
                                      uint32_t alignInBits,
-                                     uint64_t offsetInBits,
+                                     uint64_t offsetInBits, LLVMDIFlags flags,
                                      LLVMMetadataRef type);
+  /// Whether this libLLVM exposes the entry points needed to build a
+  /// DW_TAG_variant_part. They are C++ DIBuilder methods, so unlike everything
+  /// else here they are not guaranteed to be resolvable; callers have to check.
+  bool supportsDIVariantParts() const {
+    return fnCreateVariantPart && fnCreateVariantMemberType;
+  }
+  /// Whether anything built so far cannot survive a trip through LLVM 7
+  /// bitcode, so the module has to reach its consumer as text instead. See
+  /// createDIVariantPart.
+  bool requiresTextualSerialization() const { return usedDIVariantPart; }
+  /// DW_TAG_variant_part: a composite whose elements are the alternatives, and
+  /// whose discriminator names the member that says which one is live.
+  ///
+  /// LLVM 7 writes the discriminator to bitcode but its own reader never reads
+  /// it back, which leaves a variant part whose members carry discriminant
+  /// values while nothing says which member holds the tag. libnvvm segfaults
+  /// emitting DWARF for that, so a module containing one has to go as text.
+  LLVMMetadataRef createDIVariantPart(LLVMMetadataRef scope, const char *name,
+                                      size_t nameLen, LLVMMetadataRef file,
+                                      unsigned lineNo, uint64_t sizeInBits,
+                                      uint32_t alignInBits,
+                                      LLVMMetadataRef discriminator,
+                                      LLVMMetadataRef *elements,
+                                      unsigned numElements);
+  /// A member of a variant part, tagged with the discriminator value that
+  /// selects it. Emitted as a DW_TAG_member inside a DW_TAG_variant.
+  LLVMMetadataRef createDIVariantMemberType(
+      LLVMMetadataRef scope, const char *name, size_t nameLen,
+      LLVMMetadataRef file, unsigned lineNo, uint64_t sizeInBits,
+      uint32_t alignInBits, uint64_t offsetInBits, uint64_t discriminant,
+      unsigned discriminantBits, LLVMMetadataRef type);
   LLVMMetadataRef createDISubrange(int64_t lowerBound, int64_t count);
   /// Temporary forward declaration, used to break cycles while translating
   /// self-referential composite types; RAUW'd once the real type exists.
@@ -313,6 +344,7 @@ private:
   LLVMContextRef ctx = nullptr;
   LLVMModuleRef module = nullptr;
   LLVMBuilderRef builder = nullptr;
+  bool usedDIVariantPart = false;
 
   // Function pointers — resolved from old libLLVM at load time.
   // Grouped by category; all set in resolveSymbols().
@@ -533,6 +565,30 @@ private:
            uint64_t, uint32_t, uint64_t, LLVMDIFlags, LLVMMetadataRef)
   LLVM_FN(LLVMMetadataRef, fnDIBuilderGetOrCreateSubrange, LLVMDIBuilderRef,
            int64_t, int64_t)
+  LLVM_FN(LLVMMetadataRef, fnDIBuilderGetOrCreateArray, LLVMDIBuilderRef,
+           LLVMMetadataRef *, size_t)
+
+  // Variant parts have no LLVM 7 C API, so the two entry points below are the
+  // C++ DIBuilder methods, resolved by their mangled names out of the same
+  // library. Their by-value llvm::StringRef and llvm::DINodeArray arguments
+  // need stand-ins with the LLVM 7 layout: this file is compiled against a much
+  // newer LLVM, whose own definitions of those types need not still match.
+  // Both are trivially copyable, so the platform ABI passes them the same way
+  // it did when LLVM 7 compiled the callee.
+  struct LLVM7StringRef {
+    const char *data;
+    size_t length;
+  };
+  struct LLVM7DINodeArray {
+    const void *tuple; // llvm::MDTuple *
+  };
+  LLVM_FN(LLVMMetadataRef, fnCreateVariantPart, LLVMDIBuilderRef,
+           LLVMMetadataRef, LLVM7StringRef, LLVMMetadataRef, unsigned, uint64_t,
+           uint32_t, LLVMDIFlags, LLVMMetadataRef, LLVM7DINodeArray,
+           LLVM7StringRef)
+  LLVM_FN(LLVMMetadataRef, fnCreateVariantMemberType, LLVMDIBuilderRef,
+           LLVMMetadataRef, LLVM7StringRef, LLVMMetadataRef, unsigned, uint64_t,
+           uint32_t, uint64_t, LLVMValueRef, LLVMDIFlags, LLVMMetadataRef)
   LLVM_FN(LLVMMetadataRef, fnDIBuilderCreateReplaceableCompositeType,
            LLVMDIBuilderRef, unsigned, const char *, size_t, LLVMMetadataRef,
            LLVMMetadataRef, unsigned, unsigned, uint64_t, uint32_t, LLVMDIFlags,

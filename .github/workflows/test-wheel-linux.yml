@@ -17,10 +17,12 @@ on:
         default: "run-tests"
       test-dependencies:
         type: string
-        default: "jq wget libgl1 libegl1"
+        # llvm supplies llvm-dwarfdump, which the cubin DWARF tests use to read
+        # DIEs; cuobjdump only reports which sections are present.
+        default: "jq wget libgl1 libegl1 llvm"
       test-dependent-exes:
         type: string
-        default: "jq wget"
+        default: "jq wget llvm-dwarfdump"
       matrix_filter:
         type: string
         default: "."

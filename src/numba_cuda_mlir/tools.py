@@ -44,7 +44,7 @@ def resolve_gpu_target(targetoptions: dict | None = None) -> dict[str, object]:
         arch = host_arch
         arch_specific_cc = host_specific_cc
 
-    if cc < host_cc:
+    if cc < host_cc and targetoptions.get("_compile_output") is None:
         linker_cc = host_specific_cc
         linker_arch = host_arch
     else:

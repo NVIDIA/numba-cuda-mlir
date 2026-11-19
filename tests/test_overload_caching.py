@@ -444,11 +444,11 @@ def test_overload_builder_prefers_entry_agreeing_on_observed_options():
     }
 
     with ConfigStack().enter(flags(lto=True, debuginfo=True)):
-        builder = mlir_target.target_context.get_overload_builder(
+        selected = mlir_target.target_context.get_overload_dispatcher(
             types.Function(template_cls), signature(types.int64, *args)
         )
 
-    assert builder.__defaults__[0] is agreeing
+    assert selected is agreeing
 
 
 def test_is_set_probe_is_recorded():
@@ -561,11 +561,11 @@ def test_overload_builder_does_not_take_flagless_entry_over_exact_match():
     }
 
     with ConfigStack().enter(flags):
-        builder = mlir_target.target_context.get_overload_builder(
+        selected = mlir_target.target_context.get_overload_dispatcher(
             types.Function(template_cls), signature(types.int64, *args)
         )
 
-    assert builder.__defaults__[0] is exact
+    assert selected is exact
 
 
 def test_keyword_order_does_not_pick_another_entry():

@@ -5,20 +5,24 @@ from numba_cuda_mlir.models import PrimitiveModel, register_model
 from numba_cuda_mlir.numba_cuda.extending import overload as numba_cuda_overload
 from numba_cuda_mlir.numba_cuda.extending import typeof_impl
 from numba_cuda_mlir.numba_cuda import serialize
-from numba_cuda_mlir.numba_cuda.typing.templates import ConcreteTemplate
+from numba_cuda_mlir.numba_cuda.typing.templates import AbstractTemplate, ConcreteTemplate
+from numba_cuda_mlir.numba_cuda.core.errors import TypingError, NumbaDeprecationWarning
+from numba_cuda_mlir.numba_cuda.types import StarArgTuple
+import inspect
+import warnings
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 import numpy as np
 import pytest
 
 
 def test_extending_intrinsic():
-    def codegen(builder, target, args, kwargs):
+    def codegen(builder, signature, args):
         from numba_cuda_mlir._mlir.dialects import cf, arith
         from numba_cuda_mlir._mlir.extras import types as T
 
         true = arith.constant(result=T.bool(), value=1)
         cf.assert_(true, "This should not be executed")
-        builder.store_var(target, builder.load_var(args[0]))
+        return args[0]
 
     @extending.intrinsic
     def do_nothing(typingctx, x):
@@ -44,8 +48,8 @@ def test_extending_intrinsic():
 def test_extending_intrinsic_with_array_argument():
     @extending.intrinsic
     def identity(typingctx, arr):
-        def codegen(builder, target, args, kwargs):
-            builder.store_var(target, builder.load_var(args[0]))
+        def codegen(builder, signature, args):
+            return args[0]
 
         return arr(arr), codegen
 
@@ -64,17 +68,15 @@ def test_extending_intrinsic_with_array_argument():
 def test_intrinsic_serialization_preserves_ctor_kwargs_and_prefer_literal():
     @extending.intrinsic
     def identity(typingctx, value):
-        def codegen(builder, target, args, kwargs):
-            builder.store_var(target, builder.load_var(args[0]))
+        def codegen(builder, signature, args):
+            return args[0]
 
         return value(value), codegen
 
-    from numba_cuda_mlir.numba_cuda.extending import _intrinsic
-
-    @_intrinsic(prefer_literal=True, target="cuda")
+    @extending.intrinsic(prefer_literal=True)
     def lit_identity(typingctx, value):
-        def codegen(builder, target, args, kwargs):
-            builder.store_var(target, builder.load_var(args[0]))
+        def codegen(builder, signature, args):
+            return args[0]
 
         return value(value), codegen
 
@@ -101,11 +103,13 @@ def test_intrinsic_serialization_preserves_ctor_kwargs_and_prefer_literal():
     @cuda.jit
     def k(x, out):
         out[0] = rebuilt(x)[0]
+        out[1] = rebuilt_lit(11)
 
     x = np.array([7])
-    out = np.zeros(1, dtype=x.dtype)
+    out = np.zeros(2, dtype=x.dtype)
     k[1, 1](x, out)
     assert out[0] == 7
+    assert out[1] == 11
 
 
 @pytest.mark.parametrize("lowered_for", [None, types.Float], ids=["unlowered", "other_signature"])
@@ -788,3 +792,734 @@ def test_inline_overload_returning_dtype_token_for_local_array():
     buf = np.zeros(1, dtype=np.float32)
     kernel[1, 1](buf)
     assert buf[0] == 1
+
+
+def _register_selected_identity(selected_type, api="values"):
+    def selected_identity(value):
+        raise NotImplementedError
+
+    class SelectedIdentityTemplate(ConcreteTemplate):
+        key = selected_identity
+        cases = [selected_type(selected_type)]
+
+    extending.typing_registry.register_global(
+        selected_identity, types.Function(SelectedIdentityTemplate)
+    )
+
+    if api == "values":
+
+        @extending.lowering_registry.lower(selected_identity, selected_type)
+        def lower_selected_identity(builder, signature, args):
+            return args[0]
+    else:
+
+        @extending.lowering_registry.lower(selected_identity, selected_type)
+        def lower_selected_identity(builder, target, args, kws):
+            builder.store_var(target, builder.load_var(args[0]))
+
+    extending.refresh_registries()
+    return selected_identity
+
+
+@pytest.mark.parametrize("api", ["vars", "values"])
+@pytest.mark.parametrize(
+    "source_dtype,selected_type,value",
+    [
+        (np.uint32, types.uint64, 7),
+        (np.uint32, types.uint64, np.iinfo(np.uint32).max),
+        (np.int32, types.int64, -7),
+        (np.int32, types.int64, np.iinfo(np.int32).min),
+        (np.int32, types.float64, -7),
+        (np.float32, types.float64, 1.75),
+    ],
+    ids=["unsigned", "unsigned-boundary", "signed", "signed-boundary", "int-float", "float"],
+)
+def test_registered_call_selected_argument_conversion(source_dtype, selected_type, value, api):
+    """Selected operand conversions must not change subsequent uses of the input."""
+    selected_identity = _register_selected_identity(selected_type, api)
+
+    @cuda.jit
+    def kernel(source, converted, original):
+        value = source[0]
+        converted[0] = selected_identity(value)
+        original[0] = value
+        original[1] = value - source[0]
+
+    source = np.array([value], dtype=source_dtype)
+    converted = np.zeros(1, dtype=str(selected_type))
+    original = np.zeros(2, dtype=source_dtype)
+    kernel[1, 1](source, converted, original)
+    assert converted[0] == value
+    assert original[0] == value
+    assert original[1] == 0
+
+
+def test_registered_call_keyword_binding_uses_parameter_names():
+    from numba_cuda_mlir._mlir.dialects import arith
+    from numba_cuda_mlir._mlir.extras import types as T
+
+    def subtract(b, c):
+        raise NotImplementedError
+
+    class SubtractTemplate(AbstractTemplate):
+        key = subtract
+
+        def generic(self, args, kws):
+            return types.float64(types.int64, types.float64).replace(
+                pysig=inspect.signature(subtract)
+            )
+
+    extending.typing_registry.register_global(subtract, types.Function(SubtractTemplate))
+
+    @extending.lowering_registry.lower(subtract, types.int64, types.float64)
+    def lower_subtract(builder, signature, args):
+        b, c = args
+        return arith.subf(arith.sitofp(T.f64(), b), c)
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(b, c, out):
+        out[0] = subtract(b, c)
+        out[1] = subtract(b, c=c)
+        out[2] = subtract(b=b, c=c)
+        out[3] = subtract(c=c, b=b)
+
+    out = np.zeros(4, dtype=np.float64)
+    kernel[1, 1](np.int32(3), np.float32(1.75), out)
+    np.testing.assert_array_equal(out, [1.25] * 4)
+
+
+@pytest.mark.parametrize("keyword_only", [False, True])
+def test_registered_call_materializes_omitted_defaults(keyword_only):
+    """Both defaults are consumed as operands, including reordered keyword-only calls."""
+    from numba_cuda_mlir._mlir.dialects import arith
+    from numba_cuda_mlir._mlir.extras import types as T
+
+    if keyword_only:
+
+        def weighted(a, *, b=7, c=1.75):
+            raise NotImplementedError
+    else:
+
+        def weighted(a, b=7, c=1.75):
+            raise NotImplementedError
+
+    pysig = inspect.signature(weighted)
+
+    class WeightedTemplate(AbstractTemplate):
+        key = weighted
+
+        def generic(self, args, kws):
+            bound = pysig.bind(*args, **kws)
+            selected_args = (
+                types.int64,
+                types.int64 if "b" in bound.arguments else types.Omitted(7),
+                types.float64 if "c" in bound.arguments else types.Omitted(1.75),
+            )
+            return types.float64(*selected_args).replace(pysig=pysig)
+
+    extending.typing_registry.register_global(weighted, types.Function(WeightedTemplate))
+
+    @extending.lowering_registry.lower(weighted, types.int64, types.Any, types.Any)
+    def lower_weighted(builder, signature, args):
+        a, b, c = args
+        a = arith.sitofp(T.f64(), a)
+        b = arith.sitofp(T.f64(), b)
+        return arith.addf(arith.mulf(a, b), c)
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(a, b, c, out):
+        out[0] = weighted(a)
+        out[1] = weighted(a, c=c)
+        out[2] = weighted(c=c, a=a)
+        out[3] = weighted(a, b=b)
+        out[4] = weighted(b=b, a=a)
+        out[5] = weighted(c=c, b=b, a=a)
+
+    out = np.zeros(6, dtype=np.float64)
+    kernel[1, 1](np.int32(3), np.int32(2), np.float32(4.5), out)
+    np.testing.assert_array_equal(out, [22.75, 25.5, 25.5, 7.75, 7.75, 10.5])
+
+
+def test_registered_call_keywords_require_python_signature():
+    def missing_binding(b, c):
+        raise NotImplementedError
+
+    class MissingBindingTemplate(AbstractTemplate):
+        key = missing_binding
+
+        def generic(self, args, kws):
+            return types.float64(types.int64, types.float64)
+
+    extending.typing_registry.register_global(
+        missing_binding, types.Function(MissingBindingTemplate)
+    )
+
+    @extending.lowering_registry.lower(missing_binding, types.int64, types.float64)
+    def lower_missing_binding(builder, signature, args):
+        return args[1]
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(out):
+        out[0] = missing_binding(c=1.75, b=3)
+
+    with pytest.raises(TypingError, match="(?i)(binding|pysig|python signature)"):
+        kernel[1, 1](np.zeros(1, dtype=np.float64))
+
+
+@pytest.mark.parametrize("api", ["vars", "values"])
+def test_registered_call_selected_conversions_with_ssa_disabled(monkeypatch, api):
+    from numba_cuda_mlir import mlir_compiler
+
+    get_compiler_class = mlir_compiler.get_compiler_class
+
+    def get_non_ssa_compiler(*args, **kwargs):
+        compiler_class = get_compiler_class(*args, **kwargs)
+
+        class NonSSACompiler(compiler_class):
+            def define_pipelines(self):
+                self.state.flags.enable_ssa = False
+                return super().define_pipelines()
+
+        return NonSSACompiler
+
+    monkeypatch.setattr(mlir_compiler, "get_compiler_class", get_non_ssa_compiler)
+    selected_identity = _register_selected_identity(types.uint64, api)
+
+    @cuda.jit
+    def kernel(flag, a, b, out):
+        if flag:
+            result = selected_identity(a)
+        else:
+            result = selected_identity(b)
+        out[0] = result
+        out[1] = selected_identity(a)
+        out[2] = selected_identity(b)
+
+    out = np.zeros(3, dtype=np.uint64)
+    for flag, expected in [(True, 7), (False, 19)]:
+        kernel[1, 1](flag, np.uint32(7), np.uint32(19), out)
+        np.testing.assert_array_equal(out, [expected, 7, 19])
+
+
+@pytest.mark.parametrize("api", ["vars", "values"])
+@pytest.mark.parametrize("case", ["empty", "homogeneous", "heterogeneous", "tuple"])
+def test_registered_call_folded_varargs_and_keyword_scale(case, api):
+    from numba_cuda_mlir._mlir.dialects import arith
+    from numba_cuda_mlir._mlir.extras import types as T
+
+    def scaled_sum(*values, scale):
+        raise NotImplementedError
+
+    element_types = {
+        "empty": (),
+        "homogeneous": (types.float64, types.float64),
+        "heterogeneous": (types.int64, types.float64),
+        "tuple": (types.Tuple((types.int32, types.float32)),),
+    }[case]
+    selected_args = (StarArgTuple(element_types), types.float64)
+
+    class ScaledSumTemplate(AbstractTemplate):
+        key = scaled_sum
+
+        def generic(self, args, kws):
+            return types.float64(*selected_args).replace(pysig=inspect.signature(scaled_sum))
+
+    extending.typing_registry.register_global(scaled_sum, types.Function(ScaledSumTemplate))
+
+    def lower_scaled_sum(builder, signature, args):
+        values, scale = args
+        total = arith.constant(T.f64(), 0.0)
+        for value, arg_type in zip(values, signature.args[0].types):
+            if isinstance(arg_type, types.BaseTuple):
+                values_and_types = zip(value, arg_type.types)
+            else:
+                values_and_types = [(value, arg_type)]
+            for value, value_type in values_and_types:
+                if isinstance(value_type, types.Integer):
+                    value = arith.sitofp(T.f64(), value)
+                elif value_type == types.float32:
+                    value = arith.extf(T.f64(), value)
+                total = arith.addf(total, value)
+        # Keep the bundle's arity numerically observable: a tuple passed as one
+        # argument must remain distinct from the two expanded scalar arguments.
+        total = arith.addf(total, arith.constant(T.f64(), float(len(values))))
+        return arith.mulf(total, scale)
+
+    if api == "values":
+        extending.lowering_registry.lower(scaled_sum, *selected_args)(lower_scaled_sum)
+    else:
+
+        @extending.lowering_registry.lower(scaled_sum, *selected_args)
+        def lower_legacy_scaled_sum(builder, target, args, kws):
+            values = tuple(builder.load_var(arg) for arg in args)
+            scale = builder.load_var(dict(kws)["scale"])
+            result = lower_scaled_sum(builder, types.float64(*selected_args), (values, scale))
+            builder.store_var(target, result)
+
+    extending.refresh_registries()
+
+    if case == "empty":
+
+        @cuda.jit
+        def kernel(a, b, scale, out):
+            out[0] = scaled_sum(*(), scale=scale)
+    elif case == "tuple":
+
+        @cuda.jit
+        def kernel(a, b, scale, out):
+            out[0] = scaled_sum((a, b), scale=scale)
+    else:
+
+        @cuda.jit
+        def kernel(a, b, scale, out):
+            out[0] = scaled_sum(*(a, b), scale=scale)
+
+    b = np.int32(2) if case == "homogeneous" else np.float32(1.75)
+    out = np.zeros(1, dtype=np.float64)
+    kernel[1, 1](np.int32(3), b, np.int32(2), out)
+    arity = 1 if case == "tuple" else 2
+    expected = 0 if case == "empty" else (3 + b + arity) * 2
+    assert out[0] == expected
+
+
+def test_legacy_registered_call_preserves_keywords_defaults_and_literals():
+    from numba_cuda_mlir._mlir.dialects import arith
+    from numba_cuda_mlir._mlir.extras import types as T
+    from numba_cuda_mlir.numba_cuda.core.ir import Var
+
+    def weighted(a, b=7, *, c=1.75):
+        raise NotImplementedError
+
+    pysig = inspect.signature(weighted)
+
+    class WeightedTemplate(AbstractTemplate):
+        key = weighted
+
+        def generic(self, args, kws):
+            bound = pysig.bind(*args, **kws)
+            return types.float64(
+                types.int64,
+                types.int64 if "b" in bound.arguments else types.Omitted(7),
+                types.float64 if "c" in bound.arguments else types.Omitted(1.75),
+            ).replace(pysig=pysig)
+
+    extending.typing_registry.register_global(weighted, types.Function(WeightedTemplate))
+
+    @extending.lowering_registry.lower(weighted, types.int64, types.Any, types.Any)
+    def lower_weighted(builder, target, args, kws):
+        bound = pysig.bind(*args, **dict(kws))
+        bound.apply_defaults()
+
+        def load(value):
+            if not isinstance(value, Var):
+                return arith.constant(T.f64(), float(value))
+            value_type = builder.get_numba_type(value)
+            if isinstance(value_type, types.IntegerLiteral):
+                return arith.constant(T.f64(), float(value_type.literal_value))
+            lowered = builder.load_var(value)
+            if isinstance(value_type, types.Integer):
+                return arith.sitofp(T.f64(), lowered)
+            return lowered
+
+        a, b, c = (load(bound.arguments[name]) for name in ("a", "b", "c"))
+        builder.store_var(target, arith.addf(arith.mulf(a, b), c))
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(value, b, c, out, original):
+        out[0] = weighted(value)
+        out[1] = weighted(value, c=c)
+        out[2] = weighted(c=c, a=value)
+        out[3] = weighted(value, b=b)
+        out[4] = weighted(b=b, a=value)
+        out[5] = weighted(c=c, b=b, a=value)
+        out[6] = weighted(value, c=value)
+        out[7] = weighted(3, b=2, c=4.5)
+        original[0] = value
+
+    out = np.zeros(8, dtype=np.float64)
+    original = np.zeros(1, dtype=np.uint32)
+    kernel[1, 1](np.uint32(3), np.int32(2), np.float32(4.5), out, original)
+    np.testing.assert_array_equal(out, [22.75, 25.5, 25.5, 7.75, 7.75, 10.5, 24, 10.5])
+    assert original[0] == 3
+
+
+def test_legacy_intrinsic_preserves_literal_metadata():
+    @extending.intrinsic
+    def add_literal_offset(typingctx, value, offset):
+        def codegen(builder, target, args, kws):
+            from numba_cuda_mlir._mlir.dialects import arith
+            from numba_cuda_mlir._mlir.extras import types as T
+
+            offset = builder.get_numba_type(args[1]).literal_value
+            result = arith.addi(builder.load_var(args[0]), arith.constant(T.i64(), offset))
+            builder.store_var(target, result)
+
+        return types.int64(types.int64, types.int64), codegen
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(value, out):
+        out[0] = add_literal_offset(value, 11)
+
+    out = np.zeros(1, dtype=np.int64)
+    kernel[1, 1](np.int32(-7), out)
+    assert out[0] == 4
+
+
+def test_legacy_setitem_statement_and_expression_targets():
+    import operator
+    from enum import IntEnum
+    from numba_cuda_mlir._mlir.dialects import memref
+    from numba_cuda_mlir.lowering_utilities import index_of
+
+    class StoredValue(IntEnum):
+        seven = 7
+
+    # A test-local enum confines the operator registration to this consumer.
+    selected_args = (types.Array(types.int64, 1, "C"), types.int64, typeof(StoredValue.seven))
+
+    def set_value(array, index, value):
+        raise NotImplementedError
+
+    class SetValueTemplate(ConcreteTemplate):
+        key = set_value
+        cases = [types.none(*selected_args)]
+
+    extending.typing_registry.register_global(set_value, types.Function(SetValueTemplate))
+
+    @extending.lowering_registry.lower(operator.setitem, *selected_args)
+    @extending.lowering_registry.lower(set_value, *selected_args)
+    def legacy_setitem(builder, target, args, kws):
+        array, index, value = builder.load_vars(args)
+        memref.store(value, array, [index_of(index)])
+        if target is not None:
+            builder.store_var(target, None)
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(array, value):
+        array[0] = value
+        result = set_value(array, 1, value)
+        if result is None:
+            array[2] = array[0] + array[1]
+
+    array = np.zeros(3, dtype=np.int64)
+    kernel[1, 1](array, StoredValue.seven)
+    np.testing.assert_array_equal(array, [7, 7, 14])
+
+
+def test_mixed_lowering_contracts_warn_only_when_legacy_is_used():
+    from numba_cuda_mlir._mlir.dialects import arith
+
+    def legacy_twice(value):
+        raise NotImplementedError
+
+    def new_twice(value):
+        raise NotImplementedError
+
+    for function in (legacy_twice, new_twice):
+
+        class TwiceTemplate(ConcreteTemplate):
+            key = function
+            cases = [types.uint64(types.uint64)]
+
+        extending.typing_registry.register_global(function, types.Function(TwiceTemplate))
+
+    with warnings.catch_warnings(record=True) as registration_warnings:
+        warnings.simplefilter("always", NumbaDeprecationWarning)
+
+        @extending.lower_builtin(legacy_twice, types.uint64)
+        def lower_legacy_twice(lowerer, target, args, kws):
+            value = lowerer.load_var(args[0])
+            lowerer.store_var(target, arith.addi(value, value))
+
+        @extending.lower_builtin(new_twice, types.uint64)
+        def lower_new_twice(lowerer, signature, args):
+            return arith.addi(args[0], args[0])
+
+    assert not registration_warnings
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(value, out):
+        out[0] = legacy_twice(value)
+        out[1] = new_twice(value)
+        out[2] = legacy_twice(value)
+        out[3] = value
+
+    out = np.zeros(4, dtype=np.uint64)
+    with warnings.catch_warnings(record=True) as compilation_warnings:
+        warnings.simplefilter("always", NumbaDeprecationWarning)
+        kernel[1, 1](np.uint32(21), out)
+    np.testing.assert_array_equal(out, [42, 42, 42, 21])
+    relevant = [
+        warning
+        for warning in compilation_warnings
+        if issubclass(warning.category, NumbaDeprecationWarning)
+        and "lower_legacy_twice" in str(warning.message)
+    ]
+    assert len(relevant) == 1
+    assert relevant[0].filename == __file__
+    assert relevant[0].lineno == kernel.py_func.__code__.co_firstlineno + 2
+    assert "(lowerer, signature, args)" in str(relevant[0].message)
+    assert not any("lower_new_twice" in str(warning.message) for warning in compilation_warnings)
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_deferred_method_preserves_receiver_constructor_and_both_contracts(legacy):
+    from numba_cuda_mlir._mlir.dialects import arith, memref
+    from numba_cuda_mlir.lowering_utilities import DeferredMethodCall, index_of
+    from numba_cuda_mlir.numba_cuda.typing.templates import AttributeTemplate
+
+    def method(value):
+        raise NotImplementedError
+
+    class MethodTemplate(ConcreteTemplate):
+        key = method
+        cases = [types.int64(types.int64)]
+
+    @extending.typing_registry.register_attr
+    class ArrayMethodTemplate(AttributeTemplate):
+        key = types.Array
+
+        def resolve_migration_method(self, array_type):
+            return types.Function(MethodTemplate)
+
+    def lower_method(lowerer, signature, args):
+        receiver, value = args
+        first = memref.load(receiver, [index_of(0)])
+        return arith.addi(first, value)
+
+    def lower_legacy_method(lowerer, target, args, kws):
+        receiver, value = lowerer.load_vars(args)
+        first = memref.load(receiver, [index_of(0)])
+        lowerer.store_var(target, arith.addi(first, value))
+
+    callback = lower_legacy_method if legacy else lower_method
+
+    @extending.lowering_registry.lower_getattr(types.Array, "migration_method")
+    def get_method(context, lowerer, target, receiver):
+        lowerer.store_var(target, DeferredMethodCall(receiver, callback))
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(array, value, out):
+        out[0] = array.migration_method(value)
+        out[1] = value
+
+    out = np.zeros(2, dtype=np.int64)
+    with warnings.catch_warnings(record=True) as observed:
+        warnings.simplefilter("always", NumbaDeprecationWarning)
+        kernel[1, 1](np.array([7], dtype=np.int64), np.int32(3), out)
+    np.testing.assert_array_equal(out, [10, 3])
+    relevant = [
+        warning
+        for warning in observed
+        if issubclass(warning.category, NumbaDeprecationWarning)
+        and "lower_legacy_method" in str(warning.message)
+    ]
+    assert len(relevant) == int(legacy)
+
+
+@pytest.mark.parametrize(
+    "shape", ["wrapped", "bound", "keyword_options", "variadic", "uninspectable"]
+)
+def test_registered_callback_signature_shapes(shape):
+    from functools import wraps
+    from numba_cuda_mlir._mlir.dialects import arith
+
+    def twice(value):
+        raise NotImplementedError
+
+    class TwiceTemplate(ConcreteTemplate):
+        key = twice
+        cases = [types.uint64(types.uint64)]
+
+    extending.typing_registry.register_global(twice, types.Function(TwiceTemplate))
+
+    def lower_new_shape(lowerer, signature, args):
+        return arith.addi(args[0], args[0])
+
+    if shape == "wrapped":
+
+        @wraps(lower_new_shape)
+        def callback(*args, **kwargs):
+            return lower_new_shape(*args, **kwargs)
+    elif shape == "bound":
+
+        class Callback:
+            def __call__(self, lowerer, signature, args):
+                return lower_new_shape(lowerer, signature, args)
+
+        callback = Callback()
+    elif shape == "keyword_options":
+
+        def callback(lowerer, signature, args, *, unused=None, **options):
+            return lower_new_shape(lowerer, signature, args)
+    elif shape == "variadic":
+
+        def lower_legacy_shape(lowerer, target, args, *kws):
+            value = lowerer.load_var(args[0])
+            lowerer.store_var(target, arith.addi(value, value))
+
+        callback = lower_legacy_shape
+    else:
+
+        class Callback:
+            @property
+            def __signature__(self):
+                raise ValueError("No signature available")
+
+            def __call__(self, lowerer, target, args, kws):
+                value = lowerer.load_var(args[0])
+                lowerer.store_var(target, arith.addi(value, value))
+
+        callback = Callback()
+
+    extending.lower_builtin(twice, types.uint64)(callback)
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(value, out):
+        out[0] = twice(value)
+
+    out = np.zeros(1, dtype=np.uint64)
+    kernel[1, 1](np.uint32(21), out)
+    assert out[0] == 42
+
+
+def test_legacy_warning_as_error_prevents_callback_invocation():
+    def forbidden(value):
+        raise NotImplementedError
+
+    class ForbiddenTemplate(ConcreteTemplate):
+        key = forbidden
+        cases = [types.uint64(types.uint64)]
+
+    extending.typing_registry.register_global(forbidden, types.Function(ForbiddenTemplate))
+
+    @extending.lower_builtin(forbidden, types.uint64)
+    def lower_forbidden(lowerer, target, args, kws):
+        raise AssertionError("Legacy callback must not execute after warning failure")
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(value):
+        forbidden(value)
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "error", message=".*lower_forbidden.*", category=NumbaDeprecationWarning
+        )
+        with pytest.raises(NumbaDeprecationWarning, match="lower_forbidden"):
+            kernel[1, 1](np.uint32(21))
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_ufunc_arrayexpr_supports_both_callback_contracts(monkeypatch, legacy):
+    from numba_cuda_mlir import ufunc_db
+
+    def lower_new_ufunc(lowerer, signature, args):
+        return args[0]
+
+    def lower_legacy_ufunc(lowerer, target, args, kws):
+        lowerer.store_var(target, lowerer.load_var(args[0]))
+
+    callback = lower_legacy_ufunc if legacy else lower_new_ufunc
+    ufunc_db._lazy_init_db()
+    monkeypatch.setitem(ufunc_db._ufunc_db, np.negative, callback)
+    from numba_cuda_mlir.mlir_lowering import MLIRLower
+
+    lower_call = MLIRLower.lower_call_expr_assign
+
+    def route_arrayexpr(lowerer, target, function, args, kws, expr=None):
+        if lowerer.load_var(function) is np.negative:
+            return lowerer.lower_arrayexpr_assign(target, np.negative, args)
+        return lower_call(lowerer, target, function, args, kws, expr)
+
+    monkeypatch.setattr(MLIRLower, "lower_call_expr_assign", route_arrayexpr)
+
+    @cuda.jit
+    def kernel(array, out):
+        result = np.negative(array)
+        out[0] = result[0]
+
+    out = np.zeros(1, dtype=np.int64)
+    with warnings.catch_warnings(record=True) as observed:
+        warnings.simplefilter("always", NumbaDeprecationWarning)
+        kernel[1, 1](np.array([7], dtype=np.int64), out)
+    assert out[0] == 7
+    relevant = [
+        warning
+        for warning in observed
+        if issubclass(warning.category, NumbaDeprecationWarning)
+        and "lower_legacy_ufunc" in str(warning.message)
+    ]
+    assert len(relevant) == int(legacy)
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_custom_deferred_callable_supports_both_contracts(legacy):
+    from numba_cuda_mlir._mlir.dialects import arith
+    from numba_cuda_mlir.lowering_utilities import DeferredLowering
+    from numba_cuda_mlir.numba_cuda.typing.templates import AttributeTemplate
+
+    def method(value):
+        raise NotImplementedError
+
+    class MethodTemplate(ConcreteTemplate):
+        key = method
+        cases = [types.int64(types.int64)]
+
+    @extending.typing_registry.register_attr
+    class ArrayMethodTemplate(AttributeTemplate):
+        key = types.Array
+
+        def resolve_deferred_migration(self, array_type):
+            return types.Function(MethodTemplate)
+
+    class NewDeferred(DeferredLowering):
+        def __call__(self, lowerer, signature, args):
+            return arith.addi(args[0], args[0])
+
+    class LegacyDeferred(DeferredLowering):
+        def __call__(self, lowerer, target, args, kws):
+            value = lowerer.load_var(args[0])
+            lowerer.store_var(target, arith.addi(value, value))
+
+    callback = LegacyDeferred() if legacy else NewDeferred()
+
+    @extending.lowering_registry.lower_getattr(types.Array, "deferred_migration")
+    def get_deferred(context, lowerer, target, receiver):
+        lowerer.store_var(target, callback)
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(array, value, out):
+        out[0] = array.deferred_migration(value)
+
+    out = np.zeros(1, dtype=np.int64)
+    with warnings.catch_warnings(record=True) as observed:
+        warnings.simplefilter("always", NumbaDeprecationWarning)
+        kernel[1, 1](np.array([7], dtype=np.int64), np.int32(21), out)
+    assert out[0] == 42
+    relevant = [
+        warning
+        for warning in observed
+        if issubclass(warning.category, NumbaDeprecationWarning)
+        and "LegacyDeferred" in str(warning.message)
+    ]
+    assert len(relevant) == int(legacy)

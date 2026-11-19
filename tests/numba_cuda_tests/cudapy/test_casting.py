@@ -168,7 +168,6 @@ class TestCasting(NumbaCUDATestCase):
             cfunc = self._create_wrapped(pyfunc, np.int64, toty)
             self.assertEqual(cfunc(321), pyfunc(321))
 
-    @pytest.mark.xfail(True, reason="Typing error")
     def test_literal_to_float16(self):
         cudafuncs = (cuda_int_literal_to_float16, cuda_float_literal_to_float16)
         hostfuncs = (

@@ -1,5 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+from numba_cuda_mlir.lowering_registry import register_lowering
+
+
 class UFuncRegistry:
     def __init__(self, name: str | None = None):
         self.registry = {}
@@ -12,7 +15,7 @@ class UFuncRegistry:
 
     def register(self, ufunc):
         def decorator(lowering):
-            self.registry[ufunc] = lowering
+            self.registry[ufunc] = register_lowering(lowering)
             return lowering
 
         return decorator

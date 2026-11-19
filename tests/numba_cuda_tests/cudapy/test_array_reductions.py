@@ -233,7 +233,8 @@ class TestArrayReductions(NumbaCUDATestCase):
                 out[i] = np.nanmin(arr)
                 i += 1
 
-        expected = np.array([np.nanmin(a) for a in arrays], dtype=np.float64)
+        with pytest.warns(RuntimeWarning, match="All-NaN slice encountered"):
+            expected = np.array([np.nanmin(a) for a in arrays], dtype=np.float64)
         out = cuda.to_device(np.zeros(len(arrays), dtype=np.float64))
         kernel[1, 1](out)
         self.assertPreciseEqual(expected, out.copy_to_host())
@@ -259,7 +260,8 @@ class TestArrayReductions(NumbaCUDATestCase):
                 out[i] = np.nanmax(arr)
                 i += 1
 
-        expected = np.array([np.nanmax(a) for a in arrays], dtype=np.float64)
+        with pytest.warns(RuntimeWarning, match="All-NaN slice encountered"):
+            expected = np.array([np.nanmax(a) for a in arrays], dtype=np.float64)
         out = cuda.to_device(np.zeros(len(arrays), dtype=np.float64))
         kernel[1, 1](out)
         self.assertPreciseEqual(expected, out.copy_to_host())
@@ -282,7 +284,8 @@ class TestArrayReductions(NumbaCUDATestCase):
                 out[i] = np.nanmean(arr)
                 i += 1
 
-        expected = np.array([np.nanmean(a) for a in arrays], dtype=np.float64)
+        with pytest.warns(RuntimeWarning, match="Mean of empty slice"):
+            expected = np.array([np.nanmean(a) for a in arrays], dtype=np.float64)
         out = cuda.to_device(np.zeros(len(arrays), dtype=np.float64))
         kernel[1, 1](out)
         self.assertPreciseEqual(expected, out.copy_to_host())

@@ -394,14 +394,20 @@ def test_numba_cuda_overload_captures_extern_function():
         kernel[1, 1](1)
 
 
-def test_overload_method_custom_type_uses_mlir_model_only():
+@pytest.mark.parametrize("nested", [False, True])
+def test_overload_method_materializes_host_descriptor(nested):
     class MyObj:
-        pass
+        def __init__(self, scale):
+            self.scale = scale
 
     class MyObjType(types.Type):
         def __init__(self, obj):
             self.obj = obj
-            super().__init__(name="MyObjType")
+            super().__init__(name=f"MyObjType({obj.scale})")
+
+        @property
+        def key(self):
+            return self.obj.scale
 
     @typeof_impl.register(MyObj)
     def typeof_myobj(val, c):
@@ -423,26 +429,36 @@ def test_overload_method_custom_type_uses_mlir_model_only():
     @extending.overload_method(
         MyObjType,
         "execute",
+        inline="never",
         typing_registry=extending.typing_registry,
     )
     def ol_execute(obj, val):
+        scale = obj.obj.scale
+
         def impl(obj, val):
-            pass
+            return val * scale
 
         return impl
 
     extending.refresh_registries()
 
-    obj = MyObj()
+    obj = MyObj(3)
+
+    @cuda.jit(device=True, inline="never")
+    def forward(environment, val):
+        return environment[0].execute(val)
 
     @cuda.jit
     def kernel(out, val):
-        obj.execute(val)
-        out[0] = val
+        if nested:
+            out[0] = forward((obj, None), val)
+        else:
+            out[0] = obj.execute(val)
 
     out = np.zeros(1, dtype=np.int64)
-    kernel[1, 1](out, 7)
-    assert out[0] == 7
+    for val in (7, -4):
+        kernel[1, 1](out, val)
+        assert out[0] == val * 3
 
 
 def test_register_jitable():

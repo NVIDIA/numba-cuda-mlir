@@ -1161,9 +1161,15 @@ class MLIRTargetContext(BaseContext):
 
     def __init__(self, typingctx, target="numba_cuda_mlir"):
         super().__init__(typingctx, target)
-        from numba_cuda_mlir.models import mlir_data_manager
+        from numba_cuda_mlir.models import OpaqueModel, mlir_data_manager
 
         self.data_model_manager = mlir_data_manager
+        self.data_model_manager.register(MLIRDispatcherType, OpaqueModel)
+
+    def get_arg_packer(self, argtypes):
+        from numba_cuda_mlir.argument_packer import ArgPacker
+
+        return ArgPacker(self.data_model_manager, argtypes)
 
     def _is_nonconst_module_attr(self, typ, attr):
         """
@@ -1461,26 +1467,13 @@ class MLIRTargetContext(BaseContext):
                 # which are dealt with later
                 return None
             else:
-                pyval = getattr(typ.pymod, attr)
-
-                # TODO(ajm): I'm not sure what purpose this serves.
-                # In other similar situations where we grab a constant getattr, we just
-                # return it. I don't see why we need this borrowed return.
-                # We may need to re-enable this when we better understand its purpose.
-
-                # def imp(context, builder, typ, val, attr):
-                #     llval = self.get_constant_generic(builder, attrty, pyval)
-                #     return impl_ret_borrowed(context, builder, attrty, llval)
-                # return imp
 
                 def imp(context, builder, target, value, attr):
                     from numba_cuda_mlir.lowering_utilities import convert
 
                     target_type = builder.get_mlir_type(target)
-                    mod = builder.load_var(value)
-                    pyval = getattr(mod, attr)
-                    pyval = convert(pyval, target_type)
-                    builder.store_var(target, pyval)
+                    pyval = getattr(typ.pymod, attr)
+                    builder.store_var(target, convert(pyval, target_type))
 
                 return imp
 

@@ -18,7 +18,11 @@ from numba_cuda_mlir._mlir.ir import (
 from numba_cuda_mlir._mlir.dialects import llvm
 from numba_cuda_mlir._mlir.extras import types as T
 from numba_cuda_mlir import types
-from numba_cuda_mlir.numba_cuda.datamodel.models import PrimitiveModel, DataModel
+from numba_cuda_mlir.numba_cuda.datamodel.models import (
+    PrimitiveModel,
+    DataModel,
+    OmittedArgDataModel,
+)
 from numba_cuda_mlir.numba_cuda.datamodel.registry import DataModelManager, register
 from numba_cuda_mlir.numba_cuda.types import misc as nb_types_misc
 from numba_cuda_mlir.numba_cuda.types.ext_types import GridGroup as GridGroupClass
@@ -40,7 +44,7 @@ class ContextAwareDataModelManager(DataModelManager):
     """DataModelManager that invalidates cached models when the MLIR context changes.
 
     Numba's DataModelManager caches model instances keyed by numba type.
-    Each model stores MLIR types (be_type) tied to the ir.Context active at
+    Each model's value types are tied to the ir.Context active at
     creation time.  If a lookup created the model under context A and a later
     lookup happens under context B, the stale MLIR types cause verification
     failures ("type from a different MLIRContext").
@@ -51,7 +55,7 @@ class ContextAwareDataModelManager(DataModelManager):
 
     def lookup(self, fetype):
         if cached := self._cache.get(fetype):
-            be_type = cached.be_type
+            be_type = cached.get_value_type()
             sample = be_type[0] if isinstance(be_type, tuple) and be_type else be_type
             try:
                 current = ir.Context.current
@@ -72,6 +76,7 @@ class ContextAwareDataModelManager(DataModelManager):
 
 
 mlir_data_manager = ContextAwareDataModelManager()
+mlir_data_manager.register(types.Omitted, OmittedArgDataModel)
 
 register_model = functools.partial(register, mlir_data_manager)
 
@@ -273,6 +278,7 @@ class StoragePrimitiveModel(PrimitiveModel):
 
 @register_model(types.DTypeSpec)
 @register_model(types.NumberClass)
+@register_model(types.VectorTypeClass)
 class DTypeSpecModel(PrimitiveModel):
     """
     Convert from a Numba DTypeSpec type instance
@@ -285,6 +291,20 @@ class DTypeSpecModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
         be_type = dmm.lookup(fe_type.dtype).get_value_type()
         super().__init__(dmm, fe_type, be_type)
+
+    def as_data(self, builder, value):
+        if isinstance(value, (type, types.Type)):
+            return builder._materialize_type_token(self.fe_type)
+        return value
+
+    def get_return_type(self):
+        return NoneType.get()
+
+    def as_return(self, builder, value):
+        return NoneType.get()
+
+    def from_return(self, builder, value):
+        return NoneType.get()
 
 
 @register_model(GridGroupClass)
@@ -325,7 +345,7 @@ class TupleModel(PrimitiveModel):
         return tuple(model.get_argument_type() for model in self._models)
 
     def get_return_type(self):
-        return self.get_data_type()
+        return tuple(model.get_return_type() for model in self._models)
 
     def as_data(self, builder, value):
         return tuple(model.as_data(builder, v) for model, v in zip(self._models, value))
@@ -340,10 +360,10 @@ class TupleModel(PrimitiveModel):
         return tuple(model.from_argument(builder, v) for model, v in zip(self._models, value))
 
     def as_return(self, builder, value):
-        return self.as_data(builder, value)
+        return tuple(model.as_return(builder, v) for model, v in zip(self._models, value))
 
     def from_return(self, builder, value):
-        return self.from_data(builder, value)
+        return tuple(model.from_return(builder, v) for model, v in zip(self._models, value))
 
 
 @register_model(types.CPointer)
@@ -456,7 +476,7 @@ class UniTupleModel(PrimitiveModel):
         return (self._elem_model.get_argument_type(),) * self.fe_type.count
 
     def get_return_type(self):
-        return self.get_data_type()
+        return (self._elem_model.get_return_type(),) * self.fe_type.count
 
     def as_data(self, builder, value):
         return tuple(self._elem_model.as_data(builder, v) for v in value)
@@ -471,10 +491,10 @@ class UniTupleModel(PrimitiveModel):
         return tuple(self._elem_model.from_argument(builder, v) for v in value)
 
     def as_return(self, builder, value):
-        return self.as_data(builder, value)
+        return tuple(self._elem_model.as_return(builder, v) for v in value)
 
     def from_return(self, builder, value):
-        return self.from_data(builder, value)
+        return tuple(self._elem_model.from_return(builder, v) for v in value)
 
 
 @register_model(types.Optional)

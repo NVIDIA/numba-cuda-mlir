@@ -270,6 +270,8 @@ class InlineWorker:
         is a function taking Numba IR and validating it for use when inlining
         (this is optional and really to just provide better error messages about
         things which the inliner cannot handle like yield in closure).
+        If the compiler pipeline supplies ``define_untyped_pipeline``, use it
+        for inlinees as well, including recursively inlined functions.
         """
 
         def check(arg, name):
@@ -290,7 +292,9 @@ class InlineWorker:
         elif all(compiler_group):
             check(typingctx, "typingctx")
 
-        self._compiler_pipeline = DefaultPassBuilder.define_untyped_pipeline
+        self._compiler_pipeline = getattr(
+            pipeline, "define_untyped_pipeline", DefaultPassBuilder.define_untyped_pipeline
+        )
 
         self.typingctx = typingctx
         self.targetctx = targetctx
@@ -440,7 +444,9 @@ class InlineWorker:
         updated based on the arg_typs.
         """
         callee_ir = self.run_untyped_passes(function)
-        freevars = function.__code__.co_freevars
+        # An IR provider resolves its own environment; adapter cells are not
+        # free variables of the generated body.
+        freevars = () if hasattr(function, "_numba_cuda_mlir_ir") else function.__code__.co_freevars
         return self.inline_ir(caller_ir, block, i, callee_ir, freevars, arg_typs=arg_typs)
 
     def run_untyped_passes(self, func, enable_ssa=False):
@@ -720,12 +726,8 @@ def _get_callee_args(call_expr, callee, loc, func_ir):
         normal_handler = lambda index, param, default: default
         default_handler = lambda index, param, default: ir.Const(default, loc)
 
-        # Throw error for stararg
-        # TODO: handle stararg
-        def stararg_handler(index, param, default):
-            raise NotImplementedError(
-                "Stararg not supported in inliner for arg {} {}".format(index, param)
-            )
+        def stararg_handler(index, param, arguments):
+            return ir.Expr.build_tuple(list(arguments), loc)
 
         if call_expr.op == "call":
             kws = dict(call_expr.kws)

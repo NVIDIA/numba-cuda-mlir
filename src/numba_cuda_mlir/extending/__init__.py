@@ -40,9 +40,11 @@ typing_registry = Registry()
 lower_cast = lowering_registry.lower_cast
 lower_builtin = lowering_registry.lower
 register_model = functools.partial(register, mlir_data_manager)
+from numba_cuda_mlir.runtime_closures import get_callable_specialization
 
 __all__ = [
     "ArgumentHandler",
+    "get_callable_specialization",
     "WholeFunctionPlanner",
     "intrinsic",
     "lowering_registry",

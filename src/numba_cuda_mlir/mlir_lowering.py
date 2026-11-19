@@ -18,6 +18,8 @@ from numba_cuda_mlir.numba_cuda.extending import _Intrinsic
 from numba_cuda_mlir.numba_cuda.core.environment import Environment
 from numba_cuda_mlir import types
 from numba_cuda_mlir.numba_cuda.datamodel.models import ArrayModel
+from numba_cuda_mlir.argument_packer import ArgPacker
+from numba_cuda_mlir.data_packer import LLVMStorageAdapter
 from numba_cuda_mlir.annotations import Builder, AnyCallable, PS
 from numba_cuda_mlir.errors import InternalCompilerError, ensure_verifies
 from numba_cuda_mlir.lowering_utilities.type_conversions import (
@@ -528,32 +530,13 @@ extern "C" __global__ void
             self._mlir_gpu_module.attributes["numba_cuda_mlir.link_target"] = ir.UnitAttr.get()
 
         with ir.InsertionPoint(self.mlir_gpu_module.bodyRegion.blocks.append()):
-            # arguments with default values are represented as Omitted type in Numba,
-            # these arguments are ignored when construct the MLIR function signatures
-            # ommited arguments will be initialized at the beginning of the MLIR function.
-            #
-            # Note: this approach is different from clang and other compilers, which
-            # embedded default values at function callsite instead of initializing them
-            # at the beginning of the callee function. The reason is simply because this
-            # lowering class does not have a global view of the invoked user-defined function
-            # due to the nature of jit compilation.
-            non_omitted_argtypes = [
-                argty for argty in self.fndesc.argtypes if not _is_omitted_arg(argty)
-            ]
-            # Flatten tuple types for MLIR function signature
-            flat_argtypes = []
-            for argty in non_omitted_argtypes:
-                flat_argtypes.extend(self._flatten_type(argty))
-            argtypes = [self.get_argument_type(argtype) for argtype in flat_argtypes]
-            flat_restypes = self._flatten_type(self.fndesc.restype)
-            restypes = [self.get_return_type(rt) for rt in flat_restypes]
-            # Opaque types (DType, Function, Module, ...) lower to MLIR NoneType
-            # and have no runtime representation, so the function returns void.
-            restypes = [rt for rt in restypes if not isinstance(rt, ir.NoneType)]
-            if not restypes:
-                mlir_funcOp_type = ir.FunctionType.get(argtypes, [])
-            else:
-                mlir_funcOp_type = ir.FunctionType.get(argtypes, restypes)
+            self._arg_packer = self.context.get_arg_packer(self.fndesc.argtypes)
+            self._return_packer = ArgPacker(
+                self.context.data_model_manager, (self.fndesc.restype,), representation="return"
+            )
+            argtypes = self._arg_packer.argument_types
+            restypes = self._return_packer.argument_types
+            mlir_funcOp_type = ir.FunctionType.get(argtypes, restypes)
 
             # A function is a kernel when device=True is not set AND it returns
             # void.  Non-void functions are always device functions (kernels
@@ -635,20 +618,21 @@ extern "C" __global__ void
                     self.mlir_funcOp.attributes["no_inline"] = ir.UnitAttr.get()
 
             # TODO: this does not work how I expect. can't set byval or align on non-llvm-ptrs.
-            arg_attrs = [dict() for i in range(len(mlir_funcOp_type.inputs))]
-            for i, arg in enumerate(self.fndesc.argtypes):
-                if attrs := getattr(arg, "__numba_cuda_mlir_attributes__", None):
-                    for key, value in attrs.items():
-                        match value:
-                            case bool():
-                                if value:
-                                    arg_attrs[i][key] = ir.UnitAttr.get()
-                            case int():
-                                arg_attrs[i][key] = ir.IntegerAttr.get(T.i64(), value)
-                            case types.Type():
-                                arg_attrs[i][key] = ir.TypeAttr.get(to_mlir_type(value))
-                            case _:
-                                raise NotImplementedError(f"Not implemented for type {type(value)}")
+            arg_attrs = []
+            for arg in self.fndesc.argtypes:
+                attrs = {}
+                for key, value in getattr(arg, "__numba_cuda_mlir_attributes__", {}).items():
+                    match value:
+                        case bool():
+                            if value:
+                                attrs[key] = ir.UnitAttr.get()
+                        case int():
+                            attrs[key] = ir.IntegerAttr.get(T.i64(), value)
+                        case types.Type():
+                            attrs[key] = ir.TypeAttr.get(to_mlir_type(value))
+                        case _:
+                            raise NotImplementedError(f"Not implemented for type {type(value)}")
+                arg_attrs.extend(attrs for _ in self.context.get_arg_packer((arg,)).argument_types)
             self.mlir_funcOp.attributes["numba_cuda_mlir.orig_arg_types"] = ir.ArrayAttr.get(
                 [ir.TypeAttr.get(i) for i in self.mlir_funcOp.function_type.value.inputs]
             )
@@ -1092,24 +1076,13 @@ extern "C" __global__ void
                 # its ABI slot. Materialize it so ordinary arithmetic and loop
                 # bounds retain the constant information from typing.
                 self.lower_const_assign(target, numba_ir.Const(arg_type.literal_value, arg.loc))
-            elif isinstance(arg_type, types.NoneType):
-                # NoneType args are excluded from the MLIR function signature;
-                # store the MLIR NoneType as a placeholder
-                self.store_var(target, ir.NoneType.get())
-            elif isinstance(arg_type, types.BaseTuple):
-                flat_start_idx = self._get_flat_arg_start_index(arg.index)
-                # Reassemble tuple from flattened block arguments
-                arg_value = self._reassemble_tuple_from_block_args(arg_type, flat_start_idx)
-                value = self.from_argument(arg_type, arg_value)
-                target_type = self.get_numba_type(target.name)
-                self.incref(target_type, value)
-                self.store_var(target, value)
             else:
-                flat_start_idx = self._get_flat_arg_start_index(arg.index)
-                # Single argument - get the block argument at the flat index
-                block_arg = self.mlir_funcOp.entry_block.arguments[flat_start_idx]
+                if not hasattr(self, "_incoming_args"):
+                    self._incoming_args = self._arg_packer.from_arguments(
+                        self, self.mlir_funcOp.entry_block.arguments
+                    )
+                value = self._incoming_args[arg.index]
                 target_type = self.get_numba_type(target.name)
-                value = self.from_argument(target_type, block_arg)
                 self.incref(target_type, value)
                 self.store_var(target, value)
 
@@ -1804,16 +1777,7 @@ extern "C" __global__ void
         )
 
         target_type = self.get_numba_type(target.name)
-        if len(callee_function_type) == 0:
-            return ir.NoneType.get()
-        raw_result = (
-            self._unflatten_abi_value(target_type, iter(call_results))
-            if isinstance(target_type, types.BaseTuple) and len(callee_function_type) > 1
-            else call_results[0]
-            if len(callee_function_type) == 1
-            else tuple(call_results)
-        )
-        return self.from_return(target_type, raw_result)
+        return self._unpack_call_result(target_type, call_results)
 
     def build_recursive_call(
         self,
@@ -1826,7 +1790,7 @@ extern "C" __global__ void
         if kws is None:
             kws = []
         dispatcher = fn_type.dispatcher_type.dispatcher
-        argtypes, _, _ = self._fold_dispatcher_call_args(dispatcher, args, kws)
+        argtypes, call_vars, call_argtypes = self._fold_dispatcher_call_args(dispatcher, args, kws)
         if argtypes != self.fndesc.argtypes:
             # A literal entry argument can become runtime-valued on recursion,
             # e.g. fib(10) calls fib(n - 1). Do not recurse into the literal body.
@@ -1838,20 +1802,11 @@ extern "C" __global__ void
             func.call(
                 result=callee_function_type,
                 callee=callee_name,
-                operands_=self._call_operands_from_vars(args, kws),
+                operands_=self._call_operands_from_vars(call_vars, expected_types=call_argtypes),
             )
         )
         target_type = self.get_numba_type(target.name)
-        if len(callee_function_type) == 0:
-            return ir.NoneType.get()
-        raw_result = (
-            self._unflatten_abi_value(target_type, iter(call_results))
-            if isinstance(target_type, types.BaseTuple) and len(callee_function_type) > 1
-            else call_results[0]
-            if len(callee_function_type) == 1
-            else tuple(call_results)
-        )
-        return self.from_return(target_type, raw_result)
+        return self._unpack_call_result(target_type, call_results)
 
     def _get_struct_field_index(self, value_type, attr) -> int | None:
         """Get the struct field index for a make_attribute_wrapper attribute.
@@ -1987,21 +1942,7 @@ extern "C" __global__ void
             )
 
         callee_type = get_func_type(callee)
-        # Tuple-typed arguments -- including the ``*args`` bundle, which
-        # ``fold_arguments`` hands over as a plain tuple of Vars -- expand to one
-        # operand per leaf. Flatten by *type* so leaves with no ABI slot
-        # (``None``) are dropped exactly as the callee signature dropped them.
-        flat_values = []
-        for var, argty in zip(call_vars, call_argtypes):
-            value = self.load_vars(var) if isinstance(var, tuple) else self.load_var(var)
-            value = self._coerce_value_to_numba_type(argty, value)
-            flat_values.extend(self._flatten_abi_operands(argty, value))
-        if len(flat_values) != len(callee_type.inputs):
-            raise InternalCompilerError(
-                f"Overload call to {func_name} produced {len(flat_values)} operands for a "
-                f"callee with {len(callee_type.inputs)} inputs."
-            )
-        call_args = [convert(val, ty) for val, ty in zip(flat_values, callee_type.inputs)]
+        call_args = self._call_operands_from_vars(call_vars, expected_types=call_argtypes)
         call_result = func.call(
             result=callee_type.results,
             callee=callee.name.value,
@@ -2009,20 +1950,7 @@ extern "C" __global__ void
         )
 
         target_type = self.get_numba_type(target.name)
-        if isinstance(target_type, types.BaseTuple):
-            # Rebuild from the type so ``None`` leaves, which the callee returns
-            # no value for, get their placeholder back in place.  The tuple is
-            # driven by the type rather than the result count, so a bundle whose
-            # represented leaves number none or one still rebuilds as a tuple
-            # instead of collapsing to ``None`` or to its sole element.
-            result = self.from_return(
-                target_type,
-                self._unflatten_abi_value(target_type, iter(self._call_results_tuple(call_result))),
-            )
-        elif len(callee_type.results) == 0:
-            result = ir.NoneType.get()
-        else:
-            result = self.from_return(target_type, call_result)
+        result = self._unpack_call_result(target_type, call_result)
         self.store_var(target, result)
 
     def get_registered_builder(
@@ -2224,30 +2152,32 @@ extern "C" __global__ void
         else:
             self._lower_call_external_numba_abi(target, fn_value, args)
 
-    def _external_abi_function_type(self, sig: typing.Signature, *, numba_abi=False):
-        if sig.return_type in (types.none, types.void):
-            results = [] if not numba_abi else [self.get_return_type(types.int32)]
-        else:
-            results = [self.get_return_type(sig.return_type)]
-        inputs = [self.get_argument_type(arg_type) for arg_type in sig.args]
+    def _external_abi_function_type(self, sig: typing.Signature):
+        # Numba's signature already includes its return pointer and i32 status;
+        # C's signature returns the user value directly.
+        inputs = self.context.get_arg_packer(sig.args).argument_types
+        results = ArgPacker(
+            self.context.data_model_manager, (sig.return_type,), representation="return"
+        ).argument_types
         return ir.FunctionType.get(inputs=inputs, results=results)
 
     def _lower_call_external_numba_abi(self, target, fn_value: ExternFunction, args):
         external_abi_signature = user_signature_to_external_abi_signature(fn_value.sig)
-        external_abi_mlir_type = self._external_abi_function_type(
-            external_abi_signature, numba_abi=True
-        )
+        external_abi_mlir_type = self._external_abi_function_type(external_abi_signature)
         return_type = external_abi_mlir_type.results
         user_return_actual_type = fn_value.sig.return_type
 
         ptr = llvm.PointerType.get()
         if user_return_actual_type != types.void:
-            return_mlir_type = self.get_storage_type(user_return_actual_type)
+            return_model = LLVMStorageAdapter(
+                self.context.data_model_manager, user_return_actual_type
+            )
+            return_mlir_type = return_model.get_data_type()
         else:
             return_mlir_type = T.i8()
         c1 = arith.constant(result=T.i32(), value=1)
         return_ptr = llvm.alloca(res=ptr, array_size=c1, elem_type=return_mlir_type)
-        operands = [return_ptr] + self._call_operands_from_vars(
+        operands = (return_ptr,) + self._call_operands_from_vars(
             args, expected_types=fn_value.sig.args
         )
 
@@ -2255,8 +2185,10 @@ extern "C" __global__ void
         func.call(result=return_type, callee=callee.name.value, operands_=operands)
         if user_return_actual_type != types.void:
             stored = llvm.load(res=return_mlir_type, addr=return_ptr)
-            result = self.from_storage(user_return_actual_type, stored)
+            result = return_model.from_data(self, stored)
             self.store_var(target, result)
+        else:
+            self.store_var(target, ir.NoneType.get())
 
     def _lower_call_external_c_abi(self, target, fn_value: ExternFunction, args):
         user_sig = fn_value.sig
@@ -2267,10 +2199,11 @@ extern "C" __global__ void
         callee = get_or_insert_function(fn_value.name, c_mlir_type, self.mlir_gpu_module)
         if user_sig.return_type != types.void:
             raw = func.call(result=result_types, callee=callee.name.value, operands_=operands)
-            result = self.from_return(user_sig.return_type, self._call_results_tuple(raw)[0])
+            result = self._unpack_call_result(user_sig.return_type, raw)
             self.store_var(target, result)
         else:
             func.call(result=[], callee=callee.name.value, operands_=operands)
+            self.store_var(target, ir.NoneType.get())
 
     def lower_call_expr_assign(self, target, fn, args, kws, expr=None):
         trace("target: %s, fn: %s, args: %s, kws: %s", target, fn, args, kws)
@@ -2340,11 +2273,34 @@ extern "C" __global__ void
             return
 
         fn_type = self.get_numba_type(fn.name)
+        from numba_cuda_mlir.runtime_closures import RuntimeClosure
+        from numba_cuda_mlir.numba_cuda.types import Dispatcher as DispatcherType
+
+        if isinstance(fn_type, RuntimeClosure):
+            from numba_cuda_mlir.numba_cuda.core.ir_utils import mk_unique_var
+
+            capture_values = self._lookup_model(fn_type).unpack_captures(self, fn_value)
+            capture_vars = []
+            for i, (capture_type, capture_value) in enumerate(
+                zip(fn_type.capture_types, capture_values)
+            ):
+                name = mk_unique_var(f"$closure_capture_{fn.name}_{i}")
+                self.fndesc.typemap[name] = capture_type
+                self.varmap[name] = capture_value
+                capture_vars.append(numba_ir.Var(fn.scope, name, fn.loc))
+            call = self.build_user_defined_function_call(
+                target, fn_type.body_dispatcher, capture_vars + list(args), kws
+            )
+            self.store_var(target, call)
+            return
 
         if isinstance(fn_type, types.RecursiveCall):
             call = self.build_recursive_call(target, fn_type, args, kws)
             self.store_var(target, call)
             return
+
+        if isinstance(fn_type, DispatcherType):
+            fn_value = fn_type.dispatcher
 
         if isinstance(fn_value, dispatcher.Dispatcher):
             call = self.build_user_defined_function_call(target, fn_value, args, kws)
@@ -3216,22 +3172,9 @@ extern "C" __global__ void
         """
         trace("return_inst=%s", return_inst)
         value = return_inst.value
-        value_type = self.get_numba_type(value.name)
         return_ctor = gpu.ReturnOp if isinstance(self.mlir_funcOp, gpu.GPUFuncOp) else func.ReturnOp
-        if isinstance(value_type, types.NoneType) or isinstance(
-            self.get_return_type(value_type), ir.NoneType
-        ):
-            return_ctor([])
-        else:
-            value = self.load_var(value)
-            if isinstance(value_type, types.DTypeSpec) and isinstance(value, types.Type):
-                value = self._materialize_type_token(value_type)
-            value = self.as_return(value_type, value)
-            if isinstance(value, tuple):
-                # A ``None`` leaf has no result slot; see ``_flatten_type``.
-                return_ctor(self._flatten_abi_operands(value_type, value))
-            else:
-                return_ctor([value])
+        value = self.load_var(value)
+        return_ctor(self._return_packer.as_arguments(self, (value,)))
 
     def _unwrap_mlir_value(self, value):
         if isinstance(value, ir.OpView):
@@ -3473,6 +3416,8 @@ extern "C" __global__ void
         return [self.load_var(v) for v in vars]
 
     def load_var(self, var: numba_ir.Var):
+        if isinstance(var, (tuple, list)):
+            return tuple(self.load_var(value) for value in var)
         result = self._load_var(var)
         numba_type = self.get_numba_type(var.name)
         result = self.lower_literal_if_needed(result, numba_type)
@@ -3503,8 +3448,6 @@ extern "C" __global__ void
         Load the value from the given numba variable.
         """
         trace("var=%s", var)
-        if isinstance(var, (list, tuple)):
-            return [self.load_var(v) for v in var]
 
         assert self.var_lowered(var), f"Var {var.name} not found in varmap."
 
@@ -3709,8 +3652,6 @@ extern "C" __global__ void
         return self._lookup_model(ty).get_argument_type()
 
     def get_return_type(self, ty):
-        if isinstance(ty, types.DTypeSpec):
-            return ir.NoneType.get()
         return self._lookup_model(ty).get_return_type()
 
     def as_storage(self, ty, value):
@@ -3745,41 +3686,9 @@ extern "C" __global__ void
         except TypeError:
             return (results,)
 
-    def _flatten_abi_operands(self, numba_type, value) -> list:
-        """Flatten ``value`` to the operands its type occupies in the ABI.
-
-        Mirrors ``_flatten_type``: a ``NoneType`` leaf has no MLIR operand, so
-        it must be dropped here too, or every operand after it shifts by one.
-        """
-        if isinstance(numba_type, types.NoneType):
-            return []
-        if isinstance(numba_type, types.BaseTuple):
-            return [
-                operand
-                for elem_type, elem in zip(self._tuple_element_types(numba_type), value)
-                for operand in self._flatten_abi_operands(elem_type, elem)
-            ]
-        return [value]
-
-    def _flatten_abi_value(self, value):
-        if isinstance(value, (tuple, list)):
-            out = []
-            for item in value:
-                out.extend(self._flatten_abi_value(item))
-            return out
-        return [value]
-
-    def _unflatten_abi_value(self, numba_type, values_iter):
-        if isinstance(numba_type, types.NoneType):
-            return ir.NoneType.get()
-        if isinstance(numba_type, types.UniTuple):
-            return tuple(
-                self._unflatten_abi_value(numba_type.dtype, values_iter)
-                for _ in range(numba_type.count)
-            )
-        if isinstance(numba_type, types.BaseTuple):
-            return tuple(self._unflatten_abi_value(t, values_iter) for t in numba_type.types)
-        return next(values_iter)
+    def _unpack_call_result(self, numba_type, results):
+        packer = ArgPacker(self.context.data_model_manager, (numba_type,), representation="return")
+        return packer.from_arguments(self, self._call_results_tuple(results))[0]
 
     def _coerce_value_to_numba_type(self, numba_type, value):
         if isinstance(numba_type, types.UniTuple):
@@ -3797,23 +3706,14 @@ extern "C" __global__ void
         return value
 
     def _call_operands_from_vars(self, args, kws=(), expected_types=None):
-        operands = []
-        expected_iter = iter(expected_types) if expected_types is not None else None
-        for arg in args:
-            arg_type = (
-                next(expected_iter) if expected_iter is not None else self.get_numba_type(arg.name)
-            )
-            value = self._coerce_value_to_numba_type(arg_type, self.load_var(arg))
-            operands.extend(self._flatten_abi_value(self.as_argument(arg_type, value)))
-        for _, value_var in kws:
-            value_type = (
-                next(expected_iter)
-                if expected_iter is not None
-                else self.get_numba_type(value_var.name)
-            )
-            value = self._coerce_value_to_numba_type(value_type, self.load_var(value_var))
-            operands.extend(self._flatten_abi_value(self.as_argument(value_type, value)))
-        return operands
+        variables = tuple(args) + tuple(value for _, value in kws)
+        if expected_types is None:
+            expected_types = tuple(self.get_numba_type(var) for var in variables)
+        values = tuple(
+            self._coerce_value_to_numba_type(ty, self.load_var(var))
+            for ty, var in zip(expected_types, variables)
+        )
+        return self.context.get_arg_packer(expected_types).as_arguments(self, values)
 
     def get_mlir_type(self, ty):
         """
@@ -3851,63 +3751,6 @@ extern "C" __global__ void
     def var_lowered(self, var):
         # Polymorphic var is considered lowered if a canonical shared slot is allocated.
         return var.name in self.varmap or self._is_poly_debug_var(var.name)
-
-    def _count_flat_elements(self, numba_type) -> int:
-        """Count how many flat MLIR arguments a type expands to."""
-        if isinstance(numba_type, types.NoneType):
-            return 0
-        if isinstance(numba_type, types.BaseTuple):
-            if isinstance(numba_type, types.UniTuple):
-                return numba_type.count * self._count_flat_elements(numba_type.dtype)
-            else:
-                return sum(self._count_flat_elements(t) for t in numba_type.types)
-        else:
-            return 1
-
-    def _flatten_type(self, numba_type) -> list:
-        """Recursively flatten a Numba type to a list of scalar/array types."""
-        if isinstance(numba_type, types.NoneType):
-            return []
-        if isinstance(numba_type, types.BaseTuple):
-            if isinstance(numba_type, types.UniTuple):
-                elem_flat = self._flatten_type(numba_type.dtype)
-                return elem_flat * numba_type.count
-            else:
-                result = []
-                for t in numba_type.types:
-                    result.extend(self._flatten_type(t))
-                return result
-        else:
-            return [numba_type]
-
-    def _get_flat_arg_start_index(self, arg_index: int) -> int:
-        """Get the starting index in flattened block arguments for a given original arg index."""
-        flat_idx = 0
-        for i in range(arg_index):
-            if not _is_omitted_arg(self.fndesc.argtypes[i]):
-                flat_idx += self._count_flat_elements(self.fndesc.argtypes[i])
-        return flat_idx
-
-    def _reassemble_tuple_from_block_args(self, numba_type, start_idx: int) -> tuple:
-        """Reassemble a tuple from flattened block arguments. Returns Python tuple of ir.Values."""
-        if not isinstance(numba_type, types.BaseTuple):
-            return self.mlir_funcOp.entry_block.arguments[start_idx]
-        elements = []
-        idx = start_idx
-        for elem_type in self._tuple_element_types(numba_type):
-            if isinstance(elem_type, types.NoneType):
-                # ``_flatten_type`` gives a None leaf no block argument, so do
-                # not consume one; use the same placeholder as a top-level
-                # None argument in ``lower_arg_assign``.
-                elem = ir.NoneType.get()
-            elif isinstance(elem_type, types.BaseTuple):
-                elem = self._reassemble_tuple_from_block_args(elem_type, idx)
-                idx += self._count_flat_elements(elem_type)
-            else:
-                elem = self.mlir_funcOp.entry_block.arguments[idx]
-                idx += 1
-            elements.append(elem)
-        return tuple(elements)
 
     def verify_mlir_module(self):
         trace("Verifying MLIR module:\n%s", str(self.mlir_module))

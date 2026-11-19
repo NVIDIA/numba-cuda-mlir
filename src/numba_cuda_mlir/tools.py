@@ -15,20 +15,24 @@ def parse_compute_capability(compute_cap: str) -> tuple[int, int]:
         raise ValueError(f"Invalid compute capability: {compute_cap}")
 
 
-def format_arch(cc: tuple[int, int]) -> str:
+def format_arch(cc: tuple[int, int] | tuple[int, int, str]) -> str:
     """
     Format a compute capability tuple as an sm_XX[a] string.
 
     Args:
         cc: Compute capability as (major, minor) tuple
     """
-    return f"sm_{cc[0]}{cc[1]}"
+    suffix = cc[2] if len(cc) == 3 else ""
+    return f"sm_{cc[0]}{cc[1]}{suffix}"
 
 
 def resolve_gpu_target(targetoptions: dict | None = None) -> dict[str, object]:
     if targetoptions is None:
         targetoptions = {}
 
+    host_cc = get_gpu_compute_capability(tuple)
+    host_specific_cc = (*host_cc, "a") if host_cc >= (9, 0) else host_cc
+    host_arch = format_arch(host_specific_cc)
     chip = targetoptions.get("chip")
     if chip:
         arch = chip
@@ -36,14 +40,12 @@ def resolve_gpu_target(targetoptions: dict | None = None) -> dict[str, object]:
         arch_suffix = arch.removeprefix(f"sm_{cc[0]}{cc[1]}")
         arch_specific_cc = (*cc, arch_suffix) if arch_suffix in ("a", "f") else cc
     else:
-        cc = get_gpu_compute_capability(tuple)
-        arch = format_arch(cc)
-        arch_specific_cc = cc
+        cc = host_cc
+        arch = host_arch
+        arch_specific_cc = host_specific_cc
 
-    host_cc = get_gpu_compute_capability(tuple)
-    host_arch = format_arch(host_cc)
-    if cc < host_cc:
-        linker_cc = host_cc
+    if cc < host_cc and targetoptions.get("_compile_output") is None:
+        linker_cc = host_specific_cc
         linker_arch = host_arch
     else:
         linker_cc = arch_specific_cc
@@ -137,9 +139,6 @@ def get_gpu_compute_capability(as_type: type = str) -> str: ...
 def get_gpu_compute_capability(as_type: type = tuple) -> tuple[int, int]: ...
 
 
-_cached_cc: tuple[int, int] | None = None
-
-
 def get_gpu_compute_capability(as_type: type = str) -> str | tuple[int, int]:
     """
     Query the compute capability of the current CUDA device.
@@ -147,22 +146,14 @@ def get_gpu_compute_capability(as_type: type = str) -> str | tuple[int, int]:
     Uses the numba-cuda driver layer so the primary context is shared with
     ``to_device()`` and other device operations.
     """
-    global _cached_cc
     assert as_type in (str, tuple), "as_type must be str or tuple"
-
-    if _cached_cc is not None:
-        if as_type is tuple:
-            return _cached_cc
-        return f"sm_{_cached_cc[0]}{_cached_cc[1]}"
 
     from numba_cuda_mlir.numba_cuda.cudadrv.devices import get_context
 
-    ctx = get_context()
-    cc = ctx.device.compute_capability
-    _cached_cc = cc
+    cc = get_context().device.compute_capability
     if as_type is tuple:
         return cc
-    return format_arch(cc)
+    return format_arch((*cc, "a") if cc >= (9, 0) else cc)
 
 
 def _check_cuda_result(result):

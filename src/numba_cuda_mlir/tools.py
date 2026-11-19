@@ -30,6 +30,9 @@ def resolve_gpu_target(targetoptions: dict | None = None) -> dict[str, object]:
     if targetoptions is None:
         targetoptions = {}
 
+    host_cc = get_gpu_compute_capability(tuple)
+    host_specific_cc = (*host_cc, "a") if host_cc >= (9, 0) else host_cc
+    host_arch = format_arch(host_specific_cc)
     chip = targetoptions.get("chip")
     if chip:
         arch = chip
@@ -37,14 +40,12 @@ def resolve_gpu_target(targetoptions: dict | None = None) -> dict[str, object]:
         arch_suffix = arch.removeprefix(f"sm_{cc[0]}{cc[1]}")
         arch_specific_cc = (*cc, arch_suffix) if arch_suffix in ("a", "f") else cc
     else:
-        cc = get_gpu_compute_capability(tuple)
-        arch = get_gpu_compute_capability(str)
-        arch_specific_cc = (*cc, "a") if cc >= (9, 0) else cc
+        cc = host_cc
+        arch = host_arch
+        arch_specific_cc = host_specific_cc
 
-    host_cc = get_gpu_compute_capability(tuple)
-    host_arch = get_gpu_compute_capability(str)
     if cc < host_cc:
-        linker_cc = (*host_cc, "a") if host_cc >= (9, 0) else host_cc
+        linker_cc = host_specific_cc
         linker_arch = host_arch
     else:
         linker_cc = arch_specific_cc
@@ -138,9 +139,6 @@ def get_gpu_compute_capability(as_type: type = str) -> str: ...
 def get_gpu_compute_capability(as_type: type = tuple) -> tuple[int, int]: ...
 
 
-_cached_cc: tuple[int, int] | None = None
-
-
 def get_gpu_compute_capability(as_type: type = str) -> str | tuple[int, int]:
     """
     Query the compute capability of the current CUDA device.
@@ -148,17 +146,11 @@ def get_gpu_compute_capability(as_type: type = str) -> str | tuple[int, int]:
     Uses the numba-cuda driver layer so the primary context is shared with
     ``to_device()`` and other device operations.
     """
-    global _cached_cc
     assert as_type in (str, tuple), "as_type must be str or tuple"
 
-    if _cached_cc is not None:
-        cc = _cached_cc
-    else:
-        from numba_cuda_mlir.numba_cuda.cudadrv.devices import get_context
+    from numba_cuda_mlir.numba_cuda.cudadrv.devices import get_context
 
-        ctx = get_context()
-        cc = ctx.device.compute_capability
-        _cached_cc = cc
+    cc = get_context().device.compute_capability
     if as_type is tuple:
         return cc
     return format_arch((*cc, "a") if cc >= (9, 0) else cc)

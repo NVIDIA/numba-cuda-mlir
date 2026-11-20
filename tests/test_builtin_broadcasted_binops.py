@@ -33,6 +33,35 @@ def test_broadcasted_floor_div(dt1, dt2):
     assert np.allclose(expect, a), f"{expect=} != {a=}"
 
 
+@pytest.mark.parametrize(
+    "dtype, b, c",
+    [
+        (np.int32, [-7, 7, -7, 7, -1, 3], [2, -2, -2, 2, 3, 0]),
+        (np.int64, [-7, 7, -7, 7, -1, 3], [2, -2, -2, 2, 3, 0]),
+        (np.uint8, [200, 250, 7, 128, 255, 3], [3, 2, 2, 2, 255, 0]),
+        (np.uint32, [3000000000, 7, 2**32 - 1, 3, 0, 3], [2, 2, 3, 2, 5, 0]),
+        (np.float32, [-7.5, 7.5, 1.0, 0.75, -1.0, 3.0], [2.0, -2.0, 0.25, 0.25, 3.0, 0.0]),
+        (np.float64, [-7.5, 7.5, 1.0, 1.0, -1.0, 3.0], [2.0, -2.0, 0.25, 0.1, 3.0, 0.0]),
+    ],
+)
+def test_broadcasted_floor_div_values(dtype, b, c):
+    """Rounds towards -inf, keeps fractional float operands, and x // 0 follows NumPy."""
+
+    @cuda.jit
+    def kernel(a, b, c):
+        x = b // c
+        for i in range(a.shape[0]):
+            a[i] = x[i]
+
+    b = np.array(b, dtype=dtype)
+    c = np.array(c, dtype=dtype)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        expect = b // c
+    da = cuda.to_device(np.zeros_like(expect))
+    kernel[1, 1](da, cuda.to_device(b), cuda.to_device(c))
+    np.testing.assert_array_equal(da.copy_to_host(), expect)
+
+
 # @pytest.mark.onerous
 @pytest.mark.parametrize("dt1", DTYPES)
 @pytest.mark.parametrize("dt2", DTYPES)

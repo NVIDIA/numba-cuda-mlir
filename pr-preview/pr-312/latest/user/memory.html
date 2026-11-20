@@ -612,14 +612,22 @@ size 0:</p>
 </div>
 <p>Static shared arrays occupy a separate region and do not reduce the dynamic
 byte count supplied at launch. A zero-sized declaration exposes the remaining
-dynamic bytes as elements of its dtype; its <code class="docutils literal notranslate"><span class="pre">size</span></code> is determined at runtime.</p>
-<p>Runtime-sized allocations consume the dynamic region in execution order.
-Each allocation starts at an offset aligned for its dtype and its
-<code class="docutils literal notranslate"><span class="pre">alignment</span></code> (8 bytes by default). Include this padding in the launch’s
-byte count. Kernels containing runtime-sized shared allocations require a
-nonzero dynamic shared-memory byte count at launch; omitting it or passing
-zero raises <code class="docutils literal notranslate"><span class="pre">ValueError</span></code> before the kernel runs. The caller must still
-provide enough bytes for the allocations and their alignment padding.
+dynamic bytes as complete elements of its dtype; its <code class="docutils literal notranslate"><span class="pre">size</span></code> is determined
+at runtime. It does not reserve or consume the region.</p>
+<p>Within a function, runtime-sized allocations consume the dynamic region in
+execution order. A separately compiled device function starts at offset zero.
+When a kernel and its helpers need distinct arrays, allocate them together
+and pass the arrays to the helpers.</p>
+<p>Each allocation or view starts at the next offset that satisfies its dtype’s
+alignment and any explicit <code class="docutils literal notranslate"><span class="pre">alignment</span></code>. For example, a <code class="docutils literal notranslate"><span class="pre">uint8</span></code> view can
+start immediately after a three-byte allocation. Include any padding in the
+launch’s byte count.</p>
+<p>Kernels containing runtime-sized shared allocations require a nonzero dynamic
+shared-memory byte count at launch. Omitting it or passing zero raises
+<code class="docutils literal notranslate"><span class="pre">ValueError</span></code> before the kernel runs. With a nonzero budget, the device checks
+each allocation as it executes. If the aligned allocation would exceed the
+budget, the kernel traps before accessing the array. CUDA reports the launch
+failure at synchronization. Further CUDA work requires a fresh process.
 For example:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">numba_cuda_mlir</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -637,22 +645,24 @@ For example:</p>
 <span class="n">n</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">3</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">))</span>
 <span class="n">out</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">device_array</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span>
 <span class="n">kernel</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">32</span><span class="p">](</span><span class="n">n</span><span class="p">,</span> <span class="n">out</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">copy_to_host</span><span class="p">())</span>  <span class="c1"># [7, 13, 6]</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">copy_to_host</span><span class="p">())</span>  <span class="c1"># [7, 13, 7]</span>
 </pre></div>
 </div>
-<p>The prefix uses bytes 0 through 2. The tail begins at byte 8 and contains
-six <code class="docutils literal notranslate"><span class="pre">int32</span></code> elements. All threads that share these allocations must follow
+<p>The prefix uses bytes 0 through 2. The tail begins at byte 4 and contains
+seven <code class="docutils literal notranslate"><span class="pre">int32</span></code> elements. All threads that share these allocations must follow
 the same allocation path and use the same sizes.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p><strong>Compatibility and migration:</strong> Runtime-sized shared arrays previously
 began immediately after the preceding payload. Allocation starts are now
-aligned, so the memory layout and required launch budget can change even
-though the <code class="docutils literal notranslate"><span class="pre">cuda.shared.array</span></code> signature is unchanged.</p>
+rounded up when the dtype or an explicit <code class="docutils literal notranslate"><span class="pre">alignment</span></code> requires it. This
+can change the memory layout and the required launch budget.</p>
 <p>When calculating the launch budget, round the current byte offset up to
 each allocation’s alignment before adding its storage size. Include both
-alignment padding and padded vector storage: <code class="docutils literal notranslate"><span class="pre">float32x3</span></code> uses 16 bytes
-per element. Update pointer arithmetic and FFI code that assumes adjacent
+alignment padding and padded vector storage. A shared array of
+<code class="docutils literal notranslate"><span class="pre">float32x3</span></code> uses 16 bytes per element. Reinterpreting a scalar buffer
+with <code class="docutils literal notranslate"><span class="pre">.view(cuda.float32x3)</span></code> groups its bytes into 12-byte elements.
+Update pointer arithmetic and FFI code that assumes adjacent
 allocations have no gap. Zero-sized declarations remain non-consuming
 views of the remaining region; they do not reserve independent storage.</p>
 </div>

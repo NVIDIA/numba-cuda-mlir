@@ -328,8 +328,6 @@ def _extract_shape_and_dtype(shape, dtype, alignment=None, alignas=None, **kwarg
     assert not kwargs, f"got unexpected keyword arguments: {kwargs}"
     # Support both 'alignment' (numba-cuda) and 'alignas' (numba_cuda_mlir) keywords
     align_val = alignment if alignment is not None else alignas
-    if align_val is None:
-        align_val = 8
     return shape, dtype, align_val
 
 
@@ -431,8 +429,6 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
         alignas = try_extract_constant(alignas)
     # Validate alignment (raises ValueError for invalid values)
     _validate_alignment(alignas)
-    if alignas is None:
-        alignas = 8  # default alignment when None
     shape_op: tuple[ir.Value | int, ...] | ir.Value | int = lower.load_var(shape)
 
     # Wrap single values (int or ir.Value) in a tuple for 1D arrays
@@ -456,29 +452,33 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
 
     is_dynamic_shared_shape = len(static_shape) == 1 and static_shape[0] == 0
     if all([x is not None for x in static_shape]) and not is_dynamic_shared_shape:
-        return cuda_static_shared_memory(lower, target, static_shape, dtype, alignas)
+        return cuda_static_shared_memory(lower, target, static_shape, dtype, alignas or 8)
 
-    shape = coerce_to_shape_tuple(shape_op)
+    shape_type = lower.get_numba_type(shape.name)
+    dim_types = shape_type if isinstance(shape_type, types.BaseTuple) else (shape_type,)
+    shape = tuple(
+        index_of(lower.lower_cast(dim_type, types.int64, dim))
+        for dim, dim_type in zip(shape_op, dim_types, strict=True)
+    )
 
     from numba_cuda_mlir.array_storage import ArrayStorageLayout
     from numba_cuda_mlir.lowering_utilities import byte_array_view
 
     target_type = lower.get_numba_type(target.name)
     layout = ArrayStorageLayout(target_type)
-    alignas = max(alignas, layout.alignment)
+    alignment = max(alignas or 1, layout.alignment)
     mspace = lower._get_shared_address_space()
     if layout.byte_addressed:
         backing_type = ir.MemRefType.get(
             [ir.ShapedType.get_dynamic_size()], T.i8(), memory_space=mspace
         )
         if is_dynamic_shared_shape:
-            backing = lower._request_dynamic_shared_memory(backing_type, alignas)
+            backing = lower._request_dynamic_shared_memory(backing_type, alignment)
             shape = (memref.dim(backing, index_of(0)) // index_of(layout.itemsize),)
         else:
-            count = index_of(layout.itemsize)
-            for dim in shape:
-                count = count * dim
-            backing = lower._request_runtime_sized_shared_memory((count,), backing_type, alignas)
+            backing = lower._request_runtime_sized_shared_memory(
+                shape, backing_type, alignment, byte_itemsize=layout.itemsize
+            )
         array = byte_array_view(target_type, backing, list(shape))
     else:
         mr_type = ir.MemRefType.get(
@@ -487,16 +487,16 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
             memory_space=mspace,
         )
         array = (
-            lower._request_dynamic_shared_memory(mr_type, alignas)
+            lower._request_dynamic_shared_memory(mr_type, alignment)
             if is_dynamic_shared_shape
-            else lower._request_runtime_sized_shared_memory(shape, mr_type, alignas)
+            else lower._request_runtime_sized_shared_memory(shape, mr_type, alignment)
         )
-    if alignas != 8:
+    if alignas is not None:
         # assume_alignment yields a new SSA value; an unused result leaves a
         # dead op that canonicalization erases, silently dropping the
         # alignment assumption. Keep the aligned value as the array, and keep
         # it recognizable as dynamic shared memory.
-        array = memref.assume_alignment(array, alignas)
+        array = memref.assume_alignment(array, alignment)
         if is_dynamic_shared_shape:
             lower._dynamic_shared_memory_values.append(array)
     lower.store_var(target, array)

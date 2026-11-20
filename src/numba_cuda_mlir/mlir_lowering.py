@@ -2442,7 +2442,8 @@ extern "C" __global__ void
                     name,
                     ir.Attribute.parse("#llvm.linkage<external>"),
                     addr_space=3,
-                    alignment=alignment,
+                    # Keep the base aligned even when individual byte arrays pack tightly.
+                    alignment=max(8, alignment),
                 )
             with ir.InsertionPoint.at_block_begin(self.mlir_funcOp.entry_block):
                 ptr = llvm.mlir_addressof(llvm.PointerType.get(3), name)
@@ -2532,29 +2533,51 @@ extern "C" __global__ void
         return any(value == dynamic for dynamic in self._dynamic_shared_memory_values)
 
     def _request_runtime_sized_shared_memory(
-        self, sizes: tuple[ir.Value, ...], mr_type: ir.MemRefType, alignment
+        self, sizes: tuple[ir.Value, ...], mr_type: ir.MemRefType, alignment, *, byte_itemsize=None
     ):
         self.metadata["has_runtime_sized_shared_memory"] = True
-        bytes, element_alignment = get_type_storage_layout(mr_type.element_type)
-        assert self.mlir_funcOp
-        # Emit at the current insertion point: the size operands are
-        # computed here, and the entry block may already have a
-        # terminator once the request appears after control flow.
-        bytes_op = arith.constant(result=T.index(), value=bytes)
-        for size in sizes:
-            size = self.mlir_convert(size, T.index())
-            bytes_op = arith.muli(lhs=bytes_op, rhs=size)
+        itemsize, element_alignment = get_type_storage_layout(mr_type.element_type)
+        if byte_itemsize is not None:
+            itemsize = byte_itemsize
         alignment = max(alignment, element_alignment)
         shm_base = self._get_shared_memory_base(alignment)
-        total_shared_memory_bytes = self._aligned_shared_memory_offset(alignment)
+        start = self._aligned_shared_memory_offset(alignment)
+        budget = memref.dim(shm_base, index_of(0))
+        smallest_dim = sizes[0]
+        for dim in sizes[1:]:
+            smallest_dim = arith.minsi(smallest_dim, dim)
+        negative = arith.cmpi(arith.CmpIPredicate.slt, smallest_dim, index_of(0))
+
+        if itemsize == 0:
+            # Zero-width strings retain their logical shape and consume no payload.
+            too_large = negative
+        else:
+            # Divide capacity by each dimension before comparing. Multiplying
+            # the device-provided dimensions first can wrap an index.
+            remaining = arith.subi(budget, start)
+            capacity = arith.divui(remaining, index_of(itemsize))
+            for dim in sizes[1:]:
+                capacity = arith.divui(capacity, arith.maxui(dim, index_of(1)))
+            too_large = arith.cmpi(arith.CmpIPredicate.ugt, sizes[0], capacity)
+            if len(sizes) > 1:
+                nonempty = arith.cmpi(arith.CmpIPredicate.ne, smallest_dim, index_of(0))
+                too_large = arith.ori(negative, arith.andi(nonempty, too_large))
+        past_end = arith.cmpi(arith.CmpIPredicate.ugt, start, budget)
+        on_failure = scf.IfOp(arith.ori(past_end, too_large))
+        with ir.InsertionPoint(on_failure.then_block):
+            llvm.inline_asm(None, [], "trap;", "~{memory}", has_side_effects=True)
+            scf.yield_([])
+
+        nbytes = index_of(itemsize)
+        for dim in sizes:
+            nbytes = arith.muli(nbytes, dim)
         view = memref.view(
             result=mr_type,
             source=shm_base,
-            byte_shift=total_shared_memory_bytes,
-            sizes=sizes,
+            byte_shift=start,
+            sizes=[nbytes] if byte_itemsize is not None else sizes,
         )
-        total_shared_memory_bytes = arith.addi(lhs=total_shared_memory_bytes, rhs=bytes_op)
-        self._store_total_shared_memory_bytes(total_shared_memory_bytes)
+        self._store_total_shared_memory_bytes(arith.addi(start, nbytes))
         return view
 
     def _get_tuple_element_type(self, target_type):

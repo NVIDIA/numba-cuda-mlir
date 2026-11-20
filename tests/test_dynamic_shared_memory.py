@@ -44,6 +44,57 @@ def test_runtime_shared_requires_launch_budget(in_device_function):
         missing_budget(n, out)
 
 
+def test_runtime_shared_allocation_checks_remaining_bytes(monkeypatch):
+    from numba_cuda_mlir._mlir.dialects import llvm
+
+    # Exit the single thread on the failure path so the GPU context stays usable.
+    # The unmodified PTX is checked in test_explicit_alignment_reaches_ptx_and_optimized_ir.
+    inline_asm = llvm.inline_asm
+
+    def exit_on_trap(res, operands_, asm_string, constraints, **kwargs):
+        return inline_asm(
+            res, operands_, "exit;" if asm_string == "trap;" else asm_string, constraints, **kwargs
+        )
+
+    monkeypatch.setattr(llvm, "inline_asm", exit_on_trap)
+
+    @cuda.jit
+    def kernel(n, out):
+        prefix = cuda.shared.array(n[0], dtype=np.uint8)
+        values = cuda.shared.array((n[1], n[2]), dtype=np.int32, alignment=16)
+        out[0] = prefix.size + values.size
+
+    # The first three bytes are followed by thirteen bytes of padding.
+    for shape, budget, expected in [
+        ([3, 2, 2], 32, 7),
+        ([3, 2, 2], 31, -1),
+        ([3, 0, 1 << 62], 16, 3),
+        ([3, 1 << 62, 4], 31, -1),
+        ([3, -1, 0], 31, -1),
+        (np.array([200, 1, 200], dtype=np.uint8), 1008, 400),
+    ]:
+        n = cuda.to_device(np.asarray(shape))
+        out = cuda.to_device(np.array([-1], dtype=np.int64))
+        kernel[1, 1, 0, budget](n, out)
+        assert out.copy_to_host()[0] == expected
+
+
+@pytest.mark.parametrize("dtype", [np.dtype("S0"), np.dtype("U0")])
+def test_runtime_shared_zero_width_elements(dtype):
+    @cuda.jit
+    def kernel(n, out):
+        values = cuda.shared.array(n[0], dtype=dtype)
+        tail = cuda.shared.array(0, dtype=np.uint8)
+        out[0] = values.size
+        out[1] = values.nbytes
+        out[2] = tail.size
+
+    n = cuda.to_device(np.array([100], dtype=np.int64))
+    out = cuda.to_device(np.full(3, -1, dtype=np.int64))
+    kernel[1, 1, 0, 1](n, out)
+    np.testing.assert_array_equal(out.copy_to_host(), [100, 0, 1])
+
+
 @pytest.mark.parametrize("legacy_cache", [False, True])
 def test_runtime_shared_requires_launch_budget_after_disk_cache(
     monkeypatch, tmp_path, legacy_cache
@@ -63,7 +114,9 @@ def test_runtime_shared_requires_launch_budget_after_disk_cache(
 
             def without_budget_metadata(self, cres):
                 payload = reduce(self, cres)
-                payload.pop("has_runtime_sized_shared_memory")
+                payload["has_runtime_sized_shared_memory"] = payload.pop(
+                    "uses_checked_runtime_shared_memory"
+                )
                 return payload
 
             patch.setattr(MLIRCacheImpl, "reduce", without_budget_metadata)
@@ -236,10 +289,26 @@ def test_explicit_alignment_reaches_ptx_and_optimized_ir(monkeypatch, cc):
     assert re.search(
         r"\.extern \.shared \.align 16 \.b8 __numba_cuda_mlir_dynamic_shared_\w+\[\];", ptx
     )
+    assert "trap;" in ptx
     # The runtime-sized array's alignment assumption must survive optimization
     # instead of being erased as a dead op with an unused result.
     optimized = compiler.compile_mlir(kernel, sig, optimized=True)
     assert re.search(r'llvm\.intr\.assume .*\["align"\(', optimized)
+
+
+def test_byte_view_after_runtime_allocation():
+    @cuda.jit
+    def kernel(prefix_size, out):
+        prefix = cuda.shared.array(prefix_size, dtype=np.uint8)
+        prefix[0] = 1
+        rest = cuda.shared.array(0, dtype=np.uint8)
+        aligned = cuda.shared.array(0, dtype=np.uint8, alignment=8)
+        out[0] = rest.size
+        out[1] = aligned.size
+
+    out = cuda.device_array(2, dtype=np.int64)
+    kernel[1, 1, 0, 19](3, out)
+    np.testing.assert_array_equal(out.copy_to_host(), [16, 11])
 
 
 def test_runtime_allocations_align_each_window():
@@ -262,14 +331,13 @@ def test_runtime_allocations_align_each_window():
     np.testing.assert_array_equal(out.copy_to_host(), [7, 13, 21, 4])
 
 
-@pytest.mark.parametrize("prefix_size,expected", [(3, 3), (24, 1), (31, 0), (32, 0), (40, 0)])
+@pytest.mark.parametrize("prefix_size,expected", [(3, 3), (24, 1), (31, 0), (32, 0)])
 def test_remaining_extent_clamps_after_runtime_allocation(prefix_size, expected):
     @cuda.jit
     def kernel(n, out):
         prefix = cuda.shared.array(n[0], dtype=np.uint8)
         tail = cuda.shared.array(0, dtype=np.int64)
         again = cuda.shared.array(0, dtype=np.int64)
-        # Only inspect shapes: an oversized prefix must not be dereferenced.
         out[0] = prefix.size
         out[1] = tail.size
         out[2] = again.size
@@ -300,7 +368,7 @@ def test_zero_sized_shared_views_alias(prefix_size):
 
     out = cuda.device_array(3, dtype=np.float64)
     extents = cuda.device_array(2, dtype=np.int64)
-    dynamic_bytes = 16 if prefix_size else 8
+    dynamic_bytes = 12 if prefix_size else 8
     kernel[1, 1, 0, dynamic_bytes](
         cuda.to_device(np.array([prefix_size], dtype=np.int64)), out, extents
     )
@@ -317,13 +385,13 @@ def test_zero_sized_shared_view_does_not_reserve_runtime_allocation():
         prefix[0] = 7
         tail[0] = 13
         out[0] = whole[0]
-        out[1] = whole[4]
+        out[1] = whole[3]
         out[2] = tail.size
 
     out = cuda.device_array(3, dtype=np.int64)
-    # The three-int prefix reserves [0,12); the tail starts at aligned byte 16.
+    # The three-int prefix reserves [0,12); the int32 tail starts at byte 12.
     kernel[1, 1, 0, 32](cuda.to_device(np.array([3], dtype=np.int64)), out)
-    np.testing.assert_array_equal(out.copy_to_host(), [7, 13, 4])
+    np.testing.assert_array_equal(out.copy_to_host(), [7, 13, 5])
 
 
 @pytest.mark.parametrize("take_branch", [0, 1])
@@ -347,7 +415,7 @@ def test_remaining_extent_after_conditional_allocation(take_branch):
     n = cuda.to_device(np.array([3], dtype=np.int64))
     kernel[1, 1, 0, 32](flag, n, out)
     np.testing.assert_array_equal(
-        out.copy_to_host(), [6 if take_branch else 8, 21, 13 * take_branch]
+        out.copy_to_host(), [7 if take_branch else 8, 21, 13 * take_branch]
     )
 
 
@@ -415,10 +483,10 @@ def test_x3_shared_allocation_stride(runtime_sized, alignment, dtype, element_by
     count = 5
     # The three-byte prefix forces padding before the vector array. A stronger
     # requested alignment changes the base, but not the vector element stride.
-    start = max(alignment or 8, element_bytes)
+    start = max(alignment or 1, element_bytes)
     shared_bytes = start + count * element_bytes
     if runtime_sized:
-        shared_bytes = (shared_bytes + 7) // 8 * 8 + 3
+        shared_bytes += 3
     out = cuda.device_array(3 * count + 1 + runtime_sized, dtype=np.int64)
     extent = cuda.device_array(1, dtype=np.int64)
     n = cuda.to_device(np.array([count, 3], dtype=np.int64))

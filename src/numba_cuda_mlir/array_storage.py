@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from numba_cuda_mlir.numba_cuda import types
+from numba_cuda_mlir.type_defs.vector_types import VectorType
 
 
 def array_is_aligned(dtype, pointer, strides):
@@ -41,13 +42,12 @@ class ArrayStorageLayout:
         )
 
     @property
-    def itemsize(self):
+    def packed_itemsize(self):
+        """Number of bytes in an element's payload, excluding ABI padding."""
         from numba_cuda_mlir.numba_cuda.np.numpy_support import as_dtype
         from numba_cuda_mlir.numba_cuda.core.errors import NumbaNotImplementedError
 
         dtype = self.array_type.dtype
-        from numba_cuda_mlir.type_defs.vector_types import VectorType
-
         if isinstance(dtype, VectorType):
             scalar = ArrayStorageLayout(types.Array(dtype.dtype, 1, "C"))
             return scalar.itemsize * dtype.length
@@ -60,6 +60,19 @@ class ArrayStorageLayout:
             if width is None:
                 raise
             return width // 8
+
+    @property
+    def itemsize(self):
+        dtype = self.array_type.dtype
+        if isinstance(dtype, VectorType) and not self.byte_addressed:
+            # LLVM lays out each innermost vector at its ABI alignment.
+            return self.alignment * (dtype.length // dtype.shape[-1])
+        return self.packed_itemsize
+
+    @property
+    def has_packed_vector_rows(self):
+        dtype = self.array_type.dtype
+        return self.byte_addressed and isinstance(dtype, VectorType) and len(dtype.shape) > 1
 
     @property
     def unit_bytes(self):
@@ -95,10 +108,10 @@ class ArrayStorageLayout:
         if not self.array_type.aligned:
             return 1
         dtype = self.array_type.dtype
-        from numba_cuda_mlir.type_defs.vector_types import VectorType
-
         if isinstance(dtype, VectorType):
-            return ArrayStorageLayout(types.Array(dtype.dtype, 1, "C")).alignment
+            scalar = ArrayStorageLayout(types.Array(dtype.dtype, 1, "C"))
+            inner_bytes = scalar.itemsize * dtype.shape[-1]
+            return 1 << (inner_bytes - 1).bit_length()
         from numba_cuda_mlir.numba_cuda.core.errors import NumbaNotImplementedError
 
         try:

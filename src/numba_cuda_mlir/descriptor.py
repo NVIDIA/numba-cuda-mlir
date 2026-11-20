@@ -1659,11 +1659,12 @@ class MLIRDispatcherType(types.Dispatcher):
 
 
 class _CompiledKernelResult(tuple):
-    """Keep the compiler's three-value result, with native array ABI metadata."""
+    """Keep the compiler's three-value result, with native launch metadata."""
 
-    def __new__(cls, cubin, name, cooperative, array_abi):
+    def __new__(cls, cubin, name, cooperative, array_abi, has_runtime_sized_shared_memory):
         result = super().__new__(cls, (cubin, name, cooperative))
         result.array_abi = array_abi
+        result.has_runtime_sized_shared_memory = has_runtime_sized_shared_memory
         return result
 
 
@@ -2987,12 +2988,22 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             result = self._compile_impl(args)
             cubin, func_name, cooperative = result
             array_abi = getattr(result, "array_abi", ())
+            has_runtime_sized_shared_memory = getattr(
+                result, "has_runtime_sized_shared_memory", False
+            )
             post_load = (
                 self._make_post_load_hook()
                 if (self._module_setup_callbacks or self._module_teardown_callbacks)
                 else None
             )
-            return (cubin, func_name, cooperative, post_load, array_abi)
+            return (
+                cubin,
+                func_name,
+                cooperative,
+                post_load,
+                array_abi,
+                has_runtime_sized_shared_memory,
+            )
 
     def _compile_impl(
         self,
@@ -3073,6 +3084,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 cres.metadata["func_name"],
                 cres.metadata.get("use_cooperative", False),
                 array_abi,
+                cres.metadata.get("has_runtime_sized_shared_memory", False),
             )
 
         if active_launch_config_key is not None:

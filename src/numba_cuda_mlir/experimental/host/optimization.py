@@ -7,21 +7,19 @@ from numba_cuda_mlir.lowering_utilities import context as mlir_context
 from numba_cuda_mlir.mlir_lowering import get_mlir_module_str
 
 
-TO_LLVM_DIALECT_PIPELINE = """
-    builtin.module(
-      reconcile-unrealized-casts,
-      convert-scf-to-cf,
-      convert-math-to-llvm,
-      finalize-memref-to-llvm{index-bitwidth=64},
-      convert-arith-to-llvm{index-bitwidth=0},
-      convert-index-to-llvm{index-bitwidth=64},
-      convert-cf-to-llvm{index-bitwidth=0},
-      convert-func-to-llvm{index-bitwidth=0},
-      canonicalize,
-      cse,
-      reconcile-unrealized-casts
-    )
-    """
+TO_LLVM_DIALECT_PIPELINE = [
+    "reconcile-unrealized-casts",
+    "convert-scf-to-cf",
+    "convert-math-to-llvm",
+    "finalize-memref-to-llvm{index-bitwidth=64}",
+    "convert-arith-to-llvm{index-bitwidth=0}",
+    "convert-index-to-llvm{index-bitwidth=64}",
+    "convert-cf-to-llvm{index-bitwidth=0}",
+    "convert-func-to-llvm{index-bitwidth=0}",
+    "canonicalize",
+    "cse",
+    "reconcile-unrealized-casts",
+]
 
 
 def lower_to_llvm_dialect(cres):
@@ -30,7 +28,10 @@ def lower_to_llvm_dialect(cres):
         options = cres.metadata["targetoptions"]
         if options.get("dump_mlir") or options.get("dump"):
             print(f"=============== Host MLIR ===============\n\n{module}\n")
-        PassManager.parse(TO_LLVM_DIALECT_PIPELINE).run(module.operation)
+        pass_manager = PassManager("builtin.module")
+        for pass_spec in TO_LLVM_DIALECT_PIPELINE:
+            pass_manager.add(pass_spec)
+        pass_manager.run(module.operation)
         if options.get("dump_llvm_dialect") or options.get("dump"):
             print(f"=============== Host LLVM-Dialect MLIR ===============\n\n{module}\n")
         return module

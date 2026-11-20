@@ -35,6 +35,9 @@ class Dispatcher:
         self._validate_parameters()
         update_wrapper(self, py_func)
 
+    def __repr__(self):
+        return repr(self.py_func)
+
     def _validate_parameters(self):
         for parameter in self._signature.parameters.values():
             if parameter.kind not in (
@@ -48,29 +51,38 @@ class Dispatcher:
                     raise TypeError("host_jit annotations must be Numba scalar types")
                 scalar_ctype(annotation)
 
-    @global_compiler_lock
     def compile(self, sig):
-        from numba_cuda_mlir.experimental.host.compiler import compile
-
         argtypes, return_type = sigutils.normalize_signature(sig)
         argtypes = tuple(argtypes)
         if len(argtypes) != len(self._arg_annotations):
             raise TypeError(
                 f"expected {len(self._arg_annotations)} argument types, got {len(argtypes)}"
             )
-        if argtypes in self.overloads:
-            existing = self.overloads[argtypes]
+        existing = self._get_overload(argtypes, return_type)
+        if existing is not None:
+            return existing
+        with global_compiler_lock:
+            # Another caller may have published this overload while we waited.
+            existing = self._get_overload(argtypes, return_type)
+            if existing is not None:
+                return existing
+            if not self._can_compile:
+                raise TypeError(f"no matching host_jit signature for {argtypes}")
+            from numba_cuda_mlir.experimental.host.compiler import compile
+
+            result = compile(self.py_func, return_type, argtypes, self.targetoptions)
+            self.overloads[argtypes] = result
+            return result
+
+    def _get_overload(self, argtypes, return_type):
+        existing = self.overloads.get(argtypes)
+        if existing is not None:
             if return_type is not None and existing.signature.return_type != return_type:
                 raise TypeError(
                     f"host_jit signature {argtypes} already compiled with return type "
                     f"{existing.signature.return_type}, not {return_type}"
                 )
-            return existing
-        if not self._can_compile:
-            raise TypeError(f"no matching host_jit signature for {argtypes}")
-        result = compile(self.py_func, return_type, argtypes, self.targetoptions)
-        self.overloads[argtypes] = result
-        return result
+        return existing
 
     def disable_compile(self):
         self._can_compile = False

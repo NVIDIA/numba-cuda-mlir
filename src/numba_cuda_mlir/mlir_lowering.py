@@ -3622,7 +3622,11 @@ extern "C" __global__ void
                 old = self.from_storage(var_type, old_stored)
             self.decref(var_type, old)
 
-        stored_value = self.as_storage(var_type, value) if isinstance(value, ir.Value) else value
+        stored_value = (
+            self.as_storage(var_type, value)
+            if isinstance(value, (ir.Value, RangeObject))
+            else value
+        )
         if isinstance(slot.type, MemRefType):
             memref.store(value=stored_value, memref=slot, indices=[index_of(0)])
         else:

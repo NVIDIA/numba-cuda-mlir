@@ -170,6 +170,89 @@ def test_range_reuse(args):
     assert compute(*args) == compute.py_func(*args)
 
 
+@pytest.mark.parametrize("opt_level", [0, 3])
+@pytest.mark.parametrize(
+    "args",
+    [
+        (0, 4, 1),
+        (4, -1, -2),
+        (3, 3, 1),
+        (np.int8(-128), np.int8(127), np.int8(1)),
+        (np.uint64(2**64 - 4), np.uint64(2**64 - 1), np.uint64(1)),
+    ],
+)
+def test_range_branch_merge_reuse(opt_level, args):
+    @host_jit(opt_level=opt_level)
+    def compute(start, stop, step, choose):
+        if choose:
+            values = range(start, stop, step)
+        else:
+            values = range(stop, start, step)
+        result = 0
+        for value in values:
+            result = (result * 3 + (value & 255)) & 2147483647
+            if value & 1:
+                break
+        for outer in values:
+            if outer & 1:
+                continue
+            for inner in values:
+                result = (result * 5 + ((outer ^ inner) & 255)) & 2147483647
+        for value in values:
+            result = (result * 7 + (value & 255)) & 2147483647
+        return result
+
+    plain_args = tuple(int(value) for value in args)
+    for choose in (False, True):
+        assert compute(*args, choose) == compute.py_func(*plain_args, choose)
+
+
+@pytest.mark.parametrize("opt_level", [0, 3])
+def test_range_branch_merge_promoted_dtype(opt_level):
+    @host_jit(opt_level=opt_level)
+    def count(start, stop, step, other_start, other_stop, other_step, choose):
+        if choose:
+            values = range(start, stop, step)
+        else:
+            values = range(other_start, other_stop, other_step)
+        total = 0
+        for value in values:
+            total += 1
+            if total == 300:
+                break
+        return total
+
+    args = (
+        np.int8(-128),
+        np.int8(127),
+        np.int8(1),
+        np.int64(-(2**63)),
+        np.int64(2**63 - 1),
+        np.int64(2**63 - 1),
+    )
+    for choose in (False, True):
+        assert count(*args, choose) == count.py_func(*(int(value) for value in args), choose)
+
+
+@pytest.mark.parametrize("opt_level", [0, 3])
+def test_range_branch_merge_checked_step(opt_level):
+    @host_jit(opt_level=opt_level)
+    def compute(step, choose):
+        if choose:
+            values = range(0, 4, step)
+        else:
+            values = range(4, 0, -1)
+        total = 0
+        for value in values:
+            total += value
+        return total
+
+    assert compute(0, False) == 10
+    with pytest.raises(ValueError):
+        compute(0, True)
+    assert compute(1, True) == 6
+
+
 @pytest.mark.parametrize(
     "args",
     [(7, 3), (-7, 3), (7, -3), (-7, -3), (7.5, 2.5)],

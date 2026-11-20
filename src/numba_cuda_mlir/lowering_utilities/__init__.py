@@ -1452,18 +1452,9 @@ class RangeObject:
     def __init__(self, lower, start: ir.Value, stop: ir.Value, step: ir.Value, *, signed=True):
         element_type = self._unify_integer_types(start, stop, step)
 
-        with lower.alloca_insertion_point():
-            self._memref = memref.alloca(T.memref(3, element_type), [], [])
-            self._count_memref = memref.alloca(T.memref(1, T.i64()), [], [])
-
         start_val = convert(start, element_type, signed=True)
         stop_val = convert(stop, element_type, signed=True)
         step_val = convert(step, element_type, signed=True)
-
-        # Store start/stop/step
-        memref.store(start_val, self._memref, [index_of(0)])
-        memref.store(stop_val, self._memref, [index_of(1)])
-        memref.store(step_val, self._memref, [index_of(2)])
 
         # Endpoint distance can occupy all 64 bits, even for signed inputs.
         # Compare endpoints before subtraction and divide unsigned magnitudes;
@@ -1497,51 +1488,58 @@ class RangeObject:
         distance = arith.select(nonempty, distance, one_i64)
         count = arith.addi(arith.divui(arith.subi(distance, one_i64), stride), one_i64)
         count = arith.select(nonempty, count, zero_i64)
-        memref.store(count, self._count_memref, [index_of(0)])
+        value_type = llvm.StructType.get_literal([element_type] * 3 + [i64])
+        value = llvm.UndefOp(value_type).result
+        for position, field in enumerate((start_val, stop_val, step_val, count)):
+            value = llvm.insertvalue(value, field, [position])
+        self._value = value
+        self._signed = signed
+
+    @classmethod
+    def from_value(cls, value: ir.Value, *, signed=True):
+        result = object.__new__(cls)
+        result._value = value
+        result._signed = signed
+        return result
 
     def get_mlir_type(self) -> ir.Type:
-        return self._memref.type
+        return self._value.type
 
     def get_iterator(self, lower):
-        iterator = object.__new__(RangeObject)
-        iterator._memref = self._memref
+        iterator = RangeObject.from_value(self._value, signed=self._signed)
         with lower.alloca_insertion_point():
             iterator._count_memref = memref.alloca(T.memref(1, T.i64()), [], [])
-            iterator._iter_memref = memref.alloca(
-                T.memref(1, self._memref.type.element_type), [], []
-            )
+            iterator._iter_memref = memref.alloca(T.memref(1, self._value.type.body[0]), [], [])
         memref.store(self.count, iterator._count_memref, [index_of(0)])
         memref.store(self.start, iterator._iter_memref, [index_of(0)])
         return iterator
 
     @property
     def start(self) -> ir.Value:
-        return memref.load(self._memref, [index_of(0)])
+        return llvm.extractvalue(self._value.type.body[0], self._value, [0])
 
     @property
     def stop(self) -> ir.Value:
-        return memref.load(self._memref, [index_of(1)])
+        return llvm.extractvalue(self._value.type.body[1], self._value, [1])
 
     @property
     def step(self) -> ir.Value:
-        return memref.load(self._memref, [index_of(2)])
+        return llvm.extractvalue(self._value.type.body[2], self._value, [2])
 
     @property
     def count(self) -> ir.Value:
-        return memref.load(self._count_memref, [index_of(0)])
+        if hasattr(self, "_count_memref"):
+            return memref.load(self._count_memref, [index_of(0)])
+        return llvm.extractvalue(T.i64(), self._value, [3])
 
     @property
     def iter(self) -> ir.Value:
         return memref.load(self._iter_memref, [index_of(0)])
 
-    def __next__(self) -> ir.Value:
-        raise NotImplementedError()
-
-    def next(self) -> ir.Value:
+    def next(self) -> "IterResult":
         """
         Compute (value, is_valid) and update internal state.
         """
-        int_type = self._memref.type.element_type
         zero = int_of(0, T.i64())
         one = int_of(1, T.i64())
 
@@ -1563,11 +1561,7 @@ class RangeObject:
         memref.store(updated_count, self._count_memref, [index_of(0)])
         memref.store(updated_iter, self._iter_memref, [index_of(0)])
 
-        result_type = T.memref(2, int_type)
-        result = memref.alloca(memref=result_type, dynamic_sizes=[], symbol_operands=[])
-        memref.store(current_value, result, [index_of(0)])
-        memref.store(convert(is_valid, int_type), result, [index_of(1)])
-        return result
+        return IterResult(current_value, is_valid)
 
 
 class IterResult:

@@ -984,10 +984,14 @@ class NumpyArrayViewMethodTemplate(AbstractTemplate):
             arr = self.this
             dtype = args[0]
             element_type = dtype.dtype if isinstance(dtype, types.DTypeSpec) else dtype
+            if element_type == arr.dtype:
+                return signature(arr, dtype, recvr=self.this)
             source_layout = ArrayStorageLayout(arr)
             target_layout = ArrayStorageLayout(arr.copy(dtype=element_type))
             aligned = (
                 arr.aligned
+                # A typed descriptor would advance a packed x3 view by four lanes.
+                and target_layout.itemsize == target_layout.packed_itemsize
                 and source_layout.itemsize % target_layout.itemsize == 0
                 and source_layout.alignment >= target_layout.alignment
             )

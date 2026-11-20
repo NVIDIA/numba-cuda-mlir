@@ -205,6 +205,63 @@ def test_view_writes_partial_overwrite():
     assert result[1] == 0
 
 
+def test_view_packed_vector_reads_and_writes_three_lanes():
+    @cuda.jit
+    def kernel(raw, meta):
+        v = raw[1:7].view(cuda.float32x3)
+        meta[0] = v.size
+        meta[1] = v.itemsize
+        meta[2] = v.strides[0]
+        meta[3] = v.nbytes
+        meta[4] = v.view(np.float32).size
+        meta[5] = v[1].x
+        v[1] = cuda.float32x3(21, 22, 23)
+
+    raw = cuda.to_device(np.arange(8, dtype=np.float32))
+    meta = cuda.device_array(6, dtype=np.int64)
+    kernel[1, 1](raw, meta)
+    np.testing.assert_array_equal(meta.copy_to_host(), [2, 12, 12, 24, 6, 4])
+    np.testing.assert_array_equal(raw.copy_to_host(), [0, 1, 2, 3, 21, 22, 23, 7])
+
+
+def test_view_packed_vectors_from_aligned_vector_array():
+    @cuda.jit
+    def kernel(out):
+        raw = cuda.shared.array(3, dtype=cuda.float32x4)
+        v = raw.view(cuda.float32x3)
+        for i in range(3):
+            raw[i] = cuda.float32x4(i * 4, i * 4 + 1, i * 4 + 2, i * 4 + 3)
+        out[0] = v.size
+        out[1] = v.strides[0]
+        out[2] = v[2].x
+        padded = cuda.shared.array(2, dtype=cuda.float32x3)
+        padded[1] = cuda.float32x3(20, 21, 22)
+        out[3] = padded[1:].view(cuda.float32x4)[0].x
+
+    out = cuda.device_array(4, dtype=np.int64)
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(out.copy_to_host(), [4, 12, 6, 20])
+
+
+def test_view_packed_multidimensional_vector():
+    from numba_cuda_mlir import types
+    from numba_cuda_mlir.type_defs.vector_types import VectorType
+
+    matrix = VectorType(types.float32, (2, 3))
+
+    @cuda.jit
+    def kernel(raw, out):
+        v = raw[:12].view(matrix)
+        v[1] = v[0]
+        cuda.vector.store(out, (0, 0), v[1])
+
+    raw = cuda.to_device(np.arange(16, dtype=np.float32))
+    out = cuda.device_array((2, 3), dtype=np.float32)
+    kernel[1, 1](raw, out)
+    np.testing.assert_array_equal(out.copy_to_host(), np.arange(6).reshape(2, 3))
+    np.testing.assert_array_equal(raw.copy_to_host(), np.r_[0:6, 0:6, 12:16])
+
+
 def test_view_on_shared_memory_1d():
     @cuda.jit(dump=False)
     def k(out):

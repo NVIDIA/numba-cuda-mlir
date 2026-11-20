@@ -115,9 +115,10 @@ def lower_zero_fill_array_method(builder: MLIRLower, target, args, kwargs):
     array_var = args[0]
     array = builder.load_var(array_var)
     array_type = builder.get_numba_type(array_var.name)
+    layout = ArrayStorageLayout(array_type)
     if array_type.layout in ("C", "F"):
-        dst_ptr = lowering_utilities.memref_data_pointer(array)
-        nbytes = constant(storage_itemsize_bytes(array_type.dtype), T.i64())
+        dst_ptr = lowering_utilities.memref_data_pointer(array, unit_bytes=layout.unit_bytes)
+        nbytes = constant(layout.itemsize, T.i64())
         for dim in range(array.type.rank):
             extent = convert(memref_dialect.dim(array, index_of(dim)), T.i64())
             nbytes = arith.muli(nbytes, extent)
@@ -125,11 +126,13 @@ def lower_zero_fill_array_method(builder: MLIRLower, target, args, kwargs):
     else:
 
         def clear_element(indices):
-            ptr = lowering_utilities.memref_to_llvm_ptr(array, indices)
+            ptr = lowering_utilities.memref_to_llvm_ptr(
+                array, indices, unit_bytes=layout.unit_bytes
+            )
             llvm.MemsetOp(
                 ptr,
                 constant(0, T.i8()),
-                constant(storage_itemsize_bytes(array_type.dtype), T.i64()),
+                constant(layout.itemsize, T.i64()),
                 False,
             )
 
@@ -1462,12 +1465,8 @@ def _view_transform_axis(
 ) -> tuple[list[ir.Value], list[ir.Value]]:
     new_sizes = list(sizes)
     new_strides = list(strides)
-    if new_size < old_size:
-        ratio = old_size // new_size
-        new_sizes[axis] = arith.muli(sizes[axis], _idx_c(ratio))
-    else:
-        bytelen = arith.muli(sizes[axis], _idx_c(old_size))
-        new_sizes[axis] = arith.divsi(bytelen, _idx_c(new_size))
+    bytelen = arith.muli(sizes[axis], _idx_c(old_size))
+    new_sizes[axis] = arith.divsi(bytelen, _idx_c(new_size))
     for j in range(len(strides)):
         if j == axis:
             new_strides[j] = _idx_c(new_size // target_unit_bytes)
@@ -1511,7 +1510,9 @@ def lower_array_view_cg(builder, target, args, kwargs):
     retyped = builtin.unrealized_conversion_cast([target_mr], [_self])
 
     if old_dtype_bytes == new_dtype_bytes:
-        result = lowering_utilities.convert_array_storage(_self, target_mr)
+        result = lowering_utilities.convert_array_storage(
+            _self, target_mr, target_ty.dtype, src_dtype=source_ty.dtype
+        )
         builder.store_var(target, result)
         return
 

@@ -2643,7 +2643,7 @@ extern "C" __global__ void
         if isinstance(source_type, types.Array) and isinstance(target_type, types.Array):
             from numba_cuda_mlir.lowering_utilities import convert_array_storage
 
-            return convert_array_storage(value, self.get_mlir_type(target_type))
+            return convert_array_storage(value, self.get_mlir_type(target_type), target_type.dtype)
         signed = get_conversion_signedness(source_type, target_type)
         return convert(value, self.get_mlir_type(target_type), signed=signed)
 
@@ -3844,7 +3844,9 @@ extern "C" __global__ void
             if isinstance(numba_type, types.Array):
                 from numba_cuda_mlir.lowering_utilities import convert_array_storage
 
-                return convert_array_storage(value, self.get_value_type(numba_type))
+                return convert_array_storage(
+                    value, self.get_value_type(numba_type), numba_type.dtype
+                )
             return self.mlir_convert(value, self.get_value_type(numba_type))
         return value
 

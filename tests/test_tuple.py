@@ -370,6 +370,62 @@ def test_hetero_tuple_multi_assign_from_inlined_device_function():
     np.testing.assert_array_equal(out.copy_to_host(), [14, 2, 1])
 
 
+@cuda.jit(device=True, forceinline=True)
+def _numel(shape):
+    if len(shape) == 2:
+        return shape[0] * shape[1]
+    else:
+        return shape[0] * shape[1] * shape[2]
+
+
+def test_inlined_len_branch_pruned_for_tuple_display():
+    """#109: the branch that indexes shape[2] is dead for a 2-tuple and must not be typed."""
+
+    @cuda.jit
+    def kernel(out, m, k):
+        out[0] = _numel((2, 3))
+        out[1] = _numel((2, 3, 4))
+        out[2] = _numel((m, k))
+
+    out = cuda.device_array((3,), dtype=np.int64)
+    kernel[1, 1](out, 4, 5)
+    np.testing.assert_array_equal(out.copy_to_host(), [6, 24, 20])
+
+
+@pytest.mark.parametrize("shape, expected", [((5, 7), 35), ((2, 3, 4), 24)])
+def test_inlined_len_branch_pruned_for_kernel_argument(shape, expected):
+    """#109: an inlined parameter bound to a kernel argument folds len() from the argument type."""
+
+    @cuda.jit
+    def kernel(out, shape):
+        out[0] = _numel(shape)
+
+    out = cuda.device_array((1,), dtype=np.int64)
+    kernel[1, 1](out, shape)
+    np.testing.assert_array_equal(out.copy_to_host(), [expected])
+
+
+def test_inlined_ndim_branch_pruned_for_kernel_argument():
+    """#109: the same holds for ``ndim`` of an array argument read in an inlined function."""
+
+    @cuda.jit(device=True, forceinline=True)
+    def size(a):
+        if a.ndim == 1:
+            return a.shape[0]
+        else:
+            return a.shape[0] * a.shape[1]
+
+    @cuda.jit
+    def kernel(out, a):
+        out[0] = size(a)
+
+    out = cuda.device_array((1,), dtype=np.int64)
+    kernel[1, 1](out, cuda.to_device(np.zeros(6)))
+    np.testing.assert_array_equal(out.copy_to_host(), [6])
+    kernel[1, 1](out, cuda.to_device(np.zeros((2, 3))))
+    np.testing.assert_array_equal(out.copy_to_host(), [6])
+
+
 def test_dynamic_index_tuple_of_tuples():
     """Runtime indexing into a tuple of tuples (e.g. coefficient rows)."""
     rows = ((1.0, 2.0), (3.0, 4.0), (5.0, 6.0))

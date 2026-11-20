@@ -262,6 +262,26 @@ def test_view_packed_multidimensional_vector():
     np.testing.assert_array_equal(raw.copy_to_host(), np.r_[0:6, 0:6, 12:16])
 
 
+def test_view_packed_matrix_cannot_merge_with_padded_rows():
+    from numba_cuda_mlir import types
+    from numba_cuda_mlir.type_defs.vector_types import VectorType
+
+    matrix = VectorType(types.float32, (2, 3))
+
+    @cuda.jit
+    def kernel(raw, source, use_shared, out):
+        shared = cuda.shared.array(2, dtype=matrix)
+        shared[1] = cuda.vector.load(source, (0, 0), (2, 3))
+        v = shared if use_shared else raw.view(matrix)
+        cuda.vector.store(out, (0, 0), v[1])
+
+    raw = cuda.to_device(np.arange(12, dtype=np.float32))
+    source = cuda.to_device(np.arange(6, dtype=np.float32).reshape(2, 3))
+    out = cuda.device_array((2, 3), dtype=np.float32)
+    with pytest.raises(TypeError, match="Cannot implicitly convert a vector with padded rows"):
+        kernel[1, 1](raw, source, True, out)
+
+
 def test_view_on_shared_memory_1d():
     @cuda.jit(dump=False)
     def k(out):

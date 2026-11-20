@@ -175,6 +175,15 @@ def convert_array_storage(array, target_type, dtype, *, src_dtype=None):
     dst_bytes = descriptor_unit_bytes(target_type.element_type, dtype)
     if src_bytes == dst_bytes and src_type.element_type == target_type.element_type:
         return convert(array, target_type)
+    if (
+        src_dtype is None
+        and isinstance(dtype, VectorType)
+        and dtype.length > dtype.shape[-1]
+        and dst_bytes == 1
+        and src_bytes != get_type_size_bytes(src_type.element_type)
+    ):
+        # Array strides cannot describe padding between rows inside an element.
+        raise TypeError("Cannot implicitly convert a vector with padded rows to packed storage")
     if src_bytes % dst_bytes:
         raise TypeError("Cannot implicitly convert byte-based array storage to typed storage")
     md = memref.extract_strided_metadata(array)

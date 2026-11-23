@@ -683,12 +683,8 @@ def optimize(cres):
     with context.get_context():
         target_options = cres.metadata["targetoptions"]
         dump_mlir = target_options.get("dump_mlir", False) or target_options.get("dump", False)
-        module = cres.metadata["mlir_module"]
-        # Materialize the pre-optimization string before passes mutate the module,
-        # so that inspect_mlir() and other consumers can still access it.
-        from numba_cuda_mlir.mlir_lowering import get_mlir_module_str
-
-        get_mlir_module_str(cres.metadata)
+        # Native optimization owns a copy; composition retains the assembled source unit.
+        module = cres.metadata["mlir_module"].operation.clone()
 
         if dump_mlir:
             _dump_module(module, "=============== MLIR Module ===============")

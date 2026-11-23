@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
-module attributes {numba_cuda_mlir.link_target} {
+module {
     // tcgen05 intrinsics for UTCMMA operations
     // These wrap NVVM dialect operations for tcgen05 tensor core operations
 

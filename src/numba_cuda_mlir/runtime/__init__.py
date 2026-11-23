@@ -5,7 +5,6 @@ from functools import lru_cache
 from numba_cuda_mlir.lowering_utilities import context
 from numba_cuda_mlir._mlir import ir
 from numba_cuda_mlir.tools import get_gpu_compute_capability
-from numba_cuda_mlir.lowering_utilities import link
 from pathlib import Path
 from numba_cuda_mlir.logging import trace
 from numba_cuda_mlir.typing.externals import ExternMLIRLibrary

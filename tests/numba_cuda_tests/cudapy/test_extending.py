@@ -327,7 +327,6 @@ class TestExtendingLinkage(NumbaCUDATestCase):
 
             np.testing.assert_equal(r[0], 3)
 
-    @pytest.mark.xfail(True, reason="Typing error")
     def test_linked_called_through_overload(self):
         cu_code = cuda.CUSource(
             """

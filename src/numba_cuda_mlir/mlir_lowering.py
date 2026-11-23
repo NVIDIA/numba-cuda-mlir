@@ -44,8 +44,6 @@ from numba_cuda_mlir.lowering_utilities import (
     IterResult,
     get_or_insert_function,
     user_signature_to_external_abi_signature,
-    lookup_callee_in_module,
-    get_func_type,
     get_type_size_bytes,
     get_type_storage_layout,
     get_conversion_signedness,
@@ -54,9 +52,9 @@ from numba_cuda_mlir.lowering_utilities import (
     memref_descriptor_type,
     storage_itemsize_bytes,
 )
+from numba_cuda_mlir.lowering_utilities.link import FunctionRef, ModuleAssembly
 from numba_cuda_mlir.compiler import (
     ExternFunction,
-    ExternMLIRLibrary,
     ExternMLIRLibraryFunction,
 )
 
@@ -151,8 +149,8 @@ class MLIRLower(object):
         self._line_only = self.targetoptions.get("lineinfo", False)
         link_files = self._initialize_target_and_linker()
 
-        self._seen_mlir_libraries = set()
-        self._cloned_device_funcs: set[str] = set()
+        self._callee_needs_nrt = False
+        self._recorded_compiled_units = {}
         self._constant_array_globals = {}
         self._linked_external_items = set()
         self._linked_external_link_items = []
@@ -264,6 +262,31 @@ class MLIRLower(object):
     def _record_ltoirs_from_linker(self, linker):
         self._linked_ltoirs.extend(linker._ltoirs.values())
 
+    def declare_compiled_function(self, cres, symbol: str) -> FunctionRef:
+        """Record callee requirements and declare its typed MLIR entry point."""
+        metadata = cres.metadata
+        unit = metadata["mlir_unit"]
+        if id(unit) not in self._recorded_compiled_units:
+            self._recorded_compiled_units[id(unit)] = unit
+            self._callee_needs_nrt |= metadata.get("needs_nrt", False)
+            if self._mlir_gpu_module is not None:
+                if metadata.get("has_runtime_sized_shared_memory", False):
+                    self.metadata["has_runtime_sized_shared_memory"] = True
+                if metadata.get("use_cooperative", False):
+                    self.metadata["use_cooperative"] = True
+                for link_item in metadata.get("linked_external_link_items", ()):
+                    self.link_external_item(link_item)
+                if callee_linker := metadata.get("linker"):
+                    self._record_ltoirs_from_linker(callee_linker)
+                for key, callbacks in (
+                    ("setup_callbacks", self._setup_callbacks),
+                    ("teardown_callbacks", self._teardown_callbacks),
+                ):
+                    for callback in metadata.get(key, ()):
+                        if callback not in callbacks:
+                            callbacks.append(callback)
+        return self.module_assembly.declare(unit, symbol)
+
     def _collect_poly_dbg_types(self):
         """Scan function body to collect polymorphic debug types."""
         poly_map = {}
@@ -351,8 +374,17 @@ class MLIRLower(object):
             with numba_cuda_mlir_context.get_context(), self.mlir_loc:
                 self._mlir_module = ir.Module.create()
                 self.setup_func_op()
+                target = (
+                    self.mlir_module.body
+                    if self._mlir_gpu_module is None
+                    else self._mlir_gpu_module.regions[0].blocks[0]
+                )
+                self.module_assembly = ModuleAssembly(
+                    self.mlir_module, target, private=self._mlir_gpu_module is None
+                )
                 self.lower_function_body()
                 self.lower_capi_thunks()
+                self.metadata["mlir_unit"] = self.module_assembly.finish()
                 needs_nrt = self._function_needs_nrt()
                 if needs_nrt:
                     self._emit_nrt_function_bodies()
@@ -497,8 +529,10 @@ extern "C" __global__ void
             )
 
     def _function_needs_nrt(self):
-        """Check whether any variable in the function uses an NRT-managed type."""
-        return any(self.nrt.type_has_nrt_meminfo(typ) for typ in self.fndesc.typemap.values())
+        """Include NRT requirements inherited from compiled callees."""
+        return self._callee_needs_nrt or any(
+            self.nrt.type_has_nrt_meminfo(typ) for typ in self.fndesc.typemap.values()
+        )
 
     def _emit_nrt_function_bodies(self):
         """Emit NRT device function bodies directly into the GPU module.
@@ -511,9 +545,19 @@ extern "C" __global__ void
         Stats instrumentation is always emitted; the runtime check via
         TheMSys (NULL when stats are disabled) gates actual collection.
         """
+        body = self.mlir_gpu_module.regions[0].blocks[0]
+        existing = {op.operation for op in body}
         emit_nrt_functions(
             self.mlir_gpu_module,
             stats_enabled=True,
+        )
+        generated_symbols = [
+            ir.StringAttr(op.attributes["sym_name"]).value
+            for op in body
+            if op.operation not in existing and "sym_name" in op.attributes
+        ]
+        self.metadata["mlir_unit"].record_generated_symbols(
+            generated_symbols, origin=emit_nrt_functions
         )
 
     def setup_func_op(self):
@@ -540,7 +584,6 @@ extern "C" __global__ void
             )
             targets = ir.ArrayAttr.get([ir.Attribute.parse(target_attr)])
             self._mlir_gpu_module = gpu.GPUModuleOp(targets=targets, sym_name=get_gpu_module_name())
-            self._mlir_gpu_module.attributes["numba_cuda_mlir.link_target"] = ir.UnitAttr.get()
 
         with ir.InsertionPoint(self.mlir_gpu_module.bodyRegion.blocks.append()):
             # arguments with default values are represented as Omitted type in Numba,
@@ -1745,6 +1788,26 @@ extern "C" __global__ void
         call_argtypes = tuple(argty for argty in folded_argtypes if not _is_omitted_arg(argty))
         return tuple(folded_argtypes), call_vars, call_argtypes
 
+    @staticmethod
+    def _resolve_device_dispatcher(fn):
+        """Reuse one device dispatcher for direct and overloaded call lowering."""
+        from numba_cuda_mlir.descriptor import MLIRDispatcher
+
+        # CPU dispatchers must be rewrapped through the MLIR pipeline.
+        if not isinstance(fn, MLIRDispatcher):
+            from numba_cuda_mlir import cuda
+
+            if not hasattr(fn, "_numba_cuda_mlir_device_dispatcher"):
+                fn._numba_cuda_mlir_device_dispatcher = cuda.jit(device=True)(fn.py_func)
+            return fn._numba_cuda_mlir_device_dispatcher
+        if not fn.targetoptions.get("device", False):
+            if not hasattr(fn, "_device_dispatcher"):
+                opts = fn.targetoptions.copy()
+                opts["device"] = True
+                fn._device_dispatcher = MLIRDispatcher(fn.py_func, targetoptions=opts)
+            return fn._device_dispatcher
+        return fn
+
     def build_user_defined_function_call(
         self,
         target: numba_ir.Var,
@@ -1755,73 +1818,17 @@ extern "C" __global__ void
         if kws is None:
             kws = []
 
-        from numba_cuda_mlir.descriptor import MLIRDispatcher
-
-        # Numba CPU @jit dispatchers (e.g. xoroshiro128p random functions) can appear
-        # as device function calls inside CUDA kernels. Re-wrap through
-        # numba_cuda_mlir's pipeline so we get a proper MLIR compile result.
-        if not isinstance(fn, MLIRDispatcher):
-            from numba_cuda_mlir import cuda
-
-            if not hasattr(fn, "_numba_cuda_mlir_device_dispatcher"):
-                fn._numba_cuda_mlir_device_dispatcher = cuda.jit(device=True)(fn.py_func)
-            fn = fn._numba_cuda_mlir_device_dispatcher
-        elif not fn.targetoptions.get("device", False):
-            # Ensure non-device dispatchers are recompiled as device functions.
-            if not hasattr(fn, "_device_dispatcher"):
-                opts = fn.targetoptions.copy()
-                opts["device"] = True
-                fn._device_dispatcher = MLIRDispatcher(fn.py_func, targetoptions=opts)
-            fn = fn._device_dispatcher
+        fn = self._resolve_device_dispatcher(fn)
 
         folded_argtypes, call_vars, call_argtypes = self._fold_dispatcher_call_args(fn, args, kws)
         func_name = generate_mangled_name(f"{fn.py_func.__qualname__}_{id(fn)}", call_argtypes)
         cres = fn._compile_as_device_callee(folded_argtypes, abi_name=func_name)
-        if cres.metadata.get("has_runtime_sized_shared_memory", False):
-            self.metadata["has_runtime_sized_shared_memory"] = True
-
-        if callee_linker := cres.metadata.get("linker"):
-            self._record_ltoirs_from_linker(callee_linker)
-
-        module: ir.Module = ir.Module.parse(get_mlir_module_str(cres.metadata))
-        gpu_module: gpu.GPUModuleOp = list(module.body)[0]
-        gpu_module_ops = list(gpu_module.regions[0].blocks[0].operations)
-        linkable_ops = [
-            op
-            for op in gpu_module_ops
-            if isinstance(op, (gpu.GPUFuncOp, func.FuncOp, llvm.GlobalOp))
-        ]
-        assert self.mlir_gpu_module
-        insertion_block: ir.Block = self.mlir_gpu_module.regions[0].blocks[0]
-
-        # Collect names already in the target block (from prior compilations
-        # or from _get_or_create_error_global).
-        from numba_cuda_mlir.lowering_utilities.link import _get_op_sym_name
-
-        existing_names = set(self._cloned_device_funcs)
-        for existing_op in insertion_block:
-            if n := _get_op_sym_name(existing_op):
-                existing_names.add(n)
-
-        callee: gpu.GPUFuncOp | None = None
-        with ir.InsertionPoint(insertion_block):
-            for op in linkable_ops:
-                sym_name = _get_op_sym_name(op)
-                if isinstance(op, (gpu.GPUFuncOp, func.FuncOp)):
-                    if op.name.value == func_name:
-                        callee = op
-                if sym_name and sym_name not in existing_names:
-                    insertion_block.append(op.clone())
-                    existing_names.add(sym_name)
-                    self._cloned_device_funcs.add(sym_name)
-
-        assert callee, f"Could not find callee function {func_name} in the module."
-
-        callee_function_type = callee.function_type.value.results
+        callee = self.declare_compiled_function(cres, func_name)
+        callee_function_type = callee.function_type.results
         call_results = self._call_results_tuple(
             func.call(
                 result=callee_function_type,
-                callee=callee.name.value,
+                callee=callee.symbol,
                 operands_=self._call_operands_from_vars(call_vars, expected_types=call_argtypes),
             )
         )
@@ -1972,46 +1979,20 @@ extern "C" __global__ void
         kws: list[tuple[str, numba_ir.Var]] | None = None,
     ):
         """
-        Lower a call to an overloaded function by compiling its implementation
-        to MLIR, linking the result, and emitting a func.call.
+        Lower an overloaded implementation to a typed declaration and call.
         """
         if kws is None:
             kws = []
-        from numba_cuda_mlir import cuda
-        from numba_cuda_mlir.lowering_utilities import link
-
-        py_func = overload_disp.py_func
-        cuda_func = cuda.jit(device=True)(py_func)
+        cuda_func = self._resolve_device_dispatcher(overload_disp)
         folded_argtypes, call_vars, call_argtypes = self._fold_dispatcher_call_args(
             cuda_func, args, kws
         )
-        unique_qualname = f"{py_func.__qualname__}_{id(overload_disp)}"
-        func_name = generate_mangled_name(unique_qualname, call_argtypes)
-        cres = cuda_func.compile(folded_argtypes, abi_info={"abi_name": func_name})
-        if cres.metadata.get("has_runtime_sized_shared_memory", False):
-            self.metadata["has_runtime_sized_shared_memory"] = True
-
-        if callee_linker := cres.metadata.get("linker"):
-            self._record_ltoirs_from_linker(callee_linker)
-
-        link.link_inplace(self.mlir_module, get_mlir_module_str(cres.metadata))
-
-        name_attr = ir.StringAttr.get(func_name)
-        body = self.mlir_gpu_module.regions[0].blocks[0]
-        callee = next(
-            (
-                op
-                for op in body
-                if isinstance(op, (func.FuncOp, gpu.GPUFuncOp)) and op.name == name_attr
-            ),
-            None,
+        func_name = generate_mangled_name(
+            f"{cuda_func.py_func.__qualname__}_{id(cuda_func)}", call_argtypes
         )
-        if callee is None:
-            raise InternalCompilerError(
-                f"Could not find function {func_name} after linking overload MLIR."
-            )
-
-        callee_type = get_func_type(callee)
+        cres = cuda_func._compile_as_device_callee(folded_argtypes, abi_name=func_name)
+        callee = self.declare_compiled_function(cres, func_name)
+        callee_type = callee.function_type
         # Tuple-typed arguments -- including the ``*args`` bundle, which
         # ``fold_arguments`` hands over as a plain tuple of Vars -- expand to one
         # operand per leaf. Flatten by *type* so leaves with no ABI slot
@@ -2029,7 +2010,7 @@ extern "C" __global__ void
         call_args = [convert(val, ty) for val, ty in zip(flat_values, callee_type.inputs)]
         call_result = func.call(
             result=callee_type.results,
-            callee=callee.name.value,
+            callee=callee.symbol,
             operands_=call_args,
         )
 
@@ -2195,30 +2176,13 @@ extern "C" __global__ void
             return id(link_item)
         return link_item
 
-    def _link_external_mlir_library(self, other: ExternMLIRLibrary):
-        trace("linking %s", other)
-        from numba_cuda_mlir.lowering_utilities import link
-
-        if other in self._seen_mlir_libraries:
-            trace("already seen %s, skipping", other)
-            return
-        self._seen_mlir_libraries.add(other)
-        link.link_inplace(self.mlir_module, other.source)
-
     def lower_call_external_mlir_library_function(
         self, target, fn: ExternMLIRLibraryFunction, args, kws
     ):
         trace("lowering call to external MLIR library function %s", fn.name)
-        self._link_external_mlir_library(fn.library)
-        func_ty = to_mlir_type(fn.sig)
-        callee = lookup_callee_in_module(fn.name, func_ty, self.mlir_gpu_module)
-        if callee is None:
-            logging.error(fn.library.source)
-            raise RuntimeError(
-                f"Could not find function {fn.name} in MLIR module."
-                f" Expected to find function after linking in {fn}."
-            )
-        callee_type = get_func_type(callee)
+        unit = self.module_assembly.add_library(fn.library)
+        callee = self.module_assembly.declare(unit, fn.name)
+        callee_type = callee.function_type
         # MLIR integers are signless; retain source Numba types for conversion.
         args = [
             convert(
@@ -2231,7 +2195,7 @@ extern "C" __global__ void
         # Use callee's actual type to preserve layout information
         call_result = func.call(
             result=callee_type.results,
-            callee=callee.name.value,
+            callee=callee.symbol,
             operands_=args,
         )
         target_type = self.get_numba_type(target.name)

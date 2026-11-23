@@ -70,7 +70,7 @@ def memref_descriptor_type(rank: int) -> ir.Type:
     return ir.Type.parse(f"!llvm.struct<({fields})>")
 
 
-def memref_data_pointer(array: ir.Value) -> ir.Value:
+def memref_data_pointer(array: ir.Value, *, unit_bytes: int | None = None) -> ir.Value:
     """Return the memref's data pointer (aligned pointer + offset) as a generic ``!llvm.ptr``.
 
     Stays in the pointer domain (``extractvalue`` + ``getelementptr``) rather than
@@ -85,7 +85,9 @@ def memref_data_pointer(array: ir.Value) -> ir.Value:
     desc = builtin.unrealized_conversion_cast([memref_descriptor_type(mr_type.rank)], [array])
     aligned_ptr = llvm.extractvalue(llvm.PointerType.get(), desc, [1])
     offset = llvm.extractvalue(T.i64(), desc, [2])
-    elem_bytes = arith.constant(T.i64(), get_type_size_bytes(mr_type.element_type))
+    if unit_bytes is None:
+        unit_bytes = get_type_size_bytes(mr_type.element_type)
+    elem_bytes = arith.constant(T.i64(), unit_bytes)
     return llvm_ptr_add_bytes(aligned_ptr, arith.muli(offset, elem_bytes))
 
 
@@ -118,7 +120,9 @@ def _memref_index_offset(array: ir.Value, indices: list[ir.Value]) -> ir.Value:
     return linear_idx
 
 
-def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value]) -> ir.Value:
+def memref_to_llvm_ptr(
+    array: ir.Value, indices: list[ir.Value], *, unit_bytes: int | None = None
+) -> ir.Value:
     """Convert memref + indices to LLVM pointer.
 
     Extracts base pointer from a potentially-strided memref and computes the
@@ -131,7 +135,7 @@ def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value]) -> ir.Value:
     Returns:
         LLVM pointer (!llvm.ptr) to the indexed element
     """
-    base_ptr = memref_data_pointer(array)
+    base_ptr = memref_data_pointer(array, unit_bytes=unit_bytes)
     ptr_type = base_ptr.type
 
     # Advance the pointer in bytes, not by a typed getelementptr: LLVM's data
@@ -140,7 +144,9 @@ def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value]) -> ir.Value:
     # incorrectly.
     linear_idx = _memref_index_offset(array, indices)
     mr_elem_type = ir.MemRefType(array.type).element_type
-    elem_bytes = arith.constant(T.i64(), get_type_size_bytes(mr_elem_type))
+    if unit_bytes is None:
+        unit_bytes = get_type_size_bytes(mr_elem_type)
+    elem_bytes = arith.constant(T.i64(), unit_bytes)
     byte_offset = arith.muli(linear_idx, elem_bytes)
     return llvm.getelementptr(
         ptr_type,
@@ -152,15 +158,31 @@ def memref_to_llvm_ptr(array: ir.Value, indices: list[ir.Value]) -> ir.Value:
     )
 
 
-def convert_array_storage(array, target_type):
+def convert_array_storage(array, target_type, dtype, *, src_dtype=None):
     """Rescale descriptor units for a view conversion, without copying payload."""
     if array.type == target_type:
         return array
     src_type = ir.MemRefType(array.type)
-    src_bytes = get_type_size_bytes(src_type.element_type)
-    dst_bytes = get_type_size_bytes(target_type.element_type)
+    from numba_cuda_mlir.type_defs.vector_types import VectorType
+
+    def descriptor_unit_bytes(element_type, dtype):
+        if isinstance(dtype, VectorType):
+            return get_type_storage_layout(element_type)[0]
+        return get_type_size_bytes(element_type)
+
+    src_bytes = descriptor_unit_bytes(src_type.element_type, src_dtype or dtype)
+    dst_bytes = descriptor_unit_bytes(target_type.element_type, dtype)
     if src_bytes == dst_bytes and src_type.element_type == target_type.element_type:
         return convert(array, target_type)
+    if (
+        src_dtype is None
+        and isinstance(dtype, VectorType)
+        and dtype.length > dtype.shape[-1]
+        and dst_bytes == 1
+        and src_bytes != get_type_size_bytes(src_type.element_type)
+    ):
+        # Array strides cannot describe padding between rows inside an element.
+        raise TypeError("Cannot implicitly convert a vector with padded rows to packed storage")
     if src_bytes % dst_bytes:
         raise TypeError("Cannot implicitly convert byte-based array storage to typed storage")
     md = memref.extract_strided_metadata(array)
@@ -171,7 +193,7 @@ def convert_array_storage(array, target_type):
         nonlocal desc
         desc = llvm.insertvalue(desc, value, list(pos))
 
-    ptr = memref_data_pointer(array)
+    ptr = memref_data_pointer(array, unit_bytes=src_bytes)
     ins(ptr, 0)
     ins(ptr, 1)
     ins(arith.constant(T.i64(), 0), 2)
@@ -179,7 +201,11 @@ def convert_array_storage(array, target_type):
     for i in range(rank):
         ins(convert(md[2 + i], T.i64()), 3, i)
         ins(arith.muli(convert(md[2 + rank + i], T.i64()), factor), 4, i)
-    return builtin.unrealized_conversion_cast([target_type], [desc])
+    generic_type = ir.MemRefType.get(
+        target_type.shape, target_type.element_type, target_type.layout
+    )
+    result = builtin.unrealized_conversion_cast([generic_type], [desc])
+    return result if generic_type == target_type else memref.memory_space_cast(target_type, result)
 
 
 def byte_array_view(array_type, backing, shape):
@@ -377,6 +403,22 @@ def get_type_size_bytes(ty: ir.Type) -> int:
     return max(1, (get_type_width(ty) + 7) // 8)
 
 
+def get_type_storage_layout(ty: ir.Type) -> tuple[int, int]:
+    """Return the element allocation size and ABI alignment in bytes."""
+    if isinstance(ty, ir.VectorType):
+        # LLVM pads the innermost vector to its power-of-two ABI alignment.
+        # Outer dimensions lower to arrays of those padded vectors.
+        inner_type = ir.VectorType.get([ty.shape[-1]], ty.element_type)
+        inner_bytes = get_type_size_bytes(inner_type)
+        alignment = 1 << (inner_bytes - 1).bit_length()
+        size = alignment
+        for dimension in ty.shape[:-1]:
+            size *= dimension
+        return size, alignment
+    size = get_type_size_bytes(ty)
+    return size, size
+
+
 def _lookup_datamodel_type(numba_type: types.Type, context: str) -> ir.Type:
     from numba_cuda_mlir.models import mlir_data_manager
 
@@ -431,13 +473,18 @@ def storage_bitwidth(numba_type: types.Type) -> int:
 
 def storage_itemsize_bytes(numba_type: types.Type) -> int:
     from numba_cuda_mlir.types import NestedArray, Record
+    from numba_cuda_mlir.type_defs.vector_types import VectorType
 
     if isinstance(numba_type, Record):
         return numba_type.size
     if isinstance(numba_type, NestedArray):
         return storage_itemsize_bytes(numba_type.dtype)
 
-    dtype = getattr(numba_type, "dtype", numba_type)
+    dtype = (
+        numba_type
+        if isinstance(numba_type, VectorType)
+        else getattr(numba_type, "dtype", numba_type)
+    )
     if isinstance(dtype, Record):
         return dtype.size
     if isinstance(dtype, NestedArray):
@@ -448,6 +495,12 @@ def storage_itemsize_bytes(numba_type: types.Type) -> int:
         return getattr(dtype, "count", 1) * np.dtype("U1").itemsize
     if isinstance(dtype, types.CharSeq):
         return getattr(dtype, "count", 1)
+    if isinstance(dtype, VectorType):
+        if isinstance(numba_type, types.Array):
+            from numba_cuda_mlir.array_storage import ArrayStorageLayout
+
+            return ArrayStorageLayout(numba_type).itemsize
+        return get_type_storage_layout(get_storage_type(dtype))[0]
     bitwidth = storage_bitwidth(dtype)
     return (bitwidth + 7) // 8
 
@@ -556,6 +609,15 @@ def storage_to_value(numba_type: types.Type, value: ir.Value) -> ir.Value:
     return convert(value, value_type)
 
 
+def _packed_vector_rows(vector_type, ptr):
+    # LLVM pads the innermost rows of a multidimensional vector in memory.
+    row_type = T.vector(vector_type.shape[-1], element_type=vector_type.element_type)
+    row_bytes = get_type_size_bytes(row_type)
+    for i, position in enumerate(np.ndindex(*vector_type.shape[:-1])):
+        offset = arith.constant(T.i64(), i * row_bytes)
+        yield list(position), row_type, llvm_ptr_add_bytes(ptr, offset)
+
+
 def array_element_value_load(
     array_type: types.Array,
     array: ir.Value,
@@ -570,8 +632,14 @@ def array_element_value_load(
         return memref_to_llvm_ptr(array, list(indices))
     if dynamic_shared_memory or layout.byte_addressed:
         storage_type = get_storage_type(array_type.dtype)
-        ptr = memref_to_llvm_ptr(array, list(indices))
-        stored = llvm_ptr_load(storage_type, ptr, alignment=layout.alignment)
+        ptr = memref_to_llvm_ptr(array, list(indices), unit_bytes=layout.unit_bytes)
+        if layout.has_packed_vector_rows:
+            stored = _zero_value_for_type(storage_type)
+            for pos, row_type, row_ptr in _packed_vector_rows(storage_type, ptr):
+                row = llvm_ptr_load(row_type, row_ptr, alignment=1)
+                stored = vector_dialect.insert(row, stored, [], pos)
+        else:
+            stored = llvm_ptr_load(storage_type, ptr, alignment=layout.alignment)
     else:
         stored = memref.load(array, list(indices))
     return storage_to_value(array_type.dtype, stored)
@@ -595,8 +663,12 @@ def array_element_value_store(
         return
     stored = value_to_storage(array_type.dtype, value, signed=signed)
     if dynamic_shared_memory or layout.byte_addressed:
-        ptr = memref_to_llvm_ptr(array, list(indices))
-        llvm_ptr_store(stored, ptr, alignment=layout.alignment)
+        ptr = memref_to_llvm_ptr(array, list(indices), unit_bytes=layout.unit_bytes)
+        if layout.has_packed_vector_rows:
+            for pos, _, row_ptr in _packed_vector_rows(stored.type, ptr):
+                llvm_ptr_store(vector_dialect.extract(stored, [], pos), row_ptr, alignment=1)
+        else:
+            llvm_ptr_store(stored, ptr, alignment=layout.alignment)
     else:
         memref.store(value=stored, memref=array, indices=list(indices))
 
@@ -682,7 +754,9 @@ def value_tensor_to_storage_memref(array_type: types.Array, tensor_value: ir.Val
     storage_element_type = get_storage_type(array_type.dtype)
     if tensor_value.type.element_type == storage_element_type:
         return convert_array_storage(
-            tensor_to_memref(tensor_value), ArrayStorageLayout(array_type).memref_type()
+            tensor_to_memref(tensor_value),
+            ArrayStorageLayout(array_type).memref_type(),
+            array_type.dtype,
         )
 
     result_type = T.tensor(*tensor_value.type.shape, storage_element_type)
@@ -699,7 +773,9 @@ def value_tensor_to_storage_memref(array_type: types.Array, tensor_value: ir.Val
     with ir.InsertionPoint(block):
         linalg.yield_([value_to_storage(array_type.dtype, block.arguments[0])])
     return convert_array_storage(
-        tensor_to_memref(result.result[0]), ArrayStorageLayout(array_type).memref_type()
+        tensor_to_memref(result.result[0]),
+        ArrayStorageLayout(array_type).memref_type(),
+        array_type.dtype,
     )
 
 

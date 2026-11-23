@@ -81,11 +81,34 @@ import pstats
 _compile_arg_types = threading.local()
 _PY_GIL_DISABLED = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
 _DISPATCHER_STATE_BOOTSTRAP_LOCK = threading.Lock()
+_FIXED_SCALAR_CLASSES = frozenset(
+    (
+        bool,
+        float,
+        complex,
+        np.bool_,
+        np.float16,
+        np.float32,
+        np.float64,
+        np.complex64,
+        np.complex128,
+        np.int8,
+        np.int16,
+        np.int32,
+        np.int64,
+        np.uint8,
+        np.uint16,
+        np.uint32,
+        np.uint64,
+    )
+)
 _DISPATCHER_STATE_ATTRS = (
     "_launch_config_lock",
     "_launch_lock",
     "_launch_config_overloads",
     "_launch_config_dispatchers",
+    "_dispatch_tokens",
+    "_next_dispatch_token",
     "_launch_config_generation",
     "_requires_launch_config",
     "_literal_arg_positions",
@@ -451,6 +474,7 @@ class _ArgMarshaller:
         launch_config_generation=None,
         stream_ref=None,
         launch_stream=None,
+        dispatch_token_for=None,
     ):
         self._launcher = launcher
         self._callbacks = []
@@ -468,6 +492,7 @@ class _ArgMarshaller:
         self._launch_config_generation = launch_config_generation
         self._stream_ref = stream_ref
         self._launch_stream = launch_stream
+        self._dispatch_token_for = dispatch_token_for
         self._adjusted_launcher_key = None
         self._adjusted_launcher = None
         self._sig_cache = {}  # {type_key: (argtypes, fast_ok)}
@@ -756,6 +781,8 @@ class _ArgMarshaller:
                 _compile_arg_types.launch_config = active_launch_config
             elif hasattr(_compile_arg_types, "launch_config"):
                 delattr(_compile_arg_types, "launch_config")
+            if self._dispatch_token_for is not None:
+                return launcher(*launch_args, _dispatch_token=self._dispatch_token_for(argtypes))
             return launcher(*launch_args)
         except UserFacingInternalCompilerError as e:
             if os.environ.get("NUMBA_CUDA_MLIR_ICE_FULL_TB", "0").strip() == "1":
@@ -896,7 +923,12 @@ class _ArgMarshaller:
 
         if not has_ext:
             has_arrays = any(isinstance(ct, types.Array) for ct in coerced_types)
-            if all_pass_through and len(flat_args) == nargs and not has_arrays:
+            if (
+                all_pass_through
+                and len(flat_args) == nargs
+                and not has_arrays
+                and all(type(a) in _FIXED_SCALAR_CLASSES for a in args)
+            ):
                 self._sig_cache[type_key] = (list(coerced_types), True)
             else:
                 if type_key not in self._sig_cache:
@@ -904,7 +936,14 @@ class _ArgMarshaller:
 
                 # Only cache already-device array launches. Host arrays and
                 # wrappers need per-launch copy/copyback setup.
-                if has_arrays and all_pass_through:
+                if (
+                    has_arrays
+                    and all_pass_through
+                    and all(
+                        isinstance(ct, types.Array) or type(a) in _FIXED_SCALAR_CLASSES
+                        for a, ct in zip(args, coerced_types)
+                    )
+                ):
                     array_checks = []
                     for i, ct in enumerate(coerced_types):
                         if isinstance(ct, types.Array):
@@ -1659,11 +1698,12 @@ class MLIRDispatcherType(types.Dispatcher):
 
 
 class _CompiledKernelResult(tuple):
-    """Keep the compiler's three-value result, with native array ABI metadata."""
+    """Keep the compiler's three-value result, with native launch metadata."""
 
-    def __new__(cls, cubin, name, cooperative, array_abi):
+    def __new__(cls, cubin, name, cooperative, array_abi, has_runtime_sized_shared_memory):
         result = super().__new__(cls, (cubin, name, cooperative))
         result.array_abi = array_abi
+        result.has_runtime_sized_shared_memory = has_runtime_sized_shared_memory
         return result
 
 
@@ -1697,6 +1737,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         # recompile() invalidates old launch-config generations.
         self._launch_config_overloads = {}
         self._launch_config_dispatchers = collections.OrderedDict()
+        self._dispatch_tokens = {}
+        self._next_dispatch_token = 1
         self._launch_config_generation = 0
         self._requires_launch_config = False
         self._literal_arg_positions = frozenset()
@@ -1734,6 +1776,18 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     @property
     def _numba_type_(self):
         return MLIRDispatcherType(self)
+
+    def _dispatch_token_for(self, argtypes):
+        """Distinguish frontend signatures erased by native argument packing."""
+        self._ensure_dispatcher_state()
+        with self._launch_config_lock:
+            key = tuple(argtypes)
+            token = self._dispatch_tokens.get(key)
+            if token is None:
+                token = self._next_dispatch_token
+                self._next_dispatch_token += 1
+                self._dispatch_tokens[key] = token
+            return token
 
     def _new_kernel_dispatcher(self):
         # Only debug kernels pay the per-launch device-side error readback
@@ -1957,6 +2011,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 self._launch_config_overloads = {}
             if not hasattr(self, "_launch_config_dispatchers"):
                 self._launch_config_dispatchers = collections.OrderedDict()
+            if not hasattr(self, "_dispatch_tokens"):
+                self._dispatch_tokens = {}
+                self._next_dispatch_token = 1
             if not hasattr(self, "_launch_config_generation"):
                 self._launch_config_generation = 0
             if not hasattr(self, "_requires_launch_config"):
@@ -2155,6 +2212,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             launch_config_generation=launch_config_generation,
             stream_ref=stream_ref,
             launch_stream=launch_stream,
+            dispatch_token_for=self._dispatch_token_for,
         )
 
     def _reduce_states(self):
@@ -2434,7 +2492,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         if launch_key is not None:
             argtypes, launch_config_key = launch_key
             with self._launch_config_lock:
-                found = self._find_launch_config_overload_locked(argtypes, launch_config_key)
+                found = self._find_launch_config_overload_locked(
+                    argtypes, launch_config_key, allow_compatible=True
+                )
                 if found is not None:
                     return found
             raise KeyError(f"No launch-config overload found for signature {sig}")
@@ -2749,6 +2809,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         exact = self.overloads.get(argtypes)
         if exact is not None:
             return exact
+        if self._can_compile:
+            return None
         for sig_args, cres in self.overloads.items():
             if len(sig_args) == len(argtypes) and all(
                 self._can_reuse_overload(s, r) for s, r in zip(sig_args, argtypes)
@@ -2921,12 +2983,16 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 if cb not in self._module_teardown_callbacks:
                     self._module_teardown_callbacks.append(cb)
 
-    def _find_launch_config_overload_locked(self, argtypes, launch_config_key):
+    def _find_launch_config_overload_locked(
+        self, argtypes, launch_config_key, *, allow_compatible=False
+    ):
         # Exact hits are O(1). Compatible fallback scans the bounded launch
         # overload table to preserve existing overload-reuse semantics.
         exact = self._launch_config_overloads.get((argtypes, launch_config_key))
         if exact is not None:
             return exact
+        if self._can_compile and not allow_compatible:
+            return None
         reusable = None
         for (sig_args, key), cres in self._launch_config_overloads.items():
             if (
@@ -2987,12 +3053,22 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             result = self._compile_impl(args)
             cubin, func_name, cooperative = result
             array_abi = getattr(result, "array_abi", ())
+            has_runtime_sized_shared_memory = getattr(
+                result, "has_runtime_sized_shared_memory", False
+            )
             post_load = (
                 self._make_post_load_hook()
                 if (self._module_setup_callbacks or self._module_teardown_callbacks)
                 else None
             )
-            return (cubin, func_name, cooperative, post_load, array_abi)
+            return (
+                cubin,
+                func_name,
+                cooperative,
+                post_load,
+                array_abi,
+                has_runtime_sized_shared_memory,
+            )
 
     def _compile_impl(
         self,
@@ -3073,6 +3149,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 cres.metadata["func_name"],
                 cres.metadata.get("use_cooperative", False),
                 array_abi,
+                cres.metadata.get("has_runtime_sized_shared_memory", False),
             )
 
         if active_launch_config_key is not None:
@@ -3088,11 +3165,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                     self._launch_config_cache_hits[(argtypes, active_launch_config_key)] += 1
                     return _result(reusable)
         elif self.overloads:
-            for sig_args, cres in tuple(self.overloads.items()):
-                if len(sig_args) == len(argtypes) and all(
-                    self._can_reuse_overload(s, r) for s, r in zip(sig_args, argtypes)
-                ):
-                    return _result(cres)
+            reusable = self._compile_result_for(argtypes, None)
+            if reusable is not None:
+                return _result(reusable)
 
         if not self._can_compile:
             if active_launch_config_key is not None:
@@ -3668,6 +3743,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             self._retain_old_dispatcher(self._c)
             self._launch_config_generation += 1
             self._launch_config_overloads.clear()
+            # Retained launchers can still hold kernels keyed by old tokens.
+            # Clear signatures, but never recycle their integer identities.
+            self._dispatch_tokens.clear()
             old_launch_config_dispatchers = list(self._launch_config_dispatchers.values())
             self._launch_config_dispatchers = collections.OrderedDict()
             for dispatcher in old_launch_config_dispatchers:

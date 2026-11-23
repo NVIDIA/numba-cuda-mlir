@@ -516,7 +516,7 @@ class ArrayModel(PrimitiveModel):
     def as_data(self, builder, value):
         from numba_cuda_mlir.lowering_utilities import convert_array_storage
 
-        return convert_array_storage(value, self.get_data_type())
+        return convert_array_storage(value, self.get_data_type(), self.fe_type.dtype)
 
     def as_return(self, builder, value):
         return self.as_data(builder, value)

@@ -47,6 +47,7 @@ from numba_cuda_mlir.lowering_utilities import (
     lookup_callee_in_module,
     get_func_type,
     get_type_size_bytes,
+    get_type_storage_layout,
     get_conversion_signedness,
     llvm_ptr_add_bytes,
     memref_data_pointer,
@@ -217,6 +218,7 @@ class MLIRLower(object):
         self._mlir_module: ir.Module | None = None
         self._mlir_gpu_module: gpu.GPUModuleOp | None = None
         self._shared_memory_base: ir.Value | None = None
+        self._shared_memory_global: llvm.GlobalOp | None = None
         self._total_shared_memory_bytes: ir.Value | None = None
         self._dynamic_shared_memory_values: list[ir.Value] = []
         self._deferred_dbg_declare_vars: set[str] = set()
@@ -1775,6 +1777,8 @@ extern "C" __global__ void
         folded_argtypes, call_vars, call_argtypes = self._fold_dispatcher_call_args(fn, args, kws)
         func_name = generate_mangled_name(f"{fn.py_func.__qualname__}_{id(fn)}", call_argtypes)
         cres = fn._compile_as_device_callee(folded_argtypes, abi_name=func_name)
+        if cres.metadata.get("has_runtime_sized_shared_memory", False):
+            self.metadata["has_runtime_sized_shared_memory"] = True
 
         if callee_linker := cres.metadata.get("linker"):
             self._record_ltoirs_from_linker(callee_linker)
@@ -1984,6 +1988,8 @@ extern "C" __global__ void
         unique_qualname = f"{py_func.__qualname__}_{id(overload_disp)}"
         func_name = generate_mangled_name(unique_qualname, call_argtypes)
         cres = cuda_func.compile(folded_argtypes, abi_info={"abi_name": func_name})
+        if cres.metadata.get("has_runtime_sized_shared_memory", False):
+            self.metadata["has_runtime_sized_shared_memory"] = True
 
         if callee_linker := cres.metadata.get("linker"):
             self._record_ltoirs_from_linker(callee_linker)
@@ -2439,7 +2445,7 @@ extern "C" __global__ void
     def _get_shared_address_space(self):
         return ir.Attribute.parse("#gpu.address_space<workgroup>")
 
-    def _get_shared_memory_base(self):
+    def _get_shared_memory_base(self, alignment):
         if self._shared_memory_base is None:
             mr_type = memref.MemRefType.get(
                 shape=[ir.ShapedType.get_dynamic_size()],
@@ -2447,8 +2453,41 @@ extern "C" __global__ void
                 memory_space=self._get_shared_address_space(),
             )
             assert self.mlir_funcOp
+            func_name = self.mlir_funcOp.operation.attributes["sym_name"].value
+            name = f"__numba_cuda_mlir_dynamic_shared_{func_name}"
+            with ir.InsertionPoint.at_block_begin(self.mlir_gpu_module.bodyRegion.blocks[0]):
+                self._shared_memory_global = llvm.GlobalOp(
+                    ir.Type.parse("!llvm.array<0 x i8>"),
+                    name,
+                    ir.Attribute.parse("#llvm.linkage<external>"),
+                    addr_space=3,
+                    # Keep the base aligned even when individual byte arrays pack tightly.
+                    alignment=max(8, alignment),
+                )
             with ir.InsertionPoint.at_block_begin(self.mlir_funcOp.entry_block):
-                self._shared_memory_base = gpu.dynamic_shared_memory(mr_type)
+                ptr = llvm.mlir_addressof(llvm.PointerType.get(3), name)
+                # Use inline PTX for both NVVM translation paths: the LLVM 7
+                # bridge does not support the NVVM dynamic-smem-size op.
+                size = llvm.inline_asm(
+                    T.i32(), [], "mov.u32 $0, %dynamic_smem_size;", "=r", has_side_effects=True
+                )
+                size = arith.extui(T.i64(), size)
+                desc = llvm.UndefOp(
+                    ir.Type.parse(
+                        "!llvm.struct<(ptr<3>, ptr<3>, i64, array<1 x i64>, array<1 x i64>)>"
+                    )
+                ).result
+                for position, value in (
+                    ([0], ptr),
+                    ([1], ptr),
+                    ([2], arith.constant(T.i64(), 0)),
+                    ([3, 0], size),
+                    ([4, 0], arith.constant(T.i64(), 1)),
+                ):
+                    desc = llvm.insertvalue(desc, value, position)
+                self._shared_memory_base = builtin.unrealized_conversion_cast([mr_type], [desc])
+        elif alignment > self._shared_memory_global.alignment.value:
+            self._shared_memory_global.alignment = ir.IntegerAttr.get(T.i64(), alignment)
         return self._shared_memory_base
 
     def _load_total_shared_memory_bytes(self):
@@ -2476,19 +2515,27 @@ extern "C" __global__ void
             indices=[index_of(0)],
         )
 
-    def _request_dynamic_shared_memory(self, mr_type: ir.MemRefType):
-        bytes = get_type_size_bytes(mr_type.element_type)
+    def _aligned_shared_memory_offset(self, alignment):
+        offset = self._load_total_shared_memory_bytes()
+        alignment = index_of(alignment)
+        return arith.muli(arith.ceildivui(offset, alignment), alignment)
+
+    def _request_dynamic_shared_memory(self, mr_type: ir.MemRefType, alignment):
+        bytes, element_alignment = get_type_storage_layout(mr_type.element_type)
         assert self.mlir_funcOp
         # Emit at the current insertion point: the entry block may
         # already have a terminator once the request appears after
         # control flow. The shared-memory base itself is still created
         # at the entry block's start by _get_shared_memory_base.
         bytes_op = arith.constant(result=T.index(), value=bytes)
-        shm_base = self._get_shared_memory_base()
-        total_shared_memory_bytes = self._load_total_shared_memory_bytes()
-        # The base descriptor has a zero-size sentinel, not the launch allocation.
-        dynamic_shared_bytes = convert(nvvm.read_ptx_sreg_dynamic_smem_size(), T.index())
-        remaining_bytes = arith.subi(lhs=dynamic_shared_bytes, rhs=total_shared_memory_bytes)
+        alignment = max(alignment, element_alignment)
+        shm_base = self._get_shared_memory_base(alignment)
+        total_shared_memory_bytes = self._aligned_shared_memory_offset(alignment)
+        dynamic_shared_bytes = memref.dim(shm_base, index_of(0))
+        # A preceding runtime allocation may exhaust the launch's window.
+        # Clamp before subtracting so the unsigned extent cannot wrap.
+        used_bytes = arith.minui(total_shared_memory_bytes, dynamic_shared_bytes)
+        remaining_bytes = arith.subi(lhs=dynamic_shared_bytes, rhs=used_bytes)
         size = arith.divui(lhs=remaining_bytes, rhs=bytes_op)
         view = memref.view(
             result=mr_type,
@@ -2496,32 +2543,60 @@ extern "C" __global__ void
             byte_shift=total_shared_memory_bytes,
             sizes=[size],
         )
+        # A zero-sized declaration views the remaining region without reserving
+        # it. Repeated views alias; only runtime-sized allocations move the cursor.
         self._dynamic_shared_memory_values.append(view)
         return view
 
     def _is_dynamic_shared_memory(self, value: ir.Value) -> bool:
         return any(value == dynamic for dynamic in self._dynamic_shared_memory_values)
 
-    def _request_shared_memory(self, sizes: tuple[ir.Value, ...], mr_type: ir.MemRefType):
-        bytes = get_type_size_bytes(mr_type.element_type)
-        assert self.mlir_funcOp
-        # Emit at the current insertion point: the size operands are
-        # computed here, and the entry block may already have a
-        # terminator once the request appears after control flow.
-        bytes_op = arith.constant(result=T.index(), value=bytes)
-        for size in sizes:
-            size = self.mlir_convert(size, T.index())
-            bytes_op = arith.muli(lhs=bytes_op, rhs=size)
-        shm_base = self._get_shared_memory_base()
-        total_shared_memory_bytes = self._load_total_shared_memory_bytes()
+    def _request_runtime_sized_shared_memory(
+        self, sizes: tuple[ir.Value, ...], mr_type: ir.MemRefType, alignment, *, byte_itemsize=None
+    ):
+        self.metadata["has_runtime_sized_shared_memory"] = True
+        itemsize, element_alignment = get_type_storage_layout(mr_type.element_type)
+        if byte_itemsize is not None:
+            itemsize = byte_itemsize
+        alignment = max(alignment, element_alignment)
+        shm_base = self._get_shared_memory_base(alignment)
+        start = self._aligned_shared_memory_offset(alignment)
+        budget = memref.dim(shm_base, index_of(0))
+        smallest_dim = sizes[0]
+        for dim in sizes[1:]:
+            smallest_dim = arith.minsi(smallest_dim, dim)
+        negative = arith.cmpi(arith.CmpIPredicate.slt, smallest_dim, index_of(0))
+
+        if itemsize == 0:
+            # Zero-width strings retain their logical shape and consume no payload.
+            too_large = negative
+        else:
+            # Divide capacity by each dimension before comparing. Multiplying
+            # the device-provided dimensions first can wrap an index.
+            remaining = arith.subi(budget, start)
+            capacity = arith.divui(remaining, index_of(itemsize))
+            for dim in sizes[1:]:
+                capacity = arith.divui(capacity, arith.maxui(dim, index_of(1)))
+            too_large = arith.cmpi(arith.CmpIPredicate.ugt, sizes[0], capacity)
+            if len(sizes) > 1:
+                nonempty = arith.cmpi(arith.CmpIPredicate.ne, smallest_dim, index_of(0))
+                too_large = arith.ori(negative, arith.andi(nonempty, too_large))
+        past_end = arith.cmpi(arith.CmpIPredicate.ugt, start, budget)
+        on_failure = scf.IfOp(arith.ori(past_end, too_large))
+        with ir.InsertionPoint(on_failure.then_block):
+            llvm.inline_asm(None, [], "trap;", "~{memory}", has_side_effects=True)
+            scf.yield_([])
+
+        nbytes = index_of(itemsize)
+        for dim in sizes:
+            nbytes = arith.muli(nbytes, dim)
         view = memref.view(
             result=mr_type,
             source=shm_base,
-            byte_shift=total_shared_memory_bytes,
-            sizes=sizes,
+            byte_shift=start,
+            sizes=[nbytes] if byte_itemsize is not None else sizes,
         )
-        total_shared_memory_bytes = arith.addi(lhs=total_shared_memory_bytes, rhs=bytes_op)
-        self._store_total_shared_memory_bytes(total_shared_memory_bytes)
+        self._store_total_shared_memory_bytes(arith.addi(start, nbytes))
         return view
 
     def _get_tuple_element_type(self, target_type):
@@ -2610,7 +2685,7 @@ extern "C" __global__ void
         if isinstance(source_type, types.Array) and isinstance(target_type, types.Array):
             from numba_cuda_mlir.lowering_utilities import convert_array_storage
 
-            return convert_array_storage(value, self.get_mlir_type(target_type))
+            return convert_array_storage(value, self.get_mlir_type(target_type), target_type.dtype)
         signed = get_conversion_signedness(source_type, target_type)
         return convert(value, self.get_mlir_type(target_type), signed=signed)
 
@@ -3815,7 +3890,9 @@ extern "C" __global__ void
             if isinstance(numba_type, types.Array):
                 from numba_cuda_mlir.lowering_utilities import convert_array_storage
 
-                return convert_array_storage(value, self.get_value_type(numba_type))
+                return convert_array_storage(
+                    value, self.get_value_type(numba_type), numba_type.dtype
+                )
             return self.mlir_convert(value, self.get_value_type(numba_type))
         return value
 

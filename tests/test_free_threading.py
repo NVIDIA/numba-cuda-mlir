@@ -48,6 +48,41 @@ def _require_free_threaded_python():
         pytest.skip("requires a free-threaded CPython build")
 
 
+def test_mlir_target_contexts_converge_on_cold_access(monkeypatch):
+    from numba_cuda_mlir import descriptor
+
+    target = descriptor.MLIRTarget("numba_cuda_mlir")
+    typing_context = descriptor.MLIRTypingContext
+    target_context = descriptor.MLIRTargetContext
+
+    def slow_typing_context():
+        # Widen the first-use race even when the interpreter has a GIL.
+        time.sleep(0.01)
+        return typing_context()
+
+    def slow_target_context(typingctx):
+        time.sleep(0.01)
+        return target_context(typingctx)
+
+    monkeypatch.setattr(descriptor, "MLIRTypingContext", slow_typing_context)
+    monkeypatch.setattr(descriptor, "MLIRTargetContext", slow_target_context)
+    workers = 8
+    start = threading.Barrier(workers, timeout=10)
+
+    def contexts():
+        start.wait()
+        return target.typing_context, target.target_context
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(contexts) for _ in range(workers)]
+        results = [future.result() for future in futures]
+
+    for typingctx, targetctx in results:
+        assert typingctx is target.typing_context
+        assert targetctx is target.target_context
+        assert targetctx.typing_context is typingctx
+
+
 @requires_llvm70
 def test_concurrent_cold_cuda_compile():
     result = _run_python(

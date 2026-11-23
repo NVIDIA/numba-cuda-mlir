@@ -40,6 +40,7 @@ PyObject* g_strides_pyunicode;
 PyObject* g___dlpack___pyunicode;
 PyObject* g_int64_pyunicode;
 PyObject* g_resolve_cuda_array_interface_dtype;
+PyObject* g__dispatch_token_pyunicode;
 
 PyTypeObject* g_torch_Tensor_type;
 PyTypeObject* g_torch_cuda_Stream_type;
@@ -328,6 +329,7 @@ struct CudaKernelHandle {
     CudaKernel cukernel;
     PyPtr post_load_callback;
     bool cooperative = false;
+    bool has_runtime_sized_shared_memory = false;
     // Descriptor units and required pointer alignment, in bytes, per array.
     std::vector<std::pair<int64_t, int64_t>> array_abi;
 };
@@ -1679,8 +1681,8 @@ Result<CudaKernelHandle> compile(PyObject* compile_func,
                      Py_TYPE(compile_result.get())->tp_name);
 
     Py_ssize_t tuple_size = PyTuple_GET_SIZE(compile_result.get());
-    if (tuple_size < 3 || tuple_size > 5)
-        return raise(PyExc_TypeError, "Expected compile() to return a 3-, 4-, or 5-tuple, got length %zd",
+    if (tuple_size < 3 || tuple_size > 6)
+        return raise(PyExc_TypeError, "Expected compile() to return a 3-, 4-, 5-, or 6-tuple, got length %zd",
                      tuple_size);
 
     PyObject* py_cubin = PyTuple_GET_ITEM(compile_result.get(), 0);
@@ -1711,7 +1713,7 @@ Result<CudaKernelHandle> compile(PyObject* compile_func,
         if (post_load_cb != Py_None && PyCallable_Check(post_load_cb))
             handle.post_load_callback = newref(post_load_cb);
     }
-    if (tuple_size == 5) {
+    if (tuple_size >= 5) {
         PyObject* abi = PyTuple_GET_ITEM(compile_result.get(), 4);
         if (!PyTuple_Check(abi)) return raise(PyExc_TypeError, "Expected array ABI tuple");
         for (Py_ssize_t i = 0; i < PyTuple_GET_SIZE(abi); ++i) {
@@ -1722,6 +1724,8 @@ Result<CudaKernelHandle> compile(PyObject* compile_func,
             handle.array_abi.emplace_back(unit, alignment);
         }
     }
+    if (tuple_size == 6)
+        handle.has_runtime_sized_shared_memory = PyTuple_GET_ITEM(compile_result.get(), 5) == Py_True;
     return handle;
 }
 
@@ -1955,7 +1959,7 @@ bool try_clarify_launch_out_of_resources_error(CUkernel kernel, const Grid& bloc
 }
 
 Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional<Grid> cluster,
-              std::optional<CUstream> stream, int sharedmem,
+              std::optional<CUstream> stream, int sharedmem, uint64_t dispatch_token,
               PyObject* const* pyargs, Py_ssize_t num_pyargs) {
     LaunchHelperPtr helper = launch_helper_get();
     get_pyarg_types(pyargs, num_pyargs, helper->pyarg_types);
@@ -2037,6 +2041,7 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
             helper->cuarg_pointers[i] = &base[i];
         }
         helper->constants.clear();
+        helper->constants.emplace_back(dispatch_token);
         helper->cuda_context = nullptr;
 
         if (!ensure_numba_context(dispatcher.ensure_context_func.get()))
@@ -2080,6 +2085,8 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
                 return ErrorRaised;
         }
 
+        // Packing can erase frontend types; include their exact identity.
+        helper->constants.emplace_back(dispatch_token);
         KernelFamily::KernelMap& kernel_map = profile->family->kernels_by_constants;
         kernel_iter = kernel_map.find(helper->constants);
         if (kernel_iter == kernel_map.end()) {
@@ -2147,6 +2154,12 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
                 helper->cuarg_pointers.push_back(&helper->cuargs[meta.start_idx]);
             }
         }
+    }
+
+    if (sharedmem == 0 && kernel_iter->second.has_runtime_sized_shared_memory) {
+        return raise(PyExc_ValueError,
+                     "Runtime-sized shared arrays require a nonzero sharedmem launch argument; "
+                     "use kernel[grid, block, stream, sharedmem](...).");
     }
 
     // Configure dynamic shared memory if needed.
@@ -2448,26 +2461,42 @@ struct LaunchConfiguration {
 
 PyObject* LaunchConfiguration_vectorcall(PyObject* self, PyObject *const *args,
                                              size_t nargsf, PyObject* kwnames) {
-    if (kwnames) {
-        PyErr_SetString(PyExc_TypeError, "Keyword arguments are not supported");
-        return nullptr;
+    Py_ssize_t num_args = PyVectorcall_NARGS(nargsf);
+    uint64_t dispatch_token = 0;
+    if (kwnames && PyTuple_GET_SIZE(kwnames)) {
+        if (PyTuple_GET_SIZE(kwnames) != 1 ||
+                PyObject_RichCompareBool(PyTuple_GET_ITEM(kwnames, 0),
+                                        g__dispatch_token_pyunicode, Py_EQ) != 1) {
+            if (!PyErr_Occurred())
+                PyErr_SetString(PyExc_TypeError, "Only _dispatch_token keyword is supported");
+            return nullptr;
+        }
+        dispatch_token = PyLong_AsUnsignedLongLong(args[num_args]);
+        if (PyErr_Occurred()) return nullptr;
     }
 
     LaunchConfiguration& config = py_unwrap<LaunchConfiguration>(self);
 
-    Py_ssize_t num_args = PyVectorcall_NARGS(nargsf);
 
     KernelDispatcher& dispatcher = py_unwrap<KernelDispatcher>(config.dispatcher.get());
-    if (!launch(dispatcher, config.grid, config.block, config.cluster, config.stream, config.sharedmem, args, num_args))
+    if (!launch(dispatcher, config.grid, config.block, config.cluster, config.stream,
+                config.sharedmem, dispatch_token, args, num_args))
         return nullptr;
 
     return Py_NewRef(Py_None);
 }
 
 PyObject* LaunchConfiguration_call(PyObject* self, PyObject* args, PyObject* kwargs) {
-    if (kwargs) {
-        PyErr_SetString(PyExc_TypeError, "Keyword arguments are not supported");
-        return nullptr;
+    uint64_t dispatch_token = 0;
+    if (kwargs && PyDict_Size(kwargs)) {
+        PyObject* value = PyDict_GetItemWithError(kwargs, g__dispatch_token_pyunicode);
+        if (!value || PyDict_Size(kwargs) != 1) {
+            if (!PyErr_Occurred())
+                PyErr_SetString(PyExc_TypeError, "Only _dispatch_token keyword is supported");
+            return nullptr;
+        }
+        dispatch_token = PyLong_AsUnsignedLongLong(value);
+        if (PyErr_Occurred()) return nullptr;
     }
 
     LaunchConfiguration& config = py_unwrap<LaunchConfiguration>(self);
@@ -2477,7 +2506,8 @@ PyObject* LaunchConfiguration_call(PyObject* self, PyObject* args, PyObject* kwa
     PyObject** pyargs = &_PyTuple_CAST(args)->ob_item[0];
     Py_ssize_t num_pyargs = PyTuple_GET_SIZE(args);
 
-    if (!launch(dispatcher, config.grid, config.block, config.cluster, config.stream, config.sharedmem, pyargs, num_pyargs))
+    if (!launch(dispatcher, config.grid, config.block, config.cluster, config.stream,
+                config.sharedmem, dispatch_token, pyargs, num_pyargs))
         return nullptr;
 
     return Py_NewRef(Py_None);
@@ -2689,6 +2719,7 @@ Status kernel_init(PyObject* m) {
     INIT_STRING_CONSTANT(strides);
     INIT_STRING_CONSTANT(__dlpack__);
     INIT_STRING_CONSTANT(int64);
+    INIT_STRING_CONSTANT(_dispatch_token);
 
     try_get_torch_globals();
     try_get_cupy_globals();

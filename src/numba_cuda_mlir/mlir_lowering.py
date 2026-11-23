@@ -2427,6 +2427,8 @@ extern "C" __global__ void
         return ir.Attribute.parse("#gpu.address_space<workgroup>")
 
     def _get_shared_memory_base(self, alignment=8):
+        # Keep the base aligned even when individual byte arrays pack tightly.
+        alignment = max(8, alignment)
         if self._shared_memory_base is None:
             mr_type = memref.MemRefType.get(
                 shape=[ir.ShapedType.get_dynamic_size()],
@@ -2442,8 +2444,7 @@ extern "C" __global__ void
                     name,
                     ir.Attribute.parse("#llvm.linkage<external>"),
                     addr_space=3,
-                    # Keep the base aligned even when individual byte arrays pack tightly.
-                    alignment=max(8, alignment),
+                    alignment=alignment,
                 )
             with ir.InsertionPoint.at_block_begin(self.mlir_funcOp.entry_block):
                 ptr = llvm.mlir_addressof(llvm.PointerType.get(3), name)

@@ -1417,6 +1417,16 @@ class DeferredLowering:
     that can be called later to perform the lowering.
     """
 
+    @functools.cached_property
+    def _numba_cuda_mlir_signature_api(self):
+        from numba_cuda_mlir.lowering_registry import is_signature_lowering
+
+        return is_signature_lowering(self.callback)
+
+    @property
+    def callback(self):
+        return self.__call__
+
     @abstractmethod
     def __call__(self, builder, target, args, kwargs): ...
 
@@ -1425,9 +1435,27 @@ class DeferredMethodCall(DeferredLowering):
     def __init__(self, _self, lowering_function: AnyCallable[PS]):
         self._self = _self
         self.lowering_function = lowering_function
+        from numba_cuda_mlir.lowering_registry import is_signature_lowering
+
+        self._numba_cuda_mlir_signature_api = is_signature_lowering(lowering_function)
+
+    @property
+    def callback(self):
+        return self.lowering_function
 
     def __call__(self, builder, target, args, kwargs):
         return self.lowering_function(builder, target, [self._self] + args, kwargs)
+
+    def lower_signature(self, lowerer, signature, args):
+        receiver_type = lowerer.get_numba_type(self._self.name)
+        selected_receiver_type = signature.recvr or receiver_type
+        receiver = lowerer._cast_call_value(
+            receiver_type, selected_receiver_type, lowerer.load_var(self._self)
+        )
+        signature = signature.replace(
+            args=(selected_receiver_type, *signature.args), recvr=None, pysig=None
+        )
+        return self.lowering_function(lowerer, signature, (receiver, *args))
 
 
 @dataclass

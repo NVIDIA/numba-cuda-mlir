@@ -315,25 +315,15 @@ def _get_format_and_values(mlir_lower: MLIRLower, arg) -> tuple[str, list[ir.Val
 
 
 @lower(print, types.VarArg(types.Any))
-def lower_print(mlir_lower: MLIRLower, target, args, kwargs: list[tuple[str, ir.Value]]):
-    def _kwarg_str(kw_list, name, default):
-        """Extract a string keyword arg from its literal type."""
-        for k, v in kw_list:
-            if k == name:
-                ty = mlir_lower.get_numba_type(v.name)
-                if isinstance(ty, types.StringLiteral):
-                    return ty.literal_value
-                loaded = mlir_lower.load_var(v)
-                return loaded if isinstance(loaded, str) else default
-        return default
-
-    end = _kwarg_str(kwargs, "end", "\n")
-    sep = _kwarg_str(kwargs, "sep", " ")
-    remaining_kwargs = {k: mlir_lower.load_var(v) for k, v in kwargs if k not in ("end", "sep")}
-    args = [mlir_lower.load_var(arg) for arg in args]
-
-    if remaining_kwargs:
-        raise ValueError(f"Unsupported keyword arguments: {remaining_kwargs}")
+def lower_print(mlir_lower: MLIRLower, signature, args):
+    if len(signature.args) == 3 and isinstance(
+        signature.args[0], (types.StarArgTuple, types.StarArgUniTuple)
+    ):
+        args = args[0]
+        sep = signature.args[1].literal_value
+        end = signature.args[2].literal_value
+    else:
+        sep, end = " ", "\n"
 
     # Try to build a single format string for all arguments
     fmt_parts = []

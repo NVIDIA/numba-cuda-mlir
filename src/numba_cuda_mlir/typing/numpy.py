@@ -1,16 +1,19 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir.errors import ForceLiteralArg
+import inspect
 import operator
 import numpy as np
 from numba_cuda_mlir.numba_cuda.typing.templates import (
     AttributeTemplate,
     AbstractTemplate,
     signature,
+    bound_function,
 )
 from numba_cuda_mlir import types
 from numba_cuda_mlir.numba_cuda.typing import npydecl
 from numba_cuda_mlir.numba_cuda.typing.npydecl import parse_dtype
+from numba_cuda_mlir.numba_cuda.typing.arraydecl import ArrayAttribute
 from numba_cuda_mlir.lowering_utilities import type_conversions
 from numba_cuda_mlir.array_storage import ArrayStorageLayout
 from numba_cuda_mlir.numba_cuda.np.unsafe.ndarray import to_fixed_tuple
@@ -20,6 +23,17 @@ registry = npydecl.registry
 
 def _dtype_arg(args, kws, pos, default):
     return args[pos] if len(args) > pos else kws.get("dtype", default)
+
+
+def _array_creation_signature(restype, args, kws, names):
+    if not kws:
+        return signature(restype, *args)
+    if set(kws) != {"dtype"} or len(args) != len(names) - 1:
+        return None
+    pysig = inspect.Signature(
+        [inspect.Parameter(name, inspect.Parameter.POSITIONAL_OR_KEYWORD) for name in names]
+    )
+    return signature(restype, *args, kws["dtype"]).replace(pysig=pysig)
 
 
 @registry.register_global(to_fixed_tuple)
@@ -69,7 +83,7 @@ class NumpyEmptyTemplate(AbstractTemplate):
             element_type = dtype
 
         restype = types.Array(dtype=element_type, ndim=ndim, layout="C")
-        return signature(restype, *args)
+        return _array_creation_signature(restype, args, kws, ("shape", "dtype"))
 
 
 @registry.register_global(np.zeros)
@@ -96,7 +110,7 @@ class NumpyZerosTemplate(AbstractTemplate):
             element_type = dtype
 
         restype = types.Array(dtype=element_type, ndim=ndim, layout="C")
-        return signature(restype, *args)
+        return _array_creation_signature(restype, args, kws, ("shape", "dtype"))
 
 
 @registry.register_global(np.ones)
@@ -123,7 +137,7 @@ class NumpyOnesTemplate(AbstractTemplate):
             element_type = dtype
 
         restype = types.Array(dtype=element_type, ndim=ndim, layout="C")
-        return signature(restype, *args)
+        return _array_creation_signature(restype, args, kws, ("shape", "dtype"))
 
 
 @registry.register_global(np.full)
@@ -151,7 +165,7 @@ class NumpyFullTemplate(AbstractTemplate):
             element_type = dtype
 
         restype = types.Array(dtype=element_type, ndim=ndim, layout="C")
-        return signature(restype, *args)
+        return _array_creation_signature(restype, args, kws, ("shape", "fill_value", "dtype"))
 
 
 # ============================================================================
@@ -831,7 +845,10 @@ class NumpyReshapeTemplate(AbstractTemplate):
 
 @registry.register_global(len)
 class LenTemplate(AbstractTemplate):
-    """Typing template for len() with arrays and tuples"""
+    """Typing template for len() with arrays, tuples, and string literals."""
+
+    prefer_literal = True
+    metadata = {"target": "cuda"}
 
     def generic(self, args, kws):
         if len(args) != 1:
@@ -839,7 +856,7 @@ class LenTemplate(AbstractTemplate):
 
         arg = args[0]
 
-        if isinstance(arg, (types.Array, types.Tuple, types.UniTuple)):
+        if isinstance(arg, (types.Array, types.Tuple, types.UniTuple, types.StringLiteral)):
             return signature(types.intp, arg)
 
         return None
@@ -883,6 +900,14 @@ class ArrayAttributeTemplate(AttributeTemplate):
     def resolve_view(self, arr):
         """Type arr.view(dtype) -> array"""
         return types.BoundFunction(NumpyArrayViewMethodTemplate, arr)
+
+    @bound_function("array.transpose")
+    def resolve_transpose(self, arr, args, kws):
+        resolver = inspect.unwrap(ArrayAttribute.resolve_transpose)
+        selected = resolver(ArrayAttribute(self.context), arr, args, kws)
+        if selected is not None and not selected.args and args:
+            selected = selected.replace(args=args)
+        return selected
 
     def resolve_ctypes(self, arr):
         """Type arr.ctypes -> ArrayCTypes"""

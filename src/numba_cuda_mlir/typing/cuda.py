@@ -34,6 +34,12 @@ class CArrayTyping(AbstractTemplate):
 
     key = carray
     layout = "C"
+    pysig = inspect.Signature(
+        [
+            inspect.Parameter(name, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+            for name in ("ptr", "shape", "dtype")
+        ]
+    )
 
     def generic(self, args, kws):
         if kws:
@@ -67,7 +73,8 @@ class CArrayTyping(AbstractTemplate):
         if ndim is None:
             return None
 
-        return signature(types.Array(dtype, ndim, self.layout), *args)
+        sig = signature(types.Array(dtype, ndim, self.layout), *args)
+        return sig.replace(pysig=self.pysig) if kws else sig
 
 
 registry.register_global(CArrayTyping.key, types.Function(CArrayTyping))
@@ -152,7 +159,7 @@ class InlinePTXFunctionTemplate(AbstractTemplate):
             raise TypeError(f"Invalid arguments to inline_ptx: {args=}")
 
         result_types = []
-        arg_types = [types.string]
+        arg_types = [format]
 
         for i, (fmt, _arg) in enumerate(zip(rest[::2], rest[1::2])):
             if not isinstance(fmt, types.Literal):
@@ -452,10 +459,10 @@ class CudaGridTemplate(AbstractTemplate):
         # A one-dimensional launch may hold up to (2**31 - 1) * 1024 threads, so
         # the global thread index and the grid size do not fit in 32 bits.
         if value == 1:
-            return signature(types.int64, types.int32)
+            return signature(types.int64, args[0])
         ret_types = [types.int64 for i in range(value)]
         ret_ty = types.Tuple(ret_types)
-        return signature(ret_ty, types.int32)
+        return signature(ret_ty, args[0])
 
 
 @registry.register

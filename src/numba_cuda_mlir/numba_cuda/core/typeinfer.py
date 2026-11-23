@@ -40,6 +40,7 @@ from numba_cuda_mlir.numba_cuda.core import ir
 from numba_cuda_mlir.numba_cuda import typing
 from numba_cuda_mlir.numba_cuda.typing.templates import Signature
 from numba_cuda_mlir.numba_cuda.core.errors import (
+    ArgumentBindingError,
     TypingError,
     UntypedAttributeError,
     new_error_context,
@@ -188,7 +189,12 @@ class ConstraintNetwork:
                     errors.append(e)
                 except TypingError as e:
                     _logger.debug("captured error", exc_info=e)
-                    new_exc = TypingError(
+                    # A call that does not bind stays a TypeError whether or
+                    # not the callee was inlined before typing.
+                    cls = (
+                        ArgumentBindingError if isinstance(e, ArgumentBindingError) else TypingError
+                    )
+                    new_exc = cls(
                         str(e),
                         loc=constraint.loc,
                         highlighting=False,
@@ -203,21 +209,60 @@ class Propagate:
     A simple constraint for direct propagation of types for assignments.
     """
 
-    def __init__(self, dst, src, loc):
+    def __init__(self, dst, src, loc, phi=False):
         self.dst = dst
         self.src = src
         self.loc = loc
+        self.phi = phi
 
     def __call__(self, typeinfer):
         with new_error_context("typing of assignment at {0}", self.loc, loc=self.loc):
             typeinfer.copy_type(self.src, self.dst, loc=self.loc)
             # If `dst` is refined, notify us
             typeinfer.refine_map[self.dst] = self
+            if self.phi:
+                self._refine_imprecise_phi_input(typeinfer)
+
+    def _refine_imprecise_phi_input(self, typeinfer):
+        # refine_map holds one constraint per variable, so refining a phi
+        # reaches only one of its inputs, and a phi that is precise from the
+        # start refines none. An input that is still imprecise is refined
+        # from the phi's type; a precise input keeps its own.
+        dst = typeinfer.typevars[self.dst]
+        src = typeinfer.typevars[self.src]
+        if not (dst.defined and src.defined):
+            return
+        dstty = dst.getone()
+        if dstty.is_precise() and not src.getone().is_precise():
+            self.refine(typeinfer, dstty)
 
     def refine(self, typeinfer, target_type):
         # Do not back-propagate to locked variables (e.g. constants)
         assert target_type.is_precise()
+        if self.phi:
+            target_type = _phi_input_refinement(typeinfer.typevars[self.src], target_type)
         typeinfer.add_type(self.src, target_type, unless_locked=True, loc=self.loc)
+
+
+def _phi_input_refinement(input_var, phi_type):
+    """Return the type that the phi input ``input_var`` takes from ``phi_type``.
+
+    The phi's type merges the qualifiers of all its inputs: an array joined
+    with a readonly array is readonly, and a C array joined with a strided
+    one has layout ``A``. An imprecise array input therefore takes only the
+    dtype, and keeps its own mutability, alignment and layout.
+    """
+    if not input_var.defined:
+        return phi_type
+    input_type = input_var.getone()
+    if (
+        not input_type.is_precise()
+        and type(input_type) is types.Array
+        and isinstance(phi_type, types.Array)
+        and input_type.ndim == phi_type.ndim
+    ):
+        return input_type.copy(dtype=phi_type.dtype)
+    return phi_type
 
 
 class ArgConstraint:
@@ -242,6 +287,37 @@ class ArgConstraint:
             typeinfer.add_type(self.dst, ty, loc=self.loc)
 
 
+def _refine_parts(ty, refined):
+    """Return ``ty`` with each part replaced by the matching part of
+    ``refined``, the type a later use gave the same value, where that part
+    is precise and differs.
+
+    Anonymous tuples are compared item by item, because a tuple is precise
+    whatever its items are. As with ``Propagate.refine`` for a copy, the
+    caller adds the result with ``add_type``, which unifies it with the
+    variable's type.
+    """
+    if isinstance(ty, types.BaseAnonymousTuple):
+        if not isinstance(refined, types.BaseAnonymousTuple) or len(refined) != len(ty):
+            return ty
+        items = [_refine_parts(t, r) for t, r in zip(ty, refined)]
+        if items == list(ty):
+            return ty
+        return types.BaseTuple.from_types(items)
+    if refined.is_precise() and refined != ty:
+        return refined
+    return ty
+
+
+def _refine_from_use(typeinfer, var, refined, loc):
+    """Refine ``var``'s type, part by part, from ``refined``."""
+    tv = typeinfer.typevars[var]
+    if tv.defined:
+        newty = _refine_parts(tv.getone(), refined)
+        if newty != tv.getone():
+            typeinfer.add_type(var, newty, loc=loc, unless_locked=True)
+
+
 class BuildTupleConstraint:
     def __init__(self, target, items, loc):
         self.target = target
@@ -260,6 +336,16 @@ class BuildTupleConstraint:
                     tup = types.Tuple(vals)
                 assert tup.is_precise()
                 typeinfer.add_type(self.target, tup, loc=self.loc)
+            # A later use of the tuple may have refined an item, such as an
+            # empty list or an array of undefined dtype; refine the variable
+            # it was built from.
+            target = typevars[self.target]
+            if not target.defined:
+                return
+            tup = target.getone()
+            if isinstance(tup, types.BaseAnonymousTuple) and len(tup) == len(self.items):
+                for item, refined in zip(self.items, tup):
+                    _refine_from_use(typeinfer, item.name, refined, self.loc)
 
 
 class _BuildContainerConstraint:
@@ -411,6 +497,10 @@ class ExhaustIterConstraint:
                     if len(tp) == self.count:
                         assert tp.is_precise()
                         typeinfer.add_type(self.target, tp, loc=self.loc)
+                        # A later use of the unpacked values may have
+                        # refined an item; refine the tuple.
+                        target = typevars[self.target].getone()
+                        _refine_from_use(typeinfer, self.iterator.name, target, self.loc)
                         break
                     else:
                         msg = (
@@ -491,8 +581,22 @@ class StaticGetItemConstraint:
                     # if the itemty is not precise, let it through, unification
                     # will catch it and produce a better error message
                     typeinfer.add_type(self.target, itemty, loc=self.loc)
+                    self._refine_tuple_item(typeinfer, ty)
                 elif self.fallback is not None:
                     self.fallback(typeinfer)
+
+    def _refine_tuple_item(self, typeinfer, tupty):
+        # A later use of the item may have refined it; refine the tuple, as
+        # a copy refines its source. Slices are left alone.
+        if not (isinstance(tupty, types.BaseAnonymousTuple) and isinstance(self.index, int)):
+            return
+        item = tupty[self.index]
+        refined = _refine_parts(item, typeinfer.typevars[self.target].getone())
+        if refined != item:
+            items = list(tupty)
+            items[self.index] = refined
+            refined = types.BaseTuple.from_types(items)
+            _refine_from_use(typeinfer, self.value.name, refined, self.loc)
 
     def get_call_signature(self):
         # The signature is only needed for the fallback case in lowering
@@ -1804,7 +1908,9 @@ https://numba.readthedocs.io/en/stable/user/troubleshoot.html#my-code-has-an-unt
         elif expr.op == "phi":
             for iv in expr.incoming_values:
                 if iv is not ir.UNDEFINED:
-                    self.constraints.append(Propagate(dst=target.name, src=iv.name, loc=inst.loc))
+                    self.constraints.append(
+                        Propagate(dst=target.name, src=iv.name, loc=inst.loc, phi=True)
+                    )
         elif expr.op == "make_function":
             self.lock_type(
                 target.name,

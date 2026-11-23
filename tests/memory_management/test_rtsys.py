@@ -33,6 +33,13 @@ def test_rtsys_allocate_initialize():
     assert rtsys._memsys_library is not None
     assert rtsys._initialized is True
 
+    context = cuda.current_context()
+    handle = rtsys._memsys_library.handle
+    assert handle in context.modules
+    rtsys.close()
+    assert handle not in context.modules
+    context.deallocations.clear()
+
 
 def test_rtsys_stats_enable_disable():
     """Test that stats can be toggled on and off."""

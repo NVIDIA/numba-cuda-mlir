@@ -13,13 +13,30 @@ import pytest
 
 from numba_cuda_mlir import _context_cache, descriptor, mlir_compiler, tools, types
 from numba_cuda_mlir._context_cache import current_context_token
-from numba_cuda_mlir.compiler import CodeLibrary
 from numba_cuda_mlir.numba_cuda import typing
 from numba_cuda_mlir.numba_cuda.cudadrv import devices
 
 
 class ContextStub(SimpleNamespace):
     pass
+
+
+def test_current_context_binding_status(monkeypatch):
+    driver = _context_cache.driver
+    result = driver.CUresult
+    for status, handle, expected in (
+        (result.CUDA_ERROR_NOT_INITIALIZED, None, None),
+        (result.CUDA_SUCCESS, 0, 0),
+        (result.CUDA_SUCCESS, 123, 123),
+    ):
+        monkeypatch.setattr(driver, "cuCtxGetCurrent", lambda s=status, h=handle: (s, h))
+        assert _context_cache._get_current_context() == expected
+
+    monkeypatch.setattr(
+        driver, "cuCtxGetCurrent", lambda: (result.CUDA_ERROR_INVALID_CONTEXT, None)
+    )
+    with pytest.raises(RuntimeError, match="CUDA_ERROR_INVALID_CONTEXT"):
+        _context_cache._get_current_context()
 
 
 @pytest.fixture
@@ -118,18 +135,18 @@ def test_capability_and_target_follow_current_device(contexts, monkeypatch):
     a, b, local = contexts
     assert tools.get_gpu_compute_capability(tuple) == (9, 0)
     local.context = b
-    assert tools.get_gpu_compute_capability() == "sm_120"
-    assert tools.resolve_gpu_target()["linker_arch"] == "sm_120"
+    assert tools.get_gpu_compute_capability() == "sm_120a"
+    assert tools.resolve_gpu_target()["linker_arch"] == "sm_120a"
     assert tools.resolve_gpu_target({"chip": "sm_90a"})["chip"] == "sm_90a"
     local.context = a
-    assert tools.get_gpu_compute_capability() == "sm_90"
+    assert tools.get_gpu_compute_capability() == "sm_90a"
 
     calls = []
     monkeypatch.setattr(
         tools, "get_gpu_compute_capability", lambda as_type: calls.append(as_type) or (9, 0)
     )
     target = tools.resolve_gpu_target()
-    assert target["chip"] == target["linker_arch"] == "sm_90"
+    assert target["chip"] == target["linker_arch"] == "sm_90a"
     assert calls == [tuple]
 
 
@@ -169,7 +186,7 @@ def test_explicit_chip_is_preserved_with_device_specific_linker(contexts, compil
     assert dispatch.compile((types.int32,)).metadata["gpu_target"]["linker_arch"] == "sm_90a"
     local.context = b
     result = dispatch.compile((types.int32,))
-    assert result.metadata["gpu_target"]["linker_arch"] == "sm_120"
+    assert result.metadata["gpu_target"]["linker_arch"] == "sm_120a"
     assert dispatch.targetoptions["chip"] == "sm_90a"
     assert all(call["targetoptions"]["chip"] == "sm_90a" for call in compiler_stub)
 
@@ -201,7 +218,7 @@ def test_fixed_signatures_recompile_for_each_device(contexts, compiler_stub):
     target = dispatch._get_context_dispatcher()
     assert not target._can_compile
     assert target.overloads[(types.float32,)] is not first
-    assert target.overloads[(types.float32,)].metadata["gpu_target"]["chip"] == "sm_120"
+    assert target.overloads[(types.float32,)].metadata["gpu_target"]["chip"] == "sm_120a"
     assert target.signatures == [(types.float32,)]
 
 
@@ -258,7 +275,7 @@ def test_retained_configuration_preserves_per_device_smem(contexts, compiler_stu
             return ty, val
 
     def launch_config(native, grid, block, stream, sharedmem, cluster):
-        return lambda *args: launches.append((native, sharedmem, args))
+        return lambda *args, _dispatch_token: launches.append((native, sharedmem, args))
 
     monkeypatch.setattr(descriptor, "LaunchConfiguration", launch_config)
     dispatch = make_dispatcher(extensions=[Extension()])
@@ -290,7 +307,7 @@ def test_retained_launch_after_offline_compile_uses_runtime_partition(
     monkeypatch.setattr(
         descriptor,
         "LaunchConfiguration",
-        lambda native, *args: lambda *values: launches.append(native),
+        lambda native, *args: lambda *values, _dispatch_token: launches.append(native),
     )
     dispatch = make_dispatcher(chip="sm_90")
     dispatch.compile((types.int32,))
@@ -319,7 +336,7 @@ def test_retained_frozen_configuration_preserves_removed_extensions(
         descriptor,
         "LaunchConfiguration",
         lambda native, grid, block, stream, sharedmem, cluster: (
-            lambda *args: launches.append((native, sharedmem))
+            lambda *args, _dispatch_token: launches.append((native, sharedmem))
         ),
     )
     extension = Extension()
@@ -363,7 +380,7 @@ def test_serialization_keeps_portable_signatures_only(contexts, compiler_stub):
     local.context = b
     state["uuid"] = str(uuid4())
     rebuilt = descriptor.MLIRDispatcher._rebuild(**state)
-    assert rebuilt.overloads[(types.int32,)].metadata["gpu_target"]["chip"] == "sm_120"
+    assert rebuilt.overloads[(types.int32,)].metadata["gpu_target"]["chip"] == "sm_120a"
     assert not rebuilt._can_compile
 
 
@@ -479,36 +496,10 @@ def test_concurrent_device_selection_keeps_state_separate(contexts, compiler_stu
     with ThreadPoolExecutor(max_workers=2) as pool:
         fa, fb = (pool.submit(compile_on, context) for context in (a, b))
         (ra, na), (rb, nb) = fa.result(timeout=10), fb.result(timeout=10)
-    assert ra.metadata["gpu_target"]["chip"] == "sm_90"
-    assert rb.metadata["gpu_target"]["chip"] == "sm_120"
+    assert ra.metadata["gpu_target"]["chip"] == "sm_90a"
+    assert rb.metadata["gpu_target"]["chip"] == "sm_120a"
     assert na is not nb
     assert len(compiler_stub) == 2
-
-
-def test_code_library_reload_after_reset(contexts, monkeypatch):
-    from cuda.bindings import driver
-
-    a, b, local = contexts
-    modules = []
-    ok = driver.CUresult.CUDA_SUCCESS
-
-    def load(data):
-        module = object()
-        modules.append(module)
-        return ok, module
-
-    monkeypatch.setattr(driver, "cuModuleLoadData", load)
-    monkeypatch.setattr(driver, "cuModuleGetFunction", lambda module, name: (ok, module))
-    library = CodeLibrary(b"cubin", "kernel")
-    fa = library.get_cufunc()
-    local.context = b
-    fb = library.get_cufunc()
-    local.context = a
-    assert library.get_cufunc() is fa
-    assert fb is not fa
-    a.extras.pop("numba_cuda_mlir.context_token")
-    assert library.get_cufunc() is not fa
-    assert len(modules) == 3
 
 
 def test_explicit_target_compile_does_not_acquire_runtime_context(monkeypatch, compiler_stub):
@@ -528,7 +519,7 @@ def test_explicit_target_compile_does_not_acquire_runtime_context(monkeypatch, c
     cc[0] = (12, 0)
     second = dispatch.compile((types.int32,))
     assert first is not second
-    assert second.metadata["gpu_target"]["linker_arch"] == "sm_120"
+    assert second.metadata["gpu_target"]["linker_arch"] == "sm_120a"
     cc[0] = (9, 0)
     assert dispatch.compile((types.int32,)) is first
     assert len(compiler_stub) == 2
@@ -681,7 +672,7 @@ def test_compile_after_all_contexts_expire_uses_new_target(contexts, compiler_st
     local.context = b
     second = dispatch.compile((types.int32,))
     assert second is not first
-    assert second.metadata["gpu_target"]["chip"] == "sm_120"
+    assert second.metadata["gpu_target"]["chip"] == "sm_120a"
     assert dispatch.get_metadata((types.int32,)) is second.metadata
 
 
@@ -748,7 +739,7 @@ def test_copied_context_cannot_inherit_a_compile_target(contexts, compiler_stub)
 
     with ThreadPoolExecutor(max_workers=1) as pool:
         result = pool.submit(compile_on_b).result(timeout=10)
-    assert result.metadata["gpu_target"]["chip"] == "sm_120"
+    assert result.metadata["gpu_target"]["chip"] == "sm_120a"
 
 
 @pytest.mark.parametrize(

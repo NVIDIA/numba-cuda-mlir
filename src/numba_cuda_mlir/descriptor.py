@@ -7,6 +7,7 @@ import operator
 import sys
 import sysconfig
 import os
+import shutil
 import threading
 from functools import cached_property, wraps
 import weakref
@@ -23,15 +24,20 @@ from numba_cuda_mlir.errors import UserFacingInternalCompilerError
 from numba_cuda_mlir.logging import trace
 import inspect
 
+from cuda import pathfinder
 from numba_cuda_mlir import codegen
 from numba_cuda_mlir.decorators import mlir_jit
 from numba_cuda_mlir.numba_cuda.errors import normalize_kernel_dimensions
+from numba_cuda_mlir.numba_cuda.api_util import resolve_cuda_array_interface_dtype
 from numba_cuda_mlir.numba_cuda.core.errors import NumbaPerformanceWarning
 from numba_cuda_mlir.numba_cuda.core import config as cuda_config
 from numba_cuda_mlir.numba_cuda.cudadrv import driver as numba_cuda_driver
 from importlib.util import find_spec
 from numba_cuda_mlir.numba_cuda.core import errors, sigutils, targetconfig
-from numba_cuda_mlir.numba_cuda.typing.templates import _select_overload_dispatcher
+from numba_cuda_mlir.numba_cuda.typing.templates import (
+    _select_overload_dispatcher,
+    canonical_call_key,
+)
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.typing.typeof import typeof
 from numba_cuda_mlir.numba_cuda.cudadecl import registry as cuda_registry
@@ -78,11 +84,34 @@ import pstats
 _compile_arg_types = threading.local()
 _PY_GIL_DISABLED = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
 _DISPATCHER_STATE_BOOTSTRAP_LOCK = threading.Lock()
+_FIXED_SCALAR_CLASSES = frozenset(
+    (
+        bool,
+        float,
+        complex,
+        np.bool_,
+        np.float16,
+        np.float32,
+        np.float64,
+        np.complex64,
+        np.complex128,
+        np.int8,
+        np.int16,
+        np.int32,
+        np.int64,
+        np.uint8,
+        np.uint16,
+        np.uint32,
+        np.uint64,
+    )
+)
 _DISPATCHER_STATE_ATTRS = (
     "_launch_config_lock",
     "_launch_lock",
     "_launch_config_overloads",
     "_launch_config_dispatchers",
+    "_dispatch_tokens",
+    "_next_dispatch_token",
     "_launch_config_generation",
     "_requires_launch_config",
     "_literal_arg_positions",
@@ -249,13 +278,16 @@ def _array_shape(arg):
 
 
 def _array_dtype(arg, ty=None):
+    cai = _cuda_array_interface(arg)
     dtype = getattr(arg, "dtype", None)
+    if cai is not None:
+        return resolve_cuda_array_interface_dtype(cai["typestr"], dtype)
+
+    if isinstance(dtype, np.dtype):
+        return dtype
+
     if dtype is not None:
         return np.dtype(dtype)
-
-    cai = _cuda_array_interface(arg)
-    if cai is not None:
-        return np.dtype(cai["typestr"])
 
     if isinstance(ty, types.Array):
         return numpy_support.as_dtype(ty.dtype)
@@ -336,8 +368,20 @@ def _array_readonly(arg, ty=None):
     return False
 
 
-def _array_cache_key(arg, ty):
+def _array_cache_key(arg, ty, *, runtime_type=None):
     """Return metadata that determines whether a cached array type is reusable."""
+    if _cuda_array_interface(arg) is None and hasattr(arg, "__dlpack__"):
+        # DLPack strides are element counts on the owner (e.g. torch), not
+        # necessarily bytes. Re-read the capsule's effective pointer too.
+        if runtime_type is None:
+            runtime_type = typeof(arg)
+        return (
+            runtime_type.dtype,
+            runtime_type.ndim,
+            runtime_type.layout,
+            not runtime_type.mutable,
+            runtime_type.aligned,
+        )
     dtype = _array_dtype(arg, ty)
     ndim = getattr(arg, "ndim", None)
     if ndim is None:
@@ -348,7 +392,16 @@ def _array_cache_key(arg, ty):
             ndim = len(shape)
     layout = _array_layout(arg, ty)
     readonly = _array_readonly(arg, ty)
-    return (dtype, ndim, layout, readonly)
+    from numba_cuda_mlir.array_storage import array_is_aligned
+
+    cai = _cuda_array_interface(arg)
+    interface = cai if cai is not None else getattr(arg, "__array_interface__", None)
+    aligned = (
+        array_is_aligned(dtype, interface["data"][0], _array_strides(arg))
+        if interface is not None
+        else ty.aligned
+    )
+    return (dtype, ndim, layout, readonly, aligned)
 
 
 def _raise_as_cuda_error(e):
@@ -459,6 +512,7 @@ class _ArgMarshaller:
         launch_config_generation=None,
         stream_ref=None,
         launch_stream=None,
+        dispatch_token_for=None,
     ):
         self._launcher = launcher
         self._callbacks = []
@@ -476,6 +530,7 @@ class _ArgMarshaller:
         self._launch_config_generation = launch_config_generation
         self._stream_ref = stream_ref
         self._launch_stream = launch_stream
+        self._dispatch_token_for = dispatch_token_for
         self._adjusted_launcher_key = None
         self._adjusted_launcher = None
         self._sig_cache = {}  # {type_key: (argtypes, fast_ok)}
@@ -770,6 +825,8 @@ class _ArgMarshaller:
                 _compile_arg_types.launch_config = active_launch_config
             elif hasattr(_compile_arg_types, "launch_config"):
                 delattr(_compile_arg_types, "launch_config")
+            if self._dispatch_token_for is not None:
+                return launcher(*launch_args, _dispatch_token=self._dispatch_token_for(argtypes))
             return launcher(*launch_args)
         except UserFacingInternalCompilerError as e:
             if os.environ.get("NUMBA_CUDA_MLIR_ICE_FULL_TB", "0").strip() == "1":
@@ -946,7 +1003,12 @@ class _ArgMarshaller:
 
         if not has_ext:
             has_arrays = any(isinstance(ct, types.Array) for ct in coerced_types)
-            if all_pass_through and len(flat_args) == nargs and not has_arrays:
+            if (
+                all_pass_through
+                and len(flat_args) == nargs
+                and not has_arrays
+                and all(type(a) in _FIXED_SCALAR_CLASSES for a in args)
+            ):
                 self._sig_cache[type_key] = (list(coerced_types), True)
             else:
                 if type_key not in self._sig_cache:
@@ -954,11 +1016,21 @@ class _ArgMarshaller:
 
                 # Only cache already-device array launches. Host arrays and
                 # wrappers need per-launch copy/copyback setup.
-                if has_arrays and all_pass_through:
+                if (
+                    has_arrays
+                    and all_pass_through
+                    and all(
+                        isinstance(ct, types.Array) or type(a) in _FIXED_SCALAR_CLASSES
+                        for a, ct in zip(args, coerced_types)
+                    )
+                ):
                     array_checks = []
                     for i, ct in enumerate(coerced_types):
                         if isinstance(ct, types.Array):
-                            array_checks.append((i, _array_cache_key(args[i], ct)))
+                            array_checks.append(
+                                (i, _array_cache_key(args[i], ct, runtime_type=argtypes[i]))
+                            )
+
                     array_checks = tuple(array_checks)
                     entries = self._array_sig_cache.setdefault(type_key, [])
                     if not any(checks == array_checks for _, checks in entries):
@@ -1335,12 +1407,18 @@ class MLIRTargetContext(BaseContext):
             return
         self.load_additional_registries()
 
-    def get_overload_builder(self, fn, sig):
+    def get_overload_builder(self, fn, sig, call_arg_types=None, call_kw_types=None):
         """Return an MLIR builder for an overloaded function, or None.
 
         Searches the typing templates for an overload Dispatcher that
         can be compiled through numba_cuda_mlir's MLIR pipeline. For BoundFunction
         types, resolves the underlying overload function's templates.
+
+        *call_arg_types* and *call_kw_types* are the positional types and the
+        name-to-type mapping of the keywords the call site supplied.  ``sig``
+        alone cannot stand in for them: it holds the keyword types appended to
+        the positional ones with their names dropped, so the slot each one
+        belongs in is no longer recoverable from it.
         """
         if not isinstance(fn, types.Callable):
             return None
@@ -1353,28 +1431,48 @@ class MLIRTargetContext(BaseContext):
                 inner_fnty = self.typing_context.resolve_value_type(overload_func)
                 templates.extend(getattr(inner_fnty, "templates", []))
 
-        literal_args = tuple((sig.recvr, *sig.args) if sig.recvr else sig.args)
-        match_args = tuple(types.unliteral(arg) for arg in literal_args)
-        omitted = (types.Omitted, types.NoneType)
+        cur_flags = targetconfig.ConfigStack.top_or_none()
 
-        def drop_omitted(args):
-            return tuple(a for a in args if not isinstance(a, omitted))
+        # The call as it was written.  Keeping the keywords named, rather than
+        # appended to the positional types the way `sig` carries them, is what
+        # lets both sides of the comparison below be put in one canonical order
+        # instead of being compared in several speculative arrangements.
+        if call_arg_types is None:
+            call_args = tuple(sig.args)
+            call_kws = {}
+        else:
+            call_args = tuple(call_arg_types)
+            call_kws = dict(call_kw_types or {})
+        if sig.recvr:
+            call_args = (sig.recvr, *call_args)
 
-        # The cache key only holds the arguments the call actually supplied,
-        # while `sig` also carries omitted defaults; compare with and without
-        # them.  `cache_args` also keeps whatever literals the template was
-        # typed with, so an overload registered `prefer_literal=True` (or one
-        # that requested the constant via `literally()`) only ever matches
-        # the un-unliteral'd form; accept either form in both comparisons.
-        full_forms = (match_args, literal_args)
-        trimmed_forms = (drop_omitted(match_args), drop_omitted(literal_args))
+        wanted_by_impl = {}
 
-        def args_match(cache_args):
-            return cache_args in full_forms or drop_omitted(cache_args) in trimmed_forms
+        def wanted(py_func):
+            """The keys this call would be cached under, most literal first.
 
-        disp = _select_overload_dispatcher(
-            templates, args_match, targetconfig.ConfigStack.top_or_none()
-        )
+            A template typed against a literal records that literal, so an entry
+            keyed on one must only be taken by a call that still carries it.
+            The call is therefore the only side that gets unliteral'd: dropping
+            the literal from the entry as well would let an ``int64`` call take
+            an entry built for a specific constant.
+            """
+            if py_func not in wanted_by_impl:
+                key = canonical_call_key(py_func, call_args, call_kws)
+                forms = ()
+                if key is not None:
+                    forms = (key, tuple(types.unliteral(a) for a in key))
+                wanted_by_impl[py_func] = forms
+            return wanted_by_impl[py_func]
+
+        def entry_matches(py_func, entry_args, entry_kws):
+            # Both the call and the cache entry are laid out in the order the
+            # implementation declares its parameters, so one equality settles
+            # keyword order, omitted defaults, and whether a ``*args`` bundle
+            # arrived collected or spread.
+            return canonical_call_key(py_func, tuple(entry_args), entry_kws) in wanted(py_func)
+
+        disp = _select_overload_dispatcher(templates, entry_matches, cur_flags)
         if disp is None:
             return None
 
@@ -1565,14 +1663,18 @@ class MLIRTarget(TargetDescriptor):
     @property
     def typing_context(self):
         if self._typingctx is None:
-            self._typingctx = MLIRTypingContext()
+            with self._initialization_lock:
+                if self._typingctx is None:
+                    self._typingctx = MLIRTypingContext()
         return self._typingctx
 
     @property
     def target_context(self):
         if self._targetctx is None:
-            # Ensure typing context is initialized before target context.
-            self._targetctx = MLIRTargetContext(self.typing_context)
+            with self._initialization_lock:
+                if self._targetctx is None:
+                    # Keep the target bound to the canonical typing context.
+                    self._targetctx = MLIRTargetContext(self.typing_context)
         return self._targetctx
 
     def ensure_initialized(self):
@@ -1680,6 +1782,16 @@ class MLIRDispatcherType(types.Dispatcher):
         return []
 
 
+class _CompiledKernelResult(tuple):
+    """Keep the compiler's three-value result, with native launch metadata."""
+
+    def __new__(cls, cubin, name, cooperative, array_abi, has_runtime_sized_shared_memory):
+        result = super().__new__(cls, (cubin, name, cooperative))
+        result.array_abi = array_abi
+        result.has_runtime_sized_shared_memory = has_runtime_sized_shared_memory
+        return result
+
+
 class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     _fold_args = False
     targetdescr = mlir_target
@@ -1716,6 +1828,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         # recompile() invalidates old launch-config generations.
         self._launch_config_overloads = {}
         self._launch_config_dispatchers = collections.OrderedDict()
+        self._dispatch_tokens = {}
+        self._next_dispatch_token = 1
         self._launch_config_generation = 0
         self._requires_launch_config = False
         self._literal_arg_positions = frozenset()
@@ -1882,6 +1996,18 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
     @property
     def _numba_type_(self):
         return MLIRDispatcherType(self)
+
+    def _dispatch_token_for(self, argtypes):
+        """Distinguish frontend signatures erased by native argument packing."""
+        self._ensure_dispatcher_state()
+        with self._launch_config_lock:
+            key = tuple(argtypes)
+            token = self._dispatch_tokens.get(key)
+            if token is None:
+                token = self._next_dispatch_token
+                self._next_dispatch_token += 1
+                self._dispatch_tokens[key] = token
+            return token
 
     def _new_kernel_dispatcher(self):
         # Only debug kernels pay the per-launch device-side error readback
@@ -2105,6 +2231,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 self._launch_config_overloads = {}
             if not hasattr(self, "_launch_config_dispatchers"):
                 self._launch_config_dispatchers = collections.OrderedDict()
+            if not hasattr(self, "_dispatch_tokens"):
+                self._dispatch_tokens = {}
+                self._next_dispatch_token = 1
             if not hasattr(self, "_launch_config_generation"):
                 self._launch_config_generation = 0
             if not hasattr(self, "_requires_launch_config"):
@@ -2303,6 +2432,7 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             launch_config_generation=launch_config_generation,
             stream_ref=stream_ref,
             launch_stream=launch_stream,
+            dispatch_token_for=self._dispatch_token_for,
         )
 
     @_on_inspection_target
@@ -2609,7 +2739,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         if launch_key is not None:
             argtypes, launch_config_key = launch_key
             with self._launch_config_lock:
-                found = self._find_launch_config_overload_locked(argtypes, launch_config_key)
+                found = self._find_launch_config_overload_locked(
+                    argtypes, launch_config_key, allow_compatible=True
+                )
                 if found is not None:
                     return found
             raise KeyError(f"No launch-config overload found for signature {sig}")
@@ -2801,7 +2933,11 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             return True
         # Allow array type compatibility (matching dtype and ndim)
         if isinstance(sig_arg, types.Array) and isinstance(runtime_type, types.Array):
-            return sig_arg.dtype == runtime_type.dtype and sig_arg.ndim == runtime_type.ndim
+            return (
+                sig_arg.dtype == runtime_type.dtype
+                and sig_arg.ndim == runtime_type.ndim
+                and sig_arg.aligned == runtime_type.aligned
+            )
         # Recursively check Tuple element compatibility
         if isinstance(sig_arg, types.BaseTuple) and isinstance(runtime_type, types.BaseTuple):
             if len(sig_arg) == len(runtime_type):
@@ -2833,6 +2969,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             if sig_arg.ndim != runtime_type.ndim:
                 return None
             if sig_arg.dtype != runtime_type.dtype:
+                return None
+            if sig_arg.aligned and not runtime_type.aligned:
                 return None
             return (0, 0, 0)
         if isinstance(sig_arg, types.CPointer) and isinstance(runtime_type, types.Integer):
@@ -2920,6 +3058,8 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         exact = self.overloads.get(argtypes)
         if exact is not None:
             return exact
+        if self._can_compile:
+            return None
         for sig_args, cres in self.overloads.items():
             if len(sig_args) == len(argtypes) and all(
                 self._can_reuse_overload(s, r) for s, r in zip(sig_args, argtypes)
@@ -3092,12 +3232,16 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 if cb not in self._module_teardown_callbacks:
                     self._module_teardown_callbacks.append(cb)
 
-    def _find_launch_config_overload_locked(self, argtypes, launch_config_key):
+    def _find_launch_config_overload_locked(
+        self, argtypes, launch_config_key, *, allow_compatible=False
+    ):
         # Exact hits are O(1). Compatible fallback scans the bounded launch
         # overload table to preserve existing overload-reuse semantics.
         exact = self._launch_config_overloads.get((argtypes, launch_config_key))
         if exact is not None:
             return exact
+        if self._can_compile and not allow_compatible:
+            return None
         reusable = None
         for (sig_args, key), cres in self._launch_config_overloads.items():
             if (
@@ -3155,10 +3299,25 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
 
     def _compile(self, args):
         with global_compiler_lock:
-            cubin, func_name, cooperative = self._compile_impl(args)
-            if self._module_setup_callbacks or self._module_teardown_callbacks:
-                return (cubin, func_name, cooperative, self._make_post_load_hook())
-            return (cubin, func_name, cooperative)
+            result = self._compile_impl(args)
+            cubin, func_name, cooperative = result
+            array_abi = getattr(result, "array_abi", ())
+            has_runtime_sized_shared_memory = getattr(
+                result, "has_runtime_sized_shared_memory", False
+            )
+            post_load = (
+                self._make_post_load_hook()
+                if (self._module_setup_callbacks or self._module_teardown_callbacks)
+                else None
+            )
+            return (
+                cubin,
+                func_name,
+                cooperative,
+                post_load,
+                array_abi,
+                has_runtime_sized_shared_memory,
+            )
 
     @_on_compilation_target
     def _compile_impl(
@@ -3221,10 +3380,26 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                 active_launch_config_generation = self._launch_config_generation
 
         def _result(cres):
-            return (
+            from numba_cuda_mlir.array_storage import ArrayStorageLayout
+
+            def arrays(ty):
+                if isinstance(ty, types.Array):
+                    yield ArrayStorageLayout(ty)
+                elif isinstance(ty, types.BaseTuple):
+                    for elem in ty:
+                        yield from arrays(elem)
+
+            array_abi = tuple(
+                (layout.unit_bytes, layout.alignment)
+                for ty in getattr(getattr(cres, "signature", None), "args", argtypes)
+                for layout in arrays(ty)
+            )
+            return _CompiledKernelResult(
                 cres.metadata["cubin"],
                 cres.metadata["func_name"],
                 cres.metadata.get("use_cooperative", False),
+                array_abi,
+                cres.metadata.get("has_runtime_sized_shared_memory", False),
             )
 
         if active_launch_config_key is not None:
@@ -3240,11 +3415,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
                     self._launch_config_cache_hits[(argtypes, active_launch_config_key)] += 1
                     return _result(reusable)
         elif self.overloads:
-            for sig_args, cres in tuple(self.overloads.items()):
-                if len(sig_args) == len(argtypes) and all(
-                    self._can_reuse_overload(s, r) for s, r in zip(sig_args, argtypes)
-                ):
-                    return _result(cres)
+            reusable = self._compile_result_for(argtypes, None)
+            if reusable is not None:
+                return _result(reusable)
 
         if not self._can_compile:
             if active_launch_config_key is not None:
@@ -3731,21 +3904,28 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
         if cubin is None:
             raise RuntimeError("No cubin available for disassembly")
 
-        with tempfile.NamedTemporaryFile(suffix=".cubin") as f:
-            f.write(cubin)
-            f.flush()
-            try:
-                cp = subprocess.run(
-                    ["nvdisasm", "-gi", f.name],
-                    check=True,
-                    capture_output=True,
-                )
-            except FileNotFoundError as e:
-                raise RuntimeError(
-                    "nvdisasm has not been found. You may need "
-                    "to install the CUDA toolkit and ensure that "
-                    "it is available on your PATH.\n"
-                ) from e
+        nvdisasm_path = pathfinder.find_nvidia_binary_utility("nvdisasm") or shutil.which(
+            "nvdisasm"
+        )
+        if nvdisasm_path is None:
+            raise RuntimeError(
+                "nvdisasm has not been found. It is included with the CUDA "
+                "toolkit: install the toolkit on your system or, for CUDA 13 "
+                "and newer, install a Python-packaged toolkit in this environment "
+                "(for example cuda-toolkit with the nvdisasm extra). "
+                "The Python-packaged nvdisasm is not available for CUDA 12.\n"
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cubin_path = os.path.join(tmpdir, "module.cubin")
+            # Close the file before nvdisasm opens it, including on Windows.
+            with open(cubin_path, "wb") as f:
+                f.write(cubin)
+            cp = subprocess.run(
+                [nvdisasm_path, "-gi", cubin_path],
+                check=True,
+                capture_output=True,
+            )
             return cp.stdout.decode("utf-8")
 
     @_on_compilation_target
@@ -3875,6 +4055,9 @@ class MLIRDispatcher(Dispatcher, serialize.ReduceMixin):
             self._retain_old_dispatcher(self._c)
             self._launch_config_generation += 1
             self._launch_config_overloads.clear()
+            # Retained launchers can still hold kernels keyed by old tokens.
+            # Clear signatures, but never recycle their integer identities.
+            self._dispatch_tokens.clear()
             old_launch_config_dispatchers = list(self._launch_config_dispatchers.values())
             self._launch_config_dispatchers = collections.OrderedDict()
             for dispatcher in old_launch_config_dispatchers:

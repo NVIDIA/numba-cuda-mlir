@@ -175,3 +175,39 @@ def test_managed_argument_from_another_device_preserves_selected_context(warm_ca
             next(iter(write.overloads.values())).metadata["gpu_target"]["host_cc"]
             == cuda.current_context().device.compute_capability
         )
+
+
+@pytest.mark.parametrize("warm_cache", [False, True])
+def test_inaccessible_device_array_rejected_before_launch(warm_cache):
+    from cuda.bindings import driver
+
+    if len(cuda.gpus) < 2:
+        pytest.skip("requires two CUDA devices")
+
+    @cuda.jit
+    def size(out, ary):
+        # The test kernel only uses the potentially foreign array's metadata.
+        out[0] = ary.size
+
+    with cuda.gpus[1]:
+        foreign = cuda.device_array(3, np.int32)
+    with cuda.gpus[0]:
+        result, _ = driver.cuPointerGetAttribute(
+            driver.CUpointer_attribute.CU_POINTER_ATTRIBUTE_DEVICE_POINTER,
+            driver.CUdeviceptr(foreign.device_ctypes_pointer.value),
+        )
+        if result == driver.CUresult.CUDA_SUCCESS:
+            pytest.skip("the foreign allocation is already accessible on this device")
+        assert result == driver.CUresult.CUDA_ERROR_INVALID_VALUE
+
+        out = cuda.to_device(np.array([-1], dtype=np.int32))
+        configured = size[1, 1]
+        if warm_cache:
+            configured(out, out)
+        with pytest.raises(
+            ValueError, match="argument 1 is not accessible from the selected CUDA context"
+        ):
+            configured(out, foreign)
+        assert out.copy_to_host()[0] == (1 if warm_cache else -1)
+        configured(out, out)
+        assert out.copy_to_host()[0] == 1

@@ -4,6 +4,7 @@
 import numpy as np
 
 from numba_cuda_mlir import cuda
+from numba_cuda_mlir.numba_cuda.core.errors import UnsupportedError
 import pytest
 
 ARRAY_LIKE_FUNCTIONS = (
@@ -372,6 +373,26 @@ class TestSliceSetitem:
         np.testing.assert_array_equal(result, [5, 5, 5, 5])
 
 
+class TestSetitemDiagnostics:
+    def test_unregistered_setitem_form_raises(self):
+        """An unregistered setitem form must not compile to a silent no-op.
+
+        There is no lowering for an array-valued element assignment, so this
+        kernel cannot be compiled.  Before it raised, the store was dropped and
+        the kernel left the array unmodified.
+        """
+
+        @cuda.jit
+        def kernel(arr2d, row):
+            arr2d[0] = row
+
+        arr2d = cuda.to_device(np.zeros((2, 3), dtype=np.float64))
+        row = cuda.to_device(np.array([1, 2, 3], dtype=np.float64))
+
+        with pytest.raises(UnsupportedError, match="no registered setitem builder"):
+            kernel[1, 1](arr2d, row)
+
+
 class TestNegativeArrayIndices:
     def test_getitem_1d(self):
         @cuda.jit
@@ -441,6 +462,212 @@ class TestNegativeArrayIndices:
         expected2d[-2, -2] = 70
         np.testing.assert_array_equal(arr1d, expected1d)
         np.testing.assert_array_equal(arr2d, expected2d)
+
+    def test_unsigned_indices_skip_negative_wrap(self):
+        # Numba's fix_integer_index wraps signed indices only; unsigned indices
+        # cannot be negative, so the wrap is skipped entirely (#329).
+        import re
+
+        from numba_cuda_mlir.mlir_optimization import get_llvmir
+
+        @cuda.jit
+        def kernel(arr, n, out):
+            i = np.uint64(0)
+            while i < n:
+                out[i] = arr[i]
+                i = i + np.uint64(1)
+
+        arr = np.arange(8, dtype=np.float32)
+        out = np.zeros(8, dtype=np.float32)
+        kernel[1, 1](arr, np.uint64(8), out)
+        np.testing.assert_array_equal(out, arr)
+
+        llvm_ir = get_llvmir(list(kernel.overloads.values())[0])
+        assert not re.search(r"select i1", llvm_ir), (
+            "unsigned index loop still contains negative-index wrap selects"
+        )
+
+    @pytest.mark.parametrize("row", [np.uint64(1), np.int64(-1)])
+    def test_tuple_index_signedness(self, row):
+        @cuda.jit
+        def kernel(arr, row, column, out):
+            out[0] = arr[row, column]
+            arr[row, column] = 99
+            out[1] = arr[row][column]
+
+        arr = np.arange(12, dtype=np.int64).reshape(3, 4)
+        expected = arr.copy()
+        expected[int(row), 2] = 99
+        out = np.zeros(2, dtype=np.int64)
+        kernel[1, 1](arr, row, np.uint64(2), out)
+        np.testing.assert_array_equal(out, [6 if row == 1 else 10, 99])
+        np.testing.assert_array_equal(arr, expected)
+
+    def test_signed_loop_index_wrap_optimized_away(self):
+        # The wrap for signed indices is emitted, but nsw flags on the loop
+        # arithmetic let NVVM's LLVM 7 optimizer remove the selects in loops
+        # where the index cannot be negative (#329).
+        import re
+
+        @cuda.jit
+        def kernel(arr, n, out):
+            i = 0
+            while i < n:
+                out[i] = arr[i + 1]
+                i += 1
+
+        arr = np.arange(8, dtype=np.float32)
+        out = np.zeros(8, dtype=np.float32)
+        kernel[1, 1](arr, 4, out)
+        np.testing.assert_array_equal(out[:4], arr[1:5])
+
+        ptx = list(kernel.overloads.values())[0]._inspect_asm()
+        assert not re.search(r"selp\.b\d+", ptx), (
+            "negative-index wrap selects survived NVVM optimization in loop"
+        )
+
+
+class TestArrayStrides:
+    @staticmethod
+    def _kernel_strides(arr):
+        @cuda.jit
+        def kernel(a, out):
+            s = a.strides
+            for i in range(len(s)):
+                out[i] = s[i]
+
+        out = np.zeros(arr.ndim, dtype=np.int64)
+        kernel[1, 1](arr, out)
+        return tuple(out)
+
+    def test_c_order(self):
+        arr = np.zeros((3, 5), dtype=np.float32)
+        assert self._kernel_strides(arr) == arr.strides
+
+    def test_f_order(self):
+        arr = np.asfortranarray(np.zeros((3, 5), dtype=np.float64))
+        assert self._kernel_strides(arr) == arr.strides
+
+    def test_strided_device_view(self):
+        view = cuda.to_device(np.zeros((6, 8), dtype=np.int16))[::2, 1::3]
+        assert self._kernel_strides(view) == view.strides
+
+    def test_slice_in_kernel(self):
+        @cuda.jit
+        def kernel(a, out):
+            s = a[::2, ::3].strides
+            out[0] = s[0]
+            out[1] = s[1]
+
+        arr = np.zeros((6, 9), dtype=np.float64)
+        out = np.zeros(2, dtype=np.int64)
+        kernel[1, 1](arr, out)
+        assert tuple(out) == arr[::2, ::3].strides
+
+    @pytest.mark.parametrize(
+        "dtype",
+        [
+            np.dtype([("x", np.float32), ("y", np.int64)], align=True),
+            np.dtype([("x", np.float32), ("y", np.int64)]),
+            np.dtype("S5"),
+            np.dtype("U4"),
+        ],
+        ids=["record_aligned", "record_packed", "charseq", "unicode_charseq"],
+    )
+    def test_byte_sized_dtypes(self, dtype):
+        arr = np.zeros(4, dtype=dtype)
+        assert self._kernel_strides(arr) == arr.strides
+
+    def test_record_array_2d(self):
+        arr = np.zeros((3, 4), dtype=np.dtype([("x", np.int32)], align=True))
+        assert self._kernel_strides(arr) == arr.strides
+
+
+class TestArrayAttributes:
+    @staticmethod
+    def _kernel_scalar(arr, attr):
+        src = f"def kernel(a, out):\n    out[0] = a.{attr}\n"
+        ns = {}
+        exec(src, ns)
+        out = np.zeros(1, dtype=np.int64)
+        cuda.jit(ns["kernel"])[1, 1](arr, out)
+        return int(out[0])
+
+    @pytest.mark.parametrize("attr", ["ndim", "itemsize", "nbytes", "size"])
+    @pytest.mark.parametrize(
+        "arr",
+        [
+            np.zeros(5, dtype=np.int8),
+            np.zeros((3, 4), dtype=np.int32),
+            np.asfortranarray(np.zeros((3, 4), dtype=np.float64)),
+            np.zeros((2, 3, 4), dtype=np.float32),
+            np.zeros(4, dtype=np.dtype([("x", np.float32), ("y", np.int64)], align=True)),
+        ],
+        ids=["1d_i1", "2d_c_i4", "2d_f_f8", "3d_f4", "record"],
+    )
+    def test_scalar_attributes(self, arr, attr):
+        assert self._kernel_scalar(arr, attr) == getattr(arr, attr)
+
+    def test_ndim_of_derived_array(self):
+        # ``ndim`` on a kernel parameter is folded before lowering; a derived
+        # array is the case that reaches the lowering.
+        @cuda.jit
+        def kernel(a, out):
+            out[0] = a.T.ndim
+
+        out = np.zeros(1, dtype=np.int64)
+        kernel[1, 1](np.zeros((3, 4), dtype=np.int32), out)
+        assert out[0] == 2
+
+    @pytest.mark.parametrize(
+        "arr",
+        [
+            np.arange(5, dtype=np.int32),
+            np.arange(12, dtype=np.int32).reshape(3, 4),
+            np.asfortranarray(np.arange(12, dtype=np.float64).reshape(3, 4)),
+            np.arange(24, dtype=np.float32).reshape(2, 3, 4),
+        ],
+        ids=["1d", "2d_c", "2d_f", "3d"],
+    )
+    def test_transpose_shape_and_strides(self, arr):
+        @cuda.jit
+        def kernel(a, shape, strides):
+            t = a.T
+            for i in range(len(t.shape)):
+                shape[i] = t.shape[i]
+                strides[i] = t.strides[i]
+
+        shape = np.zeros(arr.ndim, dtype=np.int64)
+        strides = np.zeros(arr.ndim, dtype=np.int64)
+        kernel[1, 1](arr, shape, strides)
+        assert tuple(shape) == arr.T.shape
+        assert tuple(strides) == arr.T.strides
+
+    def test_transpose_reads_transposed_element(self):
+        @cuda.jit
+        def kernel(a, out):
+            out[0] = a.T[2, 1]
+
+        arr = np.arange(12, dtype=np.int32).reshape(3, 4)
+        out = np.zeros(1, dtype=np.int32)
+        kernel[1, 1](arr, out)
+        assert out[0] == arr.T[2, 1]
+
+    def test_transpose_round_trip_and_write_through(self):
+        @cuda.jit
+        def kernel(a, out):
+            out[0] = a.T.T[0, 1]
+            a.T[1, 0] = 99
+
+        arr = np.arange(12, dtype=np.int32).reshape(3, 4)
+        dev = cuda.to_device(arr)
+        out = np.zeros(1, dtype=np.int32)
+        kernel[1, 1](dev, out)
+
+        expected = arr.copy()
+        expected.T[1, 0] = 99
+        assert out[0] == arr[0, 1]
+        np.testing.assert_array_equal(dev.copy_to_host(), expected)
 
 
 if __name__ == "__main__":

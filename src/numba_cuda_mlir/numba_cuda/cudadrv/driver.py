@@ -24,6 +24,7 @@ import logging
 import threading
 import asyncio
 import pathlib
+import shutil
 import subprocess
 import tempfile
 import re
@@ -54,6 +55,7 @@ from numba_cuda_mlir.numba_cuda.utils import cached_file_read
 from numba_cuda_mlir.numba_cuda.cudadrv import nvrtc
 from numba_cuda_mlir.numba_cuda.core.errors import NumbaWarning
 
+from cuda import pathfinder
 from cuda.bindings import driver as binding
 from cuda.core import (
     Linker,
@@ -1054,16 +1056,16 @@ class Context:
         """
         # Free owned resources
         _logger.info("reset context of device %s", self.device.id)
+        # Release the allocator while its module and allocations are still valid.
+        from numba_cuda_mlir.memory_management.rtsys import rtsys as mlir_rtsys
+
+        mlir_rtsys.close(self)
         self.memory_manager.reset()
         self.modules.clear()
         # Clear trash
         self.deallocations.clear()
         # Invalidate context-lifetime caches even if the driver reuses this handle.
         self.extras.pop("numba_cuda_mlir.context_token", None)
-        # Reset the NRT runtime so it does not hold handles from the old context.
-        from numba_cuda_mlir.memory_management.rtsys import rtsys as mlir_rtsys
-
-        mlir_rtsys.close(self)
 
     def get_memory_info(self):
         """Returns (free, total) memory in bytes in the context."""
@@ -1187,6 +1189,9 @@ class Context:
             ptx = ptx.encode("utf8")
         image = ObjectCode.from_ptx(ptx)
         return self.create_module_image(image)
+
+    def create_module_cubin(self, cubin):
+        return self.create_module_image(ObjectCode.from_cubin(cubin))
 
     def create_module_image(self, image, setup_callbacks=None, teardown_callbacks=None):
         module = load_module_image(self, image, setup_callbacks, teardown_callbacks)
@@ -2749,15 +2754,16 @@ def inspect_obj_content(objpath: str):
     """
     code_types: set[str] = set()
 
-    try:
-        out = subprocess.run(["cuobjdump", objpath], check=True, capture_output=True)
-    except FileNotFoundError as e:
-        msg = (
-            "cuobjdump has not been found. You may need "
-            "to install the CUDA toolkit and ensure that "
-            "it is available on your PATH.\n"
+    cuobjdump_path = pathfinder.find_nvidia_binary_utility("cuobjdump") or shutil.which("cuobjdump")
+    if cuobjdump_path is None:
+        raise RuntimeError(
+            "cuobjdump has not been found. It is included with the CUDA "
+            "toolkit: install the toolkit on your system or install a "
+            "Python-packaged toolkit in this environment (for example "
+            "cuda-toolkit with the cuobjdump extra).\n"
         )
-        raise RuntimeError(msg) from e
+
+    out = subprocess.run([cuobjdump_path, objpath], check=True, capture_output=True)
 
     objtable = out.stdout.decode("utf-8")
     entry_pattern = r"Fatbin (.*) code"

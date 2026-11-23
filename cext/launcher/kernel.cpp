@@ -39,6 +39,8 @@ PyObject* g_data_pyunicode;
 PyObject* g_strides_pyunicode;
 PyObject* g___dlpack___pyunicode;
 PyObject* g_int64_pyunicode;
+PyObject* g_resolve_cuda_array_interface_dtype;
+PyObject* g__dispatch_token_pyunicode;
 
 PyTypeObject* g_torch_Tensor_type;
 PyTypeObject* g_torch_cuda_Stream_type;
@@ -327,6 +329,9 @@ struct CudaKernelHandle {
     CudaKernel cukernel;
     PyPtr post_load_callback;
     bool cooperative = false;
+    bool has_runtime_sized_shared_memory = false;
+    // Descriptor units and required pointer alignment, in bytes, per array.
+    std::vector<std::pair<int64_t, int64_t>> array_abi;
 };
 
 // This should compile to a no-op
@@ -395,7 +400,7 @@ CudaArg cuda_arg_f64(double value) {
 
 // Metadata describing where each argument's data is stored in the flat cuargs vector
 struct ArgMetadata {
-    enum class Kind { Scalar, Array, TMADescriptor };
+    enum class Kind { Scalar, Array, DeviceRecord, TMADescriptor };
     Kind kind;
     size_t start_idx;  // Start index in LaunchHelper.cuargs
     size_t ndim;       // For arrays: number of dimensions; for scalars: 0
@@ -711,6 +716,15 @@ struct PythonArgProfile {
     )
 
 
+// First character of the type code in a DLPack/CAI typestr ("|V16" -> 'V').
+char str_first_char(PyObject* typestr) {
+    Py_ssize_t len;
+    const char* str = PyUnicode_AsUTF8AndSize(typestr, &len);
+    if (!str || len < 2) return '\0';
+    return str[1];
+}
+
+
 Result<DLDataType> parse_typestr(PyObject* typestr) {
     if (!PyUnicode_Check(typestr)) {
         PyErr_SetString(PyExc_TypeError, "__cuda_array_interface__['typestr'] is not a string");
@@ -752,20 +766,21 @@ Result<DLDataType> parse_typestr(PyObject* typestr) {
         return ErrorRaised;
     }
 
-    // For void/record ('V'), byte string ('S'), and unicode string ('U') types,
-    // parse arbitrary byte sizes. The array is treated as raw bytes.
+    // Void/record and byte strings encode bytes; Unicode encodes UTF-32 codepoints.
     if (str[1] == 'V' || str[1] == 'S' || str[1] == 'U') {
         char* endptr;
         long size = strtol(str + 2, &endptr, 10);
-        if (endptr == str + 2 || *endptr != '\0' || size <= 0) {
+        if (endptr == str + 2 || *endptr != '\0' || size < 0) {
             PyErr_Format(PyExc_TypeError, "Invalid byte size in typestr: %s", str + 2);
             return ErrorRaised;
         }
-        // Opaque byte types: lanes=0 marks this as an opaque type (stride
-        // computation uses dtype_bytewidth=1, treating the memref as i8).
-        // bits+lanes encode the element byte size for potential future use:
-        //   bits  = size & 0xFF   (low 8 bits)
-        //   lanes = size >> 8     (high bits, up to 65535*256 + 255 = ~16M)
+        constexpr long max_opaque_size = (1L << 24) - 1;
+        if (size > max_opaque_size / (str[1] == 'U' ? 4 : 1))
+            return raise(PyExc_OverflowError, "Opaque dtype size exceeds native size encoding");
+        if (str[1] == 'U')
+            size *= 4;
+        // Opaque sizes use bits for the low 8 bits and lanes for the high 16.
+        // Keep exact logical bytes until the compiled storage ABI is selected.
         ret.bits = static_cast<uint8_t>(size & 0xFF);
         ret.lanes = static_cast<uint16_t>(size >> 8);
         return ret;
@@ -801,16 +816,33 @@ Result<DLDataType> parse_typestr(PyObject* typestr) {
         return ErrorRaised;
     }
 
-    // Bits should be per component for complex types (half the total bits)
-    if (ret.code == kDLComplex) {
-        ret.bits /= 2;
-    }
 
     return ret;
 }
 
 
-Result<std::string> array_dtype_identity_constant(PyObject* pyobj, PyObject* typestr) {
+Result<PyPtr> resolve_cuda_array_dtype(PyObject* pyobj, PyObject* typestr) {
+    if (!g_resolve_cuda_array_interface_dtype) {
+        PyPtr module = steal(PyImport_ImportModule("numba_cuda_mlir.numba_cuda.api_util"));
+        if (!module) return ErrorRaised;
+        PyPtr resolver = steal(PyObject_GetAttrString(module.get(), "resolve_cuda_array_interface_dtype"));
+        if (!resolver) return ErrorRaised;
+        g_resolve_cuda_array_interface_dtype = resolver.release();
+    }
+    PyPtr owner_dtype = steal(PyObject_GetAttrString(pyobj, "dtype"));
+    if (!owner_dtype) {
+        if (!PyErr_ExceptionMatches(PyExc_AttributeError)) return ErrorRaised;
+        PyErr_Clear();
+    }
+    PyPtr dtype = steal(PyObject_CallFunctionObjArgs(
+        g_resolve_cuda_array_interface_dtype, typestr,
+        owner_dtype ? owner_dtype.get() : Py_None, nullptr));
+    if (!dtype) return ErrorRaised;
+    return std::move(dtype);
+}
+
+
+Result<std::string> array_dtype_identity_constant(PyObject* dtype, PyObject* typestr) {
     Py_ssize_t len;
     const char* str = PyUnicode_AsUTF8AndSize(typestr, &len);
     if (!str) return ErrorRaised;
@@ -830,9 +862,8 @@ Result<std::string> array_dtype_identity_constant(PyObject* pyobj, PyObject* typ
         return std::string();
     }
 
-    PyPtr dtype = steal(PyObject_GetAttrString(pyobj, "dtype"));
     if (dtype) {
-        PyPtr repr = steal(PyObject_Repr(dtype.get()));
+        PyPtr repr = steal(PyObject_Repr(dtype));
         if (!repr) return ErrorRaised;
 
         Py_ssize_t repr_len;
@@ -841,7 +872,6 @@ Result<std::string> array_dtype_identity_constant(PyObject* pyobj, PyObject* typ
         return std::string(repr_str, repr_len);
     }
 
-    PyErr_Clear();
     return std::string(str, len);
 }
 
@@ -896,6 +926,16 @@ Status extract_cuda_array(PyObject* pyobj, LaunchHelper& helper) {
     // Parse the dtype
     Result<DLDataType> dtype = parse_typestr(typestr);
     if (!dtype.is_ok()) return ErrorRaised;
+    // Opaque and unit-bearing types need the same normalized dtype used by
+    // Python typing, including its unsupported-owner fallback.
+    PyPtr resolved_dtype;
+    const char type_code = str_first_char(typestr);
+    if (type_code == 'V' || type_code == 'S' || type_code == 'U'
+            || type_code == 'M' || type_code == 'm') {
+        Result<PyPtr> resolved = resolve_cuda_array_dtype(pyobj, typestr);
+        if (!resolved.is_ok()) return ErrorRaised;
+        resolved_dtype = std::move(*resolved);
+    }
 
     // Parse the data pointer
     if (!PyTuple_Check(data) || PyTuple_GET_SIZE(data) != 2) {
@@ -934,24 +974,42 @@ Status extract_cuda_array(PyObject* pyobj, LaunchHelper& helper) {
     PyObject* strides = PyDict_GetItem(dict.get(), g_strides_pyunicode);
     if (PyErr_Occurred()) return ErrorRaised;
 
+    const int64_t itemsize = dtype->code == kDLOpaqueHandle
+        ? (static_cast<int64_t>(dtype->lanes) << 8) | dtype->bits
+        : std::max<int64_t>(1, (static_cast<int64_t>(dtype->bits) * dtype->lanes + 7) / BYTE_BITWIDTH);
     std::vector<int64_t> strides_vec;
     strides_vec.reserve(ndim);
     if (!strides || strides == Py_None) {
-        if(!compute_compact_row_major_strides(shapes, strides_vec))
-            return ErrorRaised;
-    } else if (PyTuple_Check(strides)) {
-        // Opaque types (V/S/U) use memref<?xi8> so strides stay in bytes
-        bool is_opaque_type = (dtype->code == kDLOpaqueHandle);
-        uint8_t dtype_bytewidth = is_opaque_type ? 1 : (dtype->bits / BYTE_BITWIDTH);
+        if (!compute_compact_row_major_strides(shapes, strides_vec)) return ErrorRaised;
+        for (auto& stride : strides_vec) stride *= itemsize;
+    } else if (PyTuple_Check(strides) && PyTuple_GET_SIZE(strides) == ndim) {
         for (Py_ssize_t i = 0; i < ndim; ++i) {
-            int64_t stride_bytes = pylong_as<int64_t>(PyTuple_GET_ITEM(strides, i));
+            int64_t stride = pylong_as<int64_t>(PyTuple_GET_ITEM(strides, i));
             if (PyErr_Occurred()) return ErrorRaised;
-            strides_vec.push_back(stride_bytes / dtype_bytewidth);
+            strides_vec.push_back(stride);
         }
     } else {
-        return raise(PyExc_TypeError, "__cuda_array_interface['strides'] can only be"
-                                      " absent, None, or a tuple");
+        return raise(PyExc_TypeError, "Array strides must be absent, None, or a tuple matching rank");
     }
+    int64_t alignment = dtype->code == kDLComplex ? itemsize / 2 : itemsize;
+    bool aligned = itemsize != 0;
+    if (dtype->code == kDLOpaqueHandle) {
+        alignment = str_first_char(typestr) == 'U' ? 4 : 1;
+        if (str_first_char(typestr) == 'V') {
+            PyPtr py_alignment = steal(PyObject_GetAttrString(resolved_dtype.get(), "alignment"));
+            PyPtr py_fields = steal(PyObject_GetAttrString(resolved_dtype.get(), "fields"));
+            PyPtr py_aligned = steal(PyObject_GetAttrString(resolved_dtype.get(), "isalignedstruct"));
+            if (!py_alignment || !py_fields || !py_aligned) return ErrorRaised;
+            alignment = pylong_as<int64_t>(py_alignment.get());
+            if (PyErr_Occurred()) return ErrorRaised;
+            int has_fields = PyObject_IsTrue(py_fields.get());
+            int aligned_struct = PyObject_IsTrue(py_aligned.get());
+            if (has_fields < 0 || aligned_struct < 0) return ErrorRaised;
+            aligned = aligned && (!has_fields || aligned_struct);
+        }
+    }
+    aligned = aligned && data_ptr_int % std::max<int64_t>(alignment, 1) == 0;
+    for (int64_t stride : strides_vec) aligned = aligned && stride % itemsize == 0;
 
     // Store in flat cuargs vector: ptr, ptr, offset, shapes..., strides...
     size_t start_idx = helper.cuargs.size();
@@ -967,7 +1025,8 @@ Status extract_cuda_array(PyObject* pyobj, LaunchHelper& helper) {
 
     helper.arg_metadata.push_back({ArgMetadata::Kind::Array, start_idx, static_cast<size_t>(ndim)});
     helper.constants.push_back(ConstantArg(pack_dtype_and_ndim(*dtype, ndim)));
-    Result<std::string> dtype_identity = array_dtype_identity_constant(pyobj, typestr);
+    helper.constants.push_back(ConstantArg(aligned));
+    Result<std::string> dtype_identity = array_dtype_identity_constant(resolved_dtype.get(), typestr);
     if (!dtype_identity.is_ok()) return ErrorRaised;
     if (!dtype_identity->empty())
         helper.constants.push_back(ConstantArg(std::move(*dtype_identity)));
@@ -981,8 +1040,6 @@ Status extract_dlpack_common(PyObject* dlpack_capsule, LaunchHelper& helper) {
 
     if (tensor->dl_tensor.device.device_type != kDLCUDA)
         return raise(PyExc_ValueError, "Input array is not on a CUDA device");
-
-    // TODO: check device ID
 
     void* data_ptr = static_cast<char*>(tensor->dl_tensor.data) + tensor->dl_tensor.byte_offset;
 
@@ -1006,6 +1063,14 @@ Status extract_dlpack_common(PyObject* dlpack_capsule, LaunchHelper& helper) {
         }
     }
 
+    // DLPack bits describes the complete scalar, including both complex components.
+    int64_t itemsize = std::max<int64_t>(1,
+        (static_cast<int64_t>(tensor->dl_tensor.dtype.bits) * tensor->dl_tensor.dtype.lanes + 7)
+        / BYTE_BITWIDTH);
+    int64_t alignment = tensor->dl_tensor.dtype.code == kDLComplex ? itemsize / 2 : itemsize;
+    bool aligned = reinterpret_cast<uintptr_t>(data_ptr) % std::max<int64_t>(alignment, 1) == 0;
+    for (auto& stride : strides_vec) stride *= itemsize;
+
     // Store in flat cuargs vector: ptr, ptr, offset, shapes..., strides...
     size_t start_idx = helper.cuargs.size();
     helper.cuargs.push_back(cuda_arg_device_ptr(data_ptr));  // allocated ptr
@@ -1020,6 +1085,7 @@ Status extract_dlpack_common(PyObject* dlpack_capsule, LaunchHelper& helper) {
 
     helper.arg_metadata.push_back({ArgMetadata::Kind::Array, start_idx, static_cast<size_t>(ndim)});
     helper.constants.push_back(ConstantArg(pack_dtype_and_ndim(tensor->dl_tensor.dtype, ndim)));
+    helper.constants.push_back(ConstantArg(aligned));
 
     PyCapsule_SetName(dlpack_capsule, "used_dltensor");
 
@@ -1434,7 +1500,7 @@ Status extract_device_record(PyObject* pyobj, LaunchHelper& helper) {
 
     size_t start_idx = helper.cuargs.size();
     helper.cuargs.push_back(cuda_arg_device_ptr(device_ptr));
-    helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 0});
+    helper.arg_metadata.push_back({ArgMetadata::Kind::DeviceRecord, start_idx, 0});
     return OK;
 }
 
@@ -1599,8 +1665,8 @@ Result<CudaKernelHandle> compile(PyObject* compile_func,
                      Py_TYPE(compile_result.get())->tp_name);
 
     Py_ssize_t tuple_size = PyTuple_GET_SIZE(compile_result.get());
-    if (tuple_size < 3 || tuple_size > 4)
-        return raise(PyExc_TypeError, "Expected compile() to return a 3- or 4-tuple, got length %zd",
+    if (tuple_size < 3 || tuple_size > 6)
+        return raise(PyExc_TypeError, "Expected compile() to return a 3-, 4-, 5-, or 6-tuple, got length %zd",
                      tuple_size);
 
     PyObject* py_cubin = PyTuple_GET_ITEM(compile_result.get(), 0);
@@ -1626,11 +1692,24 @@ Result<CudaKernelHandle> compile(PyObject* compile_func,
     if (!cukernel.is_ok()) return ErrorRaised;
 
     CudaKernelHandle handle{std::move(*cukernel), {}, cooperative};
-    if (tuple_size == 4) {
+    if (tuple_size >= 4) {
         PyObject* post_load_cb = PyTuple_GET_ITEM(compile_result.get(), 3);
         if (post_load_cb != Py_None && PyCallable_Check(post_load_cb))
             handle.post_load_callback = newref(post_load_cb);
     }
+    if (tuple_size >= 5) {
+        PyObject* abi = PyTuple_GET_ITEM(compile_result.get(), 4);
+        if (!PyTuple_Check(abi)) return raise(PyExc_TypeError, "Expected array ABI tuple");
+        for (Py_ssize_t i = 0; i < PyTuple_GET_SIZE(abi); ++i) {
+            long long unit, alignment;
+            if (!PyArg_ParseTuple(PyTuple_GET_ITEM(abi, i), "LL", &unit, &alignment))
+                return ErrorRaised;
+            if (unit <= 0 || alignment <= 0) return raise(PyExc_ValueError, "Invalid array ABI units");
+            handle.array_abi.emplace_back(unit, alignment);
+        }
+    }
+    if (tuple_size == 6)
+        handle.has_runtime_sized_shared_memory = PyTuple_GET_ITEM(compile_result.get(), 5) == Py_True;
     return handle;
 }
 
@@ -1799,6 +1878,24 @@ Status maybe_switch_context(CUcontext target, ContextGuard& guard) {
     return OK;
 }
 
+// Resolve the address usable by kernels in the current context. Mapped host,
+// managed and peer memory may be accessible even when allocated elsewhere.
+Status resolve_device_pointer(void*& ptr, size_t arg_index) {
+    if (!ptr) return OK;  // Empty arrays can have a null data pointer.
+
+    CUdeviceptr accessible;
+    CUresult res = g_cuPointerGetAttribute(&accessible, CU_POINTER_ATTRIBUTE_DEVICE_POINTER,
+                                           reinterpret_cast<CUdeviceptr>(ptr));
+    if (res == CUDA_ERROR_INVALID_VALUE)
+        return raise(PyExc_ValueError, "Kernel argument %zu is not accessible from the selected "
+                     "CUDA context. Select the allocating device or pass accessible memory.", arg_index);
+    if (res != CUDA_SUCCESS)
+        return raise(PyExc_RuntimeError, "Failed to query CUDA pointer for kernel argument %zu: %s",
+                     arg_index, get_cuda_error(res));
+    ptr = reinterpret_cast<void*>(accessible);
+    return OK;
+}
+
 struct Grid {
     enum { Len = 3 };
     unsigned dims[Len];
@@ -1864,7 +1961,7 @@ bool try_clarify_launch_out_of_resources_error(CUkernel kernel, const Grid& bloc
 }
 
 Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional<Grid> cluster,
-              std::optional<CUstream> stream, int sharedmem,
+              std::optional<CUstream> stream, int sharedmem, uint64_t dispatch_token,
               PyObject* const* pyargs, Py_ssize_t num_pyargs) {
     LaunchHelperPtr helper = launch_helper_get();
     get_pyarg_types(pyargs, num_pyargs, helper->pyarg_types);
@@ -1917,10 +2014,8 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
     // Try fast scalar extraction path
     profile->maybe_init_fast_path();
 
-    KernelFamily::KernelMap::iterator kernel_iter;
-    ContextGuard ctx_guard;
-
-    if (!profile->fast_extractors.empty()) {
+    const bool fast_scalars = !profile->fast_extractors.empty();
+    if (fast_scalars) {
         // Fast path: all args are simple scalars with no constants.
         // Single loop: extract values + build pointers simultaneously.
         // Clean up any leftover state from previous (non-scalar) launches
@@ -1946,69 +2041,39 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
             helper->cuarg_pointers[i] = &base[i];
         }
         helper->constants.clear();
+    } else if (!extract_cuda_args(pyargs, num_pyargs, profile->arg_kinds,
+                                  profile->constant_arg_flags, *helper)) {
+        return ErrorRaised;
+    }
 
-        KernelFamily::KernelMap& kernel_map = profile->family->kernels_by_constants;
-        kernel_iter = kernel_map.find(helper->constants);
-        if (kernel_iter == kernel_map.end()) {
-            if (!ensure_numba_context(dispatcher.ensure_context_func.get()))
-                return ErrorRaised;
-            // Slowest path: need to compile a new kernel
-            Result<CudaKernelHandle> kernel = compile(dispatcher.compile_func.get(), pyargs, num_pyargs);
-            if (!kernel.is_ok()) return ErrorRaised;
-            // Defer the post-load callback until after emplace so that racing
-            // threads that compile the same kernel don't fire duplicate callbacks.
-            PyPtr post_load_cb = std::move(kernel->post_load_callback);
-            auto [it, inserted] = kernel_map.emplace(helper->constants, std::move(*kernel));
-            kernel_iter = it;
-            if (inserted && post_load_cb) {
-                PyPtr py_handle = steal(PyLong_FromVoidPtr(
-                        static_cast<void*>(kernel_iter->second.cukernel.lib.get())));
-                if (!py_handle) return ErrorRaised;
-                PyPtr cb_result = steal(
-                        PyObject_CallOneArg(post_load_cb.get(), py_handle.get()));
-                if (!cb_result) return ErrorRaised;
-            }
-        }
-
-        if (!maybe_switch_context(kernel_iter->second.cukernel.lib.context(), ctx_guard))
+    // Packing can erase frontend types; include their exact identity.
+    helper->constants.emplace_back(dispatch_token);
+    KernelFamily::KernelMap& kernel_map = profile->family->kernels_by_constants;
+    auto kernel_iter = kernel_map.find(helper->constants);
+    if (kernel_iter == kernel_map.end()) {
+        if (!ensure_numba_context(dispatcher.ensure_context_func.get()))
             return ErrorRaised;
-    } else {
-        // Standard path: full extraction with per-type switch
-        if (!extract_cuda_args(pyargs, num_pyargs, profile->arg_kinds,
-                               profile->constant_arg_flags, *helper)) {
-            return ErrorRaised;
+        Result<CudaKernelHandle> kernel = compile(dispatcher.compile_func.get(), pyargs, num_pyargs);
+        if (!kernel.is_ok()) return ErrorRaised;
+
+        // Racing compilations must only run the callback for the inserted kernel.
+        PyPtr post_load_cb = std::move(kernel->post_load_callback);
+        auto [it, inserted] = kernel_map.emplace(helper->constants, std::move(*kernel));
+        kernel_iter = it;
+        if (inserted && post_load_cb) {
+            PyPtr py_handle = steal(PyLong_FromVoidPtr(
+                    static_cast<void*>(kernel_iter->second.cukernel.lib.get())));
+            if (!py_handle) return ErrorRaised;
+            PyPtr cb_result = steal(PyObject_CallOneArg(post_load_cb.get(), py_handle.get()));
+            if (!cb_result) return ErrorRaised;
         }
+    }
 
-        // Python selected a context-specific dispatcher before extraction.
-        // An argument's allocation context need not match: managed memory,
-        // mapped host memory, and peer access can make it accessible here.
-        KernelFamily::KernelMap& kernel_map = profile->family->kernels_by_constants;
-        kernel_iter = kernel_map.find(helper->constants);
-        if (kernel_iter == kernel_map.end()) {
-            if (!ensure_numba_context(dispatcher.ensure_context_func.get()))
-                return ErrorRaised;
-            // Slowest path: need to compile a new kernel
-            Result<CudaKernelHandle> kernel = compile(dispatcher.compile_func.get(), pyargs, num_pyargs);
-            if (!kernel.is_ok()) return ErrorRaised;
+    ContextGuard ctx_guard;
+    if (!maybe_switch_context(kernel_iter->second.cukernel.lib.context(), ctx_guard))
+        return ErrorRaised;
 
-            // Defer the post-load callback until after emplace so that racing
-            // threads that compile the same kernel don't fire duplicate callbacks.
-            PyPtr post_load_cb = std::move(kernel->post_load_callback);
-            auto [it, inserted] = kernel_map.emplace(helper->constants, std::move(*kernel));
-            kernel_iter = it;
-            if (inserted && post_load_cb) {
-                PyPtr py_handle = steal(PyLong_FromVoidPtr(
-                        static_cast<void*>(kernel_iter->second.cukernel.lib.get())));
-                if (!py_handle) return ErrorRaised;
-                PyPtr cb_result = steal(
-                        PyObject_CallOneArg(post_load_cb.get(), py_handle.get()));
-                if (!cb_result) return ErrorRaised;
-            }
-        }
-
-        if (!maybe_switch_context(kernel_iter->second.cukernel.lib.context(), ctx_guard))
-            return ErrorRaised;
-
+    if (!fast_scalars) {
         helper->cuarg_pointers.clear();
 
         // Build kernel arguments in MLIR memref calling convention order.
@@ -2017,8 +2082,28 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
         // For TMA descriptors: the descriptor pointer
         // All values are already stored in the flat cuargs vector, we just build pointers to them.
 
-        for (const ArgMetadata& meta : helper->arg_metadata) {
+        size_t array_index = 0;
+        for (size_t i = 0; i < helper->arg_metadata.size(); ++i) {
+            const ArgMetadata& meta = helper->arg_metadata[i];
+            if (meta.is_array() || meta.kind == ArgMetadata::Kind::DeviceRecord) {
+                auto& ptr = helper->cuargs[meta.start_idx].device_ptr;
+                if (!resolve_device_pointer(ptr, i)) return ErrorRaised;
+                if (meta.is_array())
+                    helper->cuargs[meta.start_idx + 1].device_ptr = ptr;
+            }
             if (meta.is_array()) {
+                const auto& abi = kernel_iter->second.array_abi;
+                if (array_index >= abi.size())
+                    return raise(PyExc_TypeError, "Missing compiled array storage ABI");
+                auto [unit, alignment] = abi[array_index++];
+                if (reinterpret_cast<uintptr_t>(helper->cuargs[meta.start_idx].device_ptr) % alignment)
+                    return raise(PyExc_ValueError, "Array pointer does not satisfy signature alignment");
+                for (size_t d = 0; d < meta.ndim; ++d) {
+                    auto& stride = helper->cuargs[meta.start_idx + 3 + meta.ndim + d].i64;
+                    if (stride % unit)
+                        return raise(PyExc_ValueError, "Array byte stride is not divisible by signature storage unit");
+                    stride /= unit;
+                }
                 // Array: cuargs contains [ptr, ptr, offset, shapes..., strides...]
                 // All already in correct order, just create pointers
                 size_t num_values = 3 + 2 * meta.ndim;  // ptr, ptr, offset, ndim shapes, ndim strides
@@ -2037,6 +2122,12 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
                 helper->cuarg_pointers.push_back(&helper->cuargs[meta.start_idx]);
             }
         }
+    }
+
+    if (sharedmem == 0 && kernel_iter->second.has_runtime_sized_shared_memory) {
+        return raise(PyExc_ValueError,
+                     "Runtime-sized shared arrays require a nonzero sharedmem launch argument; "
+                     "use kernel[grid, block, stream, sharedmem](...).");
     }
 
     // Configure dynamic shared memory if needed.
@@ -2338,26 +2429,42 @@ struct LaunchConfiguration {
 
 PyObject* LaunchConfiguration_vectorcall(PyObject* self, PyObject *const *args,
                                              size_t nargsf, PyObject* kwnames) {
-    if (kwnames) {
-        PyErr_SetString(PyExc_TypeError, "Keyword arguments are not supported");
-        return nullptr;
+    Py_ssize_t num_args = PyVectorcall_NARGS(nargsf);
+    uint64_t dispatch_token = 0;
+    if (kwnames && PyTuple_GET_SIZE(kwnames)) {
+        if (PyTuple_GET_SIZE(kwnames) != 1 ||
+                PyObject_RichCompareBool(PyTuple_GET_ITEM(kwnames, 0),
+                                        g__dispatch_token_pyunicode, Py_EQ) != 1) {
+            if (!PyErr_Occurred())
+                PyErr_SetString(PyExc_TypeError, "Only _dispatch_token keyword is supported");
+            return nullptr;
+        }
+        dispatch_token = PyLong_AsUnsignedLongLong(args[num_args]);
+        if (PyErr_Occurred()) return nullptr;
     }
 
     LaunchConfiguration& config = py_unwrap<LaunchConfiguration>(self);
 
-    Py_ssize_t num_args = PyVectorcall_NARGS(nargsf);
 
     KernelDispatcher& dispatcher = py_unwrap<KernelDispatcher>(config.dispatcher.get());
-    if (!launch(dispatcher, config.grid, config.block, config.cluster, config.stream, config.sharedmem, args, num_args))
+    if (!launch(dispatcher, config.grid, config.block, config.cluster, config.stream,
+                config.sharedmem, dispatch_token, args, num_args))
         return nullptr;
 
     return Py_NewRef(Py_None);
 }
 
 PyObject* LaunchConfiguration_call(PyObject* self, PyObject* args, PyObject* kwargs) {
-    if (kwargs) {
-        PyErr_SetString(PyExc_TypeError, "Keyword arguments are not supported");
-        return nullptr;
+    uint64_t dispatch_token = 0;
+    if (kwargs && PyDict_Size(kwargs)) {
+        PyObject* value = PyDict_GetItemWithError(kwargs, g__dispatch_token_pyunicode);
+        if (!value || PyDict_Size(kwargs) != 1) {
+            if (!PyErr_Occurred())
+                PyErr_SetString(PyExc_TypeError, "Only _dispatch_token keyword is supported");
+            return nullptr;
+        }
+        dispatch_token = PyLong_AsUnsignedLongLong(value);
+        if (PyErr_Occurred()) return nullptr;
     }
 
     LaunchConfiguration& config = py_unwrap<LaunchConfiguration>(self);
@@ -2367,7 +2474,8 @@ PyObject* LaunchConfiguration_call(PyObject* self, PyObject* args, PyObject* kwa
     PyObject** pyargs = &_PyTuple_CAST(args)->ob_item[0];
     Py_ssize_t num_pyargs = PyTuple_GET_SIZE(args);
 
-    if (!launch(dispatcher, config.grid, config.block, config.cluster, config.stream, config.sharedmem, pyargs, num_pyargs))
+    if (!launch(dispatcher, config.grid, config.block, config.cluster, config.stream,
+                config.sharedmem, dispatch_token, pyargs, num_pyargs))
         return nullptr;
 
     return Py_NewRef(Py_None);
@@ -2579,6 +2687,7 @@ Status kernel_init(PyObject* m) {
     INIT_STRING_CONSTANT(strides);
     INIT_STRING_CONSTANT(__dlpack__);
     INIT_STRING_CONSTANT(int64);
+    INIT_STRING_CONSTANT(_dispatch_token);
 
     try_get_torch_globals();
     try_get_cupy_globals();

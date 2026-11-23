@@ -109,7 +109,9 @@ class _Runtime:
                 if not active:
                     return
                 context = get_context()
-        context.extras.pop("numba_cuda_mlir.nrt", None)
+        state = context.extras.pop("numba_cuda_mlir.nrt", None)
+        if state is not None and state.memsys_library is not None:
+            state.memsys_library.unload()
 
     @staticmethod
     def _memsys_cache_dir():
@@ -149,10 +151,7 @@ class _Runtime:
             cache_dir.mkdir(parents=True, exist_ok=True)
             cache_file.write_bytes(cubin_bytes)
 
-        err, library = drv.cuLibraryLoadData(cubin_bytes, [], [], 0, [], [], 0)
-        if err != drv.CUresult.CUDA_SUCCESS:
-            raise RuntimeError(f"cuLibraryLoadData failed: {err}")
-        self._memsys_library = library
+        self._memsys_library = cuda.current_context().create_module_cubin(cubin_bytes)
 
     def _launch_kernel(self, name, params_ctypes=()):
         """Launch a kernel from the memsys CUlibrary with grid=1, block=1.
@@ -160,7 +159,7 @@ class _Runtime:
         *params_ctypes* is a sequence of ctypes values to pass as kernel
         arguments.  Pass an empty tuple for kernels that take no args.
         """
-        lib = self._memsys_library
+        lib = self._memsys_library.handle
         err, kernel = drv.cuLibraryGetKernel(lib, name.encode())
         if err != drv.CUresult.CUDA_SUCCESS:
             raise RuntimeError(f"cuLibraryGetKernel({name}) failed: {err}")
@@ -186,7 +185,7 @@ class _Runtime:
 
     def _get_library_global(self, name, nbytes):
         """Read *nbytes* from a device global in the memsys CUlibrary."""
-        err, dptr, size = drv.cuLibraryGetGlobal(self._memsys_library, name.encode())
+        err, dptr, size = drv.cuLibraryGetGlobal(self._memsys_library.handle, name.encode())
         if err != drv.CUresult.CUDA_SUCCESS:
             raise RuntimeError(f"cuLibraryGetGlobal({name}) failed: {err}")
         buf = (ctypes.c_char * nbytes)()

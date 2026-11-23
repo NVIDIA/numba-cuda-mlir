@@ -112,14 +112,14 @@ def warm_compile_setup(backend=BACKEND_BOTH):
         _numba_cuda_warmup_kernel.compile(sig)
 
     if should_run_backend(backend, BACKEND_NUMBA_CUDA_MLIR):
-        from numba_cuda_mlir import cuda as cusimt_cuda
+        from numba_cuda_mlir import cuda as numba_cuda_mlir_cuda
 
-        @cusimt_cuda.jit
-        def _cusimt_warmup_kernel(x):
-            if cusimt_cuda.threadIdx.x == 0:
+        @numba_cuda_mlir_cuda.jit
+        def _numba_cuda_mlir_warmup_kernel(x):
+            if numba_cuda_mlir_cuda.threadIdx.x == 0:
                 x[0] = x[0]
 
-        _cusimt_warmup_kernel.compile(sig)
+        _numba_cuda_mlir_warmup_kernel.compile(sig)
 
 
 def print_compile_times(backend_times):

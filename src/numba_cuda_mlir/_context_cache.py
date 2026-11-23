@@ -6,7 +6,7 @@
 import threading
 import weakref
 
-from numba_cuda_mlir._cext import _get_current_context
+from cuda.bindings import driver
 
 
 _current_context = threading.local()
@@ -15,6 +15,15 @@ _EXTRAS_KEY = "numba_cuda_mlir.context_token"
 
 class _ContextToken:
     pass
+
+
+def _get_current_context():
+    status, handle = driver.cuCtxGetCurrent()
+    if status == driver.CUresult.CUDA_SUCCESS:
+        return int(handle)
+    if status == driver.CUresult.CUDA_ERROR_NOT_INITIALIZED:
+        return None
+    raise RuntimeError(f"cuCtxGetCurrent failed: {status.name}")
 
 
 def current_context_token():

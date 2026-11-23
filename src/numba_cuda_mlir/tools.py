@@ -17,14 +17,15 @@ def parse_compute_capability(compute_cap: str) -> tuple[int, int]:
         raise ValueError(f"Invalid compute capability: {compute_cap}")
 
 
-def format_arch(cc: tuple[int, int]) -> str:
+def format_arch(cc: tuple[int, int] | tuple[int, int, str]) -> str:
     """
     Format a compute capability tuple as an sm_XX[a] string.
 
     Args:
         cc: Compute capability as (major, minor) tuple
     """
-    return f"sm_{cc[0]}{cc[1]}"
+    suffix = cc[2] if len(cc) == 3 else ""
+    return f"sm_{cc[0]}{cc[1]}{suffix}"
 
 
 _compilation_target = threading.local()
@@ -51,6 +52,8 @@ def resolve_gpu_target(targetoptions: dict | None = None) -> dict[str, object]:
     host_cc = getattr(_compilation_target, "host_cc", None)
     if host_cc is None:
         host_cc = get_gpu_compute_capability(tuple)
+    host_specific_cc = (*host_cc, "a") if host_cc >= (9, 0) else host_cc
+    host_arch = format_arch(host_specific_cc)
     chip = targetoptions.get("chip")
     if chip:
         arch = chip
@@ -59,12 +62,11 @@ def resolve_gpu_target(targetoptions: dict | None = None) -> dict[str, object]:
         arch_specific_cc = (*cc, arch_suffix) if arch_suffix in ("a", "f") else cc
     else:
         cc = host_cc
-        arch = format_arch(cc)
-        arch_specific_cc = cc
+        arch = host_arch
+        arch_specific_cc = host_specific_cc
 
-    host_arch = format_arch(host_cc)
-    if cc < host_cc:
-        linker_cc = host_cc
+    if cc < host_cc and targetoptions.get("_compile_output") is None:
+        linker_cc = host_specific_cc
         linker_arch = host_arch
     else:
         linker_cc = arch_specific_cc
@@ -169,11 +171,10 @@ def get_gpu_compute_capability(as_type: type = str) -> str | tuple[int, int]:
 
     from numba_cuda_mlir.numba_cuda.cudadrv.devices import get_context
 
-    ctx = get_context()
-    cc = ctx.device.compute_capability
+    cc = get_context().device.compute_capability
     if as_type is tuple:
         return cc
-    return format_arch(cc)
+    return format_arch((*cc, "a") if cc >= (9, 0) else cc)
 
 
 def _check_cuda_result(result):
@@ -313,16 +314,9 @@ def argtype_normalization(argtype):
     """
     Normalize the Numba data type
     """
-    if isinstance(argtype, types.BooleanLiteral):
-        return types.boolean
-    elif isinstance(argtype, types.IntegerLiteral):
-        return types.int64
-    elif isinstance(argtype, types.UniTuple):
-        if isinstance(argtype.dtype, types.IntegerLiteral):
-            return types.UniTuple(dtype=argtype_normalization(argtype.dtype), count=argtype.count)
-        else:
-            return argtype
-    elif isinstance(argtype, types.NumberClass):
+    # Literal values distinguish specializations, including device functions
+    # linked into the same module. Preserve them in the mangled name.
+    if isinstance(argtype, types.NumberClass):
         return argtype.dtype
     else:
         return argtype

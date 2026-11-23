@@ -1411,6 +1411,7 @@ def test_launch_config_compatible_lookup_reuses_without_alias_growth():
     launch_key = descriptor_mod._launch_config_key(launch_config)
     compile_result = _CompileResult((types.int32,))
     dispatcher._launch_config_overloads[((types.int32,), launch_key)] = compile_result
+    dispatcher.disable_compile()
 
     with dispatcher._launch_config_lock:
         found = dispatcher._find_launch_config_overload_locked(
@@ -1560,7 +1561,7 @@ def test_launch_config_dispatcher_cache_retains_boundary_before_eviction():
 
 def test_retained_marshaller_reregisters_after_cache_eviction(monkeypatch):
     def launch_configuration(kernel_dispatcher, griddim, blockdim, stream, sharedmem, cluster):
-        return lambda *args: None
+        return lambda *args, **kwargs: None
 
     monkeypatch.setattr(descriptor_mod, "LaunchConfiguration", launch_configuration)
 
@@ -1596,7 +1597,7 @@ def test_retained_marshaller_reregisters_after_cache_eviction(monkeypatch):
 
 def test_retained_marshaller_does_not_reregister_after_recompile(monkeypatch):
     def launch_configuration(kernel_dispatcher, griddim, blockdim, stream, sharedmem, cluster):
-        return lambda *args: None
+        return lambda *args, **kwargs: None
 
     monkeypatch.setattr(descriptor_mod, "LaunchConfiguration", launch_configuration)
 

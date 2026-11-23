@@ -359,6 +359,8 @@ class TestCudaArrayInterface(NumbaCUDATestCase):
         ) as mock_sync:
             f[1, 1](f_arr)
 
+        cuda.synchronize()
+
         # Ensure the synchronize method of a stream was not called
         mock_sync.assert_not_called()
 
@@ -375,6 +377,8 @@ class TestCudaArrayInterface(NumbaCUDATestCase):
             cuda.cudadrv.driver.Stream, "synchronize", return_value=None
         ) as mock_sync:
             f[1, 1](f_arr)
+
+        cuda.synchronize()
 
         # Ensure the synchronize method of a stream was called
         mock_sync.assert_called_once_with()
@@ -394,6 +398,8 @@ class TestCudaArrayInterface(NumbaCUDATestCase):
             cuda.cudadrv.driver.Stream, "synchronize", return_value=None
         ) as mock_sync:
             f[1, 1](f_arr1, f_arr2)
+
+        cuda.synchronize()
 
         # Ensure that synchronize was called twice
         mock_sync.assert_has_calls([call(), call()])

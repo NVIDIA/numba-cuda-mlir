@@ -62,12 +62,18 @@ class MLIRCacheImpl(CacheImpl):
             "mlir_module_optimized": cres.metadata.get("mlir_module_optimized"),
             "needs_nrt": cres.metadata.get("needs_nrt"),
             "nrt_inline": cres.metadata.get("nrt_inline"),
+            "uses_checked_runtime_shared_memory": cres.metadata.get(
+                "has_runtime_sized_shared_memory", False
+            ),
             "targetoptions": cres.metadata.get("targetoptions", {}),
             "gpu_target": cres.metadata.get("gpu_target"),
         }
 
     def rebuild(self, target_context, payload):
         """Deserialize a compile result from cache."""
+        if "uses_checked_runtime_shared_memory" not in payload:
+            # Older binaries lack the device-side allocation budget check.
+            return None
         signature_args = payload["signature_args"]
         signature_return_type = payload["signature_return_type"]
         cubin = payload["cubin"]
@@ -92,6 +98,7 @@ class MLIRCacheImpl(CacheImpl):
                 "mlir_module_optimized": mlir_module_optimized,
                 "needs_nrt": needs_nrt,
                 "nrt_inline": nrt_inline,
+                "has_runtime_sized_shared_memory": payload["uses_checked_runtime_shared_memory"],
                 "targetoptions": targetoptions,
                 "gpu_target": gpu_target,
             },

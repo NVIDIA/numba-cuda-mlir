@@ -136,7 +136,8 @@ class CodeLibrary:
         return self._get_module_and_cufunc()[0]
 
     def _get_module_and_cufunc(self):
-        from cuda.bindings import driver
+        from numba_cuda_mlir.numba_cuda.cudadrv import devices
+        from numba_cuda_mlir.numba_cuda.cudadrv.driver import driver
 
         token = current_context_token()
         with self._cufunc_lock:
@@ -144,16 +145,14 @@ class CodeLibrary:
             if cached is not None:
                 return cached
 
-            result = driver.cuModuleLoadData(self._cubin)
-            if result[0].value != 0:
-                raise RuntimeError(f"cuModuleLoadData failed with error {result[0]}")
-            module = result[1]
-            result = driver.cuModuleGetFunction(module, self._func_name.encode())
-            if result[0].value != 0:
-                raise RuntimeError(
-                    f"cuModuleGetFunction failed for '{self._func_name}' with error {result[0]}"
-                )
-            cufunc = CUFunc(result[1])
+            owned_module = devices.get_context().create_module_cubin(self._cubin)
+            try:
+                # Downstream global lookup and CUFunc both use context-specific handles.
+                module = driver.cuLibraryGetModule(owned_module.handle)
+                cufunc = CUFunc(driver.cuModuleGetFunction(module, self._func_name.encode()))
+            except Exception:
+                owned_module.unload()
+                raise
             cached = (module, cufunc)
             self._cufunc_cache[token] = cached
             return cached
@@ -494,7 +493,7 @@ def declare_mlir_library(
     from numba_cuda_mlir.lowering_utilities.discover_functions import discover_functions
 
     if isinstance(source, Path):
-        with open(source, "r") as f:
+        with open(source, "r", encoding="utf-8") as f:
             source = f.read()
 
     functions = discover_functions(source)

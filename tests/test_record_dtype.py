@@ -932,7 +932,8 @@ class TestPackedFieldStorage:
 
         out = cuda.to_device(np.full(5 + (count + 1) // 2, -1.0))
         metadata = cuda.to_device(np.zeros(6, np.int64))
-        kernel[1, 1, 0, (reserve + count) * itemsize](out, metadata, reserve * itemsize)
+        prefix_bytes = reserve * itemsize
+        kernel[1, 1, 0, prefix_bytes + count * itemsize](out, metadata, prefix_bytes)
         values = np.arange(count) + (0.5 if packed else 10)
         np.testing.assert_array_equal(
             out.copy_to_host(), np.r_[values[-5:100:2], values[::-2], 71, 73]
@@ -973,7 +974,8 @@ class TestPackedFieldStorage:
 
         out = cuda.device_array(3, np.uint32)
         metadata = cuda.to_device(np.zeros(4, np.int64))
-        kernel[1, 1, 0, (reserve + 3) * itemsize](out, metadata, reserve * itemsize)
+        prefix_bytes = reserve * itemsize
+        kernel[1, 1, 0, prefix_bytes + 3 * itemsize](out, metadata, prefix_bytes)
         np.testing.assert_array_equal(out.copy_to_host(), [0x01020304, 0x0102037B, 0x01020304])
         np.testing.assert_array_equal(
             metadata.copy_to_host(), [3, 3 * itemsize, 11 if packed else 0, 99 if reserve else 0]

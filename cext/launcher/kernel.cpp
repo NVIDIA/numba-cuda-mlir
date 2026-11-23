@@ -2083,11 +2083,11 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
         // All values are already stored in the flat cuargs vector, we just build pointers to them.
 
         size_t array_index = 0;
-        for (size_t i = 0; i < helper->arg_metadata.size(); ++i) {
-            const ArgMetadata& meta = helper->arg_metadata[i];
+        for (size_t arg_index = 0; arg_index < helper->arg_metadata.size(); ++arg_index) {
+            const ArgMetadata& meta = helper->arg_metadata[arg_index];
             if (meta.is_array() || meta.kind == ArgMetadata::Kind::DeviceRecord) {
                 auto& ptr = helper->cuargs[meta.start_idx].device_ptr;
-                if (!resolve_device_pointer(ptr, i)) return ErrorRaised;
+                if (!resolve_device_pointer(ptr, arg_index)) return ErrorRaised;
                 if (meta.is_array())
                     helper->cuargs[meta.start_idx + 1].device_ptr = ptr;
             }

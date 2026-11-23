@@ -601,8 +601,38 @@ class ComplexModel(PrimitiveModel):
 class RangeModel(PrimitiveModel):
     def __init__(self, dmm, fe_type):
         element_type = dmm.lookup(fe_type.dtype).get_value_type()
-        be_type = T.memref(5, element_type)
+        be_type = llvm.StructType.get_literal([element_type] * 3 + [T.i64()])
         super().__init__(dmm, fe_type, be_type)
+
+    def as_data(self, builder, value):
+        from numba_cuda_mlir.lowering_utilities import RangeObject, convert
+
+        if not isinstance(value, RangeObject):
+            return value
+        if value.get_mlir_type() == self.be_type:
+            return value._value
+        result = llvm.UndefOp(self.be_type).result
+        for position, field in enumerate((value.start, value.stop, value.step, value.count)):
+            converted = convert(field, self.be_type.body[position], signed=value._signed)
+            result = llvm.insertvalue(result, converted, [position])
+        return result
+
+    def from_data(self, builder, value):
+        from numba_cuda_mlir.lowering_utilities import RangeObject
+
+        return RangeObject.from_value(value, signed=self.fe_type.dtype.signed)
+
+    def as_argument(self, builder, value):
+        return self.as_data(builder, value)
+
+    def as_return(self, builder, value):
+        return self.as_data(builder, value)
+
+    def from_argument(self, builder, value):
+        return self.from_data(builder, value)
+
+    def from_return(self, builder, value):
+        return self.from_data(builder, value)
 
 
 @register_model(types.RangeIteratorType)

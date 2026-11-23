@@ -68,7 +68,7 @@ jobs:
           echo "skip=${skip}" >> "$GITHUB_OUTPUT"
           echo "doc_only=${doc_only}" >> "$GITHUB_OUTPUT"
 
-  # LLVM build stages (matching GitLab build-llvm stage)
+  # LLVM build stages
   build-llvm-linux-64:
     needs:
       - ci-vars
@@ -188,7 +188,7 @@ jobs:
       fail-fast: false
       matrix:
         host-platform:
-          - win-arm64 
+          - win-arm64
     name: Build ${{ matrix.host-platform }}
     if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) && !fromJSON(needs.should-skip.outputs.doc-only) }}
     uses: ./.github/workflows/build-wheel.yml
@@ -395,7 +395,7 @@ jobs:
           if [[ "$doc_only" == "true" ]]; then expected="skipped"; else expected="success"; fi
           check_result "test-linux-64"                   "$expected" "${{ needs.test-linux-64.result }}"
           check_result "test-linux-aarch64"              "$expected" "${{ needs.test-linux-aarch64.result }}"
-          check_result "test-win64"                      "$expected" "${{ needs.test-win-64.result }}"
+          check_result "test-win-64"                     "$expected" "${{ needs.test-win-64.result }}"
           check_result "build-win-arm64"                 "$expected" "${{ needs.build-win-arm64.result }}"
           check_result "test-expensive-linux-64"         "$expected" "${{ needs.test-expensive-linux-64.result }}"
           check_result "test-expensive-linux-aarch64"    "$expected" "${{ needs.test-expensive-linux-aarch64.result }}"

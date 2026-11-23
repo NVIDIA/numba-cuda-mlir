@@ -927,6 +927,29 @@ def _float_divmod(mlir_lower, x: ir.Value, y: ir.Value) -> tuple[ir.Value, ir.Va
     return floordiv, mod
 
 
+def _int_floordiv(signed: bool, x: ir.Value, y: ir.Value) -> ir.Value:
+    return arith.floordivsi(x, y) if signed else arith.divui(x, y)
+
+
+def _int_mod(signed: bool, x: ir.Value, y: ir.Value) -> ir.Value:
+    """Python's integer modulo.
+
+    Unsigned needs no correction, because flooring and truncation agree. Signed
+    does: arith.remsi truncates toward zero, so the remainder takes the sign of
+    the dividend rather than the divisor. Add the divisor back whenever the
+    remainder is nonzero and its sign disagrees with the divisor's
+    ((rem ^ y) < 0).
+    """
+    if not signed:
+        return arith.remui(x, y)
+    rem = arith.remsi(x, y)
+    zero = lowering_utilities.constant(0, rem.type)
+    sign_mismatch = arith.cmpi(arith.CmpIPredicate.slt, arith.xori(rem, y), zero)
+    rem_nonzero = arith.cmpi(arith.CmpIPredicate.ne, rem, zero)
+    needs_fix = arith.andi(sign_mismatch, rem_nonzero)
+    return arith.addi(rem, arith.select(needs_fix, y, zero))
+
+
 @lower(operator.mod, types.Number, types.Number)
 @lower(operator.imod, types.Number, types.Number)
 def mod_cg(builder, target, args, kwargs):
@@ -940,19 +963,7 @@ def mod_cg(builder, target, args, kwargs):
 
     match target_mlir_type:
         case ir.IntegerType():
-            if target_type.signed:
-                # Python floored modulo: the result takes the sign of the
-                # divisor. arith.remsi truncates toward zero, so add the
-                # divisor when the remainder is nonzero and its sign
-                # disagrees with the divisor's ((rem ^ rhs) < 0).
-                rem = arith.remsi(lhs, rhs)
-                zero = lowering_utilities.constant(0, rem.type)
-                sign_mismatch = arith.cmpi(arith.CmpIPredicate.slt, arith.xori(rem, rhs), zero)
-                rem_nonzero = arith.cmpi(arith.CmpIPredicate.ne, rem, zero)
-                needs_fix = arith.andi(sign_mismatch, rem_nonzero)
-                result = arith.addi(rem, arith.select(needs_fix, rhs, zero))
-            else:
-                result = arith.remui(lhs, rhs)
+            result = _int_mod(target_type.signed, lhs, rhs)
         case ir.FloatType():
             _, result = _float_divmod(builder, lhs, rhs)
         case _:
@@ -1092,16 +1103,34 @@ def floordiv_cg(builder, target, args, kwargs):
         case ir.IntegerType():
             # Result type selects signed or unsigned floor division. Operand
             # conversion signedness was handled independently above.
-            if target_type.signed:
-                result = arith.floordivsi(lhs, rhs)
-            else:
-                # For unsigned, regular division is the same as floor division
-                result = arith.divui(lhs, rhs)
+            result = _int_floordiv(target_type.signed, lhs, rhs)
         case _:
             raise ValueError(f"Unsupported type for floor division: {target_mlir_type}")
 
     result = builder.mlir_convert(result, target_mlir_type)
     builder.store_var(target, result)
+
+
+@lower(divmod, types.Number, types.Number)
+def divmod_cg(builder, target, args, kwargs):
+    assert not kwargs, "divmod_cg does not accept any keyword arguments"
+    assert len(args) == 2, "divmod_cg expects 2 arguments"
+    # divmod returns a UniTuple; both halves are computed at its element type.
+    element_type = builder.get_numba_type(target.name).dtype
+    element_mlir_type = builder.get_mlir_type(element_type)
+    lhs, rhs = args
+    lhs = _load_and_convert_operand(builder, lhs, element_type, element_mlir_type)
+    rhs = _load_and_convert_operand(builder, rhs, element_type, element_mlir_type)
+
+    match element_mlir_type:
+        case ir.FloatType():
+            quotient, remainder = _float_divmod(builder, lhs, rhs)
+        case ir.IntegerType():
+            quotient = _int_floordiv(element_type.signed, lhs, rhs)
+            remainder = _int_mod(element_type.signed, lhs, rhs)
+        case _:
+            raise NotImplementedError(f"divmod not implemented for {element_mlir_type=}")
+    builder.store_var(target, (quotient, remainder))
 
 
 def _get_attr_from_value(value: float | int, element_type: ir.Type):

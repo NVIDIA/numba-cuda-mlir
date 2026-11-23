@@ -103,6 +103,7 @@ def lower_to_fixed_tuple(builder, target, args, kwargs):
             array_type,
             array,
             [idx],
+            builder=builder,
             dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
         )
         elements.append(elem)
@@ -850,7 +851,7 @@ def _array_item_cg(builder, target, args, kwargs):
     else:
         array = builder.load_var(array_var)
         value = lowering_utilities.array_element_value_load(
-            array_numba_type, array, [index_of(0)] * array.type.rank
+            array_numba_type, array, [index_of(0)] * array.type.rank, builder=builder
         )
     builder.store_var(target, value)
 
@@ -1251,6 +1252,7 @@ def lower_array_getitem(builder, target, args, kwargs):
             array_numba_type,
             array,
             [index],
+            builder=builder,
             dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
         )
     else:
@@ -1837,6 +1839,7 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
             array,
             [index],
             value,
+            builder=builder,
             dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
             signed=signed,
         )
@@ -1854,6 +1857,7 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
                 array,
                 [index] + list(indices),
                 value,
+                builder=builder,
                 dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
                 signed=signed,
             )
@@ -1928,6 +1932,7 @@ def lower_array_setitem_tuple(builder, target, args, kwargs):
         array,
         indices,
         value,
+        builder=builder,
         dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
     )
 
@@ -1960,6 +1965,7 @@ def lower_array_slice_setitem(builder, target, args, kwargs):
             array,
             list(indices),
             value,
+            builder=builder,
             dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
         )
 
@@ -2058,6 +2064,7 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
                 array_numba_type,
                 array,
                 full_offsets,
+                builder=builder,
                 dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
             )
             builder.store_var(target, value)
@@ -2930,14 +2937,16 @@ def np_empty_lower(builder, target, args, kwargs):
     builder.store_var(target, result_memref)
 
 
-def _fill_array_storage(array_type, array, storage_value):
+def _fill_array_storage(builder, array_type, array, storage_value):
     if not ArrayStorageLayout(array_type).byte_addressed:
         linalg.fill(storage_value, outs=[array])
         return
-    value = lowering_utilities.storage_to_value(array_type.dtype, storage_value)
+    value = lowering_utilities.storage_to_value(array_type.dtype, storage_value, builder=builder)
 
     def fill(indices):
-        lowering_utilities.array_element_value_store(array_type, array, indices, value)
+        lowering_utilities.array_element_value_store(
+            array_type, array, indices, value, builder=builder
+        )
 
     lowering_utilities.for_each_array_index(array, fill)
 
@@ -2960,7 +2969,7 @@ def np_zeros_lower(builder, target, args, kwargs):
         )
         zero = builder.as_storage(target_type.dtype, zero)
 
-    _fill_array_storage(target_type, array_memref, zero)
+    _fill_array_storage(builder, target_type, array_memref, zero)
     builder.store_var(target, array_memref)
 
 
@@ -2982,7 +2991,7 @@ def np_ones_lower(builder, target, args, kwargs):
         )
         one = builder.as_storage(target_type.dtype, one)
 
-    _fill_array_storage(target_type, array_memref, one)
+    _fill_array_storage(builder, target_type, array_memref, one)
     builder.store_var(target, array_memref)
 
 
@@ -3010,7 +3019,7 @@ def np_full_lower(builder, target, args, kwargs):
     fill_value = builder.as_storage(target_type.dtype, fill_value)
 
     # Fill the array
-    _fill_array_storage(target_type, array_memref, fill_value)
+    _fill_array_storage(builder, target_type, array_memref, fill_value)
     builder.store_var(target, array_memref)
 
 
@@ -5722,11 +5731,13 @@ def _intrinsic_axis(builder, arg, rank):
 
 def _intrinsic_copy_array(builder, source_type, source, result_type, result, map_index):
     def copy(source_indices):
-        value = lowering_utilities.array_element_value_load(source_type, source, source_indices)
+        value = lowering_utilities.array_element_value_load(
+            source_type, source, source_indices, builder=builder
+        )
         if source_type.dtype != result_type.dtype:
             value = builder.lower_cast(source_type.dtype, result_type.dtype, value)
         lowering_utilities.array_element_value_store(
-            result_type, result, map_index(source_indices), value
+            result_type, result, map_index(source_indices), value, builder=builder
         )
 
     lowering_utilities.for_each_array_index(source, copy)

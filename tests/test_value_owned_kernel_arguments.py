@@ -257,3 +257,25 @@ def test_exported_device_function_accepts_c_struct_by_value():
     out = np.zeros(1, dtype=np.int32)
     kernel[1, 1](out)
     assert out[0] == 47
+
+
+def test_recursive_c_export_preserves_struct_argument():
+    @cuda.jit(device=True, abi="c")
+    def score(pair, n):
+        if n == 0:
+            return pair.right
+        return pair.left + score(pair, np.int32(n - 1))
+
+    sig = types.int32(runtime_pair_type, types.int32)
+    exported = score.compile(sig, abi_info={"abi_name": "recursive_pair_score"}, output="ptx")
+    call = cuda.declare_device(
+        "recursive_pair_score", sig, link=cuda.PTXSource(exported.ptx.encode()), abi="c"
+    )
+
+    @cuda.jit
+    def kernel(out, pair):
+        out[0] = call(pair, np.int32(3))
+
+    out = np.zeros(1, dtype=np.int32)
+    kernel[1, 1](out, RuntimePair(4, 7))
+    assert out[0] == 19

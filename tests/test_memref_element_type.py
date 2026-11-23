@@ -22,7 +22,7 @@ import pytest
 from numba_cuda_mlir import cuda, extending, types
 from numba_cuda_mlir.extending import lower_cast, lowering_registry
 from numba_cuda_mlir.lowering_utilities import constant, convert
-from numba_cuda_mlir.models import PrimitiveModel, mlir_data_manager, register_model
+from numba_cuda_mlir.models import PrimitiveModel, StructModel, mlir_data_manager, register_model
 from numba_cuda_mlir._mlir import ir as mlir_ir
 from numba_cuda_mlir._mlir.dialects import llvm
 from numba_cuda_mlir.numba_cuda.typeconv import Conversion
@@ -273,6 +273,42 @@ def test_extension_type_local_array_round_trip():
     assert "!llvm.struct<(i8, i64)>" in mlir
 
 
+def test_local_array_converts_struct_boolean_fields():
+    class FlagType(types.Type):
+        pass
+
+    flag_type = FlagType("Flag")
+
+    @register_model(FlagType)
+    class FlagModel(StructModel):
+        def __init__(self, dmm, fe_type):
+            super().__init__(dmm, fe_type, [("enabled", types.boolean)])
+
+    @extending.intrinsic
+    def make_flag(typingctx, enabled):
+        def codegen(builder, target, args, kwargs):
+            value = llvm.UndefOp(builder.get_mlir_type(flag_type)).result
+            builder.store_var(target, llvm.insertvalue(value, builder.load_var(args[0]), [0]))
+
+        return flag_type(enabled), codegen
+
+    extending.make_attribute_wrapper(FlagType, "enabled", "enabled")
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(src, out):
+        values = cuda.local.array(2, flag_type)
+        for i in range(2):
+            values[i] = make_flag(src[i])
+        for i in range(2):
+            out[i] = values[1 - i].enabled
+
+    src = np.array([True, False])
+    out = src.copy()
+    kernel[1, 1](src, out)
+    np.testing.assert_array_equal(out, src[::-1])
+
+
 @pytest.mark.parametrize("shape", [4, 0], ids=["static", "dynamic"])
 def test_extension_type_shared_array_is_rejected(shape):
     """Shared storage rejects LLVM-backed dtypes before forming an invalid memref."""
@@ -342,8 +378,11 @@ def test_llvm_backed_global_pointer_array_round_trip(step):
 
     @cuda.jit
     def kernel(pointers, out):
-        for i in range(len(pointers)):
-            out[i] = pointers[i][0]
+        i = 0
+        for pointer in pointers:
+            out[0, i] = pointers[i][0]
+            out[1, i] = pointer[0]
+            i += 1
 
     # Every entry in the allocation is a valid pointer, including the padding
     # beyond the view. Distinct values reveal incorrect index scaling safely.
@@ -351,10 +390,11 @@ def test_llvm_backed_global_pointer_array_round_trip(step):
     base = pointees.__cuda_array_interface__["data"][0]
     pointer_bits = cuda.to_device(np.uint64(base) + 4 * np.arange(40, dtype=np.uint64))
     pointers = _PointerArray(pointer_bits[1 : 1 + 3 * step : step])
-    out = cuda.to_device(np.zeros(3, dtype=np.int32))
+    out = cuda.to_device(np.zeros((2, 3), dtype=np.int32))
 
     kernel[1, 1](pointers, out)
-    np.testing.assert_array_equal(out.copy_to_host(), 124 + step * np.arange(3))
+    expected = 124 + step * np.arange(3)
+    np.testing.assert_array_equal(out.copy_to_host(), [expected, expected])
 
 
 def test_extension_local_array_layout_copy_and_item():

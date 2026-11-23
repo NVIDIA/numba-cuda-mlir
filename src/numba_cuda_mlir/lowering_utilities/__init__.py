@@ -574,7 +574,7 @@ def _integer_storage_type_for_value(numba_type: types.Type, value_type: ir.Type)
 
 
 def value_to_storage(
-    numba_type: types.Type, value: ir.Value, *, signed: bool | None = None
+    numba_type: types.Type, value: ir.Value, *, signed: bool | None = None, builder=None
 ) -> ir.Value:
     """Convert a source-level value to its memory/ABI storage representation."""
     storage_type = get_storage_type(numba_type)
@@ -585,6 +585,9 @@ def value_to_storage(
         value = convert(value, value_type, signed=signed)
     if value_type == storage_type:
         return value
+
+    if builder is not None and isinstance(value_type, llvm.StructType):
+        return builder.as_storage(numba_type, value)
 
     if _is_bool_numba_type(numba_type):
         value = convert(value, T.bool())
@@ -602,7 +605,7 @@ def value_to_storage(
     return convert(value, storage_type, signed=signed)
 
 
-def storage_to_value(numba_type: types.Type, value: ir.Value) -> ir.Value:
+def storage_to_value(numba_type: types.Type, value: ir.Value, *, builder=None) -> ir.Value:
     """Convert a memory/ABI storage payload to its source-level value representation."""
     storage_type = get_storage_type(numba_type)
     value_type = get_value_type(numba_type)
@@ -612,6 +615,9 @@ def storage_to_value(numba_type: types.Type, value: ir.Value) -> ir.Value:
         value = convert(value, storage_type)
     if value_type == storage_type:
         return value
+
+    if builder is not None and isinstance(value_type, llvm.StructType):
+        return builder.from_storage(numba_type, value)
 
     if _is_bool_numba_type(numba_type):
         zero = arith.constant(storage_type, 0)
@@ -645,6 +651,7 @@ def array_element_value_load(
     array: ir.Value,
     indices: Sequence[ir.Value],
     *,
+    builder=None,
     dynamic_shared_memory: bool = False,
 ):
     from numba_cuda_mlir.array_storage import ArrayStorageLayout
@@ -664,7 +671,7 @@ def array_element_value_load(
             stored = llvm_ptr_load(storage_type, ptr, alignment=layout.alignment)
     else:
         stored = memref.load(array, list(indices))
-    return storage_to_value(array_type.dtype, stored)
+    return storage_to_value(array_type.dtype, stored, builder=builder)
 
 
 def array_element_value_store(
@@ -673,6 +680,7 @@ def array_element_value_store(
     indices: Sequence[ir.Value],
     value: ir.Value,
     *,
+    builder=None,
     dynamic_shared_memory: bool = False,
     signed: bool | None = None,
 ):
@@ -683,7 +691,7 @@ def array_element_value_store(
         ptr = memref_to_llvm_ptr(array, list(indices))
         llvm.MemcpyOp(ptr, value, arith.constant(T.i64(), layout.itemsize), False)
         return
-    stored = value_to_storage(array_type.dtype, value, signed=signed)
+    stored = value_to_storage(array_type.dtype, value, signed=signed, builder=builder)
     if dynamic_shared_memory or layout.byte_addressed:
         ptr = memref_to_llvm_ptr(array, list(indices), unit_bytes=layout.unit_bytes)
         if layout.has_packed_vector_rows:
@@ -1767,6 +1775,7 @@ class ArrayIterObject:
     """
 
     def __init__(self, lower, array: ir.Value, element_type: ir.Type, length: ir.Value, array_type):
+        self._lower = lower
         self._array = array
         self._array_type = array_type
         self._element_type = element_type
@@ -1799,15 +1808,11 @@ class ArrayIterObject:
         load_if_valid = scf.IfOp(is_valid, results_=[self._element_type], has_else=True)
         with ir.InsertionPoint(load_if_valid.then_block):
             index_as_index = arith.index_cast(out=ir.IndexType.get(), in_=current_index)
-            if isinstance(self._element_type, llvm.PointerType):
-                # Record values point to their storage; do not load a pointer
-                # from the record's payload bytes.
-                ptr = memref_to_llvm_ptr(self._array, [index_as_index])
-                current_value = llvm.addrspacecast(self._element_type, ptr)
-            else:
-                current_value = array_element_value_load(
-                    self._array_type, self._array, [index_as_index]
-                )
+            current_value = array_element_value_load(
+                self._array_type, self._array, [index_as_index], builder=self._lower
+            )
+            if isinstance(self._array_type.dtype, types.Record):
+                current_value = llvm.addrspacecast(self._element_type, current_value)
             scf.yield_([current_value])
         with ir.InsertionPoint(load_if_valid.else_block):
             scf.yield_([_zero_value_for_type(self._element_type)])

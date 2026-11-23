@@ -1832,7 +1832,7 @@ extern "C" __global__ void
             func.call(
                 result=callee_function_type,
                 callee=callee_name,
-                operands_=self._call_operands_from_vars(args, kws),
+                operands_=self._call_operands_from_vars(args, kws, c_abi=self._c_abi_export),
             )
         )
         target_type = self.get_numba_type(target.name)

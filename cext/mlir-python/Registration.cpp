@@ -187,14 +187,17 @@ void numbaCudaMlirRegisterPasses() {
   registerArithToLLVMConversionPass();
   registerConvertComplexToLLVMPass();
   registerConvertComplexToStandardPass();
+  registerConvertControlFlowToLLVMPass();
   registerConvertFuncToLLVMPass();
   registerConvertGpuOpsToNVVMOps();
   registerConvertIndexToLLVMPass();
+  registerConvertMathToLLVMPass();
   registerConvertMathToNVVM();
   registerConvertNVGPUToNVVMPass();
   registerConvertNVVMToLLVMPass();
   registerConvertShapeToStandardPass();
   registerConvertVectorToSCF();
+  registerFinalizeMemRefToLLVMConversionPass();
   registerGpuToLLVMConversionPass();
   registerLowerAffinePass();
   registerReconcileUnrealizedCastsPass();

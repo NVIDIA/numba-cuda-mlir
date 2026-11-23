@@ -148,6 +148,7 @@ declare_mlir_python_extension(NumbaCudaMlirPythonSources.SiteInitialize
 set(_ncm_declared_sources
   NumbaCudaMlirPythonSources
   MLIRPythonSources.Core
+  MLIRPythonSources.ExecutionEngine
   MLIRPythonSources.Dialects.arith
   MLIRPythonSources.Dialects.bufferization
   MLIRPythonSources.Dialects.builtin

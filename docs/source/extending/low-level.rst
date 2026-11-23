@@ -264,12 +264,14 @@ NRT-managed type wrapping a pointer, see the experimental data models in
 For a kernel parameter with a
 :py:class:`~numba_cuda_mlir.models.StructModel`, a launch value can implement
 ``prepare_args(ty, val, stream=None, retr=None)`` and return the registered
-frontend type together with a tuple of field values in model order.
+frontend type together with a tuple containing one value per field in model
+order. The handler must supply each field in its declared argument type.
 For example, a pair of 32-bit integers can return
 ``ty, (np.int32(val.left), np.int32(val.right))``. Kernel code can then
 access ``pair.left`` and ``pair.right`` after registering their attribute
 wrappers. A CUDA C device function declared with ``abi="c"`` receives the
-struct as one aggregate parameter.
+struct as one aggregate parameter. Callbacks appended to ``retr`` run after a
+successful launch and belong to that invocation.
 
 .. _lowering-functions:
 

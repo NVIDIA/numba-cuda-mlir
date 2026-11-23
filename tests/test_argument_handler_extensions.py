@@ -155,6 +155,26 @@ def test_value_owned_handlers_only_prepare_their_own_argument():
     assert marshaller(first, 20, second, first) == (2, 21, 9, 2)
 
 
+def test_value_owned_callback_only_runs_for_its_successful_launch():
+    completed = []
+
+    class Value(PointerWrapper):
+        def prepare_args(self, ty, val, stream=None, retr=None):
+            retr.append(lambda: completed.append(self.ptr))
+            return types.uint64, self.ptr
+
+    def launch(value):
+        if value == 1:
+            raise RuntimeError("launch failed")
+
+    marshaller = descriptor_mod._ArgMarshaller(launch)
+    with pytest.raises(RuntimeError, match="launch failed"):
+        marshaller(Value(1))
+    marshaller(Value(2))
+
+    assert completed == [2]
+
+
 def test_multiple_extension_handlers():
     class ValueModifier:
         def __init__(self, offset):

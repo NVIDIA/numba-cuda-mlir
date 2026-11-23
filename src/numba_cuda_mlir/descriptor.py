@@ -477,7 +477,6 @@ class _ArgMarshaller:
         dispatch_token_for=None,
     ):
         self._launcher = launcher
-        self._callbacks = []
         # Snapshot extensions for this configured launcher; configure() cache keys
         # include extension identities so replacing the extension list builds a
         # distinct marshaller.
@@ -498,7 +497,7 @@ class _ArgMarshaller:
         self._sig_cache = {}  # {type_key: (argtypes, fast_ok)}
         self._array_sig_cache = {}  # {type_key: [(argtypes, ((idx, array_key), ...))]}
 
-    def _maybe_copy_to_device_item(self, arg):
+    def _maybe_copy_to_device_item(self, arg, callbacks):
         if isinstance(arg, DeviceNDArrayBase):
             return arg
 
@@ -508,7 +507,7 @@ class _ArgMarshaller:
             case tuple() | list():
                 # Recursively process tuple contents but preserve structure
                 # For namedtuples, we need to unpack the processed elements
-                processed = [self._maybe_copy_to_device_item(elem) for elem in arg]
+                processed = [self._maybe_copy_to_device_item(elem, callbacks) for elem in arg]
                 if hasattr(arg, "_fields"):  # namedtuple
                     return type(arg)(*processed)
                 return type(arg)(processed)
@@ -545,7 +544,7 @@ class _ArgMarshaller:
                         host_array = dev_arg.copy_to_host()
                         np.copyto(host_arg, host_array)
 
-                    self._callbacks.append(copy_back)
+                    callbacks.append(copy_back)
                 return device_arg
             case _ if hasattr(arg, "__cuda_array_interface__") and not isinstance(arg, np.ndarray):
                 # The C++ launcher can consume CUDA Array Interface objects
@@ -572,7 +571,7 @@ class _ArgMarshaller:
                     host_array = dev_arg.copy_to_host()
                     np.copyto(host_arg, host_array)
 
-                self._callbacks.append(copy_back)
+                callbacks.append(copy_back)
                 return device_arg
             case _ if _is_strided_memory_view(arg):
                 return _strided_memory_view_to_device_array(arg)
@@ -845,7 +844,7 @@ class _ArgMarshaller:
                     launch_lock = None
         if launch_lock is None:
             return self._call_impl(*args)
-        # Free-threaded launches share caches, callbacks, and native dispatcher
+        # Free-threaded launches share caches and native dispatcher
         # state across this marshaller path.
         with launch_lock:
             return self._call_impl(*args)
@@ -885,7 +884,7 @@ class _ArgMarshaller:
 
         registered_handlers = [ext.prepare_args for ext in reversed(self._extensions)]
         copy_item = self._maybe_copy_to_device_item
-        callbacks = self._callbacks
+        callbacks = []
 
         device_args = [None] * nargs
         argtypes = [None] * nargs
@@ -917,7 +916,7 @@ class _ArgMarshaller:
                 if val is not args[i]:
                     all_pass_through = False
 
-            dev = copy_item(val)
+            dev = copy_item(val, callbacks)
             if dev is not val:
                 all_pass_through = False
                 if not extension_transformed:
@@ -948,7 +947,6 @@ class _ArgMarshaller:
 
         for callback in callbacks:
             callback()
-        callbacks.clear()  # Clear callbacks to prevent accumulation.
 
         if not has_ext:
             has_arrays = any(isinstance(ct, types.Array) for ct in coerced_types)

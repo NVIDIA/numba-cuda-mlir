@@ -104,6 +104,61 @@ def test_arg_reductions(func, dtype, layout, method):
     assert out.copy_to_host()[0] == expected
 
 
+@pytest.mark.parametrize("func", [np.sum, np.prod, np.nansum, np.nanprod])
+@pytest.mark.parametrize(
+    "case",
+    [
+        np.array([100, 100, 100, -100, 3], dtype=np.int8),
+        np.array([200, 200, 200, 200, 3], dtype=np.uint8),
+        np.array([30000, 30000, 30000, -2, 3], dtype=np.int16),
+        np.array([60000, 60000, 3, 2, 1], dtype=np.uint16),
+        np.array([2**31 - 1, 2**31 - 1, 2, 2, 1], dtype=np.int32),
+        np.array([3000000000, 3000000000, 2, 2, 1], dtype=np.uint32),
+    ],
+)
+def test_sum_and_prod_widen_small_integers(func, case):
+    """The result has the platform int's width, so these don't overflow the element type."""
+    expected = func(case)
+
+    @cuda.jit
+    def kernel(out, case):
+        out[0] = func(case)
+
+    out = cuda.to_device(np.zeros(1, dtype=np.asarray(expected).dtype))
+    kernel[1, 1](out, cuda.to_device(case))
+    np.testing.assert_array_equal(out.copy_to_host(), [expected])
+
+
+@pytest.mark.parametrize("func", [np.sum, np.nansum])
+def test_sum_counts_bools(func):
+    @cuda.jit
+    def kernel(out, case):
+        out[0] = func(case)
+
+    out = cuda.to_device(np.zeros(1, dtype=np.int64))
+    kernel[1, 1](out, cuda.to_device(np.array([True, False, True, True, True])))
+    np.testing.assert_array_equal(out.copy_to_host(), [4])
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        np.array([True, False, True, True, True], dtype=np.bool_),
+        np.array([200, 200, 200, 200, 3], dtype=np.uint8),
+    ],
+)
+def test_sum_and_prod_methods_widen_small_integers(case):
+    @cuda.jit
+    def kernel(out, case):
+        out[0] = case.sum()
+        out[1] = case.prod()
+
+    expected = [case.sum(), case.prod()]
+    out = cuda.to_device(np.zeros(2, dtype=np.asarray(expected).dtype))
+    kernel[1, 1](out, cuda.to_device(case))
+    np.testing.assert_array_equal(out.copy_to_host(), expected)
+
+
 @pytest.mark.parametrize("func", [np.argmin, np.argmax])
 @pytest.mark.parametrize("case", [*CASES, np.array([5, 3, 1, 4, 2]), np.array([7])])
 def test_arg_reductions_values(func, case):

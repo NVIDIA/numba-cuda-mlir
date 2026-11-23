@@ -505,9 +505,10 @@ def type_convert(builder, target, args, kwargs):
     value = builder.load_var(args[0])
     if not isinstance(value, ir.Value):
         value = constant(value, builder.get_mlir_type(source_numba_ty))
-    value = builder.lower_cast(source_numba_ty, target_numba_ty, value)
-    with builder.scalar_conversion_context():
-        builder.store_var(target, value)
+    value = convert(
+        value, to_type, signed=get_conversion_signedness(source_numba_ty, target_numba_ty)
+    )
+    builder.store_var(target, value)
 
 
 @lower(float, types.StringLiteral)

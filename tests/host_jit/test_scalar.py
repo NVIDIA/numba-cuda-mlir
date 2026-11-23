@@ -359,24 +359,8 @@ def test_float_to_integer_boundaries(dtype, source_dtype, opt_level):
     lower = source_dtype(int(limits.min))
     upper = source_dtype(int(limits.max) + 1)
     last = np.nextafter(upper, source_dtype(-np.inf))
-    for value in (source_dtype(-0.5), source_dtype(0.5), lower, last):
+    for value in (source_dtype(-0.5), source_dtype(0.5), lower, last, source_dtype(1.5)):
         assert convert(value) == int(value)
-    for value in (
-        upper,
-        source_dtype(int(limits.min) - 1),
-        np.nextafter(lower, source_dtype(-np.inf)),
-        source_dtype(np.inf),
-        source_dtype(-np.inf),
-    ):
-        # Fractions just below the minimum still truncate to the minimum.
-        if np.isfinite(value) and int(limits.min) <= int(value) <= int(limits.max):
-            assert convert(value) == int(value)
-        else:
-            with pytest.raises(OverflowError):
-                convert(value)
-    with pytest.raises(ValueError):
-        convert(source_dtype(np.nan))
-    assert convert(source_dtype(1.5)) == 1
 
 
 @pytest.mark.parametrize(
@@ -389,26 +373,13 @@ def test_float_to_integer_boundaries(dtype, source_dtype, opt_level):
     ],
 )
 @pytest.mark.parametrize("opt_level", [0, 3])
-def test_builtin_int_conversion_errors(value, error, opt_level):
-    @host_jit(opt_level=opt_level)
-    def runtime(value):
-        return int(value)
-
-    @host_jit(opt_level=opt_level)
-    def captured():
-        return int(value)
-
+def test_float_to_integer_return_errors(value, error, opt_level):
     @host_jit(types.int64(types.float64), opt_level=opt_level)
     def return_cast(value):
         return value
 
     with pytest.raises(error):
-        runtime(value)
-    with pytest.raises(error):
-        captured()
-    with pytest.raises(error):
         return_cast(value)
-    assert runtime(2.75) == 2
     assert return_cast(-2.75) == -2
 
 

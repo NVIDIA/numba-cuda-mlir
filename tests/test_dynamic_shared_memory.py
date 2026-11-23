@@ -561,3 +561,46 @@ def test_multidimensional_vector_array_byte_metadata():
     out = cuda.device_array(7, dtype=np.int64)
     kernel[1, 1, 0, 96](n, out)
     np.testing.assert_array_equal(out.copy_to_host(), [32, 16, 64, 64, 16, 32, 64])
+
+
+@pytest.mark.parametrize("strong_alignment_first", [False, True])
+def test_extension_shared_base_access_preserves_region_and_alignment(strong_alignment_first):
+    from numba_cuda_mlir import extending
+    from numba_cuda_mlir._mlir.dialects import arith, llvm, memref
+    from numba_cuda_mlir._mlir.extras import types as T
+    from numba_cuda_mlir.lowering_utilities import index_of
+
+    @extending.intrinsic
+    def store_at_shared_base(typingctx, value):
+        def codegen(builder, target, args, kwargs):
+            if strong_alignment_first:
+                builder._get_shared_memory_base(64)
+            base = builder._get_shared_memory_base()
+            if not strong_alignment_first:
+                builder._get_shared_memory_base(64)
+            pointer_index = memref.extract_aligned_pointer_as_index(base)
+            pointer = llvm.inttoptr(
+                llvm.PointerType.get(3), arith.index_cast(T.i64(), pointer_index)
+            )
+            pointer = llvm.addrspacecast(llvm.PointerType.get(), pointer)
+            llvm.store(builder.load_var(args[0]), pointer, alignment=8)
+            builder.store_var(target, memref.dim(base, index_of(0)))
+
+        return types.int64(value), codegen
+
+    extending.refresh_registries()
+
+    @cuda.jit
+    def kernel(out):
+        out[0] = store_at_shared_base(np.int64(37))
+        view = cuda.shared.array(0, dtype=np.int64)
+        out[1] = view[0]
+        out[2] = view.size
+
+    out = cuda.device_array(3, dtype=np.int64)
+    kernel[1, 1, 0, 128](out)
+    np.testing.assert_array_equal(out.copy_to_host(), [128, 37, 16])
+    ptx = next(iter(kernel.inspect_asm().values()))
+    assert re.search(
+        r"\.extern \.shared \.align 64 \.b8 __numba_cuda_mlir_dynamic_shared_\w+\[\];", ptx
+    )

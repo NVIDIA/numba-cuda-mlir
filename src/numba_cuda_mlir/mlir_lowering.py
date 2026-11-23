@@ -2426,7 +2426,7 @@ extern "C" __global__ void
     def _get_shared_address_space(self):
         return ir.Attribute.parse("#gpu.address_space<workgroup>")
 
-    def _get_shared_memory_base(self, alignment):
+    def _get_shared_memory_base(self, alignment=8):
         if self._shared_memory_base is None:
             mr_type = memref.MemRefType.get(
                 shape=[ir.ShapedType.get_dynamic_size()],

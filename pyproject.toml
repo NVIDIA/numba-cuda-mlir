@@ -25,11 +25,13 @@ dependencies = [
     "typing-extensions; python_version < '3.12'",
     "cuda-bindings>=12.9.1,<14.0.0",
     "cuda-core>=0.5.1,<2.0.0",
+    "cuda-pathfinder>=1.8.3,<2.0",
 ]
 
 [project.optional-dependencies]
 cu12 = [
     "cuda-bindings>=12.9.1,<13.0.0",
+    "cuda-core[cu12]>=0.5.1,<2.0.0",
     "cuda-toolkit[cudart,nvcc,nvrtc]==12.*",
 
     # The nvJitLink library is compatible across minor versions in a release,
@@ -42,6 +44,7 @@ cu12 = [
 ]
 cu13 = [
     "cuda-bindings==13.*",
+    "cuda-core[cu13]>=0.5.1,<2.0.0",
     "cuda-toolkit[cudart,nvcc,nvrtc]==13.*",
 
     # The nvJitLink library is compatible across minor versions in a release,

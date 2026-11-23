@@ -20,10 +20,6 @@ hash_inputs() {
     done | sha256sum | cut -c1-12
 }
 
-hash_file() {
-    sha256sum "$1" | cut -c1-12
-}
-
 cache_version() {
     local version_id="$1"
     if [[ "${version_id}" =~ ^[0-9a-fA-F]{40}$ ]]; then
@@ -46,63 +42,31 @@ cache_arch() {
 kind="${1:-}"
 host_platform="${2:-}"
 
+# The same scripts build every platform; Windows keys also pin the MSVC toolset.
+case "${host_platform}" in
+    linux-*) os_tag="linux" ;;
+    win-*) os_tag="windows-msvc${LLVM_WINDOWS_MSVC_TOOLSET}" ;;
+    *) echo "Unsupported host platform: ${host_platform}" >&2; exit 2 ;;
+esac
+
 case "${kind}" in
     modern)
         py_tag="${3:-}"
-        [[ -n "${host_platform}" && -n "${py_tag}" ]] || usage
-        version_short="$(cache_version "${LLVM_MODERN_COMMIT}")"
-        case "${host_platform}" in
-            linux-*)
-                build_hash="$(hash_file "${SCRIPT_DIR}/build-llvm-modern.sh")"
-                echo "llvm-modern-linux-$(cache_arch "${host_platform}")-${py_tag}-${version_short}-${build_hash}"
-                ;;
-            win-64)
-                build_hash="$(hash_inputs \
-                    "${SCRIPT_DIR}/build-windows.sh" \
-                    "${SCRIPT_DIR}/../cext/mlir-modern/CMakeLists.txt" \
-                    "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridge.cpp" \
-                    "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridgeSmoke.cpp" \
-                    "${SCRIPT_DIR}/../cext/mlir-modern/include/ModernBridge.h" \
-                    "${SCRIPT_DIR}/windows-llvm-container-build.ps1" \
-                    "${SCRIPT_DIR}/windows-devcontainer.env")"
-                echo "llvm-modern-windows-$(cache_arch "${host_platform}")-${py_tag}-${version_short}-${build_hash}"
-                ;;
-            win-arm64)
-                build_hash="$(hash_inputs \
-                    "${SCRIPT_DIR}/build-windows.sh" \
-                    "${SCRIPT_DIR}/../cext/mlir-modern/CMakeLists.txt" \
-                    "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridge.cpp" \
-                    "${SCRIPT_DIR}/../cext/mlir-modern/ModernBridgeSmoke.cpp" \
-                    "${SCRIPT_DIR}/../cext/mlir-modern/include/ModernBridge.h")"
-                echo "llvm-modern-windows-$(cache_arch "${host_platform}")-${py_tag}-${version_short}-msvc${LLVM_WINDOWS_ARM64_MSVC_TOOLSET}-${build_hash}"
-                ;;
-            *)
-                echo "Unsupported host platform for modern LLVM: ${host_platform}" >&2
-                exit 2
-                ;;
-        esac
+        [[ -n "${py_tag}" ]] || usage
+        build_hash="$(hash_inputs \
+            "${SCRIPT_DIR}/build-llvm-modern.sh" \
+            "${SCRIPT_DIR}/../cext/mlir-python/CMakeLists.txt" \
+            "${SCRIPT_DIR}/../cext/mlir-python/Registration.cpp" \
+            "${SCRIPT_DIR}/../cext/mlir-python/Registration.h" \
+            "${SCRIPT_DIR}/../cext/mlir-python/SiteInitialize.cpp")"
+        echo "llvm-modern-${os_tag}-$(cache_arch "${host_platform}")-${py_tag}-$(cache_version "${LLVM_MODERN_COMMIT}")-${build_hash}"
         ;;
     llvm7)
-        [[ -n "${host_platform}" && $# -eq 2 ]] || usage
-        version_short="$(cache_version "${LLVM7_TAG}")"
-        case "${host_platform}" in
-            linux-*)
-                build_hash="$(hash_file "${SCRIPT_DIR}/build-llvm7.sh")"
-                echo "llvm7-linux-$(cache_arch "${host_platform}")-${version_short}-${build_hash}"
-                ;;
-            win-64)
-                build_hash="$(hash_inputs \
-                    "${SCRIPT_DIR}/build-windows.sh" \
-                    "${SCRIPT_DIR}/tools/gen-llvm-c-exports.py" \
-                    "${SCRIPT_DIR}/windows-llvm-container-build.ps1" \
-                    "${SCRIPT_DIR}/windows-devcontainer.env")"
-                echo "llvm7-windows-$(cache_arch "${host_platform}")-${version_short}-${build_hash}"
-                ;;
-            *)
-                echo "Unsupported host platform for LLVM 7: ${host_platform}" >&2
-                exit 2
-                ;;
-        esac
+        [[ $# -eq 2 && "${host_platform}" != win-arm64 ]] || usage
+        build_hash="$(hash_inputs \
+            "${SCRIPT_DIR}/build-llvm7.sh" \
+            "${SCRIPT_DIR}/tools/gen-llvm-c-exports.py")"
+        echo "llvm7-${os_tag}-$(cache_arch "${host_platform}")-$(cache_version "${LLVM7_TAG}")-${build_hash}"
         ;;
     *)
         usage

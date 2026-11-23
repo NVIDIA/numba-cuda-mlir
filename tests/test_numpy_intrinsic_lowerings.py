@@ -76,7 +76,11 @@ CASES = [
 
 @pytest.mark.parametrize("fn, expected", CASES, ids=lambda x: getattr(x, "__name__", None))
 def test_intrinsic_has_mlir_lowering_without_gpu(monkeypatch, fn, expected):
-    monkeypatch.setattr(tools, "_cached_cc", (8, 0))
+    monkeypatch.setattr(
+        tools,
+        "get_gpu_compute_capability",
+        lambda as_type=str: (8, 0) if as_type is tuple else "sm_80",
+    )
     array_type = types.Array(types.float32, 1, "C")
     compiler.compile(
         fn,
@@ -117,7 +121,11 @@ def f_empty_like_kernel(x, out):
 
 @pytest.mark.parametrize("fn", [f_layout_kernel, f_stack_kernel, f_empty_like_kernel])
 def test_fortran_layout_intrinsic_compiles_without_gpu(monkeypatch, fn):
-    monkeypatch.setattr(tools, "_cached_cc", (8, 0))
+    monkeypatch.setattr(
+        tools,
+        "get_gpu_compute_capability",
+        lambda as_type=str: (8, 0) if as_type is tuple else "sm_80",
+    )
     input_type = types.Array(types.float32, 2, "F")
     output_type = types.Array(types.float32, 1, "C")
     compiler.compile(

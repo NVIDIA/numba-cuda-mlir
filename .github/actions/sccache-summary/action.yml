@@ -34,7 +34,9 @@ runs:
           exit 0
         fi
 
-        python3 - <<'PYEOF'
+        # Windows venvs have no python3.exe.
+        py="$(command -v python || command -v python3)"
+        "${py}" - <<'PYEOF'
         import json, os, urllib.parse
 
         json_file = os.environ["SCCACHE_JSON"]
@@ -69,7 +71,7 @@ runs:
 
         summary_file = os.environ.get("GITHUB_STEP_SUMMARY", "")
         if summary_file:
-            with open(summary_file, "a") as sf:
+            with open(summary_file, "a", encoding="utf-8") as sf:
                 sf.write(f"### 📊 {label} — sccache stats\n")
                 sf.write("| Hit Rate | Hits | Misses | Requests |\n")
                 sf.write("|----------|------|--------|----------|\n")

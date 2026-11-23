@@ -28,12 +28,15 @@ jobs:
       run-id: ${{ steps.lookup.outputs.run-id }}
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # lookup-run-id resolves the git tag to a SHA locally; we need tags
           # but not full history.
           fetch-depth: 1
           fetch-tags: true
+
+      - name: Harden OS certificate trust
+        uses: ./.github/actions/upgrade-ca-certificates
 
       - name: Resolve tag to CI run ID
         id: lookup
@@ -54,9 +57,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 1
+
+      - name: Harden OS certificate trust
+        uses: ./.github/actions/upgrade-ca-certificates
 
       - name: Download wheels from validated CI run
         env:
@@ -69,7 +75,7 @@ jobs:
           ./ci/tools/validate-release-wheels "${{ github.ref_name }}" dist
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3
         with:
           verbose: true
 
@@ -83,9 +89,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 1
+
+      - name: Harden OS certificate trust
+        uses: ./.github/actions/upgrade-ca-certificates
 
       - name: Download wheels from validated CI run
         env:

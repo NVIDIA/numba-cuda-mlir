@@ -27,13 +27,13 @@ from numba_cuda_mlir.lowering_utilities import (
     int_of,
     index_of,
     convert,
+    get_conversion_signedness,
     f32_of,
     i32_of,
     memref_descriptor_type,
     memref_to_llvm_ptr,
     storage_itemsize_bytes,
     storage_bitwidth,
-    is_valid_memref_element_type,
 )
 from numba_cuda_mlir.lowering_utilities.type_conversions import (
     to_mlir_type,
@@ -55,6 +55,7 @@ lower_getattr_generic = registry.lower_getattr_generic
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.cuda import fp16
 import numba_cuda_mlir.cuda
+from numba_cuda_mlir.numba_cuda.core.errors import UnsupportedError
 from numba_cuda_mlir import types
 import numba_cuda_mlir.numba_cuda.core.ir as numba_ir
 import numba_cuda_mlir.lowering_utilities.type_conversions as type_conversions
@@ -70,7 +71,6 @@ from typing import Any
 from numba_cuda_mlir.logging import trace
 import numpy as np
 from numba_cuda_mlir.numba_cuda.typing.templates import ConcreteTemplate
-from numba_cuda_mlir.numba_cuda.core.errors import UnsupportedError
 from numba_cuda_mlir.numba_cuda import stubs as cuda_stubs
 
 
@@ -329,8 +329,6 @@ def _extract_shape_and_dtype(shape, dtype, alignment=None, alignas=None, **kwarg
     assert not kwargs, f"got unexpected keyword arguments: {kwargs}"
     # Support both 'alignment' (numba-cuda) and 'alignas' (numba_cuda_mlir) keywords
     align_val = alignment if alignment is not None else alignas
-    if align_val is None:
-        align_val = 8
     return shape, dtype, align_val
 
 
@@ -359,16 +357,20 @@ def _resolve_numba_dtype(lower, dtype_var):
 
 shmem_id = 0
 
-_LLVM_BACKED_SHARED_DTYPE_ERROR = (
-    "cuda.shared.array does not yet support LLVM-backed element dtypes. "
-    "Use cuda.local.array for per-thread extension storage or a built-in "
-    "shared-memory dtype."
-)
-
 
 def cuda_static_shared_memory(lower: MLIRLower, target, static_shape, dtype, alignas):
     global shmem_id
+    from numba_cuda_mlir.array_storage import ArrayStorageLayout
+    from numba_cuda_mlir.lowering_utilities import byte_array_view
+
     shape = tuple(static_shape)
+    target_type = lower.get_numba_type(target.name)
+    layout = ArrayStorageLayout(target_type)
+    dtype = layout.element_type
+    logical_shape = shape
+    if layout.byte_addressed:
+        shape = (int(np.prod(shape)) * layout.itemsize,)
+
     mspace = ir.Attribute.parse("#gpu.address_space<workgroup>")
     ty = T.memref(*shape, element_type=dtype, memory_space=mspace)
     gpu_module = lower.mlir_gpu_module
@@ -382,7 +384,16 @@ def cuda_static_shared_memory(lower: MLIRLower, target, static_shape, dtype, ali
         )
         shmem_id += 1
     mr = memref.get_global(ty, static_shared_memory_name)
+    if layout.byte_addressed:
+        mr = byte_array_view(target_type, mr, [index_of(d) for d in logical_shape])
     lower.store_var(target, mr)
+
+
+_LLVM_BACKED_SHARED_DTYPE_ERROR = (
+    "cuda.shared.array does not yet support LLVM-backed element dtypes. "
+    "Use cuda.local.array for per-thread extension storage or a built-in "
+    "shared-memory dtype."
+)
 
 
 @lower(cuda.shared.array, types.Number)
@@ -438,8 +449,6 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
         alignas = try_extract_constant(alignas)
     # Validate alignment (raises ValueError for invalid values)
     _validate_alignment(alignas)
-    if alignas is None:
-        alignas = 8  # default alignment when None
     shape_op: tuple[ir.Value | int, ...] | ir.Value | int = lower.load_var(shape)
 
     # Wrap single values (int or ir.Value) in a tuple for 1D arrays
@@ -461,133 +470,75 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
 
     static_shape = [_is_static_dim(x) for x in shape_op]
 
-    np_dtype = _resolve_numba_dtype(lower, dtype)
-    dtype = lower.get_storage_type(np_dtype)
-    if not is_valid_memref_element_type(dtype):
+    from numba_cuda_mlir.array_storage import ArrayStorageLayout
+
+    if ArrayStorageLayout(lower.get_numba_type(target.name)).llvm_element_layout is not None:
         raise UnsupportedError(_LLVM_BACKED_SHARED_DTYPE_ERROR, loc=target.loc)
 
     is_dynamic_shared_shape = len(static_shape) == 1 and static_shape[0] == 0
     if all([x is not None for x in static_shape]) and not is_dynamic_shared_shape:
-        return cuda_static_shared_memory(lower, target, static_shape, dtype, alignas)
+        return cuda_static_shared_memory(lower, target, static_shape, dtype, alignas or 8)
 
-    shape = coerce_to_shape_tuple(shape_op)
-
-    mr_type = ir.MemRefType.get(
-        shape=[ir.MemRefType.get_dynamic_size() for _ in shape],
-        element_type=dtype,
-        memory_space=lower._get_shared_address_space(),
-    )
-    if is_dynamic_shared_shape:
-        array = lower._request_dynamic_shared_memory(mr_type)
-    else:
-        array = lower._request_shared_memory(shape, mr_type)
-    if alignas != 8:
-        array = memref.assume_alignment(array, alignas)
-    lower.store_var(target, array)
-
-
-def _allocate_llvm_backed_local_array(
-    lower: MLIRLower,
-    target,
-    shape: tuple[int, ...],
-    element_type: ir.Type,
-    alignment: int,
-):
-    """Allocate LLVM elements and expose their logical shape as an i8 memref.
-
-    LLVM owns the element ABI layout: the alloca count and typed GEPs are in
-    units of ``element_type``.  The byte-backed memref is descriptor-only and
-    carries logical sizes/strides, so array shape metadata never becomes a byte
-    count. The descriptor wraps the alloca's generic pointer. CUDA's public
-    local-array contract requires literal dimensions, so this helper
-    deliberately accepts only a fully static shape.
-    """
-
-    rank = len(shape)
-    if rank == 0:
-        raise ValueError("cuda.local.array requires at least one shape dimension")
-    if any(not isinstance(dim, int) for dim in shape):
-        raise InternalCompilerError("LLVM-backed cuda.local.array requires a fully static shape")
-
-    dynamic = ir.ShapedType.get_dynamic_size()
-    dynamic_stride = ir.ShapedType.get_dynamic_stride_or_offset()
-    memref_type = ir.MemRefType.get(
-        shape=[dynamic] * rank,
-        element_type=T.i8(),
-        layout=ir.StridedLayoutAttr.get(
-            offset=dynamic_stride,
-            strides=[dynamic_stride] * rank,
-        ),
+    shape_type = lower.get_numba_type(shape.name)
+    dim_types = shape_type if isinstance(shape_type, types.BaseTuple) else (shape_type,)
+    shape = tuple(
+        index_of(lower.lower_cast(dim_type, types.int64, dim))
+        for dim, dim_type in zip(shape_op, dim_types, strict=True)
     )
 
-    pointer_type = llvm.PointerType.get()
-    descriptor_type = llvm.StructType.get_literal(
-        [
-            pointer_type,
-            pointer_type,
-            T.i64(),
-            llvm.ArrayType.get(T.i64(), rank),
-            llvm.ArrayType.get(T.i64(), rank),
-        ]
-    )
+    from numba_cuda_mlir.lowering_utilities import byte_array_view
 
-    with lower.alloca_insertion_point():
-        sizes = [constant(dim, T.i64()) for dim in shape]
-
-        element_count = constant(1, T.i64())
-        for size in sizes:
-            element_count = arith.muli(element_count, size)
-
-        if alignment == 8:
-            # Match the existing memref.alloca path: omitting the default lets
-            # LLVM preserve a stricter natural alignment for the element type.
-            pointer = llvm.alloca(pointer_type, element_count, element_type)
-        else:
-            pointer = llvm.alloca(
-                pointer_type,
-                element_count,
-                element_type,
-                alignment=alignment,
-            )
-
-        strides = [None] * rank
-        stride = constant(1, T.i64())
-        for index in range(rank - 1, -1, -1):
-            strides[index] = stride
-            stride = arith.muli(stride, sizes[index])
-
-        descriptor = llvm.UndefOp(descriptor_type).result
-        insert = lambda value, field, *position: llvm.insertvalue(
-            container=value,
-            value=field,
-            position=ir.DenseI64ArrayAttr.get(list(position)),
+    target_type = lower.get_numba_type(target.name)
+    layout = ArrayStorageLayout(target_type)
+    alignment = max(alignas or 1, layout.alignment)
+    mspace = lower._get_shared_address_space()
+    if layout.byte_addressed:
+        backing_type = ir.MemRefType.get(
+            [ir.ShapedType.get_dynamic_size()], T.i8(), memory_space=mspace
         )
-        descriptor = insert(descriptor, pointer, 0)
-        descriptor = insert(descriptor, pointer, 1)
-        descriptor = insert(descriptor, constant(0, T.i64()), 2)
-        for index, size in enumerate(sizes):
-            descriptor = insert(descriptor, size, 3, index)
-        for index, logical_stride in enumerate(strides):
-            descriptor = insert(descriptor, logical_stride, 4, index)
-
-        array = builtin.unrealized_conversion_cast([memref_type], [descriptor])
-
+        if is_dynamic_shared_shape:
+            backing = lower._request_dynamic_shared_memory(backing_type, alignment)
+            shape = (memref.dim(backing, index_of(0)) // index_of(layout.itemsize),)
+        else:
+            backing = lower._request_runtime_sized_shared_memory(
+                shape, backing_type, alignment, byte_itemsize=layout.itemsize
+            )
+        array = byte_array_view(target_type, backing, list(shape))
+    else:
+        mr_type = ir.MemRefType.get(
+            [ir.ShapedType.get_dynamic_size()] * len(shape),
+            layout.element_type,
+            memory_space=mspace,
+        )
+        array = (
+            lower._request_dynamic_shared_memory(mr_type, alignment)
+            if is_dynamic_shared_shape
+            else lower._request_runtime_sized_shared_memory(shape, mr_type, alignment)
+        )
+    if alignas is not None:
+        # assume_alignment yields a new SSA value; an unused result leaves a
+        # dead op that canonicalization erases, silently dropping the
+        # alignment assumption. Keep the aligned value as the array, and keep
+        # it recognizable as dynamic shared memory.
+        array = memref.assume_alignment(array, alignment)
+        if is_dynamic_shared_shape:
+            lower._dynamic_shared_memory_values.append(array)
     lower.store_var(target, array)
 
 
 @lower(cuda.local_array, types.Tuple, types.DTypeSpec, types.Number)
-@lower(cuda.local_array, types.Number, types.DTypeSpec, types.Number)
 @lower(cuda.local_array, types.Tuple, types.TypeRef, types.Number)
+@lower(cuda.local_array, types.Number, types.DTypeSpec, types.Number)
 @lower(cuda.local_array, types.Number, types.TypeRef, types.Number)
 @lower(cuda.local_array, types.Tuple, types.DTypeSpec)
-@lower(cuda.local_array, types.Number, types.DTypeSpec)
 @lower(cuda.local_array, types.Tuple, types.TypeRef)
+@lower(cuda.local_array, types.Number, types.DTypeSpec)
 @lower(cuda.local_array, types.Number, types.TypeRef)
 @lower(cuda.local_array, types.Tuple, types.StringLiteral)
 @lower(cuda.local_array, types.Number, types.StringLiteral)
 @lower(cuda.local_array, types.Tuple, types.DTypeSpec, types.NoneType)
-@lower(cuda.local_array, types.Number, types.DTypeSpec, types.NoneType)
 @lower(cuda.local_array, types.Tuple, types.TypeRef, types.NoneType)
+@lower(cuda.local_array, types.Number, types.DTypeSpec, types.NoneType)
 @lower(cuda.local_array, types.Number, types.TypeRef, types.NoneType)
 @lower(cuda.local_array, types.Tuple, types.StringLiteral, types.NoneType)
 @lower(cuda.local_array, types.Number, types.StringLiteral, types.NoneType)
@@ -600,8 +551,8 @@ def _allocate_llvm_backed_local_array(
 @lower(cuda.local_array, types.UniTuple, types.TypeRef, types.NoneType)
 @lower(cuda.local_array, types.UniTuple, types.StringLiteral, types.NoneType)
 @lower(cuda.local_array, types.Tuple, types.DTypeSpec, types.IntegerLiteral)
-@lower(cuda.local_array, types.Number, types.DTypeSpec, types.IntegerLiteral)
 @lower(cuda.local_array, types.Tuple, types.TypeRef, types.IntegerLiteral)
+@lower(cuda.local_array, types.Number, types.DTypeSpec, types.IntegerLiteral)
 @lower(cuda.local_array, types.Number, types.TypeRef, types.IntegerLiteral)
 @lower(cuda.local_array, types.Tuple, types.StringLiteral, types.IntegerLiteral)
 @lower(cuda.local_array, types.Number, types.StringLiteral, types.IntegerLiteral)
@@ -640,25 +591,19 @@ def cuda_local_array(lower: MLIRLower, target, args: list[Any], kwargs: list[tup
             static_shape = None
             break
 
+    from numba_cuda_mlir.array_storage import ArrayStorageLayout
+    from numba_cuda_mlir.lowering_utilities import array_alloca
+
+    target_type = lower.get_numba_type(target.name)
+    layout = ArrayStorageLayout(target_type)
+    if layout.byte_addressed:
+        shape = coerce_to_shape_tuple(shape_op)
+        array = array_alloca(target_type, list(shape), alignment=max(alignas, layout.alignment))
+        lower.store_var(target, array)
+        return
+
     np_dtype = _resolve_numba_dtype(lower, dtype)
     mlir_dtype = lower.get_storage_type(np_dtype)
-
-    from numba_cuda_mlir.types import Record
-
-    if not isinstance(np_dtype, (Record, types.CharSeq, types.UnicodeCharSeq)) and not (
-        is_valid_memref_element_type(mlir_dtype)
-    ):
-        if static_shape is None:
-            raise InternalCompilerError(
-                "LLVM-backed cuda.local.array requires a fully static shape"
-            )
-        return _allocate_llvm_backed_local_array(
-            lower,
-            target,
-            tuple(static_shape),
-            mlir_dtype,
-            alignas,
-        )
 
     if static_shape is not None:
         # Static shape - use static memref allocation
@@ -741,39 +686,65 @@ def lower_strides(
     target: numba_ir.Var,
     array: numba_ir.Var,
 ):
-    from numba_cuda_mlir.lowering_utilities import int_of, index_of
+    from numba_cuda_mlir.array_storage import ArrayStorageLayout
 
+    array_numba_type = mlir_lower.get_numba_type(array)
     array = mlir_lower.load_var(array)
-    array_type = array.type
-    rank = array_type.rank
-    array_numba_type = mlir_lower.get_numba_type(array.name)
+    if not isinstance(array.type, ir.MemRefType):
+        raise NotImplementedError(f"strides not implemented for {array.type}")
 
-    # Get element size in bytes
-    element_size = storage_itemsize_bytes(array_numba_type)
+    # Descriptor strides count storage units; NumPy exposes byte strides.
+    element_size = index_of(ArrayStorageLayout(array_numba_type).unit_bytes)
 
-    # Get dimensions - handle both memref and tensor types
-    if isinstance(array_type, ir.MemRefType):
-        dims = [
-            memref.dim(source=array, index=arith.constant(result=T.index(), value=i))
-            for i in range(rank)
-        ]
-    elif isinstance(array_type, ir.RankedTensorType):
-        dims = [
-            tensor.dim(source=array, index=arith.constant(result=T.index(), value=i))
-            for i in range(rank)
-        ]
-    else:
-        raise NotImplementedError(f"strides not implemented for {array_type}")
+    rank = array.type.rank
+    md = memref.extract_strided_metadata(array)
+    strides = tuple(arith.muli(md[2 + rank + i], element_size) for i in range(rank))
+    mlir_lower.store_var(target, strides)
 
-    # Compute strides (C-contiguous order)
-    # stride[rank-1] = element_size
-    # stride[i] = stride[i+1] * dim[i+1]
-    strides = [None] * rank
-    strides[-1] = index_of(element_size)
-    for i in range(rank - 2, -1, -1):
-        strides[i] = arith.muli(strides[i + 1], dims[i + 1])
 
-    mlir_lower.store_var(target, tuple(strides))
+@lower_getattr(types.Array, "T")
+def lower_array_transpose(
+    _: MLIRTargetContext,
+    mlir_lower: MLIRLower,
+    target: numba_ir.Var,
+    array: numba_ir.Var,
+):
+    source = mlir_lower.load_var(array)
+    if not isinstance(source.type, ir.MemRefType):
+        raise NotImplementedError(f"T not implemented for {source.type}")
+
+    rank = source.type.rank
+    if rank <= 1:
+        mlir_lower.store_var(target, source)
+        return
+
+    md = memref.extract_strided_metadata(source)
+    offset = md[1]
+    sizes = list(md[2 : 2 + rank])
+    strides = list(md[2 + rank : 2 + 2 * rank])
+
+    dyn_size = ir.ShapedType.get_dynamic_size()
+    dyn_stride = ir.ShapedType.get_dynamic_stride_or_offset()
+    result_type = ir.MemRefType.get(
+        shape=[dyn_size] * rank,
+        element_type=source.type.element_type,
+        layout=ir.StridedLayoutAttr.get(dyn_stride, [dyn_stride] * rank),
+        memory_space=source.type.memory_space,
+    )
+
+    mlir_lower.store_var(
+        target,
+        memref.reinterpret_cast(
+            result_type,
+            source,
+            offsets=[offset],
+            sizes=sizes[::-1],
+            strides=strides[::-1],
+            static_offsets=[dyn_stride],
+            static_sizes=[dyn_size] * rank,
+            static_strides=[dyn_stride] * rank,
+        ),
+    )
 
 
 def _dim3_attr_to_dimension(attr: str):
@@ -788,10 +759,7 @@ def _dim3_attr_to_dimension(attr: str):
             raise ValueError(f"Invalid attribute for Dim3: {attr}")
 
 
-def _get_dim3_attribute(
-    which_one,
-    dimension: gpu.Dimension,
-) -> ir.Value:
+def _get_dim3_attribute(which_one, dimension: gpu.Dimension) -> ir.Value:
     match which_one:
         case cuda.threadIdx:
             return gpu.thread_id(dimension)
@@ -925,18 +893,6 @@ def lower_cuda_gridsize(
         raise ValueError(f"cuda.gridsize() only supports dimensions 1, 2, or 3, got {dim_literal}")
 
 
-def _tuple_size_from_dimension(dim: types.Type):
-    match dim:
-        case types.IntegerLiteral(literal_value=1):
-            return types.int64
-        case types.IntegerLiteral(literal_value=2):
-            return types.UniTuple(types.int64, 2)
-        case types.IntegerLiteral(literal_value=3):
-            return types.UniTuple(types.int64, 3)
-        case _:
-            raise ValueError(f"cuda.gridsize() only supports dimensions 1, 2, or 3, got {dim}")
-
-
 def get_syncthreads_variant(reduction_op: nvvm.BarrierReduction):
     def cg_syncthreads_variant(builder, target, args, kwargs):
         pred = builder.load_var(args[0]) if len(args) else None
@@ -972,14 +928,23 @@ def _shfl_sync_lowering(builder: MLIRLower, target, args, kwargs, shfl_kind):
     mask = int_of(mask, T.i32())
     offset = int_of(offset, T.i32())
     original_type = value.type
-    value = f32_of(value) if isinstance(value.type, ir.FloatType) else i32_of(value)
-
+    is_float = isinstance(original_type, ir.FloatType)
     mask_and_clamp = constant(0 if shfl_kind == nvvm.ShflKind.up else 0x1F, T.i32())
-    result = nvvm.shfl_sync(mask, value, offset, mask_and_clamp, shfl_kind)
 
-    # Convert result back to original type if needed
-    if isinstance(original_type, ir.FloatType) and original_type.width == 64:
-        result = arith.extf(T.f64(), result)
+    if original_type.width == 64:
+        # Shuffle a 64-bit value as the two 32-bit halves of its bit pattern,
+        # as numba-cuda does; narrowing to f32 or i32 would drop bits.
+        bits = arith.bitcast(T.i64(), value) if is_float else value
+        shift = constant(32, T.i64())
+        lo = arith.trunci(T.i32(), bits)
+        hi = arith.trunci(T.i32(), arith.shrui(bits, shift))
+        lo = nvvm.shfl_sync(mask, lo, offset, mask_and_clamp, shfl_kind)
+        hi = nvvm.shfl_sync(mask, hi, offset, mask_and_clamp, shfl_kind)
+        bits = arith.ori(arith.extui(T.i64(), lo), arith.shli(arith.extui(T.i64(), hi), shift))
+        result = arith.bitcast(original_type, bits) if is_float else bits
+    else:
+        value = f32_of(value) if is_float else i32_of(value)
+        result = nvvm.shfl_sync(mask, value, offset, mask_and_clamp, shfl_kind)
 
     builder.store_var(target, result)
 
@@ -1319,6 +1284,13 @@ def cuda_atomic_dec_body_builder(value_at_index, argument_value):
     return result
 
 
+def _require_aligned_array(builder, array_var):
+    if not builder.get_numba_type(array_var.name).aligned:
+        from numba_cuda_mlir.numba_cuda.core.errors import TypingError
+
+        raise TypingError("Atomic operations require an aligned array")
+
+
 def cuda_generic_atomic_cg(builder, target, mr, indices, value, body_builder):
     value_type = mr.type.element_type
     value = convert(value, value_type)
@@ -1338,7 +1310,7 @@ def cuda_atomic_cg(oper, builder, target, mr, indices, value):
     if oper == cuda.atomic.sub:
         value = 0 - value
     indices = list(map(index_of, indices))
-    ptr = memref_to_llvm_ptr(mr, indices, value_type)
+    ptr = memref_to_llvm_ptr(mr, indices)
     result = llvm.atomicrmw(binop, ptr, value, llvm.AtomicOrdering.monotonic)
     builder.store_var(target, result)
 
@@ -1346,12 +1318,14 @@ def cuda_atomic_cg(oper, builder, target, mr, indices, value):
 def _register_cuda_atomic_lowerings(intrin):
     @lower(intrin, types.Array, types.Number, types.Number)
     def _atomic_1d(builder, target, args, kwargs, intrin=intrin):
+        _require_aligned_array(builder, args[0])
         mr, index, value = builder.load_vars(args)
         cuda_atomic_cg(intrin, builder, target, mr, [index], value)
 
     @lower(intrin, types.Array, types.UniTuple, types.Number)
     @lower(intrin, types.Array, types.Tuple, types.Number)
     def _atomic_nd(builder, target, args, kwargs, intrin=intrin):
+        _require_aligned_array(builder, args[0])
         mr, indices, value = builder.load_vars(args)
         cuda_atomic_cg(intrin, builder, target, mr, tuple(indices), value)
 
@@ -1378,13 +1352,14 @@ def cuda_atomic_exch_cg(builder, target, mr, indices, value_to_store):
     value_type = mr.type.element_type
     value_to_store = convert(value_to_store, value_type)
     indices = list(map(index_of, indices))
-    ptr = memref_to_llvm_ptr(mr, indices, value_type)
+    ptr = memref_to_llvm_ptr(mr, indices)
     rmw = llvm.atomicrmw(llvm.AtomicBinOp.xchg, ptr, value_to_store, llvm.AtomicOrdering.monotonic)
     builder.store_var(target, rmw)
 
 
 @lower(cuda.atomic.exch, types.Array, types.Number, types.Number)
 def exch1d(builder, target, args, kwargs):
+    _require_aligned_array(builder, args[0])
     mr, index, value = builder.load_vars(args)
     cuda_atomic_exch_cg(builder, target, mr, [index], value)
 
@@ -1392,6 +1367,7 @@ def exch1d(builder, target, args, kwargs):
 @lower(cuda.atomic.exch, types.Array, types.UniTuple, types.Number)
 @lower(cuda.atomic.exch, types.Array, types.Tuple, types.Number)
 def exchnd(builder, target, args, kwargs):
+    _require_aligned_array(builder, args[0])
     mr, indices, value = builder.load_vars(args)
     cuda_atomic_exch_cg(builder, target, mr, tuple(indices), value)
 
@@ -1401,7 +1377,17 @@ def cuda_atomic_cas_cg(builder, target, mr, indices, old, value):
     Perform if array[idx] == old: array[idx] = value.
     """
     value_type = mr.type.element_type
-    old = convert(old, value_type)
+    result_type = builder.get_numba_type(target.name)
+
+    def convert_operand(var):
+        return convert(
+            builder.load_var(var),
+            value_type,
+            signed=get_conversion_signedness(builder.get_numba_type(var.name), result_type),
+        )
+
+    old = convert_operand(old)
+    value = convert_operand(value)
     indices = list(map(index_of, indices))
 
     @generic_rmw(value_type, mr, indices)
@@ -1417,26 +1403,33 @@ def cuda_atomic_cas_cg(builder, target, mr, indices, old, value):
 
 @lower(cuda.atomic.cas, types.Array, types.Number, types.Number, types.Number)
 def cas1d(builder, target, args, kwargs):
-    mr, index, old, value = builder.load_vars(args)
+    _require_aligned_array(builder, args[0])
+    mr, index = builder.load_vars(args[:2])
+    old, value = args[2:]
     cuda_atomic_cas_cg(builder, target, mr, [index], old, value)
 
 
 @lower(cuda.atomic.cas, types.Array, types.UniTuple, types.Number, types.Number)
 @lower(cuda.atomic.cas, types.Array, types.Tuple, types.Number, types.Number)
 def casnd(builder, target, args, kwargs):
-    mr, indices, old, value = builder.load_vars(args)
+    _require_aligned_array(builder, args[0])
+    mr, indices = builder.load_vars(args[:2])
+    old, value = args[2:]
     cuda_atomic_cas_cg(builder, target, mr, tuple(indices), old, value)
 
 
 @lower(cuda.atomic.compare_and_swap, types.Array, types.Number, types.Number)
 def compare_and_swapnd(builder, target, args, kwargs):
-    mr, value, compare_value = builder.load_vars(args)
+    _require_aligned_array(builder, args[0])
+    mr = builder.load_var(args[0])
+    old, value = args[1:]
     indices = (index_of(0) for _ in range(mr.type.rank))
-    cuda_atomic_cas_cg(builder, target, mr, indices, value, compare_value)
+    cuda_atomic_cas_cg(builder, target, mr, indices, old, value)
 
 
 @lower(cuda.atomic.inc, types.Array, types.Number, types.Number)
 def inc1d(builder, target, args, kwargs):
+    _require_aligned_array(builder, args[0])
     mr, index, value = builder.load_vars(args)
     cuda_generic_atomic_cg(builder, target, mr, [index], value, cuda_atomic_inc_body_builder)
 
@@ -1444,6 +1437,7 @@ def inc1d(builder, target, args, kwargs):
 @lower(cuda.atomic.inc, types.Array, types.UniTuple, types.Number)
 @lower(cuda.atomic.inc, types.Array, types.Tuple, types.Number)
 def incnd(builder, target, args, kwargs):
+    _require_aligned_array(builder, args[0])
     mr, indices, value = builder.load_vars(args)
     cuda_generic_atomic_cg(
         builder,
@@ -1457,6 +1451,7 @@ def incnd(builder, target, args, kwargs):
 
 @lower(cuda.atomic.dec, types.Array, types.Number, types.Number)
 def dec1d(builder, target, args, kwargs):
+    _require_aligned_array(builder, args[0])
     mr, index, value = builder.load_vars(args)
     cuda_generic_atomic_cg(builder, target, mr, [index], value, cuda_atomic_dec_body_builder)
 
@@ -1464,6 +1459,7 @@ def dec1d(builder, target, args, kwargs):
 @lower(cuda.atomic.dec, types.Array, types.UniTuple, types.Number)
 @lower(cuda.atomic.dec, types.Array, types.Tuple, types.Number)
 def decnd(builder, target, args, kwargs):
+    _require_aligned_array(builder, args[0])
     mr, indices, value = builder.load_vars(args)
     cuda_generic_atomic_cg(
         builder,
@@ -1603,7 +1599,7 @@ def _get_element_pointer_for_cache_hint(builder, array, index, array_type):
     if isinstance(array_type, types.Array):
         # Convert memref to LLVM pointer using shared helper
         indices = list(index) if isinstance(index, tuple) else [index]
-        element_ptr = memref_to_llvm_ptr(array, indices, ele_ty)
+        element_ptr = memref_to_llvm_ptr(array, indices)
     elif isinstance(array_type, types.CPointer):
         # For pointers, just use getelementptr directly
         llvm_kDynamic = -2147483648

@@ -176,8 +176,8 @@ long as each request adds at least one new literal position. Pass zero-based,
 top-level argument positions, for example ``ForceLiteralArg({1})``. Runtime
 values whose exact type is the built-in Python ``int`` or ``bool`` follow
 Numba's literal semantics; each distinct value receives an exact overload and
-native cache entry. Recorded positions are conditional
-dispatch hints, not permanent restrictions on later signatures. Other runtime
+native cache entry. Recorded positions are conditional dispatch hints, not
+permanent restrictions on later signatures. Other runtime
 types retain their normally inferred type and may compile a generic overload.
 If that compilation itself requests an unsupported literal value, dispatch
 reports the unsupported request. A request that adds no new positions is
@@ -260,6 +260,16 @@ a single MLIR value. For an aggregate type with named fields, use
 :py:class:`~numba_cuda_mlir.models.AggregateTypeModel`; for an
 NRT-managed type wrapping a pointer, see the experimental data models in
 :py:mod:`numba_cuda_mlir.models`.
+
+For a kernel parameter with a
+:py:class:`~numba_cuda_mlir.models.StructModel`, a launch value can implement
+``prepare_args(ty, val, stream=None, retr=None)`` and return the registered
+frontend type together with a tuple of field values in model order.
+For example, a pair of 32-bit integers can return
+``ty, (np.int32(val.left), np.int32(val.right))``. Kernel code can then
+access ``pair.left`` and ``pair.right`` after registering their attribute
+wrappers. A CUDA C device function declared with ``abi="c"`` receives the
+struct as one aggregate parameter.
 
 .. _lowering-functions:
 

@@ -140,6 +140,21 @@ def test_value_owned_handler_transforms_without_dispatcher_extension():
     assert not hasattr(descriptor_mod._compile_arg_types, "launch_args")
 
 
+def test_value_owned_handlers_only_prepare_their_own_argument():
+    class Value(PointerWrapper):
+        def prepare_args(self, ty, val, **kwargs):
+            assert val is self
+            return types.uint64, self.ptr
+
+    class Increment:
+        def prepare_args(self, ty, val, **kwargs):
+            return ty, val + 1
+
+    first, second = Value(1), Value(8)
+    marshaller = descriptor_mod._ArgMarshaller(lambda *values: values, extensions=[Increment()])
+    assert marshaller(first, 20, second, first) == (2, 21, 9, 2)
+
+
 def test_multiple_extension_handlers():
     class ValueModifier:
         def __init__(self, offset):

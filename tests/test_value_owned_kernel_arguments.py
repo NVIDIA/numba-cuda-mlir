@@ -197,3 +197,63 @@ def test_literal_scalar_beside_struct_preserves_native_dispatch(monkeypatch, str
         for index, selector in enumerate((1, 4, True, 3.5)):
             launch(launcher, selector, index + 20)
     assert len(native_compile_calls) == compile_count
+
+
+def test_struct_argument_to_external_c_device_function():
+    source = cuda.CUSource("""
+        struct Pair { int left; int right; };
+        extern "C" __device__ int pair_score(Pair p) {
+            return 10 * p.left + p.right;
+        }
+    """)
+    score = cuda.declare_device("pair_score", types.int32(runtime_pair_type), link=source, abi="c")
+
+    @cuda.jit(device=True)
+    def forward(pair):
+        return score(pair)
+
+    @cuda.jit
+    def kernel(out, pair):
+        out[0] = forward(pair)
+
+    out = np.zeros(1, dtype=np.int32)
+    kernel[1, 1](out, RuntimePair(4, 7))
+    assert out[0] == 47
+    (mlir,) = kernel.inspect_mlir().values()
+    assert "@pair_score(!llvm.struct<" in mlir
+
+
+def test_exported_device_function_accepts_c_struct_by_value():
+    from numba_cuda_mlir import compiler
+
+    @cuda.jit(device=True)
+    def score(pair, scale):
+        return pair.left * scale + pair.right
+
+    sig = types.int32(runtime_pair_type, types.int32)
+    # An internal specialization of the same signature takes flattened fields.
+    score.compile(sig)
+    ptx, _ = compiler.compile_ptx(
+        score, sig, device=True, abi="c", abi_info={"abi_name": "exported_pair_score"}
+    )
+    source = cuda.CUSource("""
+        struct Pair { int left; int right; };
+        extern "C" __device__ int exported_pair_score(Pair p, int scale);
+        extern "C" __device__ int call_pair_score(int left, int right, int scale) {
+            return exported_pair_score({left, right}, scale);
+        }
+    """)
+    call = cuda.declare_device(
+        "call_pair_score",
+        types.int32(types.int32, types.int32, types.int32),
+        link=[source, cuda.PTXSource(ptx.encode())],
+        abi="c",
+    )
+
+    @cuda.jit
+    def kernel(out):
+        out[0] = call(4, 7, 10)
+
+    out = np.zeros(1, dtype=np.int32)
+    kernel[1, 1](out)
+    assert out[0] == 47

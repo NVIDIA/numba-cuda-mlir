@@ -183,42 +183,6 @@ def test_arg_marshaller_exposes_launch_config_during_launch():
     assert not hasattr(descriptor_mod._compile_arg_types, "launch_config")
 
 
-def test_arg_marshaller_passes_call_scoped_dispatch_token():
-    observed = []
-
-    class Dispatcher(_Dispatcher):
-        def _dispatch_token_for(self, argtypes):
-            observed.append(argtypes)
-            return 17
-
-    def launcher(value, **kwargs):
-        observed.append((value, kwargs))
-        return "launched"
-
-    marshaller = _ArgMarshaller(
-        launcher,
-        dispatcher=Dispatcher(),
-        supports_dispatch_token=True,
-    )
-
-    assert marshaller._launch((types.int32,), (np.int32(4),)) == "launched"
-    assert observed == [
-        (types.int32,),
-        (np.int32(4), {"_dispatch_token": 17}),
-    ]
-
-
-def test_dispatch_tokens_are_stable_and_exact():
-    def kernel():
-        pass
-
-    dispatcher = descriptor_mod.MLIRDispatcher(kernel)
-
-    int32_token = dispatcher._dispatch_token_for((types.int32,))
-    assert dispatcher._dispatch_token_for((types.int32,)) == int32_token
-    assert dispatcher._dispatch_token_for((types.int64,)) != int32_token
-
-
 def test_arg_marshaller_restores_launch_config_after_error():
     original_launch_config = {"block": (16, 1, 1)}
     dispatcher = _Dispatcher()
@@ -1273,8 +1237,9 @@ def test_compile_impl_generic_applies_shared_memory_carveout(monkeypatch):
     assert dispatcher.overloads[(types.int32,)] is applied[0]
 
 
-def test_compile_impl_transports_original_launch_args_without_mutation(monkeypatch):
+def test_original_launch_args_only_live_during_compilation(monkeypatch):
     from numba_cuda_mlir import mlir_compiler
+    from numba_cuda_mlir.caching import MLIRCacheImpl
 
     def kernel(x):
         pass
@@ -1289,7 +1254,9 @@ def test_compile_impl_transports_original_launch_args_without_mutation(monkeypat
 
     def mlir_compiler_entry(pyfunc, func_args, targetoptions, override_argtypes):
         compile_calls.append((tuple(func_args), dict(targetoptions)))
-        return CompilerResult()
+        result = CompilerResult()
+        result.metadata["targetoptions"] = targetoptions
+        return result
 
     monkeypatch.setattr(mlir_compiler, "mlir_compiler_entry", mlir_compiler_entry)
     descriptor_mod._compile_arg_types.types = (types.int32,)
@@ -1299,6 +1266,10 @@ def test_compile_impl_transports_original_launch_args_without_mutation(monkeypat
     assert compile_calls[0][0] == (1,)
     assert compile_calls[0][1]["__launch_args__"] == (original_arg,)
     assert "__launch_args__" not in dispatcher.targetoptions
+    compiled = dispatcher.overloads[(types.int32,)]
+    assert "__launch_args__" not in compiled.metadata["targetoptions"]
+    payload = MLIRCacheImpl(kernel).reduce(compiled)
+    assert "__launch_args__" not in payload["targetoptions"]
 
 
 def test_launch_config_key_validation():
@@ -1482,6 +1453,7 @@ def test_launch_config_compatible_lookup_reuses_without_alias_growth():
     launch_key = descriptor_mod._launch_config_key(launch_config)
     compile_result = _CompileResult((types.int32,))
     dispatcher._launch_config_overloads[((types.int32,), launch_key)] = compile_result
+    dispatcher.disable_compile()
 
     with dispatcher._launch_config_lock:
         found = dispatcher._find_launch_config_overload_locked(

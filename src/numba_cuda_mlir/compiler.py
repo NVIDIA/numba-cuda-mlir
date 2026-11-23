@@ -415,8 +415,7 @@ def compile(
         targetoptions["cc"] = cc
     if opt is not None:
         targetoptions["opt"] = opt
-    if abi != "c":
-        targetoptions["abi"] = abi
+    targetoptions["abi"] = abi
     if abi_info is not None:
         targetoptions["abi_info"] = abi_info
     if forceinline:
@@ -426,6 +425,10 @@ def compile(
     targetoptions["_compile_output"] = output
     targetoptions["lto"] = output == "ltoir"
 
+    if abi == "c" and isinstance(pyfunc, MLIRDispatcher):
+        # C exports use aggregate parameters, while the existing dispatcher's
+        # overloads may already be compiled with flattened Numba parameters.
+        pyfunc = MLIRDispatcher(pyfunc.py_func, targetoptions=pyfunc.targetoptions.copy())
     optimized = _compile_and_optimize(pyfunc, sig, targetoptions)
 
     # Kernels must have void return type
@@ -492,7 +495,7 @@ def declare_mlir_library(
     from numba_cuda_mlir.lowering_utilities.discover_functions import discover_functions
 
     if isinstance(source, Path):
-        with open(source, "r") as f:
+        with open(source, "r", encoding="utf-8") as f:
             source = f.read()
 
     functions = discover_functions(source)

@@ -90,19 +90,19 @@ def _lower_make_masked(builder, target, args, kwargs):
     valid = builder.load_var(args[1])
     i8 = mlir_ir.IntegerType.get_signless(8)
     i64 = mlir_ir.IntegerType.get_signless(64)
-    value = convert(value, i8)
-    valid = convert(valid, i64)
+    value = convert(value, i64)
+    valid = convert(valid, i8)
     struct_ty = builder.get_mlir_type(mini_masked)
     undef = llvm.UndefOp(struct_ty)
     with_value = llvm.insertvalue(
         container=undef,
         value=value,
-        position=mlir_ir.DenseI64ArrayAttr.get([0]),
+        position=mlir_ir.DenseI64ArrayAttr.get([1]),
     )
     result = llvm.insertvalue(
         container=with_value,
         value=valid,
-        position=mlir_ir.DenseI64ArrayAttr.get([1]),
+        position=mlir_ir.DenseI64ArrayAttr.get([0]),
     )
     builder.store_var(target, result)
 
@@ -115,11 +115,11 @@ def _lower_make_masked(builder, target, args, kwargs):
 @lower_cast(MiniMaskedType, types.Integer)
 def _cast_mini_masked_to_int(context, builder, fromty, toty, val):
     result_ty = builder.get_mlir_type(toty)
-    stored_ty = mlir_ir.IntegerType.get_signless(8)
+    stored_ty = mlir_ir.IntegerType.get_signless(64)
     stored = llvm.extractvalue(
         res=stored_ty,
         container=val,
-        position=mlir_ir.DenseI64ArrayAttr.get([0]),
+        position=mlir_ir.DenseI64ArrayAttr.get([1]),
     )
     return convert(stored, result_ty, signed=True)
 
@@ -132,13 +132,13 @@ def _cast_int_to_mini_masked(context, builder, fromty, toty, val):
     undef = llvm.UndefOp(struct_ty)
     with_value = llvm.insertvalue(
         container=undef,
-        value=convert(val, i8),
-        position=mlir_ir.DenseI64ArrayAttr.get([0]),
+        value=convert(val, i64),
+        position=mlir_ir.DenseI64ArrayAttr.get([1]),
     )
     return llvm.insertvalue(
         container=with_value,
-        value=constant(1, i64),
-        position=mlir_ir.DenseI64ArrayAttr.get([1]),
+        value=constant(1, i8),
+        position=mlir_ir.DenseI64ArrayAttr.get([0]),
     )
 
 
@@ -155,7 +155,7 @@ class _PointerArray:
 
 @extending.typeof_impl.register(_PointerArray)
 def _typeof_pointer_array(value, context):
-    return types.Array(types.CPointer(types.int32), 1, "C")
+    return types.Array(types.CPointer(types.int32), 1, "A")
 
 
 extending.refresh_registries()
@@ -336,24 +336,42 @@ def test_extension_type_local_array_store_casts():
     np.testing.assert_array_equal(out, np.array([31, 41, 51, 51], dtype=np.int32))
 
 
-def test_llvm_backed_global_pointer_array_round_trip():
-    """The same generic byte-backed ABI can access global pointer arrays."""
+@pytest.mark.parametrize("step", [1, 2])
+def test_llvm_backed_global_pointer_array_round_trip(step):
+    """Kernel argument offset and strides are in bytes, including for views."""
 
     @cuda.jit
     def kernel(pointers, out):
-        out[0] = pointers[0][0]
+        for i in range(len(pointers)):
+            out[i] = pointers[i][0]
 
-    pointee = cuda.to_device(np.array([123], dtype=np.int32))
-    pointer_value = pointee.__cuda_array_interface__["data"][0]
-    pointer_bits = cuda.to_device(np.array([pointer_value], dtype=np.uint64))
-    pointers = _PointerArray(pointer_bits)
-    out = cuda.to_device(np.zeros(1, dtype=np.int32))
+    # Every entry in the allocation is a valid pointer, including the padding
+    # beyond the view. Distinct values reveal incorrect index scaling safely.
+    pointees = cuda.to_device(np.arange(40, dtype=np.int32) + 123)
+    base = pointees.__cuda_array_interface__["data"][0]
+    pointer_bits = cuda.to_device(np.uint64(base) + 4 * np.arange(40, dtype=np.uint64))
+    pointers = _PointerArray(pointer_bits[1 : 1 + 3 * step : step])
+    out = cuda.to_device(np.zeros(3, dtype=np.int32))
 
     kernel[1, 1](pointers, out)
-    assert out.copy_to_host()[0] == 123
+    np.testing.assert_array_equal(out.copy_to_host(), 124 + step * np.arange(3))
 
-    mlir = next(iter(kernel.inspect_mlir().values()))
-    assert "memref<?xi8" in mlir
+
+def test_extension_local_array_layout_copy_and_item():
+    @cuda.jit
+    def kernel(out):
+        values = cuda.local.array((1, 2), mini_masked)
+        values[0, 0] = make_masked(123456, 1)
+        values[0, 1] = make_masked(654321, 1)
+        copied = np.asfortranarray(values)
+        out[0] = copied[:, 1:].item()
+        out[1] = copied[0, 0]
+        out[2] = values.strides[1]
+        out[3] = values.itemsize
+
+    out = np.zeros(4, dtype=np.int32)
+    kernel[1, 1](out)
+    np.testing.assert_array_equal(out, [654321, 123456, 16, 16])
 
 
 def test_extension_type_multidimensional_local_array_round_trip():
@@ -396,5 +414,5 @@ def test_extension_type_local_array_slice_preserves_offset(start, step):
     np.testing.assert_array_equal(out, expected)
 
     mlir = next(iter(kernel.inspect_mlir().values()))
-    assert "llvm.alloca" in mlir
+    assert "memref.alloca" in mlir
     assert "alignment = 16" in mlir

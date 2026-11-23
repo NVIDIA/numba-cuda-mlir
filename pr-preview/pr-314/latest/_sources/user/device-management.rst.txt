@@ -42,9 +42,10 @@ Users can select another device and reuse the same kernel dispatcher:
 
 Compilation and launch caches follow the selected device and context lifetime.
 Returning to a device reuses its specialization. Configured calls also remain
-usable across device selection. Array memory must be accessible from the
-selected context, and streams must belong to it. Passing an array does not
-change the selected device. Resetting a context invalidates its arrays, streams,
+usable across device selection. Passing a device array whose memory is
+inaccessible from the selected context raises ``ValueError`` before launch.
+Select the allocating device or use memory accessible from both devices.
+Streams must belong to the selected context. Resetting a context invalidates its arrays, streams,
 loaded functions, and allocator state.
 
 An explicit ``chip`` option continues to control compilation. An inferred

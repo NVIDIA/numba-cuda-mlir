@@ -711,12 +711,14 @@ NRT-managed type wrapping a pointer, see the experimental data models in
 <p>For a kernel parameter with a
 <code class="xref py py-class docutils literal notranslate"><span class="pre">StructModel</span></code>, a launch value can implement
 <code class="docutils literal notranslate"><span class="pre">prepare_args(ty,</span> <span class="pre">val,</span> <span class="pre">stream=None,</span> <span class="pre">retr=None)</span></code> and return the registered
-frontend type together with a tuple of field values in model order.
+frontend type together with a tuple containing one value per field in model
+order. The handler must supply each field in its declared argument type.
 For example, a pair of 32-bit integers can return
 <code class="docutils literal notranslate"><span class="pre">ty,</span> <span class="pre">(np.int32(val.left),</span> <span class="pre">np.int32(val.right))</span></code>. Kernel code can then
 access <code class="docutils literal notranslate"><span class="pre">pair.left</span></code> and <code class="docutils literal notranslate"><span class="pre">pair.right</span></code> after registering their attribute
 wrappers. A CUDA C device function declared with <code class="docutils literal notranslate"><span class="pre">abi=&quot;c&quot;</span></code> receives the
-struct as one aggregate parameter.</p>
+struct as one aggregate parameter. Callbacks appended to <code class="docutils literal notranslate"><span class="pre">retr</span></code> run after a
+successful launch and belong to that invocation.</p>
 </section>
 </section>
 <section id="lowering">

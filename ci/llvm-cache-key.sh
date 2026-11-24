@@ -65,7 +65,7 @@ case "${kind}" in
         [[ $# -eq 2 && "${host_platform}" != win-arm64 ]] || usage
         build_hash="$(hash_inputs \
             "${SCRIPT_DIR}/build-llvm7.sh" \
-            "${SCRIPT_DIR}/tools/gen-llvm-c-exports.py")"
+            "${SCRIPT_DIR}/../cext/mlir-llvm70/llvm7-exports.txt")"
         echo "llvm7-${os_tag}-$(cache_arch "${host_platform}")-$(cache_version "${LLVM7_TAG}")-${build_hash}"
         ;;
     *)

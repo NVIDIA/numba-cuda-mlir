@@ -10,7 +10,7 @@ Random Number Generation (Deprecated)
 
 .. warning:: The ``cuda.random`` module is deprecated in Numba CUDA MLIR and is
    only provided for backward compatibility with code written for Numba CUDA. It
-   may be removed in future.
+   will be removed in v0.8.0.
 
    Users are encouraged to use the nvmath-python `cuRAND device APIs
    <https://docs.nvidia.com/cuda/nvmath-python/latest/device-apis/curand.html>`_

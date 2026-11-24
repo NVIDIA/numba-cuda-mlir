@@ -1664,6 +1664,8 @@ class Interpreter:
                     ):
                         replaced_var[inst.value.name] = inst.target
                         prev_assign.target = inst.target
+                        # Keep the store's line; a parenthesised value may start a line later.
+                        prev_assign.loc = inst.loc
                         # replace temp var definition in target with proper defs
                         self.definitions[inst.target.name].remove(inst.value)
                         self.definitions[inst.target.name].extend(

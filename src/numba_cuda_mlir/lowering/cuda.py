@@ -55,6 +55,7 @@ lower_getattr_generic = registry.lower_getattr_generic
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.cuda import fp16
 import numba_cuda_mlir.cuda
+from numba_cuda_mlir.numba_cuda.core.errors import UnsupportedError
 from numba_cuda_mlir import types
 import numba_cuda_mlir.numba_cuda.core.ir as numba_ir
 import numba_cuda_mlir.lowering_utilities.type_conversions as type_conversions
@@ -388,32 +389,51 @@ def cuda_static_shared_memory(lower: MLIRLower, target, static_shape, dtype, ali
     lower.store_var(target, mr)
 
 
+_LLVM_BACKED_SHARED_DTYPE_ERROR = (
+    "cuda.shared.array does not yet support LLVM-backed element dtypes. "
+    "Use cuda.local.array for per-thread extension storage or a built-in "
+    "shared-memory dtype."
+)
+
+
 @lower(cuda.shared.array, types.Number)
 @lower(cuda.shared.array, types.Number, types.DTypeSpec)
+@lower(cuda.shared.array, types.Number, types.TypeRef)
 @lower(cuda.shared.array, types.Number, types.StringLiteral)
 @lower(cuda.shared.array, types.Number, types.DTypeSpec, types.Number)
+@lower(cuda.shared.array, types.Number, types.TypeRef, types.Number)
 @lower(cuda.shared.array, types.Number, types.StringLiteral, types.Number)
 @lower(cuda.shared.array, types.Number, types.DTypeSpec, types.IntegerLiteral)
+@lower(cuda.shared.array, types.Number, types.TypeRef, types.IntegerLiteral)
 @lower(cuda.shared.array, types.Number, types.StringLiteral, types.IntegerLiteral)
 @lower(cuda.shared.array, types.Number, types.DTypeSpec, types.NoneType)
+@lower(cuda.shared.array, types.Number, types.TypeRef, types.NoneType)
 @lower(cuda.shared.array, types.Number, types.StringLiteral, types.NoneType)
 @lower(cuda.shared.array, types.UniTuple)
 @lower(cuda.shared.array, types.UniTuple, types.DTypeSpec)
+@lower(cuda.shared.array, types.UniTuple, types.TypeRef)
 @lower(cuda.shared.array, types.UniTuple, types.StringLiteral)
 @lower(cuda.shared.array, types.UniTuple, types.DTypeSpec, types.Number)
+@lower(cuda.shared.array, types.UniTuple, types.TypeRef, types.Number)
 @lower(cuda.shared.array, types.UniTuple, types.StringLiteral, types.Number)
 @lower(cuda.shared.array, types.UniTuple, types.DTypeSpec, types.IntegerLiteral)
+@lower(cuda.shared.array, types.UniTuple, types.TypeRef, types.IntegerLiteral)
 @lower(cuda.shared.array, types.UniTuple, types.StringLiteral, types.IntegerLiteral)
 @lower(cuda.shared.array, types.UniTuple, types.DTypeSpec, types.NoneType)
+@lower(cuda.shared.array, types.UniTuple, types.TypeRef, types.NoneType)
 @lower(cuda.shared.array, types.UniTuple, types.StringLiteral, types.NoneType)
 @lower(cuda.shared.array, types.Tuple)
 @lower(cuda.shared.array, types.Tuple, types.DTypeSpec)
+@lower(cuda.shared.array, types.Tuple, types.TypeRef)
 @lower(cuda.shared.array, types.Tuple, types.StringLiteral)
 @lower(cuda.shared.array, types.Tuple, types.DTypeSpec, types.Number)
+@lower(cuda.shared.array, types.Tuple, types.TypeRef, types.Number)
 @lower(cuda.shared.array, types.Tuple, types.StringLiteral, types.Number)
 @lower(cuda.shared.array, types.Tuple, types.DTypeSpec, types.IntegerLiteral)
+@lower(cuda.shared.array, types.Tuple, types.TypeRef, types.IntegerLiteral)
 @lower(cuda.shared.array, types.Tuple, types.StringLiteral, types.IntegerLiteral)
 @lower(cuda.shared.array, types.Tuple, types.DTypeSpec, types.NoneType)
+@lower(cuda.shared.array, types.Tuple, types.TypeRef, types.NoneType)
 @lower(cuda.shared.array, types.Tuple, types.StringLiteral, types.NoneType)
 def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
     shape, dtype, alignas = _extract_shape_and_dtype(*args, **dict(kwargs))
@@ -450,6 +470,11 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
 
     static_shape = [_is_static_dim(x) for x in shape_op]
 
+    from numba_cuda_mlir.array_storage import ArrayStorageLayout
+
+    if ArrayStorageLayout(lower.get_numba_type(target.name)).llvm_element_layout is not None:
+        raise UnsupportedError(_LLVM_BACKED_SHARED_DTYPE_ERROR, loc=target.loc)
+
     is_dynamic_shared_shape = len(static_shape) == 1 and static_shape[0] == 0
     if all([x is not None for x in static_shape]) and not is_dynamic_shared_shape:
         return cuda_static_shared_memory(lower, target, static_shape, dtype, alignas or 8)
@@ -461,7 +486,6 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
         for dim, dim_type in zip(shape_op, dim_types, strict=True)
     )
 
-    from numba_cuda_mlir.array_storage import ArrayStorageLayout
     from numba_cuda_mlir.lowering_utilities import byte_array_view
 
     target_type = lower.get_numba_type(target.name)
@@ -503,25 +527,37 @@ def cuda_shared_memory(lower: MLIRLower, target, args: list[Any], kwargs: list[t
 
 
 @lower(cuda.local_array, types.Tuple, types.DTypeSpec, types.Number)
+@lower(cuda.local_array, types.Tuple, types.TypeRef, types.Number)
 @lower(cuda.local_array, types.Number, types.DTypeSpec, types.Number)
+@lower(cuda.local_array, types.Number, types.TypeRef, types.Number)
 @lower(cuda.local_array, types.Tuple, types.DTypeSpec)
+@lower(cuda.local_array, types.Tuple, types.TypeRef)
 @lower(cuda.local_array, types.Number, types.DTypeSpec)
+@lower(cuda.local_array, types.Number, types.TypeRef)
 @lower(cuda.local_array, types.Tuple, types.StringLiteral)
 @lower(cuda.local_array, types.Number, types.StringLiteral)
 @lower(cuda.local_array, types.Tuple, types.DTypeSpec, types.NoneType)
+@lower(cuda.local_array, types.Tuple, types.TypeRef, types.NoneType)
 @lower(cuda.local_array, types.Number, types.DTypeSpec, types.NoneType)
+@lower(cuda.local_array, types.Number, types.TypeRef, types.NoneType)
 @lower(cuda.local_array, types.Tuple, types.StringLiteral, types.NoneType)
 @lower(cuda.local_array, types.Number, types.StringLiteral, types.NoneType)
 @lower(cuda.local_array, types.UniTuple, types.DTypeSpec)
+@lower(cuda.local_array, types.UniTuple, types.TypeRef)
 @lower(cuda.local_array, types.UniTuple, types.StringLiteral)
 @lower(cuda.local_array, types.UniTuple, types.DTypeSpec, types.Number)
+@lower(cuda.local_array, types.UniTuple, types.TypeRef, types.Number)
 @lower(cuda.local_array, types.UniTuple, types.DTypeSpec, types.NoneType)
+@lower(cuda.local_array, types.UniTuple, types.TypeRef, types.NoneType)
 @lower(cuda.local_array, types.UniTuple, types.StringLiteral, types.NoneType)
 @lower(cuda.local_array, types.Tuple, types.DTypeSpec, types.IntegerLiteral)
+@lower(cuda.local_array, types.Tuple, types.TypeRef, types.IntegerLiteral)
 @lower(cuda.local_array, types.Number, types.DTypeSpec, types.IntegerLiteral)
+@lower(cuda.local_array, types.Number, types.TypeRef, types.IntegerLiteral)
 @lower(cuda.local_array, types.Tuple, types.StringLiteral, types.IntegerLiteral)
 @lower(cuda.local_array, types.Number, types.StringLiteral, types.IntegerLiteral)
 @lower(cuda.local_array, types.UniTuple, types.DTypeSpec, types.IntegerLiteral)
+@lower(cuda.local_array, types.UniTuple, types.TypeRef, types.IntegerLiteral)
 @lower(cuda.local_array, types.UniTuple, types.StringLiteral, types.IntegerLiteral)
 def cuda_local_array(lower: MLIRLower, target, args: list[Any], kwargs: list[tuple[str, Any]]):
     shape, dtype, alignas = _extract_shape_and_dtype(*args, **dict(kwargs))
@@ -559,9 +595,10 @@ def cuda_local_array(lower: MLIRLower, target, args: list[Any], kwargs: list[tup
     from numba_cuda_mlir.lowering_utilities import array_alloca
 
     target_type = lower.get_numba_type(target.name)
-    if ArrayStorageLayout(target_type).byte_addressed:
+    layout = ArrayStorageLayout(target_type)
+    if layout.byte_addressed:
         shape = coerce_to_shape_tuple(shape_op)
-        array = array_alloca(target_type, list(shape), alignment=alignas)
+        array = array_alloca(target_type, list(shape), alignment=max(alignas, layout.alignment))
         lower.store_var(target, array)
         return
 

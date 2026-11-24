@@ -103,6 +103,7 @@ def lower_to_fixed_tuple(builder, target, args, kwargs):
             array_type,
             array,
             [idx],
+            builder=builder,
             dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
         )
         elements.append(elem)
@@ -850,7 +851,7 @@ def _array_item_cg(builder, target, args, kwargs):
     else:
         array = builder.load_var(array_var)
         value = lowering_utilities.array_element_value_load(
-            array_numba_type, array, [index_of(0)] * array.type.rank
+            array_numba_type, array, [index_of(0)] * array.type.rank, builder=builder
         )
     builder.store_var(target, value)
 
@@ -1251,6 +1252,7 @@ def lower_array_getitem(builder, target, args, kwargs):
             array_numba_type,
             array,
             [index],
+            builder=builder,
             dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
         )
     else:
@@ -1798,6 +1800,7 @@ def lower_charseq_array_setitem_string(builder: MLIRLower, target, args, kwargs)
 @lower(operator.setitem, types.Array, types.Integer, types.NPTimedelta)
 @lower(operator.setitem, types.Array, types.Integer, Record)
 @lower(operator.setitem, types.Array, types.Integer, VectorType)
+@lower(operator.setitem, types.Array, types.Integer, types.Any)
 def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
     trace()
 
@@ -1813,6 +1816,10 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
     if isinstance(array_numba_type.dtype, Record):
         return _lower_record_array_setitem(builder, target, args, kwargs)
 
+    value_numba_type = builder.get_numba_type(args[2].name)
+    if isinstance(value_numba_type, types.Array):
+        raise NotImplementedError("no registered setitem builder for array-valued assignment")
+
     array = builder.load_var(args[0])
     index_arg = args[1]
     index = index_arg if isinstance(index_arg, int) else builder.load_var(index_arg)
@@ -1823,8 +1830,8 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
         None if isinstance(index_arg, int) else builder.get_numba_type(index_arg.name),
     )
     value = builder.load_var(args[2])
-    value_numba_type = builder.get_numba_type(args[2].name)
     signed = get_conversion_signedness(value_numba_type, array_numba_type.dtype)
+    value = _cast_array_store_value(builder, array_numba_type, args[2], value)
     mrt = array.type
     if mrt.rank == 1:
         lowering_utilities.array_element_value_store(
@@ -1832,6 +1839,7 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
             array,
             [index],
             value,
+            builder=builder,
             dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
             signed=signed,
         )
@@ -1849,6 +1857,7 @@ def lower_array_setitem(builder: MLIRLower, target, args, kwargs):
                 array,
                 [index] + list(indices),
                 value,
+                builder=builder,
                 dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
                 signed=signed,
             )
@@ -1885,6 +1894,21 @@ def _setitem_indices_to_memref_indices(
     )
 
 
+def _cast_array_store_value(
+    builder: MLIRLower,
+    array_type: types.Array,
+    value_var: numba_ir.Var,
+    value: ir.Value,
+) -> ir.Value:
+    value_type = builder.get_numba_type(value_var.name)
+    if value_type != array_type.dtype and (
+        not lowering_utilities.type_conversions.is_valid_memref_element_type(value.type)
+        or ArrayStorageLayout(array_type).llvm_element_layout
+    ):
+        return builder.lower_cast(value_type, array_type.dtype, value)
+    return value
+
+
 @lower(operator.setitem, types.Array, types.Tuple, types.Any)
 @lower(operator.setitem, types.Array, types.UniTuple, types.Any)
 def lower_array_setitem_tuple(builder, target, args, kwargs):
@@ -1902,11 +1926,13 @@ def lower_array_setitem_tuple(builder, target, args, kwargs):
     tup = builder.load_var(tup) if isinstance(tup, numba_ir.Var) else tup
     indices = _setitem_indices_to_memref_indices(array, tup, builder.get_numba_type(args[1].name))
     value = builder.load_var(args[2])
+    value = _cast_array_store_value(builder, array_numba_type, args[2], value)
     lowering_utilities.array_element_value_store(
         array_numba_type,
         array,
         indices,
         value,
+        builder=builder,
         dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
     )
 
@@ -1917,9 +1943,10 @@ def lower_array_slice_setitem(builder, target, args, kwargs):
     trace()
     array = builder.load_var(args[0])
     slice_val = builder.load_var(args[1])
-    value = builder.load_var(args[2])
-
     array_numba_type = builder.get_numba_type(args[0].name)
+    value = builder.load_var(args[2])
+    value = _cast_array_store_value(builder, array_numba_type, args[2], value)
+
     mr_type = array.type
     rank = mr_type.rank
 
@@ -1938,6 +1965,7 @@ def lower_array_slice_setitem(builder, target, args, kwargs):
             array,
             list(indices),
             value,
+            builder=builder,
             dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
         )
 
@@ -2031,17 +2059,18 @@ def lower_array_tuple_getitem(builder: MLIRLower, target, args, kwargs):
                 array, full_offsets, full_sizes, full_strides, full_is_scalar
             )
             builder.store_var(target, value)
-        case types.Number() | types.Boolean() | types.NPDatetime() | types.NPTimedelta():
+        case _ if target_type == array_numba_type.dtype:
             value = lowering_utilities.array_element_value_load(
                 array_numba_type,
                 array,
                 full_offsets,
+                builder=builder,
                 dynamic_shared_memory=builder._is_dynamic_shared_memory(array),
             )
             builder.store_var(target, value)
         case _:
             raise InternalCompilerError(
-                f"Target type {target_type} is not an array or number, but a tuple was used to index it"
+                f"Target type {target_type} is not an array or scalar, but a tuple was used to index it"
             )
 
 
@@ -2908,14 +2937,16 @@ def np_empty_lower(builder, target, args, kwargs):
     builder.store_var(target, result_memref)
 
 
-def _fill_array_storage(array_type, array, storage_value):
+def _fill_array_storage(builder, array_type, array, storage_value):
     if not ArrayStorageLayout(array_type).byte_addressed:
         linalg.fill(storage_value, outs=[array])
         return
-    value = lowering_utilities.storage_to_value(array_type.dtype, storage_value)
+    value = lowering_utilities.storage_to_value(array_type.dtype, storage_value, builder=builder)
 
     def fill(indices):
-        lowering_utilities.array_element_value_store(array_type, array, indices, value)
+        lowering_utilities.array_element_value_store(
+            array_type, array, indices, value, builder=builder
+        )
 
     lowering_utilities.for_each_array_index(array, fill)
 
@@ -2938,7 +2969,7 @@ def np_zeros_lower(builder, target, args, kwargs):
         )
         zero = builder.as_storage(target_type.dtype, zero)
 
-    _fill_array_storage(target_type, array_memref, zero)
+    _fill_array_storage(builder, target_type, array_memref, zero)
     builder.store_var(target, array_memref)
 
 
@@ -2960,7 +2991,7 @@ def np_ones_lower(builder, target, args, kwargs):
         )
         one = builder.as_storage(target_type.dtype, one)
 
-    _fill_array_storage(target_type, array_memref, one)
+    _fill_array_storage(builder, target_type, array_memref, one)
     builder.store_var(target, array_memref)
 
 
@@ -2988,7 +3019,7 @@ def np_full_lower(builder, target, args, kwargs):
     fill_value = builder.as_storage(target_type.dtype, fill_value)
 
     # Fill the array
-    _fill_array_storage(target_type, array_memref, fill_value)
+    _fill_array_storage(builder, target_type, array_memref, fill_value)
     builder.store_var(target, array_memref)
 
 
@@ -5680,7 +5711,7 @@ def lower_flip_slice_tuple(builder, target, args, kwargs):
 def _intrinsic_arrays(builder, arg):
     arrays = builder.load_var(arg)
     assert isinstance(arrays, tuple) and arrays
-    return arrays
+    return list(zip(builder.get_numba_type(arg.name), arrays, strict=True))
 
 
 def _intrinsic_axis(builder, arg, rank):
@@ -5698,23 +5729,30 @@ def _intrinsic_axis(builder, arg, rank):
     return axis
 
 
-def _intrinsic_copy_array(builder, source, result, map_index):
-    def emit(dim, source_indices):
-        if dim == source.type.rank:
-            value = memref.load(source, source_indices)
-            value = builder.mlir_convert(value, result.type.element_type)
-            memref.store(value, result, map_index(source_indices))
-            return
-        for i in scf.for_(index_of(0), memref.dim(source, index_of(dim)), index_of(1)):
-            emit(dim + 1, (*source_indices, i))
-            scf.yield_([])
+def _intrinsic_copy_array(builder, source_type, source, result_type, result, map_index):
+    def copy(source_indices):
+        value = lowering_utilities.array_element_value_load(
+            source_type, source, source_indices, builder=builder
+        )
+        if source_type.dtype != result_type.dtype:
+            value = builder.lower_cast(source_type.dtype, result_type.dtype, value)
+        lowering_utilities.array_element_value_store(
+            result_type, result, map_index(source_indices), value, builder=builder
+        )
 
-    emit(0, ())
+    lowering_utilities.for_each_array_index(source, copy)
 
 
 def _intrinsic_alloc(builder, target, shape):
     target_type = builder.get_numba_type(target.name)
-    element_type = builder.get_storage_type(target_type.dtype)
+    layout = ArrayStorageLayout(target_type)
+    if layout.byte_addressed:
+        count = index_of(layout.itemsize)
+        for dim in shape:
+            count = count * dim
+        backing = memref.alloc([count], element_type=T.i8())
+        return lowering_utilities.byte_array_view(target_type, backing, shape)
+    element_type = layout.element_type
     if target_type.layout != "F" or len(shape) < 2:
         return memref.alloc(shape, element_type=element_type)
 
@@ -5732,8 +5770,8 @@ def _intrinsic_alloc(builder, target, shape):
 
 
 def _intrinsic_concat(builder, target, arrays, axis):
-    rank = arrays[0].type.rank
-    sizes = [[memref.dim(array, index_of(i)) for i in range(rank)] for array in arrays]
+    rank = arrays[0][1].type.rank
+    sizes = [[memref.dim(array, index_of(i)) for i in range(rank)] for _, array in arrays]
     shape = []
     for dim in range(rank):
         total = sizes[0][dim]
@@ -5754,7 +5792,7 @@ def _intrinsic_concat(builder, target, arrays, axis):
 
     result = _intrinsic_alloc(builder, target, shape)
     offset = index_of(0)
-    for array, member in zip(arrays, sizes):
+    for (array_type, array), member in zip(arrays, sizes):
         base = offset
 
         def map_index(indices, base=base):
@@ -5767,7 +5805,9 @@ def _intrinsic_concat(builder, target, arrays, axis):
                 for dim, index in enumerate(indices)
             ]
 
-        _intrinsic_copy_array(builder, array, result, map_index)
+        _intrinsic_copy_array(
+            builder, array_type, array, builder.get_numba_type(target.name), result, map_index
+        )
         for dim in range(rank):
             offset = arith.select(
                 arith.cmpi(arith.CmpIPredicate.eq, axis, index_of(dim)),
@@ -5781,7 +5821,7 @@ def _intrinsic_concat(builder, target, arrays, axis):
 @lower(np_concatenate, types.BaseTuple, types.Integer)
 def lower_np_concatenate(builder, target, args, kwargs):
     arrays = _intrinsic_arrays(builder, args[0])
-    axis = _intrinsic_axis(builder, args[1], arrays[0].type.rank)
+    axis = _intrinsic_axis(builder, args[1], arrays[0][1].type.rank)
     _intrinsic_concat(builder, target, arrays, axis)
 
 
@@ -5797,8 +5837,8 @@ def _intrinsic_select_axis(axis, candidates):
 
 
 def _intrinsic_stack(builder, target, arrays, axis, leading_units=0, trailing_units=0):
-    rank = arrays[0].type.rank
-    input_sizes = [[memref.dim(array, index_of(i)) for i in range(rank)] for array in arrays]
+    rank = arrays[0][1].type.rank
+    input_sizes = [[memref.dim(array, index_of(i)) for i in range(rank)] for _, array in arrays]
     error_memref = builder._get_or_create_error_global()
     for member in input_sizes[1:]:
         for left, right in zip(input_sizes[0], member):
@@ -5820,7 +5860,7 @@ def _intrinsic_stack(builder, target, arrays, axis, leading_units=0, trailing_un
     shape += [index_of(1)] * trailing_units
     result = _intrinsic_alloc(builder, target, shape)
 
-    for array_number, array in enumerate(arrays):
+    for array_number, (array_type, array) in enumerate(arrays):
         candidate_indices = []
         for insertion_axis in range(rank + 1):
 
@@ -5838,7 +5878,9 @@ def _intrinsic_stack(builder, target, arrays, axis, leading_units=0, trailing_un
                 for dim in range(len(shape))
             ]
 
-        _intrinsic_copy_array(builder, array, result, map_index)
+        _intrinsic_copy_array(
+            builder, array_type, array, builder.get_numba_type(target.name), result, map_index
+        )
 
     target_type = builder.get_mlir_type(builder.get_numba_type(target.name))
     builder.store_var(target, memref.cast(target_type, result))
@@ -5847,14 +5889,14 @@ def _intrinsic_stack(builder, target, arrays, axis, leading_units=0, trailing_un
 @lower(np_stack_common, types.BaseTuple, types.Integer)
 def lower_np_stack_common(builder, target, args, kwargs):
     arrays = _intrinsic_arrays(builder, args[0])
-    axis = _intrinsic_axis(builder, args[1], arrays[0].type.rank + 1)
+    axis = _intrinsic_axis(builder, args[1], arrays[0][1].type.rank + 1)
     _intrinsic_stack(builder, target, arrays, axis)
 
 
 @lower(_np_hstack, types.BaseTuple)
 def lower_np_hstack(builder, target, args, kwargs):
     arrays = _intrinsic_arrays(builder, args[0])
-    rank = arrays[0].type.rank
+    rank = arrays[0][1].type.rank
     if rank == 0:
         _intrinsic_stack(builder, target, arrays, index_of(0))
     else:
@@ -5864,7 +5906,7 @@ def lower_np_hstack(builder, target, args, kwargs):
 @lower(_np_vstack, types.BaseTuple)
 def lower_np_vstack(builder, target, args, kwargs):
     arrays = _intrinsic_arrays(builder, args[0])
-    rank = arrays[0].type.rank
+    rank = arrays[0][1].type.rank
     if rank == 0:
         _intrinsic_stack(builder, target, arrays, index_of(0), trailing_units=1)
     elif rank == 1:
@@ -5876,7 +5918,7 @@ def lower_np_vstack(builder, target, args, kwargs):
 @lower(_np_dstack, types.BaseTuple)
 def lower_np_dstack(builder, target, args, kwargs):
     arrays = _intrinsic_arrays(builder, args[0])
-    rank = arrays[0].type.rank
+    rank = arrays[0][1].type.rank
     if rank == 0:
         _intrinsic_stack(builder, target, arrays, index_of(0), leading_units=2)
     elif rank == 1:
@@ -5891,9 +5933,9 @@ def lower_np_dstack(builder, target, args, kwargs):
 def lower_np_column_stack(builder, target, args, kwargs):
     arrays = _intrinsic_arrays(builder, args[0])
     promoted = []
-    for array in arrays:
+    for array_type, array in arrays:
         if array.type.rank == 2:
-            promoted.append(array)
+            promoted.append((array_type, array))
             continue
         if array.type.rank != 1:
             raise NotImplementedError("np.column_stack requires 1D or 2D arrays")
@@ -5907,15 +5949,18 @@ def lower_np_column_stack(builder, target, args, kwargs):
             memory_space=array.type.memory_space,
         )
         promoted.append(
-            memref_dialect.reinterpret_cast(
-                view_type,
-                array,
-                offsets=[md[1]],
-                sizes=[md[2]],
-                strides=[md[3]],
-                static_offsets=[dyn_s],
-                static_sizes=[dyn, 1],
-                static_strides=[dyn_s, 1],
+            (
+                array_type.copy(ndim=2),
+                memref_dialect.reinterpret_cast(
+                    view_type,
+                    array,
+                    offsets=[md[1]],
+                    sizes=[md[2]],
+                    strides=[md[3]],
+                    static_offsets=[dyn_s],
+                    static_sizes=[dyn, 1],
+                    static_strides=[dyn_s, 1],
+                ),
             )
         )
     _intrinsic_concat(builder, target, promoted, index_of(1))
@@ -5937,8 +5982,12 @@ def lower_as_layout_array(builder, target, args, kwargs):
     if not shape:
         shape = [index_of(1)]
     result = _intrinsic_alloc(builder, target, shape)
-    if source.type.rank == 0:
-        memref.store(memref.load(source, []), result, [index_of(0)])
-    else:
-        _intrinsic_copy_array(builder, source, result, lambda indices: indices)
+    _intrinsic_copy_array(
+        builder,
+        source_type,
+        source,
+        target_type,
+        result,
+        lambda indices: indices if indices else [index_of(0)],
+    )
     builder.store_var(target, memref.cast(builder.get_mlir_type(target_type), result))

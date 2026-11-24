@@ -176,8 +176,8 @@ long as each request adds at least one new literal position. Pass zero-based,
 top-level argument positions, for example ``ForceLiteralArg({1})``. Runtime
 values whose exact type is the built-in Python ``int`` or ``bool`` follow
 Numba's literal semantics; each distinct value receives an exact overload and
-native constant-argument specialization. Recorded positions are conditional
-dispatch hints, not permanent restrictions on later signatures. Other runtime
+native cache entry. Recorded positions are conditional dispatch hints, not
+permanent restrictions on later signatures. Other runtime
 types retain their normally inferred type and may compile a generic overload.
 If that compilation itself requests an unsupported literal value, dispatch
 reports the unsupported request. A request that adds no new positions is
@@ -193,11 +193,13 @@ in-place launch promotion, followed by literal-qualified typing with launch
 metadata active from the beginning. Each additional staged literal discovery
 adds one compiler attempt.
 
-Literal retry does not yet support an extension argument that flattens into
-multiple native launch arguments. Such a request raises a ``TypeError`` rather
-than risking a mismatch between top-level positions and native constant flags.
-Struct-like extension arguments are tracked by `issue #60
-<https://github.com/NVIDIA/numba-cuda-mlir/issues/60>`_.
+Literal retry supports top-level scalar parameters alongside structured extension
+arguments that flatten into multiple native launch arguments. Positions always
+refer to the original Python parameters: for ``kernel(output, params, count)``,
+``ForceLiteralArg({2})`` specializes ``count`` regardless of how many fields
+``params`` contributes to the native launch. The native cache distinguishes the
+literalized frontend types, including their values. Requests to specialize a
+structured value itself, or an individual field within it, remain unsupported.
 
 
 Defining new types
@@ -258,6 +260,18 @@ a single MLIR value. For an aggregate type with named fields, use
 :py:class:`~numba_cuda_mlir.models.AggregateTypeModel`; for an
 NRT-managed type wrapping a pointer, see the experimental data models in
 :py:mod:`numba_cuda_mlir.models`.
+
+For a kernel parameter with a
+:py:class:`~numba_cuda_mlir.models.StructModel`, a launch value can implement
+``prepare_args(ty, val, stream=None, retr=None)`` and return the registered
+frontend type together with a tuple containing one value per field in model
+order. The handler must supply each field in its declared argument type.
+For example, a pair of 32-bit integers can return
+``ty, (np.int32(val.left), np.int32(val.right))``. Kernel code can then
+access ``pair.left`` and ``pair.right`` after registering their attribute
+wrappers. A CUDA C device function declared with ``abi="c"`` receives the
+struct as one aggregate parameter. Callbacks appended to ``retr`` run after a
+successful launch and belong to that invocation.
 
 .. _lowering-functions:
 

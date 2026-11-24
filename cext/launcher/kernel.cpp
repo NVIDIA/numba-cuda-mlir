@@ -667,12 +667,11 @@ std::vector<bool> effective_constant_arg_flags(
         const std::vector<PyTypeObject*>& arg_types) {
     assert(constant_arg_flags.size() == literal_arg_flags.size());
 
-    // Tuple/list arguments are flattened before the native launch, while the
-    // flags describe top-level Python parameters. Literal retry rejects that
-    // ABI today, but every profile still needs one safe flag per native arg.
+    // Parameter flags describe top-level arguments. If an extension or tuple
+    // expands into native fields, its positions no longer match this profile.
     std::vector<bool> effective_flags(arg_types.size(), false);
-    const size_t represented_arg_count = std::min(arg_types.size(), constant_arg_flags.size());
-    for (size_t i = 0; i < represented_arg_count; ++i) {
+    if (arg_types.size() != constant_arg_flags.size()) return effective_flags;
+    for (size_t i = 0; i < arg_types.size(); ++i) {
         // Numba literal typing accepts exact built-in int/bool values, not
         // int subclasses, IntEnum members, or NumPy integer scalars.
         bool literal_eligible = arg_types[i] == &PyLong_Type || arg_types[i] == &PyBool_Type;
@@ -1524,6 +1523,7 @@ Status extract_cuda_args(PyObject* const* pyargs, size_t num_pyargs,
                          const std::vector<bool>& constant_arg_flags,
                          LaunchHelper& helper) {
     assert(num_pyargs == arg_kinds.size());
+    assert(num_pyargs == constant_arg_flags.size());
     helper.cuargs.clear();
     helper.arg_metadata.clear();
     helper.constants.clear();
@@ -1543,13 +1543,7 @@ Status extract_cuda_args(PyObject* const* pyargs, size_t num_pyargs,
     helper.cuda_context = nullptr;
     for (size_t i = 0; i < num_pyargs; ++i) {
         PyObject* pyobj = pyargs[i];
-        // constant_arg_flags is sized to the number of Python-level kernel
-        // parameters, but pyargs may contain more entries because tuple/list
-        // arguments are flattened before reaching the C++ launcher (see
-        // _flatten_arg in descriptor.py).  Flags beyond the original parameter
-        // count default to false (non-constant), matching the behaviour of
-        // PythonArgProfile::maybe_init_fast_path above.
-        bool is_constant = i < constant_arg_flags.size() && constant_arg_flags[i];
+        bool is_constant = constant_arg_flags[i];
 
         switch (arg_kinds[i]) {
         case PythonArgKind::TorchTensorDlpack:

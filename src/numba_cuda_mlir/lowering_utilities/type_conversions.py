@@ -14,6 +14,12 @@ import numpy as np
 import ctypes
 
 
+def is_valid_memref_element_type(mlir_type: ir.Type) -> bool:
+    """Return whether *mlir_type* is legal as a MemRef element type."""
+
+    return not str(mlir_type).startswith("!llvm.")
+
+
 @singledispatch
 def to_numba_type(obj):
     raise TypeError(f"No conversion found for type {obj}")

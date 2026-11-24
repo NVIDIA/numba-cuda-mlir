@@ -3,6 +3,7 @@
 """Logical array elements and the units used by their storage descriptors."""
 
 from dataclasses import dataclass
+from functools import cached_property
 
 import numpy as np
 
@@ -29,16 +30,45 @@ def array_is_aligned(dtype, pointer, strides):
 class ArrayStorageLayout:
     """Storage policy; shapes always count logical elements, never bytes.
 
-    Unaligned arrays use i8 memrefs whose offsets and strides count bytes.
-    Aligned arrays retain typed memrefs and element-unit descriptors.
+    Unaligned arrays, character sequences, and LLVM-backed extension values
+    use i8 memrefs with byte offsets and strides. Typed memrefs count elements.
     """
 
     array_type: types.Array
 
+    @cached_property
+    def llvm_element_layout(self):
+        """Return size and alignment for extension elements represented by LLVM types."""
+        from numba_cuda_mlir.numba_cuda.core.errors import NumbaNotImplementedError
+        from numba_cuda_mlir.numba_cuda.np.numpy_support import as_dtype
+
+        dtype = self.array_type.dtype
+        if isinstance(dtype, (types.Number, types.Record, VectorType)):
+            return None
+        try:
+            as_dtype(dtype)
+            return None
+        except (NotImplementedError, NumbaNotImplementedError, TypeError):
+            pass
+
+        from numba_cuda_mlir._mlir import ir
+        from numba_cuda_mlir.lowering_utilities import get_storage_type, get_type_storage_layout
+        from numba_cuda_mlir.lowering_utilities.type_conversions import is_valid_memref_element_type
+
+        # Native argument packing also needs the ABI after compilation has left
+        # its MLIR context. Only return integer layout information from the scope.
+        with ir.Context.current or ir.Context(), ir.Location.unknown():
+            storage = get_storage_type(dtype)
+            if not is_valid_memref_element_type(storage):
+                return get_type_storage_layout(storage)
+        return None
+
     @property
     def byte_addressed(self):
-        return not self.array_type.aligned or isinstance(
-            self.array_type.dtype, (types.CharSeq, types.UnicodeCharSeq)
+        return (
+            not self.array_type.aligned
+            or isinstance(self.array_type.dtype, (types.CharSeq, types.UnicodeCharSeq))
+            or self.llvm_element_layout is not None
         )
 
     @property
@@ -57,9 +87,12 @@ class ArrayStorageLayout:
             from numba_cuda_mlir.type_defs.float_types import numeric_storage_bitwidth
 
             width = numeric_storage_bitwidth(dtype)
-            if width is None:
+            if width is not None:
+                return width // 8
+            layout = self.llvm_element_layout
+            if layout is None:
                 raise
-            return width // 8
+            return layout[0]
 
     @property
     def itemsize(self):
@@ -117,7 +150,8 @@ class ArrayStorageLayout:
         try:
             return max(1, as_dtype(dtype).alignment)
         except (NotImplementedError, NumbaNotImplementedError, TypeError):
-            return 1
+            layout = self.llvm_element_layout
+            return layout[1] if layout is not None else 1
 
 
 def record_field_array_type(array_type, field):

@@ -3,9 +3,9 @@
 """
 Tests for argument handler extensions.
 
-prepare_args transforms both types and values. Original types (from typeof() on
-the original args) are used for compilation. Transformed types/values are used
-at launch time for argument marshalling.
+prepare_args transforms both types and values. Its transformed types are
+authoritative for compilation, while transformed values are flattened and
+marshalled for launch.
 """
 
 import operator
@@ -13,6 +13,7 @@ import numpy as np
 from numba_cuda_mlir._mlir.ir import IntegerType
 import pytest
 
+from numba_cuda_mlir import descriptor as descriptor_mod
 from numba_cuda_mlir.numba_cuda.datamodel.models import PrimitiveModel
 from numba_cuda_mlir.numba_cuda.typing.templates import AbstractTemplate, signature
 from numba_cuda_mlir.numba_cuda.extending import typeof_impl
@@ -106,6 +107,72 @@ def test_pointer_handler_transforms_pointerwrapper():
     out = np.zeros(1, dtype=np.uint64)
     kernel[1, 1](out, my_wrapper)
     assert out[0] == my_wrapper.ptr
+
+
+def test_value_owned_handler_transforms_without_dispatcher_extension():
+    ptr_value = 0x12345678
+    my_wrapper = PointerWrapper(ptr_value)
+    observed = []
+
+    def prepare_args(ty, val, stream=None, retr=None):
+        assert stream is None
+        assert retr is not None
+        if val is my_wrapper:
+            return types.uint64, (val.ptr,)
+        return ty, val
+
+    my_wrapper.prepare_args = prepare_args
+
+    def launcher(value):
+        observed.append(
+            (
+                getattr(descriptor_mod._compile_arg_types, "launch_args", None),
+                tuple(descriptor_mod._compile_arg_types.types),
+                value,
+            )
+        )
+        return "launched"
+
+    marshaller = descriptor_mod._ArgMarshaller(launcher)
+
+    assert marshaller(my_wrapper) == "launched"
+    assert observed == [((my_wrapper,), (types.uint64,), ptr_value)]
+    assert not hasattr(descriptor_mod._compile_arg_types, "launch_args")
+
+
+def test_value_owned_handlers_only_prepare_their_own_argument():
+    class Value(PointerWrapper):
+        def prepare_args(self, ty, val, **kwargs):
+            assert val is self
+            return types.uint64, self.ptr
+
+    class Increment:
+        def prepare_args(self, ty, val, **kwargs):
+            return ty, val + 1
+
+    first, second = Value(1), Value(8)
+    marshaller = descriptor_mod._ArgMarshaller(lambda *values: values, extensions=[Increment()])
+    assert marshaller(first, 20, second, first) == (2, 21, 9, 2)
+
+
+def test_value_owned_callback_only_runs_for_its_successful_launch():
+    completed = []
+
+    class Value(PointerWrapper):
+        def prepare_args(self, ty, val, stream=None, retr=None):
+            retr.append(lambda: completed.append(self.ptr))
+            return types.uint64, self.ptr
+
+    def launch(value):
+        if value == 1:
+            raise RuntimeError("launch failed")
+
+    marshaller = descriptor_mod._ArgMarshaller(launch)
+    with pytest.raises(RuntimeError, match="launch failed"):
+        marshaller(Value(1))
+    marshaller(Value(2))
+
+    assert completed == [2]
 
 
 def test_multiple_extension_handlers():

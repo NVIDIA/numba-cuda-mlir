@@ -415,8 +415,7 @@ def compile(
         targetoptions["cc"] = cc
     if opt is not None:
         targetoptions["opt"] = opt
-    if abi != "c":
-        targetoptions["abi"] = abi
+    targetoptions["abi"] = abi
     if abi_info is not None:
         targetoptions["abi_info"] = abi_info
     if forceinline:
@@ -426,6 +425,10 @@ def compile(
     targetoptions["_compile_output"] = output
     targetoptions["lto"] = output == "ltoir"
 
+    if abi == "c" and isinstance(pyfunc, MLIRDispatcher):
+        # C exports use aggregate parameters, while the existing dispatcher's
+        # overloads may already be compiled with flattened Numba parameters.
+        pyfunc = MLIRDispatcher(pyfunc.py_func, targetoptions=pyfunc.targetoptions.copy())
     optimized = _compile_and_optimize(pyfunc, sig, targetoptions)
 
     # Kernels must have void return type

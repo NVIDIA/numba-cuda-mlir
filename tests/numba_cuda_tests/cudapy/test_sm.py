@@ -12,7 +12,6 @@ from numba_cuda_mlir.numba_cuda.testing import cc_X_or_above
 
 import numpy as np
 from numba_cuda_mlir.numba_cuda.np import numpy_support as nps
-import pytest
 
 from .extensions_usecases import struct_model_type, MyStruct
 
@@ -133,7 +132,6 @@ class TestSharedMemory(NumbaCUDATestCase):
         host_result = d_result.copy_to_host()
         np.testing.assert_array_equal(arr, host_result)
 
-    @pytest.mark.xfail(True, reason="Typing error")
     def test_shared_recarray(self):
         arr = np.recarray(128, dtype=recordwith2darray)
         for x in range(len(arr)):

@@ -57,7 +57,7 @@ typedef enum {
 /* ---- pointer / function attributes ------------------------------------- */
 
 typedef enum {
-    CU_POINTER_ATTRIBUTE_CONTEXT = 1,
+    CU_POINTER_ATTRIBUTE_DEVICE_POINTER = 3,
 } CUpointer_attribute;
 
 typedef enum {

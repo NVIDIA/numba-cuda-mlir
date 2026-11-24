@@ -1056,14 +1056,16 @@ class Context:
         """
         # Free owned resources
         _logger.info("reset context of device %s", self.device.id)
+        # Release the allocator while its module and allocations are still valid.
+        from numba_cuda_mlir.memory_management.rtsys import rtsys as mlir_rtsys
+
+        mlir_rtsys.close(self)
         self.memory_manager.reset()
         self.modules.clear()
         # Clear trash
         self.deallocations.clear()
-        # Reset the NRT runtime so it does not hold handles from the old context.
-        from numba_cuda_mlir.memory_management.rtsys import rtsys as mlir_rtsys
-
-        mlir_rtsys.close()
+        # Invalidate context-lifetime caches even if the driver reuses this handle.
+        self.extras.pop("numba_cuda_mlir.context_token", None)
 
     def get_memory_info(self):
         """Returns (free, total) memory in bytes in the context."""
@@ -1187,6 +1189,9 @@ class Context:
             ptx = ptx.encode("utf8")
         image = ObjectCode.from_ptx(ptx)
         return self.create_module_image(image)
+
+    def create_module_cubin(self, cubin):
+        return self.create_module_image(ObjectCode.from_cubin(cubin))
 
     def create_module_image(self, image, setup_callbacks=None, teardown_callbacks=None):
         module = load_module_image(self, image, setup_callbacks, teardown_callbacks)

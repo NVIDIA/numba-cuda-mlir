@@ -2,6 +2,8 @@ from pathlib import Path
 import os
 import re
 from functools import lru_cache
+from contextlib import contextmanager
+import threading
 from typing import overload
 from numba_cuda_mlir.numba_cuda import itanium_mangler
 from numba_cuda_mlir.numba_cuda import types
@@ -26,11 +28,30 @@ def format_arch(cc: tuple[int, int] | tuple[int, int, str]) -> str:
     return f"sm_{cc[0]}{cc[1]}{suffix}"
 
 
+_compilation_target = threading.local()
+
+
+@contextmanager
+def _gpu_target_scope():
+    """Use one device capability snapshot throughout a compilation, including callees."""
+    if getattr(_compilation_target, "host_cc", None) is not None:
+        yield
+        return
+    _compilation_target.host_cc = get_gpu_compute_capability(tuple)
+    try:
+        yield
+    finally:
+        del _compilation_target.host_cc
+
+
 def resolve_gpu_target(targetoptions: dict | None = None) -> dict[str, object]:
     if targetoptions is None:
         targetoptions = {}
 
-    host_cc = get_gpu_compute_capability(tuple)
+    # Use one device snapshot for both the compiler and linker targets.
+    host_cc = getattr(_compilation_target, "host_cc", None)
+    if host_cc is None:
+        host_cc = get_gpu_compute_capability(tuple)
     host_specific_cc = (*host_cc, "a") if host_cc >= (9, 0) else host_cc
     host_arch = format_arch(host_specific_cc)
     chip = targetoptions.get("chip")
@@ -258,7 +279,6 @@ def _get_dummy_kernel_function():
     return _check_cuda_result(driver.cuKernelGetFunction(kernels[0]))
 
 
-@lru_cache(maxsize=1)
 def is_using_llvm70() -> bool:
     """Return True if the current environment will use the LLVM70 compilation path."""
     from numba_cuda_mlir.mlir_optimization import _needs_llvm70_path

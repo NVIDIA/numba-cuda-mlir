@@ -400,7 +400,7 @@ CudaArg cuda_arg_f64(double value) {
 
 // Metadata describing where each argument's data is stored in the flat cuargs vector
 struct ArgMetadata {
-    enum class Kind { Scalar, Array, TMADescriptor };
+    enum class Kind { Scalar, Array, DeviceRecord, TMADescriptor };
     Kind kind;
     size_t start_idx;  // Start index in LaunchHelper.cuargs
     size_t ndim;       // For arrays: number of dimensions; for scalars: 0
@@ -422,7 +422,6 @@ struct LaunchHelper {
     std::vector<CudaArg> cuargs;  // Flat storage: all ptrs, offsets, shapes, strides, scalars
     std::vector<void*> cuarg_pointers;  // Built just before launch
     std::vector<ConstantArg> constants;
-    CUcontext cuda_context;
     LaunchHelper* next_free;
     std::vector<void*> aligned_tma_descriptors; // 128-byte aligned storage for TMA descriptors
     std::vector<RecordCopyInfo> record_copies; // Info for copying scalar records back to host
@@ -956,10 +955,6 @@ Status extract_cuda_array(PyObject* pyobj, LaunchHelper& helper) {
 
     void* data_ptr = reinterpret_cast<void*>(data_ptr_int);
 
-    if (!helper.cuda_context)
-        g_cuPointerGetAttribute(&helper.cuda_context, CU_POINTER_ATTRIBUTE_CONTEXT,
-                                reinterpret_cast<CUdeviceptr>(data_ptr));
-
     Py_ssize_t ndim = PyTuple_GET_SIZE(shape);
     ASSERT_NDIM(ndim);
 
@@ -1046,13 +1041,7 @@ Status extract_dlpack_common(PyObject* dlpack_capsule, LaunchHelper& helper) {
     if (tensor->dl_tensor.device.device_type != kDLCUDA)
         return raise(PyExc_ValueError, "Input array is not on a CUDA device");
 
-    // TODO: check device ID
-
     void* data_ptr = static_cast<char*>(tensor->dl_tensor.data) + tensor->dl_tensor.byte_offset;
-
-    if (!helper.cuda_context)
-        g_cuPointerGetAttribute(&helper.cuda_context, CU_POINTER_ATTRIBUTE_CONTEXT,
-                                reinterpret_cast<CUdeviceptr>(data_ptr));
 
     int32_t ndim = tensor->dl_tensor.ndim;
     ASSERT_NDIM(ndim);
@@ -1509,13 +1498,9 @@ Status extract_device_record(PyObject* pyobj, LaunchHelper& helper) {
     if (PyErr_Occurred()) return ErrorRaised;
     void* device_ptr = reinterpret_cast<void*>(device_ptr_int);
 
-    if (!helper.cuda_context)
-        g_cuPointerGetAttribute(&helper.cuda_context, CU_POINTER_ATTRIBUTE_CONTEXT,
-                                reinterpret_cast<CUdeviceptr>(device_ptr));
-
     size_t start_idx = helper.cuargs.size();
     helper.cuargs.push_back(cuda_arg_device_ptr(device_ptr));
-    helper.arg_metadata.push_back({ArgMetadata::Kind::Scalar, start_idx, 0});
+    helper.arg_metadata.push_back({ArgMetadata::Kind::DeviceRecord, start_idx, 0});
     return OK;
 }
 
@@ -1540,7 +1525,6 @@ Status extract_cuda_args(PyObject* const* pyargs, size_t num_pyargs,
     }
     helper.record_copies.clear();
 
-    helper.cuda_context = nullptr;
     for (size_t i = 0; i < num_pyargs; ++i) {
         PyObject* pyobj = pyargs[i];
         // constant_arg_flags is sized to the number of Python-level kernel
@@ -1894,6 +1878,24 @@ Status maybe_switch_context(CUcontext target, ContextGuard& guard) {
     return OK;
 }
 
+// Resolve the address usable by kernels in the current context. Mapped host,
+// managed and peer memory may be accessible even when allocated elsewhere.
+Status resolve_device_pointer(void*& ptr, size_t arg_index) {
+    if (!ptr) return OK;  // Empty arrays can have a null data pointer.
+
+    CUdeviceptr accessible;
+    CUresult res = g_cuPointerGetAttribute(&accessible, CU_POINTER_ATTRIBUTE_DEVICE_POINTER,
+                                           reinterpret_cast<CUdeviceptr>(ptr));
+    if (res == CUDA_ERROR_INVALID_VALUE)
+        return raise(PyExc_ValueError, "Kernel argument %zu is not accessible from the selected "
+                     "CUDA context. Select the allocating device or pass accessible memory.", arg_index);
+    if (res != CUDA_SUCCESS)
+        return raise(PyExc_RuntimeError, "Failed to query CUDA pointer for kernel argument %zu: %s",
+                     arg_index, get_cuda_error(res));
+    ptr = reinterpret_cast<void*>(accessible);
+    return OK;
+}
+
 struct Grid {
     enum { Len = 3 };
     unsigned dims[Len];
@@ -2012,10 +2014,8 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
     // Try fast scalar extraction path
     profile->maybe_init_fast_path();
 
-    KernelFamily::KernelMap::iterator kernel_iter;
-    ContextGuard ctx_guard;
-
-    if (!profile->fast_extractors.empty()) {
+    const bool fast_scalars = !profile->fast_extractors.empty();
+    if (fast_scalars) {
         // Fast path: all args are simple scalars with no constants.
         // Single loop: extract values + build pointers simultaneously.
         // Clean up any leftover state from previous (non-scalar) launches
@@ -2041,78 +2041,39 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
             helper->cuarg_pointers[i] = &base[i];
         }
         helper->constants.clear();
-        helper->constants.emplace_back(dispatch_token);
-        helper->cuda_context = nullptr;
+    } else if (!extract_cuda_args(pyargs, num_pyargs, profile->arg_kinds,
+                                  profile->constant_arg_flags, *helper)) {
+        return ErrorRaised;
+    }
 
+    // Packing can erase frontend types; include their exact identity.
+    helper->constants.emplace_back(dispatch_token);
+    KernelFamily::KernelMap& kernel_map = profile->family->kernels_by_constants;
+    auto kernel_iter = kernel_map.find(helper->constants);
+    if (kernel_iter == kernel_map.end()) {
         if (!ensure_numba_context(dispatcher.ensure_context_func.get()))
             return ErrorRaised;
+        Result<CudaKernelHandle> kernel = compile(dispatcher.compile_func.get(), pyargs, num_pyargs);
+        if (!kernel.is_ok()) return ErrorRaised;
 
-        KernelFamily::KernelMap& kernel_map = profile->family->kernels_by_constants;
-        kernel_iter = kernel_map.find(helper->constants);
-        if (kernel_iter == kernel_map.end()) {
-            // Slowest path: need to compile a new kernel
-            Result<CudaKernelHandle> kernel = compile(dispatcher.compile_func.get(), pyargs, num_pyargs);
-            if (!kernel.is_ok()) return ErrorRaised;
-            // Defer the post-load callback until after emplace so that racing
-            // threads that compile the same kernel don't fire duplicate callbacks.
-            PyPtr post_load_cb = std::move(kernel->post_load_callback);
-            auto [it, inserted] = kernel_map.emplace(helper->constants, std::move(*kernel));
-            kernel_iter = it;
-            if (inserted && post_load_cb) {
-                PyPtr py_handle = steal(PyLong_FromVoidPtr(
-                        static_cast<void*>(kernel_iter->second.cukernel.lib.get())));
-                if (!py_handle) return ErrorRaised;
-                PyPtr cb_result = steal(
-                        PyObject_CallOneArg(post_load_cb.get(), py_handle.get()));
-                if (!cb_result) return ErrorRaised;
-            }
+        // Racing compilations must only run the callback for the inserted kernel.
+        PyPtr post_load_cb = std::move(kernel->post_load_callback);
+        auto [it, inserted] = kernel_map.emplace(helper->constants, std::move(*kernel));
+        kernel_iter = it;
+        if (inserted && post_load_cb) {
+            PyPtr py_handle = steal(PyLong_FromVoidPtr(
+                    static_cast<void*>(kernel_iter->second.cukernel.lib.get())));
+            if (!py_handle) return ErrorRaised;
+            PyPtr cb_result = steal(PyObject_CallOneArg(post_load_cb.get(), py_handle.get()));
+            if (!cb_result) return ErrorRaised;
         }
+    }
 
-        if (!maybe_switch_context(kernel_iter->second.cukernel.lib.context(), ctx_guard))
-            return ErrorRaised;
-    } else {
-        // Standard path: full extraction with per-type switch
-        if (!extract_cuda_args(pyargs, num_pyargs, profile->arg_kinds,
-                               profile->constant_arg_flags, *helper)) {
-            return ErrorRaised;
-        }
+    ContextGuard ctx_guard;
+    if (!maybe_switch_context(kernel_iter->second.cukernel.lib.context(), ctx_guard))
+        return ErrorRaised;
 
-        if (helper->cuda_context) {
-            if (!maybe_switch_context(helper->cuda_context, ctx_guard))
-                return ErrorRaised;
-        } else {
-            if (!ensure_numba_context(dispatcher.ensure_context_func.get()))
-                return ErrorRaised;
-        }
-
-        // Packing can erase frontend types; include their exact identity.
-        helper->constants.emplace_back(dispatch_token);
-        KernelFamily::KernelMap& kernel_map = profile->family->kernels_by_constants;
-        kernel_iter = kernel_map.find(helper->constants);
-        if (kernel_iter == kernel_map.end()) {
-            // Slowest path: need to compile a new kernel
-            Result<CudaKernelHandle> kernel = compile(dispatcher.compile_func.get(), pyargs, num_pyargs);
-            if (!kernel.is_ok()) return ErrorRaised;
-
-            // Defer the post-load callback until after emplace so that racing
-            // threads that compile the same kernel don't fire duplicate callbacks.
-            PyPtr post_load_cb = std::move(kernel->post_load_callback);
-            auto [it, inserted] = kernel_map.emplace(helper->constants, std::move(*kernel));
-            kernel_iter = it;
-            if (inserted && post_load_cb) {
-                PyPtr py_handle = steal(PyLong_FromVoidPtr(
-                        static_cast<void*>(kernel_iter->second.cukernel.lib.get())));
-                if (!py_handle) return ErrorRaised;
-                PyPtr cb_result = steal(
-                        PyObject_CallOneArg(post_load_cb.get(), py_handle.get()));
-                if (!cb_result) return ErrorRaised;
-            }
-        }
-
-        if (!helper->cuda_context
-                && !maybe_switch_context(kernel_iter->second.cukernel.lib.context(), ctx_guard))
-            return ErrorRaised;
-
+    if (!fast_scalars) {
         helper->cuarg_pointers.clear();
 
         // Build kernel arguments in MLIR memref calling convention order.
@@ -2122,7 +2083,14 @@ Status launch(KernelDispatcher& dispatcher, Grid grid, Grid block, std::optional
         // All values are already stored in the flat cuargs vector, we just build pointers to them.
 
         size_t array_index = 0;
-        for (const ArgMetadata& meta : helper->arg_metadata) {
+        for (size_t arg_index = 0; arg_index < helper->arg_metadata.size(); ++arg_index) {
+            const ArgMetadata& meta = helper->arg_metadata[arg_index];
+            if (meta.is_array() || meta.kind == ArgMetadata::Kind::DeviceRecord) {
+                auto& ptr = helper->cuargs[meta.start_idx].device_ptr;
+                if (!resolve_device_pointer(ptr, arg_index)) return ErrorRaised;
+                if (meta.is_array())
+                    helper->cuargs[meta.start_idx + 1].device_ptr = ptr;
+            }
             if (meta.is_array()) {
                 const auto& abi = kernel_iter->second.array_abi;
                 if (array_index >= abi.size())

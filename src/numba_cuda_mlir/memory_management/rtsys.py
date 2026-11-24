@@ -12,6 +12,7 @@ the NRT_MemSys structure on the device before kernels that use NRT can run.
 import ctypes
 import hashlib
 import os
+import threading
 from collections import namedtuple
 from functools import wraps
 from pathlib import Path
@@ -33,11 +34,20 @@ def _alloc_init_guard(method):
 
     @wraps(method)
     def wrapper(self, *args, **kwargs):
-        self.ensure_allocated()
-        self.ensure_initialized()
-        return method(self, *args, **kwargs)
+        with self._state.lock:
+            self.ensure_allocated()
+            self.ensure_initialized()
+            return method(self, *args, **kwargs)
 
     return wrapper
+
+
+class _ContextRuntime:
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.memsys_library = None
+        self.memsys = None
+        self.initialized = False
 
 
 class _Runtime:
@@ -50,21 +60,58 @@ class _Runtime:
             cls._instance = super(_Runtime, cls).__new__(cls, *args, **kwargs)
         return cls._instance
 
-    def __init__(self):
-        """Initialize memsys module and variable."""
-        if not hasattr(self, "_initialized_singleton"):
-            self._reset()
-            self._initialized_singleton = True
+    @property
+    def _state(self):
+        from numba_cuda_mlir.numba_cuda.cudadrv.devices import get_context
+
+        context = get_context()
+        key = "numba_cuda_mlir.nrt"
+        try:
+            return context.extras[key]
+        except KeyError:
+            return context.extras.setdefault(key, _ContextRuntime())
+
+    @property
+    def _memsys_library(self):
+        return self._state.memsys_library
+
+    @_memsys_library.setter
+    def _memsys_library(self, value):
+        self._state.memsys_library = value
+
+    @property
+    def _memsys(self):
+        return self._state.memsys
+
+    @_memsys.setter
+    def _memsys(self, value):
+        self._state.memsys = value
+
+    @property
+    def _initialized(self):
+        return self._state.initialized
+
+    @_initialized.setter
+    def _initialized(self, value):
+        self._state.initialized = value
 
     def _reset(self):
-        """Reset to the uninitialized state."""
-        self._memsys_library = None
-        self._memsys = None
-        self._initialized = False
+        """Discard allocator state for the current context."""
+        self.close()
 
-    def close(self):
-        """Close and reset."""
-        self._reset()
+    def close(self, context=None):
+        """Discard allocator state without affecting other contexts."""
+        if context is None:
+            from numba_cuda_mlir.numba_cuda.cudadrv.devices import get_context
+            from numba_cuda_mlir.numba_cuda.cudadrv.driver import driver
+
+            with driver.get_active_context() as active:
+                if not active:
+                    return
+                context = get_context()
+        state = context.extras.pop("numba_cuda_mlir.nrt", None)
+        if state is not None and state.memsys_library is not None:
+            state.memsys_library.unload()
 
     @staticmethod
     def _memsys_cache_dir():
@@ -104,10 +151,7 @@ class _Runtime:
             cache_dir.mkdir(parents=True, exist_ok=True)
             cache_file.write_bytes(cubin_bytes)
 
-        err, library = drv.cuLibraryLoadData(cubin_bytes, [], [], 0, [], [], 0)
-        if err != drv.CUresult.CUDA_SUCCESS:
-            raise RuntimeError(f"cuLibraryLoadData failed: {err}")
-        self._memsys_library = library
+        self._memsys_library = cuda.current_context().create_module_cubin(cubin_bytes)
 
     def _launch_kernel(self, name, params_ctypes=()):
         """Launch a kernel from the memsys CUlibrary with grid=1, block=1.
@@ -115,7 +159,7 @@ class _Runtime:
         *params_ctypes* is a sequence of ctypes values to pass as kernel
         arguments.  Pass an empty tuple for kernels that take no args.
         """
-        lib = self._memsys_library
+        lib = self._memsys_library.handle
         err, kernel = drv.cuLibraryGetKernel(lib, name.encode())
         if err != drv.CUresult.CUDA_SUCCESS:
             raise RuntimeError(f"cuLibraryGetKernel({name}) failed: {err}")
@@ -141,7 +185,7 @@ class _Runtime:
 
     def _get_library_global(self, name, nbytes):
         """Read *nbytes* from a device global in the memsys CUlibrary."""
-        err, dptr, size = drv.cuLibraryGetGlobal(self._memsys_library, name.encode())
+        err, dptr, size = drv.cuLibraryGetGlobal(self._memsys_library.handle, name.encode())
         if err != drv.CUresult.CUDA_SUCCESS:
             raise RuntimeError(f"cuLibraryGetGlobal({name}) failed: {err}")
         buf = (ctypes.c_char * nbytes)()
@@ -152,9 +196,10 @@ class _Runtime:
 
     def ensure_allocated(self):
         """If memsys is not allocated, allocate it; otherwise, perform a no-op."""
-        if self._memsys is not None:
-            return
-        self.allocate()
+        with self._state.lock:
+            if self._memsys is not None:
+                return
+            self.allocate()
 
     def allocate(self):
         """Allocate memsys on global memory."""
@@ -169,9 +214,10 @@ class _Runtime:
 
     def ensure_initialized(self):
         """If memsys is not initialized, initialize memsys."""
-        if self._initialized:
-            return
-        self.initialize()
+        with self._state.lock:
+            if self._initialized:
+                return
+            self.initialize()
 
     def initialize(self):
         """Launch memsys initialization kernel."""

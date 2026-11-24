@@ -9,6 +9,7 @@ without explicit copies. These tests verify that numba_cuda_mlir correctly handl
 managed arrays passed to kernels.
 """
 
+import ctypes
 import warnings
 
 import numpy as np
@@ -22,6 +23,80 @@ def skip_if_managed_memory_unsupported():
     cc_major = ctx.device.compute_capability[0]
     if cc_major < 3:
         pytest.skip("Managed memory unsupported prior to CC 3.0")
+
+
+@pytest.mark.parametrize("warm_cache", [False, True])
+def test_managed_pointer_from_another_context_preserves_selected_context(warm_cache):
+    from cuda import bindings
+    from cuda.bindings import driver
+
+    def checked(result):
+        error, *values = result
+        assert error == driver.CUresult.CUDA_SUCCESS
+        return values[0] if values else None
+
+    cuda.current_context()
+    primary = checked(driver.cuCtxGetCurrent())
+    device = checked(driver.cuCtxGetDevice())
+    if not checked(
+        driver.cuDeviceGetAttribute(
+            driver.CUdevice_attribute.CU_DEVICE_ATTRIBUTE_MANAGED_MEMORY, device
+        )
+    ):
+        pytest.skip("requires managed memory")
+
+    class ArrayInterface:
+        def __init__(self, pointer):
+            self.__cuda_array_interface__ = {
+                "version": 3,
+                "shape": (1,),
+                "strides": None,
+                "typestr": np.dtype(np.int32).str,
+                "data": (int(pointer), False),
+            }
+
+    @cuda.jit
+    def write(out):
+        out[0] = 42
+
+    configured = write[1, 1]
+    # Use a second context on the same GPU so this covers valid cross-context
+    # pointers without requiring two devices or resetting the primary context.
+    args = (0, device)
+    if int(bindings.__version__.split(".")[0]) >= 13:
+        args = (None, *args)
+    secondary = checked(driver.cuCtxCreate(*args))
+    try:
+        pointer = checked(
+            driver.cuMemAllocManaged(
+                np.dtype(np.int32).itemsize,
+                driver.CUmemAttach_flags.CU_MEM_ATTACH_GLOBAL,
+            )
+        )
+        try:
+            assert checked(driver.cuCtxPopCurrent()) == secondary
+            assert checked(driver.cuCtxGetCurrent()) == primary
+            managed = ArrayInterface(pointer)
+            result = ctypes.c_int32.from_address(int(pointer))
+            result.value = 0
+            local = cuda.device_array(1, np.int32)
+            local_view = ArrayInterface(local.__cuda_array_interface__["data"][0])
+            if warm_cache:
+                configured(local_view)
+            configured(managed)
+            cuda.synchronize()
+            assert result.value == 42
+            assert checked(driver.cuCtxGetCurrent()) == primary
+            state = write._get_context_dispatcher()
+            configured(local_view)
+            cuda.synchronize()
+            assert local.copy_to_host()[0] == 42
+            assert write._get_context_dispatcher() is state
+        finally:
+            checked(driver.cuCtxSynchronize())
+            checked(driver.cuMemFree(pointer))
+    finally:
+        checked(driver.cuCtxDestroy(secondary))
 
 
 class TestManagedMemory:

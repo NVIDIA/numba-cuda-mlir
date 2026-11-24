@@ -8,6 +8,7 @@ from numba_cuda_mlir._mlir.dialects import func, gpu
 
 _FUNCTIONS = {"func.func", "gpu.func", "llvm.func"}
 _LINKABLE = _FUNCTIONS | {"llvm.mlir.global"}
+_FUNCTION_ABI_ATTRIBUTES = ("arg_attrs", "res_attrs", "CConv", "comdat")
 _COALESCING_LINKAGES = {
     "#llvm.linkage<common>",
     "#llvm.linkage<linkonce>",
@@ -47,9 +48,9 @@ def _check_compatible(name: str, left: ir.Operation, right: ir.Operation):
     if left.name in _FUNCTIONS:
         if left.attributes["function_type"] != right.attributes["function_type"]:
             raise ValueError(f"Incompatible function types for {name!r}")
-        # Attributes present on both declarations must agree. Missing ABI attributes
-        # are supplied by the definition when a bare declaration is replaced.
-        for attr in ("arg_attrs", "res_attrs", "CConv", "comdat"):
+        # Every explicitly supplied ABI constraint must survive reconciliation,
+        # even when this operation is only a declaration.
+        for attr in _FUNCTION_ABI_ATTRIBUTES:
             if attr in left.attributes and attr in right.attributes:
                 if left.attributes[attr] != right.attributes[attr]:
                     raise ValueError(f"Incompatible function attribute {attr!r} for {name!r}")
@@ -69,20 +70,42 @@ def _coalescible_globals(left: ir.Operation, right: ir.Operation) -> bool:
         return False
     if not any(len(region.blocks) for op in (left, right) for region in op.regions):
         return True
-    # Region initializers must agree as well; do not equate arbitrary strong
-    # definitions merely because their printed bodies happen to match.
+    # Compare complete initializer bodies, normalizing only the outer attribute
+    # already excluded above. Detached clones never mutate retained sources.
+    if ("sym_visibility" in left.attributes) != ("sym_visibility" in right.attributes) or (
+        "sym_visibility" in left.attributes
+        and left.attributes["sym_visibility"] != right.attributes["sym_visibility"]
+    ):
+        left = left.clone(ip=False).operation
+        if "sym_visibility" in right.attributes:
+            left.attributes["sym_visibility"] = right.attributes["sym_visibility"]
+        elif "sym_visibility" in left.attributes:
+            del left.attributes["sym_visibility"]
     return left.get_asm(use_local_scope=True) == right.get_asm(use_local_scope=True)
 
 
 def _merge_symbol(name, existing, incoming, *, same_origin=False):
     _check_compatible(name, existing, incoming)
     if not _is_definition(incoming):
-        return existing
-    if not _is_definition(existing):
-        return incoming
-    if same_origin or existing == incoming or _coalescible_globals(existing, incoming):
-        return existing
-    raise ValueError(f"Conflicting definitions for symbol {name!r}")
+        selected = existing
+    elif not _is_definition(existing):
+        selected = incoming
+    elif same_origin or existing == incoming or _coalescible_globals(existing, incoming):
+        selected = existing
+    else:
+        raise ValueError(f"Conflicting definitions for symbol {name!r}")
+    if selected.name in _FUNCTIONS:
+        missing = {
+            attr: op.attributes[attr]
+            for op in (existing, incoming)
+            for attr in _FUNCTION_ABI_ATTRIBUTES
+            if attr in op.attributes and attr not in selected.attributes
+        }
+        if missing:
+            selected = selected.clone(ip=False).operation
+            for attr, value in missing.items():
+                selected.attributes[attr] = value
+    return selected
 
 
 @dataclass(frozen=True)
@@ -178,13 +201,16 @@ class ModuleAssembly:
                 self._declarations[symbol] = existing
         if existing is not None:
             _check_compatible(symbol, existing, source)
+            for attr in _FUNCTION_ABI_ATTRIBUTES:
+                if attr in source.attributes and attr not in existing.attributes:
+                    existing.attributes[attr] = source.attributes[attr]
         else:
             with (
                 ir.InsertionPoint.at_block_begin(self.target),
                 ir.Location.unknown(self.module.context),
             ):
                 declaration = func.FuncOp(symbol, function_type, visibility="private")
-            for attr in ("arg_attrs", "res_attrs"):
+            for attr in _FUNCTION_ABI_ATTRIBUTES:
                 if attr in source.attributes:
                     declaration.attributes[attr] = source.attributes[attr]
             self._declarations[symbol] = declaration.operation
@@ -227,8 +253,9 @@ class ModuleAssembly:
                 selected = _merge_symbol(
                     name, existing, incoming, same_origin=existing_origin == origin
                 )
-                if selected is incoming:
-                    resolved[name] = incoming, origin
+                if not _is_definition(existing) and _is_definition(incoming):
+                    existing_origin = origin
+                resolved[name] = selected, existing_origin
         for name, (op, origin) in resolved.items():
             if name in local and op == local[name]:
                 continue

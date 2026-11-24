@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+from itertools import permutations
 from types import SimpleNamespace
 
 import pytest
@@ -425,3 +426,139 @@ def test_conflicting_symbols_in_distinct_library_scopes_are_rejected(top, nested
     unit = assembly.add_library(library)
     with pytest.raises(ValueError, match=error):
         assembly.declare(unit, "callee")
+
+
+@pytest.mark.parametrize(
+    "attribute,values",
+    [("CConv", ("#llvm.cconv<ccc>", "#llvm.cconv<fastcc>")), ("comdat", ('"one"', '"two"'))],
+)
+@pytest.mark.parametrize("definition", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("direct", [False, True])
+def test_conflicting_function_attributes_rejected_in_every_import_order(
+    attribute, values, definition, reverse, direct
+):
+    first = _unit(_definition("left"), "func.func private @shared() -> i32")
+    second = _unit(
+        _definition("right"),
+        _definition("shared") if definition else "func.func private @shared() -> i32",
+    )
+    for unit, value in zip((first, second), values):
+        _symbols(unit.scope)["shared"].attributes[attribute] = ir.Attribute.parse(value)
+        assert unit.module.operation.verify()
+    sources = (second, first) if reverse else (first, second)
+    original = [str(unit.module) for unit in sources]
+    assembly = _assembly()
+    names = ("right", "left") if reverse else ("left", "right")
+    if direct:
+        assembly.declare(sources[0], "shared")
+        before = str(assembly.module)
+        with pytest.raises(ValueError, match=f"Incompatible function attribute '{attribute}'"):
+            assembly.declare(sources[1], "shared")
+    else:
+        for unit, name in zip(sources, names):
+            assembly.declare(unit, name)
+        before = str(assembly.module)
+        with pytest.raises(ValueError, match=f"Incompatible function attribute '{attribute}'"):
+            assembly.finish()
+    assert str(assembly.module) == before
+    assert [str(unit.module) for unit in sources] == original
+
+
+@pytest.mark.parametrize("order", list(permutations(range(3))))
+def test_declaration_constraints_survive_bare_intermediate_imports(order):
+    sources = [
+        _unit(
+            _definition("first"), 'func.func private @shared() -> i32 attributes {comdat = "one"}'
+        ),
+        _unit(_definition("bare"), "func.func private @shared() -> i32"),
+        _unit(
+            _definition("last"), 'func.func private @shared() -> i32 attributes {comdat = "two"}'
+        ),
+    ]
+    # Publish one intermediate unit to exercise constraints crossing a unit boundary.
+    intermediate = _assembly()
+    intermediate.declare(sources[0], "first")
+    intermediate.declare(sources[1], "bare")
+    merged = intermediate.finish()
+    assert _symbols(merged.scope)["shared"].attributes["comdat"] == ir.StringAttr.get("one")
+    sources[0] = merged
+    original = [str(unit.module) for unit in sources]
+    names = ("first", "bare", "last")
+    assembly = _assembly()
+    for index in order:
+        assembly.declare(sources[index], names[index])
+    before = str(assembly.module)
+    with pytest.raises(ValueError, match="Incompatible function attribute 'comdat'"):
+        assembly.finish()
+    assert str(assembly.module) == before
+    assert [str(unit.module) for unit in sources] == original
+
+
+@pytest.mark.parametrize("definition_first", [False, True])
+def test_compatible_declaration_attributes_survive_definition_selection(definition_first):
+    declaration = _unit('func.func private @shared() -> i32 attributes {comdat = "one"}')
+    definition = _unit(_definition("shared"))
+    sources = (definition, declaration) if definition_first else (declaration, definition)
+    original = [str(unit.module) for unit in sources]
+    assembly = _assembly()
+    for source in sources:
+        assembly.declare(source, "shared")
+    result = assembly.finish()
+    shared = _symbols(result.scope)["shared"]
+    assert not shared.is_external
+    assert shared.attributes["comdat"] == ir.StringAttr.get("one")
+    assert result.module.operation.verify()
+    assert [str(unit.module) for unit in sources] == original
+
+
+@pytest.mark.parametrize("definition_first", [False, True])
+def test_library_scope_reconciliation_retains_declaration_attributes(definition_first):
+    declaration = 'func.func private @shared() -> i32 attributes {comdat = "one"}'
+    definition = _definition("shared")
+    top, nested = (definition, declaration) if definition_first else (declaration, definition)
+    library = SimpleNamespace(source="module {" + top + "gpu.module @device {" + nested + "}}")
+    assembly = _assembly()
+    unit = assembly.add_library(library)
+    original = str(unit.module)
+    assembly.declare(unit, "shared")
+    result = assembly.finish()
+    assert _symbols(result.scope)["shared"].attributes["comdat"] == ir.StringAttr.get("one")
+    assert not _symbols(result.scope)["shared"].is_external
+    assert result.module.operation.verify()
+    assert str(unit.module) == original
+
+
+@pytest.mark.parametrize("linkage", ["linkonce", "linkonce_odr", "external"])
+@pytest.mark.parametrize("same_value", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_region_global_reconciliation_ignores_only_outer_visibility(linkage, same_value, reverse):
+    def region_global(value):
+        return (
+            f"llvm.mlir.global {linkage} @shared() : i32 {{\n"
+            f"%c = llvm.mlir.constant({value} : i32) : i32\nllvm.return %c : i32\n}}"
+        )
+
+    left = _unit(_definition("left"), region_global(17))
+    right = _unit(_definition("right"), region_global(17 if same_value else 19))
+    _symbols(right.scope)["shared"].attributes["sym_visibility"] = ir.StringAttr.get("private")
+    sources = (right, left) if reverse else (left, right)
+    names = ("right", "left") if reverse else ("left", "right")
+    original = [str(unit.module) for unit in sources]
+    assembly = _assembly()
+    for source, name in zip(sources, names):
+        assert source.module.operation.verify()
+        assembly.declare(source, name)
+    before = str(assembly.module)
+    if same_value and linkage != "external":
+        result = assembly.finish()
+        assert set(_symbols(result.scope)) == {"left", "right", "shared"}
+        initializer = _symbols(result.scope)["shared"].regions[0].blocks[0]
+        constant = next(iter(initializer))
+        assert ir.IntegerAttr(constant.attributes["value"]).value == 17
+        assert result.module.operation.verify()
+    else:
+        with pytest.raises(ValueError, match="Conflicting definitions.*shared"):
+            assembly.finish()
+        assert str(assembly.module) == before
+    assert [str(unit.module) for unit in sources] == original

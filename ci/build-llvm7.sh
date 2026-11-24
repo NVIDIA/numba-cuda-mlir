@@ -73,7 +73,8 @@ cmake_args=(
     -B "$(cmake_path "${LLVM7_BUILD}")"
     -DCMAKE_BUILD_TYPE=Release
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-    -DLLVM_TARGETS_TO_BUILD="NVPTX"
+    # No backends: this LLVM only builds IR and writes bitcode for libNVVM.
+    -DLLVM_TARGETS_TO_BUILD=""
     -DLLVM_BUILD_TOOLS=OFF
     -DLLVM_BUILD_UTILS=OFF
     -DLLVM_BUILD_EXAMPLES=OFF

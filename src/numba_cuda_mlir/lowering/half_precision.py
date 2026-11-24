@@ -1044,58 +1044,28 @@ def register_bf16_lowering():
         result = arith.bitcast(T.bf16(), value)
         builder.store_var(target, result)
 
-    # Bitcast intrinsics with int64/int32 args (for when scalars are typed as int64)
-    # These truncate to i16 first, then treat that as the bf16 bit pattern
-    @lower(__bfloat16_as_short, types.int64)
-    def bfloat16_as_short_i64_impl(builder, target, args, kwargs):
-        value = builder.load_var(args[0])
-        result = arith.trunci(T.i16(), value)
-        builder.store_var(target, result)
+    # Bitcast intrinsics applied to an integer argument. The integer is not
+    # already a bf16 bit pattern, so it is converted numerically to bf16 first
+    # and only then reinterpreted, which is what numba-cuda does for the same
+    # call. Reinterpreting the integer's own bits instead would silently give
+    # a different value than the equivalent host-side computation.
+    def _int_arg_bitcast_impl(signed):
+        int_to_bf16 = arith.sitofp if signed else arith.uitofp
 
-    @lower(__bfloat16_as_short, types.int32)
-    def bfloat16_as_short_i32_impl(builder, target, args, kwargs):
-        value = builder.load_var(args[0])
-        result = arith.trunci(T.i16(), value)
-        builder.store_var(target, result)
+        def impl(builder, target, args, kwargs):
+            value = builder.load_var(args[0])
+            as_bf16 = int_to_bf16(out=T.bf16(), in_=value)
+            result = arith.bitcast(T.i16(), as_bf16)
+            builder.store_var(target, result)
 
-    @lower(__bfloat16_as_short, types.int16)
-    def bfloat16_as_short_i16_impl(builder, target, args, kwargs):
-        value = builder.load_var(args[0])
-        builder.store_var(target, value)
+        return impl
 
-    @lower(__bfloat16_as_ushort, types.int64)
-    def bfloat16_as_ushort_i64_impl(builder, target, args, kwargs):
-        value = builder.load_var(args[0])
-        result = arith.trunci(T.i16(), value)
-        builder.store_var(target, result)
+    for _fn in (__bfloat16_as_short, __bfloat16_as_ushort):
+        for _ty in (types.int64, types.int32, types.int16):
+            lower(_fn, _ty)(_int_arg_bitcast_impl(signed=True))
 
-    @lower(__bfloat16_as_ushort, types.int32)
-    def bfloat16_as_ushort_i32_impl(builder, target, args, kwargs):
-        value = builder.load_var(args[0])
-        result = arith.trunci(T.i16(), value)
-        builder.store_var(target, result)
-
-    @lower(__bfloat16_as_ushort, types.int16)
-    def bfloat16_as_ushort_i16_impl(builder, target, args, kwargs):
-        value = builder.load_var(args[0])
-        builder.store_var(target, value)
-
-    @lower(__bfloat16_as_ushort, types.uint64)
-    def bfloat16_as_ushort_u64_impl(builder, target, args, kwargs):
-        value = builder.load_var(args[0])
-        result = arith.trunci(T.i16(), value)
-        builder.store_var(target, result)
-
-    @lower(__bfloat16_as_ushort, types.uint32)
-    def bfloat16_as_ushort_u32_impl(builder, target, args, kwargs):
-        value = builder.load_var(args[0])
-        result = arith.trunci(T.i16(), value)
-        builder.store_var(target, result)
-
-    @lower(__bfloat16_as_ushort, types.uint16)
-    def bfloat16_as_ushort_u16_impl(builder, target, args, kwargs):
-        value = builder.load_var(args[0])
-        builder.store_var(target, value)
+    for _ty in (types.uint64, types.uint32, types.uint16):
+        lower(__bfloat16_as_ushort, _ty)(_int_arg_bitcast_impl(signed=False))
 
     @lower(__short_as_bfloat16, types.int64)
     def short_as_bfloat16_i64_impl(builder, target, args, kwargs):

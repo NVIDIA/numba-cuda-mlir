@@ -101,6 +101,32 @@ def test_cpointer_carray_compile():
     )
 
 
+@pytest.mark.parametrize("cfarray", [cuda.carray, cuda.farray])
+def test_cfarray_compiles_after_registry_refresh(cfarray):
+    """The upstream @overload of carray/farray must not shadow the native
+    typing once a refresh makes its intrinsic visible (issue #327)."""
+    from numba_cuda_mlir.extending import refresh_registries
+
+    def make_fn(value):
+        # A distinct function object each time, so each compile types from scratch.
+        def fn(p):
+            cfarray(p, (8,), np.int32)[0] = value
+
+        return fn
+
+    for value in (1, 2):
+        fn = make_fn(value)
+        compiler.compile(
+            fn,
+            types.void(types.voidptr),
+            device=True,
+            abi="c",
+            abi_info={"abi_name": f"fn{value}"},
+            output="ltoir",
+        )
+        refresh_registries()
+
+
 @pytest.mark.parametrize(
     ("numba_complex", "numpy_complex", "float_dtype"),
     [

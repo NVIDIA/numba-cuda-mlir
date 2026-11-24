@@ -476,6 +476,33 @@ class ConstevalTransformer(ast.NodeTransformer):
 
     def visit_Call(self, node: ast.Call) -> ast.AST:
         """Transform consteval calls to constants."""
+        # Expand a star-splat of a consteval'd tuple *parameter* into explicit
+        # positional arguments, so a kernel can forward a statically-sized but
+        # runtime-valued extra-args tuple to a callee of matching arity:
+        #     device_func(row, *consteval(extra))
+        #   -> device_func(row, extra[0], extra[1], ..., extra[n-1])
+        # The length comes from the parameter's Numba tuple type; the elements
+        # stay runtime values. This must run before generic_visit so the inner
+        # ``consteval(extra)`` is not mis-evaluated to the parameter's type.
+        expanded_args = []
+        did_splat = False
+        for arg in node.args:
+            if (
+                isinstance(arg, ast.Starred)
+                and self._is_consteval_call(arg.value)
+                and len(arg.value.args) == 1
+                and not arg.value.keywords
+            ):
+                elements = self._parameter_element_exprs(arg.value.args[0])
+                if elements is not None:
+                    expanded_args.extend(elements)
+                    did_splat = True
+                    continue
+            expanded_args.append(arg)
+        if did_splat:
+            node.args = expanded_args
+            self.modified = True
+
         # First visit children (for nested calls)
         node = self.generic_visit(node)
 

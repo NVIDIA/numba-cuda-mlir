@@ -39,7 +39,7 @@ target_link_libraries(LLVM70Translate
 install(TARGETS LLVM70Translate DESTINATION lib)
 
 # Shared library with C API for in-process use from Python.
-# Set LLVM70_MLIR_PYTHON_CAPI to the path of libMLIRPythonCAPI.so to link
+# Set LLVM70_MLIR_PYTHON_CAPI to the path of the MLIR Python CAPI library to link
 # against it and share TypeIDs with the Python MLIR bindings, enabling
 # raw Operation* passing without text roundtrip.
 add_library(MLIRToLLVM70 SHARED CAPI.cpp)
@@ -63,7 +63,7 @@ if(MSVC AND LLVM70_MLIR_PYTHON_CAPI)
     LLVM70Translate
     ${CMAKE_DL_LIBS}
   )
-  # MLIRPythonCAPI.dll exports MLIR support symbols that are also present in
+  # The MLIR Python CAPI DLL exports MLIR support symbols that are also present in
   # the static MLIR libraries pulled in by the C++ bridge.
   target_link_options(MLIRToLLVM70 PRIVATE /FORCE:MULTIPLE)
 else()

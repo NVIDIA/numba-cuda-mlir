@@ -447,7 +447,6 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         compiled[nctaid, ntid](ary)
         self.assertEqual(ary[0], nctaid * ntid)
 
-    @pytest.mark.xfail(True, reason="Incorrect result")
     def test_issue_9229(self):
         # Ensure that grid and grid size are correct - #9229 showed that they
         # overflowed an int32.
@@ -1041,7 +1040,6 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
         compiled[1, 1](ary)
         self.assertEqual(ary[0], 32, "CUDA semantics")
 
-    @pytest.mark.xfail(True, reason="Incorrect result")
     def test_round_f4(self):
         compiled = numba_cuda_mlir.cuda.jit("void(int64[:], float32)")(simple_round)
         ary = np.zeros(1, dtype=np.int64)
@@ -1050,7 +1048,6 @@ class TestCudaIntrinsic(NumbaCUDATestCase):
             compiled[1, 1](ary, i)
             self.assertEqual(ary[0], round(i))
 
-    @pytest.mark.xfail(True, reason="Incorrect result")
     def test_round_f8(self):
         compiled = numba_cuda_mlir.cuda.jit("void(int64[:], float64)")(simple_round)
         ary = np.zeros(1, dtype=np.int64)

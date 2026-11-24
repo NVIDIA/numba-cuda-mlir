@@ -3,6 +3,7 @@
 
 import pytest
 
+from gpu_utils import requires_llvm70
 from numba_cuda_mlir import cuda, mlir_optimization, types
 from numba_cuda_mlir.numba_cuda import config
 
@@ -14,6 +15,11 @@ TEXT_IR = b"; ModuleID = 'kernel'\ndefine void @foo() {\n  ret void\n}\n"
 @pytest.fixture
 def dump_nvvm(monkeypatch):
     def set_dump_target(value):
+        # Set the environment as well as the attribute. ``reload_config()``
+        # runs before every compilation and re-derives every option from the
+        # environment whenever a ``NUMBA_*`` variable has changed anywhere in
+        # the session, which would otherwise reset this one to its default.
+        monkeypatch.setenv("NUMBA_CUDA_MLIR_DUMP_NVVM", value)
         monkeypatch.setattr(config, "CUDA_DUMP_NVVM", value)
 
     return set_dump_target
@@ -70,6 +76,7 @@ def test_dump_nvvm_to_explicit_file(dump_nvvm, tmp_path):
     assert target.read_bytes() == BITCODE
 
 
+@requires_llvm70
 def test_failed_llvm70_translation_dumps_nvvm_input(dump_nvvm, tmp_path, monkeypatch):
     dump_nvvm(str(tmp_path))
     monkeypatch.setattr(mlir_optimization, "_get_libnvvm_path", lambda: b"/missing/libnvvm.so")
@@ -87,7 +94,7 @@ def test_failed_llvm70_translation_dumps_nvvm_input(dump_nvvm, tmp_path, monkeyp
     assert dumps[0].read_bytes().startswith(mlir_optimization._BITCODE_MAGIC)
 
 
-@pytest.mark.parametrize("chip", ["sm_90", "sm_100"])
+@pytest.mark.parametrize("chip", [pytest.param("sm_90", marks=requires_llvm70), "sm_100"])
 @pytest.mark.parametrize("lto", [False, True], ids=["ptx", "lto"])
 def test_compilation_dumps_exact_nvvm_input(dump_nvvm, tmp_path, chip, lto):
     dump_nvvm(str(tmp_path))

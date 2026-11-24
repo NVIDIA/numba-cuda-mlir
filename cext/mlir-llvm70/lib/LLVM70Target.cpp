@@ -314,6 +314,22 @@ MLIRToLLVM70::extractFileLineCol(Location loc) {
   return {"", 0, 0};
 }
 
+// Find the DISubprogramAttr which rides in the metadata slot.
+LLVM::DISubprogramAttr MLIRToLLVM70::extractSubprogram(Location loc) {
+  if (auto fused = dyn_cast<FusedLoc>(loc)) {
+    if (auto sp = dyn_cast_or_null<LLVM::DISubprogramAttr>(fused.getMetadata()))
+      return sp;
+    for (auto inner : fused.getLocations())
+      if (auto sp = extractSubprogram(inner))
+        return sp;
+  }
+  if (auto name = dyn_cast<NameLoc>(loc))
+    return extractSubprogram(name.getChildLoc());
+  if (auto callSite = dyn_cast<CallSiteLoc>(loc))
+    return extractSubprogram(callSite.getCallee());
+  return {};
+}
+
 LLVMMetadataRef MLIRToLLVM70::getOrCreateDIFile(llvm::StringRef filename) {
   auto it = diFileCache.find(filename);
   if (it != diFileCache.end())
@@ -554,10 +570,15 @@ llvm::Error MLIRToLLVM70::translateFuncOp(Operation *op) {
     LLVMMetadataRef diFile =
         filename.empty() ? getOrCreateDIFile("llvm70_module")
                          : getOrCreateDIFile(filename);
-    std::string name = funcOp.getName().str();
-    currentSubprogram =
-        b.createDIFunction(diFile, name.c_str(), name.size(), diFile,
-                           line ? line : 1, diSubroutineType);
+    // Retrieve source name from subprogram, if any.
+    std::string linkageName = funcOp.getName().str();
+    llvm::StringRef name = linkageName;
+    LLVM::DISubprogramAttr subprogram = extractSubprogram(funcOp.getLoc());
+    if (subprogram && subprogram.getName())
+      name = subprogram.getName().getValue();
+    currentSubprogram = b.createDIFunction(
+        diFile, name.data(), name.size(), linkageName.c_str(),
+        linkageName.size(), diFile, line ? line : 1, diSubroutineType);
     b.setSubprogram(fn, currentSubprogram);
   }
 
@@ -1174,13 +1195,46 @@ llvm::Error MLIRToLLVM70::translateArithOp(Operation *op) {
     rhs = bf16ToF32(rhs);
   }
 
-  if (isa<LLVM::AddOp>(op))
-    result = b.buildAdd(lhs, rhs, "");
-  else if (isa<LLVM::SubOp>(op))
-    result = b.buildSub(lhs, rhs, "");
-  else if (isa<LLVM::MulOp>(op))
-    result = b.buildMul(lhs, rhs, "");
-  else if (isa<LLVM::SDivOp>(op))
+  // Integer add/sub/mul carry no-overflow flags (nsw/nuw) that LLVM 7's
+  // optimizer needs to remove negative-index guards; translate them.
+  auto overflowFlags = [](Operation *op) -> LLVM::IntegerOverflowFlags {
+    if (auto addOp = dyn_cast<LLVM::AddOp>(op))
+      return addOp.getOverflowFlags();
+    if (auto subOp = dyn_cast<LLVM::SubOp>(op))
+      return subOp.getOverflowFlags();
+    if (auto mulOp = dyn_cast<LLVM::MulOp>(op))
+      return mulOp.getOverflowFlags();
+    return LLVM::IntegerOverflowFlags::none;
+  }(op);
+  // LLVM 7's C API builds one flag at a time. Prefer nsw when both are
+  // present: it is the fact needed for signed negative-index checks.
+  bool noSignedWrap = (static_cast<uint32_t>(overflowFlags) &
+                       static_cast<uint32_t>(LLVM::IntegerOverflowFlags::nsw)) != 0;
+  bool noUnsignedWrap = (static_cast<uint32_t>(overflowFlags) &
+                         static_cast<uint32_t>(LLVM::IntegerOverflowFlags::nuw)) != 0;
+
+  if (isa<LLVM::AddOp>(op)) {
+    if (noSignedWrap)
+      result = b.buildNSWAdd(lhs, rhs, "");
+    else if (noUnsignedWrap)
+      result = b.buildNUWAdd(lhs, rhs, "");
+    else
+      result = b.buildAdd(lhs, rhs, "");
+  } else if (isa<LLVM::SubOp>(op)) {
+    if (noSignedWrap)
+      result = b.buildNSWSub(lhs, rhs, "");
+    else if (noUnsignedWrap)
+      result = b.buildNUWSub(lhs, rhs, "");
+    else
+      result = b.buildSub(lhs, rhs, "");
+  } else if (isa<LLVM::MulOp>(op)) {
+    if (noSignedWrap)
+      result = b.buildNSWMul(lhs, rhs, "");
+    else if (noUnsignedWrap)
+      result = b.buildNUWMul(lhs, rhs, "");
+    else
+      result = b.buildMul(lhs, rhs, "");
+  } else if (isa<LLVM::SDivOp>(op))
     result = b.buildSDiv(lhs, rhs, "");
   else if (isa<LLVM::UDivOp>(op))
     result = b.buildUDiv(lhs, rhs, "");
@@ -1345,6 +1399,8 @@ llvm::Error MLIRToLLVM70::translateLoadOp(Operation *op) {
   ptr = b.buildBitCast(ptr, b.ptrTy(elemTy, as), "");
 
   LLVMValueRef val = b.buildLoad(ptr, "");
+  if (auto alignment = loadOp.getAlignment())
+    b.setGlobalAlignment(val, *alignment);
   mapValue(loadOp.getResult(), val);
   return llvm::Error::success();
 }
@@ -1367,6 +1423,8 @@ llvm::Error MLIRToLLVM70::translateStoreOp(Operation *op) {
     val = b.buildBitCast(val, elemTy, "");
 
   LLVMValueRef storeInst = b.buildStore(val, ptr);
+  if (auto alignment = storeOp.getAlignment())
+    b.setGlobalAlignment(storeInst, *alignment);
   if (storeOp.getVolatile_())
     b.setVolatile(storeInst, true);
   return llvm::Error::success();
@@ -2338,6 +2396,8 @@ llvm::Error MLIRToLLVM70::translateSregOp(Operation *op) {
        "mov.u32 $0, %smid;"},
       {[](Operation *o) { return isa<NVVM::WarpDimOp>(o); },
        "mov.u32 $0, %nwarpid;"},
+      {[](Operation *o) { return isa<NVVM::DynamicSmemSize>(o); },
+       "mov.u32 $0, %dynamic_smem_size;"},
       {[](Operation *o) { return isa<NVVM::ClusterIdXOp>(o); },
        "mov.u32 $0, %clusterid.x;"},
       {[](Operation *o) { return isa<NVVM::ClusterIdYOp>(o); },
@@ -2641,7 +2701,7 @@ llvm::Error MLIRToLLVM70::translateNVVMOp(Operation *op) {
             NVVM::BlockIdXOp, NVVM::BlockIdYOp, NVVM::BlockIdZOp,
             NVVM::GridDimXOp, NVVM::GridDimYOp, NVVM::GridDimZOp,
             NVVM::WarpIdOp, NVVM::WarpDimOp, NVVM::LaneIdOp, NVVM::WarpSizeOp,
-            NVVM::SmIdOp,
+            NVVM::SmIdOp, NVVM::DynamicSmemSize,
             NVVM::ClusterIdXOp, NVVM::ClusterIdYOp, NVVM::ClusterIdZOp,
             NVVM::ClusterDimXOp, NVVM::ClusterDimYOp, NVVM::ClusterDimZOp,
             NVVM::ClusterDimBlocksXOp, NVVM::ClusterDimBlocksYOp,

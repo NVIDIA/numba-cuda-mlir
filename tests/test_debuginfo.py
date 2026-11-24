@@ -27,6 +27,16 @@ def k_reassigned_local(out, a, b):
     out[0] = c
 
 
+# fmt: off
+def k_paren_rhs_local(out, a, b):
+    c = (
+        a +
+        b
+    )
+    out[0] = c
+# fmt: on
+
+
 def k_loop_accumulator(out, n):
     total = 0
     for i in range(n):
@@ -190,6 +200,23 @@ def test_mlir_di_local_variable_locals():
         CHECK: di_local_variable<{{.*}}name = "c"
         CHECK-NOT: arg =
         CHECK-SAME: type =
+        """,
+        mlir,
+    )
+
+
+def test_mlir_di_local_variable_line_paren_rhs():
+    """A multi-line parenthesised value ending in a bare ``)`` keeps the assignment's line."""
+    mlir = compiler.compile_mlir(
+        k_paren_rhs_local,
+        types.void(types.int32[:], types.int32, types.int32),
+        debug=True,
+        opt=False,
+    )
+    assign_line = k_paren_rhs_local.__code__.co_firstlineno + 1
+    testing.filecheck(
+        f"""
+        CHECK: di_local_variable<{{{{.*}}}}name = "c"{{{{.*}}}}line = {assign_line},
         """,
         mlir,
     )

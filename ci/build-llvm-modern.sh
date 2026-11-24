@@ -86,7 +86,8 @@ cmake_args=(
     -DCMAKE_BUILD_TYPE=Release
     -DCMAKE_INSTALL_PREFIX="$(cmake_path "${LLVM_INSTALL}")"
     -DLLVM_ENABLE_PROJECTS="mlir"
-    -DLLVM_TARGETS_TO_BUILD="NVPTX;Native"
+    # Host backend for the host JIT only; PTX comes from libNVVM, not NVPTX.
+    -DLLVM_TARGETS_TO_BUILD="Native"
     -DMLIR_ENABLE_EXECUTION_ENGINE=ON
     -DLLVM_BUILD_TOOLS=OFF
     -DLLVM_BUILD_EXAMPLES=OFF

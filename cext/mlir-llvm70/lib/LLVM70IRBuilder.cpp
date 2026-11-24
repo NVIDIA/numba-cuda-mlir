@@ -44,6 +44,9 @@ LLVM70IRBuilder::~LLVM70IRBuilder() {
 // Symbol resolution — one big block so failures are caught early
 //===----------------------------------------------------------------------===//
 
+// The bundled LLVM 7 library exports only the functions listed in
+// ../llvm7-exports.txt; add new ones there too.
+
 #define RESOLVE(FIELD, SYM)                                                    \
   do {                                                                         \
     auto r = loader->resolve<decltype(FIELD)>(SYM);                            \

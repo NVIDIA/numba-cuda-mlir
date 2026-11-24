@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-# Build LLVM 7 for the LLVM70 path: shared libLLVM-7.so on Linux, LLVM-C.dll on
-# Windows (Git Bash with MSVC on PATH).
+# Build LLVM 7 for the LLVM70 path: libLLVM-7.so on Linux, LLVM-C.dll on
+# Windows (Git Bash with MSVC on PATH), exporting only the LLVM-C functions
+# listed in cext/mlir-llvm70/llvm7-exports.txt.
 #
-# Note: does NOT cmake --install; the shared library is copied (Linux, lib/) or
-# linked (Windows, bin/) into $LLVM7_INSTALL from the build dir.
+# Note: does NOT cmake --install; the shared library is linked into
+# $LLVM7_INSTALL (Linux, lib/; Windows, bin/) from the build dir's static libs.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 source "${SCRIPT_DIR}/llvm-version.env"
 
 case "$(uname -s)" in
@@ -23,8 +25,15 @@ LLVM7_BUILD="${LLVM7_BUILD:-${BUILD_ROOT}/llvm7-build}"
 # Output dir — the shared library lands here for artifact passing
 LLVM7_INSTALL="${LLVM7_INSTALL:-${PWD}/llvm7-install}"
 PARALLEL="${PARALLEL:-$(nproc)}"
-# Windows venvs have no python3.exe.
-PYTHON="${PYTHON:-python}"
+
+# Libraries defining the exported functions (Core, BitWriter) and what they
+# link (llvm/lib/*/LLVMBuild.txt). The link fails if one is missing.
+LLVM7_LIBS=(
+    LLVMCore LLVMBitWriter LLVMAnalysis LLVMObject LLVMProfileData LLVMMC
+    LLVMMCParser LLVMBitReader LLVMBinaryFormat LLVMSupport LLVMDemangle
+)
+mapfile -t LLVM7_EXPORTS < <(sed -e 's/\r$//' -e '/^#/d' -e '/^$/d' \
+    "${REPO_ROOT}/cext/mlir-llvm70/llvm7-exports.txt")
 
 if [[ "${IS_WINDOWS}" == 1 ]] && [[ "$(uname -m)" == "arm64" || "$(uname -m)" == "aarch64" ]]; then
     echo "LLVM 7 is not supported on Windows ARM64" >&2
@@ -73,7 +82,8 @@ cmake_args=(
     -B "$(cmake_path "${LLVM7_BUILD}")"
     -DCMAKE_BUILD_TYPE=Release
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-    -DLLVM_TARGETS_TO_BUILD="NVPTX"
+    # No backends: this LLVM only builds IR and writes bitcode for libNVVM.
+    -DLLVM_TARGETS_TO_BUILD=""
     -DLLVM_BUILD_TOOLS=OFF
     -DLLVM_BUILD_UTILS=OFF
     -DLLVM_BUILD_EXAMPLES=OFF
@@ -81,6 +91,7 @@ cmake_args=(
     -DLLVM_INCLUDE_BENCHMARKS=OFF
     -DLLVM_INCLUDE_DOCS=OFF
     -DLLVM_ENABLE_TERMINFO=OFF
+    -DLLVM_ENABLE_ZLIB=OFF
 )
 if [[ "${IS_WINDOWS}" == 1 ]]; then
     # MSVC cannot build libLLVM as a DLL: build static libs (static CRT) and
@@ -90,34 +101,20 @@ if [[ "${IS_WINDOWS}" == 1 ]]; then
         -DCMAKE_C_COMPILER=cl
         -DCMAKE_CXX_COMPILER=cl
         -DLLVM_USE_CRT_RELEASE=MT
-        -DLLVM_ENABLE_ZLIB=OFF
         -DLLVM_ENABLE_DIA_SDK=OFF
-    )
-else
-    cmake_args+=(
-        -DLLVM_BUILD_LLVM_DYLIB=ON
-        -DLLVM_ENABLE_ZLIB=ON
     )
 fi
 cmake "${cmake_args[@]}"
 
-# Windows-only: link the static LLVM libs into LLVM-C.dll, exporting the
-# LLVM C API.
+# Windows: link the static LLVM libs into LLVM-C.dll.
 link_llvm_c_dll() {
-    local lib_dir="${LLVM7_BUILD}/lib"
     local def_file="${LLVM7_BUILD}/LLVM-C.def"
     local link_rsp="${LLVM7_BUILD}/llvm-c-link.rsp"
-    local llvm_libs=("${lib_dir}"/LLVM*.lib)
     # Git Bash's /usr/bin/link.exe (coreutils) shadows MSVC's; use CMake's.
     local link_tool
     link_tool="$(sed -n 's#^CMAKE_LINKER:FILEPATH=##p' "${LLVM7_BUILD}/CMakeCache.txt")"
 
-    local lib_args=()
-    for lib_path in "${llvm_libs[@]}"; do
-        lib_args+=("$(cmake_path "${lib_path}")")
-    done
-    "${PYTHON}" "$(cmake_path "${SCRIPT_DIR}/tools/gen-llvm-c-exports.py")" \
-        --def "$(cmake_path "${def_file}")" "${lib_args[@]}"
+    { printf 'LIBRARY LLVM-C\nEXPORTS\n'; printf '%s\n' "${LLVM7_EXPORTS[@]}"; } > "${def_file}"
 
     pushd "${LLVM7_BUILD}" > /dev/null
     printf 'int _fltused = 0;\n' > llvm-c-stub.c
@@ -135,36 +132,49 @@ link_llvm_c_dll() {
         printf '/IMPLIB:"%s"\n' "$(cmake_path "${LLVM7_BUILD}/LLVM-C.lib")"
         printf '/DEF:"%s"\n' "$(cmake_path "${def_file}")"
         printf '"%s"\n' "$(cmake_path "${LLVM7_BUILD}/llvm-c-stub.obj")"
-        for lib_path in "${lib_args[@]}"; do
-            printf '/WHOLEARCHIVE:"%s"\n' "${lib_path}"
+        for lib in "${LLVM7_LIBS[@]}"; do
+            printf '"%s"\n' "$(cmake_path "${LLVM7_BUILD}/lib/${lib}.lib")"
         done
     } > "${link_rsp}"
     mkdir -p "${LLVM7_INSTALL}/bin"
     "$(cygpath -u "${link_tool}")" @"$(cmake_path "${link_rsp}")"
 }
 
-if [[ "${IS_WINDOWS}" == 1 ]]; then
-    # Build the static libs (not install).
-    cmake --build "$(cmake_path "${LLVM7_BUILD}")" -j "${PARALLEL}"
-    link_llvm_c_dll
+# Linux: link the static LLVM libs into libLLVM-7.so, dropping unused code.
+link_libllvm7_so() {
+    local version_script="${LLVM7_BUILD}/libLLVM-7.map"
+    local cxx
+    cxx="$(sed -n 's#^CMAKE_CXX_COMPILER:[A-Z]*=##p' "${LLVM7_BUILD}/CMakeCache.txt")"
 
+    { printf '{\n  global:\n'; printf '    %s;\n' "${LLVM7_EXPORTS[@]}"; printf '  local: *;\n};\n'; } \
+        > "${version_script}"
+
+    local link_args=()
+    for sym in "${LLVM7_EXPORTS[@]}"; do
+        link_args+=("-Wl,--undefined=${sym}")
+    done
+    link_args+=(-Wl,--start-group)
+    for lib in "${LLVM7_LIBS[@]}"; do
+        link_args+=("${LLVM7_BUILD}/lib/lib${lib}.a")
+    done
+    link_args+=(-Wl,--end-group)
+
+    "${cxx}" -shared -o "${LLVM7_INSTALL}/lib/libLLVM-7.so" \
+        -Wl,-soname,libLLVM-7.1.so \
+        -Wl,--version-script="${version_script}" -Wl,--no-undefined-version \
+        -Wl,--no-undefined -Wl,--gc-sections \
+        "${link_args[@]}" -pthread -ldl
+    strip --strip-unneeded "${LLVM7_INSTALL}/lib/libLLVM-7.so"
+}
+
+# Build the static libs (not install).
+cmake --build "$(cmake_path "${LLVM7_BUILD}")" -j "${PARALLEL}" --target "${LLVM7_LIBS[@]}"
+if [[ "${IS_WINDOWS}" == 1 ]]; then
+    link_llvm_c_dll
     echo "=== LLVM 7 built ==="
     ls -lh "${LLVM7_INSTALL}/bin/LLVM-C.dll"
 else
-    # Build only the LLVM shared lib (not install).
-    cmake --build "${LLVM7_BUILD}" -j "${PARALLEL}" --target LLVM
-
-    # Asymmetric with ci/build-llvm-modern.sh which uses
-    # `cmake --install --strip`: LLVM 7's tools/llvm-shlib creates extra
-    # compatibility symlinks (libLLVM-7.so, libLLVM.so -> libLLVM-7.1.so)
-    # regardless of CMAKE_PLATFORM_NO_VERSIONED_SONAME, and
-    # `actions/upload-artifact`'s zip format materializes each symlink into
-    # a full byte-identical copy -- 3x-bloating the artifact. The narrow
-    # `cp` + manual `strip` avoids that entirely.
-    LLVM7_SO="$(ls "${LLVM7_BUILD}"/lib/libLLVM-7*.so | head -1)"
-    strip --strip-unneeded "${LLVM7_SO}"
-    cp "${LLVM7_SO}" "${LLVM7_INSTALL}/lib/libLLVM-7.so"
-
+    link_libllvm7_so
     echo "=== LLVM 7 built ==="
     ls -lh "${LLVM7_INSTALL}/lib/libLLVM-7.so"
 fi

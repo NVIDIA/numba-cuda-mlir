@@ -4,7 +4,7 @@
 // NOTE: this is just a convenience for ninja users--we need to
 // add proper bindings under the numba_cuda_mlir.cuda module, but this allows
 // for quick prototyping.
-module attributes {numba_cuda_mlir.link_target} {
+module {
     func.func private @elect_sync() -> i1 attributes {always_inline} {
         %res = nvvm.elect.sync -> i1
         return %res : i1

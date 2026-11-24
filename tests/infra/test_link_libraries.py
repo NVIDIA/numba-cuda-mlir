@@ -40,9 +40,7 @@ def test_link_libraries():
     def call_external_function(x: DeviceNDArray):
         x[0] = add(x[0], x[1])
 
-    cres = call_external_function.compile("(float32[:],)")
-    print(cres.metadata["mlir_module_str"])
-    assert cres
+    call_external_function.compile("(float32[:],)")
 
     x = np.array([1.0, 2.0], dtype=np.float32)
     x = cuda.to_device(x)
@@ -66,9 +64,7 @@ def test_link_libdevice():
     def call_external_function(x: DeviceNDArray):
         x[0] = floor(x[0])
 
-    cres = call_external_function.compile("(float32[:],)")
-    print(cres.metadata["mlir_module_str"])
-    assert cres
+    call_external_function.compile("(float32[:],)")
 
     x = np.array([1.5], dtype=np.float32)
     x = cuda.to_device(x)

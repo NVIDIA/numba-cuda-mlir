@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
-module attributes {numba_cuda_mlir.link_target} {
+module {
     // Args match the bit-fields described in InstrDescriptor.
     // Each field is zero-extended, shifted into position, OR’d into the 32-bit result.
     //

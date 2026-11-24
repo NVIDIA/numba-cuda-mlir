@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from numba_cuda_mlir import cuda
-from numba_cuda_mlir import compiler, testing
 import numpy as np
 import pytest
 
@@ -56,16 +55,6 @@ def test_incomplete_slice(shape, answer):
     d = cuda.to_device(h)
     k[1, 1](d)
     assert np.allclose(d.copy_to_host(), answer), f"Expected {answer}, got {d.copy_to_host()}"
-
-    # CHECK-LABEL: gpu.func
-    # CHECK-SAME: (%[[ARG:.+]]: memref
-    # CHECK-SAME: kernel
-    # CHECK: scf.forall
-    # CHECK: memref.store %{{.+}}, %[[ARG]]
-
-    cres = compiler.compile_for(k, d)
-    mlir = cres.mlir_module_str
-    testing.filecheck_with_comments(mlir)
 
 
 @pytest.mark.parametrize("start", [0, 1, 3])

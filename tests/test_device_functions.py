@@ -102,6 +102,33 @@ def test_factory_device_functions_keep_captures_separate():
     assert out[0] == 8
 
 
+def test_native_optimization_preserves_device_composition():
+    from numba_cuda_mlir import types
+    from numba_cuda_mlir.mlir_optimization import optimize
+
+    @cuda.jit(device=True, inline="never")
+    def increment(value):
+        return value + 1
+
+    @cuda.jit
+    def first(out):
+        out[0] = increment(out[1])
+
+    out = np.array([0, 41], dtype=np.int64)
+    first[1, 1](out)
+    assert out[0] == 42
+
+    # Native code generation must not consume the reusable source specialization.
+    optimize(increment.overloads[(types.int64,)].cres)
+
+    @cuda.jit
+    def second(out):
+        out[0] = increment(out[1]) + 1
+
+    second[1, 1](out)
+    assert out[0] == 43
+
+
 if __name__ == "__main__":
     test_device_functions()
     test_self_recursion()

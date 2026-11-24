@@ -19,7 +19,6 @@ from numba_cuda_mlir._mlir.dialects import (
     func,
 )
 from numba_cuda_mlir._mlir.extras import types as T
-import numba_cuda_mlir._mlir.ir as ir
 from numba_cuda_mlir.lowering_registry import LoweringRegistry
 
 registry = LoweringRegistry()
@@ -29,7 +28,6 @@ from numba_cuda_mlir.lowering_utilities import (
     convert,
     DeferredMethodCall,
     get_conversion_signedness,
-    get_or_insert_function,
 )
 from numba_cuda_mlir.descriptor import MLIRTargetContext
 
@@ -202,7 +200,6 @@ def cmath_polar_cg(mlir_lower, target, args, kwargs):
 def cmath_rect_cg(mlir_lower, target, args, kwargs):
     """Code generator for cmath.rect with special case handling."""
     from numba_cuda_mlir.runtime import cmath as cmath_lib
-    from numba_cuda_mlir.lowering_utilities import link
 
     assert not kwargs, "rect does not accept any keyword arguments"
     assert len(args) == 2, "rect expects exactly 2 arguments"
@@ -215,23 +212,17 @@ def cmath_rect_cg(mlir_lower, target, args, kwargs):
     type_suffix = "f32" if element_type == T.f32() else "f64"
     intrinsic_name = f"cmath_rect_type_{type_suffix}"
 
-    # Link the cmath library
-    if cmath_lib not in mlir_lower._seen_mlir_libraries:
-        mlir_lower._seen_mlir_libraries.add(cmath_lib)
-        link.link_inplace(mlir_lower.mlir_module, cmath_lib.source)
+    unit = mlir_lower.module_assembly.add_library(cmath_lib)
+    callee = mlir_lower.module_assembly.declare(unit, intrinsic_name)
 
-    # Ensure r and phi are the right type
-    r = convert(r, element_type)
-    phi = convert(phi, element_type)
-
-    # Declare or lookup the function: (FTy, FTy) -> (FTy, FTy)
-    fn_type = ir.FunctionType.get([element_type, element_type], [element_type, element_type])
-    callee = get_or_insert_function(intrinsic_name, fn_type, mlir_lower.mlir_gpu_module)
+    # Convert to the runtime's actual input types.
+    r = convert(r, callee.function_type.inputs[0])
+    phi = convert(phi, callee.function_type.inputs[1])
 
     # Call the function
     call_results = func.call(
-        result=[element_type, element_type],
-        callee=callee.name.value,
+        result=callee.function_type.results,
+        callee=callee.symbol,
         operands_=[r, phi],
     )
 
@@ -295,27 +286,20 @@ def cmath_isfinite_cg(mlir_lower, target, args, kwargs):
 def _call_cmath_intrinsic(mlir_lower, func_name, z, target_mlir_type):
     """Helper to call a cmath runtime intrinsic that takes (real, imag) and returns (real, imag)."""
     from numba_cuda_mlir.runtime import cmath as cmath_lib
-    from numba_cuda_mlir.lowering_utilities import link
 
     element_type = target_mlir_type.element_type
     type_suffix = "f32" if element_type == T.f32() else "f64"
     intrinsic_name = f"{func_name}_type_{type_suffix}"
 
-    # Link the cmath library
-    if cmath_lib not in mlir_lower._seen_mlir_libraries:
-        mlir_lower._seen_mlir_libraries.add(cmath_lib)
-        link.link_inplace(mlir_lower.mlir_module, cmath_lib.source)
+    unit = mlir_lower.module_assembly.add_library(cmath_lib)
+    callee = mlir_lower.module_assembly.declare(unit, intrinsic_name)
 
-    x = convert(complex_dialect.re(z), element_type)
-    y = convert(complex_dialect.im(z), element_type)
-
-    # Lookup the function
-    fn_type = ir.FunctionType.get([element_type, element_type], [element_type, element_type])
-    callee = get_or_insert_function(intrinsic_name, fn_type, mlir_lower.mlir_gpu_module)
+    x = convert(complex_dialect.re(z), callee.function_type.inputs[0])
+    y = convert(complex_dialect.im(z), callee.function_type.inputs[1])
 
     # Call the function
     call_results = func.call(
-        result=[element_type, element_type], callee=callee.name.value, operands_=[x, y]
+        result=callee.function_type.results, callee=callee.symbol, operands_=[x, y]
     )
 
     # Create complex from results

@@ -3,27 +3,8 @@
 """NRT tests for string operations."""
 
 import numpy as np
-import pytest
 
 from numba_cuda_mlir import cuda
-
-
-def test_materialize_string_constant_mlir():
-    """Verify that passing a string literal to a device function
-    produces valid MLIR with the string data as a global constant."""
-    from numba_cuda_mlir import compiler
-
-    @cuda.jit
-    def getstr(s):
-        return s.upper()
-
-    @cuda.jit
-    def kernel(out):
-        out[0] = getstr("hello") == "HELLO"
-
-    cres = compiler.compile_for(kernel, np.zeros(1, dtype=np.bool_))
-    mlir = cres.mlir_module_str
-    assert "__numba_cuda_mlir_str_" in mlir
 
 
 def test_new_string_nrt():

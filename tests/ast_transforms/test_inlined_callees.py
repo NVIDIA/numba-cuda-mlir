@@ -8,6 +8,7 @@ from numba_cuda_mlir.cuda.experimental import consteval, current_target_options
 from numba_cuda_mlir.errors import TypingError
 from numba_cuda_mlir.extending import overload, typing_registry
 from numba_cuda_mlir.numba_cuda import types
+from numba_cuda_mlir.numba_cuda.core.errors import ArgumentBindingError
 from numba_cuda_mlir.numba_cuda.misc.special import literally
 import numpy as np
 import pytest
@@ -36,7 +37,6 @@ def test_inlined_callee_consteval_loop():
     np.testing.assert_array_equal(out, [10, 11, 12, 13, 0, 0, 0, 0])
 
 
-@pytest.mark.xfail(strict=True, reason="fold_arguments cannot bind keyword-only arguments")
 def test_inlined_callee_keyword_only_default():
     """Test that an omitted keyword-only default reaches an inlined callee."""
 
@@ -240,6 +240,26 @@ def test_inlined_callee_omitted_default_matches_call():
     _assert_inlined_matches_called(kernel)
 
 
+def test_inlined_callee_tuple_splat_matches_call():
+    """Test that *consteval() of a tuple parameter expands into arguments as it does in a call."""
+
+    @cuda.jit(device=True)
+    def digits(a, b, c):
+        return a * 100 + b * 10 + c
+
+    def body(out, i, extra):
+        out[i] = digits(*consteval(extra))
+
+    inlined, called = _inlined_and_called(body)
+
+    @cuda.jit
+    def kernel(out, a):
+        inlined(out, 0, (a, a + 1, a + 2))
+        called(out, 1, (a, a + 1, a + 2))
+
+    _assert_inlined_matches_called(kernel, 1)
+
+
 def test_inlined_callee_call_sites_resolve_separately():
     """Test that calls to one callee with different argument types each resolve their own."""
 
@@ -311,6 +331,32 @@ def test_inlined_callee_untyped_argument_raises_typing_error():
 
     with pytest.raises(TypingError, match="no_such_attribute"):
         kernel.compile("void(int64[:])")
+
+
+@pytest.mark.parametrize("nested", [False, True], ids=["direct", "nested"])
+def test_inlined_callee_binding_error_points_at_call(nested):
+    """Test that a call that does not bind to a parameter-reading callee raises at the call."""
+
+    @cuda.jit(device=True, inline=True)
+    def width(a, b):
+        return a + consteval(b.bitwidth)
+
+    @cuda.jit(device=True, inline=True)
+    def outer(x):
+        return width(x, 1, 2)
+
+    @cuda.jit
+    def direct(out):
+        out[0] = width(out[0], 1, 2)
+
+    @cuda.jit
+    def through_outer(out):
+        out[0] = outer(out[0])
+
+    kernel, call = (through_outer, "width(x, 1, 2)") if nested else (direct, "width(out[0], 1, 2)")
+    with pytest.raises(ArgumentBindingError, match=r"width\(\) too many positional") as excinfo:
+        kernel.compile("void(int64[:])")
+    assert call in str(excinfo.value)
 
 
 def test_recursive_callee_compiles_under_transforms():

@@ -515,7 +515,12 @@ class InlineInlinables(FunctionPass):
                 f"Cannot determine the argument types of the call to {dispatcher.py_func.__name__}",
                 loc=expr.loc,
             )
-        return tuple(dispatcher._compiler.fold_argument_types(argtypes, kwtypes)[1])
+        try:
+            _, folded = dispatcher._compiler.fold_argument_types(argtypes, kwtypes)
+        except errors.ArgumentBindingError as e:
+            # The dispatcher cannot see the call, so raise the error again at its location.
+            raise errors.ArgumentBindingError(e.msg, loc=expr.loc)
+        return tuple(folded)
 
     def _inlinee_typer(self, state, inline_worker):
         """Return a function that types a call to one of the caller's callees from its transformed IR.

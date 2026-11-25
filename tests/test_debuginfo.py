@@ -1031,6 +1031,41 @@ def test_llvm_ir_array_arg_is_parameter_of_descriptor_type():
     )
 
 
+@pytest.mark.parametrize("chip", ["sm_80", "sm_120"])
+def test_llvm_ir_poly_scalar_var_variant_part(chip):
+    """A polymorphic local keeps its whole variant part in the LLVM IR.
+
+    sm_100+ reaches LLVM through the upstream MLIR translator, everything below
+    goes through the LLVM70 one; both have to describe the variable the same way.
+    """
+
+    def k_poly_scalar_var(out, flag1, flag2):
+        x = np.int64(1)
+        if flag1:
+            x = np.int32(2)
+        elif flag2:
+            x = np.float32(3.5)
+        out[0] = x
+
+    k = cuda.jit(debug=True, opt=False, chip=chip)(k_poly_scalar_var)
+    sig = (types.float64[:], types.boolean, types.boolean)
+    k.compile(types.void(*sig))
+    llvm_ir = k.inspect_llvm(sig)
+
+    testing.filecheck(
+        """
+        CHECK-DAG: ![[DISCRIM:[0-9]+]] = !DIDerivedType(tag: DW_TAG_member, name: "discriminator-float32.float64.int32.int64"{{.*}}size: 8{{.*}}flags: DIFlagArtificial)
+        CHECK-DAG: !DICompositeType(tag: DW_TAG_variant_part, name: "variant_part"{{.*}}elements: ![[VARIANTS:[0-9]+]]{{.*}}discriminator: ![[DISCRIM]])
+        CHECK-DAG: ![[VARIANTS]] = !{![[FLOAT32:[0-9]+]], ![[FLOAT64:[0-9]+]], ![[INT32:[0-9]+]], ![[INT64:[0-9]+]]}
+        CHECK-DAG: ![[FLOAT32]] = !DIDerivedType(tag: DW_TAG_member, name: "_float32"{{.*}}size: 32{{.*}}extraData: i8 0)
+        CHECK-DAG: ![[FLOAT64]] = !DIDerivedType(tag: DW_TAG_member, name: "_float64"{{.*}}size: 64{{.*}}extraData: i8 1)
+        CHECK-DAG: ![[INT32]] = !DIDerivedType(tag: DW_TAG_member, name: "_int32"{{.*}}size: 32{{.*}}extraData: i8 2)
+        CHECK-DAG: ![[INT64]] = !DIDerivedType(tag: DW_TAG_member, name: "_int64"{{.*}}size: 64{{.*}}extraData: i8 3)
+        """,
+        llvm_ir,
+    )
+
+
 def test_llvm_ir_subprogram_name():
     """The subprogram is named after the source, not the mangled symbol."""
 

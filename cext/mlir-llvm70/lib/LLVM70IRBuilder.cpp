@@ -52,6 +52,17 @@ LLVM70IRBuilder::~LLVM70IRBuilder() {
     FIELD = *r;                                                                \
   } while (0)
 
+/// Leaves FIELD null when SYM is missing, for symbols this library can work
+/// without. Whoever reads FIELD decides what to do when it is null.
+#define RESOLVE_OPTIONAL(FIELD, SYM)                                           \
+  do {                                                                         \
+    auto r = loader->resolve<decltype(FIELD)>(SYM);                            \
+    if (r)                                                                     \
+      FIELD = *r;                                                              \
+    else                                                                       \
+      llvm::consumeError(r.takeError());                                       \
+  } while (0)
+
 llvm::Error LLVM70IRBuilder::resolveSymbols() {
   // Context / module
   RESOLVE(fnContextCreate, "LLVMContextCreate");
@@ -231,6 +242,19 @@ llvm::Error LLVM70IRBuilder::resolveSymbols() {
   RESOLVE(fnDIBuilderCreateArrayType, "LLVMDIBuilderCreateArrayType");
   RESOLVE(fnDIBuilderCreateMemberType, "LLVMDIBuilderCreateMemberType");
   RESOLVE(fnDIBuilderGetOrCreateSubrange, "LLVMDIBuilderGetOrCreateSubrange");
+  RESOLVE(fnDIBuilderGetOrCreateArray, "LLVMDIBuilderGetOrCreateArray");
+  // Optional: absent from LLVM builds that export no C++ symbols, and mangled
+  // for the Itanium ABI. Callers degrade to omitting the variant part.
+  RESOLVE_OPTIONAL(
+      fnCreateVariantPart,
+      "_ZN4llvm9DIBuilder17createVariantPartEPNS_7DIScopeENS_9StringRefEPNS_"
+      "6DIFileEjmjNS_6DINode7DIFlagsEPNS_13DIDerivedTypeENS_"
+      "24MDTupleTypedArrayWrapperIS6_EES3_");
+  RESOLVE_OPTIONAL(
+      fnCreateVariantMemberType,
+      "_ZN4llvm9DIBuilder23createVariantMemberTypeEPNS_7DIScopeENS_"
+      "9StringRefEPNS_6DIFileEjmjmPNS_8ConstantENS_6DINode7DIFlagsEPNS_"
+      "6DITypeE");
   RESOLVE(fnDIBuilderCreateReplaceableCompositeType,
           "LLVMDIBuilderCreateReplaceableCompositeType");
   RESOLVE(fnMetadataReplaceAllUsesWith, "LLVMMetadataReplaceAllUsesWith");
@@ -805,10 +829,39 @@ LLVMMetadataRef LLVM70IRBuilder::createDIArrayType(uint64_t sizeInBits,
 LLVMMetadataRef LLVM70IRBuilder::createDIMemberType(
     LLVMMetadataRef scope, const char *name, size_t nameLen,
     LLVMMetadataRef file, unsigned lineNo, uint64_t sizeInBits,
-    uint32_t alignInBits, uint64_t offsetInBits, LLVMMetadataRef type) {
+    uint32_t alignInBits, uint64_t offsetInBits, LLVMDIFlags flags,
+    LLVMMetadataRef type) {
   return fnDIBuilderCreateMemberType(diBuilder, scope, name, nameLen, file,
                                      lineNo, sizeInBits, alignInBits,
-                                     offsetInBits, LLVMDIFlagZero, type);
+                                     offsetInBits, flags, type);
+}
+LLVMMetadataRef LLVM70IRBuilder::createDIVariantPart(
+    LLVMMetadataRef scope, const char *name, size_t nameLen,
+    LLVMMetadataRef file, unsigned lineNo, uint64_t sizeInBits,
+    uint32_t alignInBits, LLVMMetadataRef discriminator,
+    LLVMMetadataRef *elements, unsigned numElements) {
+  usedDIVariantPart = true;
+  // createVariantPart takes the element tuple itself, not a loose array.
+  LLVMMetadataRef tuple =
+      fnDIBuilderGetOrCreateArray(diBuilder, elements, numElements);
+  return fnCreateVariantPart(diBuilder, scope, {name, nameLen}, file, lineNo,
+                             sizeInBits, alignInBits, LLVMDIFlagZero,
+                             discriminator, {tuple}, {"", 0});
+}
+LLVMMetadataRef LLVM70IRBuilder::createDIVariantMemberType(
+    LLVMMetadataRef scope, const char *name, size_t nameLen,
+    LLVMMetadataRef file, unsigned lineNo, uint64_t sizeInBits,
+    uint32_t alignInBits, uint64_t offsetInBits, uint64_t discriminant,
+    unsigned discriminantBits, LLVMMetadataRef type) {
+  // The discriminant rides along as a constant, which is what ends up in
+  // DW_AT_discr_value.
+  LLVMValueRef discriminantValue =
+      fnConstInt(fnIntType(ctx, discriminantBits), discriminant,
+                 /*signExtend=*/0);
+  return fnCreateVariantMemberType(diBuilder, scope, {name, nameLen}, file,
+                                   lineNo, sizeInBits, alignInBits,
+                                   offsetInBits, discriminantValue,
+                                   LLVMDIFlagZero, type);
 }
 LLVMMetadataRef LLVM70IRBuilder::createDISubrange(int64_t lowerBound,
                                                   int64_t count) {

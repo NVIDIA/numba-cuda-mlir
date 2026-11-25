@@ -225,6 +225,10 @@ class MLIRLower(object):
         self._debug_forced_alloca: set[str] = set()
         self._poly_dbg_alloca: dict[str, ir.Value] = {}
         self._dbg_decl_slots: dict[str, tuple[ir.Value, ir.Type]] = {}
+        # Variable name -> unroll options set by cuda.unroll / cuda.nounroll.
+        self._unroll_hints: dict[str, str] = {}
+        # Loop header block offset -> loop_annotation for its back edges.
+        self._loop_unroll_headers: dict[int, ir.Attribute] = {}
 
         self.nrt = MLIRNRTContext(context.data_model_manager)
 
@@ -1263,6 +1267,8 @@ extern "C" __global__ void
         trace()
         assert self.var_lowered(var), f"Var {var.name} not found in varmap."
         var_value = self.load_var(var)
+        if var.name in self._unroll_hints:
+            self._unroll_hints[target.name] = self._unroll_hints[var.name]
 
         match var_value:
             case (
@@ -1531,6 +1537,13 @@ extern "C" __global__ void
     def lower_iternext_expr_assign(self, target, value):
         trace()
         iter_obj = self.load_var(value)
+        if value.name in self._unroll_hints:
+            # LLVM 7 requires a unique !llvm.loop node for each loop so add a unique
+            # start location here
+            self._loop_unroll_headers[self.current_offset] = ir.Attribute.parse(
+                f"#llvm.loop_annotation<unroll = <{self._unroll_hints[value.name]}>, "
+                "startLoc = loc(fused<distinct[0]<unit>>[unknown])>"
+            )
         if isinstance(iter_obj, RangeObject):
             iternext = iter_obj.next()
             self.store_var(target, iternext)
@@ -1545,6 +1558,8 @@ extern "C" __global__ void
     def lower_getiter_expr_assign(self, target, value):
         trace()
         value_type = self.get_numba_type(value.name)
+        if value.name in self._unroll_hints:
+            self._unroll_hints[target.name] = self._unroll_hints[value.name]
 
         if isinstance(value_type, types.RangeType):
             ro = self.load_var(value)
@@ -3201,7 +3216,12 @@ extern "C" __global__ void
 
         assert target in self.blkmap, f"target {target} not found in self.blkmap"
 
-        cf.br(dest_operands=[], dest=self.blkmap[target])
+        # A jump to a header already lowered is a back edge; llvm.br keeps the annotation through canonicalization.
+        hint = self._loop_unroll_headers.get(target)
+        if hint is None:
+            cf.br(dest_operands=[], dest=self.blkmap[target])
+        else:
+            llvm.br([], self.blkmap[target], loop_annotation=hint)
 
     def _decref_if_assigned_multi(self, name, var_type):
         """Decref a multi-assign variable by loading from its stack slot,

@@ -56,6 +56,7 @@ case "${kind}" in
         build_hash="$(hash_inputs \
             "${SCRIPT_DIR}/build-llvm-modern.sh" \
             "${SCRIPT_DIR}/../cext/mlir-python/CMakeLists.txt" \
+            "${SCRIPT_DIR}/../cext/mlir-python/gen_exports.py" \
             "${SCRIPT_DIR}/../cext/mlir-python/Registration.cpp" \
             "${SCRIPT_DIR}/../cext/mlir-python/Registration.h" \
             "${SCRIPT_DIR}/../cext/mlir-python/SiteInitialize.cpp")"

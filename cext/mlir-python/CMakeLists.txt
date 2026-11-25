@@ -186,6 +186,27 @@ add_mlir_python_common_capi_library(NumbaCudaMlirPythonCAPI
 set_target_properties(NumbaCudaMlirPythonCAPI PROPERTIES
   OUTPUT_NAME MLIRPythonCAPI-${MLIR_BINDINGS_PYTHON_NB_DOMAIN})
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  # The bridge shares MLIR objects with Python. Export its C++ dependencies,
+  # but let the linker discard unused internals from the rest of LLVM/MLIR.
+  set(_ncm_cxx_export_libs
+    MLIRIR MLIRSupport MLIRLLVMDialect MLIRNVVMDialect LLVMSupport)
+  set(_ncm_cxx_export_archives)
+  foreach(_lib IN LISTS _ncm_cxx_export_libs)
+    list(APPEND _ncm_cxx_export_archives "$<TARGET_FILE:${_lib}>")
+  endforeach()
+  set(_ncm_export_map "${CMAKE_CURRENT_BINARY_DIR}/NumbaCudaMlirPythonCAPI.map")
+  add_custom_command(OUTPUT "${_ncm_export_map}"
+    COMMAND "${Python_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/gen_exports.py"
+      --nm "${CMAKE_NM}" --output "${_ncm_export_map}" ${_ncm_cxx_export_archives}
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/gen_exports.py" ${_ncm_cxx_export_libs}
+    VERBATIM)
+  add_custom_target(NumbaCudaMlirPythonCAPIExports DEPENDS "${_ncm_export_map}")
+  add_dependencies(NumbaCudaMlirPythonCAPI NumbaCudaMlirPythonCAPIExports)
+  target_link_options(NumbaCudaMlirPythonCAPI PRIVATE "LINKER:--version-script=${_ncm_export_map}")
+  set_property(TARGET NumbaCudaMlirPythonCAPI APPEND PROPERTY LINK_DEPENDS "${_ncm_export_map}")
+endif()
+
 add_mlir_python_modules(NumbaCudaMlirPythonModules
   ROOT_PREFIX "${_ncm_package_root}"
   INSTALL_PREFIX "${MLIR_BINDINGS_PYTHON_INSTALL_PREFIX}"

@@ -1657,9 +1657,7 @@ register_cache_hint_lowerings()
 
 def _hint_iterable(builder, target, iterable, unroll):
     builder.store_var(target, builder.load_var(iterable))
-    builder._unroll_hints[target.name] = ir.Attribute.parse(
-        f"#llvm.loop_annotation<unroll = <{unroll}>>"
-    )
+    builder._unroll_hints[target.name] = unroll
 
 
 def register_loop_unroll_lowerings():

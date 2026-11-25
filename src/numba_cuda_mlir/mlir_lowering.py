@@ -225,8 +225,8 @@ class MLIRLower(object):
         self._debug_forced_alloca: set[str] = set()
         self._poly_dbg_alloca: dict[str, ir.Value] = {}
         self._dbg_decl_slots: dict[str, tuple[ir.Value, ir.Type]] = {}
-        # Variable name -> loop_annotation set by cuda.unroll / cuda.nounroll.
-        self._unroll_hints: dict[str, ir.Attribute] = {}
+        # Variable name -> unroll options set by cuda.unroll / cuda.nounroll.
+        self._unroll_hints: dict[str, str] = {}
         # Loop header block offset -> loop_annotation for its back edges.
         self._loop_unroll_headers: dict[int, ir.Attribute] = {}
 
@@ -1538,7 +1538,12 @@ extern "C" __global__ void
         trace()
         iter_obj = self.load_var(value)
         if value.name in self._unroll_hints:
-            self._loop_unroll_headers[self.current_offset] = self._unroll_hints[value.name]
+            # LLVM 7 requires a unique !llvm.loop node for each loop so add a unique
+            # start location here
+            self._loop_unroll_headers[self.current_offset] = ir.Attribute.parse(
+                f"#llvm.loop_annotation<unroll = <{self._unroll_hints[value.name]}>, "
+                "startLoc = loc(fused<distinct[0]<unit>>[unknown])>"
+            )
         if isinstance(iter_obj, RangeObject):
             iternext = iter_obj.next()
             self.store_var(target, iternext)

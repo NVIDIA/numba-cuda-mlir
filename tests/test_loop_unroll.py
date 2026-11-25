@@ -269,6 +269,21 @@ def test_latches_of_one_loop_share_its_llvm_loop_id():
     assert f"!{loop_id} = distinct !{{!{loop_id}, " in llvm_ir
 
 
+def test_loops_with_the_same_hint_get_their_own_llvm_loop_ids():
+    @cuda.jit
+    def kernel(x, out):
+        acc = np.float32(0.0)
+        for k in cuda.unroll(range(N), 2):
+            acc += x[k]
+        for k in cuda.unroll(range(N), 2):
+            acc += x[k]
+        out[0] = acc
+
+    assert _run_sum(kernel) == 2 * np.arange(N, dtype=np.float32).sum()
+    ids = re.findall(r"!llvm\.loop !(\d+)", _llvm_ir(kernel))
+    assert len(ids) == len(set(ids)) == 2
+
+
 def test_array_loop_is_annotated():
     @cuda.jit
     def kernel(x, out):

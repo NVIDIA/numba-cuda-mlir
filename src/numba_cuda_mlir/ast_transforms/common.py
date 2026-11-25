@@ -43,6 +43,8 @@ def recompile_function(func: Callable, tree: ast.Module, stored_values: dict = N
         stored_values: Dict of name -> value for complex objects that need to be
             injected into the function's globals
     """
+    # Shift the dedented tree's line numbers to the function's position in its file.
+    ast.increment_lineno(tree, func.__code__.co_firstlineno - 1)
     code = compile(tree, inspect.getfile(func), "exec")
 
     # Find the function's code object in the compiled module
@@ -86,6 +88,7 @@ def recompile_function(func: Callable, tree: ast.Module, stored_values: dict = N
         func.__defaults__,
         new_closure,
     )
+    new_func.__kwdefaults__ = func.__kwdefaults__
     new_func.__annotations__ = func.__annotations__
     new_func.__doc__ = func.__doc__
     new_func.__module__ = func.__module__

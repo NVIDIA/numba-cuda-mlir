@@ -201,6 +201,7 @@ testpaths = [ "tests" ]
 norecursedirs = [ "benchmarks", "doc_examples" ]
 filterwarnings = [
     "ignore:The CUDA driver version is older than the backend version:RuntimeWarning",
+    "ignore:NVRTC log messages.*nvrtc.*warning.*Architectures prior to '<compute/sm>_75' are deprecated and may be removed in a future release:UserWarning:numba_cuda_mlir.numba_cuda.cudadrv.nvrtc",
     "ignore:Grid size.*will likely result in GPU under-utilization:",
     "ignore:Host array used in CUDA kernel will incur copy overhead:",
     "ignore:Numpy array was passed directly to numba-cuda-mlir kernel:",

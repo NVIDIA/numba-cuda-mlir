@@ -384,6 +384,7 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
+    config.getini("filterwarnings").insert(0, "error")
     config.addinivalue_line(
         "markers",
         "numba_cuda_test_binaries(*artifacts): build only the named "

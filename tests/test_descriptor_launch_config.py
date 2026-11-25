@@ -1564,7 +1564,11 @@ def test_retained_marshaller_reregisters_after_cache_eviction(monkeypatch):
     launch_key = descriptor_mod._launch_config_key(marshaller._launch_config)
     retained_kernel_dispatcher = marshaller._kernel_dispatcher
 
-    marshaller()
+    with pytest.warns(
+        descriptor_mod.NumbaPerformanceWarning,
+        match="Persistent disk cache is disabled for launch-config-specialized compiles",
+    ):
+        marshaller()
     assert dispatcher._launch_config_dispatchers[launch_key] is retained_kernel_dispatcher
 
     for block_size in range(2, descriptor_mod._LAUNCH_CONFIG_CACHE_SIZE + 2):
@@ -1600,7 +1604,11 @@ def test_retained_marshaller_does_not_reregister_after_recompile(monkeypatch):
     old_kernel_dispatcher = marshaller._kernel_dispatcher
 
     dispatcher.recompile()
-    marshaller()
+    with pytest.warns(
+        descriptor_mod.NumbaPerformanceWarning,
+        match="Persistent disk cache is disabled for launch-config-specialized compiles",
+    ):
+        marshaller()
     fresh_marshaller = dispatcher.configure(1, 32)
 
     assert old_kernel_dispatcher not in dispatcher._launch_config_dispatchers.values()
@@ -3141,7 +3149,11 @@ def test_launch_config_specializes_same_signature_launches():
 
     out = np.zeros(1, dtype=np.int32)
 
-    kernel[1, 32](out)
+    with pytest.warns(
+        descriptor_mod.NumbaPerformanceWarning,
+        match="Persistent disk cache is disabled for launch-config-specialized compiles",
+    ):
+        kernel[1, 32](out)
     assert out[0] == 32
     misses_after_first_launch = sum(kernel._launch_config_cache_misses.values())
 

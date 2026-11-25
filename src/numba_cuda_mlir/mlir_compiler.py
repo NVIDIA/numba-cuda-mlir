@@ -147,6 +147,9 @@ class MLIRBackend(LoweringPass):
     def __init__(self):
         LoweringPass.__init__(self)
 
+    def create_lowerer(self, state, fndesc):
+        return lowering.GPULower(state.targetctx, fndesc, state.func_ir, metadata=state.metadata)
+
     def run_pass(self, state):
         """
         Back-end: Packages lowering output in a compile result
@@ -185,7 +188,7 @@ class MLIRBackend(LoweringPass):
 
         library = MLIRLibrary(code)
 
-        lower = lowering.MLIRLower(targetctx, fndesc, func_ir, metadata=metadata)
+        lower = self.create_lowerer(state, fndesc)
 
         try:
             with targetctx.push_code_library(library):
@@ -193,7 +196,9 @@ class MLIRBackend(LoweringPass):
                 lower.verify_mlir_module()
         except UserFacingInternalCompilerError:
             raise
-        except (NotImplementedError, InternalCompilerError) as exc:
+        except (NotImplementedError, errors.UnsupportedError):
+            handle_lowering_error(lower, func_ir)
+        except InternalCompilerError as exc:
             if os.environ.get("NUMBA_CUDA_MLIR_ICE_FULL_TB", "0").strip() == "1":
                 raise exc
             handle_lowering_error(lower, func_ir)
@@ -215,6 +220,7 @@ class MLIRBackend(LoweringPass):
 def get_compiler_class(
     targetoptions: Dict[str, Any],
     launch_config_tracker=None,
+    backend_pass=MLIRBackend,
 ):
     class MLIRCompiler(CompilerBase):
         def define_pipelines(self):
@@ -269,7 +275,7 @@ def get_compiler_class(
             pm.add_pass(AnnotateTypes, "annotate types")
 
             # Lowering to MLIR
-            pm.add_pass(MLIRBackend, "Run MLIR backend")
+            pm.add_pass(backend_pass, "Run MLIR backend")
 
             pm.finalize()
             return pm

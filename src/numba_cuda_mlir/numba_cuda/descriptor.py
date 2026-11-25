@@ -30,13 +30,17 @@ class CUDATarget:
     @property
     def typing_context(self):
         if self._typingctx is None:
-            self._typingctx = CUDATypingContext()
+            with self._initialization_lock:
+                if self._typingctx is None:
+                    self._typingctx = CUDATypingContext()
         return self._typingctx
 
     @property
     def target_context(self):
         if self._targetctx is None:
-            self._targetctx = CUDATargetContext(self.typing_context)
+            with self._initialization_lock:
+                if self._targetctx is None:
+                    self._targetctx = CUDATargetContext(self.typing_context)
         return self._targetctx
 
     def _seed_target_registry(self):

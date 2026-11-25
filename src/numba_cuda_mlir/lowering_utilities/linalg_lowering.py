@@ -9,12 +9,15 @@ from numba_cuda_mlir.lowering_utilities import (
     tensor_to_memref,
     memref_to_value_tensor,
     value_tensor_to_storage_memref,
+    array_alloca,
+    array_element_value_store,
     set_error_code_if_zero,
     convert,
     mul,
     add,
     expensive_coerce_tensor_type,
 )
+from numba_cuda_mlir.array_storage import ArrayStorageLayout
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.mlir_lowering import KERNEL_ERROR_CODES
 
@@ -49,11 +52,10 @@ def lower_matmul(mlir_lower, target, target_type, args):
         rhs=rhs_dims[0],  # B's rows
     )
     error_memref = mlir_lower._get_or_create_error_global()
-    if error_memref is not None:
-        dims_mismatch = arith.xori(dims_match, arith.constant(result=T.i(1), value=1))
-        with scf.if_ctx_manager(dims_mismatch):
-            set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
-            scf.yield_([])
+    dims_mismatch = arith.xori(dims_match, arith.constant(result=T.i(1), value=1))
+    with scf.if_ctx_manager(dims_mismatch):
+        set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+        scf.yield_([])
 
     result_dims = [lhs_dims[0], rhs_dims[1]]
     element_type = mlir_lower.get_value_type(target_type.dtype)
@@ -253,11 +255,10 @@ def lower_np_binop(mlir_lower, target, target_type, args, linalg_op):
         is_broadcastable = shape.is_broadcastable([lhs_shape, rhs_shape])
 
         error_memref = mlir_lower._get_or_create_error_global()
-        if error_memref is not None:
-            not_broadcastable = arith.xori(is_broadcastable, arith.constant(result=T.i(1), value=1))
-            with scf.if_ctx_manager(not_broadcastable):
-                set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
-                scf.yield_([])
+        not_broadcastable = arith.xori(is_broadcastable, arith.constant(result=T.i(1), value=1))
+        with scf.if_ctx_manager(not_broadcastable):
+            set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+            scf.yield_([])
 
         broadcast_shape = shape.broadcast(shapes=[rhs_shape, lhs_shape], result=lhs_shape.type)
 
@@ -303,6 +304,19 @@ def lower_np_binop(mlir_lower, target, target_type, args, linalg_op):
 def lower_transpose(mlir_lower, target, array):
     input_array = mlir_lower.load_var(array)
     input_type = mlir_lower.get_numba_type(array.name)
+    if ArrayStorageLayout(input_type).byte_addressed:
+        source_type = input_array.type
+        target_type = mlir_lower.get_mlir_type(mlir_lower.get_numba_type(target))
+        target_type = ir.MemRefType.get(
+            target_type.shape,
+            source_type.element_type,
+            layout=target_type.layout,
+            memory_space=source_type.memory_space,
+        )
+        permutation = ir.AffineMap.get_permutation(list(reversed(range(source_type.rank))))
+        result = memref.transpose(target_type, input_array, permutation)
+        mlir_lower.store_var(target, result)
+        return
 
     input_tensor = memref_to_tensor(input_array)
 
@@ -418,22 +432,24 @@ def lower_linalg_nd_1d_dot(mlir_lower, target, target_type, args):
     # Verify that the last dimension of lhs matches the dimension of rhs
     dims_match = arith.cmpi(predicate=arith.CmpIPredicate.eq, lhs=lhs_dims[-1], rhs=rhs_dim)
     error_memref = mlir_lower._get_or_create_error_global()
-    if error_memref is not None:
-        dims_mismatch = arith.xori(dims_match, arith.constant(result=T.i(1), value=1))
-        with scf.if_ctx_manager(dims_mismatch):
-            set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
-            scf.yield_([])
+    dims_mismatch = arith.xori(dims_match, arith.constant(result=T.i(1), value=1))
+    with scf.if_ctx_manager(dims_mismatch):
+        set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+        scf.yield_([])
 
     # Result dimensions are all but the last dimension of lhs
     result_dims = lhs_dims[:-1]
 
     # Create result memref
     element_type = mlir_lower.get_value_type(target_type.dtype)
-    result_memref = memref.alloc(
-        memref=mlir_lower.get_mlir_type(target_type),
-        dynamic_sizes=result_dims,
-        symbol_operands=[],
-    )
+    if ArrayStorageLayout(target_type).byte_addressed:
+        result_memref = array_alloca(target_type, result_dims)
+    else:
+        result_memref = memref.alloc(
+            memref=mlir_lower.get_mlir_type(target_type),
+            dynamic_sizes=result_dims,
+            symbol_operands=[],
+        )
 
     # Convert inputs to source-level value tensors
     lhs_tensor = memref_to_value_tensor(lhs_type, mlir_lower.load_var(args[0]))
@@ -486,8 +502,7 @@ def lower_linalg_nd_1d_dot(mlir_lower, target, target_type, args):
 
             # Store the result from the parallel operation
             final_sum = parallel_op.results[0]
-            stored_sum = mlir_lower.as_storage(target_type.dtype, final_sum)
-            memref.store(value=stored_sum, memref=result_memref, indices=indices_so_far)
+            array_element_value_store(target_type, result_memref, indices_so_far, final_sum)
             return
 
         # Create loop for current dimension
@@ -532,22 +547,24 @@ def lower_linalg_nd_md_dot(mlir_lower, target, target_type, args):
     # Verify that the last dimension of lhs matches the second last dimension of rhs
     dims_match = arith.cmpi(predicate=arith.CmpIPredicate.eq, lhs=lhs_dims[-1], rhs=rhs_dims[-2])
     error_memref = mlir_lower._get_or_create_error_global()
-    if error_memref is not None:
-        dims_mismatch = arith.xori(dims_match, arith.constant(result=T.i(1), value=1))
-        with scf.if_ctx_manager(dims_mismatch):
-            set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
-            scf.yield_([])
+    dims_mismatch = arith.xori(dims_match, arith.constant(result=T.i(1), value=1))
+    with scf.if_ctx_manager(dims_mismatch):
+        set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+        scf.yield_([])
 
     # Result dimensions: all but the last dimension of lhs + all but the second last dimension of rhs
     result_dims = lhs_dims[:-1] + rhs_dims[:-2] + [rhs_dims[-1]]
 
     # Create result memref
     element_type = mlir_lower.get_value_type(target_type.dtype)
-    result_memref = memref.alloc(
-        memref=mlir_lower.get_mlir_type(target_type),
-        dynamic_sizes=result_dims,
-        symbol_operands=[],
-    )
+    if ArrayStorageLayout(target_type).byte_addressed:
+        result_memref = array_alloca(target_type, result_dims)
+    else:
+        result_memref = memref.alloc(
+            memref=mlir_lower.get_mlir_type(target_type),
+            dynamic_sizes=result_dims,
+            symbol_operands=[],
+        )
 
     # Convert inputs to source-level value tensors
     lhs_tensor = memref_to_value_tensor(lhs_type, mlir_lower.load_var(args[0]))
@@ -601,8 +618,7 @@ def lower_linalg_nd_md_dot(mlir_lower, target, target_type, args):
 
             # Store the result from the parallel operation
             final_sum = parallel_op.results[0]
-            stored_sum = mlir_lower.as_storage(target_type.dtype, final_sum)
-            memref.store(value=stored_sum, memref=result_memref, indices=indices_so_far)
+            array_element_value_store(target_type, result_memref, indices_so_far, final_sum)
             return
 
         # Create loop for current dimension
@@ -648,11 +664,10 @@ def lower_linalg_dot_vector(mlir_lower, target, target_type, args):
         rhs_dim = memref.dim(source=mlir_lower.load_var(args[1]), index=c0)
         dims_match = arith.cmpi(predicate=arith.CmpIPredicate.eq, lhs=n, rhs=rhs_dim)
         error_memref = mlir_lower._get_or_create_error_global()
-        if error_memref is not None:
-            dims_mismatch = arith.xori(dims_match, arith.constant(result=T.i(1), value=1))
-            with scf.if_ctx_manager(dims_mismatch):
-                set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
-                scf.yield_([])
+        dims_mismatch = arith.xori(dims_match, arith.constant(result=T.i(1), value=1))
+        with scf.if_ctx_manager(dims_mismatch):
+            set_error_code_if_zero(error_memref, KERNEL_ERROR_CODES[ValueError])
+            scf.yield_([])
 
         element_type = mlir_lower.get_value_type(target_type)
         empty = tensor.empty(sizes=[c1, c1], element_type=element_type)

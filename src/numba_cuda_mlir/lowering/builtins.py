@@ -166,8 +166,20 @@ def lower_tuple_ne(builder, target, args, kwargs):
 @lower(range, types.Number, types.Number, types.Number)
 def lower_range(builder: MLIRLower, target, args, kwargs):
     start, stop, step = _get_range_object(builder, args)
-    ro = RangeObject(builder, start, stop, step)
-    builder.store_var(target, ro)
+    dtype = builder.get_numba_type(target.name).dtype
+    element_type = builder.get_mlir_type(dtype)
+    source_types = [builder.get_numba_type(arg.name) for arg in args]
+    if len(args) == 1:
+        source_types = [dtype, source_types[0], dtype]
+    elif len(args) == 2:
+        source_types.append(dtype)
+    start, stop, step = (
+        convert(value, element_type, signed=get_conversion_signedness(source_type, dtype))
+        for value, source_type in zip((start, stop, step), source_types, strict=True)
+    )
+    with builder.checked_range_step_context(step):
+        ro = RangeObject(builder, start, stop, step, signed=dtype.signed)
+        builder.store_var(target, ro)
 
 
 @lower(operator.contains, types.Tuple, types.Number)
@@ -484,7 +496,6 @@ def type_convert(builder, target, args, kwargs):
     target_numba_ty = builder.get_numba_type(target)
     to_type = builder.get_mlir_type(target)
     source_numba_ty = builder.get_numba_type(args[0])
-    signed = get_conversion_signedness(source_numba_ty, target_numba_ty)
 
     if isinstance(target_numba_ty, (types.IntegerLiteral, types.Literal)):
         result = constant(target_numba_ty.literal_value, to_type)
@@ -492,29 +503,11 @@ def type_convert(builder, target, args, kwargs):
         return
 
     value = builder.load_var(args[0])
-
-    if (const_val := try_extract_constant(value)) is not None:
-        result = constant(const_val, to_type)
-        builder.store_var(target, result)
-        return
-
-    # An i1 target is excluded so it falls through to `convert`, which compares against
-    # zero rather than truncating; fptosi/fptoui to i1 keeps the low bit, so bf16(0.0)
-    # came out True and bf16(2.0) came out False.
-    if (
-        isinstance(value.type, ir.BF16Type)
-        and isinstance(to_type, ir.IntegerType)
-        and to_type.width > 1
-    ):
-        value = (
-            arith.fptosi(out=to_type, in_=value) if signed else arith.fptoui(out=to_type, in_=value)
-        )
-    else:
-        value = convert(
-            value,
-            to_type,
-            signed=signed,
-        )
+    if not isinstance(value, ir.Value):
+        value = constant(value, builder.get_mlir_type(source_numba_ty))
+    value = convert(
+        value, to_type, signed=get_conversion_signedness(source_numba_ty, target_numba_ty)
+    )
     builder.store_var(target, value)
 
 
@@ -586,34 +579,52 @@ def _minmax_operands(builder, target, args):
     )
 
 
+@lower(max, types.VarArg(types.Any))
 @lower(max, types.Number, types.Number)
 def lower_max(builder, target, args, kwargs):
-    """Lower built-in max(a, b) for numeric types."""
-    a, b = _minmax_operands(builder, target, args)
-
-    # Use appropriate max operation based on type
-    if isinstance(a.type, ir.FloatType):
-        result = arith.maxnumf(a, b)
-    elif isinstance(a.type, ir.IntegerType):
-        result = arith.maxsi(a, b) if builder.get_numba_type(target).signed else arith.maxui(a, b)
-    else:
-        raise NotImplementedError(f"max not implemented for type {a.type}")
+    """Lower built-in max(a, b, ...) using the inferred common numeric type."""
+    values = _minmax_operands(builder, target, args)
+    result = values[0]
+    for value in values[1:]:
+        if isinstance(result.type, ir.FloatType):
+            if len(args) == 2:
+                result = arith.maxnumf(result, value)
+            else:
+                greater = arith.cmpf(arith.CmpFPredicate.OGT, value, result)
+                result = arith.select(greater, value, result)
+        elif isinstance(result.type, ir.IntegerType | ir.IndexType):
+            result = (
+                arith.maxsi(result, value)
+                if builder.get_numba_type(target).signed
+                else arith.maxui(result, value)
+            )
+        else:
+            raise NotImplementedError(f"max not implemented for type {result.type}")
 
     builder.store_var(target, result)
 
 
+@lower(min, types.VarArg(types.Any))
 @lower(min, types.Number, types.Number)
 def lower_min(builder, target, args, kwargs):
-    """Lower built-in min(a, b) for numeric types."""
-    a, b = _minmax_operands(builder, target, args)
-
-    # Use appropriate min operation based on type
-    if isinstance(a.type, ir.FloatType):
-        result = arith.minnumf(a, b)
-    elif isinstance(a.type, ir.IntegerType):
-        result = arith.minsi(a, b) if builder.get_numba_type(target).signed else arith.minui(a, b)
-    else:
-        raise NotImplementedError(f"min not implemented for type {a.type}")
+    """Lower built-in min(a, b, ...) using the inferred common numeric type."""
+    values = _minmax_operands(builder, target, args)
+    result = values[0]
+    for value in values[1:]:
+        if isinstance(result.type, ir.FloatType):
+            if len(args) == 2:
+                result = arith.minnumf(result, value)
+            else:
+                less = arith.cmpf(arith.CmpFPredicate.OLT, value, result)
+                result = arith.select(less, value, result)
+        elif isinstance(result.type, ir.IntegerType | ir.IndexType):
+            result = (
+                arith.minsi(result, value)
+                if builder.get_numba_type(target).signed
+                else arith.minui(result, value)
+            )
+        else:
+            raise NotImplementedError(f"min not implemented for type {result.type}")
 
     builder.store_var(target, result)
 
@@ -625,11 +636,28 @@ def lower_round(builder, target, args, kwargs):
     trace()
     value = builder.load_var(args[0])
     ndigits = builder.load_var(args[1])
-    fname = f"round_ndigits_type_{str(value.type)}_type_{str(ndigits.type)}"
+    value_type = value.type
+    if isinstance(value_type, ir.IntegerType):
+        # Numba types round(int, ndigits) as (float, intp) -> float, so pick the
+        # float variant the signature declares. The call lowering converts each
+        # operand to the callee's declared input type.
+        value_type = builder.get_mlir_type(builder.get_numba_type(target.name))
+    fname = f"round_ndigits_type_{str(value_type)}_type_{str(ndigits.type)}"
     if func := getattr(round, fname, None):
         builder.lower_call_external_mlir_library_function(target, func, args, {})
         return
     raise NotImplementedError(f"round intrinsic for types {value.type} and {ndigits.type}")
+
+
+@lower(round, types.Integer)
+@lower(round, types.Boolean)
+def lower_round_integer(builder, target, args, kwargs):
+    # Boolean is not a subclass of Integer in Numba's type hierarchy, so it
+    # needs its own registration to reach this already-rounded path.
+    source_type = builder.get_numba_type(args[0].name)
+    target_type = builder.get_numba_type(target.name)
+    value = builder.lower_cast(source_type, target_type, builder.load_var(args[0]))
+    builder.store_var(target, value)
 
 
 @lower(round, types.Number)
@@ -773,6 +801,11 @@ def operator_neg_number_lower(builder, target, args, kwargs):
             result = complex_dialect.neg(value)
         case _:
             result = constant(0, value.type) - value
+    source_type = builder.get_numba_type(args[0].name)
+    if isinstance(source_type, types.Integer) and not source_type.signed:
+        # Wrap at the input width before zero-extending, like stock numba-cuda.
+        target_type = builder.get_numba_type(target.name)
+        result = convert(result, builder.get_mlir_type(target_type), signed=False)
     builder.store_var(target, result)
 
 

@@ -37,23 +37,33 @@ jobs:
                  (inputs.host-platform == 'win-arm64' && 'windows-11-arm') }}
     steps:
       - name: Checkout ${{ github.event.repository.name }}
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        id: setup-python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
-        with:
-          python-version: "3.12"
-
-      - name: Install latest rapidsai/sccache
+      # Both platforms pass an explicit host interpreter to cibuildwheel.
+      # Windows uses the hardened PBS interpreter for the matrix Python.
+      - name: Set up Linux host Python
         if: ${{ startsWith(inputs.host-platform, 'linux') }}
-        run: |
-          curl -fsSL "https://github.com/rapidsai/sccache/releases/latest/download/sccache-$(uname -m)-unknown-linux-musl.tar.gz" \
-            | sudo tar -C /usr/local/bin -xz --strip-components=1 --wildcards '*/sccache'
-          sccache --version
-          echo "SCCACHE_PATH=/usr/local/bin/sccache" >> "$GITHUB_ENV"
+        id: setup-python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "~3.14.10"
+
+      - name: Update pip
+        if: ${{ startsWith(inputs.host-platform, 'linux') }}
+        uses: ./.github/actions/update-pip
+
+      - name: Set up Windows host Python
+        if: ${{ startsWith(inputs.host-platform, 'win') }}
+        id: windows-python
+        uses: ./.github/actions/setup-hardened-python
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install rapidsai/sccache
+        if: ${{ startsWith(inputs.host-platform, 'linux') }}
+        uses: ./.github/actions/install-sccache
 
       # xref: https://github.com/orgs/community/discussions/42856#discussioncomment-7678867
       - name: Adding addtional GHA cache-related env vars
@@ -78,9 +88,11 @@ jobs:
         run: |
           PY_VER_FMT=$(echo "${{ matrix.python-version }}" | tr -d '.')
           echo "llvm-py-tag=cp${PY_VER_FMT}" >> "$GITHUB_OUTPUT"
-          if [[ "${{ inputs.host-platform }}" == 'win-arm64' ]]; then
+          if [[ "${{ inputs.host-platform }}" == win* ]]; then
             source ci/llvm-version.env
-            echo "msvc-toolset=${LLVM_WINDOWS_ARM64_MSVC_TOOLSET}" >> "$GITHUB_OUTPUT"
+            echo "msvc-toolset=${LLVM_WINDOWS_MSVC_TOOLSET}" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "${{ inputs.host-platform }}" == 'win-arm64' ]]; then
             echo "cibw-build=cp${PY_VER_FMT}-win_arm64" >> "$GITHUB_OUTPUT"
           elif [[ "${{ inputs.host-platform }}" == win* ]]; then
             echo "cibw-build=cp${PY_VER_FMT}-win_amd64" >> "$GITHUB_OUTPUT"
@@ -119,18 +131,17 @@ jobs:
           toolset: ${{ steps.wheel-tags.outputs.msvc-toolset }}
 
       - name: Build numba-cuda-mlir wheel
-        # Bumped for cp315: v4.1.0 hides 3.15 behind `enable = cpython-prerelease`
-        # and only carries 3.15.0b2 for Windows. v4.2.0+ builds 3.15 by default
-        # against an rc that upstream guarantees is ABI-compatible with the final
-        # release, so no prerelease opt-in is needed here.
-        uses: pypa/cibuildwheel@e090b81e30c4d855ea63bf4b6e59204c09a101ae  # v4.2.1
+        uses: pypa/cibuildwheel@f9b966cfadf4109556cadc5bb39ddb72d0ce664e  # v4.3.5
         with:
           package-dir: .
           output-dir: dist
+          python-path: ${{ steps.windows-python.outputs.python-path || steps.setup-python.outputs.python-path }}
         env:
           CIBW_BUILD: ${{ steps.wheel-tags.outputs.cibw-build }}
-          CIBW_MANYLINUX_X86_64_IMAGE: quay.io/pypa/manylinux_2_28_x86_64
-          CIBW_MANYLINUX_AARCH64_IMAGE: quay.io/pypa/manylinux_2_28_aarch64
+          # Let cibuildwheel use its own bundled SHA-pinned manylinux_2_28
+          # images, which track the eMudhra-fixed CA bundle and pip 26.2.2+.
+          # The previous CIBW_MANYLINUX_*_IMAGE overrides pointed at the
+          # unpinned quay.io/pypa/manylinux_2_28_* tags and defeated that.
           CIBW_ENVIRONMENT_LINUX: >
             MLIR_DIR=/host/${{ github.workspace }}/llvm-modern-install/lib/cmake/mlir
             LIBLLVM7=/host/${{ github.workspace }}/llvm7-install/lib/libLLVM-7.so
@@ -142,20 +153,17 @@ jobs:
             ACTIONS_RESULTS_URL=${{ env.ACTIONS_RESULTS_URL }}
             ACTIONS_CACHE_URL=${{ env.ACTIONS_CACHE_URL }}
             ACTIONS_CACHE_SERVICE_V2=${{ env.ACTIONS_CACHE_SERVICE_V2 }}
-          CIBW_ENVIRONMENT_WINDOWS: >
-            MLIR_DIR="$(cygpath -w ${{ env.LLVM_MODERN_INSTALL_DIR }}/lib/cmake/mlir)"
-            ${{ inputs.host-platform != 'win-arm64' && format('LIBLLVM7="$(cygpath -w {0}/bin/LLVM-C.dll)"', env.LLVM7_INSTALL_DIR) || '' }}
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
             auditwheel -v repair {wheel} --wheel-dir {dest_dir}
-            --exclude libMLIRPythonCAPI.so
+            --exclude libMLIRPythonCAPI-numba_cuda_mlir.so
             --exclude libMLIRPythonSupport-numba_cuda_mlir.so
             --exclude libLLVM-7.so &&
             "/host/${{ env.SCCACHE_PATH }}" --show-adv-stats &&
             "/host/${{ env.SCCACHE_PATH }}" --show-stats --stats-format=json > /host/${{ github.workspace }}/sccache_NUMBA_CUDA_MLIR.json
-          # Windows wheels are built with /MT (static CRT) per PR #127, so the
-          # wheel is self-contained and needs no DLL bundling. cibuildwheel v4
-          # made `delvewheel repair` the Windows default; opt out explicitly
-          # to restore the v3.x no-op behavior we rely on.
+          CIBW_ENVIRONMENT_WINDOWS: >
+            MLIR_DIR="$(cygpath -w ${{ env.LLVM_MODERN_INSTALL_DIR }}/lib/cmake/mlir)"
+            ${{ inputs.host-platform != 'win-arm64' && format('LIBLLVM7="$(cygpath -w {0}/bin/LLVM-C.dll)"', env.LLVM7_INSTALL_DIR) || '' }}
+          # Windows wheels use the static CRT and need no DLL repair.
           CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: ""
 
       - name: Report sccache stats (numba-cuda-mlir)
@@ -164,7 +172,7 @@ jobs:
         with:
           json-file: sccache_NUMBA_CUDA_MLIR.json
           label: "numba-cuda-mlir"
-          build-step: "Build numba-cuda-mlir wheel (Linux)"
+          build-step: "Build numba-cuda-mlir wheel"
 
       - name: List the numba-cuda-mlir artifacts directory
         run: |
@@ -172,17 +180,18 @@ jobs:
 
       # Ships next to the wheel via the same artifact. See
       # tests/test_symbol_isolation.py (#170).
-      - name: Build isolation-test shim
+      - name: Build isolation-test libraries
         if: ${{ startsWith(inputs.host-platform, 'linux') }}
         run: |
-          make -C tests/data fake_mlir_shim.so
-          cp tests/data/fake_mlir_shim.so dist/
+          make -C tests/data fake_mlir_shim.so fake_mlir_capi.so
+          cp tests/data/fake_mlir_shim.so tests/data/fake_mlir_capi.so dist/
 
       - name: Upload numba-cuda-mlir build artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: ${{ env.NUMBA_CUDA_MLIR_CUDA_ARTIFACT_NAME }}
           path: |
             dist/*.whl
             dist/fake_mlir_shim.so
+            dist/fake_mlir_capi.so
           if-no-files-found: error

@@ -147,6 +147,9 @@ class MLIRBackend(LoweringPass):
     def __init__(self):
         LoweringPass.__init__(self)
 
+    def create_lowerer(self, state, fndesc):
+        return lowering.GPULower(state.targetctx, fndesc, state.func_ir, metadata=state.metadata)
+
     def run_pass(self, state):
         """
         Back-end: Packages lowering output in a compile result
@@ -185,7 +188,7 @@ class MLIRBackend(LoweringPass):
 
         library = MLIRLibrary(code)
 
-        lower = lowering.MLIRLower(targetctx, fndesc, func_ir, metadata=metadata)
+        lower = self.create_lowerer(state, fndesc)
 
         try:
             with targetctx.push_code_library(library):
@@ -193,7 +196,9 @@ class MLIRBackend(LoweringPass):
                 lower.verify_mlir_module()
         except UserFacingInternalCompilerError:
             raise
-        except (NotImplementedError, InternalCompilerError) as exc:
+        except (NotImplementedError, errors.UnsupportedError):
+            handle_lowering_error(lower, func_ir)
+        except InternalCompilerError as exc:
             if os.environ.get("NUMBA_CUDA_MLIR_ICE_FULL_TB", "0").strip() == "1":
                 raise exc
             handle_lowering_error(lower, func_ir)
@@ -215,6 +220,7 @@ class MLIRBackend(LoweringPass):
 def get_compiler_class(
     targetoptions: Dict[str, Any],
     launch_config_tracker=None,
+    backend_pass=MLIRBackend,
 ):
     class MLIRCompiler(CompilerBase):
         def define_pipelines(self):
@@ -269,7 +275,7 @@ def get_compiler_class(
             pm.add_pass(AnnotateTypes, "annotate types")
 
             # Lowering to MLIR
-            pm.add_pass(MLIRBackend, "Run MLIR backend")
+            pm.add_pass(backend_pass, "Run MLIR backend")
 
             pm.finalize()
             return pm
@@ -388,6 +394,26 @@ def compile_mlir(pyfunc, return_type, args, targetoptions: Dict[str, Any]):
     return cres
 
 
+def _check_argument_count(pyfunc, sig, args):
+    """Refuse a call whose arguments cannot fit *sig*.
+
+    The argument types below are built by walking the declared parameters and
+    indexing the supplied arguments, so without this check a surplus argument
+    is never visited -- the call succeeds and the data is silently dropped --
+    and a missing one indexes off the end as a bare ``IndexError``.
+
+    Ask the signature rather than counting parameter kinds here.  The bound is
+    not equality -- defaults make a shorter call legal and ``*args`` removes
+    the upper bound -- and ``bind`` already knows all of that, including which
+    parameter went unfilled.
+    """
+    try:
+        sig.bind(*args)
+    except TypeError as exc:
+        name = getattr(pyfunc, "__name__", "<kernel>")
+        raise TypeError(f"{name}() {exc} ({len(args)} given)") from None
+
+
 @global_compiler_lock
 def mlir_compiler_entry(
     pyfunc,
@@ -431,6 +457,7 @@ def mlir_compiler_entry(
     abi_info = abi_info or dict()
     default_values = list(pyfunc.__defaults__) if pyfunc.__defaults__ else []
     sig = inspect.signature(pyfunc)
+    _check_argument_count(pyfunc, sig, func_args)
 
     # construct a list of remaining arguments of default values
     func_args_remained = default_values[

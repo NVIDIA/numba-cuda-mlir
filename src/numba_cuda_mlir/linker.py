@@ -1,13 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from dataclasses import dataclass
-import sys
-
-if sys.version_info >= (3, 11):
-    from typing import Self
-else:
-    from typing_extensions import Self
-from numba_cuda_mlir.tools import get_gpu_compute_capability, format_arch
+from typing import Self
+from numba_cuda_mlir.tools import get_gpu_compute_capability, format_arch, parse_compute_capability
 from numba_cuda_mlir.numba_cuda.cudadrv.driver import _Linker
 
 
@@ -99,7 +94,7 @@ def resolve_link_plan(targetoptions: dict, link_items=(), extra_ltoir_items=()) 
 class Linker(_Linker):
     def __init__(
         self,
-        cc: tuple[int, int] | None = None,
+        cc: tuple[int, int] | tuple[int, int, str] | None = None,
         additional_flags: list[str] | None = None,
         lto: bool | None = None,
         arch: str | None = None,
@@ -116,10 +111,26 @@ class Linker(_Linker):
         ptxas_options: str | None = None,
         max_registers: int | None = None,
     ):
-        if cc is None:
-            cc = get_gpu_compute_capability(tuple)
+        if cc is None and arch is None:
+            arch = get_gpu_compute_capability(str)
         if arch is None:
+            assert cc is not None
             arch = format_arch(cc)
+        cc = parse_compute_capability(arch)
+        suffix = arch.removeprefix(format_arch(cc))
+        if suffix in ("a", "f"):
+            minimum_cc = (9, 0) if suffix == "a" else (10, 0)
+            if cc < minimum_cc:
+                raise ValueError(
+                    f"CUDA architecture suffix {suffix!r} requires compute capability "
+                    f"{minimum_cc[0]}.{minimum_cc[1]} or higher; got {arch!r}"
+                )
+            cc = (*cc, suffix)
+        elif suffix:
+            raise ValueError(
+                f"Invalid CUDA architecture suffix {suffix!r} in {arch!r}; "
+                "expected no suffix, 'a', or 'f'"
+            )
         super().__init__(
             cc=cc,
             additional_flags=additional_flags,

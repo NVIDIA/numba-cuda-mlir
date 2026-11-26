@@ -25,12 +25,10 @@ from ..util import (
 from numba_cuda_mlir._mlir._mlir_libs._mlir import register_value_caster
 from numba_cuda_mlir._mlir.dialects import tensor
 from numba_cuda_mlir._mlir.dialects._ods_common import (
+    _get_int_array_array_attr,
     get_op_result_or_op_results,
 )
 from numba_cuda_mlir._mlir.dialects.tensor import *
-from numba_cuda_mlir._mlir.dialects.transform.structured import (
-    _get_int_array_array_attr,
-)
 from numba_cuda_mlir._mlir.ir import (
     RankedTensorType,
     ShapedType,

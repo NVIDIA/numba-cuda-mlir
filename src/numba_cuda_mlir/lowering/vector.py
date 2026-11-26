@@ -5,7 +5,16 @@ from numba_cuda_mlir.lowering_registry import LoweringRegistry
 registry = LoweringRegistry()
 lower = registry.lower
 from numba_cuda_mlir.mlir_lowering import MLIRLower
-from numba_cuda_mlir.lowering_utilities import index_of, memref_to_llvm_ptr, convert, get_type_width
+from numba_cuda_mlir.lowering_utilities import (
+    index_of,
+    memref_to_llvm_ptr,
+    convert,
+    get_type_width,
+    array_element_value_load,
+    array_element_value_store,
+)
+from numba_cuda_mlir.array_storage import ArrayStorageLayout
+from itertools import product
 from numba_cuda_mlir.lowering_utilities.type_conversions import to_mlir_type
 from numba_cuda_mlir.cuda import vector as vector_module
 from numba_cuda_mlir import types
@@ -84,6 +93,40 @@ def _integer_bits_vector_type(value_vec_type: ir.VectorType) -> ir.VectorType:
 
 def _array_storage_vector_type(array: ir.Value, value_vec_type: ir.VectorType) -> ir.VectorType:
     return _vector_with_element_type(value_vec_type, array.type.element_type)
+
+
+def _aligned_array_storage_vector_type(lower, args, array, value_vec_type):
+    array_type = lower.get_numba_type(args[0].name)
+    if ArrayStorageLayout(array_type).byte_addressed:
+        raise TypeError("Explicitly aligned vector access requires aligned array storage")
+    return _array_storage_vector_type(array, value_vec_type)
+
+
+def _vector_element_indices(array, indices, shape):
+    """Map vector lanes onto the trailing logical array dimensions."""
+    if len(indices) != array.type.rank or len(shape) > array.type.rank:
+        raise ValueError("Byte-backed vector access requires one index per array dimension")
+    offset = len(indices) - len(shape)
+    for position in product(*(range(extent) for extent in shape)):
+        element_indices = list(indices)
+        for axis, lane in enumerate(position):
+            element_indices[offset + axis] = arith.addi(indices[offset + axis], index_of(lane))
+        yield list(position), element_indices
+
+
+def _byte_array_vector_load(array_type, array, indices, value_vec_type):
+    result = vector.broadcast(value_vec_type, _get_padding_value(value_vec_type.element_type))
+    for position, element_indices in _vector_element_indices(array, indices, value_vec_type.shape):
+        element = array_element_value_load(array_type, array, element_indices)
+        result = vector.insert(element, result, [], position)
+    return result
+
+
+def _byte_array_vector_store(array_type, array, indices, value, vector_type):
+    for position, element_indices in _vector_element_indices(array, indices, value.type.shape):
+        element = vector.extract(value, [], position)
+        signed = getattr(vector_type.dtype, "signed", None)
+        array_element_value_store(array_type, array, element_indices, element, signed=signed)
 
 
 def _scalar_storage_vector_type(lower: MLIRLower, vec_numba_type: VectorType) -> ir.VectorType:
@@ -169,6 +212,11 @@ def vector_load_1d_index(lower: MLIRLower, target, args: list[Any], kwargs):
 
     target_type = lower.get_numba_type(target.name)
     value_vec_type = lower.get_mlir_type(target_type)
+    array_type = lower.get_numba_type(args[0].name)
+    if ArrayStorageLayout(array_type).byte_addressed:
+        result = _byte_array_vector_load(array_type, array, [index_of(index)], value_vec_type)
+        lower.store_var(target, result)
+        return
     vec_type = _array_storage_vector_type(array, value_vec_type)
     vec_rank = len(value_vec_type.shape)
     memref_rank = array.type.rank
@@ -194,6 +242,13 @@ def vector_load_nd_index(lower: MLIRLower, target, args: list[Any], kwargs):
 
     target_type = lower.get_numba_type(target.name)
     value_vec_type = lower.get_mlir_type(target_type)
+    array_type = lower.get_numba_type(args[0].name)
+    if ArrayStorageLayout(array_type).byte_addressed:
+        result = _byte_array_vector_load(
+            array_type, array, [index_of(i) for i in indices], value_vec_type
+        )
+        lower.store_var(target, result)
+        return
     vec_type = _array_storage_vector_type(array, value_vec_type)
     vec_rank = len(value_vec_type.shape)
     memref_rank = array.type.rank
@@ -227,11 +282,11 @@ def vector_load_1d_index_aligned(lower: MLIRLower, target, args: list[Any], kwar
 
     target_type = lower.get_numba_type(target.name)
     value_vec_type = lower.get_mlir_type(target_type)
-    vec_type = _array_storage_vector_type(array, value_vec_type)
+    vec_type = _aligned_array_storage_vector_type(lower, args, array, value_vec_type)
     index = index_of(index)
 
     # Convert memref to LLVM pointer
-    ptr = memref_to_llvm_ptr(array, [index], vec_type.element_type)
+    ptr = memref_to_llvm_ptr(array, [index])
 
     # Use llvm.load with alignment
     alignment = _get_alignment(lower, args, kwargs)
@@ -270,11 +325,11 @@ def vector_load_nd_index_aligned(lower: MLIRLower, target, args: list[Any], kwar
 
     target_type = lower.get_numba_type(target.name)
     value_vec_type = lower.get_mlir_type(target_type)
-    vec_type = _array_storage_vector_type(array, value_vec_type)
+    vec_type = _aligned_array_storage_vector_type(lower, args, array, value_vec_type)
     indices = [index_of(i) for i in indices]
 
     # Convert memref to LLVM pointer
-    ptr = memref_to_llvm_ptr(array, indices, vec_type.element_type)
+    ptr = memref_to_llvm_ptr(array, indices)
 
     # Use llvm.load with alignment
     alignment = _get_alignment(lower, args, kwargs)
@@ -295,6 +350,11 @@ def vector_store_1d_index(lower: MLIRLower, target, args: list[Any], kwargs):
     vec = lower.load_var(args[2])
 
     vec_numba_type = lower.get_numba_type(args[2].name)
+    array_type = lower.get_numba_type(args[0].name)
+    if ArrayStorageLayout(array_type).byte_addressed:
+        _byte_array_vector_store(array_type, array, [index_of(index)], vec, vec_numba_type)
+        lower.store_var(target, None)
+        return
     vec_type = _array_storage_vector_type(array, lower.get_mlir_type(vec_numba_type))
     vec = _value_vector_to_storage(vec_numba_type, vec, vec_type)
     vec_rank = len(vec_type.shape)
@@ -316,6 +376,13 @@ def vector_store_nd_index(lower: MLIRLower, target, args: list[Any], kwargs):
     vec = lower.load_var(args[2])
 
     vec_numba_type = lower.get_numba_type(args[2].name)
+    array_type = lower.get_numba_type(args[0].name)
+    if ArrayStorageLayout(array_type).byte_addressed:
+        _byte_array_vector_store(
+            array_type, array, [index_of(i) for i in indices], vec, vec_numba_type
+        )
+        lower.store_var(target, None)
+        return
     vec_type = _array_storage_vector_type(array, lower.get_mlir_type(vec_numba_type))
     vec = _value_vector_to_storage(vec_numba_type, vec, vec_type)
     vec_rank = len(vec_type.shape)
@@ -342,11 +409,13 @@ def vector_store_1d_index_aligned(lower: MLIRLower, target, args: list[Any], kwa
     index = index_of(index)
 
     vec_numba_type = lower.get_numba_type(args[2].name)
-    vec_type = _array_storage_vector_type(array, lower.get_mlir_type(vec_numba_type))
+    vec_type = _aligned_array_storage_vector_type(
+        lower, args, array, lower.get_mlir_type(vec_numba_type)
+    )
     vec = _value_vector_to_storage(vec_numba_type, vec, vec_type)
 
     # Convert memref to LLVM pointer
-    ptr = memref_to_llvm_ptr(array, [index], vec_type.element_type)
+    ptr = memref_to_llvm_ptr(array, [index])
 
     # Use llvm.store with alignment
     alignment = _get_alignment(lower, args, kwargs)
@@ -364,11 +433,13 @@ def vector_store_nd_index_aligned(lower: MLIRLower, target, args: list[Any], kwa
     indices = [index_of(i) for i in indices]
 
     vec_numba_type = lower.get_numba_type(args[2].name)
-    vec_type = _array_storage_vector_type(array, lower.get_mlir_type(vec_numba_type))
+    vec_type = _aligned_array_storage_vector_type(
+        lower, args, array, lower.get_mlir_type(vec_numba_type)
+    )
     vec = _value_vector_to_storage(vec_numba_type, vec, vec_type)
 
     # Convert memref to LLVM pointer
-    ptr = memref_to_llvm_ptr(array, indices, vec_type.element_type)
+    ptr = memref_to_llvm_ptr(array, indices)
 
     # Use llvm.store with alignment
     alignment = _get_alignment(lower, args, kwargs)

@@ -43,17 +43,24 @@ jobs:
     # The build stage could fail but we want the CI to keep moving.
     if: ${{ github.repository_owner == 'nvidia' && !cancelled() }}
     runs-on: ubuntu-latest
+    outputs:
+      deployment-artifact-name: ${{ steps.deployment-metadata.outputs.deployment-artifact-name }}
+      docs-github-ref: ${{ steps.deployment-metadata.outputs.docs-github-ref }}
+      pr-number: ${{ steps.deployment-metadata.outputs.pr-number }}
     steps:
       - name: Checkout ${{ github.event.repository.name }}
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ inputs.git-tag }}
 
+      - name: Harden OS certificate trust
+        uses: ./.github/actions/upgrade-ca-certificates
+
       - name: Set up Python 3.12
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
-          python-version: "3.12"
+          python-version: "~3.12.16"
 
       - name: Set environment variables
         run: |
@@ -77,14 +84,14 @@ jobs:
 
       - name: Download numba-cuda-mlir wheel (same-run)
         if: ${{ !inputs.is-release }}
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: ${{ env.NUMBA_CUDA_MLIR_ARTIFACT_NAME }}
           path: ${{ env.NUMBA_CUDA_MLIR_ARTIFACTS_DIR }}
 
       - name: Download numba-cuda-mlir wheel (release run)
         if: ${{ inputs.is-release }}
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           pattern: ${{ env.NUMBA_CUDA_MLIR_ARTIFACT_NAME }}
           merge-multiple: true
@@ -96,9 +103,11 @@ jobs:
         run: |
           ls -lahR "${NUMBA_CUDA_MLIR_ARTIFACTS_DIR}"
 
+      - name: Update pip
+        uses: ./.github/actions/update-pip
+
       - name: Install docs build dependencies
         run: |
-          python -m pip install --upgrade pip
           python -m pip install \
             sphinx \
             numpydoc \
@@ -126,38 +135,73 @@ jobs:
           ls -l build/html
           popd
 
-      # This step sets the PR_NUMBER/BUILD_LATEST/BUILD_PREVIEW env vars.
+      # PR CI uses pull-request/<number> refs regardless of the target branch.
       - name: Get PR number
-        if: ${{ !inputs.is-release }}
+        if: ${{ !inputs.is-release && startsWith(github.ref_name, 'pull-request/') }}
         uses: ./.github/actions/get_pr_number
 
-      - name: Set up artifact directories
+      - name: Record deployment metadata
+        id: deployment-metadata
         run: |
-          # create an empty folder for removal use (on merge, the preview folder is
-          # replaced with an empty one to effectively delete it)
-          mkdir -p empty_docs
+          echo "deployment-artifact-name=docs-deployment-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+          echo "docs-github-ref=${COMMIT_HASH}" >> "$GITHUB_OUTPUT"
+          echo "pr-number=${PR_NUMBER:-}" >> "$GITHUB_OUTPUT"
 
       - name: Upload built docs artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: numba-cuda-mlir-docs
           path: docs/build/html/
           retention-days: 7
 
-      - name: Deploy or clean up doc preview
-        if: ${{ !inputs.is-release }}
+      - name: Upload docs deployment payload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: ${{ steps.deployment-metadata.outputs.deployment-artifact-name }}
+          path: docs/build/html/
+          retention-days: 3
+          include-hidden-files: true
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy docs
+    # GitHub discards prerequisite artifacts on a new run attempt. If only this
+    # job fails, use "Re-run all jobs" so the build recreates its payload.
+    needs: build
+    if: ${{ needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    # Must match every job that writes to gh-pages.
+    concurrency:
+      group: numba-cuda-mlir-gh-pages-publish
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - name: Checkout ${{ github.event.repository.name }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ inputs.git-tag }}
+
+      - name: Download docs deployment payload
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: ${{ needs.build.outputs.deployment-artifact-name }}
+          path: docs/build/html/
+
+      - name: Deploy doc preview
+        if: ${{ !inputs.is-release && startsWith(github.ref_name, 'pull-request/') }}
         uses: ./.github/actions/doc_preview
         with:
-          source-folder: ${{ (github.ref_name != 'main' && 'docs/build/html') ||
-                              'empty_docs' }}
-          pr-number: ${{ env.PR_NUMBER }}
+          source-folder: docs/build/html
+          pr-number: ${{ needs.build.outputs.pr-number }}
 
       - name: Deploy docs
         if: ${{ github.ref_name == 'main' || inputs.is-release }}
-        uses: JamesIves/github-pages-deploy-action@d92aa235d04922e8f08b40ce78cc5442fcfbfa2f  # v4.8.0
+        uses: JamesIves/github-pages-deploy-action@fa24774553152dd7873cd16ebd8d959b010c5445  # v4.9.0
         with:
           folder: docs/build/html/
           target-folder: /
-          commit-message: "Deploy ${{ (inputs.is-release && 'release') || 'latest' }} docs: ${{ env.COMMIT_HASH }}"
+          commit-message: "Deploy ${{ (inputs.is-release && 'release') || 'latest' }} docs: ${{ needs.build.outputs.docs-github-ref }}"
           clean: false
           force: false

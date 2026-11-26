@@ -1,8 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import platform
 import sys
+
+import pytest
+
 from numba_cuda_mlir import tools
+
+requires_llvm70 = pytest.mark.skipif(
+    platform.system() == "Windows" and platform.machine() == "ARM64",
+    reason="NYI: LLVM70 Bridge on Windows ARM64",
+)
 
 _GPU_CC = None
 

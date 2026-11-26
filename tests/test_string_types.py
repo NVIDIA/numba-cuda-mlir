@@ -230,6 +230,81 @@ def test_string_literal_eq_unicode_ascii_subset():
     assert out[1] == False
 
 
+@pytest.mark.parametrize(
+    "literal",
+    [
+        "hello",
+        "",
+        "a",
+        # Multi-byte source text: len() counts code points, not UTF-8 bytes,
+        # so this is 5 even though it encodes to 6 bytes.
+        "h\u00e9llo",
+        # Non-Latin-1 code points widen the backing storage to 4 bytes each.
+        "\U0001f600ab",
+    ],
+)
+def test_string_literal_len(literal):
+    """len() of a string literal is its CPython code-point count."""
+
+    @cuda.jit
+    def kernel(out):
+        out[0] = len(literal)
+
+    out = np.zeros(1, dtype=np.int64)
+    kernel[1, 1](out)
+    assert out[0] == len(literal)
+
+
+def test_string_literal_len_in_arithmetic():
+    """len() of a literal mixed into integer arithmetic over an array."""
+
+    @cuda.jit
+    def kernel(a, out):
+        i = cuda.grid(1)
+        s = "hello"
+        out[i] = a[i] + len(s)
+
+    n = 4
+    a = np.arange(n, dtype=np.int64)
+    out = np.zeros(n, dtype=np.int64)
+    kernel[1, n](a, out)
+    np.testing.assert_array_equal(out, a + 5)
+
+
+def test_string_literal_len_device_function():
+    """A device function taking a literal can take its len()."""
+
+    @cuda.jit(device=True)
+    def strlen(st):
+        return len(st)
+
+    @cuda.jit
+    def kernel(out):
+        out[0] = strlen("abcd")
+        out[1] = strlen("")
+
+    out = np.zeros(2, dtype=np.int64)
+    kernel[1, 1](out)
+    assert out[0] == 4
+    assert out[1] == 0
+
+
+def test_string_literal_len_and_eq_together():
+    """len() does not disturb the constant-folded == path."""
+
+    @cuda.jit
+    def kernel(out):
+        out[0] = len("hello")
+        out[1] = 1 if "hello" == "hello" else 0
+        out[2] = 1 if "hello" == "world" else 0
+
+    out = np.zeros(3, dtype=np.int64)
+    kernel[1, 1](out)
+    assert out[0] == 5
+    assert out[1] == 1
+    assert out[2] == 0
+
+
 # -----------------------------------------------------------------------------
 # CharSeq / UnicodeCharSeq: numpy 'S' and 'U' dtype arrays
 # These correspond to numba.core.types.CharSeq and UnicodeCharSeq.

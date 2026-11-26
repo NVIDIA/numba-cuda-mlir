@@ -34,10 +34,15 @@ class TestNvvmDriver(unittest.TestCase):
 
     def test_nvvm_bad_option(self):
         # Ensure that unsupported / non-existent options are reported as such
-        # to the user / caller
+        # to the user / caller.  Compile the same module the rest of this file
+        # uses, so the unsupported option is the only thing wrong with the
+        # request.  Handing libNVVM something that is not a valid module would
+        # instead rest the result on how it chooses to treat that, which is
+        # not what this test is about.
+        nvvmir = self.get_nvvmir()
         msg = "-made-up-option=2 is an unsupported option"
         with self.assertRaisesRegex(NvvmError, msg):
-            nvvm.compile_ir("", made_up_option=2)
+            nvvm.compile_ir(nvvmir, made_up_option=2)
 
     def _test_nvvm_support(self, arch):
         compute_xx = "compute_{0}{1}".format(*arch)

@@ -416,7 +416,7 @@ class Array:
         if newsize != self.size:
             raise ValueError("reshape changes the size of the array")
 
-        if self.is_c_contig or self.is_f_contig:
+        if (order == "C" and self.is_c_contig) or (order == "F" and self.is_f_contig):
             if order == "C":
                 newstrides = list(iter_strides_c_contig(self, newdims))
             elif order == "F":

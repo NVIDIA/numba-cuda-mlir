@@ -24,7 +24,6 @@ from numba_cuda_mlir.lowering_utilities.llvm_utils import (
     NVPTX64_TRIPLE,
     translate_to_llvmir,
     translate_to_llvmir_text,
-    translate_gpu_module_to_libnvvm_ir,
     dump_llvmir,
 )
 from numba_cuda_mlir.memory_management.rtsys import rtsys
@@ -365,15 +364,7 @@ def _maybe_dump_nvvm(nvvm_ir: bytes) -> None:
     path.write_bytes(nvvm_ir)
 
 
-def _operation_to_text(operation, *, preserve_debug_info=False) -> str:
-    if not preserve_debug_info:
-        return str(operation)
-    with StringIO() as sb:
-        operation.print(enable_debug_info=True, file=sb)
-        return sb.getvalue()
-
-
-def _prepare_llvm_ir(module, dump=False, preserve_debug_info=False) -> bytes:
+def _prepare_llvm_ir(module, dump=False) -> bytes:
     """Translate gpu.module to LLVM IR and apply libnvvm compatibility downgrades."""
     from numba_cuda_mlir.tools import get_cuda_runtime_version
 
@@ -382,18 +373,6 @@ def _prepare_llvm_ir(module, dump=False, preserve_debug_info=False) -> bytes:
     gpu_mod.operation.attributes["llvm.target_triple"] = ir.StringAttr.get(NVPTX64_TRIPLE)
     ctk_major, ctk_minor = get_cuda_runtime_version()
     nvvm_ir_version = _get_nvvm_ir_version()
-
-    if os.name == "nt":
-        nvvm_ir = translate_gpu_module_to_libnvvm_ir(
-            _operation_to_text(gpu_mod.operation, preserve_debug_info=preserve_debug_info),
-            ctk_major,
-            ctk_minor,
-            nvvm_ir_version,
-            dump=dump,
-            emit_text_ir=preserve_debug_info,
-        )
-        _maybe_dump_nvvm(nvvm_ir)
-        return nvvm_ir
 
     from numba_cuda_mlir._cext import downgrade_for_libnvvm
 
@@ -478,8 +457,6 @@ def _get_ltoir(cres, target_options) -> bytes:
             llvm_ir = _prepare_llvm_ir(
                 module,
                 dump=target_options.get("dump_llvmir", False),
-                preserve_debug_info=target_options.get("debug", False)
-                or target_options.get("lineinfo", False),
             )
             from numba_cuda_mlir.numba_cuda.cudadrv.nvvm import LibDevice
 
@@ -519,23 +496,6 @@ def get_llvmir(cres, target_options=None) -> str:
         gpu_mod.operation.attributes["llvm.data_layout"] = ir.StringAttr.get(NVPTX64_DATALAYOUT)
         gpu_mod.operation.attributes["llvm.target_triple"] = ir.StringAttr.get(NVPTX64_TRIPLE)
 
-        if os.name == "nt":
-            from numba_cuda_mlir.tools import get_cuda_runtime_version
-
-            ctk_major, ctk_minor = get_cuda_runtime_version()
-            llvm_ir = translate_gpu_module_to_libnvvm_ir(
-                _operation_to_text(
-                    gpu_mod.operation,
-                    preserve_debug_info=target_options.get("debug", False)
-                    or target_options.get("lineinfo", False),
-                ),
-                ctk_major,
-                ctk_minor,
-                _get_nvvm_ir_version(),
-                inspect_llvmir=True,
-            )
-            return llvm_ir.decode("utf-8")
-
         return translate_to_llvmir_text(gpu_mod.operation)
 
 
@@ -564,8 +524,6 @@ def get_ptx(cres, target_options=None) -> str:
             llvm_ir = _prepare_llvm_ir(
                 module,
                 dump=target_options.get("dump_llvmir", False),
-                preserve_debug_info=target_options.get("debug", False)
-                or target_options.get("lineinfo", False),
             )
             from numba_cuda_mlir.numba_cuda.cudadrv.nvvm import LibDevice
 
@@ -807,8 +765,6 @@ def optimize(cres):
             llvm_ir = _prepare_llvm_ir(
                 module,
                 dump=target_options.get("dump_llvmir", False),
-                preserve_debug_info=target_options.get("debug", False)
-                or target_options.get("lineinfo", False),
             )
 
         base_linker = cres.metadata["linker"]

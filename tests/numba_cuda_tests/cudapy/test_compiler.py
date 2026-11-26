@@ -773,7 +773,6 @@ class TestCompileOnlyTests(NumbaCUDATestCase):
             (f"Got {nanosleep_count} nanosleep instructions, expected {expected}"),
         )
 
-    @pytest.mark.xfail(True, reason="Arch-specific codegen not implemented")
     def test_compile_ptx_arch_specific(self):
         ptx, resty = cuda.compile_ptx(lambda: None, tuple(), cc=(9, 0, "a"))
         self.assertIn(".target sm_90a", ptx)

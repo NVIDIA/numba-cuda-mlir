@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 
+import functools
+from collections import namedtuple
 from collections.abc import Iterable
 from collections.abc import Sequence as pySequence
 from types import MappingProxyType
@@ -411,6 +413,40 @@ class NamedTuple(_HeterogeneousTuple, BaseNamedTuple):
     @property
     def key(self):
         return self.instance_class, self.types
+
+
+@functools.lru_cache(maxsize=None)
+def _star_kwarg_class(names):
+    # ``namedtuple`` refuses field names with a leading underscore, which are
+    # valid keywords.  Typing reads fields from ``_fields`` alone and the class
+    # is never instantiated, so let it rename them and put the real names back.
+    cls = namedtuple("kwargs", names, rename=True)
+    cls._fields = names
+    return cls
+
+
+def star_kwarg_tuple(kw_types):
+    """The type a ``**kwargs`` parameter receives for *kw_types*.
+
+    The bundle is a named tuple whose fields are the keyword names in the order
+    the call supplied them, so the implementation reaches each value as an
+    attribute and can still iterate, index or ``len()`` it like a tuple.
+    Literal element types are kept, as ``StarArgTuple`` keeps them for ``*args``.
+    """
+    names = tuple(kw_types)
+    tys = tuple(kw_types.values())
+    cls = _star_kwarg_class(names)
+    if tys and all(t == tys[0] for t in tys[1:]):
+        return StarKwargUniTuple(tys[0], len(tys), cls)
+    return StarKwargTuple(tys, cls)
+
+
+class StarKwargTuple(NamedTuple):
+    """To distinguish from NamedTuple() used as argument to a `**kwargs`."""
+
+
+class StarKwargUniTuple(NamedUniTuple):
+    """To distinguish from NamedUniTuple() used as argument to a `**kwargs`."""
 
 
 class List(MutableSequence, InitialValue):

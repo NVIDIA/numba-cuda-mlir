@@ -98,9 +98,9 @@ class NegTemplate(AbstractTemplate):
         if isinstance(arg, types.Number):
             # Integer negation can increase bit width
             if isinstance(arg, types.Integer):
-                # Promote to at least int64 for signed operations
+                # Preserve signedness when promoting narrow integers.
                 if arg.bitwidth < 64:
-                    return signature(types.int64, arg)
+                    return signature(types.int64 if arg.signed else types.uint64, arg)
                 return signature(arg, arg)
             # Floats stay the same
             return signature(arg, arg)
@@ -122,6 +122,14 @@ class PosTemplate(AbstractTemplate):
         if isinstance(arg, (types.Number, types.Array)):
             return signature(arg, arg)
 
+        return None
+
+
+@registry.register_global(operator.itruediv)
+class ScalarITrueDivTemplate(AbstractTemplate):
+    def generic(self, args, kws):
+        if len(args) == 2 and all(isinstance(arg, types.Number) for arg in args):
+            return self.context.resolve_function_type(operator.truediv, args, kws)
         return None
 
 

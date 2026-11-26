@@ -154,6 +154,28 @@ def _resolve_shared_bit_storage_float_accesses(worklist):
         op.operation.erase()
 
 
+def _is_dynamic_shared_global(op) -> bool:
+    global_type = op.opview.global_type.value
+    return (
+        op.opview.addr_space.value == _SHARED_ADDRESS_SPACE
+        and isinstance(global_type, llvm.ArrayType)
+        and global_type.num_elements == 0
+    )
+
+
+def _declare_dynamic_shared_globals(worklist):
+    """Keep launch-provided shared storage external on every translation path."""
+    for operation in worklist:
+        attrs = {name: operation.attributes[name] for name in operation.attributes}
+        attrs["linkage"] = ir.Attribute.parse("#llvm.linkage<external>")
+        attrs.pop("value", None)
+        with ir.InsertionPoint(operation):
+            ir.Operation.create(
+                "llvm.mlir.global", attributes=attrs, regions=1, loc=operation.location
+            )
+        operation.erase()
+
+
 _FAST_FDIVIDEF = "__nv_fast_fdividef"
 
 
@@ -234,6 +256,7 @@ def _fold_zero_powers(pow_ops):
 def run_pre_codegen_patterns(module: ir.Module):
     """Collect all pattern matches in one walk, then rewrite."""
     arg_attr_ops = []
+    shared_global_ops = []
     cast_ops = []
     mem_ops = []
     fdiv_ops = []
@@ -244,6 +267,9 @@ def run_pre_codegen_patterns(module: ir.Module):
         if name == "builtin.unrealized_conversion_cast":
             if _is_exotic_float_cast(op):
                 cast_ops.append(op)
+        elif name == "llvm.mlir.global":
+            if _is_dynamic_shared_global(op):
+                shared_global_ops.append(op)
         elif name in ("llvm.load", "llvm.store"):
             mem_ops.append(op)
         elif name == "llvm.fdiv":
@@ -260,6 +286,7 @@ def run_pre_codegen_patterns(module: ir.Module):
 
     for op in arg_attr_ops:
         _fixup_nvvm_arg_attrs(op)
+    _declare_dynamic_shared_globals(shared_global_ops)
     _resolve_exotic_float_casts(cast_ops)
     _resolve_shared_bit_storage_float_accesses(mem_ops)
     if fdiv_ops:

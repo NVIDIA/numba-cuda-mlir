@@ -22,19 +22,25 @@ jobs:
     outputs:
       CUDA_BUILD_VER: ${{ steps.get-vars.outputs.cuda_build_ver }}
       CUDA_PREV_BUILD_VER: ${{ steps.get-vars.outputs.cuda_prev_build_ver }}
+      PYTHON_VERSIONS: ${{ steps.get-vars.outputs.python_versions }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
 
-      - name: Get CUDA build versions
+      - name: Get CUDA + Python build versions
         id: get-vars
         run: |
           cuda_build_ver=$(yq '.cuda.build.version' ci/versions.yml)
           echo "cuda_build_ver=$cuda_build_ver" >> $GITHUB_OUTPUT
           cuda_prev_build_ver=$(yq '.cuda.prev_build.version' ci/versions.yml)
           echo "cuda_prev_build_ver=$cuda_prev_build_ver" >> $GITHUB_OUTPUT
+
+          # Flattened one-line JSON for pass-through to build-wheel.yml /
+          # build-llvm.yml via fromJSON on the receiving side.
+          python_versions=$(yq -o json -I 0 '.python.supported' ci/versions.yml)
+          echo "python_versions=$python_versions" >> $GITHUB_OUTPUT
 
   should-skip:
     runs-on: ubuntu-latest
@@ -43,7 +49,7 @@ jobs:
       doc-only: ${{ steps.get-should-skip.outputs.doc_only }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Compute whether to skip builds and tests
         id: get-should-skip
         env:
@@ -62,32 +68,53 @@ jobs:
           echo "skip=${skip}" >> "$GITHUB_OUTPUT"
           echo "doc_only=${doc_only}" >> "$GITHUB_OUTPUT"
 
-  # LLVM build stages (matching GitLab build-llvm stage)
+  # LLVM build stages
   build-llvm-linux-64:
     needs:
+      - ci-vars
       - should-skip
+    name: Build LLVM linux-64
     if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) }}
     uses: ./.github/workflows/build-llvm.yml
     with:
       host-platform: linux-64
+      python-versions: ${{ needs.ci-vars.outputs.PYTHON_VERSIONS }}
     secrets: inherit
 
   build-llvm-linux-aarch64:
     needs:
+      - ci-vars
       - should-skip
+    name: Build LLVM linux-aarch64
     if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) && !fromJSON(needs.should-skip.outputs.doc-only) }}
     uses: ./.github/workflows/build-llvm.yml
     with:
       host-platform: linux-aarch64
+      python-versions: ${{ needs.ci-vars.outputs.PYTHON_VERSIONS }}
     secrets: inherit
 
-  build-llvm-windows:
+  build-llvm-win-64:
     needs:
+      - ci-vars
       - should-skip
+    name: Build LLVM win-64
     if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) && !fromJSON(needs.should-skip.outputs.doc-only) }}
     uses: ./.github/workflows/build-llvm.yml
     with:
       host-platform: win-64
+      python-versions: ${{ needs.ci-vars.outputs.PYTHON_VERSIONS }}
+    secrets: inherit
+
+  build-llvm-win-arm64:
+    needs:
+      - ci-vars
+      - should-skip
+    name: Build LLVM win-arm64
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) && !fromJSON(needs.should-skip.outputs.doc-only) }}
+    uses: ./.github/workflows/build-llvm.yml
+    with:
+      host-platform: win-arm64
+      python-versions: ${{ needs.ci-vars.outputs.PYTHON_VERSIONS }}
     secrets: inherit
 
   # WARNING: make sure all of the build jobs are in sync
@@ -106,6 +133,7 @@ jobs:
     uses: ./.github/workflows/build-wheel.yml
     with:
       host-platform: ${{ matrix.host-platform }}
+      python-versions: ${{ needs.ci-vars.outputs.PYTHON_VERSIONS }}
       cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
       prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
 
@@ -125,15 +153,16 @@ jobs:
     uses: ./.github/workflows/build-wheel.yml
     with:
       host-platform: ${{ matrix.host-platform }}
+      python-versions: ${{ needs.ci-vars.outputs.PYTHON_VERSIONS }}
       cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
       prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
 
   # WARNING: make sure all of the build jobs are in sync
-  build-windows:
+  build-win-64:
     needs:
       - ci-vars
       - should-skip
-      - build-llvm-windows
+      - build-llvm-win-64
     strategy:
       fail-fast: false
       matrix:
@@ -144,6 +173,28 @@ jobs:
     uses: ./.github/workflows/build-wheel.yml
     with:
       host-platform: ${{ matrix.host-platform }}
+      python-versions: ${{ needs.ci-vars.outputs.PYTHON_VERSIONS }}
+      cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
+      prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
+
+  # WARNING: make sure all of the build jobs are in sync
+  # WoA wheels are built for release; GPU testing is not enabled yet.
+  build-win-arm64:
+    needs:
+      - ci-vars
+      - should-skip
+      - build-llvm-win-arm64
+    strategy:
+      fail-fast: false
+      matrix:
+        host-platform:
+          - win-arm64
+    name: Build ${{ matrix.host-platform }}
+    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.skip) && !fromJSON(needs.should-skip.outputs.doc-only) }}
+    uses: ./.github/workflows/build-wheel.yml
+    with:
+      host-platform: ${{ matrix.host-platform }}
+      python-versions: ${{ needs.ci-vars.outputs.PYTHON_VERSIONS }}
       cuda-version: ${{ needs.ci-vars.outputs.CUDA_BUILD_VER }}
       prev-cuda-version: ${{ needs.ci-vars.outputs.CUDA_PREV_BUILD_VER }}
 
@@ -185,7 +236,7 @@ jobs:
       build-type: pull-request
       host-platform: ${{ matrix.host-platform }}
 
-  test-windows:
+  test-win-64:
     strategy:
       fail-fast: false
       matrix:
@@ -197,7 +248,7 @@ jobs:
       contents: read  # This is required for actions/checkout
     needs:
       - should-skip
-      - build-windows
+      - build-win-64
     uses: ./.github/workflows/test-wheel-windows.yml
     with:
       build-type: pull-request
@@ -227,78 +278,6 @@ jobs:
     with:
       host-platform: linux-aarch64
 
-  test-cudf-source-linux-64:
-    name: cudf source Test linux-64
-    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.doc-only) }}
-    permissions:
-      contents: read
-    needs:
-      - should-skip
-      - build-linux-64
-    uses: ./.github/workflows/test-cudf-source-linux.yml
-    with:
-      host-platform: linux-64
-
-  test-cudf-source-linux-aarch64:
-    name: cudf source Test linux-aarch64
-    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.doc-only) }}
-    permissions:
-      contents: read
-    needs:
-      - should-skip
-      - build-linux-aarch64
-    uses: ./.github/workflows/test-cudf-source-linux.yml
-    with:
-      host-platform: linux-aarch64
-
-  test-numbast-mlir-linux-64:
-    name: Numbast MLIR Test linux-64
-    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.doc-only) }}
-    permissions:
-      contents: read
-    needs:
-      - should-skip
-      - build-linux-64
-    uses: ./.github/workflows/test-numbast-mlir-linux.yml
-    with:
-      host-platform: linux-64
-
-  test-numbast-mlir-linux-aarch64:
-    name: Numbast MLIR Test linux-aarch64
-    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.doc-only) }}
-    permissions:
-      contents: read
-    needs:
-      - should-skip
-      - build-linux-aarch64
-    uses: ./.github/workflows/test-numbast-mlir-linux.yml
-    with:
-      host-platform: linux-aarch64
-
-  test-nvmath-python-mlir-linux-64:
-    name: nvmath-python MLIR Test linux-64
-    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.doc-only) }}
-    permissions:
-      contents: read
-    needs:
-      - should-skip
-      - build-linux-64
-    uses: ./.github/workflows/test-nvmath-python-mlir-linux.yml
-    with:
-      host-platform: linux-64
-
-  test-nvmath-python-mlir-linux-aarch64:
-    name: nvmath-python MLIR Test linux-aarch64
-    if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.doc-only) }}
-    permissions:
-      contents: read
-    needs:
-      - should-skip
-      - build-linux-aarch64
-    uses: ./.github/workflows/test-nvmath-python-mlir-linux.yml
-    with:
-      host-platform: linux-aarch64
-
   test-cuda-gdb-linux-64:
     name: cuda-gdb Test linux-64
     if: ${{ github.repository_owner == 'nvidia' && !fromJSON(needs.should-skip.outputs.doc-only) }}
@@ -313,7 +292,7 @@ jobs:
       host-platform: linux-64
       test-script: run-cuda-gdb-tests
       extra-cuda-components: "cuda_gdb,cuda_nvdisasm"
-      matrix_filter: 'map(select(.PY_VER == "3.12" and .CUDA_VER == "13.4.1" and .LOCAL_CTK == "1" and .GPU == "l4")) | .[0:1]'
+      matrix_filter: 'map(select(.PY_VER == "3.12" and .CUDA_VER == "13.5.0" and .LOCAL_CTK == "1" and .GPU == "l4")) | .[0:1]'
 
   test-cuda-gdb-linux-aarch64:
     name: cuda-gdb Test linux-aarch64
@@ -329,7 +308,7 @@ jobs:
       host-platform: linux-aarch64
       test-script: run-cuda-gdb-tests
       extra-cuda-components: "cuda_gdb,cuda_nvdisasm"
-      matrix_filter: 'map(select(.PY_VER == "3.12" and .CUDA_VER == "13.4.1" and .LOCAL_CTK == "1" and .GPU == "a100")) | .[0:1]'
+      matrix_filter: 'map(select(.PY_VER == "3.12" and .CUDA_VER == "13.5.0" and .LOCAL_CTK == "1" and .GPU == "l4")) | .[0:1]'
 
   # ============== old CI jobs (ci.yaml & pr.yaml) ==============
 
@@ -371,15 +350,10 @@ jobs:
       - should-skip
       - test-linux-64
       - test-linux-aarch64
-      - test-windows
+      - test-win-64
+      - build-win-arm64
       - test-expensive-linux-64
       - test-expensive-linux-aarch64
-      - test-cudf-source-linux-64
-      - test-cudf-source-linux-aarch64
-      - test-numbast-mlir-linux-64
-      - test-numbast-mlir-linux-aarch64
-      - test-nvmath-python-mlir-linux-64
-      - test-nvmath-python-mlir-linux-aarch64
       - test-cuda-gdb-linux-64
       - test-cuda-gdb-linux-aarch64
       - build-docs
@@ -421,15 +395,10 @@ jobs:
           if [[ "$doc_only" == "true" ]]; then expected="skipped"; else expected="success"; fi
           check_result "test-linux-64"                   "$expected" "${{ needs.test-linux-64.result }}"
           check_result "test-linux-aarch64"              "$expected" "${{ needs.test-linux-aarch64.result }}"
-          check_result "test-windows"                    "$expected" "${{ needs.test-windows.result }}"
+          check_result "test-win-64"                     "$expected" "${{ needs.test-win-64.result }}"
+          check_result "build-win-arm64"                 "$expected" "${{ needs.build-win-arm64.result }}"
           check_result "test-expensive-linux-64"         "$expected" "${{ needs.test-expensive-linux-64.result }}"
           check_result "test-expensive-linux-aarch64"    "$expected" "${{ needs.test-expensive-linux-aarch64.result }}"
-          check_result "test-cudf-source-linux-64"       "$expected" "${{ needs.test-cudf-source-linux-64.result }}"
-          check_result "test-cudf-source-linux-aarch64"  "$expected" "${{ needs.test-cudf-source-linux-aarch64.result }}"
-          check_result "test-numbast-mlir-linux-64"      "$expected" "${{ needs.test-numbast-mlir-linux-64.result }}"
-          check_result "test-numbast-mlir-linux-aarch64" "$expected" "${{ needs.test-numbast-mlir-linux-aarch64.result }}"
-          check_result "test-nvmath-python-mlir-linux-64"      "$expected" "${{ needs.test-nvmath-python-mlir-linux-64.result }}"
-          check_result "test-nvmath-python-mlir-linux-aarch64" "$expected" "${{ needs.test-nvmath-python-mlir-linux-aarch64.result }}"
           check_result "test-cuda-gdb-linux-64"          "$expected" "${{ needs.test-cuda-gdb-linux-64.result }}"
           check_result "test-cuda-gdb-linux-aarch64"     "$expected" "${{ needs.test-cuda-gdb-linux-aarch64.result }}"
 

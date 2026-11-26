@@ -10,6 +10,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 
@@ -22,6 +23,30 @@ static constexpr const char *kDefaultDataLayout =
 static void fatalErrorHandler(void *, const char *reason, bool) {
   throw std::runtime_error(reason ? reason : "unknown fatal error");
 }
+
+static std::mutex fatalErrorHandlerMutex;
+static size_t activeTranslations = 0;
+
+// Keep the process-wide handler installed until every translation has exited,
+// without holding the mutex during translation itself.
+class FatalErrorHandlerGuard {
+public:
+  FatalErrorHandlerGuard() {
+    std::lock_guard<std::mutex> lock(fatalErrorHandlerMutex);
+    if (activeTranslations == 0)
+      llvm::install_fatal_error_handler(fatalErrorHandler, nullptr);
+    ++activeTranslations;
+  }
+
+  ~FatalErrorHandlerGuard() {
+    std::lock_guard<std::mutex> lock(fatalErrorHandlerMutex);
+    if (--activeTranslations == 0)
+      llvm::remove_fatal_error_handler();
+  }
+
+  FatalErrorHandlerGuard(const FatalErrorHandlerGuard &) = delete;
+  FatalErrorHandlerGuard &operator=(const FatalErrorHandlerGuard &) = delete;
+};
 
 static char *copyCString(const char *message) {
 #ifdef _WIN32
@@ -107,12 +132,9 @@ int llvm70_translate_gpu_module_from_op(
     }
   }
 
-  // Intercept llvm::report_fatal_error so it throws an exception instead of
-  // aborting the host process (e.g. bf16 rejection, unsupported types).
-  // Using throw/catch ensures proper C++ stack unwinding, destructor calls.
-  llvm::install_fatal_error_handler(fatalErrorHandler, nullptr);
-
   try {
+    // Convert fatal errors to exceptions with proper C++ stack unwinding.
+    FatalErrorHandlerGuard fatalErrorHandlerGuard;
     std::string nvvmBitcode;
     bool captureNVVM = gen_llvmir == 0 && nvvm_out && nvvm_out_len;
     auto outputOrErr = gen_llvmir != 0
@@ -120,7 +142,6 @@ int llvm70_translate_gpu_module_from_op(
                            : llvm70::translateToPTX(
                                  gpuMod, opts,
                                  captureNVVM ? &nvvmBitcode : nullptr);
-    llvm::remove_fatal_error_handler();
 
     if (captureNVVM && !nvvmBitcode.empty()) {
       *nvvm_out = static_cast<char *>(malloc(nvvmBitcode.size()));
@@ -149,11 +170,9 @@ int llvm70_translate_gpu_module_from_op(
 
     return 0;
   } catch (const std::exception &e) {
-    llvm::remove_fatal_error_handler();
     *err_out = copyCString(e.what());
     return 1;
   } catch (...) {
-    llvm::remove_fatal_error_handler();
     *err_out = copyCString("unknown exception");
     return 1;
   }

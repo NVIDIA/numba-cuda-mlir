@@ -334,7 +334,6 @@ class TestOverload(NumbaCUDATestCase):
         expected = CUDA_TARGET_OL_CALLS_TARGET_OL * CUDA_TARGET_OL
         self.check_overload(kernel, expected)
 
-    @pytest.mark.xfail(True, reason="ICE")
     def test_default_values_and_kwargs(self):
         """
         Test default values and kwargs.

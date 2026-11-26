@@ -11,7 +11,7 @@ from numba_cuda_mlir.numba_cuda.utils import PYVERSION
 
 # List of bytecodes creating a new block in the control flow graph
 # (in addition to explicit jump labels).
-if PYVERSION in ((3, 14),):
+if PYVERSION in ((3, 14), (3, 15)):
     NEW_BLOCKERS = frozenset(
         ["SETUP_LOOP", "FOR_ITER", "SETUP_WITH", "BEFORE_WITH", "LOAD_SPECIAL"]
     )
@@ -329,6 +329,8 @@ class CFGraph:
         The sort isn't guaranteed to be stable.
         """
         nodes = set(nodes)
+        if not nodes:
+            return
         it = self._topo_order
         if reverse:
             it = reversed(it)
@@ -629,15 +631,19 @@ class CFGraph:
         post_order = []
         seen = set()
 
-        def _dfs_rec(node):
+        # Successors pushed in reverse so the stack visits them in iteration order.
+        def visit(node):
             if node not in seen:
                 seen.add(node)
-                for dest in succs[node]:
-                    if (node, dest) not in back_edges:
-                        _dfs_rec(dest)
-                post_order.append(node)
+                stack.append((post_order.append, node))
+                forward = [dest for dest in succs[node] if (node, dest) not in back_edges]
+                stack.extend((visit, dest) for dest in reversed(forward))
 
-        _dfs_rec(self._entry_point)
+        stack = [(visit, self._entry_point)]
+        while stack:
+            cb, node = stack.pop()
+            cb(node)
+
         post_order.reverse()
         return post_order
 
@@ -944,7 +950,7 @@ class ControlFlowAnalysis:
         self._curblock.terminating = True
         self._force_new_block = True
 
-    if PYVERSION in ((3, 12), (3, 13), (3, 14)):
+    if PYVERSION in ((3, 12), (3, 13), (3, 14), (3, 15)):
 
         def op_RETURN_CONST(self, inst):
             self._curblock.terminating = True

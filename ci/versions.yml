@@ -11,3 +11,16 @@ cuda:
     version: "13.0.2"
   prev_build:
     version: "12.9.1"
+python:
+  # Python versions the wheel and LLVM-build matrices are built across.
+  # ci.yaml reads this list and derives PYTHON_VERSIONS plus the Linux /
+  # Windows LLVM matrix includes consumed by build-wheel.yml and
+  # build-llvm.yml.
+  supported:
+    - "3.11"
+    - "3.12"
+    - "3.13"
+    - "3.14"
+    - "3.14t"
+    - "3.15"
+    - "3.15t"

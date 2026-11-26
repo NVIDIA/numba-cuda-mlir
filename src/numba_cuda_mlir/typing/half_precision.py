@@ -61,8 +61,9 @@ def register_bf16_globals():
             registry.register_global(func, types.Function(UnaryTemplate))
             _bf16_registered_globals.add(func)
 
-    # Register typing for bitcast functions that also accept integer types
-    # This allows passing integer bit patterns to be treated as bf16
+    # Register typing for bitcast functions that also accept integer types.
+    # An integer argument is converted numerically to bf16 before its bits are
+    # reinterpreted, matching what numba-cuda does for the same call.
     _bfloat16_as_short = getattr(mod, "__bfloat16_as_short", None)
     if _bfloat16_as_short and _bfloat16_as_short not in _bf16_registered_globals:
         _key = _bfloat16_as_short

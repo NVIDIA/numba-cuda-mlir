@@ -2,11 +2,14 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 import pytest
+import inspect
 import itertools
+import sys
 
 import unittest
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.numba_cuda.core.controlflow import CFGraph, ControlFlowAnalysis
+from numba_cuda_mlir.numba_cuda.core.byteflow import Flow
 from numba_cuda_mlir.numba_cuda import types
 from numba_cuda_mlir.numba_cuda.core.bytecode import (
     FunctionIdentity,
@@ -17,6 +20,17 @@ from numba_cuda_mlir.numba_cuda import utils
 from numba_cuda_mlir.testing import NumbaCUDATestCase
 import numpy as np
 import pytest
+
+
+@pytest.mark.skipif(utils.PYVERSION != (3, 15), reason="Python 3.15 bytecode")
+def test_python315_comprehension_byteflow():
+    def usecase(xs):
+        return [x if x else -x for x in xs]
+
+    bytecode = ByteCode(FunctionIdentity.from_function(usecase))
+    assert any(inst.opname == "GET_ITER" for inst in bytecode)
+    assert any(inst.opname == "POP_ITER" for inst in bytecode)
+    Flow(bytecode).run()
 
 
 def for_loop_usecase1(x, y, res1, res2):
@@ -630,6 +644,33 @@ class TestCFGraph(NumbaCUDATestCase):
                 [0, 10, 13, 26, 19, 6],
             ),
         )
+
+    def test_topo_order_deep_graph(self):
+        # Diamond chain longer than the recursion limit.
+        n_diamonds = 2000
+        adj = {}
+        for i in range(n_diamonds):
+            head, body, join = 2 * i, 2 * i + 1, 2 * i + 2
+            adj[head] = [body, join]
+            adj[body] = [join]
+        adj[2 * n_diamonds] = []
+        g = self.from_adj_list(adj)
+        g.set_entry_point(0)
+        g.process()
+
+        current_depth = len(inspect.stack())
+        old_limit = sys.getrecursionlimit()
+        sys.setrecursionlimit(current_depth + 200)
+        try:
+            order = g.topo_order()
+        finally:
+            sys.setrecursionlimit(old_limit)
+
+        self.assertEqual(sorted(order), sorted(adj))
+        position = {node: i for i, node in enumerate(order)}
+        for src, dests in adj.items():
+            for dest in dests:
+                self.assertLess(position[src], position[dest])
 
     def test_topo_sort(self):
         def check_topo_sort(nodes, expected):

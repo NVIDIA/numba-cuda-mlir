@@ -67,6 +67,7 @@ int llvm70_translate_gpu_module_from_op(
     const char *chip, const char *data_layout,
     const char *libllvm, const char *libnvvm, const char *libdevice,
     int gen_lto, int gen_llvmir, int opt_level, int gen_lineinfo,
+    const char *nvvm_options,
     int nvvm_ir_major, int nvvm_ir_minor, int nvvm_debug_major,
     int nvvm_debug_minor,
     char **out, size_t *out_len, char **nvvm_out, size_t *nvvm_out_len,
@@ -116,6 +117,20 @@ int llvm70_translate_gpu_module_from_op(
   opts.nvvmIRMinor = nvvm_ir_minor;
   opts.nvvmDebugMajor = nvvm_debug_major;
   opts.nvvmDebugMinor = nvvm_debug_minor;
+
+  // Space-separated extra nvvmCompileProgram options (e.g. "-prec-div=0").
+  if (nvvm_options && nvvm_options[0]) {
+    const char *p = nvvm_options;
+    while (*p) {
+      while (*p == ' ')
+        ++p;
+      const char *start = p;
+      while (*p && *p != ' ')
+        ++p;
+      if (p > start)
+        opts.nvvmOptions.emplace_back(start, p - start);
+    }
+  }
 
   try {
     // Convert fatal errors to exceptions with proper C++ stack unwinding.

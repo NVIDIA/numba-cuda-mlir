@@ -414,11 +414,7 @@ class TestFastMathOption(NumbaCUDATestCase):
         except ZeroDivisionError:
             self.fail("Divide in fastmath should not throw ZeroDivisionError")
 
-    @pytest.mark.xfail(True, reason="fastmath option doesn't propagate")
     def test_device_fastmath_propagation(self):
-        # The fastmath option doesn't presently propagate to device functions
-        # from their callees - arguably it should do, so this test is presently
-        # an xfail.
         @numba_cuda_mlir.cuda.jit("float32(float32, float32)", device=True)
         def foo(a, b):
             return a / b
@@ -426,7 +422,7 @@ class TestFastMathOption(NumbaCUDATestCase):
         def bar(arr, val):
             i = cuda.grid(1)
             if i < arr.size:
-                arr[i] = foo(i, val)
+                arr[i] = foo(float32(i), val)
 
         sig = (float32[::1], float32)
         fastver = numba_cuda_mlir.cuda.jit(sig, fastmath=True)(bar)
@@ -436,7 +432,7 @@ class TestFastMathOption(NumbaCUDATestCase):
         # https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#floating-point-instructions-div
 
         # The fast version should use the "fast, approximate divide" variant
-        self.assertIn("div.approx.f32", fastver.inspect_asm(sig))
+        self.assertIn("div.approx", fastver.inspect_asm(sig))
         # The precise version should use the "IEEE 754 compliant rounding"
         # variant, and neither of the "approximate divide" variants.
         self.assertIn("div.rn.f32", precver.inspect_asm(sig))

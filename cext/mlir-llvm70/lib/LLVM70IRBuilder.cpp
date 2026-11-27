@@ -221,6 +221,8 @@ llvm::Error LLVM70IRBuilder::resolveSymbols() {
   RESOLVE(fnDIBuilderCreateSubroutineType, "LLVMDIBuilderCreateSubroutineType");
   RESOLVE(fnDIBuilderCreateFunction, "LLVMDIBuilderCreateFunction");
   RESOLVE(fnDIBuilderCreateDebugLocation, "LLVMDIBuilderCreateDebugLocation");
+  RESOLVE(fnDIBuilderCreateLexicalBlockFile,
+          "LLVMDIBuilderCreateLexicalBlockFile");
   RESOLVE(fnSetCurrentDebugLocation, "LLVMSetCurrentDebugLocation");
   RESOLVE(fnMetadataAsValue, "LLVMMetadataAsValue");
   RESOLVE(fnSetSubprogram, "LLVMSetSubprogram");
@@ -746,6 +748,11 @@ LLVMMetadataRef LLVM70IRBuilder::createDIFunction(
       lineNo, type,
       /*IsLocalToUnit=*/false, /*IsDefinition=*/true,
       /*ScopeLine=*/lineNo, LLVMDIFlagZero, /*IsOptimized=*/false);
+}
+LLVMMetadataRef LLVM70IRBuilder::createDILexicalBlockFile(
+    LLVMMetadataRef scope, LLVMMetadataRef file, unsigned discriminator) {
+  return fnDIBuilderCreateLexicalBlockFile(diBuilder, scope, file,
+                                           discriminator);
 }
 void LLVM70IRBuilder::setSubprogram(LLVMValueRef fn, LLVMMetadataRef sp) {
   fnSetSubprogram(fn, sp);
